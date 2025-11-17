@@ -13,48 +13,258 @@
 #include <algorithm>
 
 namespace hgraph {
-    TimeSeriesReference::ptr TimeSeriesReference::make() { return new EmptyTimeSeriesReference(); }
+    // ============================================================
+    // TimeSeriesReference Implementation
+    // ============================================================
 
-    TimeSeriesReference::ptr TimeSeriesReference::make(time_series_output_ptr output) {
+    // Private constructors
+    TimeSeriesReference::TimeSeriesReference() noexcept : _kind(Kind::EMPTY) {
+        // _storage.empty is already initialized
+    }
+
+    TimeSeriesReference::TimeSeriesReference(time_series_output_ptr output) : _kind(Kind::BOUND) {
+        new (&_storage.bound) TimeSeriesOutput::ptr(std::move(output));
+    }
+
+    TimeSeriesReference::TimeSeriesReference(std::vector<TimeSeriesReference> items) : _kind(Kind::UNBOUND) {
+        new (&_storage.unbound) std::vector<TimeSeriesReference>(std::move(items));
+    }
+
+    // Copy constructor
+    TimeSeriesReference::TimeSeriesReference(const TimeSeriesReference &other) : _kind(other._kind) {
+        copy_from(other);
+    }
+
+    // Move constructor
+    TimeSeriesReference::TimeSeriesReference(TimeSeriesReference &&other) noexcept : _kind(other._kind) {
+        move_from(std::move(other));
+    }
+
+    // Copy assignment
+    TimeSeriesReference &TimeSeriesReference::operator=(const TimeSeriesReference &other) {
+        if (this != &other) {
+            destroy();
+            _kind = other._kind;
+            copy_from(other);
+        }
+        return *this;
+    }
+
+    // Move assignment
+    TimeSeriesReference &TimeSeriesReference::operator=(TimeSeriesReference &&other) noexcept {
+        if (this != &other) {
+            destroy();
+            _kind = other._kind;
+            move_from(std::move(other));
+        }
+        return *this;
+    }
+
+    // Destructor
+    TimeSeriesReference::~TimeSeriesReference() { destroy(); }
+
+    void TimeSeriesReference::destroy() noexcept {
+        switch (_kind) {
+            case Kind::EMPTY:
+                break;
+            case Kind::BOUND:
+                _storage.bound.~ref();
+                break;
+            case Kind::UNBOUND:
+                _storage.unbound.~vector();
+                break;
+        }
+    }
+
+    void TimeSeriesReference::copy_from(const TimeSeriesReference &other) {
+        switch (other._kind) {
+            case Kind::EMPTY:
+                break;
+            case Kind::BOUND:
+                new (&_storage.bound) TimeSeriesOutput::ptr(other._storage.bound);
+                break;
+            case Kind::UNBOUND:
+                new (&_storage.unbound) std::vector<TimeSeriesReference>(other._storage.unbound);
+                break;
+        }
+    }
+
+    void TimeSeriesReference::move_from(TimeSeriesReference &&other) noexcept {
+        switch (other._kind) {
+            case Kind::EMPTY:
+                break;
+            case Kind::BOUND:
+                new (&_storage.bound) TimeSeriesOutput::ptr(std::move(other._storage.bound));
+                break;
+            case Kind::UNBOUND:
+                new (&_storage.unbound) std::vector<TimeSeriesReference>(std::move(other._storage.unbound));
+                break;
+        }
+    }
+
+    // Accessors with validation
+    const TimeSeriesOutput::ptr &TimeSeriesReference::output() const {
+        if (_kind != Kind::BOUND) {
+            throw std::runtime_error("TimeSeriesReference::output() called on non-bound reference");
+        }
+        return _storage.bound;
+    }
+
+    const std::vector<TimeSeriesReference> &TimeSeriesReference::items() const {
+        if (_kind != Kind::UNBOUND) {
+            throw std::runtime_error("TimeSeriesReference::items() called on non-unbound reference");
+        }
+        return _storage.unbound;
+    }
+
+    const TimeSeriesReference &TimeSeriesReference::operator[](size_t ndx) const {
+        return items()[ndx];
+    }
+
+    // Operations delegated by kind
+    void TimeSeriesReference::bind_input(TimeSeriesInput &ts_input) const {
+        switch (_kind) {
+            case Kind::EMPTY:
+                try {
+                    ts_input.un_bind_output(false);
+                } catch (const std::exception &e) {
+                    throw std::runtime_error(std::string("Error in EmptyTimeSeriesReference::bind_input: ") + e.what());
+                } catch (...) { throw std::runtime_error("Unknown error in EmptyTimeSeriesReference::bind_input"); }
+                break;
+            case Kind::BOUND: {
+                bool reactivate = false;
+                // Treat inputs previously bound via a reference as bound, so we unbind to generate correct deltas
+                if (ts_input.bound() && !ts_input.has_peer()) {
+                    reactivate = ts_input.active();
+                    ts_input.un_bind_output(false);
+                }
+                ts_input.bind_output(_storage.bound);
+                if (reactivate) { ts_input.make_active(); }
+                break;
+            }
+            case Kind::UNBOUND: {
+                bool reactivate = false;
+                if (ts_input.bound() && ts_input.has_peer()) {
+                    reactivate = ts_input.active();
+                    ts_input.un_bind_output(false);
+                }
+
+                for (size_t i = 0; i < _storage.unbound.size(); ++i) {
+                    // Get the child input (from REF, Indexed, or Signal input)
+                    TimeSeriesInput *item{ts_input.get_input(i)};
+                    _storage.unbound[i].bind_input(*item);
+                }
+
+                if (reactivate) { ts_input.make_active(); }
+                break;
+            }
+        }
+    }
+
+    bool TimeSeriesReference::has_output() const {
+        switch (_kind) {
+            case Kind::EMPTY:
+                return false;
+            case Kind::BOUND:
+                return true;
+            case Kind::UNBOUND:
+                return false;
+        }
+        return false;
+    }
+
+    bool TimeSeriesReference::is_valid() const {
+        switch (_kind) {
+            case Kind::EMPTY:
+                return false;
+            case Kind::BOUND:
+                return _storage.bound && _storage.bound->valid();
+            case Kind::UNBOUND:
+                return std::any_of(_storage.unbound.begin(), _storage.unbound.end(),
+                                   [](const auto &item) { return item.is_valid(); });
+        }
+        return false;
+    }
+
+    bool TimeSeriesReference::operator==(const TimeSeriesReference &other) const {
+        if (_kind != other._kind) return false;
+
+        switch (_kind) {
+            case Kind::EMPTY:
+                return true;
+            case Kind::BOUND:
+                return _storage.bound == other._storage.bound;
+            case Kind::UNBOUND:
+                return _storage.unbound == other._storage.unbound;
+        }
+        return false;
+    }
+
+    std::string TimeSeriesReference::to_string() const {
+        switch (_kind) {
+            case Kind::EMPTY:
+                return "REF[<UnSet>]";
+            case Kind::BOUND:
+                return fmt::format("REF[{}<{}>.output@{:p}]", _storage.bound->owning_node()->signature().name,
+                                   fmt::join(_storage.bound->owning_node()->node_id(), ", "),
+                                   const_cast<void *>(static_cast<const void *>(_storage.bound.get())));
+            case Kind::UNBOUND: {
+                std::vector<std::string> string_items;
+                string_items.reserve(_storage.unbound.size());
+                for (const auto &item : _storage.unbound) { string_items.push_back(item.to_string()); }
+                return fmt::format("REF[{}]", fmt::join(string_items, ", "));
+            }
+        }
+        return "REF[?]";
+    }
+
+    // Factory methods
+    TimeSeriesReference TimeSeriesReference::make() { return TimeSeriesReference(); }
+
+    TimeSeriesReference TimeSeriesReference::make(time_series_output_ptr output) {
         if (output.get() == nullptr) {
             return make();
         } else {
-            return new BoundTimeSeriesReference(output);
+            return TimeSeriesReference(std::move(output));
         }
     }
 
-    TimeSeriesReference::ptr TimeSeriesReference::make(std::vector<ptr> items) {
+    TimeSeriesReference TimeSeriesReference::make(std::vector<TimeSeriesReference> items) {
         if (items.empty()) { return make(); }
-        return new UnBoundTimeSeriesReference(items);
+        return TimeSeriesReference(std::move(items));
     }
 
-    TimeSeriesReference::ptr TimeSeriesReference::make(std::vector<nb::ref<TimeSeriesReferenceInput> > items) {
+    TimeSeriesReference TimeSeriesReference::make(std::vector<nb::ref<TimeSeriesReferenceInput>> items) {
         if (items.empty()) { return make(); }
-        std::vector<TimeSeriesReference::ptr> refs;
+        std::vector<TimeSeriesReference> refs;
         refs.reserve(items.size());
-        for (auto item: items) {
+        for (auto item : items) {
             // Call value() instead of accessing _value directly, so bound items return their output's value
             refs.emplace_back(item->value());
         }
-        return new UnBoundTimeSeriesReference(refs);
+        return TimeSeriesReference(std::move(refs));
     }
 
     void TimeSeriesReference::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesReference, nb::intrusive_base>(m, "TimeSeriesReference")
+        nb::class_<TimeSeriesReference>(m, "TimeSeriesReference")
                 .def("__str__", &TimeSeriesReference::to_string)
                 .def("__repr__", &TimeSeriesReference::to_string)
                 .def("bind_input", &TimeSeriesReference::bind_input)
                 .def_prop_ro("has_output", &TimeSeriesReference::has_output)
                 .def_prop_ro("is_empty", &TimeSeriesReference::is_empty)
+                .def_prop_ro("is_bound", &TimeSeriesReference::is_bound)
+                .def_prop_ro("is_unbound", &TimeSeriesReference::is_unbound)
                 .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
-                .def_static("make", static_cast<ptr (*)()>(&TimeSeriesReference::make))
-                .def_static("make", static_cast<ptr (*)(TimeSeriesOutput::ptr)>(&TimeSeriesReference::make))
-                .def_static("make", static_cast<ptr (*)(std::vector<ptr>)>(&TimeSeriesReference::make))
+                .def_prop_ro("output", &TimeSeriesReference::output)
+                .def_prop_ro("items", &TimeSeriesReference::items)
+                .def("__getitem__", &TimeSeriesReference::operator[])
+                .def_static("make", nb::overload_cast<>(&TimeSeriesReference::make))
+                .def_static("make", nb::overload_cast<time_series_output_ptr>(&TimeSeriesReference::make))
+                .def_static("make", nb::overload_cast<std::vector<TimeSeriesReference>>(&TimeSeriesReference::make))
                 .def_static(
                     "make",
-                    [](nb::object ts, nb::object items) -> ptr {
-                        if (not ts.is_none()
-                        ) {
+                    [](nb::object ts, nb::object items) -> TimeSeriesReference {
+                        if (!ts.is_none()) {
                             if (nb::isinstance<TimeSeriesOutput>(ts)) return make(nb::cast<TimeSeriesOutput::ptr>(ts));
                             if (nb::isinstance<TimeSeriesReferenceInput>(ts))
                                 return nb::cast<TimeSeriesReferenceInput::ptr>(ts)->value();
@@ -62,168 +272,64 @@ namespace hgraph {
                                 auto ts_input = nb::cast<TimeSeriesInput::ptr>(ts);
                                 if (ts_input->has_peer()) return make(ts_input->output());
                                 // Deal with list of inputs
-                                std::vector<ptr> items_list;
+                                std::vector<TimeSeriesReference> items_list;
                                 auto ts_ndx{dynamic_cast<IndexedTimeSeriesInput *>(ts_input.get())};
                                 items_list.reserve(ts_ndx->size());
-                                for (auto &ts_ptr: ts_ndx->values()) {
+                                for (auto &ts_ptr : ts_ndx->values()) {
                                     auto ref_input{dynamic_cast<TimeSeriesReferenceInput *>(ts_ptr.get())};
-                                    items_list.emplace_back(ref_input ? ref_input->value() : nullptr);
+                                    items_list.emplace_back(ref_input ? ref_input->value() : TimeSeriesReference::make());
                                 }
                                 return make(items_list);
                             }
                             // We may wish to raise an exception here?
-                        }
-                        else
-                        if (not items.is_none()
-                        ) {
-                            auto items_list = nb::cast<std::vector<ptr> >(items);
+                        } else if (!items.is_none()) {
+                            auto items_list = nb::cast<std::vector<TimeSeriesReference>>(items);
                             return make(items_list);
                         }
                         return make();
                     },
                     "ts"_a = nb::none(), "from_items"_a = nb::none());
-
-        nb::class_<EmptyTimeSeriesReference, TimeSeriesReference>(m, "EmptyTimeSeriesReference");
-
-        nb::class_<BoundTimeSeriesReference, TimeSeriesReference>(m, "BoundTimeSeriesReference")
-                .def_prop_ro("output", &BoundTimeSeriesReference::output);
-
-        nb::class_<UnBoundTimeSeriesReference, TimeSeriesReference>(m, "UnBoundTimeSeriesReference")
-                .def_prop_ro("items", &UnBoundTimeSeriesReference::items)
-                .def("__getitem__", [](UnBoundTimeSeriesReference &self, size_t index) -> TimeSeriesReference::ptr {
-                    const auto &items = self.items();
-                    if (index >= items.size()) { throw std::out_of_range("Index out of range"); }
-                    return items[index];
-                });
     }
 
-    void EmptyTimeSeriesReference::bind_input(TimeSeriesInput &ts_input) const {
-        try {
-            ts_input.un_bind_output(false);
-        } catch (const std::exception &e) {
-            throw std::runtime_error(std::string("Error in EmptyTimeSeriesReference::bind_input: ") + e.what());
-        } catch (...) { throw std::runtime_error("Unknown error in EmptyTimeSeriesReference::bind_input"); }
-    }
-
-    bool EmptyTimeSeriesReference::has_output() const { return false; }
-
-    bool EmptyTimeSeriesReference::is_empty() const { return true; }
-
-    bool EmptyTimeSeriesReference::is_valid() const { return false; }
-
-    bool EmptyTimeSeriesReference::operator==(const TimeSeriesReferenceOutput &other) const {
-        return dynamic_cast<const EmptyTimeSeriesReference *>(&other) != nullptr;
-    }
-
-    std::string EmptyTimeSeriesReference::to_string() const { return "REF[<UnSet>]"; }
-
-    BoundTimeSeriesReference::BoundTimeSeriesReference(const time_series_output_ptr &output) : _output{output} {
-    }
-
-    const TimeSeriesOutput::ptr &BoundTimeSeriesReference::output() const { return _output; }
-
-    void BoundTimeSeriesReference::bind_input(TimeSeriesInput &input_) const {
-        bool reactivate = false;
-        // Treat inputs previously bound via a reference as bound, so we unbind to generate correct deltas
-        if (input_.bound() && !input_.has_peer()) {
-            reactivate = input_.active();
-            input_.un_bind_output(false);
-        }
-        input_.bind_output(_output);
-        if (reactivate) { input_.make_active(); }
-    }
-
-    bool BoundTimeSeriesReference::has_output() const { return true; }
-
-    bool BoundTimeSeriesReference::is_empty() const { return false; }
-
-    bool BoundTimeSeriesReference::is_valid() const { return _output->valid(); }
-
-    bool BoundTimeSeriesReference::operator==(const TimeSeriesReferenceOutput &other) const {
-        auto bound_time_series_reference{dynamic_cast<const BoundTimeSeriesReference *>(&other)};
-        return bound_time_series_reference != nullptr && bound_time_series_reference->output() == _output;
-    }
-
-    std::string BoundTimeSeriesReference::to_string() const {
-        return fmt::format("REF[{}<{}>.output@{:p}]", _output->owning_node()->signature().name,
-                           fmt::join(_output->owning_node()->node_id(), ", "),
-                           const_cast<void *>(static_cast<const void *>(_output.get())));
-    }
-
-    UnBoundTimeSeriesReference::UnBoundTimeSeriesReference(std::vector<ptr> items) : _items{std::move(items)} {
-    }
-
-    const std::vector<TimeSeriesReference::ptr> &UnBoundTimeSeriesReference::items() const { return _items; }
-
-    void UnBoundTimeSeriesReference::bind_input(TimeSeriesInput &input_) const {
-        // Try to cast to supported input types
-
-        bool reactivate = false;
-        if (input_.bound() && input_.has_peer()) {
-            reactivate = input_.active();
-            input_.un_bind_output(false);
-        }
-
-        for (size_t i = 0; i < _items.size(); ++i) {
-            // Get the child input (from REF, Indexed, or Signal input)
-            TimeSeriesInput *item{input_.get_input(i)};
-
-            auto &r{_items[i]};
-            if (r != nullptr) {
-                r->bind_input(*item);
-            } else if (item->bound()) {
-                item->un_bind_output(false);
-            }
-        }
-
-        if (reactivate) { input_.make_active(); }
-    }
-
-    bool UnBoundTimeSeriesReference::has_output() const { return false; }
-
-    bool UnBoundTimeSeriesReference::is_empty() const { return false; }
-
-    bool UnBoundTimeSeriesReference::is_valid() const {
-        return std::any_of(_items.begin(), _items.end(), [](const auto &item) {
-            return item != nullptr && !item->is_empty();
-        });
-    }
-
-    bool UnBoundTimeSeriesReference::operator==(const TimeSeriesReferenceOutput &other) const {
-        auto other_{dynamic_cast<const UnBoundTimeSeriesReference *>(&other)};
-        return other_ != nullptr && other_->_items == _items;
-    }
-
-    const TimeSeriesReference::ptr &UnBoundTimeSeriesReference::operator[](size_t ndx) { return _items.at(ndx); }
-
-    std::string UnBoundTimeSeriesReference::to_string() const {
-        std::vector<std::string> string_items;
-        string_items.reserve(_items.size());
-        for (const auto &item: _items) { string_items.push_back(item->to_string()); }
-        return fmt::format("REF[{}]", fmt::join(string_items, ", "));
-    }
+    // ============================================================
+    // TimeSeriesReferenceOutput Implementation
+    // ============================================================
 
     bool TimeSeriesReferenceOutput::is_same_type(const TimeSeriesType *other) const {
         return dynamic_cast<const TimeSeriesReferenceOutput *>(other) != nullptr;
     }
 
-    const TimeSeriesReference::ptr &TimeSeriesReferenceOutput::value() const { return _value; }
+    const TimeSeriesReference &TimeSeriesReferenceOutput::value() const {
+        if (!_value.has_value()) {
+            throw std::runtime_error("TimeSeriesReferenceOutput::value() called when no value present");
+        }
+        return *_value;
+    }
 
-    TimeSeriesReference::ptr &TimeSeriesReferenceOutput::value() { return _value; }
+    TimeSeriesReference &TimeSeriesReferenceOutput::value() {
+        if (!_value.has_value()) {
+            throw std::runtime_error("TimeSeriesReferenceOutput::value() called when no value present");
+        }
+        return *_value;
+    }
+
+    TimeSeriesReference TimeSeriesReferenceOutput::py_value_or_empty() const {
+        return _value.has_value() ? *_value : TimeSeriesReference::make();
+    }
 
     void TimeSeriesReferenceOutput::py_set_value(nb::object value) {
         if (value.is_none()) {
             invalidate();
             return;
         }
-        auto v{nb::cast<TimeSeriesReference::ptr>(value)};
-        set_value(v);
+        auto v{nb::cast<TimeSeriesReference>(value)};
+        set_value(std::move(v));
     }
 
-    void TimeSeriesReferenceOutput::set_value(TimeSeriesReference::ptr value) {
-        _value = value;
+    void TimeSeriesReferenceOutput::set_value(TimeSeriesReference value) {
+        _value = std::move(value);
         mark_modified();
-        for (auto input: _reference_observers) { _value->bind_input(*input); }
+        for (auto input : _reference_observers) { _value->bind_input(*input); }
     }
 
     void TimeSeriesReferenceOutput::apply_result(nb::object value) {
@@ -243,7 +349,7 @@ namespace hgraph {
 
     void TimeSeriesReferenceOutput::clear() { set_value(TimeSeriesReference::make()); }
 
-    nb::object TimeSeriesReferenceOutput::py_value() const { return has_value() ? nb::cast(_value) : nb::none(); }
+    nb::object TimeSeriesReferenceOutput::py_value() const { return has_value() ? nb::cast(*_value) : nb::none(); }
 
     nb::object TimeSeriesReferenceOutput::py_delta_value() const { return py_value(); }
 
@@ -255,7 +361,9 @@ namespace hgraph {
     void TimeSeriesReferenceOutput::copy_from_output(const TimeSeriesOutput &output) {
         auto output_t = dynamic_cast<const TimeSeriesReferenceOutput *>(&output);
         if (output_t) {
-            set_value(output_t->_value);
+            if (output_t->_value.has_value()) {
+                set_value(*output_t->_value);
+            }
         } else {
             throw std::runtime_error("TimeSeriesReferenceOutput::copy_from_output: Expected TimeSeriesReferenceOutput");
         }
@@ -298,9 +406,13 @@ namespace hgraph {
                 });
     }
 
-    bool TimeSeriesReferenceOutput::has_value() const { return _value != nullptr; }
+    bool TimeSeriesReferenceOutput::has_value() const { return _value.has_value(); }
 
-    void TimeSeriesReferenceOutput::reset_value() { _value = nullptr; }
+    void TimeSeriesReferenceOutput::reset_value() { _value.reset(); }
+
+    // ============================================================
+    // TimeSeriesReferenceInput Implementation
+    // ============================================================
 
     void TimeSeriesReferenceInput::start() {
         set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
@@ -309,20 +421,19 @@ namespace hgraph {
 
     nb::object TimeSeriesReferenceInput::py_value() const {
         auto v{value()};
-        if (v == nullptr) { return nb::none(); }
         return nb::cast(v);
     }
 
     nb::object TimeSeriesReferenceInput::py_delta_value() const { return py_value(); }
 
-    TimeSeriesReference::ptr TimeSeriesReferenceInput::value() const {
-        if (has_output()) { return output_t()->value(); }
-        if (has_value()) { return _value; }
+    TimeSeriesReference TimeSeriesReferenceInput::value() const {
+        if (has_output()) { return output_t()->py_value_or_empty(); }
+        if (has_value()) { return *_value; }
         if (_items.has_value()) {
             _value = TimeSeriesReference::make(*_items);
-            return _value;
+            return *_value;
         }
-        return nullptr;
+        return TimeSeriesReference::make();
     }
 
     bool TimeSeriesReferenceInput::bound() const { return BaseTimeSeriesInput::bound() || !_items.has_value(); }
@@ -353,7 +464,7 @@ namespace hgraph {
         std::vector<engine_time_t> times;
 
         if (_items.has_value()) {
-            for (const auto &item: *_items) { times.push_back(item->last_modified_time()); }
+            for (const auto &item : *_items) { times.push_back(item->last_modified_time()); }
         }
 
         if (has_output()) { times.push_back(output()->last_modified_time()); }
@@ -410,7 +521,7 @@ namespace hgraph {
         }
 
         if (_items.has_value()) {
-            for (auto &item: *_items) { item->make_active(); }
+            for (auto &item : *_items) { item->make_active(); }
         }
 
         if (valid()) {
@@ -427,7 +538,7 @@ namespace hgraph {
         }
 
         if (_items.has_value()) {
-            for (auto &item: *_items) { item->make_passive(); }
+            for (auto &item : *_items) { item->make_passive(); }
         }
     }
 
@@ -473,7 +584,7 @@ namespace hgraph {
                 owning_node()->is_started() ? owning_graph()->evaluation_clock()->evaluation_time() : MIN_ST);
         }
         if (_items.has_value()) {
-            for (auto &item: *_items) { item->un_bind_output(unbind_refs); }
+            for (auto &item : *_items) { item->un_bind_output(unbind_refs); }
             _items.reset();
         }
     }
@@ -544,9 +655,9 @@ namespace hgraph {
         return _items.has_value() ? *_items : empty_items;
     }
 
-    bool TimeSeriesReferenceInput::has_value() const { return _value != nullptr; }
+    bool TimeSeriesReferenceInput::has_value() const { return _value.has_value(); }
 
-    void TimeSeriesReferenceInput::reset_value() { _value = nullptr; }
+    void TimeSeriesReferenceInput::reset_value() { _value.reset(); }
 
     // ============================================================
     // Specialized Reference Input Implementations

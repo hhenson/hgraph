@@ -9,88 +9,71 @@
 #include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
-    struct HGRAPH_EXPORT TimeSeriesReference : nb::intrusive_base {
-        using ptr = nb::ref<TimeSeriesReference>;
+    struct HGRAPH_EXPORT TimeSeriesReference {
+        enum class Kind : uint8_t {
+            EMPTY = 0,
+            BOUND = 1,
+            UNBOUND = 2
+        };
 
-        virtual void bind_input(TimeSeriesInput &ts_input) const = 0;
+        // Copy/Move semantics
+        TimeSeriesReference(const TimeSeriesReference &other);
+        TimeSeriesReference(TimeSeriesReference &&other) noexcept;
+        TimeSeriesReference &operator=(const TimeSeriesReference &other);
+        TimeSeriesReference &operator=(TimeSeriesReference &&other) noexcept;
+        ~TimeSeriesReference();
 
-        virtual bool has_output() const = 0;
+        // Query methods
+        [[nodiscard]] Kind kind() const noexcept { return _kind; }
+        [[nodiscard]] bool is_empty() const noexcept { return _kind == Kind::EMPTY; }
+        [[nodiscard]] bool is_bound() const noexcept { return _kind == Kind::BOUND; }
+        [[nodiscard]] bool is_unbound() const noexcept { return _kind == Kind::UNBOUND; }
+        [[nodiscard]] bool has_output() const;
+        [[nodiscard]] bool is_valid() const;
 
-        virtual bool is_empty() const = 0;
+        // Accessors (throw if wrong kind)
+        [[nodiscard]] const TimeSeriesOutput::ptr &output() const;
+        [[nodiscard]] const std::vector<TimeSeriesReference> &items() const;
+        [[nodiscard]] const TimeSeriesReference &operator[](size_t ndx) const;
 
-        virtual bool is_valid() const = 0;
+        // Operations
+        void bind_input(TimeSeriesInput &ts_input) const;
+        bool operator==(const TimeSeriesReference &other) const;
+        [[nodiscard]] std::string to_string() const;
 
-        virtual bool operator==(const TimeSeriesReferenceOutput &other) const = 0;
-
-        virtual std::string to_string() const = 0;
-
-        static ptr make();
-
-        static ptr make(time_series_output_ptr output);
-
-        static ptr make(std::vector<ptr> items);
-
-        static ptr make(std::vector<nb::ref<TimeSeriesReferenceInput> > items);
+        // Factory methods - use these to construct instances
+        static TimeSeriesReference make();
+        static TimeSeriesReference make(time_series_output_ptr output);
+        static TimeSeriesReference make(std::vector<TimeSeriesReference> items);
+        static TimeSeriesReference make(std::vector<nb::ref<TimeSeriesReferenceInput>> items);
 
         static void register_with_nanobind(nb::module_ &m);
-    };
-
-    struct EmptyTimeSeriesReference final : TimeSeriesReference {
-        void bind_input(TimeSeriesInput &ts_input) const override;
-
-        bool has_output() const override;
-
-        bool is_empty() const override;
-
-        bool is_valid() const override;
-
-        bool operator==(const TimeSeriesReferenceOutput &other) const override;
-
-        std::string to_string() const override;
-    };
-
-    struct BoundTimeSeriesReference final : TimeSeriesReference {
-        explicit BoundTimeSeriesReference(const time_series_output_ptr &output);
-
-        const TimeSeriesOutput::ptr &output() const;
-
-        void bind_input(TimeSeriesInput &input_) const override;
-
-        bool has_output() const override;
-
-        bool is_empty() const override;
-
-        bool is_valid() const override;
-
-        bool operator==(const TimeSeriesReferenceOutput &other) const override;
-
-        std::string to_string() const override;
 
     private:
-        TimeSeriesOutput::ptr _output;
-    };
+        // Private constructors - must use make() factory methods
+        TimeSeriesReference() noexcept;  // Empty
+        explicit TimeSeriesReference(time_series_output_ptr output);  // Bound
+        explicit TimeSeriesReference(std::vector<TimeSeriesReference> items);  // Unbound
 
-    struct UnBoundTimeSeriesReference final : TimeSeriesReference {
-        explicit UnBoundTimeSeriesReference(std::vector<ptr> items);
+        Kind _kind;
 
-        const std::vector<ptr> &items() const;
+        // Union for the three variants - only one is active at a time
+        union Storage {
+            // Empty uses no storage
+            char empty;
+            // Bound stores a single output pointer
+            TimeSeriesOutput::ptr bound;
+            // Unbound stores a vector of references
+            std::vector<TimeSeriesReference> unbound;
 
-        void bind_input(TimeSeriesInput &input_) const override;
+            Storage() noexcept : empty{} {}
+            ~Storage() {}  // Manual destruction based on kind
+        } _storage;
 
-        bool has_output() const override;
-
-        bool is_empty() const override;
-
-        bool is_valid() const override;
-
-        bool operator==(const TimeSeriesReferenceOutput &other) const override;
-
-        const ptr &operator[](size_t ndx);
-
-        std::string to_string() const override;
-
-    private:
-        std::vector<ptr> _items;
+        // Helper methods for variant management
+        void destroy() noexcept;
+        void copy_from(const TimeSeriesReference &other);
+        void move_from(TimeSeriesReference &&other) noexcept;
     };
 
     struct TimeSeriesReferenceOutput : BaseTimeSeriesOutput {
@@ -98,13 +81,16 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        const TimeSeriesReference::ptr &value() const;
+        const TimeSeriesReference &value() const;  // Throws if no value
 
-        TimeSeriesReference::ptr &value();
+        TimeSeriesReference &value();  // Throws if no value
+
+        // Python-safe value access that returns the reference value or makes an empty one
+        TimeSeriesReference py_value_or_empty() const;
 
         void py_set_value(nb::object value) override;
 
-        void set_value(TimeSeriesReference::ptr value);
+        void set_value(TimeSeriesReference value);
 
         void apply_result(nb::object value) override;
 
@@ -146,17 +132,17 @@ namespace hgraph {
             }
         }
 
+        [[nodiscard]] bool has_value() const;
+
         static void register_with_nanobind(nb::module_ &m);
 
     protected:
-        [[nodiscard]] bool has_value() const;
-
         void reset_value();
 
     private:
         friend struct TimeSeriesReferenceInput;
         friend struct TimeSeriesReference;
-        TimeSeriesReference::ptr _value;
+        std::optional<TimeSeriesReference> _value;
         // Use a raw pointer as we don't have hash implemented on ptr at the moment,
         // So this is a work arround the code managing this also ensures the pointers are incremented
         // and decremented.
@@ -177,7 +163,7 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        [[nodiscard]] TimeSeriesReference::ptr value() const;
+        [[nodiscard]] TimeSeriesReference value() const;
 
         // Duplicate binding of another input
         void clone_binding(const TimeSeriesReferenceInput::ptr &other);
@@ -245,7 +231,7 @@ namespace hgraph {
     private:
         friend struct TimeSeriesReferenceOutput;
         friend struct TimeSeriesReference;
-        mutable TimeSeriesReference::ptr _value;
+        mutable std::optional<TimeSeriesReference> _value;
         std::optional<std::vector<TimeSeriesReferenceInput::ptr> > _items;
         static inline std::vector<TimeSeriesReferenceInput::ptr> empty_items{};
     };

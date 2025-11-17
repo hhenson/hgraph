@@ -78,14 +78,14 @@ namespace hgraph {
         }
 
         // We will capture the reference value and subscribe to the producing output when available
-        TimeSeriesReference::ptr value_ref = nullptr;
+        std::optional<TimeSeriesReference> value_ref;
         time_series_reference_output_ptr output_ts = nullptr;
 
         // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState
         // Use nb::isinstance to handle both base and specialized reference types
         if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
             output_ts = nb::cast<time_series_reference_output_ptr>(shared);
-            if (output_ts->valid()) {
+            if (output_ts->valid() && output_ts->has_value()) {
                 value_ref = output_ts->value();
             }
         }
@@ -119,7 +119,11 @@ namespace hgraph {
         if (!my_output) {
             throw std::runtime_error("ContextStubSourceNode: output is not a TimeSeriesReferenceOutput");
         }
-        my_output->set_value(value_ref);
+        if (value_ref.has_value()) {
+            my_output->set_value(*value_ref);
+        } else {
+            my_output->set_value(TimeSeriesReference::make());
+        }
     }
 
     void register_context_node_with_nanobind(nb::module_ &m) {

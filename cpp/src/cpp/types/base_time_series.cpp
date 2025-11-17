@@ -299,7 +299,7 @@ namespace hgraph {
         if (auto ref_output = dynamic_cast<TimeSeriesReferenceOutput *>(output_.get())) {
             // Is a TimeseriesReferenceOutput
             // Match Python behavior: only check if value exists (truthy), bind if it does
-            if (ref_output->valid() && ref_output->value()) { ref_output->value()->bind_input(*this); }
+            if (ref_output->valid() && ref_output->has_value()) { ref_output->value().bind_input(*this); }
             ref_output->observe_reference(this);
             _reference_output = ref_output;
             peer = false;
