@@ -5,6 +5,8 @@
 #ifndef HGRAPH_WRAPPER_FACTORY_H
 #define HGRAPH_WRAPPER_FACTORY_H
 
+#include "py_time_series.h"
+
 #include <hgraph/api/python/api_ptr.h>
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
@@ -66,23 +68,27 @@ namespace hgraph
      */
     nb::object wrap_output(const hgraph::TimeSeriesOutput* impl, control_block_ptr control_block);
 
+    nb::object wrap_output(const hgraph::TimeSeriesOutput* impl);
+
     /**
      * Extract raw Node pointer from PyNode wrapper.
      * Returns nullptr if obj is not a PyNode.
      */
-    hgraph::Node *unwrap_node(const nb::object &obj);
+    Node *unwrap_node(const nb::object &obj);
 
     /**
      * Extract raw TimeSeriesInput pointer from PyTimeSeriesInput wrapper.
      * Returns nullptr if obj is not a PyTimeSeriesInput.
      */
-    hgraph::TimeSeriesInput* unwrap_input(const nb::object& obj);
+    TimeSeriesInput* unwrap_input(const nb::object& obj);
+
+    TimeSeriesInput* unwrap_input(const PyTimeSeriesInput& obj);
 
     /**
      * Extract raw TimeSeriesOutput pointer from PyTimeSeriesOutput wrapper.
      * Returns nullptr if obj is not a PyTimeSeriesOutput.
      */
-    hgraph::TimeSeriesOutput* unwrap_output(const nb::object& obj);
+    TimeSeriesOutput* unwrap_output(const nb::object& obj);
     //
     // /**
     //  * Wrap an EvaluationEngineApi pointer in a PyEvaluationEngineApi.

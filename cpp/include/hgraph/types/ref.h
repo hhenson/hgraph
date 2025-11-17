@@ -47,8 +47,6 @@ namespace hgraph {
         static TimeSeriesReference make(std::vector<TimeSeriesReference> items);
         static TimeSeriesReference make(std::vector<nb::ref<TimeSeriesReferenceInput>> items);
 
-        static void register_with_nanobind(nb::module_ &m);
-
     private:
         // Private constructors - must use make() factory methods
         TimeSeriesReference() noexcept;  // Empty

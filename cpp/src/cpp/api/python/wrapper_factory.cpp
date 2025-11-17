@@ -3,8 +3,8 @@
 //
 
 #include <fmt/format.h>
-#include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/api/python/py_time_series.h>
+#include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/mesh_node.h>
 #include <hgraph/nodes/tsd_map_node.h>
@@ -134,6 +134,11 @@ namespace hgraph
         return py_obj;
     }
 
+    // wrap when no control block is readily available.
+    nb::object wrap_output(const hgraph::TimeSeriesOutput *impl) {
+        return wrap_output(impl, impl->owning_graph()->control_block());
+    }
+
     nb::object wrap_output(const hgraph::TimeSeriesOutput *impl, control_block_ptr control_block) {
         if (!impl) { return nb::none(); }
 
@@ -183,13 +188,20 @@ namespace hgraph
         return nullptr;
     }
 
-    hgraph::TimeSeriesInput *unwrap_input(const nb::object &obj) {
-       // if (auto *py_input = nb::inst_ptr<PyTimeSeriesInput>(obj)) { return py_input->_impl.get(); }
+    TimeSeriesInput *unwrap_input(const nb::object &obj) {
+        if (auto *py_input = nb::inst_ptr<PyTimeSeriesInput>(obj)) { return unwrap_input(*py_input); }
+        return nullptr;
+    }
+
+    TimeSeriesInput *unwrap_input(PyTimeSeriesInput &input_) {
+        // return input_._impl.get();
         return nullptr;
     }
 
     hgraph::TimeSeriesOutput *unwrap_output(const nb::object &obj) {
-        if (auto *py_output = nb::inst_ptr<PyTimeSeriesOutput>(obj)) { return py_output->_impl.get(); }
+        if (auto *py_output = nb::inst_ptr<PyTimeSeriesOutput>(obj)) {
+            //return py_output->_impl.get();
+        }
         return nullptr;
     }
 
