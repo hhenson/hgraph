@@ -57,6 +57,10 @@ namespace hgraph
         return py_obj;
     }
 
+    nb::object wrap_node(const Node *impl) {
+        return wrap_node(impl, impl->graph()->control_block());
+    }
+
     nb::object wrap_node(const Node *impl, const control_block_ptr &control_block) {
         return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNode({impl, cb}); });
     }
@@ -69,11 +73,15 @@ namespace hgraph
         return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNodeScheduler({impl, cb}); });
     }
 
-    nb::object wrap_input(const hgraph::TimeSeriesInput *impl, control_block_ptr control_block) {
+    nb::object wrap_input(const TimeSeriesInput *impl) {
+        return wrap_input(impl, impl->owning_graph()->control_block());
+    }
+
+    nb::object wrap_input(const TimeSeriesInput *impl, control_block_ptr control_block) {
         if (!impl) { return nb::none(); }
 
         // const_cast is safe here - we need non-const to access intrusive_base methods
-        auto *mutable_impl = const_cast<hgraph::TimeSeriesInput *>(impl);
+        auto *mutable_impl = const_cast<TimeSeriesInput *>(impl);
 
         // Check if we already have a cached Python wrapper
         PyObject *cached_ptr = mutable_impl->self_py();
@@ -135,15 +143,15 @@ namespace hgraph
     }
 
     // wrap when no control block is readily available.
-    nb::object wrap_output(const hgraph::TimeSeriesOutput *impl) {
+    nb::object wrap_output(const TimeSeriesOutput *impl) {
         return wrap_output(impl, impl->owning_graph()->control_block());
     }
 
-    nb::object wrap_output(const hgraph::TimeSeriesOutput *impl, control_block_ptr control_block) {
+    nb::object wrap_output(const TimeSeriesOutput *impl, control_block_ptr control_block) {
         if (!impl) { return nb::none(); }
 
         // const_cast is safe here - we need non-const to access intrusive_base methods
-        auto *mutable_impl = const_cast<hgraph::TimeSeriesOutput *>(impl);
+        auto *mutable_impl = const_cast<TimeSeriesOutput *>(impl);
 
         // Check if we already have a cached Python wrapper
         PyObject *cached_ptr = mutable_impl->self_py();
@@ -193,29 +201,34 @@ namespace hgraph
         return nullptr;
     }
 
-    TimeSeriesInput *unwrap_input(PyTimeSeriesInput &input_) {
+    TimeSeriesInput *unwrap_input(const PyTimeSeriesInput &input_) {
         // return input_._impl.get();
         return nullptr;
     }
 
-    hgraph::TimeSeriesOutput *unwrap_output(const nb::object &obj) {
+    TimeSeriesOutput *unwrap_output(const nb::object &obj) {
         if (auto *py_output = nb::inst_ptr<PyTimeSeriesOutput>(obj)) {
-            //return py_output->_impl.get();
+            return unwrap_output(*py_output);
         }
         return nullptr;
     }
 
-    // nb::object wrap_evaluation_engine_api(const hgraph::EvaluationEngineApi *impl, control_block_ptr control_block) {
-    //     return get_or_create_wrapper(impl, std::move(control_block), [](hgraph::EvaluationEngineApi *impl, control_block_ptr cb)
+    TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_) {
+        //TODO: Implement the logic here
+        return nullptr;
+    }
+
+    // nb::object wrap_evaluation_engine_api(const EvaluationEngineApi *impl, control_block_ptr control_block) {
+    //     return get_or_create_wrapper(impl, std::move(control_block), [](EvaluationEngineApi *impl, control_block_ptr cb)
     //     {
     //         return PyEvaluationEngineApi(impl, std::move(cb));
     //     });
     // }
     //
-    // nb::object wrap_evaluation_clock(const hgraph::EvaluationClock *impl, control_block_ptr control_block) {
+    // nb::object wrap_evaluation_clock(const EvaluationClock *impl, control_block_ptr control_block) {
     //     if (impl == nullptr) { return nb::none(); }
     //
-    //     return get_or_create_wrapper(impl, control_block, [](hgraph::EvaluationClock *mutable_impl, control_block_ptr cb) {
+    //     return get_or_create_wrapper(impl, control_block, [](EvaluationClock *mutable_impl, control_block_ptr cb) {
     //         return PyEvaluationClock(mutable_impl, std::move(cb));
     //     });
     // }
