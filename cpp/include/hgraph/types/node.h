@@ -115,7 +115,7 @@ namespace hgraph {
 
         [[nodiscard]] nb::dict to_dict() const;
 
-        [[nodiscard]] ptr copy_with(nb::kwargs kwargs) const;
+        [[nodiscard]] ptr copy_with(const nb::kwargs& kwargs) const;
 
         static void register_with_nanobind(nb::module_ &m);
     };

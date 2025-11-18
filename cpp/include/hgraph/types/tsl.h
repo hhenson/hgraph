@@ -67,11 +67,11 @@ namespace hgraph {
     struct TimeSeriesListOutput : TimeSeriesList<IndexedTimeSeriesOutput> {
         using list_type::TimeSeriesList;
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
         static void register_with_nanobind(nb::module_ &m);
 

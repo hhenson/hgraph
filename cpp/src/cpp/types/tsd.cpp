@@ -14,13 +14,13 @@
 
 namespace hgraph
 {
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::apply_result(nb::object value) {
+    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::apply_result(const nb::object& value) {
         // Ensure any Python API interaction occurs under the GIL and protect against exceptions
         if (value.is_none()) { return; }
         py_set_value(value);
     }
 
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::can_apply_result(nb::object result) {
+    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::can_apply_result(const nb::object& result) {
         if (result.is_none()) { return true; }
         if (!nb::cast<bool>(nb::bool_(result))) { return true; }
 
@@ -189,7 +189,7 @@ namespace hgraph
         _key_set->re_parent(this);
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_value(nb::object value) {
+    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
             return;

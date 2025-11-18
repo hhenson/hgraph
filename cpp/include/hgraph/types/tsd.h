@@ -153,11 +153,11 @@ namespace hgraph {
         explicit TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
                                         output_builder_ptr ts_ref_builder);
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
-        bool can_apply_result(nb::object result) override;
+        bool can_apply_result(const nb::object& result) override;
 
         [[nodiscard]] nb::object py_get(const nb::object &item, const nb::object &default_value) const override;
 

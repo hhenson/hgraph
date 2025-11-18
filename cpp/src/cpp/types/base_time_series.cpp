@@ -107,7 +107,7 @@ namespace hgraph {
 
     bool BaseTimeSeriesOutput::has_parent_output() const { return _has_parent_time_series(); }
 
-    bool BaseTimeSeriesOutput::can_apply_result(nb::object value) {
+    bool BaseTimeSeriesOutput::can_apply_result(const nb::object& value) {
         return !modified();
     }
 

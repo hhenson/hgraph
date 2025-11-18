@@ -37,11 +37,11 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
-        bool can_apply_result(nb::object) override { return !modified(); }
+        bool can_apply_result(const nb::object&) override { return !modified(); }
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
         void invalidate() override { mark_invalid(); }
 
@@ -193,11 +193,11 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
-        bool can_apply_result(nb::object) override { return !modified(); }
+        bool can_apply_result(const nb::object&) override { return !modified(); }
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
         void invalidate() override { mark_invalid(); }
 

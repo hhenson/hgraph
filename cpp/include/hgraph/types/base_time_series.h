@@ -60,7 +60,7 @@ namespace hgraph {
         void un_subscribe(Notifiable *node) override;
         void builder_release_cleanup() override;
 
-        bool can_apply_result(nb::object value) override;
+        bool can_apply_result(const nb::object& value) override;
         void clear() override;
         void invalidate() override;
         void mark_modified(engine_time_t modified_time) override;

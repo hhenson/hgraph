@@ -342,7 +342,7 @@ namespace hgraph {
     }
 
     template<typename T_Key>
-    void TimeSeriesSetOutput_T<T_Key>::py_set_value(nb::object value) {
+    void TimeSeriesSetOutput_T<T_Key>::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
         } else {
@@ -351,7 +351,7 @@ namespace hgraph {
     }
 
     template<typename T_Key>
-    void TimeSeriesSetOutput_T<T_Key>::apply_result(nb::object value) {
+    void TimeSeriesSetOutput_T<T_Key>::apply_result(const nb::object& value) {
         if (value.is_none()) { return; }
         py_set_value(value);
     }
