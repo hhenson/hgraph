@@ -86,6 +86,7 @@ namespace hgraph
         using PyTimeSeriesType::PyTimeSeriesType;
 
       private:
+        friend TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_);
         [[nodiscard]] TimeSeriesOutput *impl() const;
     };
 
