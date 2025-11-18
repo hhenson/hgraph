@@ -53,6 +53,19 @@ namespace hgraph {
             }
         }
 
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
+
     private:
         T _value{};
     };
@@ -83,6 +96,19 @@ namespace hgraph {
             if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesValueInput<T>>*>(&visitor)) {
                 typed_visitor->visit(*this);
             }
+        }
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
         }
     };
 

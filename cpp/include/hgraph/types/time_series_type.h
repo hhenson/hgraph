@@ -15,6 +15,16 @@ namespace hgraph {
         virtual void accept(TimeSeriesVisitor& visitor) = 0;
         virtual void accept(TimeSeriesVisitor& visitor) const = 0;
 
+        // CRTP visitor support (compile-time dispatch)
+        // Forward to the CRTP accept in BaseTimeSeriesOutput
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor);
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const;
+
         virtual ~TimeSeriesOutputVisitable() = default;
     };
 
@@ -22,6 +32,16 @@ namespace hgraph {
         // Acyclic visitor support (runtime dispatch) - implemented by concrete types
         virtual void accept(TimeSeriesVisitor& visitor) = 0;
         virtual void accept(TimeSeriesVisitor& visitor) const = 0;
+
+        // CRTP visitor support (compile-time dispatch)
+        // Forward to the CRTP accept in BaseTimeSeriesInput
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor);
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const;
 
         virtual ~TimeSeriesInputVisitable() = default;
     };

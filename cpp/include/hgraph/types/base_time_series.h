@@ -200,6 +200,39 @@ namespace hgraph {
         engine_time_t _notify_time{MIN_DT};
     };
 
+    // Implementation of CRTP accept forwarding for TimeSeriesInputVisitable
+    // This is tricky: we need to call the concrete type's accept(), not BaseTimeSeriesInput's
+    // The concrete types (like TimeSeriesValueReferenceInput) override this with their own accept()
+    // So we just need a default implementation that's never actually called
+    template<typename Visitor>
+        requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+    decltype(auto) TimeSeriesInputVisitable::accept(Visitor& visitor) {
+        // This should never be called - concrete types override with CRTP accept
+        throw std::runtime_error("CRTP accept() called on TimeSeriesInputVisitable base - missing override in derived class");
+    }
+
+    template<typename Visitor>
+        requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+    decltype(auto) TimeSeriesInputVisitable::accept(Visitor& visitor) const {
+        // This should never be called - concrete types override with CRTP accept
+        throw std::runtime_error("CRTP accept() called on TimeSeriesInputVisitable base - missing override in derived class");
+    }
+
+    // Implementation of CRTP accept forwarding for TimeSeriesOutputVisitable
+    template<typename Visitor>
+        requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+    decltype(auto) TimeSeriesOutputVisitable::accept(Visitor& visitor) {
+        // This should never be called - concrete types override with CRTP accept
+        throw std::runtime_error("CRTP accept() called on TimeSeriesOutputVisitable base - missing override in derived class");
+    }
+
+    template<typename Visitor>
+        requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+    decltype(auto) TimeSeriesOutputVisitable::accept(Visitor& visitor) const {
+        // This should never be called - concrete types override with CRTP accept
+        throw std::runtime_error("CRTP accept() called on TimeSeriesOutputVisitable base - missing override in derived class");
+    }
+
 } // namespace hgraph
 
 #endif  // BASE_TIME_SERIES_H

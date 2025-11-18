@@ -98,6 +98,19 @@ namespace hgraph {
             }
         }
 
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
+
     private:
         std::vector<T> _buffer{};
         std::vector<engine_time_t> _times{};
@@ -180,6 +193,19 @@ namespace hgraph {
             if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesWindowInput<T>>*>(&visitor)) {
                 typed_visitor->visit(*this);
             }
+        }
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
         }
     };
 
@@ -271,6 +297,19 @@ namespace hgraph {
             if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesTimeWindowOutput<T>>*>(&visitor)) {
                 typed_visitor->visit(*this);
             }
+        }
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
         }
 
     private:

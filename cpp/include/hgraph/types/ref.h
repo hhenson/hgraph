@@ -240,35 +240,74 @@ namespace hgraph {
     struct TimeSeriesValueReferenceInput : TimeSeriesReferenceInput {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
     };
 
     struct TimeSeriesListReferenceInput : TimeSeriesReferenceInput {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
-        
+
         // Constructor that accepts size
         TimeSeriesListReferenceInput(Node *owning_node, size_t size);
         TimeSeriesListReferenceInput(TimeSeriesType *parent_input, size_t size);
-        
+
         TimeSeriesInput *get_input(size_t index) override;
         size_t size() const { return _size; }
-        
+
         static void register_with_nanobind(nb::module_ &m);
-        
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
+
     private:
         size_t _size{0};
     };
 
     struct TimeSeriesBundleReferenceInput : TimeSeriesReferenceInput {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
-        
+
         // Constructor that accepts size
         TimeSeriesBundleReferenceInput(Node *owning_node, size_t size);
         TimeSeriesBundleReferenceInput(TimeSeriesType *parent_input, size_t size);
-        
+
         size_t size() const { return _size; }
-        
+
         static void register_with_nanobind(nb::module_ &m);
-        
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
+
     private:
         size_t _size{0};
     };
@@ -276,16 +315,55 @@ namespace hgraph {
     struct TimeSeriesDictReferenceInput : TimeSeriesReferenceInput {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
     };
 
     struct TimeSeriesSetReferenceInput : TimeSeriesReferenceInput {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
     };
 
     struct TimeSeriesWindowReferenceInput : TimeSeriesReferenceInput {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
     };
 
     // ============================================================
@@ -295,34 +373,112 @@ namespace hgraph {
     struct TimeSeriesValueReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesValueReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesValueReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
     };
 
     struct TimeSeriesListReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
-        
+
         // Constructor that accepts size
         TimeSeriesListReferenceOutput(Node *owning_node, size_t size);
         TimeSeriesListReferenceOutput(TimeSeriesType *parent_output, size_t size);
-        
+
         size_t size() const { return _size; }
-        
+
         static void register_with_nanobind(nb::module_ &m);
-        
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesListReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesListReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
+
     private:
         size_t _size{0};
     };
 
     struct TimeSeriesBundleReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
-        
+
         // Constructor that accepts size
         TimeSeriesBundleReferenceOutput(Node *owning_node, size_t size);
         TimeSeriesBundleReferenceOutput(TimeSeriesType *parent_output, size_t size);
-        
+
         size_t size() const { return _size; }
-        
+
         static void register_with_nanobind(nb::module_ &m);
-        
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesBundleReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesBundleReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
+
     private:
         size_t _size{0};
     };
@@ -330,16 +486,94 @@ namespace hgraph {
     struct TimeSeriesDictReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesDictReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesDictReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
     };
 
     struct TimeSeriesSetReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesSetReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesSetReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
     };
 
     struct TimeSeriesWindowReferenceOutput final : TimeSeriesReferenceOutput {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
+
+        // Visitor support - Acyclic pattern (runtime dispatch)
+        void accept(TimeSeriesVisitor& visitor) override {
+            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesWindowReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        void accept(TimeSeriesVisitor& visitor) const override {
+            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesWindowReferenceOutput>*>(&visitor)) {
+                typed_visitor->visit(*this);
+            }
+        }
+
+        // CRTP visitor support (compile-time dispatch)
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) {
+            return visitor(*this);
+        }
+
+        template<typename Visitor>
+            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor& visitor) const {
+            return visitor(*this);
+        }
     };
 
 } // namespace hgraph
