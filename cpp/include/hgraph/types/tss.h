@@ -13,36 +13,8 @@
 #include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
-    struct SetDelta : nb::intrusive_base {
-        using ptr = nb::ref<SetDelta>;
-
-        virtual ~SetDelta() = default;
-
-        /**
-         * Get the elements that were added in this delta
-         * @return Reference to the set of added elements
-         */
-        [[nodiscard]] virtual nb::object py_added() const = 0;
-
-        /**
-         * Get the elements that were removed in this delta
-         * @return Reference to the set of removed elements
-         */
-        [[nodiscard]] virtual nb::object py_removed() const = 0;
-
-        [[nodiscard]] virtual nb::object py_type() const = 0;
-
-        [[nodiscard]] virtual size_t hash() const = 0;
-
-        // Default to False, then the overrides will sort out the rest
-        [[nodiscard]] virtual bool operator==(const SetDelta &other) const = 0;
-
-        static void register_with_nanobind(nb::module_ &m);
-    };
-
     template<typename T>
-    struct SetDelta_T : SetDelta {
-        using ptr = nb::ref<SetDelta_T<T> >;
+    struct SetDelta_T {
         using scalar_type = T;
         using collection_type = std::unordered_set<T>;
 
@@ -54,23 +26,21 @@ namespace hgraph {
             requires(std::is_same_v<U, nb::object>)
         SetDelta_T(collection_type added, collection_type removed, nb::object tp);
 
-        [[nodiscard]] nb::object py_added() const override;
+        [[nodiscard]] nb::object py_added() const;
 
-        [[nodiscard]] nb::object py_removed() const override;
+        [[nodiscard]] nb::object py_removed() const;
 
         [[nodiscard]] const collection_type &added() const;
 
         [[nodiscard]] const collection_type &removed() const;
 
-        [[nodiscard]] bool operator==(const SetDelta &other) const override;
-
         [[nodiscard]] bool operator==(const SetDelta_T<T> &other) const;
 
-        [[nodiscard]] size_t hash() const override;
+        [[nodiscard]] size_t hash() const;
 
-        [[nodiscard]] nb::ref<SetDelta_T<T> > operator+(const SetDelta_T<T> &other) const;
+        [[nodiscard]] SetDelta_T<T> operator+(const SetDelta_T<T> &other) const;
 
-        [[nodiscard]] nb::object py_type() const override;
+        [[nodiscard]] nb::object py_type() const;
 
     private:
         collection_type _added;
@@ -79,13 +49,12 @@ namespace hgraph {
     };
 
     template<typename T>
-    SetDelta_T<T>::ptr make_set_delta(std::unordered_set<T> added, std::unordered_set<T> removed) {
-        auto v{new SetDelta_T<T>(std::move(added), std::move(removed))};
-        return typename SetDelta_T<T>::ptr(v);
+    SetDelta_T<T> make_set_delta(std::unordered_set<T> added, std::unordered_set<T> removed) {
+        return SetDelta_T<T>(std::move(added), std::move(removed));
     }
 
     template<>
-    inline SetDelta_T<nb::object>::ptr make_set_delta(std::unordered_set<nb::object> added,
+    inline SetDelta_T<nb::object> make_set_delta(std::unordered_set<nb::object> added,
                                                       std::unordered_set<nb::object> removed) {
         nb::object tp;
         if (!added.empty()) {
@@ -95,7 +64,7 @@ namespace hgraph {
         } else {
             tp = get_object();
         }
-        return new SetDelta_T<nb::object>(added, removed, tp);
+        return SetDelta_T<nb::object>(added, removed, tp);
     }
 
     template<typename T_TS>
@@ -189,7 +158,6 @@ namespace hgraph {
         using element_type = T_Key;
         using collection_type = std::unordered_set<T_Key>;
         using set_delta = SetDelta_T<T_Key>;
-        using set_delta_ptr = nb::ref<set_delta>;
 
         static constexpr bool is_py_object = std::is_same_v<T_Key, nb::object>;
 
@@ -327,7 +295,6 @@ namespace hgraph {
         using element_type = typename TimeSeriesSetOutput_T<T>::element_type;
         using collection_type = typename TimeSeriesSetOutput_T<T>::collection_type;
         using set_delta = typename TimeSeriesSetOutput_T<T>::set_delta;
-        using set_delta_ptr = nb::ref<typename TimeSeriesSetOutput_T<T>::set_delta>;
 
         [[nodiscard]] nb::object py_value() const override;
 
@@ -351,7 +318,7 @@ namespace hgraph {
 
         [[nodiscard]] const collection_type &value() const;
 
-        [[nodiscard]] set_delta_ptr delta_value() const;
+        [[nodiscard]] set_delta delta_value() const;
 
         [[nodiscard]] bool contains(const element_type &item) const;
 
@@ -406,6 +373,7 @@ namespace hgraph {
         mutable collection_type _removed{};
     };
 
+    void register_set_delta_with_nanobind(nb::module_ & m);
     void tss_register_with_nanobind(nb::module_ & m);
 } // namespace hgraph
 

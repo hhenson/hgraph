@@ -65,7 +65,7 @@ void export_types(nb::module_ &m) {
     TimeSeriesBundleInput::register_with_nanobind(m);
     TimeSeriesBundleOutput::register_with_nanobind(m);
 
-    SetDelta::register_with_nanobind(m);
+    register_set_delta_with_nanobind(m);
     tss_register_with_nanobind(m);
 
     tsd_register_with_nanobind(m);
