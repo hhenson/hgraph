@@ -26,6 +26,7 @@ namespace hgraph
      * Creates and caches new wrapper if not.
      */
     nb::object wrap_node(const hgraph::Node *impl, const control_block_ptr &control_block);
+    nb::object wrap_node(const Node *impl);
 
     /**
      * Wrap a Graph pointer in a PyGraph.
@@ -56,7 +57,8 @@ namespace hgraph
      *
      * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
      */
-    nb::object wrap_input(const hgraph::TimeSeriesInput* impl, control_block_ptr control_block);
+    nb::object wrap_input(const hgraph::TimeSeriesInput *impl, control_block_ptr control_block);
+    nb::object wrap_input(const TimeSeriesInput *impl);
 
     /**
      * Wrap a TimeSeriesOutput pointer in the appropriate PyTimeSeriesXxxOutput wrapper.
@@ -66,9 +68,9 @@ namespace hgraph
      *
      * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
      */
-    nb::object wrap_output(const hgraph::TimeSeriesOutput* impl, control_block_ptr control_block);
+    nb::object wrap_output(const hgraph::TimeSeriesOutput *impl, control_block_ptr control_block);
 
-    nb::object wrap_output(const hgraph::TimeSeriesOutput* impl);
+    nb::object wrap_output(const hgraph::TimeSeriesOutput *impl);
 
     /**
      * Extract raw Node pointer from PyNode wrapper.
@@ -80,15 +82,17 @@ namespace hgraph
      * Extract raw TimeSeriesInput pointer from PyTimeSeriesInput wrapper.
      * Returns nullptr if obj is not a PyTimeSeriesInput.
      */
-    TimeSeriesInput* unwrap_input(const nb::object& obj);
+    TimeSeriesInput *unwrap_input(const nb::object &obj);
 
-    TimeSeriesInput* unwrap_input(const PyTimeSeriesInput& obj);
+    TimeSeriesInput *unwrap_input(const PyTimeSeriesInput &input_);
 
     /**
      * Extract raw TimeSeriesOutput pointer from PyTimeSeriesOutput wrapper.
      * Returns nullptr if obj is not a PyTimeSeriesOutput.
      */
-    TimeSeriesOutput* unwrap_output(const nb::object& obj);
+    TimeSeriesOutput *unwrap_output(const nb::object &obj);
+
+    TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_);
     //
     // /**
     //  * Wrap an EvaluationEngineApi pointer in a PyEvaluationEngineApi.

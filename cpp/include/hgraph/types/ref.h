@@ -132,8 +132,6 @@ namespace hgraph {
 
         [[nodiscard]] bool has_value() const;
 
-        static void register_with_nanobind(nb::module_ &m);
-
     protected:
         void reset_value();
 
@@ -201,13 +199,12 @@ namespace hgraph {
             }
         }
 
-        static void register_with_nanobind(nb::module_ &m);
-
         [[nodiscard]] bool is_reference() const override;
 
         [[nodiscard]] bool has_reference() const override;
 
     protected:
+        friend struct PyTimeSeriesReferenceInput;
         bool do_bind_output(time_series_output_ptr &output_) override;
 
         void do_un_bind_output(bool unbind_refs) override;
@@ -225,6 +222,8 @@ namespace hgraph {
         [[nodiscard]] bool has_value() const;
 
         void reset_value();
+
+        std::optional<TimeSeriesReference>& raw_value();
 
     private:
         friend struct TimeSeriesReferenceOutput;
