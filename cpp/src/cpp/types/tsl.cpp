@@ -147,6 +147,7 @@ namespace hgraph {
                 .def("modified_items",
                      static_cast<enumerated_collection_type (TimeSeriesListOutput::*)() const>(&
                          TimeSeriesListOutput::modified_items))
+                .def("key_from_value", &TimeSeriesListOutput::key_from_value, "value"_a)
                 .def("__str__", [](const TimeSeriesListOutput &self) {
                     return fmt::format("TimeSeriesListOutput@{:p}[size={}, valid={}]",
                                        static_cast<const void *>(&self), self.size(), self.valid());
@@ -190,6 +191,7 @@ namespace hgraph {
                 .def("modified_items",
                      static_cast<enumerated_collection_type (TimeSeriesListInput::*)() const>(&
                          TimeSeriesListInput::modified_items))
+                .def("key_from_value", &TimeSeriesListInput::key_from_value, "value"_a)
                 .def("__str__", [](const TimeSeriesListInput &self) {
                     return fmt::format("TimeSeriesListInput@{:p}[size={}, valid={}]",
                                        static_cast<const void *>(&self), self.size(), self.valid());

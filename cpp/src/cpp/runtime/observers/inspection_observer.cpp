@@ -7,13 +7,62 @@
 #include <algorithm>
 #include <iostream>
 
+// Platform-specific includes for thread CPU time
+#ifdef __linux__
+    #include <time.h>
+#elif defined(__APPLE__)
+    #include <mach/mach.h>
+    #include <mach/thread_info.h>
+#elif defined(_WIN32)
+    #include <windows.h>
+#endif
+
 namespace hgraph {
+
+    // Helper function to get thread CPU time in nanoseconds
+    static int64_t get_thread_cpu_time_ns() {
+#ifdef __linux__
+        struct timespec ts;
+        if (clock_gettime(CLOCK_THREAD_CPUTIME_ID, &ts) == 0) {
+            return static_cast<int64_t>(ts.tv_sec) * 1'000'000'000LL + static_cast<int64_t>(ts.tv_nsec);
+        }
+        return 0;
+#elif defined(__APPLE__)
+        thread_basic_info_data_t info;
+        mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+        kern_return_t kr = thread_info(mach_thread_self(), THREAD_BASIC_INFO,
+                                       (thread_info_t)&info, &count);
+        if (kr == KERN_SUCCESS) {
+            int64_t user_ns = static_cast<int64_t>(info.user_time.seconds) * 1'000'000'000LL +
+                             static_cast<int64_t>(info.user_time.microseconds) * 1'000LL;
+            int64_t system_ns = static_cast<int64_t>(info.system_time.seconds) * 1'000'000'000LL +
+                               static_cast<int64_t>(info.system_time.microseconds) * 1'000LL;
+            return user_ns + system_ns;
+        }
+        return 0;
+#elif defined(_WIN32)
+        FILETIME creation_time, exit_time, kernel_time, user_time;
+        if (GetThreadTimes(GetCurrentThread(), &creation_time, &exit_time, &kernel_time, &user_time)) {
+            ULARGE_INTEGER user_li, kernel_li;
+            user_li.LowPart = user_time.dwLowDateTime;
+            user_li.HighPart = user_time.dwHighDateTime;
+            kernel_li.LowPart = kernel_time.dwLowDateTime;
+            kernel_li.HighPart = kernel_time.dwHighDateTime;
+            // Windows FILETIME is in 100-nanosecond intervals
+            return static_cast<int64_t>((user_li.QuadPart + kernel_li.QuadPart) * 100LL);
+        }
+        return 0;
+#else
+        // Fallback: return 0 for unsupported platforms
+        return 0;
+#endif
+    }
 
     GraphInfo::GraphInfo()
         : graph(nullptr), parent_graph(nullptr), stopped(false),
           node_count(0), total_subgraph_count(0), total_node_count(0),
-          eval_count(0), cycle_time(0.0), os_cycle_time(0.0),
-          observation_time(0.0), eval_time(0.0), os_eval_time(0.0),
+          eval_count(0), cycle_time(0), os_cycle_time(0),
+          observation_time(0), eval_time(0), os_eval_time(0),
           total_value_size_begin(0), total_value_size(0),
           total_size_begin(0), total_size(0), size(0) {
     }
@@ -122,8 +171,8 @@ namespace hgraph {
         return 0;
     }
 
-    double InspectionObserver::_to_seconds(std::chrono::nanoseconds ns) const {
-        return std::chrono::duration<double>(ns).count();
+    int64_t InspectionObserver::_to_nanoseconds(std::chrono::nanoseconds ns) const {
+        return ns.count();
     }
 
     void InspectionObserver::on_before_start_graph(graph_ptr graph) {
@@ -143,8 +192,8 @@ namespace hgraph {
         gi->node_total_subgraph_counts.resize(node_count, 0);
         gi->node_total_node_counts.resize(node_count, 0);
         gi->node_eval_counts.resize(node_count, 0);
-        gi->node_eval_begin_times.resize(node_count, 0.0);
-        gi->node_eval_times.resize(node_count, 0.0);
+        gi->node_eval_begin_times.resize(node_count, 0);
+        gi->node_eval_times.resize(node_count, 0);
         
         size_t default_size = _compute_sizes ? 0 : 0;
         gi->node_value_sizes.resize(node_count, default_size);
@@ -169,7 +218,14 @@ namespace hgraph {
         
         gi->eval_count = 0;
         gi->eval_begin_time = std::chrono::high_resolution_clock::now();
-        
+
+        // Initialize OS thread time for root graph only
+        if (gid.empty()) {
+            gi->os_eval_begin_thread_time = get_thread_cpu_time_ns();
+        } else {
+            gi->os_eval_begin_thread_time = 0;
+        }
+
         if (_current_graph) {
             // Verify parent relationship
             // TODO: Add assertion when safe
@@ -217,23 +273,29 @@ namespace hgraph {
             _current_graph->total_size_begin = _current_graph->total_size;
         }
 
-        // Handle performance batch rollover for root graph
-        if (_current_graph->id.empty() && _track_recent_performance) {
-            auto now = std::chrono::system_clock::now();
-            auto time_t_now = std::chrono::system_clock::to_time_t(now);
-            std::tm tm_now = *std::gmtime(&time_t_now);
-            tm_now.tm_sec = 0;
-            auto batch_time = std::chrono::system_clock::from_time_t(std::mktime(&tm_now));
+        // Handle root graph specific tracking
+        if (_current_graph->id.empty()) {
+            // Update OS thread time for root graph
+            _current_graph->os_eval_begin_thread_time = get_thread_cpu_time_ns();
 
-            if (batch_time > _recent_performance_batch) {
-                _recent_performance_batch = batch_time;
-                _recent_node_performance.push_back({batch_time, {}});
-                while (_recent_node_performance.size() > _recent_performance_horizon) {
-                    _recent_node_performance.pop_front();
-                }
-                _recent_graph_performance.push_back({batch_time, {}});
-                while (_recent_graph_performance.size() > _recent_performance_horizon) {
-                    _recent_graph_performance.pop_front();
+            // Handle performance batch rollover for root graph
+            if (_track_recent_performance) {
+                auto now = std::chrono::system_clock::now();
+                auto time_t_now = std::chrono::system_clock::to_time_t(now);
+                std::tm tm_now = *std::gmtime(&time_t_now);
+                tm_now.tm_sec = 0;
+                auto batch_time = std::chrono::system_clock::from_time_t(std::mktime(&tm_now));
+
+                if (batch_time > _recent_performance_batch) {
+                    _recent_performance_batch = batch_time;
+                    _recent_node_performance.push_back({batch_time, {}});
+                    while (_recent_node_performance.size() > _recent_performance_horizon) {
+                        _recent_node_performance.pop_front();
+                    }
+                    _recent_graph_performance.push_back({batch_time, {}});
+                    while (_recent_graph_performance.size() > _recent_performance_horizon) {
+                        _recent_graph_performance.pop_front();
+                    }
                 }
             }
         }
@@ -246,8 +308,8 @@ namespace hgraph {
             
             // Resize all vectors
             _current_graph->node_eval_counts.resize(new_node_count, 0);
-            _current_graph->node_eval_begin_times.resize(new_node_count, 0.0);
-            _current_graph->node_eval_times.resize(new_node_count, 0.0);
+            _current_graph->node_eval_begin_times.resize(new_node_count, 0);
+            _current_graph->node_eval_times.resize(new_node_count, 0);
             _current_graph->node_value_sizes.resize(new_node_count, 0);
             _current_graph->node_total_value_sizes_begin.resize(new_node_count, 0);
             _current_graph->node_total_value_sizes.resize(new_node_count, 0);
@@ -269,13 +331,13 @@ namespace hgraph {
         }
         
         auto observation_end = std::chrono::high_resolution_clock::now();
-        _current_graph->observation_time = _to_seconds(
+        _current_graph->observation_time = _to_nanoseconds(
             std::chrono::duration_cast<std::chrono::nanoseconds>(observation_end - observation_begin));
     }
 
     void InspectionObserver::on_before_node_evaluation(node_ptr node) {
         auto now = std::chrono::high_resolution_clock::now();
-        _current_graph->node_eval_begin_times[node->node_ndx()] = _to_seconds(
+        _current_graph->node_eval_begin_times[node->node_ndx()] = _to_nanoseconds(
             std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()));
         
         if (_compute_sizes) {
@@ -290,7 +352,7 @@ namespace hgraph {
         auto observation_begin = std::chrono::high_resolution_clock::now();
 
         auto now = std::chrono::high_resolution_clock::now();
-        double eval_time = _to_seconds(std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch())) -
+        int64_t eval_time = _to_nanoseconds(std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch())) -
                           _current_graph->node_eval_begin_times[node->node_ndx()];
 
         size_t ndx = node->node_ndx();
@@ -303,8 +365,8 @@ namespace hgraph {
             std::vector<int> node_vec_id(nid.begin(), nid.end());
             auto& current_batch = _recent_node_performance.back().second;
             auto& recent = current_batch[node_vec_id];
-            recent["eval_count"] = recent["eval_count"] + 1.0;
-            recent["eval_time"] = recent["eval_time"] + eval_time;
+            recent.eval_count += 1;
+            recent.eval_time += eval_time;
         }
 
         if (!node->signature().is_source_node()) {
@@ -312,7 +374,7 @@ namespace hgraph {
         }
 
         auto observation_end = std::chrono::high_resolution_clock::now();
-        _current_graph->observation_time += _to_seconds(
+        _current_graph->observation_time += _to_nanoseconds(
             std::chrono::duration_cast<std::chrono::nanoseconds>(observation_end - observation_begin));
     }
 
@@ -327,7 +389,7 @@ namespace hgraph {
         }
         
         auto observation_end = std::chrono::high_resolution_clock::now();
-        _current_graph->observation_time += _to_seconds(
+        _current_graph->observation_time += _to_nanoseconds(
             std::chrono::duration_cast<std::chrono::nanoseconds>(observation_end - observation_begin));
     }
 
@@ -368,7 +430,7 @@ namespace hgraph {
 
         _current_graph->eval_count += 1;
         auto now = std::chrono::high_resolution_clock::now();
-        _current_graph->cycle_time = _to_seconds(
+        _current_graph->cycle_time = _to_nanoseconds(
             std::chrono::duration_cast<std::chrono::nanoseconds>(now - _current_graph->eval_begin_time));
         _current_graph->eval_time += _current_graph->cycle_time;
 
@@ -378,19 +440,13 @@ namespace hgraph {
             std::vector<int> graph_vec_id(gid.begin(), gid.end());
             auto& current_batch = _recent_graph_performance.back().second;
             auto& recent = current_batch[graph_vec_id];
-            recent["eval_count"] = recent["eval_count"] + 1.0;
-            recent["eval_time"] = recent["eval_time"] + _current_graph->cycle_time;
+            recent.eval_count += 1;
+            recent.eval_time += _current_graph->cycle_time;
         }
 
         // Update parent graph sizes
         if (!graph->graph_id().empty()) {
-            auto parent_graph_id_vec = graph->parent_node()->owning_graph_id();
-            std::vector<int> parent_graph_id(parent_graph_id_vec.begin(), parent_graph_id_vec.end());
-            auto it = _graphs_by_id.find(parent_graph_id);
-            if (it == _graphs_by_id.end()) {
-                return;  // Parent graph not found
-            }
-            auto parent_graph = it->second;
+            auto& parent_graph = _graphs[_current_graph->parent_graph];
             size_t parent_node_ndx = graph->parent_node()->node_ndx();
             
             if (_compute_sizes) {
@@ -399,13 +455,18 @@ namespace hgraph {
                 parent_graph->node_total_sizes[parent_node_ndx] +=
                     _current_graph->total_size - _current_graph->total_size_begin;
             }
+        } else {
+            // Root graph: calculate OS thread CPU time
+            int64_t now_thread = get_thread_cpu_time_ns();
+            _current_graph->os_cycle_time = now_thread - _current_graph->os_eval_begin_thread_time;
+            _current_graph->os_eval_time += _current_graph->os_cycle_time;
         }
         
         auto observation_end = std::chrono::high_resolution_clock::now();
-        _current_graph->observation_time += _to_seconds(
+        _current_graph->observation_time += _to_nanoseconds(
             std::chrono::duration_cast<std::chrono::nanoseconds>(observation_end - observation_begin));
 
-        double prev_observation_time = _current_graph->observation_time;
+        int64_t prev_observation_time = _current_graph->observation_time;
 
         if (_current_graph->parent_graph) {
             _current_graph = _graphs[_current_graph->parent_graph];
@@ -444,7 +505,7 @@ namespace hgraph {
 
     void InspectionObserver::get_recent_node_performance(const std::vector<int>& node_id,
                                                         std::vector<std::pair<std::chrono::system_clock::time_point,
-                                                                    std::map<std::string, double>>>& result,
+                                                                    PerformanceMetrics>>& result,
                                                         const std::optional<std::chrono::system_clock::time_point>& after) const {
         result.clear();
         result.reserve(_recent_node_performance.size());
@@ -472,7 +533,7 @@ namespace hgraph {
 
     void InspectionObserver::get_recent_graph_performance(const std::vector<int>& graph_id,
                                                          std::vector<std::pair<std::chrono::system_clock::time_point,
-                                                                     std::map<std::string, double>>>& result,
+                                                                     PerformanceMetrics>>& result,
                                                          const std::optional<std::chrono::system_clock::time_point>& after) const {
         result.clear();
         result.reserve(_recent_graph_performance.size());

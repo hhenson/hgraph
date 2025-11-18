@@ -211,3 +211,7 @@ class PythonBoundTimeSeriesInput(PythonTimeSeriesInput, ABC):
     @property
     def last_modified_time(self) -> datetime:
         return max(self._output.last_modified_time, self._sample_time) if self.bound else MIN_DT
+    
+    @property
+    def reference_output(self) -> Optional[TimeSeriesOutput]:
+        return self._reference_output

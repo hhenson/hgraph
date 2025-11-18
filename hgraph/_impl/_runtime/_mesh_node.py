@@ -267,6 +267,7 @@ class PythonMeshNodeImpl(PythonTsdMapNodeImpl):
             # no more dependencies and this was not asked for externally (through the keys)
             self._graphs_to_remove.add(depends_on)
 
+    @property
     def nested_graphs(self):
-        graphs = super().nested_graphs()
+        graphs = super().nested_graphs
         return {k: graphs[k] for k in sorted(graphs.keys(), key=lambda x: self._active_graphs_rank[x])}

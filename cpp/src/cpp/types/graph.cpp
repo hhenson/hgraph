@@ -53,6 +53,8 @@ namespace hgraph {
 
     int64_t Graph::push_source_nodes_end() const { return _push_source_nodes_end; }
 
+    engine_time_t Graph::last_evaluation_time() const { return _last_evaluation_time; }
+
     void Graph::schedule_node(int64_t node_ndx, engine_time_t when) { schedule_node(node_ndx, when, false); }
 
     void Graph::schedule_node(int64_t node_ndx, engine_time_t when, bool force_set) {
@@ -232,7 +234,7 @@ namespace hgraph {
     }
 
     void Graph::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < Graph, ComponentLifeCycle > (m, "Graph")
+        nb::class_ <Graph, ComponentLifeCycle> (m, "Graph")
                 .def(nb::init<std::vector<int64_t>, std::vector<node_ptr>, std::optional<node_ptr>, std::string,
                          traits_ptr>(),
                      "graph_id"_a, "nodes"_a, "parent_node"_a, "label"_a, "traits"_a)
@@ -251,8 +253,15 @@ namespace hgraph {
                      "when"_a, "force_set"_a = false)
                 .def_prop_ro("schedule", &Graph::schedule)
                 .def("evaluate_graph", &Graph::evaluate_graph)
+                .def_prop_ro("last_evaluation_time", &Graph::last_evaluation_time)
                 .def("copy_with", &Graph::copy_with, "nodes"_a)
                 .def_prop_ro("traits", &Graph::traits)
+                .def("node_info", [](Graph &self, int64_t index) {
+                    if (index < 0 || index >= static_cast<int64_t>(self.nodes().size())) {
+                        throw std::out_of_range("Node index out of range");
+                    }
+                    return nb::make_tuple(nb::cast(self.nodes()[index]), nb::cast(self._schedule[index]));
+                }, "index"_a)
                 .def("__str__", [](const Graph &self) {
                     return fmt::format("Graph@{:p}[id={}, nodes={}]",
                                        static_cast<const void *>(&self),

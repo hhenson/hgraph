@@ -54,6 +54,11 @@ class PythonGraph(Graph):
         graph._traits = self._traits.copy()
         return graph
 
+    def node_info(self, index: int) -> tuple[Node, datetime]:
+        if index < 0 or index >= len(self._nodes):
+            raise IndexError("Node index out of range")
+        return self._nodes[index], self._schedule[index]
+
     @property
     def parent_node(self) -> Node:
         return self._parent_node
@@ -106,6 +111,10 @@ class PythonGraph(Graph):
     @property
     def traits(self) -> Traits:
         return self._traits
+
+    @property
+    def last_evaluation_time(self) -> datetime | None:
+        return self._last_evaluation_time
 
     @functools.cached_property
     def push_source_nodes_end(self) -> int:

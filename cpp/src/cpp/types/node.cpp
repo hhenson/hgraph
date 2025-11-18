@@ -797,7 +797,7 @@ namespace hgraph {
     void Node::add_start_input(nb::ref<TimeSeriesReferenceInput> input) { _start_inputs.push_back(std::move(input)); }
 
     void Node::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < Node, ComponentLifeCycle > (m, "Node")
+        nb::class_ <Node, ComponentLifeCycle > (m, "Node")
                 .def_prop_ro("node_ndx", &Node::node_ndx)
                 .def_prop_ro("owning_graph_id",
                              [](const Node &n) {
@@ -817,8 +817,11 @@ namespace hgraph {
                 .def_prop_ro("inputs",
                              [](Node &self) {
                                  nb::dict d;
-                                 auto inp_{*self.input()};
-                                 for (const auto &key: inp_.schema().keys()) { d[key.c_str()] = inp_[key]; }
+                                 auto inp_{self.input()};
+                                 if (inp_) {
+                                    for (const auto &key: inp_->schema().keys()) { d[key.c_str()] = (*inp_)[key]; }
+                                    return d;
+                                 }
                                  return d;
                              })
                 .def_prop_ro("start_inputs",

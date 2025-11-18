@@ -95,6 +95,7 @@ class PythonSwitchNodeImpl(PythonNestedNodeImpl):
             self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
 
 
+    @property
     def nested_graphs(self):
         if self._active_graph:
             return {self._count: self._active_graph}
