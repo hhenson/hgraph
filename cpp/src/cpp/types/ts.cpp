@@ -9,7 +9,7 @@ namespace hgraph {
     nb::object TimeSeriesValueOutput<T>::py_delta_value() const { return py_value(); }
 
     template<typename T>
-    void TimeSeriesValueOutput<T>::py_set_value(nb::object value) {
+    void TimeSeriesValueOutput<T>::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
             return;
@@ -18,7 +18,7 @@ namespace hgraph {
     }
 
     template<typename T>
-    void TimeSeriesValueOutput<T>::apply_result(nb::object value) {
+    void TimeSeriesValueOutput<T>::apply_result(const nb::object& value) {
         if (!value.is_valid() || value.is_none()) { return; }
         try {
             py_set_value(value);

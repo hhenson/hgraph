@@ -476,7 +476,7 @@ namespace hgraph {
         return d;
     }
 
-    NodeSignature::ptr NodeSignature::copy_with(nb::kwargs kwargs) const {
+    NodeSignature::ptr NodeSignature::copy_with(const nb::kwargs& kwargs) const {
         // Get override values from kwargs, otherwise use current values
         std::string name_val = kwargs.contains("name") ? nb::cast<std::string>(kwargs["name"]) : this->name;
         NodeTypeEnum node_type_val = kwargs.contains("node_type")

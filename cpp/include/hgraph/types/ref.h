@@ -88,13 +88,13 @@ namespace hgraph {
         // Python-safe value access that returns the reference value or makes an empty one
         TimeSeriesReference py_value_or_empty() const;
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
         void set_value(TimeSeriesReference value);
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
-        bool can_apply_result(nb::object value) override;
+        bool can_apply_result(const nb::object& value) override;
 
         // Registers an input as observing the reference value
         void observe_reference(TimeSeriesInput::ptr input_);
