@@ -14,6 +14,12 @@ from hgraph import EvaluationLifeCycleObserver
 logger = logging.getLogger(__name__)
 
 
+@dataclass
+class PerformanceMetrics:
+    eval_count: int = 0
+    eval_time: int = 0
+
+
 @dataclass(kw_only=True)
 class GraphInfo:
     graph: "Graph"
@@ -97,7 +103,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         self.on_before_start_graph(graph)
         for n in graph.nodes:
             if isinstance(n, PythonNestedNodeImpl):
-                for k, v in n.nested_graphs().items():
+                for k, v in n.nested_graphs.items():
                     self.walk(v)
 
         self.on_after_start_graph(graph)
@@ -144,7 +150,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
     def on_before_start_graph(self, graph: "Graph"):
         if graph.graph_id == ():
-            os_eval_begin_thread_time = time.thread_time()
+            os_eval_begin_thread_time = int(time.thread_time() * 1_000_000_000)
         else:
             os_eval_begin_thread_time = 0.0
 
@@ -215,7 +221,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
             self.current_graph.total_size_begin = self.current_graph.total_size
 
         if self.current_graph.id == ():
-            self.current_graph.os_eval_begin_thread_time = time.thread_time()
+            self.current_graph.os_eval_begin_thread_time = int(time.thread_time() * 1_000_000_000)
             batch_time = datetime.utcnow().replace(second=0, microsecond=0)
             if self.track_recent_performance and batch_time > self.recent_performance_batch:
                 self.recent_performance_batch = batch_time
@@ -271,11 +277,11 @@ class InspectionObserver(EvaluationLifeCycleObserver):
 
         self.current_graph.node_eval_counts[node.node_ndx] += 1
         self.current_graph.node_eval_times[node.node_ndx] += eval_time
-        
+
         if self.track_recent_performance:
-            recent = self.recent_node_performance[-1][1].setdefault(node.node_id, dict(eval_count=0, eval_time=0))
-            recent["eval_count"] += 1
-            recent["eval_time"] += eval_time
+            recent = self.recent_node_performance[-1][1].setdefault(node.node_id, PerformanceMetrics())
+            recent.eval_count += 1
+            recent.eval_time += eval_time
 
         if not node.signature.is_source_node:
             self._process_node_after_eval(node)
@@ -324,9 +330,9 @@ class InspectionObserver(EvaluationLifeCycleObserver):
         self.current_graph.eval_time += self.current_graph.cycle_time
 
         if self.track_recent_performance:
-            recent = self.recent_graph_performance[-1][1].setdefault(graph.graph_id, dict(eval_count=0, eval_time=0))
-            recent["eval_count"] += 1
-            recent["eval_time"] += self.current_graph.cycle_time
+            recent = self.recent_graph_performance[-1][1].setdefault(graph.graph_id, PerformanceMetrics())
+            recent.eval_count += 1
+            recent.eval_time += self.current_graph.cycle_time
 
         if graph.graph_id != ():
             parent_graph = self.graphs_by_id[graph.parent_node.owning_graph_id]
@@ -340,7 +346,7 @@ class InspectionObserver(EvaluationLifeCycleObserver):
                 )
 
         if graph.graph_id == ():
-            thread_time = time.thread_time() - self.current_graph.os_eval_begin_thread_time
+            thread_time = int(time.thread_time() * 1_000_000_000) - self.current_graph.os_eval_begin_thread_time
             self.current_graph.os_cycle_time = thread_time
             self.current_graph.os_eval_time += self.current_graph.os_cycle_time
 

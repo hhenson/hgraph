@@ -82,7 +82,9 @@ def process_node_stats(state, node_id, item_id, load_detailed = False):
         perf_data = state.observer.get_recent_node_performance(node_id, last)
         if perf_data:
             state.detailed_perf_data_node_times[node_id] = perf_data[0][0]  # these come in reverse order
-            state.detailed_perf_data[str_id].extend(perf_data)
+            state.detailed_perf_data[str_id].extend(
+                (t, dict(eval_count=m.eval_count, eval_time=m.eval_time)) for t, m in perf_data
+            )
 
 
 def process_graph_stats(state, graph_id, item_id, load_detailed = False):
@@ -107,7 +109,9 @@ def process_graph_stats(state, graph_id, item_id, load_detailed = False):
         perf_data = state.observer.get_recent_graph_performance(graph_id, last)
         if perf_data:
             state.detailed_perf_data_graph_times[graph_id] = perf_data[0][0]  # these come in reverse order
-            state.detailed_perf_data[str_id].extend(perf_data)
+            state.detailed_perf_data[str_id].extend(
+                (t, dict(eval_count=m.eval_count, eval_time=m.eval_time)) for t, m in perf_data
+            )
 
 
 def process_graph(state: InspectorState, graph: Graph, publish_interval: float):
@@ -232,10 +236,10 @@ def publish_tables(state: InspectorState, include_stats=True):
             evaluation_time=data["evaluation_time"][-1],
             cycles=(data["cycles"][-1] - state.total_data_prev.get("cycles", 0)) / total_time,
             avg_cycle=sum(data["cycle_time"]) / (len(data["time"]) * 1_000_000_000),
-            avg_os_cycle=sum(data["os_cycle_time"]) / len(data["time"]),
+            avg_os_cycle=sum(data["os_cycle_time"]) / (len(data["time"]) * 1_000_000_000),
             max_cycle=max(data["cycle_time"]) / 1_000_000_000,
             graph_time=total_graph_time,
-            os_graph_time=total_os_graph_time,
+            os_graph_time=total_os_graph_time / 1_000_000_000,
             graph_load=total_graph_time / total_time,
             avg_lag=sum(lags) / len(data["time"]),
             max_lag=max(lags),

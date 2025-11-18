@@ -184,6 +184,13 @@ namespace hgraph {
 
     template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
+    const std::string& TimeSeriesBundle<T_TS>::key_from_value(typename ts_type::ptr value) const {
+        size_t index = index_ts_type::key_from_value(value);
+        return _schema->keys()[index];
+    }
+
+    template<typename T_TS>
+        requires IndexedTimeSeriesT<T_TS>
     template<bool is_delta>
     nb::object TimeSeriesBundle<T_TS>::py_value_with_constraint(
 const std::function < bool(const ts_type &) > &constraint)
@@ -355,6 +362,7 @@ const std::function < bool(const ts_type &) > &constraint)
                 .def("modified_keys", &TimeSeriesBundle_Output::modified_keys)
                 .def("modified_items", static_cast<key_value_collection_type (TimeSeriesBundle_Output::*)() const>(
                          &TimeSeriesBundle_Output::modified_items))
+                .def("key_from_value", &TimeSeriesBundle_Output::key_from_value, "value"_a)
                 .def_prop_ro("__schema__", static_cast<const TimeSeriesSchema &(TimeSeriesBundle_Output::*)() const>(
                                  &TimeSeriesBundle_Output::schema))
                 .def_prop_ro("as_schema", [](TimeSeriesBundle_Output::ptr self) { return self; });
@@ -392,6 +400,7 @@ const std::function < bool(const ts_type &) > &constraint)
                 .def("modified_keys", &TimeSeriesBundleOutput::modified_keys)
                 .def("modified_items", static_cast<key_value_collection_type (TimeSeriesBundleOutput::*)() const>(
                          &TimeSeriesBundleOutput::modified_items))
+                .def("key_from_value", &TimeSeriesBundleOutput::key_from_value, "value"_a)
                 .def_prop_ro("__schema__", static_cast<const TimeSeriesSchema &(TimeSeriesBundleOutput::*)() const>(
                                  &TimeSeriesBundleOutput::schema))
                 .def("__str__",
@@ -447,6 +456,7 @@ const std::function < bool(const ts_type &) > &constraint)
                 .def("valid_items",
                      static_cast<key_value_collection_type (TimeSeriesBundle_Input::*)() const>(&
                          TimeSeriesBundle_Input::valid_items))
+                .def("key_from_value", &TimeSeriesBundle_Input::key_from_value, "value"_a)
                 .def_prop_ro("__schema__",
                              static_cast<const TimeSeriesSchema &(TimeSeriesBundle_Input::*)() const>(&
                                  TimeSeriesBundle_Input::schema))
@@ -460,6 +470,7 @@ const std::function < bool(const ts_type &) > &constraint)
         nb::class_<TimeSeriesBundleInput, TimeSeriesBundle_Input>(m, "TimeSeriesBundleInput")
                 .def(nb::init<const node_ptr &, TimeSeriesSchema::ptr>(), "owning_node"_a, "schema"_a)
                 .def(nb::init<const TimeSeriesType::ptr &, TimeSeriesSchema::ptr>(), "parent_input"_a, "schema"_a)
+                .def("key_from_value", &TimeSeriesBundleInput::key_from_value, "value"_a)
                 .def("__str__",
                      [](const TimeSeriesBundleInput &self) {
                          return fmt::format("TimeSeriesBundleInput@{:p}[keys={}, valid={}]",

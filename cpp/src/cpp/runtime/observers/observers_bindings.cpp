@@ -90,6 +90,17 @@ namespace hgraph {
                        "value"_a,
                        "To use print instead of the logger set this to False.");
 
+        // PerformanceMetrics
+        nb::class_<PerformanceMetrics>(m, "PerformanceMetrics",
+            "Performance metrics for nodes and graphs")
+            .def(nb::init<>())
+            .def(nb::init<size_t, int64_t>(),
+                 "eval_count"_a, "eval_time"_a)
+            .def_rw("eval_count", &PerformanceMetrics::eval_count,
+                   "Number of evaluations")
+            .def_rw("eval_time", &PerformanceMetrics::eval_time,
+                   "Total evaluation time in nanoseconds");
+
         // GraphInfo
         nb::class_<GraphInfo>(m, "GraphInfo",
             "Information collected about a graph during observation")
@@ -179,7 +190,7 @@ namespace hgraph {
                  [](const InspectionObserver& self, const std::vector<int>& node_id,
                     const std::optional<std::chrono::system_clock::time_point>& after) {
                      std::vector<std::pair<std::chrono::system_clock::time_point,
-                                 std::map<std::string, double>>> result;
+                                 PerformanceMetrics>> result;
                      self.get_recent_node_performance(node_id, result, after);
                      return result;
                  },
@@ -189,7 +200,7 @@ namespace hgraph {
                  [](const InspectionObserver& self, const std::vector<int>& graph_id,
                     const std::optional<std::chrono::system_clock::time_point>& after) {
                      std::vector<std::pair<std::chrono::system_clock::time_point,
-                                 std::map<std::string, double>>> result;
+                                 PerformanceMetrics>> result;
                      self.get_recent_graph_performance(graph_id, result, after);
                      return result;
                  },

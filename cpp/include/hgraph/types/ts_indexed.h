@@ -84,6 +84,15 @@ namespace hgraph {
             return std::ranges::any_of(_ts_values, [](const auto &ts) { return ts->has_reference(); });
         }
 
+        // Find the index for a given value pointer
+        [[nodiscard]] size_t key_from_value(typename ts_type::ptr value) const {
+            auto it = std::find(_ts_values.begin(), _ts_values.end(), value);
+            if (it != _ts_values.end()) {
+                return std::distance(_ts_values.begin(), it);
+            }
+            throw std::out_of_range("Value not found in IndexedTimeSeries");
+        }
+
     protected:
         [[nodiscard]] collection_type &ts_values() { return _ts_values; }
 

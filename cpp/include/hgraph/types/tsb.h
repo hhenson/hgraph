@@ -117,6 +117,9 @@ namespace hgraph {
 
         [[nodiscard]] bool has_reference() const override;
 
+        // Override to return string key instead of index
+        [[nodiscard]] const std::string& key_from_value(typename ts_type::ptr value) const;
+
     protected:
         using T_TS::index_with_constraint;
         using T_TS::ts_values;

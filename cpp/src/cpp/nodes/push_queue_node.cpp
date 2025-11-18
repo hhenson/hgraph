@@ -116,4 +116,9 @@ namespace hgraph {
             } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During push-queue start"); }
         }
     }
+
+    void PushQueueNode::register_with_nanobind(nb::module_ &m) {
+        nb::class_<PushQueueNode, Node>(m, "PushQueueNode")
+                .def_prop_ro("messages_in_queue", &PushQueueNode::messages_in_queue);
+    }
 } // namespace hgraph

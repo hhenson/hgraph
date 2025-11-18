@@ -9,12 +9,17 @@
 #include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
+
+    struct TimeSeriesValueOutputBase : BaseTimeSeriesOutput {
+        using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
+    };
+
     template<typename T>
-    struct TimeSeriesValueOutput : BaseTimeSeriesOutput {
+    struct TimeSeriesValueOutput : TimeSeriesValueOutputBase {
         using value_type = T;
         using ptr = nb::ref<TimeSeriesValueOutput<T> >;
 
-        using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
+        using TimeSeriesValueOutputBase::TimeSeriesValueOutputBase;
 
         [[nodiscard]] nb::object py_value() const override;
 
@@ -70,12 +75,16 @@ namespace hgraph {
         T _value{};
     };
 
+    struct TimeSeriesValueInputBase : BaseTimeSeriesInput {
+        using BaseTimeSeriesInput::BaseTimeSeriesInput;
+    };
+
     template<typename T>
-    struct TimeSeriesValueInput : BaseTimeSeriesInput {
+    struct TimeSeriesValueInput : TimeSeriesValueInputBase {
         using value_type = T;
         using ptr = nb::ref<TimeSeriesValueInput<T> >;
 
-        using BaseTimeSeriesInput::BaseTimeSeriesInput;
+        using TimeSeriesValueInputBase::TimeSeriesValueInputBase;
 
         [[nodiscard]] TimeSeriesValueOutput<T> &value_output();
 
