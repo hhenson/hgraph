@@ -1560,3 +1560,11 @@ Version 0.5.7 (10-11-2025)
 
 * Refactoring cleanup to prepare for further C++ improvements.
 * Performance optimisation for accessing evaluation_time.
+
+Version 0.5.8 (18-11-2025)
+--------------------------
+
+* Convert SetDelta to be a value type and not a heap type.
+* Convert TimeSereisReference to be a value type and not a heap type.
+* Add visitor support to the TimeSeriesTypeInput/Output
+* Some contributed fixes to make inspector work.
