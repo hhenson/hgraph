@@ -313,17 +313,6 @@ namespace hgraph
         return _ts_values.find(item) != _ts_values.end();
     }
 
-    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_get_item(const nb::object &item) const {
-        auto KET_SET_ID = nb::module_::import_("hgraph").attr("KEY_SET_ID");
-        if (KET_SET_ID.is(item)) { return nb::cast(_key_set); }
-        auto  k  = nb::cast<T_Key>(item);
-        auto  ts = operator[](k);
-        auto *py = ts->self_py();
-        if (py) return nb::borrow(py);
-        // Return value directly
-        return nb::cast(ts.get());
-    }
-
     template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_get_or_create(const nb::object &key) {
         auto ts = _get_or_create(nb::cast<T_Key>(key));
         return nb::cast(ts.get());
@@ -658,11 +647,6 @@ namespace hgraph
     }
 
     template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_iter() { return py_keys(); }
-
-    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_get_item(const nb::object &item) const {
-        if (get_key_set_id().is(item)) { return nb::cast(const_cast<TimeSeriesDictInput_T *>(this)->key_set_t()); }
-        return nb::cast(_ts_values.at(nb::cast<T_Key>(item)));
-    }
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::value_type TimeSeriesDictInput_T<T_Key>::operator[](const key_type &item) const {
@@ -1219,131 +1203,4 @@ namespace hgraph
 
     // template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::post_modify() { _post_modify(); }
 
-    void tsd_register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesDictOutput, BaseTimeSeriesOutput>(m, "TimeSeriesDictOutput")
-            .def("__contains__", &TimeSeriesDictOutput::py_contains, "key"_a)
-            .def("__getitem__", &TimeSeriesDictOutput::py_get_item, "key"_a)
-            .def("__setitem__", &TimeSeriesDictOutput::py_set_item, "key"_a, "value"_a)
-            .def("__delitem__", &TimeSeriesDictOutput::py_del_item, "key"_a)
-            .def("__len__", &TimeSeriesDictOutput::size)
-            .def("pop", &TimeSeriesDictOutput::py_pop, "key"_a, "default"_a = nb::none())
-            .def("get", &TimeSeriesDictOutput::py_get, "key"_a, "default"_a = nb::none())
-            .def("get_or_create", &TimeSeriesDictOutput::py_get_or_create, "key"_a)
-            .def("clear", &TimeSeriesDictOutput::clear)
-            .def("__iter__", &TimeSeriesDictOutput::py_iter)
-            .def("keys", &TimeSeriesDictOutput::py_keys)
-            .def("values", &TimeSeriesDictOutput::py_values)
-            .def("items", &TimeSeriesDictOutput::py_items)
-            .def("valid_keys", &TimeSeriesDictOutput::py_valid_keys)
-            .def("valid_values", &TimeSeriesDictOutput::py_valid_values)
-            .def("valid_items", &TimeSeriesDictOutput::py_valid_items)
-            .def("added_keys", &TimeSeriesDictOutput::py_added_keys)
-            .def("added_values", &TimeSeriesDictOutput::py_added_values)
-            .def("added_items", &TimeSeriesDictOutput::py_added_items)
-            .def("was_added", &TimeSeriesDictOutput::py_was_added, "key"_a)
-            .def_prop_ro("has_added", &TimeSeriesDictOutput::has_added)
-            .def("modified_keys", &TimeSeriesDictOutput::py_modified_keys)
-            .def("modified_values", &TimeSeriesDictOutput::py_modified_values)
-            .def("modified_items", &TimeSeriesDictOutput::py_modified_items)
-            .def("was_modified", &TimeSeriesDictOutput::py_was_modified, "key"_a)
-            .def("removed_keys", &TimeSeriesDictOutput::py_removed_keys)
-            .def("removed_values", &TimeSeriesDictOutput::py_removed_values)
-            .def("removed_items", &TimeSeriesDictOutput::py_removed_items)
-            .def("was_removed", &TimeSeriesDictOutput::py_was_removed, "key"_a)
-            .def_prop_ro("has_removed", &TimeSeriesDictOutput::has_removed)
-            .def(
-                "get_ref",
-                [](TimeSeriesDictOutput &self, const nb::object &key, const nb::object &requester) {
-                    return self.py_get_ref(key, requester);
-                },
-                "key"_a, "requester"_a)
-            .def(
-                "release_ref",
-                [](TimeSeriesDictOutput &self, const nb::object &key, const nb::object &requester) {
-                    self.py_release_ref(key, requester);
-                },
-                "key"_a, "requester"_a)
-            .def_prop_ro("key_set", &TimeSeriesDictOutput::py_key_set)
-            .def("__str__",
-                 [](const TimeSeriesDictOutput &self) {
-                     return fmt::format("TimeSeriesDictOutput@{:p}[size={}, valid={}]", static_cast<const void *>(&self),
-                                        self.size(), self.valid());
-                 })
-            .def("__repr__", [](const TimeSeriesDictOutput &self) {
-                return fmt::format("TimeSeriesDictOutput@{:p}[size={}, valid={}]", static_cast<const void *>(&self), self.size(),
-                                   self.valid());
-            });
-
-        nb::class_<TimeSeriesDictInput, BaseTimeSeriesInput>(m, "TimeSeriesDictInput")
-            .def("__contains__", &TimeSeriesDictInput::py_contains, "key"_a)
-            .def("__getitem__", &TimeSeriesDictInput::py_get_item, "key"_a)
-            .def(
-                "get",
-                [](TimeSeriesDictInput &self, const nb::object &key, const nb::object &default_value) {
-                    return self.py_contains(key) ? self.py_get_item(key) : default_value;
-                },
-                "key"_a, "default"_a = nb::none())
-            .def("__len__", &TimeSeriesDictInput::size)
-            .def("__iter__", &TimeSeriesDictInput::py_keys)
-            .def("keys", &TimeSeriesDictInput::py_keys)
-            .def("values", &TimeSeriesDictInput::py_values)
-            .def("items", &TimeSeriesDictInput::py_items)
-            .def("valid_keys", &TimeSeriesDictInput::py_valid_keys)
-            .def("valid_values", &TimeSeriesDictInput::py_valid_values)
-            .def("valid_items", &TimeSeriesDictInput::py_valid_items)
-            .def("added_keys", &TimeSeriesDictInput::py_added_keys)
-            .def("added_values", &TimeSeriesDictInput::py_added_values)
-            .def("added_items", &TimeSeriesDictInput::py_added_items)
-            .def("was_added", &TimeSeriesDictInput::py_was_added, "key"_a)
-            .def_prop_ro("has_added", &TimeSeriesDictInput::has_added)
-            .def("modified_keys", &TimeSeriesDictInput::py_modified_keys)
-            .def("modified_values", &TimeSeriesDictInput::py_modified_values)
-            .def("modified_items", &TimeSeriesDictInput::py_modified_items)
-            .def("was_modified", &TimeSeriesDictInput::py_was_modified, "key"_a)
-            .def("removed_keys", &TimeSeriesDictInput::py_removed_keys)
-            .def("removed_values", &TimeSeriesDictInput::py_removed_values)
-            .def("removed_items", &TimeSeriesDictInput::py_removed_items)
-            .def("was_removed", &TimeSeriesDictInput::py_was_removed, "key"_a)
-            .def_prop_ro("has_removed", &TimeSeriesDictInput::has_removed)
-            .def_prop_ro("key_set", &TimeSeriesDictInput::py_key_set)
-            .def("__str__",
-                 [](const TimeSeriesDictInput &self) {
-                     return fmt::format("TimeSeriesDictInput@{:p}[size={}, valid={}]", static_cast<const void *>(&self),
-                                        self.size(), self.valid());
-                 })
-            .def("__repr__", [](const TimeSeriesDictInput &self) {
-                return fmt::format("TimeSeriesDictInput@{:p}[size={}, valid={}]", static_cast<const void *>(&self), self.size(),
-                                   self.valid());
-            });
-
-        nb::class_<TSD_OUT_Bool, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Bool");
-        nb::class_<TSD_OUT_Int, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Int");
-        nb::class_<TSD_OUT_Float, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Float");
-        nb::class_<TSD_OUT_Date, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Date");
-        nb::class_<TSD_OUT_DateTime, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_DateTime");
-        nb::class_<TSD_OUT_TimeDelta, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_TimeDelta");
-        nb::class_<TSD_OUT_Object, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Object");
-
-        nb::class_<TSD_Bool, TimeSeriesDictInput>(m, "TimeSeriesDictInput_Bool")
-            .def("_create", &TSD_Bool::_create)
-            .def("on_key_removed", &TSD_Bool::on_key_removed);
-        nb::class_<TSD_Int, TimeSeriesDictInput>(m, "TimeSeriesDictInput_Int")
-            .def("_create", &TSD_Int::_create)
-            .def("on_key_removed", &TSD_Int::on_key_removed);
-        nb::class_<TSD_Float, TimeSeriesDictInput>(m, "TimeSeriesDictInput_Float")
-            .def("_create", &TSD_Float::_create)
-            .def("on_key_removed", &TSD_Float::on_key_removed);
-        nb::class_<TSD_Date, TimeSeriesDictInput>(m, "TimeSeriesDictInput_Date")
-            .def("_create", &TSD_Date::_create)
-            .def("on_key_removed", &TSD_Date::on_key_removed);
-        nb::class_<TSD_DateTime, TimeSeriesDictInput>(m, "TimeSeriesDictInput_DateTime")
-            .def("_create", &TSD_DateTime::_create)
-            .def("on_key_removed", &TSD_DateTime::on_key_removed);
-        nb::class_<TSD_TimeDelta, TimeSeriesDictInput>(m, "TimeSeriesDictInput_TimeDelta")
-            .def("_create", &TSD_TimeDelta::_create)
-            .def("on_key_removed", &TSD_TimeDelta::on_key_removed);
-        nb::class_<TSD_Object, TimeSeriesDictInput>(m, "TimeSeriesDictInput_Object")
-            .def("_create", &TSD_Object::_create)
-            .def("on_key_removed", &TSD_Object::on_key_removed);
-    }
 }  // namespace hgraph

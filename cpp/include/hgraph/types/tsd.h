@@ -43,10 +43,6 @@ namespace hgraph {
 
         [[nodiscard]] virtual size_t size() const = 0;
 
-        // Create a set of Python-based API, for non-object-based instances there will
-        // be typed analogues.
-        [[nodiscard]] virtual nb::object py_get_item(const nb::object &item) const = 0;
-
         [[nodiscard]] virtual nb::object py_get(const nb::object &item, const nb::object &default_value) const = 0;
 
         [[nodiscard]] virtual nb::object py_get_or_create(const nb::object &key) = 0;
@@ -191,8 +187,6 @@ namespace hgraph {
         [[nodiscard]] bool py_contains(const nb::object &item) const override;
 
         [[nodiscard]] bool contains(const key_type &item) const;
-
-        [[nodiscard]] nb::object py_get_item(const nb::object &item) const override;
 
         [[nodiscard]] nb::object py_get_or_create(const nb::object &key) override;
 
@@ -410,8 +404,6 @@ namespace hgraph {
 
         [[nodiscard]] nb::iterator py_iter() override;
 
-        [[nodiscard]] nb::object py_get_item(const nb::object &item) const override;
-
         [[nodiscard]] nb::object py_get_or_create(const nb::object &key) override;
 
         [[nodiscard]] value_type operator[](const key_type &item) const;
@@ -583,7 +575,6 @@ namespace hgraph {
         mutable bool _clear_key_changes_registered{false};
     };
 
-    void tsd_register_with_nanobind(nb::module_ & m);
 } // namespace hgraph
 
 #endif  // TSD_H
