@@ -1,6 +1,6 @@
 #include <hgraph/api/python/py_tsb.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/types/tsb.h>
 
 namespace hgraph
 {
@@ -10,7 +10,9 @@ namespace hgraph
     nb::object PyTimeSeriesBundle<T_TS, T_U>::iter() const {
         auto     impl_{impl()};
         nb::list values;
-        for (size_t i = 0; i < impl_->size(); ++i) { values.append(impl_->operator[](i)); }
+        for (size_t i = 0; i < impl_->size(); ++i) {
+            values.append(wrap_time_series(impl_->operator[](i).get(), this->control_block()));
+        }
         return values.attr("__iter__")();
     }
 
@@ -19,15 +21,12 @@ namespace hgraph
     nb::object PyTimeSeriesBundle<T_TS, T_U>::get_item(const nb::handle &key) const {
         typename T_U::ts_type *v;
         if (nb::isinstance<nb::str>(key)) {
-            v = impl()->operator[](nb::cast<std::string>(key)).get();
-        } else if (nb::isinstance<nb::int_>(key)) {
-            v = impl()->operator[](nb::cast<size_t>(key)).get();
-        } else {
-            throw std::runtime_error("Invalid key type for TimeSeriesBundle");
+            return wrap_time_series(impl()->operator[](nb::cast<std::string>(key)).get(), this->control_block());
         }
-        if constexpr (std::is_same_v<typename T_U::ts_type, TimeSeriesOutput>) { return wrap_output(v, this->control_block()); }
-        else if constexpr (std::is_same_v<typename T_U::ts_type, TimeSeriesInput>) { return wrap_input(v, this->control_block()); }
-        else { throw std::runtime_error("Invalid TimeSeries type"); }
+        if (nb::isinstance<nb::int_>(key)) {
+            return wrap_time_series(impl()->operator[](nb::cast<size_t>(key)).get(), this->control_block());
+        }
+        throw std::runtime_error("Invalid key type for TimeSeriesBundle");
     }
 
     template <typename T_TS, typename T_U>
@@ -69,19 +68,34 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::items() const {
-        return nb::make_tuple(impl()->items().begin(), impl()->items().end());
+        auto     impl_{impl()};
+        nb::list values;
+        for (const auto &[key, ts] : impl_->items()) {
+            values.append(nb::make_tuple(key, wrap_time_series(ts.get(), this->control_block())));
+        }
+        return values;
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_items() const {
-        return nb::make_tuple(impl()->valid_items().begin(), impl()->valid_items().end());
+        auto     impl_{impl()};
+        nb::list values;
+        for (const auto &[key, ts] : impl_->valid_items()) {
+            values.append(nb::make_tuple(key, wrap_time_series(ts.get(), this->control_block())));
+        }
+        return values;
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_items() const {
-        return nb::make_tuple(impl()->modified_items().begin(), impl()->modified_items().end());
+        auto     impl_{impl()};
+        nb::list values;
+        for (const auto &[key, ts] : impl_->modified_items()) {
+            values.append(nb::make_tuple(key, wrap_time_series(ts.get(), this->control_block())));
+        }
+        return values;
     }
 
     template <typename T_TS, typename T_U>

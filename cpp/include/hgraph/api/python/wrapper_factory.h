@@ -72,6 +72,9 @@ namespace hgraph
 
     nb::object wrap_output(const hgraph::TimeSeriesOutput *impl);
 
+    nb::object wrap_time_series(const TimeSeriesInput *impl, control_block_ptr &&control_block);
+    nb::object wrap_time_series(const TimeSeriesOutput *impl, control_block_ptr &&control_block);
+
     /**
      * Extract raw Node pointer from PyNode wrapper.
      * Returns nullptr if obj is not a PyNode.

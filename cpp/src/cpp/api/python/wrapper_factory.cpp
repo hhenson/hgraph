@@ -84,8 +84,7 @@ namespace hgraph
         explicit WrapInputVisitor(control_block_ptr control_block_) : control_block(std::move(control_block_)) {}
 
         // Handle value inputs (template)
-        template <typename T>
-        void visit(TimeSeriesValueInput<T> &source) {
+        template <typename T> void visit(TimeSeriesValueInput<T> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesInput(&source, control_block));
         }
 
@@ -119,8 +118,7 @@ namespace hgraph
             // TODO: Implement
         }
 
-        template <typename K>
-        void visit(TimeSeriesSetInput_T<K> &source) {
+        template <typename K> void visit(TimeSeriesSetInput_T<K> &source) {
             // TODO: Implement
         }
 
@@ -128,8 +126,7 @@ namespace hgraph
             // TODO: Implement
         }
 
-        template <typename K>
-        void visit(TimeSeriesDictInput_T<K> &source) {
+        template <typename K> void visit(TimeSeriesDictInput_T<K> &source) {
             // TODO: Implement
         }
 
@@ -137,8 +134,7 @@ namespace hgraph
             // TODO: Implement
         }
 
-        template<typename T>
-        void visit(TimeSeriesWindowInput<T> &source) {
+        template <typename T> void visit(TimeSeriesWindowInput<T> &source) {
             // TODO: Implement
         }
     };
@@ -153,7 +149,7 @@ namespace hgraph
         });
     }
 
-        // CRTP visitor for wrapping TimeSeriesInput objects
+    // CRTP visitor for wrapping TimeSeriesInput objects
     // Now that concrete input types have CRTP accept() methods, we can use the more efficient CRTP pattern
     struct WrapOutputVisitor : TimeSeriesOutputVisitorCRTP<WrapOutputVisitor>
     {
@@ -163,8 +159,7 @@ namespace hgraph
         explicit WrapOutputVisitor(control_block_ptr control_block_) : control_block(std::move(control_block_)) {}
 
         // Handle value inputs (template)
-        template <typename T>
-        void visit(TimeSeriesValueOutput<T> &source) {
+        template <typename T> void visit(TimeSeriesValueOutput<T> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesOutput(&source, control_block));
         }
 
@@ -198,8 +193,7 @@ namespace hgraph
             // TODO: Implement
         }
 
-        template <typename K>
-        void visit(TimeSeriesSetOutput_T<K> &source) {
+        template <typename K> void visit(TimeSeriesSetOutput_T<K> &source) {
             // TODO: Implement
         }
 
@@ -207,18 +201,15 @@ namespace hgraph
             // TODO: Implement
         }
 
-        template <typename K>
-        void visit(TimeSeriesDictOutput_T<K> &source) {
+        template <typename K> void visit(TimeSeriesDictOutput_T<K> &source) {
             // TODO: Implement
         }
 
-        template<typename T>
-        void visit(TimeSeriesFixedWindowOutput<T> &source) {
+        template <typename T> void visit(TimeSeriesFixedWindowOutput<T> &source) {
             // TODO: Implement
         }
 
-        template<typename T>
-        void visit(TimeSeriesTimeWindowOutput<T> &source) {
+        template <typename T> void visit(TimeSeriesTimeWindowOutput<T> &source) {
             // TODO: Implement
         }
     };
@@ -232,6 +223,14 @@ namespace hgraph
             visit_timeseries(visitor, *impl);
             return visitor.wrapped_visitor.is_valid() ? visitor.wrapped_visitor : nb::none();
         });
+    }
+
+    nb::object wrap_time_series(const TimeSeriesInput *impl, control_block_ptr &&control_block) {
+        return wrap_input(impl, std::move(control_block));
+    }
+
+    nb::object wrap_time_series(const TimeSeriesOutput *impl, control_block_ptr &&control_block) {
+        return wrap_output(impl, std::move(control_block));
     }
 
     Node *unwrap_node(const nb::object &obj) {
@@ -254,9 +253,7 @@ namespace hgraph
         return nullptr;
     }
 
-    TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_) {
-        return output_.impl();
-    }
+    TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_) { return output_.impl(); }
 
     // nb::object wrap_evaluation_engine_api(const EvaluationEngineApi *impl, control_block_ptr control_block) {
     //     return get_or_create_wrapper(impl, std::move(control_block), [](EvaluationEngineApi *impl, control_block_ptr cb)

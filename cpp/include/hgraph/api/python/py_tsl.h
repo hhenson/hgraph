@@ -1,0 +1,52 @@
+#pragma once
+
+#include <hgraph/api/python/py_time_series.h>
+#include <hgraph/hgraph_base.h>
+
+namespace hgraph
+{
+
+    template <typename T_TS, typename T_U>
+    concept is_py_tsl = ((std::is_same_v<T_TS, PyTimeSeriesInput> || std::is_same_v<T_TS, PyTimeSeriesOutput>) &&
+                         ((std::is_same_v<T_TS, PyTimeSeriesInput> && std::is_same_v<T_U, TimeSeriesListInput>) ||
+                          (std::is_same_v<T_TS, PyTimeSeriesOutput> && std::is_same_v<T_U, TimeSeriesListOutput>)));
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsl<T_TS, T_U>)
+    struct PyTimeSeriesList : T_TS
+    {
+        using underlying_type = T_U;
+
+        // Default iterator iterates over keys to keep this more consistent with Python (c.f. dict)
+        [[nodiscard]] nb::object iter() const;
+
+        [[nodiscard]] nb::object get_item(const nb::handle &key) const;
+
+        // Retrieves valid keys
+        [[nodiscard]] nb::object keys() const;
+
+        [[nodiscard]] nb::object valid_keys() const;
+
+        [[nodiscard]] nb::object modified_keys() const;
+
+        [[nodiscard]] nb::int_ len() const;
+
+        // Retrieves valid items
+        [[nodiscard]] nb::object items() const;
+
+        [[nodiscard]] nb::object valid_items() const;
+
+        [[nodiscard]] nb::object modified_items() const;
+
+      private:
+        underlying_type *impl() const;
+    };
+
+
+    using PyTimeSeriesBundleOutput = PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>;
+
+    using PyTimeSeriesBundleInput = PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>;
+
+    void register_tsl_with_nanobind(nb::module_ &m);
+
+}  // namespace hgraph
