@@ -16,12 +16,12 @@ namespace hgraph {
         /**
          * Create an instance of InputBuilder using an owning node
          */
-        virtual time_series_input_ptr make_instance(node_ptr owning_node) const = 0;
+        virtual time_series_input_ptr make_instance(const node_ptr& owning_node) const = 0;
 
         /**
          * Create an instance of InputBuilder using an parent input
          */
-        virtual time_series_input_ptr make_instance(time_series_input_ptr owning_input) const = 0;
+        virtual time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const = 0;
 
         /**
          * Release an instance of the input type.

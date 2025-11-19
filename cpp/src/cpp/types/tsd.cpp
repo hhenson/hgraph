@@ -826,12 +826,12 @@ namespace hgraph
         for (const auto &key : key_set_t().removed()) {
             auto it{_removed_items.find(key)};
             if (it == _removed_items.end()) {
-                // This really should not occur!
-                throw std::runtime_error("Removed item not found in removed_cache");
-                // continue;
+                auto it = _ts_values.find(key); // transplanted items do not go to _removed_items, they stay in _ts_values as they do not belong to us
+                if (it == _ts_values.end()) continue;  // Key not found anywhere, skip
+                _removed_item_cache.emplace(key, it->second);
+            } else {
+                _removed_item_cache.emplace(key, it->second.first);
             }
-            // Python does a search inside of _ts_values to find a deleted key, but this seems rather odd to me.
-            _removed_item_cache.emplace(key, it->second.first);
         }
         return _removed_item_cache;
     }
@@ -899,8 +899,8 @@ namespace hgraph
         return was_removed(nb::cast<T_Key>(key));
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(time_series_output_ptr &value) {
-        auto *value_output{dynamic_cast<TimeSeriesDictOutput_T<T_Key> *>(value.get())};
+    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(const time_series_output_ptr& value) {
+        auto *value_output{dynamic_cast<TimeSeriesDictOutput_T<T_Key> *>(const_cast<TimeSeriesOutput*>(value.get()))};
 
         // Peer when types match AND neither has references (matching Python logic)
         bool  peer = (is_same_type(value_output) || !(value_output->has_reference() || this->has_reference()));

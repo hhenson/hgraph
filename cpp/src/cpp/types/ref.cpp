@@ -199,7 +199,7 @@ namespace hgraph {
     std::string UnBoundTimeSeriesReference::to_string() const {
         std::vector<std::string> string_items;
         string_items.reserve(_items.size());
-        for (const auto &item: _items) { string_items.push_back(item->to_string()); }
+        for (const auto &item: _items) { string_items.push_back(item ? item->to_string() : "None"); }
         return fmt::format("REF[{}]", fmt::join(string_items, ", "));
     }
 
@@ -378,7 +378,7 @@ namespace hgraph {
         }
     }
 
-    bool TimeSeriesReferenceInput::bind_output(time_series_output_ptr output_) {
+    bool TimeSeriesReferenceInput::bind_output(const time_series_output_ptr& output_) {
         auto peer = do_bind_output(output_);
 
         if (owning_node()->is_started() && has_output() && output()->valid()) {
@@ -446,7 +446,7 @@ namespace hgraph {
         return (*_items)[index].get();
     }
 
-    bool TimeSeriesReferenceInput::do_bind_output(time_series_output_ptr &output_) {
+    bool TimeSeriesReferenceInput::do_bind_output(const time_series_output_ptr& output_) {
         if (dynamic_cast<const TimeSeriesReferenceOutput *>(output_.get()) != nullptr) {
             // Match Python behavior: bind to a TimeSeriesReferenceOutput as a normal peer
             reset_value();

@@ -114,23 +114,23 @@ namespace hgraph {
         on_after_start_graph(graph);
     }
 
-    void InspectionObserver::subscribe_graph(const std::vector<int>& graph_id) {
+    void InspectionObserver::subscribe_graph(const std::vector<int64_t>& graph_id) {
         _graph_subscriptions.insert(graph_id);
     }
 
-    void InspectionObserver::unsubscribe_graph(const std::vector<int>& graph_id) {
+    void InspectionObserver::unsubscribe_graph(const std::vector<int64_t>& graph_id) {
         _graph_subscriptions.erase(graph_id);
     }
 
-    void InspectionObserver::subscribe_node(const std::vector<int>& node_id) {
+    void InspectionObserver::subscribe_node(const std::vector<int64_t>& node_id) {
         _node_subscriptions.insert(node_id);
     }
 
-    void InspectionObserver::unsubscribe_node(const std::vector<int>& node_id) {
+    void InspectionObserver::unsubscribe_node(const std::vector<int64_t>& node_id) {
         _node_subscriptions.erase(node_id);
     }
 
-    GraphInfoPtr InspectionObserver::get_graph_info(const std::vector<int>& graph_id) const {
+    GraphInfoPtr InspectionObserver::get_graph_info(const std::vector<int64_t>& graph_id) const {
         auto it = _graphs_by_id.find(graph_id);
         if (it != _graphs_by_id.end()) {
             return it->second;
@@ -179,7 +179,7 @@ namespace hgraph {
         auto gi = std::make_shared<GraphInfo>();
         gi->graph = graph;
         auto gid = graph->graph_id();
-        gi->id = std::vector<int>(gid.begin(), gid.end());
+        gi->id = std::vector<int64_t>(gid.begin(), gid.end());
         gi->label = graph->label().has_value() ? graph->label().value() : "";
         gi->parent_graph = graph->parent_node() ? graph->parent_node()->graph().get() : nullptr;
         
@@ -288,11 +288,13 @@ namespace hgraph {
 
                 if (batch_time > _recent_performance_batch) {
                     _recent_performance_batch = batch_time;
-                    _recent_node_performance.push_back({batch_time, {}});
+                    auto reserve_size = 1000;
+                    _recent_node_performance.push_back({batch_time, perf_map(reserve_size)});
                     while (_recent_node_performance.size() > _recent_performance_horizon) {
                         _recent_node_performance.pop_front();
                     }
-                    _recent_graph_performance.push_back({batch_time, {}});
+                    reserve_size = 100;
+                    _recent_graph_performance.push_back({batch_time, perf_map(reserve_size)});
                     while (_recent_graph_performance.size() > _recent_performance_horizon) {
                         _recent_graph_performance.pop_front();
                     }
@@ -361,10 +363,8 @@ namespace hgraph {
 
         // Track recent node performance
         if (_track_recent_performance && !_recent_node_performance.empty()) {
-            auto nid = node->node_id();
-            std::vector<int> node_vec_id(nid.begin(), nid.end());
             auto& current_batch = _recent_node_performance.back().second;
-            auto& recent = current_batch[node_vec_id];
+            auto& recent = current_batch[node->node_id()];
             recent.eval_count += 1;
             recent.eval_time += eval_time;
         }
@@ -415,7 +415,7 @@ namespace hgraph {
         }
         
         auto nid = node->node_id();
-        std::vector<int> node_vec_id(nid.begin(), nid.end());
+        std::vector<int64_t> node_vec_id(nid.begin(), nid.end());
         if (_callback_node && _node_subscriptions.count(node_vec_id)) {
             try {
                 _callback_node(node);
@@ -437,7 +437,7 @@ namespace hgraph {
         // Track recent graph performance
         if (_track_recent_performance && !_recent_graph_performance.empty()) {
             auto gid = graph->graph_id();
-            std::vector<int> graph_vec_id(gid.begin(), gid.end());
+            std::vector<int64_t> graph_vec_id(gid.begin(), gid.end());
             auto& current_batch = _recent_graph_performance.back().second;
             auto& recent = current_batch[graph_vec_id];
             recent.eval_count += 1;
@@ -475,7 +475,7 @@ namespace hgraph {
         }
         
         auto gid = graph->graph_id();
-        std::vector<int> graph_vec_id(gid.begin(), gid.end());
+        std::vector<int64_t> graph_vec_id(gid.begin(), gid.end());
         if (_callback_graph && _graph_subscriptions.count(graph_vec_id)) {
             try {
                 _callback_graph(graph);
@@ -503,7 +503,7 @@ namespace hgraph {
         }
     }
 
-    void InspectionObserver::get_recent_node_performance(const std::vector<int>& node_id,
+    void InspectionObserver::get_recent_node_performance(const std::vector<int64_t>& node_id,
                                                         std::vector<std::pair<std::chrono::system_clock::time_point,
                                                                     PerformanceMetrics>>& result,
                                                         const std::optional<std::chrono::system_clock::time_point>& after) const {
@@ -531,7 +531,7 @@ namespace hgraph {
         }
     }
 
-    void InspectionObserver::get_recent_graph_performance(const std::vector<int>& graph_id,
+    void InspectionObserver::get_recent_graph_performance(const std::vector<int64_t>& graph_id,
                                                          std::vector<std::pair<std::chrono::system_clock::time_point,
                                                                      PerformanceMetrics>>& result,
                                                          const std::optional<std::chrono::system_clock::time_point>& after) const {

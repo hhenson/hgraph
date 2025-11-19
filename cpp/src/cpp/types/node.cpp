@@ -737,7 +737,7 @@ namespace hgraph {
     graph_ptr Node::graph() { return _graph; }
     graph_ptr Node::graph() const { return _graph; }
 
-    void Node::set_graph(graph_ptr value) { _graph = value; }
+    void Node::set_graph(graph_ptr value) { _graph = std::move(value); }
 
     time_series_bundle_input_ptr Node::input() { return _input; }
     time_series_bundle_input_ptr Node::input() const { return _input; }
@@ -773,11 +773,11 @@ namespace hgraph {
 
     time_series_output_ptr Node::output() { return _output; }
 
-    void Node::set_output(time_series_output_ptr value) { _output = value; }
+    void Node::set_output(time_series_output_ptr value) { _output = std::move(value); }
 
     time_series_bundle_output_ptr Node::recordable_state() { return _recordable_state; }
 
-    void Node::set_recordable_state(nb::ref<TimeSeriesBundleOutput> value) { _recordable_state = value; }
+    void Node::set_recordable_state(nb::ref<TimeSeriesBundleOutput> value) { _recordable_state = std::move(value); }
 
     bool Node::has_recordable_state() const { return _recordable_state.get() != nullptr; }
 

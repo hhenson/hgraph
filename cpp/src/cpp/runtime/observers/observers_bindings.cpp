@@ -187,7 +187,7 @@ namespace hgraph {
                  "graph"_a,
                  "Walk a graph and initialize observation state")
             .def("get_recent_node_performance",
-                 [](const InspectionObserver& self, const std::vector<int>& node_id,
+                 [](const InspectionObserver& self, const std::vector<int64_t>& node_id,
                     const std::optional<std::chrono::system_clock::time_point>& after) {
                      std::vector<std::pair<std::chrono::system_clock::time_point,
                                  PerformanceMetrics>> result;
@@ -197,7 +197,7 @@ namespace hgraph {
                  "node_id"_a, "after"_a = std::nullopt,
                  "Get recent performance data for a specific node")
             .def("get_recent_graph_performance",
-                 [](const InspectionObserver& self, const std::vector<int>& graph_id,
+                 [](const InspectionObserver& self, const std::vector<int64_t>& graph_id,
                     const std::optional<std::chrono::system_clock::time_point>& after) {
                      std::vector<std::pair<std::chrono::system_clock::time_point,
                                  PerformanceMetrics>> result;

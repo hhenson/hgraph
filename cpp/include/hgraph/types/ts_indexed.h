@@ -172,7 +172,7 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
 
     protected:
-        bool do_bind_output(time_series_output_ptr &value) override;
+        bool do_bind_output(const time_series_output_ptr& value) override;
 
         void do_un_bind_output(bool unbind_refs) override;
     };

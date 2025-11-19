@@ -874,7 +874,7 @@ namespace hgraph {
         });
     }
 
-    bool TimeSeriesSetInput::do_bind_output(TimeSeriesOutput::ptr &output) {
+    bool TimeSeriesSetInput::do_bind_output(const TimeSeriesOutput::ptr& output) {
         if (has_output()) {
             _prev_output = &set_output();
             // Clean up after the engine cycle is complete
