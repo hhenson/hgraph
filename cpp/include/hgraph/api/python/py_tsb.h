@@ -42,6 +42,9 @@ namespace hgraph
 
         [[nodiscard]] nb::object modified_items() const;
 
+        [[nodiscard]] nb::str py_str();
+        [[nodiscard]] nb::str py_repr();
+
       private:
         underlying_type *impl() const;
     };

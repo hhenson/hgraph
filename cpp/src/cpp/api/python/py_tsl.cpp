@@ -82,6 +82,29 @@ namespace hgraph
         return values;
     }
 
+    template <typename T_TS, typename T_U> constexpr const char *get_bundle_type_name() {
+        if constexpr (std::is_same_v<T_TS, PyTimeSeriesInput>) {
+            return "TimeSeriesListInput@{:p}[keys={}, valid={}]";
+        } else {
+            return "TimeSeriesListOutput@{:p}[keys={}, valid={}]";
+        }
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsl<T_TS, T_U>)
+    nb::str PyTimeSeriesList<T_TS, T_U>::py_str() {
+        auto                  self = impl();
+        constexpr const char *name = get_bundle_type_name<T_TS, T_U>();
+        auto                  str  = fmt::format(name, static_cast<const void *>(self), self->keys().size(), self->valid());
+        return nb::str(str.c_str());
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsl<T_TS, T_U>)
+    nb::str PyTimeSeriesList<T_TS, T_U>::py_repr() {
+        return py_str();
+    }
+
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
     T_U *PyTimeSeriesList<T_TS, T_U>::impl() const {
@@ -98,12 +121,15 @@ namespace hgraph
         nb::class_<PyTS_Type, T_TS>(m, std::is_same_v<T_TS, TimeSeriesListInput> ? "TimeSeriesListInput" : "TimeSeriesListOutput")
             .def("__getitem__", &PyTS_Type::get_item)
             .def("__iter__", &PyTS_Type::iter)
+            .def("__len__", &PyTS_Type::len)
             .def("keys", &PyTS_Type::keys)
             .def("items", &PyTS_Type::items)
             .def("valid_keys", &PyTS_Type::valid_keys)
             .def("valid_items", &PyTS_Type::valid_items)
             .def("modified_keys", &PyTS_Type::modified_keys)
-            .def("modified_items", &PyTS_Type::modified_items);
+            .def("modified_items", &PyTS_Type::modified_items)
+            .def("__str__", &PyTS_Type::py_str)
+            .def("__repr__", &PyTS_Type::py_repr);
     }
 
     void register_tsl_with_nanobind(nb::module_ &m) {

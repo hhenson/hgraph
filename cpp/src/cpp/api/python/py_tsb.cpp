@@ -19,7 +19,6 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::get_item(const nb::handle &key) const {
-        typename T_U::ts_type *v;
         if (nb::isinstance<nb::str>(key)) {
             return wrap_time_series(impl()->operator[](nb::cast<std::string>(key)).get(), this->control_block());
         }
@@ -98,6 +97,29 @@ namespace hgraph
         return values;
     }
 
+    template <typename T_TS, typename T_U> constexpr const char *get_bundle_type_name() {
+        if constexpr (std::is_same_v<T_TS, PyTimeSeriesInput>) {
+            return "TimeSeriesBundleInput@{:p}[keys={}, valid={}]";
+        } else {
+            return "TimeSeriesBundleOutput@{:p}[keys={}, valid={}]";
+        }
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsb<T_TS, T_U>)
+    nb::str PyTimeSeriesBundle<T_TS, T_U>::py_str() {
+        auto                  self = impl();
+        constexpr const char *name = get_bundle_type_name<T_TS, T_U>();
+        auto                  str  = fmt::format(name, static_cast<const void *>(self), self->keys().size(), self->valid());
+        return nb::str(str.c_str());
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsb<T_TS, T_U>)
+    nb::str PyTimeSeriesBundle<T_TS, T_U>::py_repr() {
+        return py_str();
+    }
+
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     T_U *PyTimeSeriesBundle<T_TS, T_U>::impl() const {
@@ -115,6 +137,7 @@ namespace hgraph
                                                                                    : "TimeSeriesBundleOutput")
             .def("__getitem__", &PyTS_Type::get_item)
             .def("__iter__", &PyTS_Type::iter)
+            .def("__len__", &PyTS_Type::len)
             .def("__contains__", &PyTS_Type::contains)
             .def("keys", &PyTS_Type::keys)
             .def("items", &PyTS_Type::items)
@@ -123,7 +146,9 @@ namespace hgraph
             .def("modified_keys", &PyTS_Type::modified_keys)
             .def("modified_items", &PyTS_Type::modified_items)
             .def_prop_ro("__schema__", &PyTS_Type::schema)
-            .def_prop_ro("as_schema", [](nb::handle self) { return self; });
+            .def_prop_ro("as_schema", [](nb::handle self) { return self; })
+            .def("__str__", &PyTS_Type::py_str)
+            .def("__repr__", &PyTS_Type::py_repr);
     }
 
     void register_tsb_with_nanobind(nb::module_ &m) {
