@@ -21,10 +21,6 @@ namespace hgraph
     SetDelta_T<T>::SetDelta_T(collection_type added, collection_type removed, nb::object tp)
         : _added(std::move(added)), _removed(std::move(removed)), _tp(std::move(tp)) {}
 
-    template <typename T> nb::object SetDelta_T<T>::py_added() const { return nb::frozenset(nb::cast(_added)); }
-
-    template <typename T> nb::object SetDelta_T<T>::py_removed() const { return nb::frozenset(nb::cast(_removed)); }
-
     template <typename T> const typename SetDelta_T<T>::collection_type &SetDelta_T<T>::added() const { return _added; }
 
     template <typename T> const typename SetDelta_T<T>::collection_type &SetDelta_T<T>::removed() const { return _removed; }
@@ -101,15 +97,15 @@ namespace hgraph
 
         // Fallback: comparison against an iterable of items/Removed wrappers (Python semantics)
         if (!nb::isinstance<nb::iterable>(other)) { return false; }
-        auto added   = nb::cast<nb::frozenset>(self.py_added());
-        auto removed = nb::cast<nb::frozenset>(self.py_removed());
-        if (nb::len(other) != nb::len(added) + nb::len(removed)) { return false; }
+        auto added   = self.added();
+        auto removed = self.removed();
+        if (nb::len(other) != added.size() + removed.size()) { return false; }
         auto REMOVED = get_removed();
         for (auto i : nb::iter(other)) {
             if (nb::isinstance(i, REMOVED)) {
-                if (!removed.contains(i.attr("item"))) return false;
+                if (!removed.contains(nb::cast<T>(i.attr("item")))) return false;
             } else {
-                if (!added.contains(i)) return false;
+                if (!added.contains(nb::cast<T>(i))) return false;
             }
         }
         return true;
@@ -126,16 +122,16 @@ namespace hgraph
         } else {
             set_delta_tp.def(nb::init<std::unordered_set<T>, std::unordered_set<T>>(), "added"_a, "removed"_a);
         }
-        set_delta_tp.def_prop_ro("added", &SetDelta::py_added)
-            .def_prop_ro("removed", &SetDelta::py_removed)
+        set_delta_tp.def_prop_ro("added", [](const SetDelta &self) { return nb::frozenset(nb::cast(self.added())); })
+            .def_prop_ro("removed", [](const SetDelta &self) { return nb::frozenset(nb::cast(self.removed())); })
             .def_prop_ro("tp", &SetDelta::py_type)
             .def(
                 "__str__",
-                [](SetDelta &self) { return nb::str("SetDelta(added={}, removed={})").format(self.py_added(), self.py_removed()); })
+                [](const SetDelta &self) { return nb::str("SetDelta(added={}, removed={})").format(self.added(), self.removed()); })
             .def(
                 "__repr__",
-                [](SetDelta &self) {
-                    return nb::str("SetDelta[{}](added={}, removed={})").format(self.py_type(), self.py_added(), self.py_removed());
+                [](const SetDelta &self) {
+                    return nb::str("SetDelta[{}](added={}, removed={})").format(self.py_type(), self.added(), self.removed());
                 })
             .def("__eq__", &eq<T>)
             .def("__hash__", &SetDelta::hash)
