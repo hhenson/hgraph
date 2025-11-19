@@ -26,10 +26,6 @@ namespace hgraph {
             requires(std::is_same_v<U, nb::object>)
         SetDelta_T(collection_type added, collection_type removed, nb::object tp);
 
-        [[nodiscard]] nb::object py_added() const;
-
-        [[nodiscard]] nb::object py_removed() const;
-
         [[nodiscard]] const collection_type &added() const;
 
         [[nodiscard]] const collection_type &removed() const;
