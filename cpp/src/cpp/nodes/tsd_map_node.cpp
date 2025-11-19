@@ -207,7 +207,7 @@ namespace hgraph {
                 auto &error_tsd = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*error_output());
                 auto msg = std::string("key: ") + to_string(key);
                 auto node_error = NodeError::capture_error(e, *this, msg);
-                auto error_ts = error_tsd._get_or_create(key);
+                auto error_ts = error_tsd.get_or_create(key);
                 // Create a heap-allocated copy managed by nanobind
                 auto error_ptr = nb::ref<NodeError>(new NodeError(node_error));
                 error_ts->py_set_value(nb::cast(error_ptr));
@@ -287,7 +287,7 @@ namespace hgraph {
         if (output_node_id_ >= 0) {
             auto node = graph->nodes()[output_node_id_];
             auto &output_tsd = tsd_output();
-            auto output_ts = output_tsd._get_or_create(key);
+            auto output_ts = output_tsd.get_or_create(key);
             node->set_output(output_ts.get());
         }
     }

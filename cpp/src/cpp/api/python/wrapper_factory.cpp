@@ -141,7 +141,7 @@ namespace hgraph
 
     nb::object wrap_input(const TimeSeriesInput *impl) { return wrap_input(impl, impl->owning_graph()->control_block()); }
 
-    nb::object wrap_input(const TimeSeriesInput *impl, control_block_ptr control_block) {
+    nb::object wrap_input(const TimeSeriesInput *impl, const control_block_ptr &control_block) {
         return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) {
             WrapInputVisitor visitor(cb);
             visit_timeseries(visitor, *impl);
@@ -217,7 +217,7 @@ namespace hgraph
     // wrap when no control block is readily available.
     nb::object wrap_output(const TimeSeriesOutput *impl) { return wrap_output(impl, impl->owning_graph()->control_block()); }
 
-    nb::object wrap_output(const TimeSeriesOutput *impl, control_block_ptr control_block) {
+    nb::object wrap_output(const TimeSeriesOutput *impl, const control_block_ptr &control_block) {
         return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) {
             WrapOutputVisitor visitor(cb);
             visit_timeseries(visitor, *impl);
@@ -225,12 +225,12 @@ namespace hgraph
         });
     }
 
-    nb::object wrap_time_series(const TimeSeriesInput *impl, control_block_ptr &&control_block) {
-        return wrap_input(impl, std::move(control_block));
+    nb::object wrap_time_series(const TimeSeriesInput *impl, const control_block_ptr &control_block) {
+        return wrap_input(impl, control_block);
     }
 
-    nb::object wrap_time_series(const TimeSeriesOutput *impl, control_block_ptr &&control_block) {
-        return wrap_output(impl, std::move(control_block));
+    nb::object wrap_time_series(const TimeSeriesOutput *impl, const control_block_ptr &control_block) {
+        return wrap_output(impl, control_block);
     }
 
     Node *unwrap_node(const nb::object &obj) {

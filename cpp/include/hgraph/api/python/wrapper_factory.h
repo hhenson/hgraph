@@ -57,7 +57,7 @@ namespace hgraph
      *
      * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
      */
-    nb::object wrap_input(const hgraph::TimeSeriesInput *impl, control_block_ptr control_block);
+    nb::object wrap_input(const hgraph::TimeSeriesInput *impl, const control_block_ptr &control_block);
     nb::object wrap_input(const TimeSeriesInput *impl);
 
     /**
@@ -68,12 +68,12 @@ namespace hgraph
      *
      * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
      */
-    nb::object wrap_output(const hgraph::TimeSeriesOutput *impl, control_block_ptr control_block);
+    nb::object wrap_output(const hgraph::TimeSeriesOutput *impl, const control_block_ptr &control_block);
 
     nb::object wrap_output(const hgraph::TimeSeriesOutput *impl);
 
-    nb::object wrap_time_series(const TimeSeriesInput *impl, control_block_ptr &&control_block);
-    nb::object wrap_time_series(const TimeSeriesOutput *impl, control_block_ptr &&control_block);
+    nb::object wrap_time_series(const TimeSeriesInput *impl, const control_block_ptr &control_block);
+    nb::object wrap_time_series(const TimeSeriesOutput *impl, const control_block_ptr &control_block);
 
     /**
      * Extract raw Node pointer from PyNode wrapper.

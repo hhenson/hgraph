@@ -24,19 +24,22 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::object PyTimeSeriesDict<T_TS, T_U>::get(const nb::object &item, const nb::object &default_value) const {
-        return impl()->py_get(item, default_value);
+        auto self{impl()};
+        auto key{nb::cast<typename T_U::key_type>(item)};
+        if (self->contains(key)) { return wrap_time_series(self->operator[](key).get(), this->control_block()); }
+        return default_value;
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::object PyTimeSeriesDict<T_TS, T_U>::get_or_create(const nb::object &key) {
-        return impl()->py_get_or_create(key);
+        return wrap_time_series(impl()->get_or_create(nb::cast<typename T_U::key_type>(key)), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     void PyTimeSeriesDict<T_TS, T_U>::create(const nb::object &item) {
-        impl()->py_create(item);
+        impl()->create(nb::cast<typename T_U::key_type>(item));
     }
 
     template <typename T_TS, typename T_U>
@@ -311,7 +314,8 @@ namespace hgraph
                                         static_cast<bool>(self.valid()));
                  })
             .def("__repr__", [](const TSD_OUT &self) {
-                return fmt::format("TSD_OUT@{:p}[size={}, valid={}]", static_cast<const void *>(&self), self.size(), static_cast<bool>(self.valid()));
+                return fmt::format("TSD_OUT@{:p}[size={}, valid={}]", static_cast<const void *>(&self), self.size(),
+                                   static_cast<bool>(self.valid()));
             });
 
         using TSD_IN = PyTimeSeriesDictInput<TimeSeriesDictInput_T<T_Key>>;
@@ -355,7 +359,8 @@ namespace hgraph
                                         static_cast<bool>(self.valid()));
                  })
             .def("__repr__", [](const TSD_IN &self) {
-                return fmt::format("TSD_IN@{:p}[size={}, valid={}]", static_cast<const void *>(&self), self.size(), static_cast<bool>(self.valid()));
+                return fmt::format("TSD_IN@{:p}[size={}, valid={}]", static_cast<const void *>(&self), self.size(),
+                                   static_cast<bool>(self.valid()));
             });
     }
 

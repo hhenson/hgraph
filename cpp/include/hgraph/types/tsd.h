@@ -43,12 +43,6 @@ namespace hgraph {
 
         [[nodiscard]] virtual size_t size() const = 0;
 
-        [[nodiscard]] virtual nb::object py_get(const nb::object &item, const nb::object &default_value) const = 0;
-
-        [[nodiscard]] virtual nb::object py_get_or_create(const nb::object &key) = 0;
-
-        virtual void py_create(const nb::object &item) = 0;
-
         [[nodiscard]] virtual nb::iterator py_iter() = 0;
 
         [[nodiscard]] virtual bool py_contains(const nb::object &item) const = 0;
@@ -156,10 +150,6 @@ namespace hgraph {
 
         bool can_apply_result(nb::object result) override;
 
-        [[nodiscard]] nb::object py_get(const nb::object &item, const nb::object &default_value) const override;
-
-        void py_create(const nb::object &item) override;
-
         [[nodiscard]] nb::iterator py_iter() override;
 
         void mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) override;
@@ -187,8 +177,6 @@ namespace hgraph {
         [[nodiscard]] bool py_contains(const nb::object &item) const override;
 
         [[nodiscard]] bool contains(const key_type &item) const;
-
-        [[nodiscard]] nb::object py_get_or_create(const nb::object &key) override;
 
         [[nodiscard]] ts_type_ptr operator[](const key_type &item);
 
@@ -286,7 +274,7 @@ namespace hgraph {
 
         // void post_modify() override;
 
-        TimeSeriesOutput::ptr _get_or_create(const key_type &key);
+        TimeSeriesOutput::ptr get_or_create(const key_type &key);
 
         [[nodiscard]] bool has_reference() const override;
 
@@ -316,14 +304,14 @@ namespace hgraph {
             return visitor(*this);
         }
 
+        void create(const key_type &key);
+
     protected:
         friend TSDOutBuilder<T_Key>;
 
         void _dispose();
 
         void _clear_key_changes();
-
-        void _create(const key_type &key);
 
         void remove_value(const key_type &key, bool raise_if_not_found);
 
@@ -398,13 +386,7 @@ namespace hgraph {
 
         [[nodiscard]] bool contains(const key_type &item) const;
 
-        [[nodiscard]] nb::object py_get(const nb::object &item, const nb::object &default_value) const override;
-
-        void py_create(const nb::object &item) override;
-
         [[nodiscard]] nb::iterator py_iter() override;
-
-        [[nodiscard]] nb::object py_get_or_create(const nb::object &key) override;
 
         [[nodiscard]] value_type operator[](const key_type &item) const;
 
