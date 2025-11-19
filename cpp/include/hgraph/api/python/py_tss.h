@@ -4,42 +4,48 @@
 
 namespace hgraph
 {
-    template <typename T>
-    concept PyTSType = std::is_same_v<T, PyTimeSeriesInput> || std::is_same_v<T, PyTimeSeriesOutput>;
+    template <typename T_TS, typename T_U>
+    concept PyTSType = ((std::is_same_v<T_TS, PyTimeSeriesInput> || std::is_same_v<T_TS, PyTimeSeriesOutput>) &&
+                        ((std::is_same_v<T_TS, PyTimeSeriesInput> && std::is_base_of_v<TimeSeriesSetInput, T_U>) ||
+                         (std::is_same_v<T_TS, PyTimeSeriesOutput> && std::is_base_of_v<TimeSeriesSetOutput, T_U>)));
 
-    template <typename T_TS>
-        requires PyTSType<T_TS>
+    template <typename T_TS, typename T_U>
+        requires PyTSType<T_TS, T_U>
     struct PyTimeSeriesSet : T_TS
     {
-        using ts_type = std::conditional_t<std::is_same_v<PyTimeSeriesInput, T_TS>, TimeSeriesSetInput, TimeSeriesSetOutput>;
-
-        [[nodiscard]] bool contains(const nb::object &item) const { return impl()->py_contains(item); }
+        [[nodiscard]] bool contains(const nb::object &item) const {
+            return impl()->contains(nb::cast<typename T_U::element_type>(item));
+        }
 
         [[nodiscard]] size_t size() const { return impl()->size(); }
 
         [[nodiscard]] nb::bool_ empty() const { return nb::bool_(impl()->empty()); }
 
-        [[nodiscard]] nb::object values() const { return impl()->py_values(); }
+        [[nodiscard]] nb::object value() const { return nb::frozenset(nb::cast(impl()->value())); }
 
-        [[nodiscard]] nb::object added() const { return impl()->py_added(); }
+        [[nodiscard]] nb::object values() const { return value(); }
 
-        [[nodiscard]] nb::bool_ was_added(const nb::object &item) const { return nb::bool_(impl()->py_was_added(item)); }
+        [[nodiscard]] nb::object added() const { return nb::frozenset(nb::cast(this->impl()->added())); }
 
-        [[nodiscard]] nb::object removed() const { return impl()->py_removed(); }
+        [[nodiscard]] nb::object removed() const { return nb::frozenset(nb::cast(this->impl()->removed())); }
 
-        [[nodiscard]] nb::bool_ was_removed(const nb::object &item) const { return nb::bool_(impl()->py_was_removed(item)); }
+        [[nodiscard]] nb::bool_ was_added(const nb::object &item) const {
+            return nb::bool_(this->impl()->was_added(nb::cast<typename T_U::element_type>(item)));
+        }
+
+        [[nodiscard]] nb::bool_ was_removed(const nb::object &item) const {
+            return nb::bool_(impl()->was_removed(nb::cast<typename T_U::element_type>(item)));
+        }
 
       protected:
         using T_TS::T_TS;
-
-      private:
-        [[nodiscard]] ts_type *impl() const { return this->template static_cast_impl<ts_type>(); };
+        [[nodiscard]] T_U *impl() const { return this->template static_cast_impl<T_U>(); };
     };
 
-    struct PyTimeSeriesSetOutput : PyTimeSeriesSet<PyTimeSeriesOutput>
+    template <typename T_U> struct PyTimeSeriesSetOutput : PyTimeSeriesSet<PyTimeSeriesOutput, T_U>
     {
-        explicit PyTimeSeriesSetOutput(TimeSeriesSetOutput* o, control_block_ptr cb);
-        explicit PyTimeSeriesSetOutput(TimeSeriesSetOutput* o);
+        explicit PyTimeSeriesSetOutput(TimeSeriesSetOutput *o, control_block_ptr cb);
+        explicit PyTimeSeriesSetOutput(TimeSeriesSetOutput *o);
 
         void remove(const nb::object &key) const;
 
@@ -53,20 +59,16 @@ namespace hgraph
 
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
-    private:
-        [[nodiscard]] TimeSeriesSetOutput *impl() const;
     };
 
-    struct PyTimeSeriesSetInput : PyTimeSeriesSet<PyTimeSeriesInput>
+    template <typename T_U> struct PyTimeSeriesSetInput : PyTimeSeriesSet<PyTimeSeriesInput, T_U>
     {
-        explicit PyTimeSeriesSetInput(TimeSeriesSetInput* o, control_block_ptr cb);
-        explicit PyTimeSeriesSetInput(TimeSeriesSetInput* o);
+        explicit PyTimeSeriesSetInput(TimeSeriesSetInput *o, control_block_ptr cb);
+        explicit PyTimeSeriesSetInput(TimeSeriesSetInput *o);
 
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
-    private:
-        [[nodiscard]] TimeSeriesSetInput *impl() const;
     };
 
-    void tss_register_with_nanobind(nb::module_ & m);
+    void tss_register_with_nanobind(nb::module_ &m);
 }  // namespace hgraph

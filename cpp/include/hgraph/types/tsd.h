@@ -43,10 +43,6 @@ namespace hgraph {
 
         [[nodiscard]] virtual size_t size() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_iter() = 0;
-
-        [[nodiscard]] virtual bool py_contains(const nb::object &item) const = 0;
-
         [[nodiscard]] virtual nb::object py_key_set() const = 0;
 
         [[nodiscard]] virtual nb::iterator py_keys() const = 0;
@@ -150,8 +146,6 @@ namespace hgraph {
 
         bool can_apply_result(nb::object result) override;
 
-        [[nodiscard]] nb::iterator py_iter() override;
-
         void mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) override;
 
         [[nodiscard]] const map_type &value() const;
@@ -173,8 +167,6 @@ namespace hgraph {
         [[nodiscard]] bool has_removed() const override;
 
         [[nodiscard]] auto size() const -> size_t override;
-
-        [[nodiscard]] bool py_contains(const nb::object &item) const override;
 
         [[nodiscard]] bool contains(const key_type &item) const;
 
@@ -382,11 +374,7 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        [[nodiscard]] bool py_contains(const nb::object &item) const override;
-
         [[nodiscard]] bool contains(const key_type &item) const;
-
-        [[nodiscard]] nb::iterator py_iter() override;
 
         [[nodiscard]] value_type operator[](const key_type &item) const;
 

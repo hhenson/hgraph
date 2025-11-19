@@ -48,8 +48,6 @@ namespace hgraph
         return true;
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_iter() { return py_keys(); }
-
     template <typename T_Key>
     void TimeSeriesDictOutput_T<T_Key>::mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) {
         if (last_modified_time() < modified_time) { _modified_items.clear(); }
@@ -287,10 +285,6 @@ namespace hgraph
     template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::has_removed() const { return !_removed_items.empty(); }
 
     template <typename T_Key> size_t TimeSeriesDictOutput_T<T_Key>::size() const { return _ts_values.size(); }
-
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::py_contains(const nb::object &item) const {
-        return contains(nb::cast<T_Key>(item));
-    }
 
     template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::contains(const key_type &item) const {
         return _ts_values.find(item) != _ts_values.end();
@@ -605,15 +599,9 @@ namespace hgraph
         return get_frozendict()(delta);
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::py_contains(const nb::object &item) const {
-        return contains(nb::cast<T_Key>(item));
-    }
-
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::contains(const key_type &item) const {
         return has_peer() ? key_set_t().contains(item) : _ts_values.contains(item);
     }
-
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_iter() { return py_keys(); }
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::value_type TimeSeriesDictInput_T<T_Key>::operator[](const key_type &item) const {

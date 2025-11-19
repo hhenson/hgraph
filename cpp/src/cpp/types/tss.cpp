@@ -362,27 +362,9 @@ namespace hgraph
 
     template <typename T> nb::object TimeSeriesSetInput_T<T>::py_delta_value() const { return nb::cast(delta_value()); }
 
-    template <typename T> bool TimeSeriesSetInput_T<T>::py_contains(const nb::object &item) const {
-        return contains(nb::cast<element_type>(item));
-    }
-
     template <typename T> size_t TimeSeriesSetInput_T<T>::size() const { return has_output() ? set_output_t().size() : 0; }
 
     template <typename T> bool TimeSeriesSetInput_T<T>::empty() const { return value().empty(); }
-
-    template <typename T> nb::object TimeSeriesSetInput_T<T>::py_values() const { return nb::cast(value()); }
-
-    template <typename T> nb::object TimeSeriesSetInput_T<T>::py_added() const { return nb::cast(added()); }
-
-    template <typename T> bool TimeSeriesSetInput_T<T>::py_was_added(const nb::object &item) const {
-        return was_added(nb::cast<element_type>(item));
-    }
-
-    template <typename T> nb::object TimeSeriesSetInput_T<T>::py_removed() const { return nb::cast(removed()); }
-
-    template <typename T> bool TimeSeriesSetInput_T<T>::py_was_removed(const nb::object &item) const {
-        return was_removed(nb::cast<element_type>(item));
-    }
 
     template <typename T> const typename TimeSeriesSetInput_T<T>::collection_type &TimeSeriesSetInput_T<T>::value() const {
         return bound() ? set_output_t().value() : _empty;
@@ -567,26 +549,11 @@ namespace hgraph
         }
     }
 
-    template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::py_contains(const nb::object &item) const {
-        return contains(nb::cast<element_type>(item));
-    }
-
     template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::contains(const element_type &item) const {
         return _value.contains(item);
     }
 
     template <typename T_Key> size_t TimeSeriesSetOutput_T<T_Key>::size() const { return _value.size(); }
-
-    template <typename T_Key> nb::object TimeSeriesSetOutput_T<T_Key>::py_values() const { return py_value(); }
-
-    template <typename T_Key> nb::object TimeSeriesSetOutput_T<T_Key>::py_added() const {
-        if (!_py_added.is_valid()) {
-            nb::set added{};
-            for (const auto &item : _added) { added.add(nb::cast(item)); }
-            _py_added = nb::frozenset(added);
-        }
-        return _py_added;
-    }
 
     template <typename T_Key>
     const typename TimeSeriesSetOutput_T<T_Key>::collection_type &TimeSeriesSetOutput_T<T_Key>::added() const {
@@ -595,21 +562,8 @@ namespace hgraph
 
     template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::has_added() const { return !_added.empty(); }
 
-    template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::py_was_added(const nb::object &item) const {
-        return was_added(nb::cast<element_type>(item));
-    }
-
     template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::was_added(const element_type &item) const {
         return _added.contains(item);
-    }
-
-    template <typename T_Key> nb::object TimeSeriesSetOutput_T<T_Key>::py_removed() const {
-        if (!_py_removed.is_valid()) {
-            nb::set removed{};
-            for (const auto &item : _removed) { removed.add(nb::cast(item)); }
-            _py_removed = nb::frozenset(removed);
-        }
-        return _py_removed;
     }
 
     template <typename T_Key>
@@ -619,17 +573,8 @@ namespace hgraph
 
     template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::has_removed() const { return !_removed.empty(); }
 
-    template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::py_was_removed(const nb::object &item) const {
-        return was_removed(nb::cast<element_type>(item));
-    }
-
     template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::was_removed(const element_type &item) const {
         return _removed.contains(item);
-    }
-
-    template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::py_remove(const nb::object &key) {
-        if (key.is_none()) { return; }
-        remove(nb::cast<element_type>(key));
     }
 
     template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::remove(const element_type &key) {
@@ -652,11 +597,6 @@ namespace hgraph
 
             mark_modified();
         }
-    }
-
-    template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::py_add(const nb::object &key) {
-        if (key.is_none()) { return; }
-        add(nb::cast<element_type>(key));
     }
 
     template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::add(const element_type &key) {
@@ -684,58 +624,48 @@ namespace hgraph
 
     // template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::post_modify() { _post_modify(); }
 
-    nb::object TimeSeriesSetInput::py_added() const {
-        if (has_prev_output()) {
-            // Get current values as a set
-            auto current_values = nb::set(py_values());
-            // Get previous state (old values + removed - added)
-            auto prev_values  = nb::set(prev_output().py_values());
-            auto prev_removed = nb::set(prev_output().py_removed());
-            auto prev_added   = nb::set(prev_output().py_added());
-            auto old_state    = (prev_values | prev_removed) - prev_added;
-            // Added items are current values minus old_state
-            return current_values - old_state;
-        } else {
-            return sampled() ? py_values() : set_output().py_added();
-        }
-    }
-
-    bool TimeSeriesSetInput::py_was_added(const nb::object &item) const {
-        if (has_prev_output()) {
-            return set_output().py_was_added(item) && !prev_output().py_contains(item);
-        } else if (sampled()) {
-            return py_contains(item);
-        } else {
-            return set_output().py_was_added(item);
-        }
-    }
-
-    nb::object TimeSeriesSetInput::py_removed() const {
-        if (has_prev_output()) {
-            auto prev_values    = nb::set(prev_output().py_values());
-            auto prev_removed   = nb::set(prev_output().py_removed());
-            auto prev_added     = nb::set(prev_output().py_added());
-            auto current_values = nb::set(py_values());
-
-            return ((prev_values | prev_removed) - prev_added) - current_values;
-        } else if (sampled()) {
-            return nb::set();
-        } else if (has_output()) {
-            return set_output().py_removed();
-        } else {
-            return nb::set();
-        }
-    }
-
-    bool TimeSeriesSetInput::py_was_removed(const nb::object &item) const {
-        if (has_prev_output()) {
-            return prev_output().py_contains(item) && !py_contains(item);
-        } else if (sampled()) {
-            return false;
-        } else {
-            return set_output().py_was_removed(item);
-        }
-    }
+    // nb::object TimeSeriesSetInput::py_added() const {
+    //     if (has_prev_output()) {
+    //         // Get current values as a set
+    //         auto current_values = nb::set(py_values());
+    //         // Get previous state (old values + removed - added)
+    //         auto prev_values  = nb::set(prev_output().py_values());
+    //         auto prev_removed = nb::set(prev_output().py_removed());
+    //         auto prev_added   = nb::set(prev_output().py_added());
+    //         auto old_state    = (prev_values | prev_removed) - prev_added;
+    //         // Added items are current values minus old_state
+    //         return current_values - old_state;
+    //     } else {
+    //         return sampled() ? py_values() : set_output().py_added();
+    //     }
+    // }
+    //
+    // nb::object TimeSeriesSetInput::py_removed() const {
+    //     if (has_prev_output()) {
+    //         auto prev_values    = nb::set(prev_output().py_values());
+    //         auto prev_removed   = nb::set(prev_output().py_removed());
+    //         auto prev_added     = nb::set(prev_output().py_added());
+    //         auto current_values = nb::set(py_values());
+    //
+    //         return ((prev_values | prev_removed) - prev_added) - current_values;
+    //     } else if (sampled()) {
+    //         return nb::set();
+    //     } else if (has_output()) {
+    //         return set_output().py_removed();
+    //     } else {
+    //         return nb::set();
+    //     }
+    // }
+    //
+    // bool TimeSeriesSetInput::py_was_removed(const nb::object &item) const {
+    //     if (has_prev_output()) {
+    //         return prev_output().py_contains(item) && !py_contains(item);
+    //     } else if (sampled()) {
+    //         return false;
+    //     } else {
+    //         return set_output().py_was_removed(item);
+    //     }
+    // }
 
     const TimeSeriesSetOutput &TimeSeriesSetInput::prev_output() const { return *_prev_output; }
 

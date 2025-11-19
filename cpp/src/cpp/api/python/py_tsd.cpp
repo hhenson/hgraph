@@ -45,13 +45,13 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::iter() {
-        return impl()->py_iter();
+        return keys();
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     bool PyTimeSeriesDict<T_TS, T_U>::contains(const nb::object &item) const {
-        return impl()->py_contains(item);
+        return impl()->contains(nb::cast<typename T_U::key_type>(item));
     }
 
     template <typename T_TS, typename T_U>

@@ -74,21 +74,9 @@ namespace hgraph {
         >;
         using T_TS::T_TS;
 
-        [[nodiscard]] virtual bool py_contains(const nb::object &item) const = 0;
-
         [[nodiscard]] virtual size_t size() const = 0;
 
         [[nodiscard]] virtual bool empty() const = 0;
-
-        [[nodiscard]] virtual nb::object py_values() const = 0;
-
-        [[nodiscard]] virtual nb::object py_added() const = 0;
-
-        [[nodiscard]] virtual bool py_was_added(const nb::object &item) const = 0;
-
-        [[nodiscard]] virtual nb::object py_removed() const = 0;
-
-        [[nodiscard]] virtual bool py_was_removed(const nb::object &item) const = 0;
     };
 
     struct TimeSeriesSetOutput : TimeSeriesSet<BaseTimeSeriesOutput> {
@@ -97,10 +85,6 @@ namespace hgraph {
         explicit TimeSeriesSetOutput(const node_ptr &parent);
 
         explicit TimeSeriesSetOutput(const TimeSeriesType::ptr &parent);
-
-        virtual void py_remove(const nb::object &key) = 0;
-
-        virtual void py_add(const nb::object &key) = 0;
 
         [[nodiscard]] virtual TimeSeriesValueOutput<bool>::ptr get_contains_output(const nb::object &item,
             const nb::object &requester) = 0;
@@ -123,14 +107,6 @@ namespace hgraph {
         bool do_bind_output(TimeSeriesOutput::ptr &output) override;
 
         void do_un_bind_output(bool unbind_refs) override;
-
-        [[nodiscard]] nb::object py_added() const override;
-
-        [[nodiscard]] bool py_was_added(const nb::object &item) const override;
-
-        [[nodiscard]] nb::object py_removed() const override;
-
-        [[nodiscard]] bool py_was_removed(const nb::object &item) const override;
 
         [[nodiscard]] const TimeSeriesSetOutput &prev_output() const;
 
@@ -183,39 +159,23 @@ namespace hgraph {
 
         void copy_from_input(const TimeSeriesInput &input) override;
 
-        [[nodiscard]] bool py_contains(const nb::object &item) const override;
-
         [[nodiscard]] bool contains(const element_type &item) const;
 
         [[nodiscard]] size_t size() const override;
-
-        [[nodiscard]] nb::object py_values() const override;
-
-        [[nodiscard]] nb::object py_added() const override;
 
         [[nodiscard]] const collection_type &added() const;
 
         [[nodiscard]] bool has_added() const;
 
-        [[nodiscard]] bool py_was_added(const nb::object &item) const override;
-
         [[nodiscard]] bool was_added(const element_type &item) const;
 
-        void py_add(const nb::object &key) override;
-
         void add(const element_type &key);
-
-        [[nodiscard]] nb::object py_removed() const override;
 
         [[nodiscard]] const collection_type &removed() const;
 
         [[nodiscard]] bool has_removed() const;
 
-        [[nodiscard]] bool py_was_removed(const nb::object &item) const override;
-
         [[nodiscard]] bool was_removed(const element_type &item) const;
-
-        void py_remove(const nb::object &key) override;
 
         void remove(const element_type &key);
 
@@ -296,21 +256,9 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        [[nodiscard]] bool py_contains(const nb::object &item) const override;
-
         [[nodiscard]] size_t size() const override;
 
         [[nodiscard]] bool empty() const override;
-
-        [[nodiscard]] nb::object py_values() const override;
-
-        [[nodiscard]] nb::object py_added() const override;
-
-        [[nodiscard]] bool py_was_added(const nb::object &item) const override;
-
-        [[nodiscard]] nb::object py_removed() const override;
-
-        [[nodiscard]] bool py_was_removed(const nb::object &item) const override;
 
         [[nodiscard]] const collection_type &value() const;
 
