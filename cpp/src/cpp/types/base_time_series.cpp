@@ -292,11 +292,11 @@ namespace hgraph {
 
     bool BaseTimeSeriesInput::has_output() const { return _output.get() != nullptr; }
 
-    bool BaseTimeSeriesInput::bind_output(time_series_output_ptr output_) {
+    bool BaseTimeSeriesInput::bind_output(const time_series_output_ptr& output_) {
         bool peer;
         bool was_bound = bound(); // Track if input was previously bound (matches Python behavior)
 
-        if (auto ref_output = dynamic_cast<TimeSeriesReferenceOutput *>(output_.get())) {
+        if (auto ref_output = dynamic_cast<TimeSeriesReferenceOutput *>(const_cast<TimeSeriesOutput*>(output_.get()))) {
             // Is a TimeseriesReferenceOutput
             // Match Python behavior: only check if value exists (truthy), bind if it does
             if (ref_output->valid() && ref_output->has_value()) { ref_output->value().bind_input(*this); }
@@ -394,7 +394,7 @@ namespace hgraph {
         nb::class_<BaseTimeSeriesInput, TimeSeriesInput>(m, "BaseTimeSeriesInput");
     }
 
-    bool BaseTimeSeriesInput::do_bind_output(time_series_output_ptr &output_) {
+    bool BaseTimeSeriesInput::do_bind_output(const time_series_output_ptr& output_) {
         auto active_{active()};
         make_passive(); // Ensure we are unsubscribed from the old output.
         _output = output_;

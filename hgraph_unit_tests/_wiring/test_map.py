@@ -5,6 +5,7 @@ import pytest
 pytestmark = pytest.mark.smoke
 
 from hgraph import (
+    count,
     graph,
     TS,
     TSD,
@@ -501,3 +502,26 @@ def test_map_output_invalid():
         {1: '1'},
     ]
     
+
+def test_map_input_goes_away():
+    @compute_node
+    def check(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        for k, v in ts.removed_items():
+            print(f"Removed key: {k} with value: {v.value}")
+            
+        return ts.delta_value
+    
+    @graph
+    def check_g(ts: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return switch_(count(ts) > 1, {
+            False: lambda i: i,
+            True: lambda i: check(i),
+        }, ts)
+    
+    @graph
+    def g(tsd1: TSD[str, TS[int]], tsd2: TSD[str, TS[int]]) -> TSD[str, TS[int]]:
+        return check_g(map_(lambda x, y: x + y, tsd1, tsd2))
+
+    assert eval_node(g, [{'a': 1, 'b': 2, 'c': 0}, None, {'a': 3, 'c': REMOVE}], [{'a': 10, 'b': 20}, {'a': 11, 'b': REMOVE}, {'a': REMOVE, 'b': 21}]) == [
+        {'a': 11, 'b': 22}, {'a': 12}, {'a': 12, 'b': 23} # Note: a:12 in tick 3 comes from sampling in the switch
+    ]

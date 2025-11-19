@@ -754,7 +754,7 @@ namespace hgraph
         owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self]() { self->reset_prev(); });
     }
 
-    bool TimeSeriesSetInput::do_bind_output(TimeSeriesOutput::ptr &output) {
+    bool TimeSeriesSetInput::do_bind_output(const TimeSeriesOutput::ptr& output) {
         if (has_output()) {
             _prev_output = &set_output();
             // Clean up after the engine cycle is complete

@@ -72,6 +72,11 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
     def build_resolution_dict_from_scalar(
         self, resolution_dict: dict[TypeVar, "HgTypeMetaData"], wired_type: "HgTypeMetaData", value: object
     ):
+        from hgraph._types._context_type import REQUIRED
+        if value is REQUIRED or type(value) is REQUIRED or type(value) is str or value is None:
+            # there is no type resolution information in this case
+            return
+        
         if not self.value_tp.is_scalar:
             self.value_tp.build_resolution_dict_from_scalar(resolution_dict, wired_type, value)
         else:

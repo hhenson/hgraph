@@ -13,9 +13,9 @@ namespace hgraph {
 
         TimeSeriesListOutputBuilder(OutputBuilder::ptr output_builder, size_t size);
 
-        time_series_output_ptr make_instance(node_ptr owning_node) const override;
+        time_series_output_ptr make_instance(const node_ptr& owning_node) const override;
 
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
+        time_series_output_ptr make_instance(const time_series_output_ptr& owning_output) const override;
 
         bool has_reference() const override { return output_builder->has_reference(); }
 

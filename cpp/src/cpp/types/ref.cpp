@@ -489,7 +489,7 @@ namespace hgraph {
         }
     }
 
-    bool TimeSeriesReferenceInput::bind_output(time_series_output_ptr output_) {
+    bool TimeSeriesReferenceInput::bind_output(const time_series_output_ptr& output_) {
         auto peer = do_bind_output(output_);
 
         if (owning_node()->is_started() && has_output() && output()->valid()) {
@@ -557,7 +557,7 @@ namespace hgraph {
         return (*_items)[index].get();
     }
 
-    bool TimeSeriesReferenceInput::do_bind_output(time_series_output_ptr &output_) {
+    bool TimeSeriesReferenceInput::do_bind_output(const time_series_output_ptr& output_) {
         if (dynamic_cast<const TimeSeriesReferenceOutput *>(output_.get()) != nullptr) {
             // Match Python behavior: bind to a TimeSeriesReferenceOutput as a normal peer
             reset_value();

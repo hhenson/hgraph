@@ -9,12 +9,12 @@ namespace hgraph {
         : output_builder{std::move(output_builder)}, size{size} {
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node) const {
+    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(const node_ptr& owning_node) const {
         auto v{new TimeSeriesListOutput(owning_node)};
         return make_and_set_outputs(v);
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
         auto v{new TimeSeriesListOutput(dynamic_cast_ref<TimeSeriesType>(owning_output))};
         return make_and_set_outputs(v);
     }
@@ -28,7 +28,7 @@ namespace hgraph {
 
     void TimeSeriesListOutputBuilder::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
-        auto list = dynamic_cast<TimeSeriesListOutput *>(item.get());
+        auto list = dynamic_cast<TimeSeriesListOutput *>(const_cast<TimeSeriesOutput*>(item.get()));
         if (list) {
             for (auto &value: list->ts_values()) { output_builder->release_instance(value); }
         }

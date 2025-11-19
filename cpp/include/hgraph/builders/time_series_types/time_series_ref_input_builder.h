@@ -11,9 +11,9 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesRefInputBuilder : InputBuilder {
         using InputBuilder::InputBuilder;
 
-        time_series_input_ptr make_instance(node_ptr owning_node) const override;
+        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
 
-        time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
+        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
 
         bool has_reference() const override { return true; }
 

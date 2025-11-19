@@ -13,14 +13,14 @@
 namespace hgraph {
 
     /**
-     * @brief Hash function for std::vector<int> to enable its use as key in unordered containers
+     * @brief Hash function for std::vector<int64_t> to enable its use as key in unordered containers
      *
      * This hash implementation combines individual element hashes using a standard technique
      * that provides good distribution and low collision rates. It leverages STL's std::hash
      * for the underlying integer type.
      */
     struct VectorIntHash {
-        std::size_t operator()(const std::vector<int>& vec) const noexcept {
+        std::size_t operator()(const std::vector<int64_t>& vec) const noexcept {
             std::size_t seed = vec.size();
             std::hash<int> hasher;
             for (const auto& element : vec) {
@@ -47,7 +47,7 @@ namespace hgraph {
      */
     struct GraphInfo {
         graph_ptr graph;
-        std::vector<int> id;
+        std::vector<int64_t> id;
         std::string label;
         Graph* parent_graph;
         bool stopped = false;
@@ -129,22 +129,22 @@ namespace hgraph {
         void on_after_stop_graph(graph_ptr graph) override;
 
         // Subscription management
-        void subscribe_graph(const std::vector<int>& graph_id);
-        void unsubscribe_graph(const std::vector<int>& graph_id);
-        void subscribe_node(const std::vector<int>& node_id);
-        void unsubscribe_node(const std::vector<int>& node_id);
+        void subscribe_graph(const std::vector<int64_t>& graph_id);
+        void unsubscribe_graph(const std::vector<int64_t>& graph_id);
+        void subscribe_node(const std::vector<int64_t>& node_id);
+        void unsubscribe_node(const std::vector<int64_t>& node_id);
 
         // Query methods
-        GraphInfoPtr get_graph_info(const std::vector<int>& graph_id) const;
+        GraphInfoPtr get_graph_info(const std::vector<int64_t>& graph_id) const;
         void walk(const graph_ptr& graph);
 
         // Recent performance tracking methods
-        void get_recent_node_performance(const std::vector<int>& node_id,
+        void get_recent_node_performance(const std::vector<int64_t>& node_id,
                                         std::vector<std::pair<std::chrono::system_clock::time_point,
                                                     PerformanceMetrics>>& result,
                                         const std::optional<std::chrono::system_clock::time_point>& after = std::nullopt) const;
 
-        void get_recent_graph_performance(const std::vector<int>& graph_id,
+        void get_recent_graph_performance(const std::vector<int64_t>& graph_id,
                                          std::vector<std::pair<std::chrono::system_clock::time_point,
                                                      PerformanceMetrics>>& result,
                                          const std::optional<std::chrono::system_clock::time_point>& after = std::nullopt) const;
@@ -154,7 +154,7 @@ namespace hgraph {
 
     private:
         std::unordered_map<Graph*, GraphInfoPtr> _graphs;
-        std::unordered_map<std::vector<int>, GraphInfoPtr, VectorIntHash> _graphs_by_id;
+        std::unordered_map<std::vector<int64_t>, GraphInfoPtr, VectorIntHash> _graphs_by_id;
         GraphInfoPtr _current_graph;
 
         NodeCallback _callback_node;
@@ -164,16 +164,15 @@ namespace hgraph {
         std::chrono::time_point<std::chrono::high_resolution_clock> _progress_last_time;
         bool _compute_sizes;
 
-        std::unordered_set<std::vector<int>, VectorIntHash> _graph_subscriptions;
-        std::unordered_set<std::vector<int>, VectorIntHash> _node_subscriptions;
+        std::unordered_set<std::vector<int64_t>, VectorIntHash> _graph_subscriptions;
+        std::unordered_set<std::vector<int64_t>, VectorIntHash> _node_subscriptions;
 
         // Recent performance tracking
+        typedef std::unordered_map<std::vector<int64_t>, PerformanceMetrics, VectorIntHash> perf_map;
         bool _track_recent_performance;
         std::chrono::system_clock::time_point _recent_performance_batch;
-        std::deque<std::pair<std::chrono::system_clock::time_point,
-                    std::unordered_map<std::vector<int>, PerformanceMetrics, VectorIntHash>>> _recent_node_performance;
-        std::deque<std::pair<std::chrono::system_clock::time_point,
-                    std::unordered_map<std::vector<int>, PerformanceMetrics, VectorIntHash>>> _recent_graph_performance;
+        std::deque<std::pair<std::chrono::system_clock::time_point, perf_map>> _recent_node_performance;
+        std::deque<std::pair<std::chrono::system_clock::time_point, perf_map>> _recent_graph_performance;
         size_t _recent_performance_horizon;
 
         void _check_progress();
