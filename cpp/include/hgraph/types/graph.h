@@ -5,7 +5,7 @@
 #ifndef GRAPH_H
 #define GRAPH_H
 
-#include "hgraph/api/python/api_ptr.h"
+#include <hgraph/api/python/api_ptr.h>
 
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/util/sender_receiver_state.h>

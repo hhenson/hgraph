@@ -1,72 +1,83 @@
 #include <hgraph/api/python/py_tss.h>
+#include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/types/tss.h>
 
 namespace hgraph
 {
-    template<typename K>
-    void _register_with_nanobind(nb::module_ &m, std::string name) {
-        nb::class_<SetDelta, nb::intrusive_base>(m, "SetDelta_" + name)
-            .def_prop_ro("added", &SetDelta::py_added)
-            .def_prop_ro("removed", &SetDelta::py_removed)
-            .def_prop_ro("tp", &SetDelta::py_type)
-            .def(
-                "__str__",
-                [](SetDelta &self) { return nb::str("SetDelta(added={}, removed={})").format(self.py_added(), self.py_removed()); })
-            .def(
-                "__repr__",
-                [](SetDelta &self) {
-                    return nb::str("SetDelta[{}](added={}, removed={})").format(self.py_type(), self.py_added(), self.py_removed());
-                })
-            .def("__eq__", &SetDelta::operator==)
-            .def("__eq__", eq)
-            .def("__hash__", &SetDelta::hash);
 
-        using SetDelta_bool = SetDelta_T<bool>;
-        nb::class_<SetDelta_bool, SetDelta>(m, "SetDelta_bool")
-            .def(nb::init<const std::unordered_set<bool> &, const std::unordered_set<bool> &>(), "added"_a, "removed"_a)
-            .def("__add__", &SetDelta_bool::operator+);
+    PyTimeSeriesSetOutput::PyTimeSeriesSetOutput(TimeSeriesSetOutput *o, control_block_ptr cb)
+        : PyTimeSeriesSet<PyTimeSeriesOutput>(o, std::move(cb)) {}
 
-        using SetDelta_int = SetDelta_T<int64_t>;
-        nb::class_<SetDelta_int, SetDelta>(m, "SetDelta_int")
-            .def(nb::init<const std::unordered_set<int64_t> &, const std::unordered_set<int64_t> &>(), "added"_a, "removed"_a)
-            .def("__add__", &SetDelta_int::operator+);
-        ;
-        using SetDelta_float = SetDelta_T<double>;
-        nb::class_<SetDelta_float, SetDelta>(m, "SetDelta_float")
-            .def(nb::init<const std::unordered_set<double> &, const std::unordered_set<double> &>(), "added"_a, "removed"_a)
-            .def("__add__", &SetDelta_float::operator+);
+    PyTimeSeriesSetOutput::PyTimeSeriesSetOutput(TimeSeriesSetOutput *o) : PyTimeSeriesSet<PyTimeSeriesOutput>(o) {}
 
-        using SetDelta_date = SetDelta_T<engine_date_t>;
-        nb::class_<SetDelta_date, SetDelta>(m, "SetDelta_date")
-            .def(nb::init<const std::unordered_set<engine_date_t> &, const std::unordered_set<engine_date_t> &>(), "added"_a,
-                 "removed"_a)
-            .def("__add__", &SetDelta_date::operator+);
+    void PyTimeSeriesSetOutput::remove(const nb::object &key) const { impl()->py_remove(key); }
 
-        using SetDelta_date_time = SetDelta_T<engine_time_t>;
-        nb::class_<SetDelta_date_time, SetDelta>(m, "SetDelta_date_time")
-            .def(nb::init<const std::unordered_set<engine_time_t> &, const std::unordered_set<engine_time_t> &>(), "added"_a,
-                 "removed"_a)
-            .def("__add__", &SetDelta_date_time::operator+);
+    void PyTimeSeriesSetOutput::add(const nb::object &key) const { impl()->py_add(key); }
 
-        using SetDelta_time_delta = SetDelta_T<engine_time_delta_t>;
-        nb::class_<SetDelta_time_delta, SetDelta>(m, "SetDelta_time_delta")
-            .def(nb::init<const std::unordered_set<engine_time_delta_t> &, const std::unordered_set<engine_time_delta_t> &>(),
-                 "added"_a, "removed"_a)
-            .def("__add__", &SetDelta_time_delta::operator+);
-
-        using SetDelta_object = SetDelta_T<nb::object>;
-        nb::class_<SetDelta_object, SetDelta>(m, "SetDelta_object")
-            .def(nb::init<const std::unordered_set<nb::object> &, const std::unordered_set<nb::object> &, nb::object>(), "added"_a,
-                 "removed"_a, "tp"_a)
-            .def("__add__", &SetDelta_object::operator+);
+    nb::object PyTimeSeriesSetOutput::get_contains_output(const nb::object &item, const nb::object &requester) const {
+        return wrap_output(impl()->get_contains_output(item, requester).get(), control_block());
     }
 
-    void register_with_nanobind(nb::module_ &m) {
-        _register_with_nanobind<bool>(m);
-        _register_with_nanobind<int64_t>(m);
-        _register_with_nanobind<double>(m);
-        _register_with_nanobind<engine_date_t>(m);
-        _register_with_nanobind<engine_time_t>(m);
-        _register_with_nanobind<engine_time_delta_t>(m);
-        _register_with_nanobind<nb::object>(m);
+    void PyTimeSeriesSetOutput::release_contains_output(const nb::object &item, const nb::object &requester) const {
+        impl()->release_contains_output(item, requester);
     }
+
+    nb::object PyTimeSeriesSetOutput::is_empty_output() const {
+        return wrap_output(impl()->is_empty_output().get(), control_block());
+    }
+
+    nb::str PyTimeSeriesSetOutput::py_str() const {
+        auto self{impl()};
+        auto s{fmt::format("TimeSeriesSetOutput@{:p}[size={}, valid={}]", static_cast<const void *>(self), self->size(),
+                           self->valid())};
+        return nb::str(s.c_str());
+    }
+
+    nb::str PyTimeSeriesSetOutput::py_repr() const { return py_str(); }
+
+    TimeSeriesSetOutput *PyTimeSeriesSetOutput::impl() const { return this->template static_cast_impl<TimeSeriesSetOutput>(); }
+
+    PyTimeSeriesSetInput::PyTimeSeriesSetInput(TimeSeriesSetInput *o, control_block_ptr cb)
+        : PyTimeSeriesSet<PyTimeSeriesInput>(o, std::move(cb)) {}
+
+    PyTimeSeriesSetInput::PyTimeSeriesSetInput(TimeSeriesSetInput *o) : PyTimeSeriesSet<PyTimeSeriesInput>(o) {}
+
+    nb::str PyTimeSeriesSetInput::py_str() const {
+        auto self{impl()};
+        auto s =
+            fmt::format("TimeSeriesSetInput@{:p}[size={}, valid={}]", static_cast<const void *>(self), self->size(), self->valid());
+        return nb::str(s.c_str());
+    }
+
+    nb::str PyTimeSeriesSetInput::py_repr() const { return py_str(); }
+    TimeSeriesSetInput *PyTimeSeriesSetInput::impl() const {
+        return static_cast_impl<TimeSeriesSetInput>();
+    }
+
+    template <typename T, typename... U> void _add_base_methods_to_tss(nb::class_<T, U...> &cls) {
+        cls.def("__contains__", &T::contains)
+            .def("__len__", &T::size)
+            .def("empty", &T::empty)
+            .def("values", &T::values)
+            .def("added", &T::added)
+            .def("removed", &T::removed)
+            .def("was_added", &T::was_added)
+            .def("was_removed", &T::was_removed)
+            .def("__str__", &T::py_str)
+            .def("__repr__", &T::py_repr);
+    }
+
+    void tss_register_with_nanobind(nb::module_ &m) {
+        auto tss_i = nb::class_<PyTimeSeriesSetInput, PyTimeSeriesInput>(m, "TimeSeriesSetInput");
+        _add_base_methods_to_tss(tss_i);
+
+        auto tss_o = nb::class_<PyTimeSeriesSetOutput, PyTimeSeriesOutput>(m, "TimeSeriesSetOutput");
+        _add_base_methods_to_tss(tss_o);
+        tss_o.def("add", &PyTimeSeriesSetOutput::add)
+            .def("remove", &PyTimeSeriesSetOutput::remove, "key"_a)
+            .def("is_empty_output", &PyTimeSeriesSetOutput::is_empty_output)
+            .def("get_contains_output", &PyTimeSeriesSetOutput::get_contains_output)
+            .def("release_contains_output", &PyTimeSeriesSetOutput::release_contains_output);
+    }
+
 }  // namespace hgraph

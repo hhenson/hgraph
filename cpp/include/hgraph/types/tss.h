@@ -370,7 +370,6 @@ namespace hgraph {
     };
 
     void register_set_delta_with_nanobind(nb::module_ & m);
-    void tss_register_with_nanobind(nb::module_ & m);
 } // namespace hgraph
 
 #endif  // TSS_H

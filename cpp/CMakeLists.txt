@@ -148,6 +148,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/api/python/py_time_series.h
         include/hgraph/api/python/py_ref.h
         include/hgraph/api/python/py_tsb.h
+        include/hgraph/api/python/py_tss.h
         include/hgraph/api/python/wrapper_factory.h
         include/hgraph/hgraph_forward_declarations.h
         include/hgraph/builders/builder.h

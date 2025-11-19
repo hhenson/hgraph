@@ -5,6 +5,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/api/python/py_tsb.h>
+#include <hgraph/api/python/py_tss.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/tss.h>
 
@@ -42,7 +43,7 @@ void export_types(nb::module_ &m) {
     // TimeSeriesBundleOutput::register_with_nanobind(m);
 
     register_set_delta_with_nanobind(m);
-    // tss_register_with_nanobind(m);
+    tss_register_with_nanobind(m);
     //
     // tsd_register_with_nanobind(m);
     // tsw_register_with_nanobind(m);
