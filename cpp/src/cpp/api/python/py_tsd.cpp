@@ -57,85 +57,149 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::object PyTimeSeriesDict<T_TS, T_U>::key_set() const {
-        return impl()->py_key_set();
+        return wrap_time_series(&impl()->key_set(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::keys() const {
-        return impl()->py_keys();
+        auto self{impl()};
+        return nb::make_key_iterator(nb::type<typename T_U::map_type>(), "KeysIterator", self->begin(), self->end());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::values() const {
-        return impl()->py_values();
+        auto self{impl()};
+        return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "ValuesIterator", self->begin(), self->end(),
+                                               this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::items() const {
-        return impl()->py_items();
+        auto self{impl()};
+        return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ItemsIterator", self->begin(), self->end(),
+                                               this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::modified_keys() const {
-        return impl()->py_modified_keys();
+        auto        self{impl()};
+        const auto &items = self->modified_items();  // Ensure modified_items is populated first
+        return nb::make_key_iterator(nb::type<typename T_U::map_type>(), "ModifiedKeysIterator", items.begin(), items.end());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::modified_values() const {
-        return impl()->py_modified_values();
+        auto        self{impl()};
+        const auto &items = self->modified_items();  // Ensure modified_items is populated first
+        return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "ModifiedValuesIterator", items.begin(),
+                                               items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::modified_items() const {
-        return impl()->py_modified_items();
+        auto        self{impl()};
+        const auto &items = self->modified_items();  // Ensure modified_items is populated first
+        return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ModifiedItemsIterator", items.begin(),
+                                               items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     bool PyTimeSeriesDict<T_TS, T_U>::was_modified(const nb::object &key) const {
-        return impl()->py_was_modified(key);
+        return impl()->was_modified(nb::cast<typename T_U::key_type>(key));
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::valid_keys() const {
-        return impl()->py_valid_keys();
+        auto        self{impl()};
+        // Distinguish at compile-time between a view (hold by value) and a container ref (bind by const ref)
+        using items_t = decltype(self->valid_items());
+        if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
+            auto items = self->valid_items();
+            return nb::make_key_iterator(nb::type<typename T_U::map_type>(), "ValidKeysIterator", items.begin(), items.end());
+        } else {
+            const auto &items = self->valid_items();
+            return nb::make_key_iterator(nb::type<typename T_U::map_type>(), "ValidKeysIterator", items.begin(), items.end());
+        }
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::valid_values() const {
-        return impl()->py_valid_values();
+        auto        self{impl()};
+        using items_t = decltype(self->valid_items());
+        if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
+            auto items = self->valid_items();
+            return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "ValidValuesIterator", items.begin(),
+                                                   items.end(), this->control_block());
+        } else {
+            const auto &items = self->valid_items();
+            return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "ValidValuesIterator", items.begin(),
+                                                   items.end(), this->control_block());
+        }
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::valid_items() const {
-        return impl()->py_valid_items();
+        auto        self{impl()};
+        using items_t = decltype(self->valid_items());
+        if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
+            auto items = self->valid_items();  // view must be non-const to have begin()/end()
+            return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ValidItemsIterator", items.begin(),
+                                                   items.end(), this->control_block());
+        } else {
+            const auto &items = self->valid_items();
+            return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ValidItemsIterator", items.begin(),
+                                                   items.end(), this->control_block());
+        }
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::added_keys() const {
-        return impl()->py_added_keys();
+        auto        self{impl()};
+        return nb::make_iterator(nb::type<typename T_U::k_set_type>(), "AddedKeyIterator", self->added_keys().begin(),
+                                     self->added_keys().end());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::added_values() const {
-        return impl()->py_added_values();
+        auto        self{impl()};
+        using items_t = decltype(self->added_items());
+        if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
+            auto items = self->added_items();
+            return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "AddedValueIterator", items.begin(),
+                                                   items.end(), this->control_block());
+        } else {
+            const auto &items = self->added_items();
+            return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "AddedValueIterator", items.begin(),
+                                                   items.end(), this->control_block());
+        }
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::added_items() const {
-        return impl()->py_added_items();
+        auto        self{impl()};
+        using items_t = decltype(self->added_items());
+        if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
+            auto items = self->added_items();  // Hold non-const view
+            return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ModifiedValueIterator", items.begin(),
+                                                   items.end(), this->control_block());
+        } else {
+            const auto &items = self->added_items();
+            return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ModifiedValueIterator", items.begin(),
+                                                   items.end(), this->control_block());
+        }
     }
 
     template <typename T_TS, typename T_U>
@@ -147,25 +211,33 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     bool PyTimeSeriesDict<T_TS, T_U>::was_added(const nb::object &key) const {
-        return impl()->py_was_added(key);
+        return impl()->was_added(nb::cast<typename T_U::key_type>(key));
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::removed_keys() const {
-        return impl()->py_removed_keys();
+        auto        self{impl()};
+        const auto &items = self->removed_items();
+        return nb::make_key_iterator(nb::type<typename T_U::map_type>(), "ValidKeyIterator", items.begin(), items.end());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::removed_values() const {
-        return impl()->py_removed_values();
+        auto self{impl()};
+        const auto &items = self->removed_items();
+        return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "RemovedValueIterator", items.begin(),
+                                               items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::removed_items() const {
-        return impl()->py_removed_items();
+        auto self{impl()};
+        const auto &items = self->removed_items();
+        return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "RemovedItemsIterator", items.begin(),
+                                               items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
@@ -177,7 +249,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     bool PyTimeSeriesDict<T_TS, T_U>::was_removed(const nb::object &key) const {
-        return impl()->py_was_removed(key);
+        return impl()->was_removed(nb::cast<typename T_U::key_type>(key));
     }
 
     namespace

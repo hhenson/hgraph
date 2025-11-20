@@ -6,6 +6,8 @@
 #define HGRAPH_WRAPPER_FACTORY_H
 
 #include "py_time_series.h"
+// Ensure Nanobind core types are available for iterator helpers below
+#include <nanobind/nanobind.h>
 
 #include <hgraph/api/python/api_ptr.h>
 #include <hgraph/api/python/py_graph.h>
@@ -74,6 +76,161 @@ namespace hgraph
 
     nb::object wrap_time_series(const TimeSeriesInput *impl, const control_block_ptr &control_block);
     nb::object wrap_time_series(const TimeSeriesOutput *impl, const control_block_ptr &control_block);
+
+    // ---------------------------------------------------------------------
+    // Lightweight Nanobind iterator helpers for time series wrapping
+    // ---------------------------------------------------------------------
+    // These helpers create Python iterators that transform underlying C++
+    // iterator elements into wrapped time series Python objects using the
+    // provided control block. Implemented as templates fully in the header
+    // to keep usage simple and avoid separate adapter iterator types.
+
+    namespace detail
+    {
+        // Accessors used by iterator helpers
+        struct tsd_identity_accessor {
+            template <typename Iterator>
+            static decltype(auto) get(Iterator &it) { return (*it); }
+        };
+
+        struct tsd_second_accessor {
+            template <typename Iterator>
+            static decltype(auto) get(Iterator &it) { return (*it).second; }
+        };
+
+        template <typename Iterator, typename Sentinel, typename Accessor>
+        struct tsd_mapped_iter_state {
+            Iterator          it;
+            Sentinel          end;
+            control_block_ptr cb;
+            bool              first_or_done;
+        };
+
+        template <typename Iterator, typename Sentinel, typename Accessor>
+        inline nb::typed<nb::iterator, nb::object>
+        make_time_series_iterator_ex(nb::handle scope,
+                                     const char *name,
+                                     Iterator first,
+                                     Sentinel last,
+                                     control_block_ptr cb) {
+            using State = tsd_mapped_iter_state<Iterator, Sentinel, Accessor>;
+
+            static nb::ft_mutex mu;
+            nb::ft_lock_guard   lock(mu);
+            if (!nb::type<State>().is_valid()) {
+                nb::class_<State>(scope, name)
+                    .def("__iter__", [](nb::handle h) { return h; })
+                    .def("__next__", [](State &s) -> nb::object {
+                        if (!s.first_or_done)
+                            ++s.it;
+                        else
+                            s.first_or_done = false;
+
+                        if (s.it == s.end) {
+                            s.first_or_done = true;
+                            throw nb::stop_iteration();
+                        }
+
+                        // Project element and wrap into a Python time series
+                        auto &&elem = Accessor::get(s.it);
+                        return wrap_time_series(elem, s.cb);
+                    });
+            }
+
+            return nb::borrow<nb::typed<nb::iterator, nb::object>>(
+                nb::cast(State{ std::move(first), std::move(last), std::move(cb), true })
+            );
+        }
+    }  // namespace detail
+
+    // Direct-iteration version: wraps elements yielded by the iterator
+    // (use when the iterator dereferences to a time series pointer/ref)
+    template <typename Iterator, typename Sentinel>
+    inline nb::typed<nb::iterator, nb::object>
+    make_time_series_iterator(nb::handle scope,
+                              const char *name,
+                              Iterator first,
+                              Sentinel last,
+                              control_block_ptr cb) {
+        return detail::make_time_series_iterator_ex<Iterator, Sentinel, detail::tsd_identity_accessor>(
+            scope, name, std::move(first), std::move(last), std::move(cb));
+    }
+
+    // Value-iteration version: wraps the `.second` of pair-like iterators
+    template <typename Iterator, typename Sentinel>
+    inline nb::typed<nb::iterator, nb::object>
+    make_time_series_value_iterator(nb::handle scope,
+                                    const char *name,
+                                    Iterator first,
+                                    Sentinel last,
+                                    control_block_ptr cb) {
+        return detail::make_time_series_iterator_ex<Iterator, Sentinel, detail::tsd_second_accessor>(
+            scope, name, std::move(first), std::move(last), std::move(cb));
+    }
+
+    namespace detail {
+        // Items iterator state mirroring the mapped iterator style above
+        template <typename Iterator, typename Sentinel>
+        struct tsd_items_iter_state {
+            Iterator          it;
+            Sentinel          end;
+            control_block_ptr cb;
+            bool              first_or_done;
+        };
+
+        template <typename Iterator, typename Sentinel>
+        inline nb::typed<nb::iterator, nb::object>
+        make_time_series_items_iterator_ex(nb::handle scope,
+                                           const char *name,
+                                           Iterator first,
+                                           Sentinel last,
+                                           control_block_ptr cb) {
+            using State = tsd_items_iter_state<Iterator, Sentinel>;
+
+            static nb::ft_mutex mu;
+            nb::ft_lock_guard   lock(mu);
+            if (!nb::type<State>().is_valid()) {
+                nb::class_<State>(scope, name)
+                    .def("__iter__", [](nb::handle h) { return h; })
+                    .def("__next__", [](State &s) -> nb::object {
+                        if (!s.first_or_done)
+                            ++s.it;
+                        else
+                            s.first_or_done = false;
+
+                        if (s.it == s.end) {
+                            s.first_or_done = true;
+                            throw nb::stop_iteration();
+                        }
+
+                        // Build (key, wrapped_value) tuple
+                        // Note: many range views (filter/transform) yield proxy objects on dereference.
+                        // Do not bind to a non-const lvalue reference; take by value to avoid dangling refs.
+                        const auto &[key, value] = *s.it; // pair-like element (key, value)
+                        nb::object key_obj = nb::cast(key);
+                        nb::object val_obj = wrap_time_series(value, s.cb);
+                        return nb::make_tuple(std::move(key_obj), std::move(val_obj));
+                    });
+            }
+
+            return nb::borrow<nb::typed<nb::iterator, nb::object>>(
+                nb::cast(State{ std::move(first), std::move(last), std::move(cb), true })
+            );
+        }
+    } // namespace detail
+
+    // Items-iteration version: returns (key, wrapped(value)) tuples for pair-like iterators
+    // The key is converted using nb::cast; the value is wrapped with the provided control block.
+    template <typename Iterator, typename Sentinel>
+    inline nb::typed<nb::iterator, nb::object>
+    make_time_series_items_iterator(nb::handle scope,
+                                    const char *name,
+                                    Iterator first,
+                                    Sentinel last,
+                                    control_block_ptr cb) {
+        return detail::make_time_series_items_iterator_ex(scope, name,
+                                                          std::move(first), std::move(last), std::move(cb));
+    }
 
     /**
      * Extract raw Node pointer from PyNode wrapper.

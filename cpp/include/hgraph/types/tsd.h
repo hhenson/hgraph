@@ -10,16 +10,17 @@
 #include <hgraph/builders/time_series_types/time_series_dict_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_dict_output_builder.h>
 #include <hgraph/types/base_time_series.h>
-#include <hgraph/types/tss.h>
 #include <hgraph/types/time_series_visitor.h>
+#include <hgraph/types/tss.h>
 #include <ranges>
 
-namespace hgraph {
+namespace hgraph
+{
     // TSDKeyObserver: Used to track additions and removals of parent keys.
     // Since the TSD is dynamic, the inputs associated with an output need to be updated when a key is added or removed
     // to correctly manage its internal state.
-    template<typename K>
-    struct TSDKeyObserver {
+    template <typename K> struct TSDKeyObserver
+    {
         // Called when a key is added
         virtual void on_key_added(const K &key) = 0;
 
@@ -29,64 +30,24 @@ namespace hgraph {
         virtual ~TSDKeyObserver() = default;
     };
 
-    template<typename T_TS>
+    template <typename T_TS>
         requires TimeSeriesT<T_TS>
-    struct TimeSeriesDict : T_TS {
+    struct TimeSeriesDict : T_TS
+    {
         // Map concrete Base types back to interface types for collections
-        using ts_type = std::conditional_t<
-            std::is_base_of_v<TimeSeriesInput, T_TS>,
-            TimeSeriesInput,
-            TimeSeriesOutput
-        >;
+        using ts_type     = std::conditional_t<std::is_base_of_v<TimeSeriesInput, T_TS>, TimeSeriesInput, TimeSeriesOutput>;
         using ts_type_ptr = nb::ref<ts_type>;  // Use interface type for pointers
         using T_TS::T_TS;
 
         [[nodiscard]] virtual size_t size() const = 0;
 
-        [[nodiscard]] virtual nb::object py_key_set() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_keys() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_values() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_items() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_modified_keys() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_modified_values() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_modified_items() const = 0;
-
-        [[nodiscard]] virtual bool py_was_modified(const nb::object &key) const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_valid_keys() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_valid_values() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_valid_items() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_added_keys() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_added_values() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_added_items() const = 0;
-
         [[nodiscard]] virtual bool has_added() const = 0;
 
-        [[nodiscard]] virtual bool py_was_added(const nb::object &key) const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_removed_keys() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_removed_values() const = 0;
-
-        [[nodiscard]] virtual nb::iterator py_removed_items() const = 0;
-
         [[nodiscard]] virtual bool has_removed() const = 0;
-
-        [[nodiscard]] virtual bool py_was_removed(const nb::object &key) const = 0;
     };
 
-    struct TimeSeriesDictOutput : TimeSeriesDict<BaseTimeSeriesOutput> {
+    struct TimeSeriesDictOutput : TimeSeriesDict<BaseTimeSeriesOutput>
+    {
         using ptr = nb::ref<TimeSeriesDictOutput>;
         using TimeSeriesDict::TimeSeriesDict;
 
@@ -101,32 +62,32 @@ namespace hgraph {
         virtual void py_release_ref(const nb::object &key, const nb::object &requester) = 0;
 
         // Returns a TimeSeriesSetOutput that tracks the keys in this dict
-        [[nodiscard]] virtual TimeSeriesSetOutput &key_set() = 0;
+        [[nodiscard]] virtual TimeSeriesSetOutput       &key_set()       = 0;
         [[nodiscard]] virtual const TimeSeriesSetOutput &key_set() const = 0;
     };
 
-    struct TimeSeriesDictInput : TimeSeriesDict<BaseTimeSeriesInput> {
+    struct TimeSeriesDictInput : TimeSeriesDict<BaseTimeSeriesInput>
+    {
         using ptr = nb::ref<TimeSeriesDictInput>;
         using TimeSeriesDict<BaseTimeSeriesInput>::TimeSeriesDict;
 
         // Returns a TimeSeriesSetInput that tracks the keys in this dict
-        [[nodiscard]] virtual TimeSeriesSetInput &key_set() = 0;
+        [[nodiscard]] virtual TimeSeriesSetInput       &key_set()       = 0;
         [[nodiscard]] virtual const TimeSeriesSetInput &key_set() const = 0;
     };
 
-    template<typename T_Key>
-    using TSDOutBuilder = struct TimeSeriesDictOutputBuilder_T<T_Key>;
+    template <typename T_Key> using TSDOutBuilder = struct TimeSeriesDictOutputBuilder_T<T_Key>;
 
-    template<typename T_Key>
-    struct TimeSeriesDictOutput_T : TimeSeriesDictOutput {
-        using ptr = nb::ref<TimeSeriesDictOutput_T>;
-        using key_type = T_Key;
-        using value_type = time_series_output_ptr;
-        using k_set_type = std::unordered_set<key_type>;
-        using map_type = std::unordered_map<key_type, value_type>;
-        using item_iterator = typename map_type::iterator;
+    template <typename T_Key> struct TimeSeriesDictOutput_T : TimeSeriesDictOutput
+    {
+        using ptr                 = nb::ref<TimeSeriesDictOutput_T>;
+        using key_type            = T_Key;
+        using value_type          = time_series_output_ptr;
+        using k_set_type          = std::unordered_set<key_type>;
+        using map_type            = std::unordered_map<key_type, value_type>;
+        using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
-        using key_set_type = TimeSeriesSetOutput_T<key_type>;
+        using key_set_type        = TimeSeriesSetOutput_T<key_type>;
         // TODO: Currently we are only exposing simple types and nb::object, so this simple strategy is not overly expensive,
         //  If we start using more complicated native types, we may wish to use a pointer so something to that effect to
         //  Track keys. The values have a light weight reference counting cost to store as value_type so leave for the moment as
@@ -134,8 +95,7 @@ namespace hgraph {
         // Use raw pointers for reverse lookup to enable efficient lookup from mark_child_modified
         using reverse_map = std::unordered_map<TimeSeriesOutput *, key_type>;
 
-        explicit TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_ptr ts_builder,
-                                        output_builder_ptr ts_ref_builder);
+        explicit TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_ptr ts_builder, output_builder_ptr ts_ref_builder);
 
         explicit TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
                                         output_builder_ptr ts_ref_builder);
@@ -182,57 +142,26 @@ namespace hgraph {
 
         [[nodiscard]] item_iterator end();
 
-        [[nodiscard]] nb::iterator py_keys() const override;
-
-        [[nodiscard]] nb::iterator py_values() const override;
-
-        [[nodiscard]] nb::iterator py_items() const override;
-
         [[nodiscard]] const map_type &modified_items() const;
-
-        [[nodiscard]] nb::iterator py_modified_keys() const override;
-
-        [[nodiscard]] nb::iterator py_modified_values() const override;
-
-        [[nodiscard]] nb::iterator py_modified_items() const override;
-
-        [[nodiscard]] bool py_was_modified(const nb::object &key) const override;
 
         [[nodiscard]] bool was_modified(const key_type &key) const;
 
-        [[nodiscard]] auto valid_items() const;
+        [[nodiscard]] auto valid_items() const {
+            return _ts_values | std::views::filter([](const auto &item) { return item.second->valid(); });
+        }
 
-        [[nodiscard]] nb::iterator py_valid_keys() const override;
-
-        [[nodiscard]] nb::iterator py_valid_values() const override;
-
-        [[nodiscard]] nb::iterator py_valid_items() const override;
+        [[nodiscard]] auto added_items() const {
+            return key_set_t().added() |
+                   std::views::transform([&](const auto &key) { return std::pair<const key_type, value_type>(key, operator[](key)); });
+        }
 
         [[nodiscard]] const k_set_type &added_keys() const;
-
-        [[nodiscard]] nb::iterator py_added_keys() const override;
-
-        [[nodiscard]] nb::iterator py_added_values() const override;
-
-        [[nodiscard]] nb::iterator py_added_items() const override;
-
-        [[nodiscard]] bool py_was_added(const nb::object &key) const override;
 
         [[nodiscard]] bool was_added(const key_type &key) const;
 
         [[nodiscard]] const map_type &removed_items() const;
 
-        [[nodiscard]] nb::iterator py_removed_keys() const override;
-
-        [[nodiscard]] nb::iterator py_removed_values() const override;
-
-        [[nodiscard]] nb::iterator py_removed_items() const override;
-
-        [[nodiscard]] bool py_was_removed(const nb::object &key) const override;
-
         [[nodiscard]] bool was_removed(const key_type &key) const;
-
-        [[nodiscard]] nb::object py_key_set() const override;
 
         [[nodiscard]] TimeSeriesSetOutput &key_set() override;
 
@@ -271,34 +200,34 @@ namespace hgraph {
         [[nodiscard]] bool has_reference() const override;
 
         // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesDictOutput_T<T_Key>>*>(&visitor)) {
+        void accept(TimeSeriesVisitor &visitor) override {
+            if (auto *typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesDictOutput_T<T_Key>> *>(&visitor)) {
                 typed_visitor->visit(*this);
             }
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesDictOutput_T<T_Key>>*>(&visitor)) {
+        void accept(TimeSeriesVisitor &visitor) const override {
+            if (auto *typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesDictOutput_T<T_Key>> *>(&visitor)) {
                 typed_visitor->visit(*this);
             }
         }
 
         // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
+        template <typename Visitor>
+            requires(!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor &visitor) {
             return visitor(*this);
         }
 
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
+        template <typename Visitor>
+            requires(!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor &visitor) const {
             return visitor(*this);
         }
 
         void create(const key_type &key);
 
-    protected:
+      protected:
         friend TSDOutBuilder<T_Key>;
 
         void _dispose();
@@ -309,46 +238,46 @@ namespace hgraph {
 
         // Isolate the modified tracking logic here
         const key_type &key_from_value(TimeSeriesOutput *value) const;
-        void _clear_key_tracking();
-        void _add_key_value(const key_type &key, const value_type& value);
-        void _key_updated(const key_type& key);
-        void _remove_key_value(const key_type &key, const value_type& value);
+        void            _clear_key_tracking();
+        void            _add_key_value(const key_type &key, const value_type &value);
+        void            _key_updated(const key_type &key);
+        void            _remove_key_value(const key_type &key, const value_type &value);
 
-    private:
+      private:
         nb::ref<key_set_type> _key_set;
-        map_type _ts_values;
+        map_type              _ts_values;
 
         reverse_map _ts_values_to_keys;
-        map_type _modified_items;
-        map_type _removed_items;
+        map_type    _modified_items;
+        map_type    _removed_items;
         // This ensures we hold onto the values until we are sure no one needs to reference them.
-        mutable map_type _valid_items_cache; // Cache for valid_items() to ensure iterator lifetime safety.
+        mutable map_type _valid_items_cache;  // Cache for valid_items() to ensure iterator lifetime safety.
 
         output_builder_ptr _ts_builder;
         output_builder_ptr _ts_ref_builder;
 
-        FeatureOutputExtension<key_type> _ref_ts_feature;
+        FeatureOutputExtension<key_type>        _ref_ts_feature;
         std::vector<TSDKeyObserver<key_type> *> _key_observers;
-        engine_time_t _last_cleanup_time{MIN_DT};
-        static inline map_type _empty;
+        engine_time_t                           _last_cleanup_time{MIN_DT};
+        static inline map_type                  _empty;
     };
 
-    template<typename T_Key>
-    using TSD_Builder = struct TimeSeriesDictInputBuilder_T<T_Key>;
+    template <typename T_Key> using TSD_Builder = struct TimeSeriesDictInputBuilder_T<T_Key>;
 
-    template<typename T_Key>
-    struct TimeSeriesDictInput_T : TimeSeriesDictInput, TSDKeyObserver<T_Key> {
-        using ptr = nb::ref<TimeSeriesDictInput_T>;
-        using key_type = T_Key;
-        using value_type = time_series_input_ptr;
-        using map_type = std::unordered_map<key_type, value_type>;
-        using removed_map_type = std::unordered_map<key_type, std::pair<value_type, bool> >;
-        using added_map_type = std::unordered_map<key_type, value_type>;
-        using modified_map_type = std::unordered_map<key_type, value_type>;
-        using item_iterator = typename map_type::iterator;
+    template <typename T_Key> struct TimeSeriesDictInput_T : TimeSeriesDictInput, TSDKeyObserver<T_Key>
+    {
+        using ptr                 = nb::ref<TimeSeriesDictInput_T>;
+        using key_type            = T_Key;
+        using k_set_type          = std::unordered_set<key_type>;
+        using value_type          = time_series_input_ptr;
+        using map_type            = std::unordered_map<key_type, value_type>;
+        using removed_map_type    = std::unordered_map<key_type, std::pair<value_type, bool>>;
+        using added_map_type      = std::unordered_map<key_type, value_type>;
+        using modified_map_type   = std::unordered_map<key_type, value_type>;
+        using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
-        using key_set_type = TimeSeriesSetInput_T<key_type>;
-        using key_set_type_ptr = nb::ref<key_set_type>;
+        using key_set_type        = TimeSeriesSetInput_T<key_type>;
+        using key_set_type_ptr    = nb::ref<key_set_type>;
         // Use raw pointers for reverse lookup to enable efficient lookup from notify_parent
         using reverse_map = std::unordered_map<TimeSeriesInput *, key_type>;
 
@@ -380,57 +309,21 @@ namespace hgraph {
 
         [[nodiscard]] value_type operator[](const key_type &item);
 
-        [[nodiscard]] nb::iterator py_keys() const override;
-
-        [[nodiscard]] nb::iterator py_values() const override;
-
-        [[nodiscard]] nb::iterator py_items() const override;
-
         [[nodiscard]] const map_type &modified_items() const;
-
-        [[nodiscard]] nb::iterator py_modified_keys() const override;
-
-        [[nodiscard]] nb::iterator py_modified_values() const override;
-
-        [[nodiscard]] nb::iterator py_modified_items() const override;
-
-        [[nodiscard]] bool py_was_modified(const nb::object &key) const override;
 
         [[nodiscard]] bool was_modified(const key_type &key) const;
 
         [[nodiscard]] const map_type &valid_items() const;
 
-        [[nodiscard]] nb::iterator py_valid_keys() const override;
-
-        [[nodiscard]] nb::iterator py_valid_values() const override;
-
-        [[nodiscard]] nb::iterator py_valid_items() const override;
+        [[nodiscard]] const k_set_type &added_keys() const;
 
         [[nodiscard]] const map_type &added_items() const;
-
-        [[nodiscard]] nb::iterator py_added_keys() const override;
-
-        [[nodiscard]] nb::iterator py_added_values() const override;
-
-        [[nodiscard]] nb::iterator py_added_items() const override;
-
-        [[nodiscard]] bool py_was_added(const nb::object &key) const override;
 
         [[nodiscard]] bool was_added(const key_type &key) const;
 
         [[nodiscard]] const map_type &removed_items() const;
 
-        [[nodiscard]] nb::iterator py_removed_keys() const override;
-
-        [[nodiscard]] nb::iterator py_removed_values() const override;
-
-        [[nodiscard]] nb::iterator py_removed_items() const override;
-
-        [[nodiscard]] bool py_was_removed(const nb::object &key) const override;
-
         [[nodiscard]] bool was_removed(const key_type &key) const;
-
-        [[nodiscard]] nb::object py_key_set() const override;
 
         [[nodiscard]] TimeSeriesSetInput &key_set() override;
 
@@ -470,32 +363,32 @@ namespace hgraph {
         [[nodiscard]] const TimeSeriesDictOutput_T<key_type> &output_t() const;
 
         // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesDictInput_T<T_Key>>*>(&visitor)) {
+        void accept(TimeSeriesVisitor &visitor) override {
+            if (auto *typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesDictInput_T<T_Key>> *>(&visitor)) {
                 typed_visitor->visit(*this);
             }
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesDictInput_T<T_Key>>*>(&visitor)) {
+        void accept(TimeSeriesVisitor &visitor) const override {
+            if (auto *typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesDictInput_T<T_Key>> *>(&visitor)) {
                 typed_visitor->visit(*this);
             }
         }
 
         // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
+        template <typename Visitor>
+            requires(!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor &visitor) {
             return visitor(*this);
         }
 
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
+        template <typename Visitor>
+            requires(!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
+        decltype(auto) accept(Visitor &visitor) const {
             return visitor(*this);
         }
 
-    protected:
+      protected:
         void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
 
         bool do_bind_output(time_series_output_ptr &value) override;
@@ -515,21 +408,21 @@ namespace hgraph {
         // Isolate modified tracking here.
         [[nodiscard]] const key_type &key_from_value(TimeSeriesInput *value) const;
         [[nodiscard]] const key_type &key_from_value(value_type value) const;
-        void _clear_key_tracking();
-        void _add_key_value(const key_type &key, const value_type& value);
-        void _key_updated(const key_type& key);
-        void _remove_key_value(const key_type &key, const value_type& value);
+        void                          _clear_key_tracking();
+        void                          _add_key_value(const key_type &key, const value_type &value);
+        void                          _key_updated(const key_type &key);
+        void                          _remove_key_value(const key_type &key, const value_type &value);
 
-    private:
+      private:
         friend TSD_Builder<T_Key>;
 
         key_set_type_ptr _key_set;
-        map_type _ts_values;
+        map_type         _ts_values;
 
-        reverse_map _ts_values_to_keys;
-        mutable map_type _valid_items_cache; // Cache the valid items if called.
-        map_type _modified_items; // This is cached for performance reasons.
-        mutable map_type _modified_items_cache; // This is cached for performance reasons.
+        reverse_map      _ts_values_to_keys;
+        mutable map_type _valid_items_cache;     // Cache the valid items if called.
+        map_type         _modified_items;        // This is cached for performance reasons.
+        mutable map_type _modified_items_cache;  // This is cached for performance reasons.
         mutable map_type _added_items_cache;
         mutable map_type _removed_item_cache;
         removed_map_type _removed_items;
@@ -541,10 +434,10 @@ namespace hgraph {
         typename TimeSeriesDictOutput_T<T_Key>::ptr _prev_output;
 
         engine_time_t _last_modified_time{MIN_DT};
-        bool _has_peer{false};
-        mutable bool _clear_key_changes_registered{false};
+        bool          _has_peer{false};
+        mutable bool  _clear_key_changes_registered{false};
     };
 
-} // namespace hgraph
+}  // namespace hgraph
 
 #endif  // TSD_H
