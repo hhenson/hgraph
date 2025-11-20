@@ -32,8 +32,13 @@ namespace hgraph
             if (!node_wrapper && g) { node_wrapper = wrap_node(this, cb); }
             return node_wrapper;
         };
+        auto &signature_args = signature().args;
         for (const auto &[key_, value] : scalars()) {
             std::string key{nb::cast<std::string>(key_)};
+            // Only include scalars that are in signature.args (same as Python implementation)
+            if (std::ranges::find(signature_args, key) == std::ranges::end(signature_args)) {
+                continue;
+            }
             try {
                 if (injectable_map && injectable_map->contains(key)) {
                     auto       injectable = injectable_map->at(key);
@@ -82,16 +87,25 @@ namespace hgraph
 
     void BasePythonNode::_initialise_kwarg_inputs() {
         if (graph() == nullptr) { return; }
+        if (!input()) { return; }
         auto &signature_args = signature().args;
-        for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0; i < l;
-             ++i) {
-            // Apple does not yet support ranges::contains :(
-            auto key{input()->schema().keys()[i]};
-            if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
+        // Iterate over time_series_inputs keys and access bundle by key name
+        // The bundle schema keys should match, but we use key-based access to be safe
+        // Only include time-series inputs that are in signature.args (same as Python implementation)
+        if (!signature().time_series_inputs.has_value()) { return; }
+        for (const auto &[key_str, _] : signature().time_series_inputs.value()) {
+            const std::string &key = key_str;
+            // Only process keys that are in signature.args
+            if (std::ranges::find(signature_args, key) == std::ranges::end(signature_args)) {
+                continue;
+            }
+            // Access by key name to ensure we get the correct input
+            // The bundle should contain all time_series_inputs keys
+            if (input()->contains(key)) {
                 // Expose inputs as base TimeSeriesInput using nb::ref to preserve lifetime semantics.
                 // Avoid casting to raw pointer, which bypasses intrusive ref counting and can cause
                 // dangling references when Python holds onto the object (e.g., during iteration).
-                _kwargs[key.c_str()] = wrap_time_series((*input())[i].get(), graph()->control_block());
+                _kwargs[key.c_str()] = wrap_time_series((*input())[key].get(), graph()->control_block());
             }
         }
     }
