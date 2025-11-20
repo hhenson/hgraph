@@ -59,9 +59,9 @@ namespace hgraph
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::values() const {
         auto        self{impl()};
-        const auto &items = self->modified_values();
+        auto items = self->values();  // Copy the collection to ensure lifetime
         return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSBValuesIterator",
-                                               items.begin(), items.end(), this->control_block());
+                                               std::move(items), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
@@ -74,9 +74,9 @@ namespace hgraph
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_values() const {
         auto        self{impl()};
-        const auto &items = self->valid_values();
+        auto items = self->valid_values();  // Copy the collection to ensure lifetime
         return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSBValidValuesIterator",
-                                               items.begin(), items.end(), this->control_block());
+                                               std::move(items), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
@@ -89,9 +89,9 @@ namespace hgraph
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_values() const {
         auto        self{impl()};
-        const auto &items = self->modified_values();
+        auto items = self->modified_values();  // Copy the collection to ensure lifetime
         return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSBModifiedValuesIterator",
-                                               items.begin(), items.end(), this->control_block());
+                                               std::move(items), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
@@ -110,27 +110,27 @@ namespace hgraph
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::items() const {
         auto        self{impl()};
-        const auto &items = self->items();
+        auto items = self->items();  // Copy the collection to ensure lifetime
         return make_time_series_items_iterator(nb::type<typename T_U::key_value_collection_type>(), "TSBItemsIterator",
-                                               items.begin(), items.end(), this->control_block());
+                                               std::move(items), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_items() const {
         auto        self{impl()};
-        const auto &items = self->valid_items();
+        auto items = self->valid_items();  // Copy the collection to ensure lifetime
         return make_time_series_items_iterator(nb::type<typename T_U::key_value_collection_type>(), "TSBValidItemsIterator",
-                                               items.begin(), items.end(), this->control_block());
+                                               std::move(items), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_items() const {
         auto        self{impl()};
-        const auto &items = self->items();
+        auto items = self->modified_items();  // Copy the collection to ensure lifetime
         return make_time_series_items_iterator(nb::type<typename T_U::key_value_collection_type>(), "TSBModifiedItemsIterator",
-                                               items.begin(), items.end(), this->control_block());
+                                               std::move(items), this->control_block());
     }
 
     template <typename T_TS, typename T_U> constexpr const char *get_bundle_type_name() {
