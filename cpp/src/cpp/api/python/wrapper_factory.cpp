@@ -7,6 +7,8 @@
 #include <fmt/format.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/api/python/py_ref.h>
+#include <hgraph/api/python/py_signal.h>
+#include <hgraph/api/python/py_ts.h>
 #include <hgraph/api/python/py_tsb.h>
 #include <hgraph/api/python/py_tsd.h>
 #include <hgraph/api/python/py_tsl.h>
@@ -91,7 +93,7 @@ namespace hgraph
 
         // Handle value inputs (template)
         template <typename T> void visit(TimeSeriesValueInput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesInput(&source, control_block));
+            wrapped_visitor = nb::cast(PyTimeSeriesValueInput(&source, control_block));
         }
 
         // Handle reference inputs
@@ -121,27 +123,27 @@ namespace hgraph
 
         // Handle other input types (fallback/stub implementations)
         void visit(TimeSeriesBundleInput &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesInput(&source, control_block));
+            wrapped_visitor = nb::cast(PyTimeSeriesValueInput(&source, control_block));
         }
 
         template <typename K> void visit(TimeSeriesSetInput_T<K> &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<K>>(&source, control_block));
         }
 
         void visit(TimeSeriesListInput &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesListInput(&source, control_block));
         }
 
         template <typename K> void visit(TimeSeriesDictInput_T<K> &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<K>>(&source, control_block));
         }
 
         void visit(TimeSeriesSignalInput &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesSignalInput(&source, control_block));
         }
 
         template <typename T> void visit(TimeSeriesWindowInput<T> &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<TimeSeriesWindowInput<T>>(&source, control_block));
         }
     };
 
@@ -166,7 +168,7 @@ namespace hgraph
 
         // Handle value inputs (template)
         template <typename T> void visit(TimeSeriesValueOutput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesOutput(&source, control_block));
+            wrapped_visitor = nb::cast(PyTimeSeriesValueOutput(&source, control_block));
         }
 
         // Handle reference inputs
@@ -200,23 +202,23 @@ namespace hgraph
         }
 
         template <typename K> void visit(TimeSeriesSetOutput_T<K> &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<K>>(&source, control_block));
         }
 
         void visit(TimeSeriesListOutput &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesListOutput(&source, control_block));
         }
 
         template <typename K> void visit(TimeSeriesDictOutput_T<K> &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<K>>(&source, control_block));
         }
 
         template <typename T> void visit(TimeSeriesFixedWindowOutput<T> &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesFixedWindowOutput<TimeSeriesFixedWindowOutput<T>>(&source, control_block));
         }
 
         template <typename T> void visit(TimeSeriesTimeWindowOutput<T> &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesTimeWindowOutput<TimeSeriesTimeWindowOutput<T>>(&source, control_block));
         }
     };
 
