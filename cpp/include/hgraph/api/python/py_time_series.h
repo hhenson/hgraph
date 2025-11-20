@@ -12,6 +12,22 @@ namespace hgraph
 
         virtual ~PyTimeSeriesType() = default;
 
+        // Move constructor
+        PyTimeSeriesType(PyTimeSeriesType&& other) noexcept
+            : _impl(std::move(other._impl)) {}
+
+        // Move assignment
+        PyTimeSeriesType& operator=(PyTimeSeriesType&& other) noexcept {
+            if (this != &other) {
+                _impl = std::move(other._impl);
+            }
+            return *this;
+        }
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesType(const PyTimeSeriesType&) = delete;
+        PyTimeSeriesType& operator=(const PyTimeSeriesType&) = delete;
+
         // Graph navigation methods. These may not be required
         // (Other than for debugging) if we used the context approach
         [[nodiscard]] nb::object owning_node() const;   // PyNode

@@ -91,16 +91,20 @@ namespace hgraph
 
         explicit WrapInputVisitor(control_block_ptr control_block_) : control_block(std::move(control_block_)) {}
 
-        // Bring base template methods into scope
-        using TimeSeriesInputVisitor::visit;
+        // Override the virtual method to handle value inputs
+        void visit_value_input_impl(TimeSeriesType* input) override {
+            // PyTimeSeriesValueInput constructor takes TimeSeriesType*, so we can pass it directly
+            // Now that PyTimeSeriesValueInput is move-constructible, we can use nb::cast
+            wrapped_visitor = nb::cast(PyTimeSeriesValueInput(input, control_block));
+        }
 
-        // Handle value inputs (template) - this shadows the base template method
+        // Also keep the template methods for direct calls (they'll call the virtual method)
         template <typename T> void visit(TimeSeriesValueInput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesValueInput(&source, control_block));
+            visit_value_input_impl(&source);
         }
 
         template <typename T> void visit(const TimeSeriesValueInput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesValueInput(const_cast<TimeSeriesValueInput<T>*>(&source), control_block));
+            visit_value_input_impl(const_cast<TimeSeriesValueInput<T>*>(&source));
         }
 
         // Handle reference inputs
@@ -208,16 +212,20 @@ namespace hgraph
 
         explicit WrapOutputVisitor(control_block_ptr control_block_) : control_block(std::move(control_block_)) {}
 
-        // Bring base template methods into scope
-        using TimeSeriesOutputVisitor::visit;
+        // Override the virtual method to handle value outputs
+        void visit_value_output_impl(TimeSeriesType* output) override {
+            // PyTimeSeriesValueOutput constructor takes TimeSeriesType*, so we can pass it directly
+            // Now that PyTimeSeriesValueOutput is move-constructible, we can use nb::cast
+            wrapped_visitor = nb::cast(PyTimeSeriesValueOutput(output, control_block));
+        }
 
-        // Handle value outputs (template) - this shadows the base template method
+        // Also keep the template methods for direct calls (they'll call the virtual method)
         template <typename T> void visit(TimeSeriesValueOutput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesValueOutput(&source, control_block));
+            visit_value_output_impl(&source);
         }
 
         template <typename T> void visit(const TimeSeriesValueOutput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesValueOutput(const_cast<TimeSeriesValueOutput<T>*>(&source), control_block));
+            visit_value_output_impl(const_cast<TimeSeriesValueOutput<T>*>(&source));
         }
 
         // Handle reference outputs

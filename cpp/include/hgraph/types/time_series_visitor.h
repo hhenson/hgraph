@@ -53,15 +53,20 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesInputVisitor {
         virtual ~TimeSeriesInputVisitor() = default;
 
-        // Template visit methods for value types
+        // Template visit methods for value types - these call virtual methods that can be overridden
         template<typename T>
         void visit(TimeSeriesValueInput<T>& input) {
-            // Default: do nothing, override in derived classes
+            visit_value_input_impl(&input);
         }
 
         template<typename T>
         void visit(const TimeSeriesValueInput<T>& input) {
-            // Const version - default implementation
+            visit_value_input_impl(const_cast<TimeSeriesValueInput<T>*>(&input));
+        }
+
+        // Virtual method that derived classes can override to handle value inputs
+        virtual void visit_value_input_impl(TimeSeriesType* input) {
+            // Default: do nothing, override in derived classes
         }
 
         // Visit methods for specific types
@@ -118,15 +123,20 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesOutputVisitor {
         virtual ~TimeSeriesOutputVisitor() = default;
 
-        // Template visit methods for value types
+        // Template visit methods for value types - these call virtual methods that can be overridden
         template<typename T>
         void visit(TimeSeriesValueOutput<T>& output) {
-            // Default: do nothing, override in derived classes
+            visit_value_output_impl(&output);
         }
 
         template<typename T>
         void visit(const TimeSeriesValueOutput<T>& output) {
-            // Const version - default implementation
+            visit_value_output_impl(const_cast<TimeSeriesValueOutput<T>*>(&output));
+        }
+
+        // Virtual method that derived classes can override to handle value outputs
+        virtual void visit_value_output_impl(TimeSeriesType* output) {
+            // Default: do nothing, override in derived classes
         }
 
         // Visit methods for specific types
