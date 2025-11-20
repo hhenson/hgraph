@@ -134,11 +134,11 @@ namespace hgraph
 
         // Handle other input types
         void visit(TimeSeriesBundleInput &source) override {
-            wrapped_visitor = nb::cast(PyTimeSeriesValueInput(&source, control_block));
+            wrapped_visitor = nb::cast(PyTimeSeriesBundleInput(&source, control_block));
         }
 
         void visit(const TimeSeriesBundleInput &source) override {
-            wrapped_visitor = nb::cast(PyTimeSeriesValueInput(const_cast<TimeSeriesBundleInput*>(&source), control_block));
+            wrapped_visitor = nb::cast(PyTimeSeriesBundleInput(const_cast<TimeSeriesBundleInput*>(&source), control_block));
         }
 
         template <typename K> void visit(TimeSeriesSetInput_T<K> &source) {
