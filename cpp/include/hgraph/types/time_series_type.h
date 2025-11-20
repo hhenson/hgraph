@@ -10,38 +10,22 @@ namespace hgraph {
     struct TimeSeriesVisitor;
 
     // Forward declarations for visitable interfaces
+    // Forward declaration
+    struct TimeSeriesInputVisitor;
+    struct TimeSeriesOutputVisitor;
+
     struct HGRAPH_EXPORT TimeSeriesOutputVisitable {
-        // Acyclic visitor support (runtime dispatch) - implemented by concrete types
-        virtual void accept(TimeSeriesVisitor& visitor) = 0;
-        virtual void accept(TimeSeriesVisitor& visitor) const = 0;
-
-        // CRTP visitor support (compile-time dispatch)
-        // Forward to the CRTP accept in BaseTimeSeriesOutput
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor);
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const;
+        // Simple double dispatch visitor support
+        virtual void accept(TimeSeriesOutputVisitor& visitor) = 0;
+        virtual void accept(TimeSeriesOutputVisitor& visitor) const = 0;
 
         virtual ~TimeSeriesOutputVisitable() = default;
     };
 
     struct HGRAPH_EXPORT TimeSeriesInputVisitable {
-        // Acyclic visitor support (runtime dispatch) - implemented by concrete types
-        virtual void accept(TimeSeriesVisitor& visitor) = 0;
-        virtual void accept(TimeSeriesVisitor& visitor) const = 0;
-
-        // CRTP visitor support (compile-time dispatch)
-        // Forward to the CRTP accept in BaseTimeSeriesInput
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor);
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const;
+        // Simple double dispatch visitor support
+        virtual void accept(TimeSeriesInputVisitor& visitor) = 0;
+        virtual void accept(TimeSeriesInputVisitor& visitor) const = 0;
 
         virtual ~TimeSeriesInputVisitable() = default;
     };

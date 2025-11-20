@@ -198,30 +198,13 @@ namespace hgraph {
 
         void _reset_value();
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesSetOutput_T<T_Key>>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesOutputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesSetOutput_T<T_Key>>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
-        }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesOutputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
 
     protected:
@@ -278,30 +261,13 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesSetInput_T<T>>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesInputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesSetInput_T<T>>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
-        }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesInputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
 
     protected:

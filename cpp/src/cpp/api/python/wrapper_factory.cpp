@@ -15,6 +15,7 @@
 #include <hgraph/api/python/py_tss.h>
 #include <hgraph/api/python/py_tsw.h>
 #include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/types/time_series_visitor.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/mesh_node.h>
 #include <hgraph/nodes/tsd_map_node.h>
@@ -82,68 +83,110 @@ namespace hgraph
         return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNodeScheduler({impl, cb}); });
     }
 
-    // CRTP visitor for wrapping TimeSeriesInput objects
-    // Now that concrete input types have CRTP accept() methods, we can use the more efficient CRTP pattern
-    struct WrapInputVisitor : TimeSeriesInputVisitorCRTP<WrapInputVisitor>
+    // Simple double dispatch visitor for wrapping TimeSeriesInput objects
+    struct WrapInputVisitor : TimeSeriesInputVisitor
     {
         control_block_ptr control_block;
         nb::object        wrapped_visitor;
 
         explicit WrapInputVisitor(control_block_ptr control_block_) : control_block(std::move(control_block_)) {}
 
-        // Handle value inputs (template)
+        // Bring base template methods into scope
+        using TimeSeriesInputVisitor::visit;
+
+        // Handle value inputs (template) - this shadows the base template method
         template <typename T> void visit(TimeSeriesValueInput<T> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesValueInput(&source, control_block));
         }
 
+        template <typename T> void visit(const TimeSeriesValueInput<T> &source) {
+            wrapped_visitor = nb::cast(PyTimeSeriesValueInput(const_cast<TimeSeriesValueInput<T>*>(&source), control_block));
+        }
+
         // Handle reference inputs
-        void visit(TimeSeriesValueReferenceInput &source) {
+        void visit(TimeSeriesValueReferenceInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesValueReferenceInput(&source, control_block));
         }
 
-        void visit(TimeSeriesBundleReferenceInput &source) {
+        void visit(TimeSeriesBundleReferenceInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesBundleReferenceInput(&source, control_block));
         }
 
-        void visit(TimeSeriesSetReferenceInput &source) {
+        void visit(TimeSeriesSetReferenceInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesSetReferenceInput(&source, control_block));
         }
 
-        void visit(TimeSeriesListReferenceInput &source) {
+        void visit(TimeSeriesListReferenceInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesListReferenceInput(&source, control_block));
         }
 
-        void visit(TimeSeriesDictReferenceInput &source) {
+        void visit(TimeSeriesDictReferenceInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesDictReferenceInput(&source, control_block));
         }
 
-        void visit(TimeSeriesWindowReferenceInput &source) {
+        void visit(TimeSeriesWindowReferenceInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesWindowReferenceInput(&source, control_block));
         }
 
-        // Handle other input types (fallback/stub implementations)
-        void visit(TimeSeriesBundleInput &source) {
+        // Handle other input types
+        void visit(TimeSeriesBundleInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesValueInput(&source, control_block));
+        }
+
+        void visit(const TimeSeriesBundleInput &source) override {
+            wrapped_visitor = nb::cast(PyTimeSeriesValueInput(const_cast<TimeSeriesBundleInput*>(&source), control_block));
         }
 
         template <typename K> void visit(TimeSeriesSetInput_T<K> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<K>>(&source, control_block));
         }
 
-        void visit(TimeSeriesListInput &source) {
+        template <typename K> void visit(const TimeSeriesSetInput_T<K> &source) {
+            wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<K>>(const_cast<TimeSeriesSetInput_T<K>*>(&source), control_block));
+        }
+
+        void visit(TimeSeriesListInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesListInput(&source, control_block));
+        }
+
+        void visit(const TimeSeriesListInput &source) override {
+            wrapped_visitor = nb::cast(PyTimeSeriesListInput(const_cast<TimeSeriesListInput*>(&source), control_block));
         }
 
         template <typename K> void visit(TimeSeriesDictInput_T<K> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<K>>(&source, control_block));
         }
 
-        void visit(TimeSeriesSignalInput &source) {
+        template <typename K> void visit(const TimeSeriesDictInput_T<K> &source) {
+            wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<K>>(const_cast<TimeSeriesDictInput_T<K>*>(&source), control_block));
+        }
+
+        void visit(TimeSeriesSignalInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesSignalInput(&source, control_block));
+        }
+
+        void visit(const TimeSeriesSignalInput &source) override {
+            wrapped_visitor = nb::cast(PyTimeSeriesSignalInput(const_cast<TimeSeriesSignalInput*>(&source), control_block));
         }
 
         template <typename T> void visit(TimeSeriesWindowInput<T> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<TimeSeriesWindowInput<T>>(&source, control_block));
+        }
+
+        template <typename T> void visit(const TimeSeriesWindowInput<T> &source) {
+            wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<TimeSeriesWindowInput<T>>(const_cast<TimeSeriesWindowInput<T>*>(&source), control_block));
+        }
+
+        void visit(TimeSeriesReferenceInput &source) override {
+            // This should not be called - specialized types override accept() to call their specific visit method
+            // But if it is called (e.g., for the base type), we need to determine the actual type
+            // For now, try to cast to the most common type
+            if (auto* value_ref = dynamic_cast<TimeSeriesValueReferenceInput*>(&source)) {
+                visit(*value_ref);
+            } else {
+                // Fallback - this shouldn't happen in practice
+                wrapped_visitor = nb::none();
+            }
         }
     };
 
@@ -152,73 +195,103 @@ namespace hgraph
     nb::object wrap_input(const TimeSeriesInput *impl, const control_block_ptr &control_block) {
         return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) {
             WrapInputVisitor visitor(cb);
-            visit_timeseries(visitor, *impl);
+            impl->accept(visitor);
             return visitor.wrapped_visitor.is_valid() ? visitor.wrapped_visitor : nb::none();
         });
     }
 
-    // CRTP visitor for wrapping TimeSeriesInput objects
-    // Now that concrete input types have CRTP accept() methods, we can use the more efficient CRTP pattern
-    struct WrapOutputVisitor : TimeSeriesOutputVisitorCRTP<WrapOutputVisitor>
+    // Simple double dispatch visitor for wrapping TimeSeriesOutput objects
+    struct WrapOutputVisitor : TimeSeriesOutputVisitor
     {
         control_block_ptr control_block;
         nb::object        wrapped_visitor;
 
         explicit WrapOutputVisitor(control_block_ptr control_block_) : control_block(std::move(control_block_)) {}
 
-        // Handle value inputs (template)
+        // Bring base template methods into scope
+        using TimeSeriesOutputVisitor::visit;
+
+        // Handle value outputs (template) - this shadows the base template method
         template <typename T> void visit(TimeSeriesValueOutput<T> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesValueOutput(&source, control_block));
         }
 
-        // Handle reference inputs
-        void visit(TimeSeriesValueReferenceOutput &source) {
+        template <typename T> void visit(const TimeSeriesValueOutput<T> &source) {
+            wrapped_visitor = nb::cast(PyTimeSeriesValueOutput(const_cast<TimeSeriesValueOutput<T>*>(&source), control_block));
+        }
+
+        // Handle reference outputs
+        void visit(TimeSeriesValueReferenceOutput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesValueReferenceOutput(&source, control_block));
         }
 
-        void visit(TimeSeriesBundleReferenceOutput &source) {
+        void visit(TimeSeriesBundleReferenceOutput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesBundleReferenceOutput(&source, control_block));
         }
 
-        void visit(TimeSeriesSetReferenceOutput &source) {
+        void visit(TimeSeriesSetReferenceOutput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesSetReferenceOutput(&source, control_block));
         }
 
-        void visit(TimeSeriesListReferenceOutput &source) {
+        void visit(TimeSeriesListReferenceOutput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesListReferenceOutput(&source, control_block));
         }
 
-        void visit(TimeSeriesDictReferenceOutput &source) {
+        void visit(TimeSeriesDictReferenceOutput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesDictReferenceOutput(&source, control_block));
         }
 
-        void visit(TimeSeriesWindowReferenceOutput &source) {
+        void visit(TimeSeriesWindowReferenceOutput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesWindowReferenceOutput(&source, control_block));
         }
 
-        // Handle other input types (fallback/stub implementations)
-        void visit(TimeSeriesBundleOutput &source) {
+        // Handle other output types
+        void visit(TimeSeriesBundleOutput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesBundleOutput(&source, control_block));
+        }
+
+        void visit(const TimeSeriesBundleOutput &source) override {
+            wrapped_visitor = nb::cast(PyTimeSeriesBundleOutput(const_cast<TimeSeriesBundleOutput*>(&source), control_block));
         }
 
         template <typename K> void visit(TimeSeriesSetOutput_T<K> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<K>>(&source, control_block));
         }
 
-        void visit(TimeSeriesListOutput &source) {
+        template <typename K> void visit(const TimeSeriesSetOutput_T<K> &source) {
+            wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<K>>(const_cast<TimeSeriesSetOutput_T<K>*>(&source), control_block));
+        }
+
+        void visit(TimeSeriesListOutput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesListOutput(&source, control_block));
+        }
+
+        void visit(const TimeSeriesListOutput &source) override {
+            wrapped_visitor = nb::cast(PyTimeSeriesListOutput(const_cast<TimeSeriesListOutput*>(&source), control_block));
         }
 
         template <typename K> void visit(TimeSeriesDictOutput_T<K> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<K>>(&source, control_block));
         }
 
+        template <typename K> void visit(const TimeSeriesDictOutput_T<K> &source) {
+            wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<K>>(const_cast<TimeSeriesDictOutput_T<K>*>(&source), control_block));
+        }
+
         template <typename T> void visit(TimeSeriesFixedWindowOutput<T> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesFixedWindowOutput<TimeSeriesFixedWindowOutput<T>>(&source, control_block));
         }
 
+        template <typename T> void visit(const TimeSeriesFixedWindowOutput<T> &source) {
+            wrapped_visitor = nb::cast(PyTimeSeriesFixedWindowOutput<TimeSeriesFixedWindowOutput<T>>(const_cast<TimeSeriesFixedWindowOutput<T>*>(&source), control_block));
+        }
+
         template <typename T> void visit(TimeSeriesTimeWindowOutput<T> &source) {
             wrapped_visitor = nb::cast(PyTimeSeriesTimeWindowOutput<TimeSeriesTimeWindowOutput<T>>(&source, control_block));
+        }
+
+        template <typename T> void visit(const TimeSeriesTimeWindowOutput<T> &source) {
+            wrapped_visitor = nb::cast(PyTimeSeriesTimeWindowOutput<TimeSeriesTimeWindowOutput<T>>(const_cast<TimeSeriesTimeWindowOutput<T>*>(&source), control_block));
         }
     };
 
@@ -228,7 +301,7 @@ namespace hgraph
     nb::object wrap_output(const TimeSeriesOutput *impl, const control_block_ptr &control_block) {
         return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) {
             WrapOutputVisitor visitor(cb);
-            visit_timeseries(visitor, *impl);
+            impl->accept(visitor);
             return visitor.wrapped_visitor.is_valid() ? visitor.wrapped_visitor : nb::none();
         });
     }

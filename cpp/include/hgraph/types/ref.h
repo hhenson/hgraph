@@ -117,17 +117,13 @@ namespace hgraph {
 
         [[nodiscard]] bool has_reference() const override;
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesOutputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        void accept(TimeSeriesOutputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
 
         [[nodiscard]] bool has_value() const;
@@ -187,16 +183,13 @@ namespace hgraph {
         [[nodiscard]] TimeSeriesReferenceInput *get_ref_input(size_t index);
 
         // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesReferenceInput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesInputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesReferenceInput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        void accept(TimeSeriesInputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
 
         [[nodiscard]] bool is_reference() const override;
@@ -241,17 +234,13 @@ namespace hgraph {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
 
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
+        // Override accept() to call the specialized visit method
+        void accept(TimeSeriesInputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesInputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
     };
 
@@ -267,17 +256,13 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
+        // Override accept() to call the specialized visit method
+        void accept(TimeSeriesInputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesInputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
 
     private:
@@ -295,17 +280,13 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
+        // Override accept() to call the specialized visit method
+        void accept(TimeSeriesInputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesInputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
 
     private:
@@ -316,17 +297,13 @@ namespace hgraph {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
 
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
+        // Override accept() to call the specialized visit method
+        void accept(TimeSeriesInputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesInputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
     };
 
@@ -334,17 +311,13 @@ namespace hgraph {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
 
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
+        // Override accept() to call the specialized visit method
+        void accept(TimeSeriesInputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesInputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
     };
 
@@ -352,17 +325,13 @@ namespace hgraph {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
 
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
+        // Override accept() to call the specialized visit method
+        void accept(TimeSeriesInputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesInputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
     };
 
@@ -374,30 +343,13 @@ namespace hgraph {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesValueReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesOutputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesValueReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
-        }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesOutputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
     };
 
@@ -412,30 +364,13 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesListReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesOutputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesListReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
-        }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesOutputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
 
     private:
@@ -453,30 +388,13 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesBundleReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesOutputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesBundleReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
-        }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesOutputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
 
     private:
@@ -487,30 +405,13 @@ namespace hgraph {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesDictReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesOutputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesDictReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
-        }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesOutputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
     };
 
@@ -518,30 +419,13 @@ namespace hgraph {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesSetReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesOutputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesSetReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
-        }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesOutputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
     };
 
@@ -549,30 +433,13 @@ namespace hgraph {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesWindowReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesOutputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesWindowReferenceOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
-        }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesOutputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
     };
 

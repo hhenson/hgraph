@@ -119,9 +119,11 @@ namespace hgraph
         return this->template static_cast_impl<T_U>();
     }
 
-    template <> struct PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>;
-
-    template <> struct PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>;
+    // Explicit template instantiations for constructors
+    template PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>::PyTimeSeriesList(TimeSeriesListOutput*, const control_block_ptr&);
+    template PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>::PyTimeSeriesList(TimeSeriesListOutput*);
+    template PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>::PyTimeSeriesList(TimeSeriesListInput*, const control_block_ptr&);
+    template PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>::PyTimeSeriesList(TimeSeriesListInput*);
 
     template <typename T_TS, typename T_U> void _register_tsl_with_nanobind(nb::module_ &m) {
         using PyTS_Type = PyTimeSeriesList<T_TS, T_U>;
