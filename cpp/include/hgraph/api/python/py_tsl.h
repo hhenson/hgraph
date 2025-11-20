@@ -28,6 +28,8 @@ namespace hgraph
         // Retrieves valid keys
         [[nodiscard]] nb::object keys() const;
 
+        [[nodiscard]] nb::object values() const;
+
         [[nodiscard]] nb::object valid_keys() const;
 
         [[nodiscard]] nb::object modified_keys() const;
@@ -37,9 +39,15 @@ namespace hgraph
         // Retrieves valid items
         [[nodiscard]] nb::object items() const;
 
+        [[nodiscard]] nb::object valid_values() const;
+
         [[nodiscard]] nb::object valid_items() const;
 
+        [[nodiscard]] nb::object modified_values() const;
+
         [[nodiscard]] nb::object modified_items() const;
+
+        [[nodiscard]] bool empty() const;
 
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();

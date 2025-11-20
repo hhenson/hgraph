@@ -7,11 +7,11 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    PyTimeSeriesList<T_TS, T_U>::PyTimeSeriesList(underlying_type *impl, const control_block_ptr &cb) : T_TS(impl, cb){}
+    PyTimeSeriesList<T_TS, T_U>::PyTimeSeriesList(underlying_type *impl, const control_block_ptr &cb) : T_TS(impl, cb) {}
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    PyTimeSeriesList<T_TS, T_U>::PyTimeSeriesList(underlying_type *impl) : T_TS(impl){}
+    PyTimeSeriesList<T_TS, T_U>::PyTimeSeriesList(underlying_type *impl) : T_TS(impl) {}
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
@@ -41,6 +41,15 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
+    nb::object PyTimeSeriesList<T_TS, T_U>::values() const {
+        auto        self{impl()};
+        const auto &items = self->values();
+        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "ValuesIterator",
+                                               items.begin(), items.end(), this->control_block());
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsl<T_TS, T_U>)
     nb::object PyTimeSeriesList<T_TS, T_U>::valid_keys() const {
         return nb::make_tuple(impl()->valid_keys().begin(), impl()->valid_keys().end());
     }
@@ -60,34 +69,50 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
     nb::object PyTimeSeriesList<T_TS, T_U>::items() const {
-        auto     impl_{impl()};
-        nb::list values;
-        for (const auto &[key, ts] : impl_->items()) {
-            values.append(nb::make_tuple(key, wrap_time_series(ts.get(), this->control_block())));
-        }
-        return values;
+        auto        self{impl()};
+        const auto &items = self->items();
+        return make_time_series_items_iterator(nb::type<typename T_U::enumerated_collection_type>(), "ItemsIterator",
+                                               items.begin(), items.end(), this->control_block());
+    }
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsl<T_TS, T_U>)
+    nb::object PyTimeSeriesList<T_TS, T_U>::valid_values() const {
+        auto        self{impl()};
+        const auto &items = self->valid_values();
+        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "ValidValuesIterator",
+                                               items.begin(), items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
     nb::object PyTimeSeriesList<T_TS, T_U>::valid_items() const {
-        auto     impl_{impl()};
-        nb::list values;
-        for (const auto &[key, ts] : impl_->valid_items()) {
-            values.append(nb::make_tuple(key, wrap_time_series(ts.get(), this->control_block())));
-        }
-        return values;
+        auto        self{impl()};
+        const auto &items = self->valid_items();
+        return make_time_series_items_iterator(nb::type<typename T_U::enumerated_collection_type>(), "ValidItemsIterator",
+                                               items.begin(), items.end(), this->control_block());
+    }
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsl<T_TS, T_U>)
+    nb::object PyTimeSeriesList<T_TS, T_U>::modified_values() const {
+        auto        self{impl()};
+        const auto &items = self->modified_values();
+        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "ModifiedValuesIterator",
+                                               items.begin(), items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
     nb::object PyTimeSeriesList<T_TS, T_U>::modified_items() const {
-        auto     impl_{impl()};
-        nb::list values;
-        for (const auto &[key, ts] : impl_->modified_items()) {
-            values.append(nb::make_tuple(key, wrap_time_series(ts.get(), this->control_block())));
-        }
-        return values;
+        auto        self{impl()};
+        const auto &items = self->modified_items();
+        return make_time_series_items_iterator(nb::type<typename T_U::enumerated_collection_type>(), "ModifiedItemsIterator",
+                                               items.begin(), items.end(), this->control_block());
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsl<T_TS, T_U>)
+    bool PyTimeSeriesList<T_TS, T_U>::empty() const {
+        return impl()->empty();
     }
 
     template <typename T_TS, typename T_U> constexpr const char *get_bundle_type_name() {
@@ -120,10 +145,12 @@ namespace hgraph
     }
 
     // Explicit template instantiations for constructors
-    template PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>::PyTimeSeriesList(TimeSeriesListOutput*, const control_block_ptr&);
-    template PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>::PyTimeSeriesList(TimeSeriesListOutput*);
-    template PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>::PyTimeSeriesList(TimeSeriesListInput*, const control_block_ptr&);
-    template PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>::PyTimeSeriesList(TimeSeriesListInput*);
+    template PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>::PyTimeSeriesList(TimeSeriesListOutput *,
+                                                                                          const control_block_ptr &);
+    template PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>::PyTimeSeriesList(TimeSeriesListOutput *);
+    template PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>::PyTimeSeriesList(TimeSeriesListInput *,
+                                                                                        const control_block_ptr &);
+    template PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>::PyTimeSeriesList(TimeSeriesListInput *);
 
     template <typename T_TS, typename T_U> void _register_tsl_with_nanobind(nb::module_ &m) {
         using PyTS_Type = PyTimeSeriesList<T_TS, T_U>;
@@ -132,6 +159,10 @@ namespace hgraph
             .def("__getitem__", &PyTS_Type::get_item)
             .def("__iter__", &PyTS_Type::iter)
             .def("__len__", &PyTS_Type::len)
+            .def_prop_ro("empty", &PyTS_Type::empty)
+            .def("values", &PyTS_Type::values)
+            .def("valid_values", &PyTS_Type::valid_values)
+            .def("modified_values", &PyTS_Type::modified_values)
             .def("keys", &PyTS_Type::keys)
             .def("items", &PyTS_Type::items)
             .def("valid_keys", &PyTS_Type::valid_keys)

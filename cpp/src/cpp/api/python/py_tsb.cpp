@@ -48,10 +48,20 @@ namespace hgraph
     const TimeSeriesSchema &PyTimeSeriesBundle<T_TS, T_U>::schema() const {
         return impl()->schema();
     }
+
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::keys() const {
         return nb::make_tuple(impl()->keys().begin(), impl()->keys().end());
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsb<T_TS, T_U>)
+    nb::object PyTimeSeriesBundle<T_TS, T_U>::values() const {
+        auto        self{impl()};
+        const auto &items = self->modified_values();
+        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSBValuesIterator",
+                                               items.begin(), items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
@@ -62,8 +72,26 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
+    nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_values() const {
+        auto        self{impl()};
+        const auto &items = self->valid_values();
+        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSBValidValuesIterator",
+                                               items.begin(), items.end(), this->control_block());
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_keys() const {
         return nb::make_tuple(impl()->modified_keys().begin(), impl()->modified_keys().end());
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsb<T_TS, T_U>)
+    nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_values() const {
+        auto        self{impl()};
+        const auto &items = self->modified_values();
+        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSBModifiedValuesIterator",
+                                               items.begin(), items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
@@ -74,35 +102,35 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
+    nb::bool_ PyTimeSeriesBundle<T_TS, T_U>::empty() const {
+        return nb::bool_(impl()->empty());
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::items() const {
-        auto     impl_{impl()};
-        nb::list values;
-        for (const auto &[key, ts] : impl_->items()) {
-            values.append(nb::make_tuple(key, wrap_time_series(ts.get(), this->control_block())));
-        }
-        return values;
+        auto        self{impl()};
+        const auto &items = self->items();
+        return make_time_series_items_iterator(nb::type<typename T_U::key_value_collection_type>(), "TSBItemsIterator",
+                                               items.begin(), items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_items() const {
-        auto     impl_{impl()};
-        nb::list values;
-        for (const auto &[key, ts] : impl_->valid_items()) {
-            values.append(nb::make_tuple(key, wrap_time_series(ts.get(), this->control_block())));
-        }
-        return values;
+        auto        self{impl()};
+        const auto &items = self->valid_items();
+        return make_time_series_items_iterator(nb::type<typename T_U::key_value_collection_type>(), "TSBValidItemsIterator",
+                                               items.begin(), items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_items() const {
-        auto     impl_{impl()};
-        nb::list values;
-        for (const auto &[key, ts] : impl_->modified_items()) {
-            values.append(nb::make_tuple(key, wrap_time_series(ts.get(), this->control_block())));
-        }
-        return values;
+        auto        self{impl()};
+        const auto &items = self->items();
+        return make_time_series_items_iterator(nb::type<typename T_U::key_value_collection_type>(), "TSBModifiedItemsIterator",
+                                               items.begin(), items.end(), this->control_block());
     }
 
     template <typename T_TS, typename T_U> constexpr const char *get_bundle_type_name() {
@@ -147,10 +175,14 @@ namespace hgraph
             .def("__contains__", &PyTS_Type::contains)
             .def("keys", &PyTS_Type::keys)
             .def("items", &PyTS_Type::items)
+            .def("values", &PyTS_Type::values)
             .def("valid_keys", &PyTS_Type::valid_keys)
+            .def("valid_values", &PyTS_Type::valid_values)
             .def("valid_items", &PyTS_Type::valid_items)
             .def("modified_keys", &PyTS_Type::modified_keys)
+            .def("modified_values", &PyTS_Type::modified_values)
             .def("modified_items", &PyTS_Type::modified_items)
+            .def_prop_ro("empty", &PyTS_Type::empty)
             .def_prop_ro("__schema__", &PyTS_Type::schema)
             .def_prop_ro("as_schema", [](nb::handle self) { return self; })
             .def("__str__", &PyTS_Type::py_str)

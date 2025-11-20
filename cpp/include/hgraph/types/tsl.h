@@ -83,8 +83,6 @@ namespace hgraph {
             visitor.visit(*this);
         }
 
-        static void register_with_nanobind(nb::module_ &m);
-
     protected:
         friend TimeSeriesListOutputBuilder;
     };
@@ -104,8 +102,6 @@ namespace hgraph {
         void accept(TimeSeriesInputVisitor& visitor) const override {
             visitor.visit(*this);
         }
-
-        static void register_with_nanobind(nb::module_ &m);
 
     protected:
         friend TimeSeriesListInputBuilder;

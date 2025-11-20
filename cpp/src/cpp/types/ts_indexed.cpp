@@ -128,24 +128,6 @@ namespace hgraph {
 
     TimeSeriesInput *IndexedTimeSeriesInput::get_input(size_t index) { return (*this)[index].get(); }
 
-    void IndexedTimeSeriesInput::register_with_nanobind(nb::module_ &m) {
-        using IndexedTimeSeries_Input = IndexedTimeSeries<BaseTimeSeriesInput>;
-
-        nb::class_<IndexedTimeSeries_Input, BaseTimeSeriesInput>(m, "IndexedTimeSeries_Input")
-                .def(
-                    "__getitem__", [](const IndexedTimeSeries_Input &self, size_t index) { return self[index]; },
-                    "index"_a)
-                .def("values",
-                     static_cast<collection_type (IndexedTimeSeries_Input::*)() const>(&
-                         IndexedTimeSeries_Input::values))
-                .def("valid_values", &IndexedTimeSeries_Input::py_valid_values)
-                .def("modified_values", &IndexedTimeSeries_Input::py_modified_values)
-                .def("__len__", &IndexedTimeSeries_Input::size)
-                .def_prop_ro("empty", &IndexedTimeSeries_Input::empty);
-
-        nb::class_<IndexedTimeSeriesInput, IndexedTimeSeries_Input>(m, "IndexedTimeSeriesInput");
-    }
-
     bool IndexedTimeSeriesInput::do_bind_output(time_series_output_ptr &value) {
         auto output_bundle = dynamic_cast<IndexedTimeSeriesOutput *>(value.get());
         if (output_bundle == nullptr) {

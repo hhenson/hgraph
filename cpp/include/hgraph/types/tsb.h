@@ -159,8 +159,6 @@ namespace hgraph {
             visitor.visit(*this);
         }
 
-        static void register_with_nanobind(nb::module_ &m);
-
     protected:
         using bundle_type::set_ts_values;
         friend TimeSeriesBundleOutputBuilder;
@@ -171,9 +169,6 @@ namespace hgraph {
         using bundle_type::TimeSeriesBundle;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
-
-        // Static method for nanobind registration
-        static void register_with_nanobind(nb::module_ &m);
 
         // This is used by the nested graph infra to rewrite the stub inputs when we build the nested graphs.
         // The general pattern in python was copy_with(node, ts=...)
