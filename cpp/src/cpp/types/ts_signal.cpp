@@ -62,8 +62,4 @@ namespace hgraph {
         }
     }
 
-    void TimeSeriesSignalInput::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesSignalInput, BaseTimeSeriesInput>(m, "TS_Signal")
-                .def("__getitem__", [](TimeSeriesSignalInput &self, size_t index) { return self.get_input(index); });
-    }
 } // namespace hgraph
