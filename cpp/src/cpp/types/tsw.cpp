@@ -40,7 +40,7 @@ namespace hgraph {
     }
 
     template<typename T>
-    void TimeSeriesFixedWindowOutput<T>::py_set_value(nb::object value) {
+    void TimeSeriesFixedWindowOutput<T>::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
             return;
@@ -71,7 +71,7 @@ namespace hgraph {
     }
 
     template<typename T>
-    void TimeSeriesFixedWindowOutput<T>::apply_result(nb::object value) {
+    void TimeSeriesFixedWindowOutput<T>::apply_result(const nb::object& value) {
         if (!value.is_valid() || value.is_none()) return;
         py_set_value(value);
     }
@@ -247,7 +247,7 @@ namespace hgraph {
     }
 
     template<typename T>
-    void TimeSeriesTimeWindowOutput<T>::py_set_value(nb::object value) {
+    void TimeSeriesTimeWindowOutput<T>::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
             return;
@@ -257,7 +257,7 @@ namespace hgraph {
     }
 
     template<typename T>
-    void TimeSeriesTimeWindowOutput<T>::apply_result(nb::object value) {
+    void TimeSeriesTimeWindowOutput<T>::apply_result(const nb::object& value) {
         if (!value.is_valid() || value.is_none()) return;
         try {
             T v = nb::cast<T>(value);

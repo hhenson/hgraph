@@ -282,6 +282,21 @@ class WiringNodeSignature:
                                 f"Argument '{k}' is not marked as optional, but no value was supplied"
                             )
                 if k in self.time_series_args:
+                    # if input type is a context then parse special values and see if we need to find a context to wire in
+                    if v.is_context_wired:
+                        from hgraph import REQUIRED
+
+                        if arg is None or arg is REQUIRED or isinstance(arg, (REQUIRED, str)):
+                            from hgraph import TimeSeriesContextTracker
+                            from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+
+                            if c := TimeSeriesContextTracker.instance().get_context(
+                                v.value_tp,
+                                WiringNodeInstanceContext.instance(),
+                                name=str(arg) if isinstance(arg, (REQUIRED, str)) else None,
+                            ):
+                                arg = c
+                    
                     # This should then get a wiring node, and we would like to extract the output type,
                     # But this is optional, so we should ensure that the type is present
                     if arg is None:

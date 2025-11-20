@@ -317,7 +317,7 @@ namespace hgraph {
         return _value.has_value() ? *_value : TimeSeriesReference::make();
     }
 
-    void TimeSeriesReferenceOutput::py_set_value(nb::object value) {
+    void TimeSeriesReferenceOutput::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
             return;
@@ -332,12 +332,12 @@ namespace hgraph {
         for (auto input : _reference_observers) { _value->bind_input(*input); }
     }
 
-    void TimeSeriesReferenceOutput::apply_result(nb::object value) {
+    void TimeSeriesReferenceOutput::apply_result(const nb::object& value) {
         if (value.is_none()) { return; }
         py_set_value(value);
     }
 
-    bool TimeSeriesReferenceOutput::can_apply_result(nb::object value) { return !modified(); }
+    bool TimeSeriesReferenceOutput::can_apply_result(const nb::object& value) { return !modified(); }
 
     void TimeSeriesReferenceOutput::observe_reference(TimeSeriesInput::ptr input_) {
         _reference_observers.emplace(input_);
@@ -489,7 +489,7 @@ namespace hgraph {
         }
     }
 
-    bool TimeSeriesReferenceInput::bind_output(time_series_output_ptr output_) {
+    bool TimeSeriesReferenceInput::bind_output(const time_series_output_ptr& output_) {
         auto peer = do_bind_output(output_);
 
         if (owning_node()->is_started() && has_output() && output()->valid()) {
@@ -557,7 +557,7 @@ namespace hgraph {
         return (*_items)[index].get();
     }
 
-    bool TimeSeriesReferenceInput::do_bind_output(time_series_output_ptr &output_) {
+    bool TimeSeriesReferenceInput::do_bind_output(const time_series_output_ptr& output_) {
         if (dynamic_cast<const TimeSeriesReferenceOutput *>(output_.get()) != nullptr) {
             // Match Python behavior: bind to a TimeSeriesReferenceOutput as a normal peer
             reset_value();

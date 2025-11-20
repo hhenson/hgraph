@@ -120,7 +120,7 @@ namespace hgraph {
 
         TimeSeriesSetOutput &set_output() const;
 
-        bool do_bind_output(TimeSeriesOutput::ptr &output) override;
+        bool do_bind_output(const TimeSeriesOutput::ptr& output) override;
 
         void do_un_bind_output(bool unbind_refs) override;
 
@@ -173,9 +173,9 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
         void clear() override;
 

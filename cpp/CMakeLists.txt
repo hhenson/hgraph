@@ -3,7 +3,7 @@ cmake_minimum_required(VERSION 3.25)
 project(hgraph_cpp_engine)
 
 option(NB_USE_STABLE_ABI "Use nanobind stable ABI for the Python module" ON)
-option(HGRAPH_WITH_BACKWARD "Enable backward-cpp stack traces" ON)
+option(HGRAPH_WITH_BACKWARD "Enable backward-cpp stack traces" OFF)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)

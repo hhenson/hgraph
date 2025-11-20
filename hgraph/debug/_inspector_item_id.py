@@ -8,7 +8,12 @@ from dataclasses import dataclass
 from enum import Enum
 from typing import ClassVar
 
-from hgraph import Graph, Node, TimeSeriesInput, TimeSeriesOutput, TimeSeriesSet
+from hgraph import is_feature_enabled
+if is_feature_enabled("use_cpp"):
+    from hgraph._hgraph import Graph, Node, TimeSeriesInput, TimeSeriesOutput, TimeSeriesSetInput, TimeSeriesSetOutput, NestedNode
+else:
+    from hgraph import Graph, Node, TimeSeriesInput, TimeSeriesOutput, TimeSeriesSetInput, TimeSeriesSetOutput, PythonNestedNodeImpl as NestedNode
+    
 from hgraph.debug._inspector_util import format_name, base62, inspect_item, inspect_type
 
 
@@ -133,8 +138,6 @@ class InspectorItemId:
         if type(o) is InspectorItemId:
             return o
 
-        from hgraph import Graph, Node, TimeSeriesInput, TimeSeriesOutput
-
         if isinstance(o, Graph):
             return cls(graph=o.graph_id)
         elif isinstance(o, Node):
@@ -180,8 +183,6 @@ class InspectorItemId:
         # graph is a graph object that matches this object's graph id
         assert graph.graph_id == self.graph
 
-        from hgraph import PythonNestedNodeImpl
-
         if self.node is None:
             return graph
 
@@ -195,7 +196,7 @@ class InspectorItemId:
         elif self.value_type == NodeValueType.Output:
             value = node.output
         elif self.value_type == NodeValueType.Graphs:
-            value = node.nested_graphs() if isinstance(node, PythonNestedNodeImpl) else {}
+            value = node.nested_graphs if isinstance(node, NestedNode) else {}
         elif self.value_type == NodeValueType.Scalars:
             value = node.scalars
 
@@ -203,7 +204,7 @@ class InspectorItemId:
             try:
                 value = inspect_item(value, i)
             except:
-                if isinstance(value, (set, frozenset, TimeSeriesSet)):
+                if isinstance(value, (set, frozenset, TimeSeriesSetInput, TimeSeriesSetOutput)):
                     if i in value:
                         return i
                 return None
@@ -214,7 +215,6 @@ class InspectorItemId:
         # graph is a graph object that matches this object's graph id
         assert graph.graph_id == self.graph
 
-        from hgraph import PythonNestedNodeImpl
         from hgraph import HgTypeMetaData
 
         if self.node is None:
@@ -232,7 +232,7 @@ class InspectorItemId:
             value = node.signature.time_series_output
             tp = value
         elif self.value_type == NodeValueType.Graphs:
-            value = node.nested_graphs() if isinstance(node, PythonNestedNodeImpl) else {}
+            value = node.nested_graphs if isinstance(node, NestedNode) else {}
             tp = HgTypeMetaData.parse_type(dict[str, Graph])
         elif self.value_type == NodeValueType.Scalars:
             value = node.scalars

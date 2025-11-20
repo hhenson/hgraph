@@ -92,5 +92,6 @@ class PythonNestedNodeImpl(NodeImpl):
     def mark_evaluated(self):
         self._last_evaluation_time = self.graph.evaluation_clock.evaluation_time
 
+    @property
     @abstractmethod
     def nested_graphs(self): ...

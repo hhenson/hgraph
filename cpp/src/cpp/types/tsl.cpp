@@ -90,7 +90,7 @@ namespace hgraph {
         if (size() == 0) { return false; } else { return ts_values()[0]->has_reference(); }
     }
 
-    void TimeSeriesListOutput::apply_result(nb::object value) {
+    void TimeSeriesListOutput::apply_result(const nb::object& value) {
         if (value.is_none()) { return; }
         py_set_value(value);
     }
@@ -106,7 +106,7 @@ namespace hgraph {
         return (*this)[0]->is_same_type((*other_list)[0]);
     }
 
-    void TimeSeriesListOutput::py_set_value(nb::object value) {
+    void TimeSeriesListOutput::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             mark_invalid();
             return;
@@ -147,6 +147,7 @@ namespace hgraph {
                 .def("modified_items",
                      static_cast<enumerated_collection_type (TimeSeriesListOutput::*)() const>(&
                          TimeSeriesListOutput::modified_items))
+                .def("key_from_value", &TimeSeriesListOutput::key_from_value, "value"_a)
                 .def("__str__", [](const TimeSeriesListOutput &self) {
                     return fmt::format("TimeSeriesListOutput@{:p}[size={}, valid={}]",
                                        static_cast<const void *>(&self), self.size(), self.valid());
@@ -190,6 +191,7 @@ namespace hgraph {
                 .def("modified_items",
                      static_cast<enumerated_collection_type (TimeSeriesListInput::*)() const>(&
                          TimeSeriesListInput::modified_items))
+                .def("key_from_value", &TimeSeriesListInput::key_from_value, "value"_a)
                 .def("__str__", [](const TimeSeriesListInput &self) {
                     return fmt::format("TimeSeriesListInput@{:p}[size={}, valid={}]",
                                        static_cast<const void *>(&self), self.size(), self.valid());

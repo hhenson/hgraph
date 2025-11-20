@@ -63,7 +63,7 @@ namespace hgraph {
         void un_subscribe(Notifiable *node) override;
         void builder_release_cleanup() override;
 
-        bool can_apply_result(nb::object value) override;
+        bool can_apply_result(const nb::object& value) override;
         void clear() override;
         void invalidate() override;
         void mark_modified(engine_time_t modified_time) override;
@@ -135,7 +135,7 @@ namespace hgraph {
         [[nodiscard]] bool has_peer() const override;
         [[nodiscard]] time_series_output_ptr output() const override;
 
-        bool bind_output(time_series_output_ptr output_) override;
+        bool bind_output(const time_series_output_ptr& output_) override;
         void un_bind_output(bool unbind_refs) override;
 
         [[nodiscard]] bool active() const override;
@@ -180,7 +180,7 @@ namespace hgraph {
         node_ptr _owning_node() const;
 
         // Protected virtual methods for derived classes to override
-        virtual bool do_bind_output(time_series_output_ptr &output_);
+        virtual bool do_bind_output(const time_series_output_ptr& output_);
         virtual void do_un_bind_output(bool unbind_refs);
 
         void notify(engine_time_t modified_time) override;

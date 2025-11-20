@@ -146,8 +146,8 @@ namespace hgraph {
         nb::class_<IndexedTimeSeriesInput, IndexedTimeSeries_Input>(m, "IndexedTimeSeriesInput");
     }
 
-    bool IndexedTimeSeriesInput::do_bind_output(time_series_output_ptr &value) {
-        auto output_bundle = dynamic_cast<IndexedTimeSeriesOutput *>(value.get());
+    bool IndexedTimeSeriesInput::do_bind_output(const time_series_output_ptr& value) {
+        auto output_bundle = dynamic_cast<IndexedTimeSeriesOutput *>(const_cast<TimeSeriesOutput*>(value.get()));
         if (output_bundle == nullptr) {
             throw std::runtime_error("IndexedTimeSeriesInput::do_bind_output: Expected IndexedTimeSeriesOutput");
         }

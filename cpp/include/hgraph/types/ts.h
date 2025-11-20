@@ -9,20 +9,25 @@
 #include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
+
+    struct TimeSeriesValueOutputBase : BaseTimeSeriesOutput {
+        using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
+    };
+
     template<typename T>
-    struct TimeSeriesValueOutput : BaseTimeSeriesOutput {
+    struct TimeSeriesValueOutput : TimeSeriesValueOutputBase {
         using value_type = T;
         using ptr = nb::ref<TimeSeriesValueOutput<T> >;
 
-        using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
+        using TimeSeriesValueOutputBase::TimeSeriesValueOutputBase;
 
         [[nodiscard]] nb::object py_value() const override;
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
         const T &value() const { return _value; }
 
@@ -70,12 +75,16 @@ namespace hgraph {
         T _value{};
     };
 
+    struct TimeSeriesValueInputBase : BaseTimeSeriesInput {
+        using BaseTimeSeriesInput::BaseTimeSeriesInput;
+    };
+
     template<typename T>
-    struct TimeSeriesValueInput : BaseTimeSeriesInput {
+    struct TimeSeriesValueInput : TimeSeriesValueInputBase {
         using value_type = T;
         using ptr = nb::ref<TimeSeriesValueInput<T> >;
 
-        using BaseTimeSeriesInput::BaseTimeSeriesInput;
+        using TimeSeriesValueInputBase::TimeSeriesValueInputBase;
 
         [[nodiscard]] TimeSeriesValueOutput<T> &value_output();
 

@@ -14,13 +14,13 @@
 
 namespace hgraph
 {
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::apply_result(nb::object value) {
+    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::apply_result(const nb::object& value) {
         // Ensure any Python API interaction occurs under the GIL and protect against exceptions
         if (value.is_none()) { return; }
         py_set_value(value);
     }
 
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::can_apply_result(nb::object result) {
+    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::can_apply_result(const nb::object& result) {
         if (result.is_none()) { return true; }
         if (!nb::cast<bool>(nb::bool_(result))) { return true; }
 
@@ -189,7 +189,7 @@ namespace hgraph
         _key_set->re_parent(this);
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_value(nb::object value) {
+    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
             return;
@@ -574,6 +574,14 @@ namespace hgraph
     }
 
     template <typename T_Key>
+    const typename TimeSeriesDictOutput_T<T_Key>::key_type &
+    TimeSeriesDictOutput_T<T_Key>::key_from_value(const TimeSeriesDictOutput_T<T_Key>::value_type& value) const {
+        auto it = _ts_values_to_keys.find(const_cast<TimeSeriesOutput*>(value.get()));
+        if (it != _ts_values_to_keys.end()) { return it->second; }
+        throw std::out_of_range("Value not found in TimeSeriesDictOutput");
+    }
+
+    template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_ptr ts_builder)
         : TimeSeriesDictInput(parent), _key_set{new typename TimeSeriesDictInput_T<T_Key>::key_set_type{this}},
           _ts_builder{ts_builder} {}
@@ -818,12 +826,12 @@ namespace hgraph
         for (const auto &key : key_set_t().removed()) {
             auto it{_removed_items.find(key)};
             if (it == _removed_items.end()) {
-                // This really should not occur!
-                throw std::runtime_error("Removed item not found in removed_cache");
-                // continue;
+                auto it = _ts_values.find(key); // transplanted items do not go to _removed_items, they stay in _ts_values as they do not belong to us
+                if (it == _ts_values.end()) continue;  // Key not found anywhere, skip
+                _removed_item_cache.emplace(key, it->second);
+            } else {
+                _removed_item_cache.emplace(key, it->second.first);
             }
-            // Python does a search inside of _ts_values to find a deleted key, but this seems rather odd to me.
-            _removed_item_cache.emplace(key, it->second.first);
         }
         return _removed_item_cache;
     }
@@ -891,8 +899,8 @@ namespace hgraph
         return was_removed(nb::cast<T_Key>(key));
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(time_series_output_ptr &value) {
-        auto *value_output{dynamic_cast<TimeSeriesDictOutput_T<T_Key> *>(value.get())};
+    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(const time_series_output_ptr& value) {
+        auto *value_output{dynamic_cast<TimeSeriesDictOutput_T<T_Key> *>(const_cast<TimeSeriesOutput*>(value.get()))};
 
         // Peer when types match AND neither has references (matching Python logic)
         bool  peer = (is_same_type(value_output) || !(value_output->has_reference() || this->has_reference()));
@@ -1316,34 +1324,48 @@ namespace hgraph
                                    self.valid());
             });
 
-        nb::class_<TSD_OUT_Bool, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Bool");
-        nb::class_<TSD_OUT_Int, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Int");
-        nb::class_<TSD_OUT_Float, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Float");
-        nb::class_<TSD_OUT_Date, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Date");
-        nb::class_<TSD_OUT_DateTime, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_DateTime");
-        nb::class_<TSD_OUT_TimeDelta, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_TimeDelta");
-        nb::class_<TSD_OUT_Object, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Object");
+        nb::class_<TSD_OUT_Bool, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Bool")
+            .def("key_from_value", [](const TSD_OUT_Bool& self, const TSD_OUT_Bool::value_type& value){ return self.key_from_value(value); }, "value"_a);
+        nb::class_<TSD_OUT_Int, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Int")
+            .def("key_from_value", [](const TSD_OUT_Int& self, const TSD_OUT_Int::value_type& value){ return self.key_from_value(value); }, "value"_a);
+        nb::class_<TSD_OUT_Float, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Float")
+            .def("key_from_value", [](const TSD_OUT_Float& self, const TSD_OUT_Float::value_type& value){ return self.key_from_value(value); }, "value"_a);
+        nb::class_<TSD_OUT_Date, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Date")
+            .def("key_from_value", [](const TSD_OUT_Date& self, const TSD_OUT_Date::value_type& value){ return self.key_from_value(value); }, "value"_a);
+        nb::class_<TSD_OUT_DateTime, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_DateTime")
+            .def("key_from_value", [](const TSD_OUT_DateTime& self, const TSD_OUT_DateTime::value_type& value){ return self.key_from_value(value); }, "value"_a);
+        nb::class_<TSD_OUT_TimeDelta, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_TimeDelta")
+            .def("key_from_value", [](const TSD_OUT_TimeDelta& self, const TSD_OUT_TimeDelta::value_type& value){ return self.key_from_value(value); }, "value"_a);
+        nb::class_<TSD_OUT_Object, TimeSeriesDictOutput>(m, "TimeSeriesDictOutput_Object")
+            .def("key_from_value", [](const TSD_OUT_Object& self, const TSD_OUT_Object::value_type& value){ return self.key_from_value(value); }, "value"_a);
 
         nb::class_<TSD_Bool, TimeSeriesDictInput>(m, "TimeSeriesDictInput_Bool")
             .def("_create", &TSD_Bool::_create)
+            .def("key_from_value", [](const TSD_Bool& self, const TSD_Bool::value_type& value){ return self.key_from_value(value); }, "value"_a)
             .def("on_key_removed", &TSD_Bool::on_key_removed);
         nb::class_<TSD_Int, TimeSeriesDictInput>(m, "TimeSeriesDictInput_Int")
             .def("_create", &TSD_Int::_create)
+            .def("key_from_value", [](const TSD_Int& self, const TSD_Int::value_type& value){ return self.key_from_value(value); }, "value"_a)
             .def("on_key_removed", &TSD_Int::on_key_removed);
         nb::class_<TSD_Float, TimeSeriesDictInput>(m, "TimeSeriesDictInput_Float")
             .def("_create", &TSD_Float::_create)
+            .def("key_from_value", [](const TSD_Float& self, const TSD_Float::value_type& value){ return self.key_from_value(value); }, "value"_a)
             .def("on_key_removed", &TSD_Float::on_key_removed);
         nb::class_<TSD_Date, TimeSeriesDictInput>(m, "TimeSeriesDictInput_Date")
             .def("_create", &TSD_Date::_create)
+            .def("key_from_value", [](const TSD_Date& self, const TSD_Date::value_type& value){ return self.key_from_value(value); }, "value"_a)
             .def("on_key_removed", &TSD_Date::on_key_removed);
         nb::class_<TSD_DateTime, TimeSeriesDictInput>(m, "TimeSeriesDictInput_DateTime")
             .def("_create", &TSD_DateTime::_create)
+            .def("key_from_value", [](const TSD_DateTime& self, const TSD_DateTime::value_type& value){ return self.key_from_value(value); }, "value"_a)
             .def("on_key_removed", &TSD_DateTime::on_key_removed);
         nb::class_<TSD_TimeDelta, TimeSeriesDictInput>(m, "TimeSeriesDictInput_TimeDelta")
             .def("_create", &TSD_TimeDelta::_create)
+            .def("key_from_value", [](const TSD_TimeDelta& self, const TSD_TimeDelta::value_type& value){ return self.key_from_value(value); }, "value"_a)
             .def("on_key_removed", &TSD_TimeDelta::on_key_removed);
         nb::class_<TSD_Object, TimeSeriesDictInput>(m, "TimeSeriesDictInput_Object")
             .def("_create", &TSD_Object::_create)
+            .def("key_from_value", [](const TSD_Object& self, const TSD_Object::value_type& value){ return self.key_from_value(value); }, "value"_a)
             .def("on_key_removed", &TSD_Object::on_key_removed);
     }
 }  // namespace hgraph

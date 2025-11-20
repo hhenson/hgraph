@@ -7,17 +7,29 @@ from collections import deque
 
 import pyarrow
 
-from hgraph import (
-    MIN_DT,
-    Node,
-    PythonNestedNodeImpl,
-    TimeSeriesInput,
-    TimeSeriesOutput,
-    PythonTimeSeriesReferenceOutput,
-    TimeSeriesReference,
-    PythonTimeSeriesReferenceInput,
-    to_table,
-)
+from hgraph import is_feature_enabled, MIN_TD, to_table
+
+if is_feature_enabled("use_cpp"):
+    from hgraph._hgraph import (
+        Node,
+        NestedNode,
+        TimeSeriesInput,
+        TimeSeriesOutput,
+        TimeSeriesReferenceOutput,
+        TimeSeriesReferenceInput,
+        TimeSeriesReference,
+    )
+else:
+    from hgraph import (
+        Node,
+        PythonNestedNodeImpl as NestedNode,
+        TimeSeriesInput,
+        TimeSeriesOutput,
+        PythonTimeSeriesReferenceOutput as TimeSeriesReferenceOutput,
+        PythonTimeSeriesReferenceInput as TimeSeriesReferenceInput,
+        TimeSeriesReference,
+    )
+
 from hgraph._impl._operators._to_table_dispatch_impl import extract_table_schema
 from hgraph.adaptors.tornado.http_server_adaptor import HttpGetRequest, HttpResponse, HttpRequest
 from hgraph.debug._inspector_item_id import InspectorItemId, NodeValueType
@@ -70,8 +82,8 @@ def item_iterator(item_id, value):
             items.append(("INPUTS", value.input, item_id.sub_item("INPUTS", NodeValueType.Inputs)))
         if value.output:
             items.append(("OUTPUT", value.output, item_id.sub_item("OUTPUT", NodeValueType.Output)))
-        if isinstance(value, PythonNestedNodeImpl):
-            items.append(("GRAPHS", value.nested_graphs(), item_id.sub_item("GRAPHS", NodeValueType.Graphs)))
+        if isinstance(value, NestedNode):
+            items.append(("GRAPHS", value.nested_graphs, item_id.sub_item("GRAPHS", NodeValueType.Graphs)))
         if value.scalars:
             items.append(("SCALARS", value.scalars, item_id.sub_item("SCALARS", NodeValueType.Scalars)))
         item_iter = items
@@ -195,11 +207,11 @@ def inspector_pin_item(state, item_id):
 
 def find_output(item_id, value):
     if isinstance(value, TimeSeriesInput):
-        if value._reference_output is not None:
-            item_id = InspectorItemId.from_object(value._reference_output)
+        if value.reference_output is not None:
+            item_id = InspectorItemId.from_object(value.reference_output)
         elif value.output is not None:
             item_id = InspectorItemId.from_object(value.output)
-        elif isinstance(value, PythonTimeSeriesReferenceInput):
+        elif isinstance(value, TimeSeriesReferenceInput):
             if value.valid and value.value.has_output:
                 item_id = InspectorItemId.from_object(value.value.output)
             else:
@@ -237,14 +249,14 @@ def find_ref_output(item_id, value):
     if isinstance(value, TimeSeriesInput):
         if value.output is not None:
             item_id = InspectorItemId.from_object(value.output)
-        elif isinstance(value, PythonTimeSeriesReferenceInput):
+        elif isinstance(value, TimeSeriesReferenceInput):
             if value.valid and value.value.has_output:
                 item_id = InspectorItemId.from_object(value.value.output)
             else:
                 raise ValueError(f"Reference input {item_id} has no output and no value")
         else:
             raise ValueError(f"Input {item_id} has no output")
-    elif isinstance(value, PythonTimeSeriesReferenceOutput):
+    elif isinstance(value, TimeSeriesReferenceOutput):
         if value.valid and value.value.has_output:
             item_id = InspectorItemId.from_object(value.value.output)
         else:

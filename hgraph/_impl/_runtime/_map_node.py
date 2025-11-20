@@ -124,6 +124,7 @@ class PythonTsdMapNodeImpl(PythonNestedNodeImpl):
         self._scheduled_keys.clear()
         self._pending_keys.clear()
 
+    @property
     def nested_graphs(self):
         return self._active_graphs
 

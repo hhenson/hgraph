@@ -476,7 +476,7 @@ namespace hgraph {
         return d;
     }
 
-    NodeSignature::ptr NodeSignature::copy_with(nb::kwargs kwargs) const {
+    NodeSignature::ptr NodeSignature::copy_with(const nb::kwargs& kwargs) const {
         // Get override values from kwargs, otherwise use current values
         std::string name_val = kwargs.contains("name") ? nb::cast<std::string>(kwargs["name"]) : this->name;
         NodeTypeEnum node_type_val = kwargs.contains("node_type")
@@ -753,9 +753,9 @@ namespace hgraph {
     graph_ptr Node::graph() const { return _graph; }
 
     void Node::set_graph(graph_ptr value) {
-        _graph = value;
+        _graph = std::move(value);
         // Cache the evaluation time pointer from the graph for performance
-        _cached_evaluation_time_ptr = value->cached_evaluation_time_ptr();
+        _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
     time_series_bundle_input_ptr Node::input() { return _input; }
@@ -792,11 +792,11 @@ namespace hgraph {
 
     time_series_output_ptr Node::output() { return _output; }
 
-    void Node::set_output(time_series_output_ptr value) { _output = value; }
+    void Node::set_output(time_series_output_ptr value) { _output = std::move(value); }
 
     time_series_bundle_output_ptr Node::recordable_state() { return _recordable_state; }
 
-    void Node::set_recordable_state(nb::ref<TimeSeriesBundleOutput> value) { _recordable_state = value; }
+    void Node::set_recordable_state(nb::ref<TimeSeriesBundleOutput> value) { _recordable_state = std::move(value); }
 
     bool Node::has_recordable_state() const { return _recordable_state.get() != nullptr; }
 
@@ -816,7 +816,7 @@ namespace hgraph {
     void Node::add_start_input(nb::ref<TimeSeriesReferenceInput> input) { _start_inputs.push_back(std::move(input)); }
 
     void Node::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < Node, ComponentLifeCycle > (m, "Node")
+        nb::class_ <Node, ComponentLifeCycle > (m, "Node")
                 .def_prop_ro("node_ndx", &Node::node_ndx)
                 .def_prop_ro("owning_graph_id",
                              [](const Node &n) {
@@ -836,8 +836,11 @@ namespace hgraph {
                 .def_prop_ro("inputs",
                              [](Node &self) {
                                  nb::dict d;
-                                 auto inp_{*self.input()};
-                                 for (const auto &key: inp_.schema().keys()) { d[key.c_str()] = inp_[key]; }
+                                 auto inp_{self.input()};
+                                 if (inp_) {
+                                    for (const auto &key: inp_->schema().keys()) { d[key.c_str()] = (*inp_)[key]; }
+                                    return d;
+                                 }
                                  return d;
                              })
                 .def_prop_ro("start_inputs",

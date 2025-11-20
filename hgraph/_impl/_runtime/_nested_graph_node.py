@@ -32,6 +32,10 @@ class PythonNestedGraphNodeImpl(PythonNestedNodeImpl):
         self._active_graph: Graph | None = None
         self._last_evaluation_time: datetime | None = None
 
+    @property
+    def last_evaluation_time(self) -> datetime | None:
+        return self._last_evaluation_time
+
     def _wire_graph(self):
         """Connect inputs and outputs to the nodes inputs and outputs"""
         self._write_inputs()
@@ -79,5 +83,7 @@ class PythonNestedGraphNodeImpl(PythonNestedNodeImpl):
         self._active_graph.evaluate_graph()
         self._active_graph.evaluation_clock.reset_next_scheduled_evaluation_time()
 
+    @property
     def nested_graphs(self):
         return {0: self._active_graph} if self._active_graph else {}
+

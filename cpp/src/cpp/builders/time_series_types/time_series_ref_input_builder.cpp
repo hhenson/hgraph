@@ -3,12 +3,12 @@
 #include <hgraph/types/ref.h>
 
 namespace hgraph {
-    time_series_input_ptr TimeSeriesRefInputBuilder::make_instance(node_ptr owning_node) const {
+    time_series_input_ptr TimeSeriesRefInputBuilder::make_instance(const node_ptr& owning_node) const {
         auto v{new TimeSeriesReferenceInput(owning_node)};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
-    time_series_input_ptr TimeSeriesRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+    time_series_input_ptr TimeSeriesRefInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
         auto v{new TimeSeriesReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input))};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
