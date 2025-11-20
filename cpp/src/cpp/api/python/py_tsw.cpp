@@ -152,4 +152,53 @@ namespace hgraph
         bind_time_tsw_for_type<engine_time_delta_t>(m, "time_delta");
         bind_time_tsw_for_type<nb::object>(m, "object");
     }
+
+    // Explicit template instantiations for constructors used by wrapper factory
+    // Fixed window outputs - all registered types
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<bool>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<bool>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<bool>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<bool>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<int64_t>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<int64_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<int64_t>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<int64_t>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<double>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<double>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<double>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<double>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_date_t>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<engine_date_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_date_t>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<engine_date_t>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_time_t>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<engine_time_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_time_t>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<engine_time_t>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_time_delta_t>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<engine_time_delta_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_time_delta_t>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<engine_time_delta_t>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<nb::object>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<nb::object>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<nb::object>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<nb::object>*);
+    
+    // Time window outputs - all registered types
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<bool>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<bool>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<bool>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<bool>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<int64_t>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<int64_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<int64_t>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<int64_t>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<double>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<double>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<double>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<double>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_date_t>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<engine_date_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_date_t>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<engine_date_t>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_time_t>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<engine_time_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_time_t>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<engine_time_t>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_time_delta_t>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<engine_time_delta_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_time_delta_t>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<engine_time_delta_t>*);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<nb::object>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<nb::object>*, const control_block_ptr&);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<nb::object>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<nb::object>*);
+    
+    // Window inputs - all registered types
+    template PyTimeSeriesWindowInput<bool>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<bool>*, const control_block_ptr&);
+    template PyTimeSeriesWindowInput<bool>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<bool>*);
+    template PyTimeSeriesWindowInput<int64_t>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<int64_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowInput<int64_t>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<int64_t>*);
+    template PyTimeSeriesWindowInput<double>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<double>*, const control_block_ptr&);
+    template PyTimeSeriesWindowInput<double>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<double>*);
+    template PyTimeSeriesWindowInput<engine_date_t>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<engine_date_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowInput<engine_date_t>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<engine_date_t>*);
+    template PyTimeSeriesWindowInput<engine_time_t>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<engine_time_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowInput<engine_time_t>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<engine_time_t>*);
+    template PyTimeSeriesWindowInput<engine_time_delta_t>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<engine_time_delta_t>*, const control_block_ptr&);
+    template PyTimeSeriesWindowInput<engine_time_delta_t>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<engine_time_delta_t>*);
+    template PyTimeSeriesWindowInput<nb::object>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<nb::object>*, const control_block_ptr&);
+    template PyTimeSeriesWindowInput<nb::object>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<nb::object>*);
 }  // namespace hgraph

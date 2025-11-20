@@ -78,22 +78,47 @@ namespace hgraph {
         virtual void visit(const TimeSeriesBundleInput& input) {}
         
         template<typename K>
-        void visit(TimeSeriesDictInput_T<K>& input) {}
+        void visit(TimeSeriesDictInput_T<K>& input) {
+            visit_dict_input_impl(&input);
+        }
         
         template<typename K>
-        void visit(const TimeSeriesDictInput_T<K>& input) {}
+        void visit(const TimeSeriesDictInput_T<K>& input) {
+            visit_dict_input_impl(const_cast<TimeSeriesDictInput_T<K>*>(&input));
+        }
         
         template<typename K>
-        void visit(TimeSeriesSetInput_T<K>& input) {}
+        void visit(TimeSeriesSetInput_T<K>& input) {
+            visit_set_input_impl(&input);
+        }
         
         template<typename K>
-        void visit(const TimeSeriesSetInput_T<K>& input) {}
+        void visit(const TimeSeriesSetInput_T<K>& input) {
+            visit_set_input_impl(const_cast<TimeSeriesSetInput_T<K>*>(&input));
+        }
         
         template<typename T>
-        void visit(TimeSeriesWindowInput<T>& input) {}
+        void visit(TimeSeriesWindowInput<T>& input) {
+            visit_window_input_impl(&input);
+        }
         
         template<typename T>
-        void visit(const TimeSeriesWindowInput<T>& input) {}
+        void visit(const TimeSeriesWindowInput<T>& input) {
+            visit_window_input_impl(const_cast<TimeSeriesWindowInput<T>*>(&input));
+        }
+
+        // Virtual methods that derived classes can override to handle template types
+        virtual void visit_dict_input_impl(TimeSeriesType* input) {
+            // Default: do nothing, override in derived classes
+        }
+
+        virtual void visit_set_input_impl(TimeSeriesType* input) {
+            // Default: do nothing, override in derived classes
+        }
+
+        virtual void visit_window_input_impl(TimeSeriesType* input) {
+            // Default: do nothing, override in derived classes
+        }
         
         // Base reference input type - must be before specialized types
         virtual void visit(TimeSeriesReferenceInput& input) {}
@@ -146,28 +171,61 @@ namespace hgraph {
         virtual void visit(const TimeSeriesBundleOutput& output) {}
         
         template<typename K>
-        void visit(TimeSeriesDictOutput_T<K>& output) {}
+        void visit(TimeSeriesDictOutput_T<K>& output) {
+            visit_dict_output_impl(&output);
+        }
         
         template<typename K>
-        void visit(const TimeSeriesDictOutput_T<K>& output) {}
+        void visit(const TimeSeriesDictOutput_T<K>& output) {
+            visit_dict_output_impl(const_cast<TimeSeriesDictOutput_T<K>*>(&output));
+        }
         
         template<typename K>
-        void visit(TimeSeriesSetOutput_T<K>& output) {}
+        void visit(TimeSeriesSetOutput_T<K>& output) {
+            visit_set_output_impl(&output);
+        }
         
         template<typename K>
-        void visit(const TimeSeriesSetOutput_T<K>& output) {}
+        void visit(const TimeSeriesSetOutput_T<K>& output) {
+            visit_set_output_impl(const_cast<TimeSeriesSetOutput_T<K>*>(&output));
+        }
         
         template<typename T>
-        void visit(TimeSeriesFixedWindowOutput<T>& output) {}
+        void visit(TimeSeriesFixedWindowOutput<T>& output) {
+            visit_fixed_window_output_impl(&output);
+        }
         
         template<typename T>
-        void visit(const TimeSeriesFixedWindowOutput<T>& output) {}
+        void visit(const TimeSeriesFixedWindowOutput<T>& output) {
+            visit_fixed_window_output_impl(const_cast<TimeSeriesFixedWindowOutput<T>*>(&output));
+        }
         
         template<typename T>
-        void visit(TimeSeriesTimeWindowOutput<T>& output) {}
+        void visit(TimeSeriesTimeWindowOutput<T>& output) {
+            visit_time_window_output_impl(&output);
+        }
         
         template<typename T>
-        void visit(const TimeSeriesTimeWindowOutput<T>& output) {}
+        void visit(const TimeSeriesTimeWindowOutput<T>& output) {
+            visit_time_window_output_impl(const_cast<TimeSeriesTimeWindowOutput<T>*>(&output));
+        }
+
+        // Virtual methods that derived classes can override to handle template types
+        virtual void visit_dict_output_impl(TimeSeriesType* output) {
+            // Default: do nothing, override in derived classes
+        }
+
+        virtual void visit_set_output_impl(TimeSeriesType* output) {
+            // Default: do nothing, override in derived classes
+        }
+
+        virtual void visit_fixed_window_output_impl(TimeSeriesType* output) {
+            // Default: do nothing, override in derived classes
+        }
+
+        virtual void visit_time_window_output_impl(TimeSeriesType* output) {
+            // Default: do nothing, override in derived classes
+        }
         
         // Base reference output type - must be before specialized types
         virtual void visit(TimeSeriesReferenceOutput& output) {}

@@ -91,6 +91,9 @@ namespace hgraph
 
         explicit WrapInputVisitor(control_block_ptr control_block_) : control_block(std::move(control_block_)) {}
 
+        // Bring base class template methods into scope so our template methods can shadow them
+        using TimeSeriesInputVisitor::visit;
+
         // Override the virtual method to handle value inputs
         void visit_value_input_impl(TimeSeriesType* input) override {
             // PyTimeSeriesValueInput constructor takes TimeSeriesType*, so we can pass it directly
@@ -105,6 +108,96 @@ namespace hgraph
 
         template <typename T> void visit(const TimeSeriesValueInput<T> &source) {
             visit_value_input_impl(const_cast<TimeSeriesValueInput<T>*>(&source));
+        }
+
+        // Override virtual methods for template types
+        void visit_dict_input_impl(TimeSeriesType* input) override {
+            // Try to determine the key type by trying all registered types (in order of likelihood)
+            if (auto* dict_obj = dynamic_cast<TimeSeriesDictInput_T<nb::object>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<nb::object>>(dict_obj, control_block));
+            } else if (auto* dict_int = dynamic_cast<TimeSeriesDictInput_T<int64_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<int64_t>>(dict_int, control_block));
+            } else if (auto* dict_double = dynamic_cast<TimeSeriesDictInput_T<double>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<double>>(dict_double, control_block));
+            } else if (auto* dict_bool = dynamic_cast<TimeSeriesDictInput_T<bool>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<bool>>(dict_bool, control_block));
+            } else if (auto* dict_date = dynamic_cast<TimeSeriesDictInput_T<engine_date_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_date_t>>(dict_date, control_block));
+            } else if (auto* dict_time = dynamic_cast<TimeSeriesDictInput_T<engine_time_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_time_t>>(dict_time, control_block));
+            } else if (auto* dict_timedelta = dynamic_cast<TimeSeriesDictInput_T<engine_time_delta_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_time_delta_t>>(dict_timedelta, control_block));
+            } else {
+                wrapped_visitor = nb::none();
+            }
+        }
+
+        void visit_set_input_impl(TimeSeriesType* input) override {
+            // Try all registered key types (in order of likelihood)
+            if (auto* set_obj = dynamic_cast<TimeSeriesSetInput_T<nb::object>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<nb::object>>(set_obj, control_block));
+            } else if (auto* set_int = dynamic_cast<TimeSeriesSetInput_T<int64_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<int64_t>>(set_int, control_block));
+            } else if (auto* set_double = dynamic_cast<TimeSeriesSetInput_T<double>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<double>>(set_double, control_block));
+            } else if (auto* set_bool = dynamic_cast<TimeSeriesSetInput_T<bool>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<bool>>(set_bool, control_block));
+            } else if (auto* set_date = dynamic_cast<TimeSeriesSetInput_T<engine_date_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<engine_date_t>>(set_date, control_block));
+            } else if (auto* set_time = dynamic_cast<TimeSeriesSetInput_T<engine_time_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<engine_time_t>>(set_time, control_block));
+            } else if (auto* set_timedelta = dynamic_cast<TimeSeriesSetInput_T<engine_time_delta_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<engine_time_delta_t>>(set_timedelta, control_block));
+            } else {
+                wrapped_visitor = nb::none();
+            }
+        }
+
+        void visit_window_input_impl(TimeSeriesType* input) override {
+            // Window inputs are template types - we need to determine the value type T
+            // Try all registered types (in order of likelihood)
+            if (auto* window_obj = dynamic_cast<TimeSeriesWindowInput<nb::object>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<nb::object>(window_obj, control_block));
+            } else if (auto* window_int = dynamic_cast<TimeSeriesWindowInput<int64_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<int64_t>(window_int, control_block));
+            } else if (auto* window_double = dynamic_cast<TimeSeriesWindowInput<double>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<double>(window_double, control_block));
+            } else if (auto* window_bool = dynamic_cast<TimeSeriesWindowInput<bool>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<bool>(window_bool, control_block));
+            } else if (auto* window_date = dynamic_cast<TimeSeriesWindowInput<engine_date_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<engine_date_t>(window_date, control_block));
+            } else if (auto* window_time = dynamic_cast<TimeSeriesWindowInput<engine_time_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<engine_time_t>(window_time, control_block));
+            } else if (auto* window_timedelta = dynamic_cast<TimeSeriesWindowInput<engine_time_delta_t>*>(input)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<engine_time_delta_t>(window_timedelta, control_block));
+            } else {
+                wrapped_visitor = nb::none();
+            }
+        }
+
+        // Keep template methods for direct calls (they'll call the virtual methods)
+        template <typename K> void visit(TimeSeriesSetInput_T<K> &source) {
+            visit_set_input_impl(&source);
+        }
+
+        template <typename K> void visit(const TimeSeriesSetInput_T<K> &source) {
+            visit_set_input_impl(const_cast<TimeSeriesSetInput_T<K>*>(&source));
+        }
+
+        template <typename K> void visit(TimeSeriesDictInput_T<K> &source) {
+            visit_dict_input_impl(&source);
+        }
+
+        template <typename K> void visit(const TimeSeriesDictInput_T<K> &source) {
+            visit_dict_input_impl(const_cast<TimeSeriesDictInput_T<K>*>(&source));
+        }
+
+        template <typename T> void visit(TimeSeriesWindowInput<T> &source) {
+            visit_window_input_impl(&source);
+        }
+
+        template <typename T> void visit(const TimeSeriesWindowInput<T> &source) {
+            visit_window_input_impl(const_cast<TimeSeriesWindowInput<T>*>(&source));
         }
 
         // Handle reference inputs
@@ -141,28 +234,12 @@ namespace hgraph
             wrapped_visitor = nb::cast(PyTimeSeriesBundleInput(const_cast<TimeSeriesBundleInput*>(&source), control_block));
         }
 
-        template <typename K> void visit(TimeSeriesSetInput_T<K> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<K>>(&source, control_block));
-        }
-
-        template <typename K> void visit(const TimeSeriesSetInput_T<K> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<K>>(const_cast<TimeSeriesSetInput_T<K>*>(&source), control_block));
-        }
-
         void visit(TimeSeriesListInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesListInput(&source, control_block));
         }
 
         void visit(const TimeSeriesListInput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesListInput(const_cast<TimeSeriesListInput*>(&source), control_block));
-        }
-
-        template <typename K> void visit(TimeSeriesDictInput_T<K> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<K>>(&source, control_block));
-        }
-
-        template <typename K> void visit(const TimeSeriesDictInput_T<K> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<K>>(const_cast<TimeSeriesDictInput_T<K>*>(&source), control_block));
         }
 
         void visit(TimeSeriesSignalInput &source) override {
@@ -173,13 +250,6 @@ namespace hgraph
             wrapped_visitor = nb::cast(PyTimeSeriesSignalInput(const_cast<TimeSeriesSignalInput*>(&source), control_block));
         }
 
-        template <typename T> void visit(TimeSeriesWindowInput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<TimeSeriesWindowInput<T>>(&source, control_block));
-        }
-
-        template <typename T> void visit(const TimeSeriesWindowInput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesWindowInput<TimeSeriesWindowInput<T>>(const_cast<TimeSeriesWindowInput<T>*>(&source), control_block));
-        }
 
         void visit(TimeSeriesReferenceInput &source) override {
             // This should not be called - specialized types override accept() to call their specific visit method
@@ -212,6 +282,9 @@ namespace hgraph
 
         explicit WrapOutputVisitor(control_block_ptr control_block_) : control_block(std::move(control_block_)) {}
 
+        // Bring base class template methods into scope so our template methods can shadow them
+        using TimeSeriesOutputVisitor::visit;
+
         // Override the virtual method to handle value outputs
         void visit_value_output_impl(TimeSeriesType* output) override {
             // PyTimeSeriesValueOutput constructor takes TimeSeriesType*, so we can pass it directly
@@ -226,6 +299,108 @@ namespace hgraph
 
         template <typename T> void visit(const TimeSeriesValueOutput<T> &source) {
             visit_value_output_impl(const_cast<TimeSeriesValueOutput<T>*>(&source));
+        }
+
+        // Override virtual methods for template types
+        void visit_dict_output_impl(TimeSeriesType* output) override {
+            // Try to determine the key type by trying all registered types (in order of likelihood)
+            if (auto* dict_obj = dynamic_cast<TimeSeriesDictOutput_T<nb::object>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<nb::object>>(dict_obj, control_block));
+            } else if (auto* dict_int = dynamic_cast<TimeSeriesDictOutput_T<int64_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<int64_t>>(dict_int, control_block));
+            } else if (auto* dict_double = dynamic_cast<TimeSeriesDictOutput_T<double>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<double>>(dict_double, control_block));
+            } else if (auto* dict_bool = dynamic_cast<TimeSeriesDictOutput_T<bool>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<bool>>(dict_bool, control_block));
+            } else if (auto* dict_date = dynamic_cast<TimeSeriesDictOutput_T<engine_date_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_date_t>>(dict_date, control_block));
+            } else if (auto* dict_time = dynamic_cast<TimeSeriesDictOutput_T<engine_time_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_t>>(dict_time, control_block));
+            } else if (auto* dict_timedelta = dynamic_cast<TimeSeriesDictOutput_T<engine_time_delta_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_delta_t>>(dict_timedelta, control_block));
+            } else {
+                wrapped_visitor = nb::none();
+            }
+        }
+
+        void visit_set_output_impl(TimeSeriesType* output) override {
+            // Try all registered key types (in order of likelihood)
+            if (auto* set_obj = dynamic_cast<TimeSeriesSetOutput_T<nb::object>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<nb::object>>(set_obj, control_block));
+            } else if (auto* set_int = dynamic_cast<TimeSeriesSetOutput_T<int64_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<int64_t>>(set_int, control_block));
+            } else if (auto* set_double = dynamic_cast<TimeSeriesSetOutput_T<double>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<double>>(set_double, control_block));
+            } else if (auto* set_bool = dynamic_cast<TimeSeriesSetOutput_T<bool>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<bool>>(set_bool, control_block));
+            } else if (auto* set_date = dynamic_cast<TimeSeriesSetOutput_T<engine_date_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_date_t>>(set_date, control_block));
+            } else if (auto* set_time = dynamic_cast<TimeSeriesSetOutput_T<engine_time_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_time_t>>(set_time, control_block));
+            } else if (auto* set_timedelta = dynamic_cast<TimeSeriesSetOutput_T<engine_time_delta_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_time_delta_t>>(set_timedelta, control_block));
+            } else {
+                wrapped_visitor = nb::none();
+            }
+        }
+
+        void visit_fixed_window_output_impl(TimeSeriesType* output) override {
+            // Try all registered value types - PyTimeSeriesWindowOutput takes the underlying type directly
+            if (auto* window_obj = dynamic_cast<TimeSeriesFixedWindowOutput<nb::object>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<nb::object>>(window_obj, control_block));
+            } else if (auto* window_int = dynamic_cast<TimeSeriesFixedWindowOutput<int64_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<int64_t>>(window_int, control_block));
+            } else if (auto* window_double = dynamic_cast<TimeSeriesFixedWindowOutput<double>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<double>>(window_double, control_block));
+            } else if (auto* window_bool = dynamic_cast<TimeSeriesFixedWindowOutput<bool>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<bool>>(window_bool, control_block));
+            } else if (auto* window_date = dynamic_cast<TimeSeriesFixedWindowOutput<engine_date_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_date_t>>(window_date, control_block));
+            } else if (auto* window_time = dynamic_cast<TimeSeriesFixedWindowOutput<engine_time_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_time_t>>(window_time, control_block));
+            } else if (auto* window_timedelta = dynamic_cast<TimeSeriesFixedWindowOutput<engine_time_delta_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_time_delta_t>>(window_timedelta, control_block));
+            } else {
+                wrapped_visitor = nb::none();
+            }
+        }
+
+        void visit_time_window_output_impl(TimeSeriesType* output) override {
+            // Try all registered value types - PyTimeSeriesWindowOutput takes the underlying type directly
+            if (auto* window_obj = dynamic_cast<TimeSeriesTimeWindowOutput<nb::object>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<nb::object>>(window_obj, control_block));
+            } else if (auto* window_int = dynamic_cast<TimeSeriesTimeWindowOutput<int64_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<int64_t>>(window_int, control_block));
+            } else if (auto* window_double = dynamic_cast<TimeSeriesTimeWindowOutput<double>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<double>>(window_double, control_block));
+            } else if (auto* window_bool = dynamic_cast<TimeSeriesTimeWindowOutput<bool>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<bool>>(window_bool, control_block));
+            } else if (auto* window_date = dynamic_cast<TimeSeriesTimeWindowOutput<engine_date_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_date_t>>(window_date, control_block));
+            } else if (auto* window_time = dynamic_cast<TimeSeriesTimeWindowOutput<engine_time_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_time_t>>(window_time, control_block));
+            } else if (auto* window_timedelta = dynamic_cast<TimeSeriesTimeWindowOutput<engine_time_delta_t>*>(output)) {
+                wrapped_visitor = nb::cast(PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_time_delta_t>>(window_timedelta, control_block));
+            } else {
+                wrapped_visitor = nb::none();
+            }
+        }
+
+        // Keep template methods for direct calls (they'll call the virtual methods)
+        template <typename K> void visit(TimeSeriesDictOutput_T<K> &source) {
+            visit_dict_output_impl(&source);
+        }
+
+        template <typename K> void visit(const TimeSeriesDictOutput_T<K> &source) {
+            visit_dict_output_impl(const_cast<TimeSeriesDictOutput_T<K>*>(&source));
+        }
+
+        template <typename K> void visit(TimeSeriesSetOutput_T<K> &source) {
+            visit_set_output_impl(&source);
+        }
+
+        template <typename K> void visit(const TimeSeriesSetOutput_T<K> &source) {
+            visit_set_output_impl(const_cast<TimeSeriesSetOutput_T<K>*>(&source));
         }
 
         // Handle reference outputs
@@ -262,44 +437,12 @@ namespace hgraph
             wrapped_visitor = nb::cast(PyTimeSeriesBundleOutput(const_cast<TimeSeriesBundleOutput*>(&source), control_block));
         }
 
-        template <typename K> void visit(TimeSeriesSetOutput_T<K> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<K>>(&source, control_block));
-        }
-
-        template <typename K> void visit(const TimeSeriesSetOutput_T<K> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<K>>(const_cast<TimeSeriesSetOutput_T<K>*>(&source), control_block));
-        }
-
         void visit(TimeSeriesListOutput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesListOutput(&source, control_block));
         }
 
         void visit(const TimeSeriesListOutput &source) override {
             wrapped_visitor = nb::cast(PyTimeSeriesListOutput(const_cast<TimeSeriesListOutput*>(&source), control_block));
-        }
-
-        template <typename K> void visit(TimeSeriesDictOutput_T<K> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<K>>(&source, control_block));
-        }
-
-        template <typename K> void visit(const TimeSeriesDictOutput_T<K> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<K>>(const_cast<TimeSeriesDictOutput_T<K>*>(&source), control_block));
-        }
-
-        template <typename T> void visit(TimeSeriesFixedWindowOutput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesFixedWindowOutput<TimeSeriesFixedWindowOutput<T>>(&source, control_block));
-        }
-
-        template <typename T> void visit(const TimeSeriesFixedWindowOutput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesFixedWindowOutput<TimeSeriesFixedWindowOutput<T>>(const_cast<TimeSeriesFixedWindowOutput<T>*>(&source), control_block));
-        }
-
-        template <typename T> void visit(TimeSeriesTimeWindowOutput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesTimeWindowOutput<TimeSeriesTimeWindowOutput<T>>(&source, control_block));
-        }
-
-        template <typename T> void visit(const TimeSeriesTimeWindowOutput<T> &source) {
-            wrapped_visitor = nb::cast(PyTimeSeriesTimeWindowOutput<TimeSeriesTimeWindowOutput<T>>(const_cast<TimeSeriesTimeWindowOutput<T>*>(&source), control_block));
         }
     };
 

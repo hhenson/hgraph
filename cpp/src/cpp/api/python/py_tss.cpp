@@ -110,7 +110,8 @@ namespace hgraph
     template struct PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_time_t>>;
     template struct PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_time_delta_t>>;
     template struct PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<nb::object>>;
-
+    
+    // Explicit instantiations for input types
     template struct PyTimeSeriesSetInput<TimeSeriesSetInput_T<bool>>;
     template struct PyTimeSeriesSetInput<TimeSeriesSetInput_T<int64_t>>;
     template struct PyTimeSeriesSetInput<TimeSeriesSetInput_T<double>>;

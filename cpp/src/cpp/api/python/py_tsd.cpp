@@ -443,7 +443,8 @@ namespace hgraph
     template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_t>>;
     template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_delta_t>>;
     template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<nb::object>>;
-
+    
+    // Explicit instantiations for input types
     template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<bool>>;
     template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<int64_t>>;
     template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<double>>;
