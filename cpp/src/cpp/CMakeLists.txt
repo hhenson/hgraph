@@ -5,6 +5,7 @@ set(HGRAPH_SOURCES
         api/python/py_node.cpp
         api/python/py_time_series.cpp
         api/python/py_ref.cpp
+        api/python/py_ts.cpp
         api/python/py_tsb.cpp
         api/python/py_tsd.cpp
         api/python/py_tsl.cpp

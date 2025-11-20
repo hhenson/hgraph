@@ -7,6 +7,14 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
+    PyTimeSeriesList<T_TS, T_U>::PyTimeSeriesList(underlying_type *impl, const control_block_ptr &cb) : T_TS(impl, cb){}
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsl<T_TS, T_U>)
+    PyTimeSeriesList<T_TS, T_U>::PyTimeSeriesList(underlying_type *impl) : T_TS(impl){}
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsl<T_TS, T_U>)
     nb::object PyTimeSeriesList<T_TS, T_U>::iter() const {
         auto     impl_{impl()};
         nb::list values;

@@ -6,6 +6,12 @@
 
 #include <fmt/format.h>
 #include <hgraph/api/python/py_time_series.h>
+#include <hgraph/api/python/py_ref.h>
+#include <hgraph/api/python/py_tsb.h>
+#include <hgraph/api/python/py_tsd.h>
+#include <hgraph/api/python/py_tsl.h>
+#include <hgraph/api/python/py_tss.h>
+#include <hgraph/api/python/py_tsw.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/mesh_node.h>
@@ -115,7 +121,7 @@ namespace hgraph
 
         // Handle other input types (fallback/stub implementations)
         void visit(TimeSeriesBundleInput &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesInput(&source, control_block));
         }
 
         template <typename K> void visit(TimeSeriesSetInput_T<K> &source) {
@@ -190,7 +196,7 @@ namespace hgraph
 
         // Handle other input types (fallback/stub implementations)
         void visit(TimeSeriesBundleOutput &source) {
-            // TODO: Implement
+            wrapped_visitor = nb::cast(PyTimeSeriesBundleOutput(&source, control_block));
         }
 
         template <typename K> void visit(TimeSeriesSetOutput_T<K> &source) {

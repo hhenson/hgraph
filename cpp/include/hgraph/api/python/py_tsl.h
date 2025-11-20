@@ -17,6 +17,9 @@ namespace hgraph
     {
         using underlying_type = T_U;
 
+        explicit PyTimeSeriesList(underlying_type *impl, const control_block_ptr &cb);
+        explicit PyTimeSeriesList(underlying_type *impl);
+
         // Default iterator iterates over keys to keep this more consistent with Python (c.f. dict)
         [[nodiscard]] nb::object iter() const;
 
@@ -46,9 +49,9 @@ namespace hgraph
     };
 
 
-    using PyTimeSeriesBundleOutput = PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>;
+    using PyTimeSeriesListOutput = PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>;
 
-    using PyTimeSeriesBundleInput = PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>;
+    using PyTimeSeriesListInput = PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>;
 
     void tsl_register_with_nanobind(nb::module_ &m);
 
