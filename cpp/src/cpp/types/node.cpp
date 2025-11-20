@@ -755,7 +755,7 @@ namespace hgraph {
     void Node::set_graph(graph_ptr value) {
         _graph = std::move(value);
         // Cache the evaluation time pointer from the graph for performance
-        _cached_evaluation_time_ptr = value->cached_evaluation_time_ptr();
+        _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
     time_series_bundle_input_ptr Node::input() { return _input; }

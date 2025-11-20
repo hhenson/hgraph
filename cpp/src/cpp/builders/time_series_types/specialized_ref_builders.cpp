@@ -9,12 +9,12 @@ namespace hgraph {
     // ============================================================
 
     // TimeSeriesValueRefInputBuilder - REF[TS[...]]
-    time_series_input_ptr TimeSeriesValueRefInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesValueReferenceInput(owning_node)};
+    time_series_input_ptr TimeSeriesValueRefInputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesValueReferenceInput(const_cast<Node*>(owning_node.get()))};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
-    time_series_input_ptr TimeSeriesValueRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+    time_series_input_ptr TimeSeriesValueRefInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
         auto v{new TimeSeriesValueReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input))};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
@@ -28,12 +28,12 @@ namespace hgraph {
     TimeSeriesListRefInputBuilder::TimeSeriesListRefInputBuilder(InputBuilder::ptr value_builder, size_t size)
         : value_builder(std::move(value_builder)), size(size) {}
 
-    time_series_input_ptr TimeSeriesListRefInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesListReferenceInput(owning_node, size)};
+    time_series_input_ptr TimeSeriesListRefInputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesListReferenceInput(const_cast<Node*>(owning_node.get()), size)};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
-    time_series_input_ptr TimeSeriesListRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+    time_series_input_ptr TimeSeriesListRefInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
         auto v{new TimeSeriesListReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input), size)};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
@@ -54,12 +54,12 @@ namespace hgraph {
                                                                       std::vector<InputBuilder::ptr> field_builders)
         : schema(std::move(schema)), field_builders(std::move(field_builders)) {}
 
-    time_series_input_ptr TimeSeriesBundleRefInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesBundleReferenceInput(owning_node, field_builders.size())};
+    time_series_input_ptr TimeSeriesBundleRefInputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesBundleReferenceInput(const_cast<Node*>(owning_node.get()), field_builders.size())};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
-    time_series_input_ptr TimeSeriesBundleRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+    time_series_input_ptr TimeSeriesBundleRefInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
         auto v{new TimeSeriesBundleReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input), field_builders.size())};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
@@ -81,12 +81,12 @@ namespace hgraph {
     }
 
     // TimeSeriesDictRefInputBuilder - REF[TSD[...]]
-    time_series_input_ptr TimeSeriesDictRefInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesDictReferenceInput(owning_node)};
+    time_series_input_ptr TimeSeriesDictRefInputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesDictReferenceInput(const_cast<Node*>(owning_node.get()))};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
-    time_series_input_ptr TimeSeriesDictRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+    time_series_input_ptr TimeSeriesDictRefInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
         auto v{new TimeSeriesDictReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input))};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
@@ -97,12 +97,12 @@ namespace hgraph {
     }
 
     // TimeSeriesSetRefInputBuilder - REF[TSS[...]]
-    time_series_input_ptr TimeSeriesSetRefInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesSetReferenceInput(owning_node)};
+    time_series_input_ptr TimeSeriesSetRefInputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesSetReferenceInput(const_cast<Node*>(owning_node.get()))};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
-    time_series_input_ptr TimeSeriesSetRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+    time_series_input_ptr TimeSeriesSetRefInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
         auto v{new TimeSeriesSetReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input))};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
@@ -113,12 +113,12 @@ namespace hgraph {
     }
 
     // TimeSeriesWindowRefInputBuilder - REF[TSW[...]]
-    time_series_input_ptr TimeSeriesWindowRefInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesWindowReferenceInput(owning_node)};
+    time_series_input_ptr TimeSeriesWindowRefInputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesWindowReferenceInput(const_cast<Node*>(owning_node.get()))};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
-    time_series_input_ptr TimeSeriesWindowRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+    time_series_input_ptr TimeSeriesWindowRefInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
         auto v{new TimeSeriesWindowReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input))};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
@@ -133,12 +133,12 @@ namespace hgraph {
     // ============================================================
 
     // TimeSeriesValueRefOutputBuilder - REF[TS[...]]
-    time_series_output_ptr TimeSeriesValueRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesValueReferenceOutput(owning_node)};
+    time_series_output_ptr TimeSeriesValueRefOutputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesValueReferenceOutput(const_cast<Node*>(owning_node.get()))};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
-    time_series_output_ptr TimeSeriesValueRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+    time_series_output_ptr TimeSeriesValueRefOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
         auto v{new TimeSeriesValueReferenceOutput(dynamic_cast_ref<TimeSeriesType>(owning_output))};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
@@ -152,12 +152,12 @@ namespace hgraph {
     TimeSeriesListRefOutputBuilder::TimeSeriesListRefOutputBuilder(OutputBuilder::ptr value_builder, size_t size)
         : value_builder(std::move(value_builder)), size(size) {}
 
-    time_series_output_ptr TimeSeriesListRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesListReferenceOutput(owning_node, size)};
+    time_series_output_ptr TimeSeriesListRefOutputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesListReferenceOutput(const_cast<Node*>(owning_node.get()), size)};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
-    time_series_output_ptr TimeSeriesListRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+    time_series_output_ptr TimeSeriesListRefOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
         auto v{new TimeSeriesListReferenceOutput(dynamic_cast_ref<TimeSeriesType>(owning_output), size)};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
@@ -178,12 +178,12 @@ namespace hgraph {
                                                                         std::vector<OutputBuilder::ptr> field_builders)
         : schema(std::move(schema)), field_builders(std::move(field_builders)) {}
 
-    time_series_output_ptr TimeSeriesBundleRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesBundleReferenceOutput(owning_node, field_builders.size())};
+    time_series_output_ptr TimeSeriesBundleRefOutputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesBundleReferenceOutput(const_cast<Node*>(owning_node.get()), field_builders.size())};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
-    time_series_output_ptr TimeSeriesBundleRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+    time_series_output_ptr TimeSeriesBundleRefOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
         auto v{new TimeSeriesBundleReferenceOutput(dynamic_cast_ref<TimeSeriesType>(owning_output), field_builders.size())};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
@@ -205,12 +205,12 @@ namespace hgraph {
     }
 
     // TimeSeriesDictRefOutputBuilder - REF[TSD[...]]
-    time_series_output_ptr TimeSeriesDictRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesDictReferenceOutput(owning_node)};
+    time_series_output_ptr TimeSeriesDictRefOutputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesDictReferenceOutput(const_cast<Node*>(owning_node.get()))};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
-    time_series_output_ptr TimeSeriesDictRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+    time_series_output_ptr TimeSeriesDictRefOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
         auto v{new TimeSeriesDictReferenceOutput(dynamic_cast_ref<TimeSeriesType>(owning_output))};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
@@ -221,12 +221,12 @@ namespace hgraph {
     }
 
     // TimeSeriesSetRefOutputBuilder - REF[TSS[...]]
-    time_series_output_ptr TimeSeriesSetRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesSetReferenceOutput(owning_node)};
+    time_series_output_ptr TimeSeriesSetRefOutputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesSetReferenceOutput(const_cast<Node*>(owning_node.get()))};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
-    time_series_output_ptr TimeSeriesSetRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+    time_series_output_ptr TimeSeriesSetRefOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
         auto v{new TimeSeriesSetReferenceOutput(dynamic_cast_ref<TimeSeriesType>(owning_output))};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
@@ -237,12 +237,12 @@ namespace hgraph {
     }
 
     // TimeSeriesWindowRefOutputBuilder - REF[TSW[...]]
-    time_series_output_ptr TimeSeriesWindowRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesWindowReferenceOutput(owning_node)};
+    time_series_output_ptr TimeSeriesWindowRefOutputBuilder::make_instance(const node_ptr& owning_node) const {
+        auto v{new TimeSeriesWindowReferenceOutput(const_cast<Node*>(owning_node.get()))};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
-    time_series_output_ptr TimeSeriesWindowRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+    time_series_output_ptr TimeSeriesWindowRefOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
         auto v{new TimeSeriesWindowReferenceOutput(dynamic_cast_ref<TimeSeriesType>(owning_output))};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }

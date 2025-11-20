@@ -17,8 +17,8 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesValueRefInputBuilder : InputBuilder {
         using InputBuilder::InputBuilder;
 
-        time_series_input_ptr make_instance(node_ptr owning_node) const override;
-        time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
+        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
         bool has_reference() const override { return true; }
         static void register_with_nanobind(nb::module_ &m);
     };
@@ -29,8 +29,8 @@ namespace hgraph {
 
         TimeSeriesListRefInputBuilder(InputBuilder::ptr value_builder, size_t size);
 
-        time_series_input_ptr make_instance(node_ptr owning_node) const override;
-        time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
+        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
         static void register_with_nanobind(nb::module_ &m);
@@ -42,8 +42,8 @@ namespace hgraph {
 
         TimeSeriesBundleRefInputBuilder(time_series_schema_ptr schema, std::vector<InputBuilder::ptr> field_builders);
 
-        time_series_input_ptr make_instance(node_ptr owning_node) const override;
-        time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
+        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
         static void register_with_nanobind(nb::module_ &m);
@@ -52,8 +52,8 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesDictRefInputBuilder : InputBuilder {
         using InputBuilder::InputBuilder;
 
-        time_series_input_ptr make_instance(node_ptr owning_node) const override;
-        time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
+        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
         bool has_reference() const override { return true; }
         static void register_with_nanobind(nb::module_ &m);
     };
@@ -61,8 +61,8 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesSetRefInputBuilder : InputBuilder {
         using InputBuilder::InputBuilder;
 
-        time_series_input_ptr make_instance(node_ptr owning_node) const override;
-        time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
+        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
         bool has_reference() const override { return true; }
         static void register_with_nanobind(nb::module_ &m);
     };
@@ -70,8 +70,8 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesWindowRefInputBuilder : InputBuilder {
         using InputBuilder::InputBuilder;
 
-        time_series_input_ptr make_instance(node_ptr owning_node) const override;
-        time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
+        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
         bool has_reference() const override { return true; }
         static void register_with_nanobind(nb::module_ &m);
     };
@@ -83,8 +83,8 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesValueRefOutputBuilder : OutputBuilder {
         using OutputBuilder::OutputBuilder;
 
-        time_series_output_ptr make_instance(node_ptr owning_node) const override;
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
+        time_series_output_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_output_ptr make_instance(const time_series_output_ptr& owning_output) const override;
         bool has_reference() const override { return true; }
         static void register_with_nanobind(nb::module_ &m);
     };
@@ -95,8 +95,8 @@ namespace hgraph {
 
         TimeSeriesListRefOutputBuilder(OutputBuilder::ptr value_builder, size_t size);
 
-        time_series_output_ptr make_instance(node_ptr owning_node) const override;
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
+        time_series_output_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_output_ptr make_instance(const time_series_output_ptr& owning_output) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
         static void register_with_nanobind(nb::module_ &m);
@@ -108,8 +108,8 @@ namespace hgraph {
 
         TimeSeriesBundleRefOutputBuilder(time_series_schema_ptr schema, std::vector<OutputBuilder::ptr> field_builders);
 
-        time_series_output_ptr make_instance(node_ptr owning_node) const override;
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
+        time_series_output_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_output_ptr make_instance(const time_series_output_ptr& owning_output) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
         static void register_with_nanobind(nb::module_ &m);
@@ -118,8 +118,8 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesDictRefOutputBuilder : OutputBuilder {
         using OutputBuilder::OutputBuilder;
 
-        time_series_output_ptr make_instance(node_ptr owning_node) const override;
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
+        time_series_output_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_output_ptr make_instance(const time_series_output_ptr& owning_output) const override;
         bool has_reference() const override { return true; }
         static void register_with_nanobind(nb::module_ &m);
     };
@@ -127,8 +127,8 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesSetRefOutputBuilder : OutputBuilder {
         using OutputBuilder::OutputBuilder;
 
-        time_series_output_ptr make_instance(node_ptr owning_node) const override;
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
+        time_series_output_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_output_ptr make_instance(const time_series_output_ptr& owning_output) const override;
         bool has_reference() const override { return true; }
         static void register_with_nanobind(nb::module_ &m);
     };
@@ -136,8 +136,8 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesWindowRefOutputBuilder : OutputBuilder {
         using OutputBuilder::OutputBuilder;
 
-        time_series_output_ptr make_instance(node_ptr owning_node) const override;
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
+        time_series_output_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_output_ptr make_instance(const time_series_output_ptr& owning_output) const override;
         bool has_reference() const override { return true; }
         static void register_with_nanobind(nb::module_ &m);
     };
