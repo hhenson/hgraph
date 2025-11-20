@@ -141,7 +141,7 @@ def tsd_get_items(
         if _state.tsd is not None:
             for k in _state.key:
                 output = _state.tsd.get_ref(k, _state.reference)
-                _ref._create(k)
+                _ref.create(k)
                 _ref[k].bind_output(output)
                 _ref[k].make_active()
 
@@ -150,7 +150,7 @@ def tsd_get_items(
 
     for k in key.added():
         output = _state.tsd.get_ref(k, _state.reference)
-        _ref._create(k)
+        _ref.create(k)
         _ref[k].bind_output(output)
         _ref[k].make_active()
 
@@ -170,7 +170,7 @@ def tsd_get_items(
         if k in _state.tsd.key_set.removed():
             out[k] = REMOVE_IF_EXISTS
         elif v.value.has_output and isinstance(v.value.output, TimeSeriesReferenceOutput):
-            _ref_ref._create(k)
+            _ref_ref.create(k)
             _ref_ref[k].bind_output(v.value.output)
             _ref_ref[k].make_active()
             continue

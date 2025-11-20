@@ -813,7 +813,7 @@ namespace hgraph
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::value_type TimeSeriesDictInput_T<T_Key>::get_or_create(const key_type &key) {
-        if (!_ts_values.contains(key)) { _create(key); }
+        if (!_ts_values.contains(key)) { create(key); }
         return _ts_values[key];
     }
 
@@ -886,7 +886,7 @@ namespace hgraph
         BaseTimeSeriesInput::notify_parent(this, modified_time);
     }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::_create(const key_type &key) {
+    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::create(const key_type &key) {
         auto item{_ts_builder->make_instance(this)};
         // For non-peered inputs that are active, make the newly created item active too
         // This ensures proper notification chain for fast non-peer TSD scenarios

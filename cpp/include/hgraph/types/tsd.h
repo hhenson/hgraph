@@ -335,7 +335,7 @@ namespace hgraph
         [[nodiscard]] engine_time_t last_modified_time() const override;
 
         // Expose this as this is currently used in at least one Python service test.
-        void _create(const key_type &key);
+        void create(const key_type &key);
 
         [[nodiscard]] TimeSeriesSetInput_T<key_type> &key_set_t();
 

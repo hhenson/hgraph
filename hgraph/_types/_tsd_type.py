@@ -120,7 +120,7 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
         output is constructed but will be in an invalid state until it is set with a value.
         """
         if key not in self._ts_values:
-            self._create(key)
+            self.create(key)
         return self._ts_values[key]
 
     def get(self, key: K) -> V | None:

@@ -5,6 +5,7 @@ from hgraph.test import eval_node
 
 
 def test_combine_cs():
+    ...
     @dataclass
     class AB(CompoundScalar):
         a: int

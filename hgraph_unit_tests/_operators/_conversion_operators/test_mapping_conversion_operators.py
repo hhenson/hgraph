@@ -67,6 +67,7 @@ def test_convert_tsb_to_mapping():
 
 
 def test_collect_mapping():
+    ...
     @graph
     def g(k: TS[str], v: TS[int], b: TS[bool]) -> TS[Mapping[str, int]]:
         return collect[TS[Mapping]](k, v, reset=b)
