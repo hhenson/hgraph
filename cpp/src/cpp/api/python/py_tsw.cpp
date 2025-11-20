@@ -14,10 +14,7 @@ namespace hgraph
         requires is_tsw_output<T_U>
 
     nb::object PyTimeSeriesWindowOutput<T_U>::value_times() const {
-        auto self{impl()};
-        if (!all_valid()) return nb::none();
-        if (self->size() == 0) return nb::none();
-        return nb::cast(impl()->value_times());
+        return impl()->py_value_times();
     }
 
     template <typename T_U>
@@ -53,7 +50,7 @@ namespace hgraph
     template <typename T_U>
         requires is_tsw_output<T_U>
     nb::int_ PyTimeSeriesWindowOutput<T_U>::len() const {
-        return nb::int_(impl()->size());
+        return nb::int_(impl()->len());
     }
 
     template <typename T_U>
@@ -122,10 +119,10 @@ namespace hgraph
 
     // Binding functions for time-based windows
     template <typename T> static void bind_time_tsw_for_type(nb::module_ &m, const char *suffix) {
-        using Out = TimeSeriesTimeWindowOutput<T>;
+        using Out = PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<T>>;
 
-        auto out_cls = nb::class_<Out, TimeSeriesOutput>(m, (std::string("TimeSeriesTimeWindowOutput_") + suffix).c_str())
-                           .def_prop_ro("value_times", &Out::py_value_times)
+        auto out_cls = nb::class_<Out, PyTimeSeriesOutput>(m, (std::string("TimeSeriesTimeWindowOutput_") + suffix).c_str())
+                           .def_prop_ro("value_times", &Out::value_times)
                            .def_prop_ro("first_modified_time", &Out::first_modified_time)
                            .def_prop_ro("size", &Out::size)
                            .def_prop_ro("min_size", &Out::min_size)

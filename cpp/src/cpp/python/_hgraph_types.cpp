@@ -1,3 +1,4 @@
+#include "hgraph/api/python/py_ts.h"
 #include "hgraph/api/python/py_tsl.h"
 
 #include <hgraph/api/python/py_ref.h>
@@ -16,6 +17,7 @@
 #include <hgraph/types/scalar_types.h>
 #include <hgraph/types/schema_type.h>
 #include <hgraph/types/traits.h>
+#include <hgraph/types/tsb.h>
 
 void export_types(nb::module_ &m) {
     using namespace hgraph;
@@ -37,6 +39,7 @@ void export_types(nb::module_ &m) {
     register_set_delta_with_nanobind(m);
 
     ref_register_with_nanobind(m);
+    ts_register_with_nanobind(m);
     tsb_register_with_nanobind(m);
     tsd_register_with_nanobind(m);
     tsl_register_with_nanobind(m);
@@ -53,7 +56,5 @@ void export_types(nb::module_ &m) {
 
     PyGraph::register_with_nanobind(m);
 
-    // register_ts_with_nanobind(m);
-    //
-    // TimeSeriesSchema::register_with_nanobind(m);
+    TimeSeriesSchema::register_with_nanobind(m);
 }
