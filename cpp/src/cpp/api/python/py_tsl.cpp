@@ -132,7 +132,7 @@ namespace hgraph
             .def("__repr__", &PyTS_Type::py_repr);
     }
 
-    void register_tsl_with_nanobind(nb::module_ &m) {
+    void tsl_register_with_nanobind(nb::module_ &m) {
         _register_tsl_with_nanobind<PyTimeSeriesOutput, TimeSeriesListOutput>(m);
         _register_tsl_with_nanobind<PyTimeSeriesInput, TimeSeriesListInput>(m);
     }

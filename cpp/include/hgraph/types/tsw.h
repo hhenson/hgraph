@@ -36,9 +36,15 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_value() const override;
 
+        [[nodiscard]] std::vector<T> value() const;
+
         [[nodiscard]] nb::object py_delta_value() const override;
 
+        [[nodiscard]] std::optional<T> delta_value() const;
+
         void py_set_value(nb::object value) override;
+
+        void set_value(const T& value);
 
         bool can_apply_result(nb::object) override { return !modified(); }
 
@@ -48,7 +54,11 @@ namespace hgraph {
 
         void mark_invalid() override;
 
+        [[nodiscard]] bool all_valid() const override;
+
         [[nodiscard]] nb::object py_value_times() const;
+
+        [[nodiscard]] std::vector<engine_time_t> value_times() const;
 
         [[nodiscard]] engine_time_t first_modified_time() const;
 
@@ -324,8 +334,6 @@ namespace hgraph {
         mutable std::vector<T> _removed_values;
     };
 
-    // Registration
-    void tsw_register_with_nanobind(nb::module_ & m);
 } // namespace hgraph
 
 #endif  // TSW_H

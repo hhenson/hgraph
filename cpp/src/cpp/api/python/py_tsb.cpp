@@ -126,15 +126,13 @@ namespace hgraph
         return this->template static_cast_impl<T_U>();
     }
 
-    template <> struct PyTimeSeriesBundle<PyTimeSeriesOutput, TimeSeriesBundleOutput>;
-
-    template <> struct PyTimeSeriesBundle<PyTimeSeriesInput, TimeSeriesBundleInput>;
+    template struct PyTimeSeriesBundle<PyTimeSeriesOutput, TimeSeriesBundleOutput>;
+    template struct PyTimeSeriesBundle<PyTimeSeriesInput, TimeSeriesBundleInput>;
 
     template <typename T_TS, typename T_U> void _register_tsb_with_nanobind(nb::module_ &m) {
         using PyTS_Type = PyTimeSeriesBundle<T_TS, T_U>;
-
-        nb::class_<PyTS_Type, T_TS>(m, std::is_same_v<T_TS, TimeSeriesBundleInput> ? "TimeSeriesBundleInput"
-                                                                                   : "TimeSeriesBundleOutput")
+        auto name{std::is_same_v<T_U, TimeSeriesBundleInput> ? "TimeSeriesBundleInput" : "TimeSeriesBundleOutput"};
+        nb::class_<PyTS_Type, T_TS>(m, name)
             .def("__getitem__", &PyTS_Type::get_item)
             .def("__iter__", &PyTS_Type::iter)
             .def("__len__", &PyTS_Type::len)
@@ -151,7 +149,7 @@ namespace hgraph
             .def("__repr__", &PyTS_Type::py_repr);
     }
 
-    void register_tsb_with_nanobind(nb::module_ &m) {
+    void tsb_register_with_nanobind(nb::module_ &m) {
         _register_tsb_with_nanobind<PyTimeSeriesOutput, TimeSeriesBundleOutput>(m);
         _register_tsb_with_nanobind<PyTimeSeriesInput, TimeSeriesBundleInput>(m);
     }

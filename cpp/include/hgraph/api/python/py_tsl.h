@@ -50,6 +50,6 @@ namespace hgraph
 
     using PyTimeSeriesBundleInput = PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>;
 
-    void register_tsl_with_nanobind(nb::module_ &m);
+    void tsl_register_with_nanobind(nb::module_ &m);
 
 }  // namespace hgraph

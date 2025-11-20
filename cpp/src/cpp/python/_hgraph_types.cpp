@@ -1,12 +1,16 @@
+#include "hgraph/api/python/py_tsl.h"
+
 #include <hgraph/api/python/py_ref.h>
 
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
-#include <hgraph/types/node.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/api/python/py_tsb.h>
+#include <hgraph/api/python/py_tsd.h>
 #include <hgraph/api/python/py_tss.h>
+#include <hgraph/api/python/py_tsw.h>
 #include <hgraph/types/error_type.h>
+#include <hgraph/types/node.h>
 #include <hgraph/types/tss.h>
 
 #include <hgraph/types/scalar_types.h>
@@ -30,23 +34,14 @@ void export_types(nb::module_ &m) {
     PyTimeSeriesInput::register_with_nanobind(m);
 
     // All reference types registered inside this function
-    register_time_series_reference_with_nanobind(m);
-    register_tsb_with_nanobind(m);
-
-    // IndexedTimeSeriesOutput::register_with_nanobind(m);
-    // IndexedTimeSeriesInput::register_with_nanobind(m);
-    //
-    // TimeSeriesListOutput::register_with_nanobind(m);
-    // TimeSeriesListInput::register_with_nanobind(m);
-    //
-    // TimeSeriesBundleInput::register_with_nanobind(m);
-    // TimeSeriesBundleOutput::register_with_nanobind(m);
-
     register_set_delta_with_nanobind(m);
+
+    ref_register_with_nanobind(m);
+    tsb_register_with_nanobind(m);
+    tsd_register_with_nanobind(m);
+    tsl_register_with_nanobind(m);
     tss_register_with_nanobind(m);
-    //
-    // tsd_register_with_nanobind(m);
-    // tsw_register_with_nanobind(m);
+    tsw_register_with_nanobind(m);
 
     PyTraits::register_with_nanobind(m);
 

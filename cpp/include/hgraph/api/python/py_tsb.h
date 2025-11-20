@@ -49,11 +49,6 @@ namespace hgraph
         underlying_type *impl() const;
     };
 
-
-    using PyTimeSeriesBundleOutput = PyTimeSeriesBundle<PyTimeSeriesOutput, TimeSeriesBundleOutput>;
-
-    using PyTimeSeriesBundleInput = PyTimeSeriesBundle<PyTimeSeriesInput, TimeSeriesBundleInput>;
-
-    void register_tsb_with_nanobind(nb::module_ &m);
+    void tsb_register_with_nanobind(nb::module_ &m);
 
 }  // namespace hgraph

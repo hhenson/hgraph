@@ -9,6 +9,7 @@ set(HGRAPH_SOURCES
         api/python/py_tsd.cpp
         api/python/py_tsl.cpp
         api/python/py_tss.cpp
+        api/python/py_tsw.cpp
         api/python/wrapper_factory.cpp
         builders/builder.cpp
         builders/graph_builder.cpp

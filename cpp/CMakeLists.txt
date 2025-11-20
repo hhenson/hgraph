@@ -151,6 +151,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/api/python/py_tsd.h
         include/hgraph/api/python/py_tsl.h
         include/hgraph/api/python/py_tss.h
+        include/hgraph/api/python/py_tsw.h
         include/hgraph/api/python/wrapper_factory.h
         include/hgraph/hgraph_forward_declarations.h
         include/hgraph/builders/builder.h

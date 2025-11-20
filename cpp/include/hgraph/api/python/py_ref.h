@@ -9,7 +9,7 @@
 namespace hgraph
 {
 
-    void register_time_series_reference_with_nanobind(nb::module_ &m);
+    void ref_register_with_nanobind(nb::module_ &m);
 
     struct PyTimeSeriesReferenceOutput : PyTimeSeriesOutput
     {
