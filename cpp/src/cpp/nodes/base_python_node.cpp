@@ -44,7 +44,7 @@ namespace hgraph
                     } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
                         auto out = output();
                         // wrapped_value = wrap_output(out.get(), cb);
-                        wrapped_value = nb::cast(out);
+                        wrapped_value = wrap_time_series(out.get(), graph()->control_block());
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
                         wrapped_value = wrap_node_scheduler(sched.get(), cb);
