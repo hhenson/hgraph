@@ -118,7 +118,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::valid_keys() const {
-        auto        self{impl()};
+        auto self{impl()};
         // Distinguish at compile-time between a view (hold by value) and a container ref (bind by const ref)
         using items_t = decltype(self->valid_items());
         if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
@@ -133,7 +133,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::valid_values() const {
-        auto        self{impl()};
+        auto self{impl()};
         using items_t = decltype(self->valid_items());
         if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
             auto items = self->valid_items();
@@ -149,7 +149,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::valid_items() const {
-        auto        self{impl()};
+        auto self{impl()};
         using items_t = decltype(self->valid_items());
         if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
             auto items = self->valid_items();  // view must be non-const to have begin()/end()
@@ -165,15 +165,15 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::added_keys() const {
-        auto        self{impl()};
+        auto self{impl()};
         return nb::make_iterator(nb::type<typename T_U::k_set_type>(), "AddedKeyIterator", self->added_keys().begin(),
-                                     self->added_keys().end());
+                                 self->added_keys().end());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::added_values() const {
-        auto        self{impl()};
+        auto self{impl()};
         using items_t = decltype(self->added_items());
         if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
             auto items = self->added_items();
@@ -189,7 +189,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::added_items() const {
-        auto        self{impl()};
+        auto self{impl()};
         using items_t = decltype(self->added_items());
         if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
             auto items = self->added_items();  // Hold non-const view
@@ -225,7 +225,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::removed_values() const {
-        auto self{impl()};
+        auto        self{impl()};
         const auto &items = self->removed_items();
         return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "RemovedValueIterator", items.begin(),
                                                items.end(), this->control_block());
@@ -234,7 +234,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::removed_items() const {
-        auto self{impl()};
+        auto        self{impl()};
         const auto &items = self->removed_items();
         return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "RemovedItemsIterator", items.begin(),
                                                items.end(), this->control_block());
@@ -322,6 +322,18 @@ namespace hgraph
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
     void PyTimeSeriesDictOutput<T_U>::release_ref(const nb::object &key, const nb::object &requester) {
         this->impl()->py_release_ref(key, requester);
+    }
+
+    template <typename T_U>
+        requires std::is_base_of_v<TimeSeriesDictInput, T_U>
+    void PyTimeSeriesDictInput<T_U>::on_key_added(const nb::object &key) {
+        this->impl()->on_key_added(nb::cast<typename T_U::key_type>(key));
+    }
+
+    template <typename T_U>
+        requires std::is_base_of_v<TimeSeriesDictInput, T_U>
+    void PyTimeSeriesDictInput<T_U>::on_key_removed(const nb::object &key) {
+        this->impl()->on_key_removed(nb::cast<typename T_U::key_type>(key));
     }
 
     // ===== PyTimeSeriesDictInput =====
@@ -427,6 +439,8 @@ namespace hgraph
             .def("removed_values", &TSD_IN::removed_values)
             .def("removed_items", &TSD_IN::removed_items)
             .def("was_removed", &TSD_IN::was_removed, "key"_a)
+            .def("on_key_added", &TSD_IN::on_key_added, "key"_a)
+            .def("on_key_removed", &TSD_IN::on_key_removed, "key"_a)
             .def_prop_ro("has_removed", &TSD_IN::has_removed)
             .def_prop_ro("key_set", &TSD_IN::key_set)
             .def("__str__",
@@ -447,7 +461,7 @@ namespace hgraph
     template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_t>>;
     template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_delta_t>>;
     template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<nb::object>>;
-    
+
     // Explicit instantiations for input types
     template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<bool>>;
     template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<int64_t>>;

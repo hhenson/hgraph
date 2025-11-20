@@ -77,7 +77,7 @@ namespace hgraph
 
         time_series_output_ptr output();
 
-        time_series_bundle_output_ptr recordable_state();
+        nb::object recordable_state();
 
         [[nodiscard]] nb::bool_ has_recordable_state() const;
 

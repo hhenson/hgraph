@@ -101,6 +101,9 @@ namespace hgraph
     requires std::is_base_of_v<TimeSeriesDictInput, T_U>
     struct PyTimeSeriesDictInput : PyTimeSeriesDict<PyTimeSeriesInput, T_U>
     {
+        void on_key_added(const nb::object &key);
+        void on_key_removed(const nb::object &key);
+
         explicit PyTimeSeriesDictInput(T_U* o, control_block_ptr cb);
         explicit PyTimeSeriesDictInput(T_U* o);
     };

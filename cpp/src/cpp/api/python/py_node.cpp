@@ -13,29 +13,17 @@ namespace hgraph
 
     PyNodeScheduler::PyNodeScheduler(api_ptr scheduler) : _impl{std::move(scheduler)} {}
 
-    engine_time_t PyNodeScheduler::next_scheduled_time() const {
-        return _impl->next_scheduled_time();
-    }
+    engine_time_t PyNodeScheduler::next_scheduled_time() const { return _impl->next_scheduled_time(); }
 
-    nb::bool_     PyNodeScheduler::requires_scheduling() const {
-        return nb::bool_(_impl->requires_scheduling());
-    }
+    nb::bool_ PyNodeScheduler::requires_scheduling() const { return nb::bool_(_impl->requires_scheduling()); }
 
-    nb::bool_ PyNodeScheduler::is_scheduled() const {
-        return nb::bool_(_impl->is_scheduled());
-    }
+    nb::bool_ PyNodeScheduler::is_scheduled() const { return nb::bool_(_impl->is_scheduled()); }
 
-    nb::bool_ PyNodeScheduler::is_scheduled_now() const {
-        return nb::bool_(_impl->is_scheduled_now());
-    }
+    nb::bool_ PyNodeScheduler::is_scheduled_now() const { return nb::bool_(_impl->is_scheduled_now()); }
 
-    nb::bool_ PyNodeScheduler::has_tag(const std::string &tag) const {
-        return nb::bool_(_impl->has_tag(tag));
-    }
+    nb::bool_ PyNodeScheduler::has_tag(const std::string &tag) const { return nb::bool_(_impl->has_tag(tag)); }
 
-    engine_time_t PyNodeScheduler::pop_tag(const std::string &tag) const {
-        return _impl->pop_tag(tag);
-    }
+    engine_time_t PyNodeScheduler::pop_tag(const std::string &tag) const { return _impl->pop_tag(tag); }
 
     engine_time_t PyNodeScheduler::pop_tag(const std::string &tag, engine_time_t default_time) const {
         return _impl->pop_tag(tag, default_time);
@@ -49,17 +37,11 @@ namespace hgraph
         _impl->schedule(when, std::move(tag), on_wall_clock);
     }
 
-    void PyNodeScheduler::un_schedule(const std::string &tag) const {
-        _impl->un_schedule(tag);
-    }
+    void PyNodeScheduler::un_schedule(const std::string &tag) const { _impl->un_schedule(tag); }
 
-    void PyNodeScheduler::un_schedule() const {
-        _impl->un_schedule();
-    }
+    void PyNodeScheduler::un_schedule() const { _impl->un_schedule(); }
 
-    void PyNodeScheduler::reset() {
-        _impl->reset();
-    }
+    void PyNodeScheduler::reset() { _impl->reset(); }
 
     void PyNodeScheduler::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyNodeScheduler>(m, "NodeScheduler")
@@ -87,14 +69,14 @@ namespace hgraph
                     self.schedule(when, std::move(tag), on_wall_clock);
                 },
                 "when"_a, "tag"_a = nb::none(), "on_wall_clock"_a = false)
-            .def("un_schedule", static_cast<void (PyNodeScheduler::*)(const std::string &) const>(&PyNodeScheduler::un_schedule), "tag"_a)
+            .def("un_schedule", static_cast<void (PyNodeScheduler::*)(const std::string &) const>(&PyNodeScheduler::un_schedule),
+                 "tag"_a)
             .def("un_schedule", static_cast<void (PyNodeScheduler::*)() const>(&PyNodeScheduler::un_schedule))
             .def("reset", &PyNodeScheduler::reset)
             .def("__str__",
                  [](const PyNodeScheduler &self) {
-                     auto& ns{*self._impl};
-                     return fmt::format("NodeScheduler@{:p}[scheduled={}]", static_cast<const void *>(&ns),
-                                        ns.is_scheduled());
+                     auto &ns{*self._impl};
+                     return fmt::format("NodeScheduler@{:p}[scheduled={}]", static_cast<const void *>(&ns), ns.is_scheduled());
                  })
             .def("__repr__", [](const PyNodeScheduler &self) {
                 auto &ns{*self._impl};
@@ -104,7 +86,7 @@ namespace hgraph
 
     PyNode::PyNode(api_ptr node) : _impl{std::move(node)} {}
 
-    void PyNode::notify() const { _impl->notify();}
+    void PyNode::notify() const { _impl->notify(); }
 
     nb::int_ PyNode::node_ndx() const { return nb::int_(_impl->node_ndx()); }
 
@@ -134,7 +116,7 @@ namespace hgraph
 
     time_series_output_ptr PyNode::output() { return _impl->output(); }
 
-    time_series_bundle_output_ptr PyNode::recordable_state() { return _impl->recordable_state(); }
+    nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state().get(), _impl.control_block()); }
 
     nb::bool_ PyNode::has_recordable_state() const { return nb::bool_(_impl->has_recordable_state()); }
 
