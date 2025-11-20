@@ -81,6 +81,7 @@ namespace hgraph
     }
 
     void BasePythonNode::_initialise_kwarg_inputs() {
+        if (graph() == nullptr) { return; }
         auto &signature_args = signature().args;
         for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0; i < l;
              ++i) {
@@ -90,7 +91,7 @@ namespace hgraph
                 // Expose inputs as base TimeSeriesInput using nb::ref to preserve lifetime semantics.
                 // Avoid casting to raw pointer, which bypasses intrusive ref counting and can cause
                 // dangling references when Python holds onto the object (e.g., during iteration).
-                _kwargs[key.c_str()] = nb::cast((*input())[i]);
+                _kwargs[key.c_str()] = wrap_time_series((*input())[i].get(), graph()->control_block());
             }
         }
     }
@@ -235,6 +236,9 @@ namespace hgraph
     void BasePythonNode::initialise() {}
 
     void BasePythonNode::start() {
+        if (graph() == nullptr) {
+            throw std::runtime_error("BasePythonNode::start: missing owning graph");
+        }
         _initialise_kwargs();
         _initialise_inputs();
         _initialise_state();
