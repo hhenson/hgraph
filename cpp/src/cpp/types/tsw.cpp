@@ -58,7 +58,8 @@ namespace hgraph
     }
 
     template <typename T> void TimeSeriesFixedWindowOutput<T>::set_value(const T &value) {
-        if (_length + 1 > _size) {
+        _length += 1;
+        if (_length > _size) {
             _removed_value.reset();
             _removed_value = _buffer[_start];
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { _removed_value.reset(); });
