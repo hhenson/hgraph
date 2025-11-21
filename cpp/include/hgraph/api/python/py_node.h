@@ -81,7 +81,7 @@ namespace hgraph
 
         [[nodiscard]] nb::bool_ has_recordable_state() const;
 
-        [[nodiscard]] nb::object scheduler() const; //PyNodeScheduler
+        [[nodiscard]] nb::object scheduler() const;  // PyNodeScheduler
 
         [[nodiscard]] nb::bool_ has_scheduler() const;
 
@@ -97,8 +97,23 @@ namespace hgraph
 
         static void register_with_nanobind(nb::module_ &m);
 
+      protected:
+        [[nodiscard]] control_block_ptr control_block() const;
+
+        template <typename U>
+            requires std::is_base_of_v<Node, U>
+        U *static_cast_impl() const {
+            return _impl.static_cast_<U>();
+        }
+
+        template <typename U>
+            requires std::is_base_of_v<Node, U>
+        U *dynamic_cast_impl() const {
+            return _impl.dynamic_cast_<U>();
+        }
+
       private:
-        friend Node *unwrap_node(const nb::object &obj);
-        api_ptr _impl;
+        friend Node *unwrap_node(const PyNode &obj);
+        api_ptr      _impl;
     };
 }  // namespace hgraph

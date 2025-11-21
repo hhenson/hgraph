@@ -6,6 +6,7 @@
 
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
+#include <hgraph/api/python/py_special_nodes.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/api/python/py_tsb.h>
 #include <hgraph/api/python/py_tsd.h>
@@ -59,4 +60,6 @@ void export_types(nb::module_ &m) {
     PyGraph::register_with_nanobind(m);
 
     TimeSeriesSchema::register_with_nanobind(m);
+
+    register_special_nodes_with_nanobind(m);
 }

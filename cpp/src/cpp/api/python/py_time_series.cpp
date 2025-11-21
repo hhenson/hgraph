@@ -74,6 +74,7 @@ namespace hgraph
 
     bool PyTimeSeriesOutput::can_apply_result(nb::object value) { return impl()->can_apply_result(std::move(value)); }
 
+
     void PyTimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesOutput, PyTimeSeriesType>(m, "TimeSeriesOutput")
             .def_prop_ro("parent_output", &PyTimeSeriesOutput::parent_output)

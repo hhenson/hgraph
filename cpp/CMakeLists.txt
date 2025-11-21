@@ -145,6 +145,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/api/python/api_ptr.h
         include/hgraph/api/python/py_graph.h
         include/hgraph/api/python/py_node.h
+        include/hgraph/api/python/py_special_nodes.h
         include/hgraph/api/python/py_time_series.h
         include/hgraph/api/python/py_ref.h
         include/hgraph/api/python/py_signal.h

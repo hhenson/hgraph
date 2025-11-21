@@ -157,4 +157,8 @@ namespace hgraph
             .def("__str__", &PyNode::str);
     }
 
+    control_block_ptr PyNode::control_block() const {
+        return _impl.control_block();
+    }
+
 }  // namespace hgraph
