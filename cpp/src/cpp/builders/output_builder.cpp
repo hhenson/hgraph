@@ -9,7 +9,6 @@
 #include <hgraph/builders/time_series_types/time_series_bundle_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_dict_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_list_output_builder.h>
-#include <hgraph/builders/time_series_types/time_series_ref_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_set_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_value_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_window_output_builder.h>
@@ -46,7 +45,6 @@ namespace hgraph {
 
         // Call the register functions from each builder type
         time_series_value_output_builder_register_with_nanobind(m);
-        TimeSeriesRefOutputBuilder::register_with_nanobind(m);
         
         // Specialized reference output builders
         TimeSeriesValueRefOutputBuilder::register_with_nanobind(m);
