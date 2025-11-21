@@ -38,6 +38,12 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
+    nb::object PyTimeSeriesBundle<T_TS, T_U>::get_attr(const nb::handle &key) const {
+        return get_item(key);
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsb<T_TS, T_U>)
     nb::bool_ PyTimeSeriesBundle<T_TS, T_U>::contains(const nb::handle &key) const {
         if (nb::isinstance<nb::str>(key)) { return nb::bool_(impl()->contains(nb::cast<std::string>(key))); }
         return nb::bool_(false);
@@ -51,47 +57,51 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::keys() const {
-        return nb::make_tuple(impl()->keys().begin(), impl()->keys().end());
+    auto PyTimeSeriesBundle<T_TS, T_U>::keys() const {
+        const auto &keys_{impl()->keys()};
+        return nb::make_iterator(nb::type<PyTimeSeriesBundle<T_TS, T_U>>(), "TSBKeyIterator", keys_.begin(), keys_.end());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::values() const {
-        auto        self{impl()};
+    auto PyTimeSeriesBundle<T_TS, T_U>::values() const {
+        auto self{impl()};
         auto items = self->values();  // Copy the collection to ensure lifetime
-        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSBValuesIterator",
-                                               std::move(items), this->control_block());
+        return make_time_series_iterator(nb::type<PyTimeSeriesBundle<T_TS, T_U>>(), "TSBValuesIterator", std::move(items),
+                                         this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_keys() const {
-        return nb::make_tuple(impl()->valid_keys().begin(), impl()->valid_keys().end());
+    auto PyTimeSeriesBundle<T_TS, T_U>::valid_keys() const {
+        const auto &keys_{impl()->valid_keys()};
+        return nb::make_iterator(nb::type<PyTimeSeriesBundle<T_TS, T_U>>(), "TSBValidKeyIterator", keys_.begin(), keys_.end());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_values() const {
-        auto        self{impl()};
+    auto PyTimeSeriesBundle<T_TS, T_U>::valid_values() const {
+        auto self{impl()};
         auto items = self->valid_values();  // Copy the collection to ensure lifetime
-        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSBValidValuesIterator",
-                                               std::move(items), this->control_block());
+        return make_time_series_iterator(nb::type<PyTimeSeriesBundle<T_TS, T_U>>(), "TSBValidValuesIterator", std::move(items),
+                                         this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_keys() const {
-        return nb::make_tuple(impl()->modified_keys().begin(), impl()->modified_keys().end());
+    auto PyTimeSeriesBundle<T_TS, T_U>::modified_keys() const {
+        const auto &keys_{impl()->modified_keys()};
+        return nb::make_iterator(nb::type<PyTimeSeriesBundle<T_TS, T_U>>(), "TSBValidKeyIterator", keys_.begin(), keys_.end());
+
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_values() const {
-        auto        self{impl()};
+    auto PyTimeSeriesBundle<T_TS, T_U>::modified_values() const {
+        auto self{impl()};
         auto items = self->modified_values();  // Copy the collection to ensure lifetime
-        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSBModifiedValuesIterator",
-                                               std::move(items), this->control_block());
+        return make_time_series_iterator(nb::type<PyTimeSeriesBundle<T_TS, T_U>>(), "TSBModifiedValuesIterator", std::move(items),
+                                         this->control_block());
     }
 
     template <typename T_TS, typename T_U>
@@ -108,28 +118,28 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::items() const {
-        auto        self{impl()};
+    auto PyTimeSeriesBundle<T_TS, T_U>::items() const {
+        auto self{impl()};
         auto items = self->items();  // Copy the collection to ensure lifetime
-        return make_time_series_items_iterator(nb::type<typename T_U::key_value_collection_type>(), "TSBItemsIterator",
+        return make_time_series_items_iterator(nb::type<PyTimeSeriesBundle<T_TS, T_U>>(), "TSBItemsIterator",
                                                std::move(items), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_items() const {
-        auto        self{impl()};
+    auto PyTimeSeriesBundle<T_TS, T_U>::valid_items() const {
+        auto self{impl()};
         auto items = self->valid_items();  // Copy the collection to ensure lifetime
-        return make_time_series_items_iterator(nb::type<typename T_U::key_value_collection_type>(), "TSBValidItemsIterator",
+        return make_time_series_items_iterator(nb::type<PyTimeSeriesBundle<T_TS, T_U>>(), "TSBValidItemsIterator",
                                                std::move(items), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_items() const {
-        auto        self{impl()};
+    auto PyTimeSeriesBundle<T_TS, T_U>::modified_items() const {
+        auto self{impl()};
         auto items = self->modified_items();  // Copy the collection to ensure lifetime
-        return make_time_series_items_iterator(nb::type<typename T_U::key_value_collection_type>(), "TSBModifiedItemsIterator",
+        return make_time_series_items_iterator(nb::type<PyTimeSeriesBundle<T_TS, T_U>>(), "TSBModifiedItemsIterator",
                                                std::move(items), this->control_block());
     }
 
@@ -170,18 +180,19 @@ namespace hgraph
         auto name{std::is_same_v<T_U, TimeSeriesBundleInput> ? "TimeSeriesBundleInput" : "TimeSeriesBundleOutput"};
         nb::class_<PyTS_Type, T_TS>(m, name)
             .def("__getitem__", &PyTS_Type::get_item)
+            .def("__getattr__", &PyTS_Type::get_attr)
             .def("__iter__", &PyTS_Type::iter)
             .def("__len__", &PyTS_Type::len)
             .def("__contains__", &PyTS_Type::contains)
-            .def("keys", &PyTS_Type::keys)
-            .def("items", &PyTS_Type::items)
-            .def("values", &PyTS_Type::values)
-            .def("valid_keys", &PyTS_Type::valid_keys)
-            .def("valid_values", &PyTS_Type::valid_values)
-            .def("valid_items", &PyTS_Type::valid_items)
-            .def("modified_keys", &PyTS_Type::modified_keys)
-            .def("modified_values", &PyTS_Type::modified_values)
-            .def("modified_items", &PyTS_Type::modified_items)
+            .def("keys", &PyTS_Type::keys, nb::keep_alive<0, 1>())
+            .def("items", &PyTS_Type::items, nb::keep_alive<0, 1>())
+            .def("values", &PyTS_Type::values, nb::keep_alive<0, 1>())
+            .def("valid_keys", &PyTS_Type::valid_keys, nb::keep_alive<0, 1>())
+            .def("valid_values", &PyTS_Type::valid_values, nb::keep_alive<0, 1>())
+            .def("valid_items", &PyTS_Type::valid_items, nb::keep_alive<0, 1>())
+            .def("modified_keys", &PyTS_Type::modified_keys, nb::keep_alive<0, 1>())
+            .def("modified_values", &PyTS_Type::modified_values, nb::keep_alive<0, 1>())
+            .def("modified_items", &PyTS_Type::modified_items, nb::keep_alive<0, 1>())
             .def_prop_ro("empty", &PyTS_Type::empty)
             .def_prop_ro("__schema__", &PyTS_Type::schema)
             .def_prop_ro("as_schema", [](nb::handle self) { return self; })

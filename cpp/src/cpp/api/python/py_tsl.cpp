@@ -35,29 +35,32 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::keys() const {
-        return nb::make_tuple(impl()->keys().begin(), impl()->keys().end());
+    auto PyTimeSeriesList<T_TS, T_U>::keys() const {
+        const auto &keys_{impl()->keys()};
+        return nb::make_iterator(nb::type<PyTimeSeriesList<T_TS, T_U>>(), "TSLKeyIterator", keys_);
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::values() const {
+    auto PyTimeSeriesList<T_TS, T_U>::values() const {
         auto        self{impl()};
         auto items = self->values();  // Copy the collection to ensure lifetime
-        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "ValuesIterator",
+        return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSLValuesIterator",
                                                std::move(items), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::valid_keys() const {
-        return nb::make_tuple(impl()->valid_keys().begin(), impl()->valid_keys().end());
+    auto PyTimeSeriesList<T_TS, T_U>::valid_keys() const {
+        const auto &keys_{impl()->valid_keys()};
+        return nb::make_iterator(nb::type<PyTimeSeriesList<T_TS, T_U>>(), "TSLValidKeyIterator", keys_);
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::modified_keys() const {
-        return nb::make_tuple(impl()->modified_keys().begin(), impl()->modified_keys().end());
+    auto PyTimeSeriesList<T_TS, T_U>::modified_keys() const {
+        auto keys_{impl()->modified_keys()};
+        return nb::make_iterator(nb::type<PyTimeSeriesList<T_TS, T_U>>(), "TSLModifiedKeyIterator", keys_);
     }
 
     template <typename T_TS, typename T_U>
@@ -68,7 +71,7 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::items() const {
+    auto PyTimeSeriesList<T_TS, T_U>::items() const {
         auto        self{impl()};
         auto items = self->items();  // Copy the collection to ensure lifetime
         return make_time_series_items_iterator(nb::type<typename T_U::enumerated_collection_type>(), "ItemsIterator",
@@ -76,7 +79,7 @@ namespace hgraph
     }
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::valid_values() const {
+    auto PyTimeSeriesList<T_TS, T_U>::valid_values() const {
         auto        self{impl()};
         auto items = self->valid_values();  // Copy the collection to ensure lifetime
         return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "ValidValuesIterator",
@@ -85,7 +88,7 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::valid_items() const {
+    auto PyTimeSeriesList<T_TS, T_U>::valid_items() const {
         auto        self{impl()};
         auto items = self->valid_items();  // Copy the collection to ensure lifetime
         return make_time_series_items_iterator(nb::type<typename T_U::enumerated_collection_type>(), "ValidItemsIterator",
@@ -93,7 +96,7 @@ namespace hgraph
     }
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::modified_values() const {
+    auto PyTimeSeriesList<T_TS, T_U>::modified_values() const {
         auto        self{impl()};
         auto items = self->modified_values();  // Copy the collection to ensure lifetime
         return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "ModifiedValuesIterator",
@@ -102,7 +105,7 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::modified_items() const {
+    auto PyTimeSeriesList<T_TS, T_U>::modified_items() const {
         auto        self{impl()};
         auto items = self->modified_items();  // Copy the collection to ensure lifetime
         return make_time_series_items_iterator(nb::type<typename T_U::enumerated_collection_type>(), "ModifiedItemsIterator",

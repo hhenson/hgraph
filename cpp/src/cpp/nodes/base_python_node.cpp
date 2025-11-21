@@ -36,9 +36,7 @@ namespace hgraph
         for (const auto &[key_, value] : scalars()) {
             std::string key{nb::cast<std::string>(key_)};
             // Only include scalars that are in signature.args (same as Python implementation)
-            if (std::ranges::find(signature_args, key) == std::ranges::end(signature_args)) {
-                continue;
-            }
+            if (std::ranges::find(signature_args, key) == std::ranges::end(signature_args)) { continue; }
             try {
                 if (injectable_map && injectable_map->contains(key)) {
                     auto       injectable = injectable_map->at(key);
@@ -63,6 +61,10 @@ namespace hgraph
                         wrapped_value = nb::cast(clock);
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
                         wrapped_value = g ? wrap_traits(g->traits().get(), cb) : nb::none();
+                    } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
+                        auto recordable_state = this->recordable_state().get();
+                        if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }
+                        wrapped_value = wrap_time_series(recordable_state, cb);
                     } else {
                         // Fallback: call injector with this node (same behaviour as python impl)
                         wrapped_value = value(get_node_wrapper());
@@ -86,27 +88,22 @@ namespace hgraph
     }
 
     void BasePythonNode::_initialise_kwarg_inputs() {
+        // This can be called during wiring in the current flow, would be worth looking into that to clean up, but for now protect
         if (graph() == nullptr) { return; }
-        if (!input()) { return; }
-        auto &signature_args = signature().args;
-        // Iterate over time_series_inputs keys and access bundle by key name
-        // The bundle schema keys should match, but we use key-based access to be safe
-        // Only include time-series inputs that are in signature.args (same as Python implementation)
-        if (!signature().time_series_inputs.has_value()) { return; }
-        for (const auto &[key_str, _] : signature().time_series_inputs.value()) {
-            const std::string &key = key_str;
-            // Only process keys that are in signature.args
-            if (std::ranges::find(signature_args, key) == std::ranges::end(signature_args)) {
-                continue;
-            }
+        // If is not a compute node or sink node, there are no inputs to map
+        auto input_{input().get()};
+        if (!input_) { return; }
+        const auto &cb{graph()->control_block()};
+        const auto &keys{input_->schema().keys()};
+        // This should be redundant, but for now we will keep it in for safety.
+        if (input_->size() != keys.size()) {
+            throw std::runtime_error("BasePythonNode::_initialise_kwarg_inputs: Input size must match keys size");
+        }
+        // If we have an input, we have time_series_inputs, so lets get them and process them.
+        for (size_t i = 0, l = input_->size(); i < l; ++i) {
             // Access by key name to ensure we get the correct input
             // The bundle should contain all time_series_inputs keys
-            if (input()->contains(key)) {
-                // Expose inputs as base TimeSeriesInput using nb::ref to preserve lifetime semantics.
-                // Avoid casting to raw pointer, which bypasses intrusive ref counting and can cause
-                // dangling references when Python holds onto the object (e.g., during iteration).
-                _kwargs[key.c_str()] = wrap_time_series((*input())[key].get(), graph()->control_block());
-            }
+            _kwargs[keys[i].c_str()] = wrap_time_series(input_->operator[](i).get(), cb);
         }
     }
 
@@ -133,7 +130,7 @@ namespace hgraph
 
         // Get the fully qualified recordable ID
         nb::object  fq_recordable_id_fn = get_fq_recordable_id_fn();
-        nb::object  traits_obj = wrap_traits(graph()->traits(), graph()->control_block());  // nb::cast(&(graph()->traits()));
+        nb::object  traits_obj       = wrap_traits(graph()->traits(), graph()->control_block());  // nb::cast(&(graph()->traits()));
         std::string record_replay_id = signature().record_replay_id.value_or("");
         nb::object  recordable_id    = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
 
@@ -250,9 +247,7 @@ namespace hgraph
     void BasePythonNode::initialise() {}
 
     void BasePythonNode::start() {
-        if (graph() == nullptr) {
-            throw std::runtime_error("BasePythonNode::start: missing owning graph");
-        }
+        if (graph() == nullptr) { throw std::runtime_error("BasePythonNode::start: missing owning graph"); }
         _initialise_kwargs();
         _initialise_inputs();
         _initialise_state();
