@@ -86,7 +86,13 @@ namespace hgraph
 
     PyNode::PyNode(api_ptr node) : _impl{std::move(node)} {}
 
-    void PyNode::notify() const { _impl->notify(); }
+    void PyNode::notify(const nb::handle &dt) const {
+        if (!dt.is_valid() || dt.is_none()) {
+            _impl->notify();
+            return;
+        }
+        _impl->notify(nb::cast<engine_time_t>(dt));
+    }
 
     nb::int_ PyNode::node_ndx() const { return nb::int_(_impl->node_ndx()); }
 
@@ -148,17 +154,13 @@ namespace hgraph
             .def_prop_ro("output", &PyNode::output)
             .def_prop_ro("recordable_state", &PyNode::recordable_state)
             .def_prop_ro("scheduler", &PyNode::scheduler)
-            .def("notify", [](PyNode &self) { self.notify(); })
-            // .def(
-            //     "notify", [](PyNode &self, engine_time_t modified_time) { self.notify(modified_time); }, "modified_time"_a)
+            .def("notify", &PyNode::notify, "modified_time"_a = nb::none())
             // .def("notify_next_cycle", &PyNode::notify_next_cycle)
             .def_prop_ro("error_output", &PyNode::error_output)
             .def("__repr__", &PyNode::repr)
             .def("__str__", &PyNode::str);
     }
 
-    control_block_ptr PyNode::control_block() const {
-        return _impl.control_block();
-    }
+    control_block_ptr PyNode::control_block() const { return _impl.control_block(); }
 
 }  // namespace hgraph

@@ -53,7 +53,7 @@ namespace hgraph
 
         explicit PyNode(api_ptr node);
 
-        void notify() const;
+        void notify(const nb::handle&) const;
 
         // void notify_next_cycle();
 
