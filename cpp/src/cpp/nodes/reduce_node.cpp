@@ -366,6 +366,29 @@ namespace hgraph {
     }
 
     template<typename K>
+    TimeSeriesReferenceInput *ReduceNode<K>::clone_ref_input_type(TimeSeriesReferenceInput *source, Node *owning_node) {
+        // Determine the specialized type from source and create the same type
+        if (auto *value_ref = dynamic_cast<TimeSeriesValueReferenceInput *>(source)) {
+            return new TimeSeriesValueReferenceInput(owning_node);
+        } else if (auto *list_ref = dynamic_cast<TimeSeriesListReferenceInput *>(source)) {
+            return new TimeSeriesListReferenceInput(owning_node, list_ref->size());
+        } else if (auto *bundle_ref = dynamic_cast<TimeSeriesBundleReferenceInput *>(source)) {
+            return new TimeSeriesBundleReferenceInput(owning_node, bundle_ref->size());
+        } else if (auto *dict_ref = dynamic_cast<TimeSeriesDictReferenceInput *>(source)) {
+            return new TimeSeriesDictReferenceInput(owning_node);
+        } else if (auto *set_ref = dynamic_cast<TimeSeriesSetReferenceInput *>(source)) {
+            return new TimeSeriesSetReferenceInput(owning_node);
+        } else if (auto *window_ref = dynamic_cast<TimeSeriesWindowReferenceInput *>(source)) {
+            return new TimeSeriesWindowReferenceInput(owning_node);
+        } else {
+            // This should not happen - zero() should always be a specialized type
+            throw std::runtime_error(
+                "ReduceNode::clone_ref_input_type: zero() input is a base TimeSeriesReferenceInput. "
+                "This is a bug - zero input should always be a specialized type.");
+        }
+    }
+
+    template<typename K>
     void ReduceNode<K>::zero_node(const std::tuple<int64_t, int64_t> &ndx) {
         auto [node_id, side] = ndx;
         auto nodes = get_node(node_id);
@@ -380,14 +403,16 @@ namespace hgraph {
             // This input was bound to a key, so we need to:
             // 1. Remove it from our tracking set
             // 2. Re-parent it back to the TSD for cleanup
-            // 3. Create a new unbound reference input for this node
+            // 3. Create a new unbound reference input for this node with the same specialized type as zero()
             bound_to_key_flags_.erase(inner_input.get());
             inner_input->re_parent(ts().get());
 
-            auto new_ref_input = new TimeSeriesReferenceInput(node.get());
+            // Clone the specialized type from zero() instead of creating a base type
+            auto zero_ref = zero();
+            auto new_ref_input = clone_ref_input_type(zero_ref.get(), node.get());
             node->reset_input(node->input()->copy_with(node.get(), {new_ref_input}));
             new_ref_input->re_parent(node->input().get());
-            new_ref_input->clone_binding(zero());
+            new_ref_input->clone_binding(zero_ref);
         } else {
             // This input is not bound to a key (it's an unbound reference we created),
             // so we can just clone the zero binding without creating a new input

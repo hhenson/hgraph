@@ -94,16 +94,21 @@ namespace hgraph
         auto input_{input().get()};
         if (!input_) { return; }
         const auto &cb{graph()->control_block()};
-        const auto &keys{input_->schema().keys()};
-        // This should be redundant, but for now we will keep it in for safety.
-        if (input_->size() != keys.size()) {
-            throw std::runtime_error("BasePythonNode::_initialise_kwarg_inputs: Input size must match keys size");
-        }
-        // If we have an input, we have time_series_inputs, so lets get them and process them.
-        for (size_t i = 0, l = input_->size(); i < l; ++i) {
-            // Access by key name to ensure we get the correct input
-            // The bundle should contain all time_series_inputs keys
-            _kwargs[keys[i].c_str()] = wrap_time_series(input_->operator[](i).get(), cb);
+        auto &signature_args = signature().args;
+        // Match main branch behavior: iterate over time_series_inputs
+        for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0;
+             i < l;
+             ++i) {
+            auto key{input_->schema().keys()[i]};
+            if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
+                auto wrapped = wrap_time_series(input_->operator[](i).get(), cb);
+                if (wrapped.is_none()) {
+                    throw std::runtime_error(
+                        std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap time-series input '") +
+                        key + "' - wrap_time_series returned None. This indicates a bug in the wrapper factory.");
+                }
+                _kwargs[key.c_str()] = wrapped;
+            }
         }
     }
 

@@ -76,6 +76,9 @@ namespace hgraph {
 
         void zero_node(const std::tuple<int64_t, int64_t> &ndx);
 
+        // Helper to clone the specialized type from zero() input
+        TimeSeriesReferenceInput *clone_ref_input_type(TimeSeriesReferenceInput *source, Node *owning_node);
+
         void swap_node(const std::tuple<int64_t, int64_t> &src_ndx, const std::tuple<int64_t, int64_t> &dst_ndx);
 
         int64_t node_size() const;

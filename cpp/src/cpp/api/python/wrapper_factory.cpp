@@ -251,12 +251,28 @@ namespace hgraph
         void visit(TimeSeriesReferenceInput &source) override {
             // This should not be called - specialized types override accept() to call their specific visit method
             // But if it is called (e.g., for the base type), we need to determine the actual type
-            // For now, try to cast to the most common type
+            // Try all possible reference input types
             if (auto *value_ref = dynamic_cast<TimeSeriesValueReferenceInput *>(&source)) {
                 visit(*value_ref);
+            } else if (auto *bundle_ref = dynamic_cast<TimeSeriesBundleReferenceInput *>(&source)) {
+                visit(*bundle_ref);
+            } else if (auto *set_ref = dynamic_cast<TimeSeriesSetReferenceInput *>(&source)) {
+                visit(*set_ref);
+            } else if (auto *list_ref = dynamic_cast<TimeSeriesListReferenceInput *>(&source)) {
+                visit(*list_ref);
+            } else if (auto *dict_ref = dynamic_cast<TimeSeriesDictReferenceInput *>(&source)) {
+                visit(*dict_ref);
+            } else if (auto *window_ref = dynamic_cast<TimeSeriesWindowReferenceInput *>(&source)) {
+                visit(*window_ref);
             } else {
-                // Fallback - this shouldn't happen in practice
-                wrapped_visitor = nb::none();
+                // BUG: Encountered a base TimeSeriesReferenceInput that doesn't match any specialized type.
+                // There should not be naked instances of TimeSeriesReferenceInput - they should always be
+                // one of the specialized types. This indicates a bug where a base TimeSeriesReferenceInput
+                // was created instead of a specialized type.
+                throw std::runtime_error(
+                    "WrapInputVisitor::visit(TimeSeriesReferenceInput): Encountered a base TimeSeriesReferenceInput "
+                    "that doesn't match any specialized type. This is a bug - there should not be naked instances of "
+                    "TimeSeriesReferenceInput. Check where this input was created (likely in reduce_node.cpp::zero_node).");
             }
         }
     };
