@@ -20,6 +20,22 @@ namespace hgraph
         explicit PyTimeSeriesBundle(underlying_type *impl, const control_block_ptr &cb);
         explicit PyTimeSeriesBundle(underlying_type *impl);
 
+        // Move constructor
+        PyTimeSeriesBundle(PyTimeSeriesBundle&& other) noexcept
+            : T_TS(std::move(other)) {}
+
+        // Move assignment
+        PyTimeSeriesBundle& operator=(PyTimeSeriesBundle&& other) noexcept {
+            if (this != &other) {
+                T_TS::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesBundle(const PyTimeSeriesBundle&) = delete;
+        PyTimeSeriesBundle& operator=(const PyTimeSeriesBundle&) = delete;
+
         // Default iterator iterates over keys to keep this more consistent with Python (c.f. dict)
         [[nodiscard]] nb::object iter() const;
 
