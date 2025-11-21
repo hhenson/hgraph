@@ -11,6 +11,7 @@
 
 #include <fmt/format.h>
 #include <nanobind/nanobind.h>
+#include <hgraph/api/python/wrapper_factory.h>
 
 namespace hgraph
 {
@@ -387,7 +388,8 @@ namespace hgraph
 
     template <typename T_Key>
     nb::object TimeSeriesDictOutput_T<T_Key>::py_get_ref(const nb::object &key, const nb::object &requester) {
-        return nb::cast(get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr())));
+        //TODO: move this function out so we can have better access to the control block, this could be an expensive call!
+        return wrap_output(get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr())), owning_graph()->control_block());
     }
 
     template <typename T_Key>

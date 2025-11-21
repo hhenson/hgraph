@@ -9,6 +9,11 @@ namespace hgraph
  struct HGRAPH_EXPORT PyLastValuePullNode : PyNode
  {
      using PyNode::PyNode;
+     /**
+      * Apply a value directly to the node
+      * This is used when setting a default value or when the node receives a new value
+      */
+     void apply_value(const nb::object &new_value);
 
      void copy_from_input(const nb::handle &input);
 
