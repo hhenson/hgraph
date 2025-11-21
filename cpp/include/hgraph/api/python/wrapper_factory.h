@@ -385,6 +385,11 @@ namespace hgraph
      */
     TimeSeriesInput *unwrap_input(const nb::handle &obj);
 
+    template <typename T>
+    T* unwrap_input_as(const nb::handle &obj) {
+        return dynamic_cast<T*>(unwrap_input(obj));
+    }
+
     TimeSeriesInput *unwrap_input(const PyTimeSeriesInput &input_);
 
     /**
