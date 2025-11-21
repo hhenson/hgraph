@@ -1,9 +1,12 @@
+#include <hgraph/api/python/wrapper_factory.h>
+
 #include <fmt/format.h>
+#include <hgraph/api/python/py_ref.h>
 #include <hgraph/nodes/context_node.h>
+#include <hgraph/python/global_keys.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
-#include <hgraph/python/global_keys.h>
 #include <nanobind/nanobind.h>
 
 namespace hgraph {
@@ -83,15 +86,15 @@ namespace hgraph {
 
         // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState
         // Use nb::isinstance to handle both base and specialized reference types
-        if (nb::isinstance<TimeSeriesReferenceOutput>(shared)) {
-            output_ts = nb::cast<time_series_reference_output_ptr>(shared);
+        if (nb::isinstance<PyTimeSeriesReferenceOutput>(shared)) {
+            output_ts = unwrap_output_as<TimeSeriesReferenceOutput>(shared);
             if (output_ts->valid() && output_ts->has_value()) {
                 value_ref = output_ts->value();
             }
         }
         // Case 2: TimeSeriesReferenceInput stored in GlobalState
-        else if (nb::isinstance<TimeSeriesReferenceInput>(shared)) {
-            auto ref = nb::cast<time_series_reference_input_ptr>(shared);
+        else if (nb::isinstance<PyTimeSeriesReferenceInput>(shared)) {
+            auto ref = unwrap_input_as<TimeSeriesReferenceInput>(shared);
             if (ref->has_peer()) {
                 // Use the bound peer output (stub remains a reference node)
                 output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ref->output().get());

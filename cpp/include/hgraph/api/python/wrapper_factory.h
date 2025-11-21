@@ -90,18 +90,18 @@ namespace hgraph
     namespace detail
     {
         // Accessors used by iterator helpers
-        struct tsd_identity_accessor {
-            template <typename Iterator>
-            static decltype(auto) get(Iterator &it) { return (*it); }
+        struct tsd_identity_accessor
+        {
+            template <typename Iterator> static decltype(auto) get(Iterator &it) { return (*it); }
         };
 
-        struct tsd_second_accessor {
-            template <typename Iterator>
-            static decltype(auto) get(Iterator &it) { return (*it).second; }
+        struct tsd_second_accessor
+        {
+            template <typename Iterator> static decltype(auto) get(Iterator &it) { return (*it).second; }
         };
 
-        template <typename Iterator, typename Sentinel, typename Accessor>
-        struct tsd_mapped_iter_state {
+        template <typename Iterator, typename Sentinel, typename Accessor> struct tsd_mapped_iter_state
+        {
             Iterator          it;
             Sentinel          end;
             control_block_ptr cb;
@@ -109,22 +109,19 @@ namespace hgraph
         };
 
         // State that stores the collection to ensure iterator lifetime
-        template <typename Collection, typename Accessor>
-        struct tsd_collection_iter_state {
-            std::shared_ptr<Collection> collection;  // Store the collection in shared_ptr
+        template <typename Collection, typename Accessor> struct tsd_collection_iter_state
+        {
+            std::shared_ptr<Collection>   collection;  // Store the collection in shared_ptr
             typename Collection::iterator it;
             typename Collection::iterator end;
-            control_block_ptr cb;
-            bool first_or_done;
+            control_block_ptr             cb;
+            bool                          first_or_done;
         };
 
-        template <typename Iterator, typename Sentinel, typename Accessor, typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
-        inline nb::typed<nb::iterator, ValueType>
-        make_time_series_iterator_ex(nb::handle scope,
-                                     const char *name,
-                                     Iterator first,
-                                     Sentinel last,
-                                     control_block_ptr cb) {
+        template <typename Iterator, typename Sentinel, typename Accessor,
+                  typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
+        inline nb::typed<nb::iterator, ValueType> make_time_series_iterator_ex(nb::handle scope, const char *name, Iterator first,
+                                                                               Sentinel last, control_block_ptr cb) {
             using State = tsd_mapped_iter_state<Iterator, Sentinel, Accessor>;
 
             static nb::ft_mutex mu;
@@ -133,8 +130,7 @@ namespace hgraph
                 nb::class_<State>(scope, name)
                     .def("__iter__", [](nb::handle h) { return h; })
                     .def("__next__", [](State &s) -> nb::object {
-                        if (!s.first_or_done)
-                            ++s.it;
+                        if (!s.first_or_done) ++s.it;
                         else
                             s.first_or_done = false;
 
@@ -150,43 +146,36 @@ namespace hgraph
             }
 
             return nb::borrow<nb::typed<nb::iterator, nb::object>>(
-                nb::cast(State{ std::move(first), std::move(last), std::move(cb), true })
-            );
+                nb::cast(State{std::move(first), std::move(last), std::move(cb), true}));
         }
     }  // namespace detail
 
     // Direct-iteration version: wraps elements yielded by the iterator
     // (use when the iterator dereferences to a time series pointer/ref)
-    template <typename Iterator, typename Sentinel, typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
-    inline nb::typed<nb::iterator, ValueType>
-    make_time_series_iterator(nb::handle scope,
-                              const char *name,
-                              Iterator first,
-                              Sentinel last,
-                              control_block_ptr cb) {
+    template <typename Iterator, typename Sentinel,
+              typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
+    inline nb::typed<nb::iterator, ValueType> make_time_series_iterator(nb::handle scope, const char *name, Iterator first,
+                                                                        Sentinel last, control_block_ptr cb) {
         return detail::make_time_series_iterator_ex<Iterator, Sentinel, detail::tsd_identity_accessor>(
             scope, name, std::move(first), std::move(last), std::move(cb));
     }
 
     // Collection-based version: stores the collection to ensure iterator lifetime
-    template <typename Collection, typename ValueType = typename nb::detail::iterator_access<decltype(std::declval<Collection>().begin())>::result_type>
-    inline nb::typed<nb::iterator, ValueType>
-    make_time_series_iterator(nb::handle scope,
-                              const char *name,
-                              Collection &&collection,
-                              control_block_ptr cb) {
+    template <typename Collection,
+              typename ValueType = typename nb::detail::iterator_access<decltype(std::declval<Collection>().begin())>::result_type>
+    inline nb::typed<nb::iterator, ValueType> make_time_series_iterator(nb::handle scope, const char *name, Collection &&collection,
+                                                                        control_block_ptr cb) {
         // Store the collection in the state to ensure lifetime
         using CollectionType = std::decay_t<Collection>;
-        using State = detail::tsd_collection_iter_state<CollectionType, detail::tsd_identity_accessor>;
-        
+        using State          = detail::tsd_collection_iter_state<CollectionType, detail::tsd_identity_accessor>;
+
         static nb::ft_mutex mu;
         nb::ft_lock_guard   lock(mu);
         if (!nb::type<State>().is_valid()) {
             nb::class_<State>(scope, name)
                 .def("__iter__", [](nb::handle h) { return h; })
                 .def("__next__", [](State &s) -> nb::object {
-                    if (!s.first_or_done)
-                        ++s.it;
+                    if (!s.first_or_done) ++s.it;
                     else
                         s.first_or_done = false;
 
@@ -203,41 +192,34 @@ namespace hgraph
         // Move the collection into a shared_ptr to extend its lifetime
         auto coll_ptr = std::make_shared<CollectionType>(std::forward<Collection>(collection));
         return nb::borrow<nb::typed<nb::iterator, ValueType>>(
-            nb::cast(State{ coll_ptr, coll_ptr->begin(), coll_ptr->end(), std::move(cb), true })
-        );
+            nb::cast(State{coll_ptr, coll_ptr->begin(), coll_ptr->end(), std::move(cb), true}));
     }
 
     // Value-iteration version: wraps the `.second` of pair-like iterators
-    template <typename Iterator, typename Sentinel, typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
-    inline nb::typed<nb::iterator, ValueType>
-    make_time_series_value_iterator(nb::handle scope,
-                                    const char *name,
-                                    Iterator first,
-                                    Sentinel last,
-                                    control_block_ptr cb) {
+    template <typename Iterator, typename Sentinel,
+              typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
+    inline nb::typed<nb::iterator, ValueType> make_time_series_value_iterator(nb::handle scope, const char *name, Iterator first,
+                                                                              Sentinel last, control_block_ptr cb) {
         return detail::make_time_series_iterator_ex<Iterator, Sentinel, detail::tsd_second_accessor>(
             scope, name, std::move(first), std::move(last), std::move(cb));
     }
 
     // Collection-based version: stores the collection to ensure iterator lifetime
-    template <typename Collection, typename ValueType = typename nb::detail::iterator_access<decltype(std::declval<Collection>().begin())>::result_type>
-    inline nb::typed<nb::iterator, ValueType>
-    make_time_series_value_iterator(nb::handle scope,
-                                    const char *name,
-                                    Collection &&collection,
-                                    control_block_ptr cb) {
+    template <typename Collection,
+              typename ValueType = typename nb::detail::iterator_access<decltype(std::declval<Collection>().begin())>::result_type>
+    inline nb::typed<nb::iterator, ValueType> make_time_series_value_iterator(nb::handle scope, const char *name,
+                                                                              Collection &&collection, control_block_ptr cb) {
         // Store the collection in the state to ensure lifetime
         using CollectionType = std::decay_t<Collection>;
-        using State = detail::tsd_collection_iter_state<CollectionType, detail::tsd_second_accessor>;
-        
+        using State          = detail::tsd_collection_iter_state<CollectionType, detail::tsd_second_accessor>;
+
         static nb::ft_mutex mu;
         nb::ft_lock_guard   lock(mu);
         if (!nb::type<State>().is_valid()) {
             nb::class_<State>(scope, name)
                 .def("__iter__", [](nb::handle h) { return h; })
                 .def("__next__", [](State &s) -> nb::object {
-                    if (!s.first_or_done)
-                        ++s.it;
+                    if (!s.first_or_done) ++s.it;
                     else
                         s.first_or_done = false;
 
@@ -254,14 +236,14 @@ namespace hgraph
         // Move the collection into a shared_ptr to extend its lifetime
         auto coll_ptr = std::make_shared<CollectionType>(std::forward<Collection>(collection));
         return nb::borrow<nb::typed<nb::iterator, ValueType>>(
-            nb::cast(State{ coll_ptr, coll_ptr->begin(), coll_ptr->end(), std::move(cb), true })
-        );
+            nb::cast(State{coll_ptr, coll_ptr->begin(), coll_ptr->end(), std::move(cb), true}));
     }
 
-    namespace detail {
+    namespace detail
+    {
         // Items iterator state mirroring the mapped iterator style above
-        template <typename Iterator, typename Sentinel>
-        struct tsd_items_iter_state {
+        template <typename Iterator, typename Sentinel> struct tsd_items_iter_state
+        {
             Iterator          it;
             Sentinel          end;
             control_block_ptr cb;
@@ -269,22 +251,20 @@ namespace hgraph
         };
 
         // State that stores the collection for items iterator to ensure iterator lifetime
-        template <typename Collection>
-        struct tsd_collection_items_iter_state {
-            std::shared_ptr<Collection> collection;  // Store the collection in shared_ptr
+        template <typename Collection> struct tsd_collection_items_iter_state
+        {
+            std::shared_ptr<Collection>   collection;  // Store the collection in shared_ptr
             typename Collection::iterator it;
             typename Collection::iterator end;
-            control_block_ptr cb;
-            bool first_or_done;
+            control_block_ptr             cb;
+            bool                          first_or_done;
         };
 
-        template <typename Iterator, typename Sentinel, typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
-        inline nb::typed<nb::iterator, ValueType>
-        make_time_series_items_iterator_ex(nb::handle scope,
-                                           const char *name,
-                                           Iterator first,
-                                           Sentinel last,
-                                           control_block_ptr cb) {
+        template <typename Iterator, typename Sentinel,
+                  typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
+        inline nb::typed<nb::iterator, ValueType> make_time_series_items_iterator_ex(nb::handle scope, const char *name,
+                                                                                     Iterator first, Sentinel last,
+                                                                                     control_block_ptr cb) {
             using State = tsd_items_iter_state<Iterator, Sentinel>;
 
             static nb::ft_mutex mu;
@@ -293,8 +273,7 @@ namespace hgraph
                 nb::class_<State>(scope, name)
                     .def("__iter__", [](nb::handle h) { return h; })
                     .def("__next__", [](State &s) -> nb::object {
-                        if (!s.first_or_done)
-                            ++s.it;
+                        if (!s.first_or_done) ++s.it;
                         else
                             s.first_or_done = false;
 
@@ -306,52 +285,44 @@ namespace hgraph
                         // Build (key, wrapped_value) tuple
                         // Note: many range views (filter/transform) yield proxy objects on dereference.
                         // Do not bind to a non-const lvalue reference; take by value to avoid dangling refs.
-                        const auto &[key, value] = *s.it; // pair-like element (key, value)
-                        nb::object key_obj = nb::cast(key);
-                        nb::object val_obj = wrap_time_series(value, s.cb);
+                        const auto &[key, value] = *s.it;  // pair-like element (key, value)
+                        nb::object key_obj       = nb::cast(key);
+                        nb::object val_obj       = wrap_time_series(value, s.cb);
                         return nb::make_tuple(std::move(key_obj), std::move(val_obj));
                     });
             }
 
             return nb::borrow<nb::typed<nb::iterator, ValueType>>(
-                nb::cast(State{ std::move(first), std::move(last), std::move(cb), true })
-            );
+                nb::cast(State{std::move(first), std::move(last), std::move(cb), true}));
         }
-    } // namespace detail
+    }  // namespace detail
 
     // Items-iteration version: returns (key, wrapped(value)) tuples for pair-like iterators
     // The key is converted using nb::cast; the value is wrapped with the provided control block.
-    template <typename Iterator, typename Sentinel, typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
-    inline nb::typed<nb::iterator, ValueType>
-    make_time_series_items_iterator(nb::handle scope,
-                                    const char *name,
-                                    Iterator first,
-                                    Sentinel last,
-                                    control_block_ptr cb) {
-        return detail::make_time_series_items_iterator_ex(scope, name,
-                                                          std::move(first), std::move(last), std::move(cb));
+    template <typename Iterator, typename Sentinel,
+              typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
+    inline nb::typed<nb::iterator, ValueType> make_time_series_items_iterator(nb::handle scope, const char *name, Iterator first,
+                                                                              Sentinel last, control_block_ptr cb) {
+        return detail::make_time_series_items_iterator_ex(scope, name, std::move(first), std::move(last), std::move(cb));
     }
 
     // Collection-based version: stores the collection to ensure iterator lifetime
-    template <typename Collection, typename ValueType = typename nb::detail::iterator_access<decltype(std::declval<Collection>().begin())>::result_type>
-    inline nb::typed<nb::iterator, ValueType>
-    make_time_series_items_iterator(nb::handle scope,
-                                    const char *name,
-                                    Collection &&collection,
-                                    control_block_ptr cb) {
+    template <typename Collection,
+              typename ValueType = typename nb::detail::iterator_access<decltype(std::declval<Collection>().begin())>::result_type>
+    inline nb::typed<nb::iterator, ValueType> make_time_series_items_iterator(nb::handle scope, const char *name,
+                                                                              Collection &&collection, control_block_ptr cb) {
         // Store the collection in the state to ensure lifetime
-        using CollectionType = std::decay_t<Collection>;
+        using CollectionType  = std::decay_t<Collection>;
         using CollectionState = detail::tsd_collection_items_iter_state<CollectionType>;
-        auto coll_ptr = std::make_shared<CollectionType>(std::forward<Collection>(collection));
-        
+        auto coll_ptr         = std::make_shared<CollectionType>(std::forward<Collection>(collection));
+
         static nb::ft_mutex mu;
         nb::ft_lock_guard   lock(mu);
         if (!nb::type<CollectionState>().is_valid()) {
             nb::class_<CollectionState>(scope, name)
                 .def("__iter__", [](nb::handle h) { return h; })
                 .def("__next__", [](CollectionState &s) -> nb::object {
-                    if (!s.first_or_done)
-                        ++s.it;
+                    if (!s.first_or_done) ++s.it;
                     else
                         s.first_or_done = false;
 
@@ -362,15 +333,14 @@ namespace hgraph
 
                     // Build (key, wrapped_value) tuple
                     const auto &[key, value] = *s.it;
-                    nb::object key_obj = nb::cast(key);
-                    nb::object val_obj = wrap_time_series(value, s.cb);
+                    nb::object key_obj       = nb::cast(key);
+                    nb::object val_obj       = wrap_time_series(value, s.cb);
                     return nb::make_tuple(std::move(key_obj), std::move(val_obj));
                 });
         }
 
         return nb::borrow<nb::typed<nb::iterator, ValueType>>(
-            nb::cast(CollectionState{ coll_ptr, coll_ptr->begin(), coll_ptr->end(), std::move(cb), true })
-        );
+            nb::cast(CollectionState{coll_ptr, coll_ptr->begin(), coll_ptr->end(), std::move(cb), true}));
     }
 
     /**
@@ -385,10 +355,7 @@ namespace hgraph
      */
     TimeSeriesInput *unwrap_input(const nb::handle &obj);
 
-    template <typename T>
-    T* unwrap_input_as(const nb::handle &obj) {
-        return dynamic_cast<T*>(unwrap_input(obj));
-    }
+    template <typename T> requires std::is_base_of_v<TimeSeriesInput, T> T *unwrap_input_as(const nb::handle &obj) { return dynamic_cast<T *>(unwrap_input(obj)); }
 
     TimeSeriesInput *unwrap_input(const PyTimeSeriesInput &input_);
 
@@ -399,6 +366,9 @@ namespace hgraph
     TimeSeriesOutput *unwrap_output(const nb::handle &obj);
 
     TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_);
+
+    template <typename T> requires std::is_base_of_v<TimeSeriesOutput, T> T *unwrap_output_as(const nb::handle &obj) { return dynamic_cast<T *>(unwrap_output(obj)); }
+
     //
     // /**
     //  * Wrap an EvaluationEngineApi pointer in a PyEvaluationEngineApi.
