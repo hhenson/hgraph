@@ -96,7 +96,15 @@ namespace hgraph
 
     nb::int_ PyNode::node_ndx() const { return nb::int_(_impl->node_ndx()); }
 
-    nb::tuple PyNode::owning_graph_id() const { return nb::make_tuple(_impl->owning_graph_id()); }
+    nb::tuple PyNode::owning_graph_id() const {
+        // Convert internal vector<int64_t> to a proper Python tuple of ints
+        // (nb::make_tuple(vec) would create a 1-element tuple containing the vector)
+        nb::list ids;
+        for (auto id : _impl->owning_graph_id()) {
+            ids.append(id);
+        }
+        return nb::tuple(ids);
+    }
 
     nb::tuple PyNode::node_id() const { return nb::make_tuple(_impl->node_id()); }
 
