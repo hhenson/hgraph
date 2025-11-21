@@ -213,7 +213,7 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         except TypeError:
             raise TypeError(f"Cannot apply result {result} of type {result.__class__} to {self}")
 
-    def _create(self, key: K):
+    def create(self, key: K):
         cast(TimeSeriesSetOutput, self.key_set).add(key)
         item = self._ts_builder.make_instance(owning_output=self)
         self._ts_values[key] = item
@@ -406,7 +406,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
             for v in self._ts_values.values():
                 v.make_passive()
 
-    def _create(self, key: K):
+    def create(self, key: K):
         item = self._ts_builder.make_instance(owning_input=self)
         # I think this may be a location where we lose active state for non-peered inputs?
         # Added in a check for non-peered and active to ensure we make items active.

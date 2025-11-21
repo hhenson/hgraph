@@ -127,7 +127,7 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
         return self._ts_values.get(key)
 
     @abstractmethod
-    def _create(self, key: K):
+    def create(self, key: K):
         """Implemented by subclasses to create a new time series at this index position"""
 
     def __iter__(self) -> Iterable[K]:
