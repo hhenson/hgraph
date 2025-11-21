@@ -93,7 +93,7 @@ def extract_tsd(ts: TS[Mapping[K_1, SCALAR]]) -> TSD[K_1, TIME_SERIES_TYPE]:
 @compute_node
 def keys_where_true(ts: TSD[K, TS[bool]], _tp: type[K] = AUTO_RESOLVE) -> TSS[K]:
     added = set()
-    removed = ts.key_set.removed()
+    removed = set(ts.key_set.removed())  # Convert frozenset to mutable set
 
     for key, value in ts.modified_items():
         if value.value:
