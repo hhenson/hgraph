@@ -96,6 +96,8 @@ namespace hgraph
 
     struct TimeSeriesInput;
     struct OutputBuilder;
+    struct TimeSeriesReferenceOutput;
+    struct TimeSeriesReferenceInput;
 
     struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType, TimeSeriesOutputVisitable
     {
@@ -144,6 +146,16 @@ namespace hgraph
         // It could be moved into the queuing logic and implemented as a visitor, this would allow us to peek
         // The queue and perform the change, if the change is successful, we then pop the queue.
         virtual bool can_apply_result(nb::object value) = 0;
+
+        /*
+         * For now, we will provide two utility methods; one to support cloning a fresh copy of a time-series type
+         * and one to create an appropriate reference-peer instance. This will need to be addressed when we move to
+         * fixed memory layout of the graph potentially, but once we see all the use-cases we can hopefully present a plan
+         * to resolve this.
+         */
+
+        virtual TimeSeriesOutput* clone_blank_instance() = 0;
+        virtual TimeSeriesReferenceOutput* clone_blank_ref_instance() = 0;
     };
 
     struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable, TimeSeriesInputVisitable
@@ -178,6 +190,16 @@ namespace hgraph
         // This is a hack to support REF time-series binding, this definitely needs to be revisited.
         [[nodiscard]] virtual const TimeSeriesInput *get_input(size_t index) const = 0;
         [[nodiscard]] virtual TimeSeriesInput       *get_input(size_t index)       = 0;
+
+        /*
+         * For now, we will provide two utility methods; one to support cloning a fresh copy of a time-series type
+         * and one to create an appropriate reference-peer instance. This will need to be addressed when we move to
+         * fixed memory layout of the graph potentially, but once we see all the use-cases we can hopefully present a plan
+         * to resolve this.
+         */
+
+        virtual TimeSeriesInput* clone_blank_instance() = 0;
+        virtual TimeSeriesReferenceInput* clone_blank_ref_instance() = 0;
     };
 }  // namespace hgraph
 

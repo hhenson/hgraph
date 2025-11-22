@@ -365,28 +365,30 @@ namespace hgraph {
         node->notify();
     }
 
-    template<typename K>
-    TimeSeriesReferenceInput *ReduceNode<K>::clone_ref_input_type(TimeSeriesReferenceInput *source, Node *owning_node) {
-        // Determine the specialized type from source and create the same type
-        if (auto *value_ref = dynamic_cast<TimeSeriesValueReferenceInput *>(source)) {
-            return new TimeSeriesValueReferenceInput(owning_node);
-        } else if (auto *list_ref = dynamic_cast<TimeSeriesListReferenceInput *>(source)) {
-            return new TimeSeriesListReferenceInput(owning_node, list_ref->size());
-        } else if (auto *bundle_ref = dynamic_cast<TimeSeriesBundleReferenceInput *>(source)) {
-            return new TimeSeriesBundleReferenceInput(owning_node, bundle_ref->size());
-        } else if (auto *dict_ref = dynamic_cast<TimeSeriesDictReferenceInput *>(source)) {
-            return new TimeSeriesDictReferenceInput(owning_node);
-        } else if (auto *set_ref = dynamic_cast<TimeSeriesSetReferenceInput *>(source)) {
-            return new TimeSeriesSetReferenceInput(owning_node);
-        } else if (auto *window_ref = dynamic_cast<TimeSeriesWindowReferenceInput *>(source)) {
-            return new TimeSeriesWindowReferenceInput(owning_node);
-        } else {
-            // This should not happen - zero() should always be a specialized type
-            throw std::runtime_error(
-                "ReduceNode::clone_ref_input_type: zero() input is a base TimeSeriesReferenceInput. "
-                "This is a bug - zero input should always be a specialized type.");
-        }
-    }
+    // template<typename K>
+    // TimeSeriesReferenceInput *ReduceNode<K>::clone_ref_input_type(TimeSeriesReferenceInput *source, Node *owning_node) {
+    //     //TODO: This should probably use the visitor pattern, will address later.
+    //
+    //     // Determine the specialized type from source and create the same type
+    //     if (dynamic_cast<TimeSeriesValueReferenceInput *>(source)) {
+    //         return new TimeSeriesValueReferenceInput(owning_node);
+    //     } else if (auto *list_ref = dynamic_cast<TimeSeriesListReferenceInput *>(source)) {
+    //         return new TimeSeriesListReferenceInput(owning_node, list_ref->size());
+    //     } else if (auto *bundle_ref = dynamic_cast<TimeSeriesBundleReferenceInput *>(source)) {
+    //         return new TimeSeriesBundleReferenceInput(owning_node, bundle_ref->size());
+    //     } else if (dynamic_cast<TimeSeriesDictReferenceInput *>(source)) {
+    //         return new TimeSeriesDictReferenceInput(owning_node);
+    //     } else if (dynamic_cast<TimeSeriesSetReferenceInput *>(source)) {
+    //         return new TimeSeriesSetReferenceInput(owning_node);
+    //     } else if (dynamic_cast<TimeSeriesWindowReferenceInput *>(source)) {
+    //         return new TimeSeriesWindowReferenceInput(owning_node);
+    //     } else {
+    //         // This should not happen - zero() should always be a specialized type
+    //         throw std::runtime_error(
+    //             "ReduceNode::clone_ref_input_type: zero() input is a base TimeSeriesReferenceInput. "
+    //             "This is a bug - zero input should always be a specialized type.");
+    //     }
+    // }
 
     template<typename K>
     void ReduceNode<K>::zero_node(const std::tuple<int64_t, int64_t> &ndx) {
@@ -409,7 +411,7 @@ namespace hgraph {
 
             // Clone the specialized type from zero() instead of creating a base type
             auto zero_ref = zero();
-            auto new_ref_input = clone_ref_input_type(zero_ref.get(), node.get());
+            auto new_ref_input = zero_ref->clone_blank_ref_instance();
             node->reset_input(node->input()->copy_with(node.get(), {new_ref_input}));
             new_ref_input->re_parent(node->input().get());
             new_ref_input->clone_binding(zero_ref);
