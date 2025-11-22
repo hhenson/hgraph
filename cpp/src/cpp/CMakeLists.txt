@@ -34,7 +34,6 @@ set(HGRAPH_SOURCES
         builders/nodes/last_value_pull_node_builder.cpp
         builders/time_series_types/time_series_signal_input_builder.cpp
         builders/time_series_types/time_series_value_input_builder.cpp
-        builders/time_series_types/time_series_ref_input_builder.cpp
         builders/time_series_types/specialized_ref_builders.cpp
         builders/time_series_types/time_series_list_input_builder.cpp
         builders/time_series_types/time_series_bundle_input_builder.cpp
@@ -42,7 +41,6 @@ set(HGRAPH_SOURCES
         builders/time_series_types/time_series_window_input_builder.cpp
         builders/time_series_types/time_series_dict_input_builder.cpp
         builders/time_series_types/time_series_value_output_builder.cpp
-        builders/time_series_types/time_series_ref_output_builder.cpp
         builders/time_series_types/time_series_list_output_builder.cpp
         builders/time_series_types/time_series_bundle_output_builder.cpp
         builders/time_series_types/time_series_set_output_builder.cpp
