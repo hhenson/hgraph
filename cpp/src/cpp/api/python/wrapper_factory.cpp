@@ -76,6 +76,9 @@ namespace hgraph
         if (dynamic_cast<const LastValuePullNode*>(impl)) {
             return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyLastValuePullNode({impl, cb}); });
         }
+        if (dynamic_cast<const NestedNode*>(impl)) {
+            return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNestedNode({impl, cb}); });
+        }
         return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNode({impl, cb}); });
     }
 
@@ -482,8 +485,16 @@ namespace hgraph
         return wrap_input(impl, control_block);
     }
 
+    nb::object wrap_time_series(const TimeSeriesInput *impl) {
+        return wrap_input(impl, impl->owning_graph()->control_block());
+    }
+
     nb::object wrap_time_series(const TimeSeriesOutput *impl, const control_block_ptr &control_block) {
         return wrap_output(impl, control_block);
+    }
+
+    nb::object wrap_time_series(const TimeSeriesOutput *impl) {
+        return wrap_output(impl, impl->owning_graph()->control_block());
     }
 
     Node *unwrap_node(const nb::handle &obj) {

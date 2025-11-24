@@ -78,6 +78,8 @@ namespace hgraph
 
     nb::object wrap_time_series(const TimeSeriesInput *impl, const control_block_ptr &control_block);
     nb::object wrap_time_series(const TimeSeriesOutput *impl, const control_block_ptr &control_block);
+    nb::object wrap_time_series(const TimeSeriesInput *impl);
+    nb::object wrap_time_series(const TimeSeriesOutput *impl);
 
     // ---------------------------------------------------------------------
     // Lightweight Nanobind iterator helpers for time series wrapping

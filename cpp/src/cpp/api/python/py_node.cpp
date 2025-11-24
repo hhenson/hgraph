@@ -1,7 +1,8 @@
-#include "hgraph/api/python/wrapper_factory.h"
+#include <hgraph/api/python/wrapper_factory.h>
 
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
+#include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/tsb.h>
 
@@ -100,9 +101,7 @@ namespace hgraph
         // Convert internal vector<int64_t> to a proper Python tuple of ints
         // (nb::make_tuple(vec) would create a 1-element tuple containing the vector)
         nb::list ids;
-        for (auto id : _impl->owning_graph_id()) {
-            ids.append(id);
-        }
+        for (auto id : _impl->owning_graph_id()) { ids.append(id); }
         return nb::tuple(ids);
     }
 
@@ -170,5 +169,18 @@ namespace hgraph
     }
 
     control_block_ptr PyNode::control_block() const { return _impl.control_block(); }
+
+    engine_time_t PyNestedNode::last_evaluation_time() const {
+        return this->static_cast_impl<NestedNode>()->last_evaluation_time();
+    }
+
+    void PyNestedNode::register_with_nanobind(nb::module_ &m) {
+        nb::class_<PyNestedNode, PyNode>(m, "NestedNode")
+        .def_prop_ro("last_evaluation_time", &PyNestedNode::last_evaluation_time);
+    }
+    
+    void PyMapNestedNode::register_with_nanobind(nb::module_ &m) {
+        nb::class_<PyMapNestedNode, PyNestedNode>(m, "MapNestedNode");
+    }
 
 }  // namespace hgraph

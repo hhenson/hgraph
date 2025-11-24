@@ -110,7 +110,6 @@ def replay_const_from_memory(
     as_of: datetime = None,
     _traits: Traits = None,
     _clock: EvaluationClock = None,
-    _node: Node = None,
 ) -> TIME_SERIES_TYPE:
     recordable_id = get_fq_recordable_id(_traits, recordable_id)
     recordable_id = f":memory:{recordable_id}.{key}"
@@ -118,12 +117,14 @@ def replay_const_from_memory(
     tm = _clock.evaluation_time if tm is None else tm
     if source is not None:
         from hgraph import TimeSeriesBuilderFactory
-
+        # TODO: This kind of breaks the memory model we are looking to have,
+        #       this will drive the need to create a special monitor that lasts
+        #       for the duration the output is held ...
         # Create an output to match type so we can determine the value through repeated processing of the deltas.
         output: TimeSeriesOutput = (
             TimeSeriesBuilderFactory.instance()
             .make_output_builder(HgTimeSeriesTypeMetaData.parse_type(tp))
-            .make_instance(_node, None)
+            .make_instance(None, None)
         )
         for ts, v in source:
             # This is a slow approach, but since we don't have an index, this is the best we can do.

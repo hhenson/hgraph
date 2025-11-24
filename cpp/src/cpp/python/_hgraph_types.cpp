@@ -56,6 +56,7 @@ void export_types(nb::module_ &m) {
     NodeSignature::register_with_nanobind(m);
     PyNodeScheduler::register_with_nanobind(m);
     PyNode::register_with_nanobind(m);
+    PyNestedNode::register_with_nanobind(m);
 
     PyGraph::register_with_nanobind(m);
 

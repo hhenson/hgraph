@@ -116,4 +116,18 @@ namespace hgraph
         friend Node *unwrap_node(const PyNode &obj);
         api_ptr      _impl;
     };
+
+    struct PyNestedNode : PyNode
+    {
+        using PyNode::PyNode;
+
+        engine_time_t last_evaluation_time() const;
+
+        static void register_with_nanobind(nb::module_ &m);
+    };
+
+    struct PyMapNestedNode : PyNestedNode
+    {
+        static void register_with_nanobind(nb::module_ &m);
+    };
 }  // namespace hgraph

@@ -33,9 +33,18 @@ namespace hgraph
 
     PyGraph::PyGraph(ApiPtr<Graph> graph) : _impl{std::move(graph)} {}
 
-    nb::tuple PyGraph::graph_id() const { return nb::make_tuple(_impl->graph_id()); }
+    nb::tuple PyGraph::graph_id() const {
+        nb::list l{};
+        for (auto &id : _impl->graph_id()) { l.append(nb::int_(id)); }
+        return nb::tuple(l);
+    }
 
-    nb::tuple PyGraph::nodes() const { return nb::make_tuple(_impl->nodes()); }
+    nb::tuple PyGraph::nodes() const {
+        // TODO: This really should be cached
+        nb::list l{};
+        for (auto &node : _impl->nodes()) { l.append(wrap_node(node, _impl.control_block())); }
+        return nb::tuple(l);
+    }
 
     nb::object PyGraph::parent_node() const { return wrap_node(_impl->parent_node(), _impl.control_block()); }
 
@@ -83,11 +92,11 @@ namespace hgraph
             .def("__str__",
                  [](const PyGraph &self) {
                      return nb::str("Graph@{}[id={}, nodes={}]")
-                         .format(fmt::format("{:p}", static_cast<const void *>(&self)), self.graph_id(), self.nodes().size());
+                         .format(fmt::format("{:p}", static_cast<const void *>(&self)), self.graph_id(), nb::len(self.nodes()));
                  })
             .def("__repr__", [](const PyGraph &self) {
                 return nb::str("Graph@{}[id={}, nodes={}]")
-                    .format(fmt::format("{:p}", static_cast<const void *>(&self)), self.graph_id(), self.nodes().size());
+                    .format(fmt::format("{:p}", static_cast<const void *>(&self)), self.graph_id(), nb::len(self.nodes()));
             });
         ;
     }
