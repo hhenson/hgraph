@@ -4,9 +4,9 @@
 
 #include <fmt/format.h>
 #include <hgraph/api/python/py_node.h>
-#include <hgraph/api/python/py_special_nodes.h>
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/py_signal.h>
+#include <hgraph/api/python/py_special_nodes.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/api/python/py_ts.h>
 #include <hgraph/api/python/py_tsb.h>
@@ -71,12 +71,36 @@ namespace hgraph
 
     nb::object wrap_node(const Node *impl) { return wrap_node(impl, impl->graph()->control_block()); }
 
-    nb::object wrap_node(const Node *impl, const control_block_ptr &control_block) {
-        //TODO: Make this better, but for now:
-        if (dynamic_cast<const LastValuePullNode*>(impl)) {
-            return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyLastValuePullNode({impl, cb}); });
+    template <typename T> std::optional<nb::object> wrap_map_node_t(const Node *node) {
+        if (auto i = dynamic_cast<const MeshNode<T> *>(node); i) {
+            return get_or_create_wrapper(i, node->graph()->control_block(),
+                                         [](MeshNode<T> *impl, const auto &cb) {
+                                             PyNode::api_ptr ptr{impl, cb};
+                                             return PyMeshNestedNode::make_mesh_node<T>(std::move(ptr));
+                                         });
         }
-        if (dynamic_cast<const NestedNode*>(impl)) {
+        return std::nullopt;
+    }
+
+    std::optional<nb::object> map_node(const Node *impl) {
+        if (auto r = wrap_map_node_t<bool>(impl)) { return r; }
+        if (auto r = wrap_map_node_t<int64_t>(impl)) { return r; }
+        if (auto r = wrap_map_node_t<double>(impl)) { return r; }
+        if (auto r = wrap_map_node_t<engine_date_t>(impl)) { return r; }
+        if (auto r = wrap_map_node_t<engine_time_t>(impl)) { return r; }
+        if (auto r = wrap_map_node_t<engine_time_delta_t>(impl)) { return r; }
+        if (auto r = wrap_map_node_t<nb::object>(impl)) { return r; }
+        return std::nullopt;
+    }
+
+    nb::object wrap_node(const Node *impl, const control_block_ptr &control_block) {
+        // TODO: Make this better, but for now:
+        if (dynamic_cast<const LastValuePullNode *>(impl)) {
+            return get_or_create_wrapper(impl, control_block,
+                                         [](auto impl, const auto &cb) { return PyLastValuePullNode({impl, cb}); });
+        }
+        if (auto r_val = map_node(impl)) { return *r_val; }
+        if (dynamic_cast<const NestedNode *>(impl)) {
             return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNestedNode({impl, cb}); });
         }
         return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNode({impl, cb}); });
@@ -485,17 +509,13 @@ namespace hgraph
         return wrap_input(impl, control_block);
     }
 
-    nb::object wrap_time_series(const TimeSeriesInput *impl) {
-        return wrap_input(impl, impl->owning_graph()->control_block());
-    }
+    nb::object wrap_time_series(const TimeSeriesInput *impl) { return wrap_input(impl, impl->owning_graph()->control_block()); }
 
     nb::object wrap_time_series(const TimeSeriesOutput *impl, const control_block_ptr &control_block) {
         return wrap_output(impl, control_block);
     }
 
-    nb::object wrap_time_series(const TimeSeriesOutput *impl) {
-        return wrap_output(impl, impl->owning_graph()->control_block());
-    }
+    nb::object wrap_time_series(const TimeSeriesOutput *impl) { return wrap_output(impl, impl->owning_graph()->control_block()); }
 
     Node *unwrap_node(const nb::handle &obj) {
         if (auto *py_node = nb::inst_ptr<PyNode>(obj)) { unwrap_node(*py_node); }

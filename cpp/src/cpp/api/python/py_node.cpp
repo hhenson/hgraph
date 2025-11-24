@@ -1,8 +1,8 @@
 #include <hgraph/api/python/wrapper_factory.h>
 
+#include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/tsb.h>
 
@@ -175,12 +175,15 @@ namespace hgraph
     }
 
     void PyNestedNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<PyNestedNode, PyNode>(m, "NestedNode")
-        .def_prop_ro("last_evaluation_time", &PyNestedNode::last_evaluation_time);
+        nb::class_<PyNestedNode, PyNode>(m, "NestedNode").def_prop_ro("last_evaluation_time", &PyNestedNode::last_evaluation_time);
     }
-    
-    void PyMapNestedNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<PyMapNestedNode, PyNestedNode>(m, "MapNestedNode");
+
+    void PyMapNestedNode::register_with_nanobind(nb::module_ &m) { nb::class_<PyMapNestedNode, PyNestedNode>(m, "MapNestedNode"); }
+
+    void PyMeshNestedNode::register_with_nanobind(nb::module_ &m) {
+        nb::class_<PyMeshNestedNode, PyNestedNode>(m, "MeshNestedNode")
+            .def("_add_graph_dependency", &PyMeshNestedNode::add_graph_dependency, "key"_a, "depends_on"_a)
+            .def("_remove_graph_dependency", &PyMeshNestedNode::remove_graph_dependency, "key"_a, "depends_on"_a);
     }
 
 }  // namespace hgraph

@@ -57,7 +57,7 @@ void export_types(nb::module_ &m) {
     PyNodeScheduler::register_with_nanobind(m);
     PyNode::register_with_nanobind(m);
     PyNestedNode::register_with_nanobind(m);
-
+    PyMeshNestedNode::register_with_nanobind(m);
     PyGraph::register_with_nanobind(m);
 
     TimeSeriesSchema::register_with_nanobind(m);

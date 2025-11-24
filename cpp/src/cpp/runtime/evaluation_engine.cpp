@@ -14,15 +14,14 @@ namespace hgraph {
                 .def_prop_ro("now", &EvaluationClock::now)
                 .def_prop_ro("next_cycle_evaluation_time", &EvaluationClock::next_cycle_evaluation_time)
                 .def_prop_ro("cycle_time", &EvaluationClock::cycle_time)
+                .def_prop_ro("key", &EvaluationClock::py_key)
                 .def("__str__", [](const EvaluationClock &self) {
-                    return fmt::format("EvaluationClock@{:p}[eval_time={}]",
-                                       static_cast<const void *>(&self),
+                     return fmt::format("{}@{:p}[eval_time={}]", typeid(self).name(), static_cast<const void *>(&self),
                                        self.evaluation_time().time_since_epoch().count());
                 })
                 .def("__repr__", [](const EvaluationClock &self) {
-                    return fmt::format("EvaluationClock@{:p}[eval_time={}]",
-                                       static_cast<const void *>(&self),
-                                       self.evaluation_time().time_since_epoch().count());
+                    return fmt::format("{}@{:p}[eval_time={}]", typeid(self).name(), static_cast<const void *>(&self),
+                                   self.evaluation_time().time_since_epoch().count());
                 });
     }
 

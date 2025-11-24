@@ -1,5 +1,7 @@
 #pragma once
 
+#include "hgraph/nodes/mesh_node.h"
+
 #include <hgraph/api/python/api_ptr.h>
 #include <hgraph/hgraph_base.h>
 
@@ -53,7 +55,7 @@ namespace hgraph
 
         explicit PyNode(api_ptr node);
 
-        void notify(const nb::handle&) const;
+        void notify(const nb::handle &) const;
 
         // void notify_next_cycle();
 
@@ -128,6 +130,39 @@ namespace hgraph
 
     struct PyMapNestedNode : PyNestedNode
     {
+        using PyNestedNode::PyNestedNode;
         static void register_with_nanobind(nb::module_ &m);
     };
+
+    struct PyMeshNestedNode : PyNestedNode
+    {
+        template <typename T> static PyMeshNestedNode make_mesh_node(api_ptr node);
+
+        bool add_graph_dependency(const nb::handle &key, const nb::handle &depends_on) const {
+            return _add_graph_dependency_fn(*this, key, depends_on);
+        }
+        void remove_graph_dependency(const nb::handle &key, const nb::handle &depends_on) const {
+            _remove_graph_dependency_fn(*this, key, depends_on);
+        }
+
+        static void register_with_nanobind(nb::module_ &m);
+
+      private:
+        explicit PyMeshNestedNode(api_ptr ptr, auto add_fn, auto remove_fn)
+            : PyNestedNode(std::move(ptr)), _add_graph_dependency_fn(add_fn), _remove_graph_dependency_fn(remove_fn) {};
+        std::function<bool(const PyMeshNestedNode &, const nb::handle &, const nb::handle &)> _add_graph_dependency_fn;
+        std::function<void(const PyMeshNestedNode &, const nb::handle &, const nb::handle &)> _remove_graph_dependency_fn;
+    };
+
+    template <typename T> PyMeshNestedNode PyMeshNestedNode::make_mesh_node(api_ptr node) {
+        return PyMeshNestedNode(
+            std::move(node),
+            [](const PyMeshNestedNode &self, const nb::handle &key, const nb::handle &depends_on) {
+                return self.static_cast_impl<MeshNode<T>>()->_add_graph_dependency(nb::cast<T>(key), nb::cast<T>(depends_on));
+            },
+            [](const PyMeshNestedNode &self, const nb::handle &key, const nb::handle &depends_on) {
+                return self.static_cast_impl<MeshNode<T>>()->_remove_graph_dependency(nb::cast<T>(key), nb::cast<T>(depends_on));
+            });
+    }
+
 }  // namespace hgraph
