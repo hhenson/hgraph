@@ -137,8 +137,6 @@ namespace hgraph {
         void copy_from_input(const TimeSeriesInput &input) override;
 
         void clear() override;
-
-        static void register_with_nanobind(nb::module_ &m);
     };
 
     struct IndexedTimeSeriesInput : IndexedTimeSeries<BaseTimeSeriesInput> {

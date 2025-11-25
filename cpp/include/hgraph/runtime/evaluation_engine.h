@@ -24,8 +24,6 @@ namespace hgraph
         [[nodiscard]] virtual engine_time_delta_t cycle_time() const = 0;
 
         [[nodiscard]] virtual nb::object py_key() const { return nb::none(); };
-
-        static void register_with_nanobind(nb::module_ &m);
     };
 
     struct HGRAPH_EXPORT EngineEvaluationClock : EvaluationClock
@@ -49,7 +47,6 @@ namespace hgraph
         // Performance: Direct access to evaluation time for caching
         [[nodiscard]] virtual const engine_time_t *evaluation_time_ptr() const = 0;
 
-        static void register_with_nanobind(nb::module_ &m);
     };
 
     struct HGRAPH_EXPORT EngineEvaluationClockDelegate : EngineEvaluationClock
@@ -79,8 +76,6 @@ namespace hgraph
         void reset_push_node_requires_scheduling() override;
 
         [[nodiscard]] const engine_time_t *evaluation_time_ptr() const override;
-
-        static void register_with_nanobind(nb::module_ &m);
 
       private:
         ptr _engine_evalaution_clock;
@@ -114,8 +109,6 @@ namespace hgraph
         virtual void add_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) = 0;
 
         virtual void remove_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) = 0;
-
-        static void register_with_nanobind(nb::module_ &m);
     };
 
     struct EvaluationEngineDelegate;
@@ -161,8 +154,6 @@ namespace hgraph
         virtual void notify_before_stop_graph(graph_ptr graph) = 0;
 
         virtual void notify_after_stop_graph(graph_ptr graph) = 0;
-
-        static void register_with_nanobind(nb::module_ &m);
 
         friend EvaluationEngineDelegate;
     };
@@ -247,8 +238,6 @@ namespace hgraph
 
         void notify_after_stop_graph(graph_ptr graph) override;
 
-        static void register_with_nanobind(nb::module_ &m);
-
       protected:
         void initialise() override;
 
@@ -279,8 +268,6 @@ namespace hgraph
         // Performance: Direct access to evaluation time for caching
         [[nodiscard]] const engine_time_t *evaluation_time_ptr() const override;
 
-        static void register_with_nanobind(nb::module_ &m);
-
       private:
         engine_time_t _evaluation_time;
         engine_time_t _next_scheduled_evaluation_time;
@@ -305,8 +292,6 @@ namespace hgraph
         [[nodiscard]] bool push_node_requires_scheduling() const override;
 
         void reset_push_node_requires_scheduling() override;
-
-        static void register_with_nanobind(nb::module_ &m);
 
       private:
         engine_time_t _system_clock_at_start_of_evaluation;
@@ -333,8 +318,6 @@ namespace hgraph
         void set_alarm(engine_time_t alarm_time, const std::string &name, std::function<void(engine_time_t)> callback);
 
         void cancel_alarm(const std::string &name);
-
-        static void register_with_nanobind(nb::module_ &m);
 
       private:
         bool          _push_node_requires_scheduling;
@@ -416,8 +399,6 @@ namespace hgraph
         void notify_before_stop_graph(graph_ptr graph) override;
 
         void notify_after_stop_graph(graph_ptr graph) override;
-
-        static void register_with_nanobind(nb::module_ &m);
 
       private:
         EngineEvaluationClock::ptr                    _clock;

@@ -96,9 +96,4 @@ namespace hgraph {
         }
     }
 
-    void NestedGraphNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < NestedGraphNode, NestedNode > (m, "NestedGraphNode")
-                .def_prop_ro("active_graph", [](NestedGraphNode &self) { return self.m_active_graph_; })
-                .def_prop_ro("nested_graphs", &NestedGraphNode::nested_graphs);
-    }
 } // namespace hgraph

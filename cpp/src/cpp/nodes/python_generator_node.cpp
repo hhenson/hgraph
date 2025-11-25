@@ -3,9 +3,6 @@
 #include <hgraph/types/time_series_type.h>
 
 namespace hgraph {
-    void PythonGeneratorNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<PythonGeneratorNode, BasePythonNode>(m, "PythonGeneratorNode");
-    }
 
     void PythonGeneratorNode::do_eval() {
         auto et = graph()->evaluation_clock()->evaluation_time();

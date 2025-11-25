@@ -462,12 +462,6 @@ namespace hgraph
     // Specialized Reference Input Implementations
     // ============================================================
 
-    // TimeSeriesValueReferenceInput - REF[TS[...]]
-    void TimeSeriesValueReferenceInput::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesValueReferenceInput, TimeSeriesReferenceInput>(m, "TimeSeriesValueReferenceInput")
-            .def(nb::init<Node *>(), "owning_node"_a);
-    }
-
     TimeSeriesReferenceInput *TimeSeriesValueReferenceInput::clone_blank_ref_instance() {
         return new TimeSeriesValueReferenceInput(owning_node());
     }

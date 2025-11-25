@@ -63,8 +63,6 @@ namespace hgraph
 
         void reduce_graph(int64_t start_node);
 
-        static void register_with_nanobind(nb::module_ &m);
-
         void initialise_subgraph(int64_t start, int64_t end);
 
         void start_subgraph(int64_t start, int64_t end);

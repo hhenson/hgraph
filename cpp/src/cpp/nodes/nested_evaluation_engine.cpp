@@ -47,11 +47,6 @@ namespace hgraph {
         }
     }
 
-    void NestedEngineEvaluationClock::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < NestedEngineEvaluationClock, EngineEvaluationClockDelegate > (m, "NestedEngineEvaluationClock")
-                .def_prop_ro("node", &NestedEngineEvaluationClock::node);
-    }
-
     NestedEvaluationEngine::NestedEvaluationEngine(EvaluationEngine::ptr engine,
                                                    EngineEvaluationClock::ptr evaluation_clock)
         : EvaluationEngineDelegate(std::move(engine)), _engine_evaluation_clock(evaluation_clock),
@@ -64,7 +59,4 @@ namespace hgraph {
 
     EngineEvaluationClock::ptr NestedEvaluationEngine::engine_evaluation_clock() { return _engine_evaluation_clock; }
 
-    void NestedEvaluationEngine::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < NestedEvaluationEngine, EvaluationEngineDelegate > (m, "NestedEvaluationEngine");
-    }
 } // namespace hgraph

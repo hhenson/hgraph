@@ -61,7 +61,4 @@ namespace hgraph {
         }
     }
 
-    void TryExceptNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TryExceptNode, NestedGraphNode>(m, "TryExceptNode");
-    }
 } // namespace hgraph

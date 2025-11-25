@@ -58,25 +58,6 @@ namespace hgraph {
         for (auto &v: ts_values()) { v->clear(); }
     }
 
-    void IndexedTimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
-        using IndexedTimeSeries_Output = IndexedTimeSeries<BaseTimeSeriesOutput>;
-        nb::class_<IndexedTimeSeries_Output, BaseTimeSeriesOutput>(m, "IndexedTimeSeries_Output")
-                .def(
-                    "__getitem__", [](const IndexedTimeSeries_Output &self, size_t idx) { return self[idx]; },
-                    "index"_a)
-                .def("values",
-                     static_cast<collection_type (IndexedTimeSeries_Output::*)() const>(&
-                         IndexedTimeSeries_Output::values))
-                .def("valid_values", &IndexedTimeSeries_Output::py_valid_values)
-                .def("modified_values", &IndexedTimeSeries_Output::py_modified_values)
-                .def("__len__", &IndexedTimeSeries_Output::size)
-                .def_prop_ro("empty", &IndexedTimeSeries_Output::empty);
-
-        nb::class_<IndexedTimeSeriesOutput, IndexedTimeSeries_Output>(m, "IndexedTimeSeriesOutput")
-                .def("copy_from_output", &IndexedTimeSeriesOutput::copy_from_output, "output"_a)
-                .def("copy_from_input", &IndexedTimeSeriesOutput::copy_from_input, "input"_a);
-    }
-
     bool IndexedTimeSeriesInput::modified() const {
         if (has_peer()) { return BaseTimeSeriesInput::modified(); }
         if (ts_values().empty()) { return false; }
