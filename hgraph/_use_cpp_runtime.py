@@ -72,7 +72,7 @@ if is_feature_enabled("use_cpp"):
                 run_mode = _hgraph.EvaluationMode[run_mode.name]
             else:
                 run_mode = _hgraph.EvaluationMode(int(run_mode))
-            return _hgraph.GraphExecutorImpl(graph_builder, run_mode, observers)
+            return _hgraph.GraphExecutor(graph_builder, run_mode, observers)
 
         hgraph.GraphEngineFactory.declare(_make_cpp_graph_engine)
 

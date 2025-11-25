@@ -55,22 +55,22 @@ namespace hgraph {
         };
     };
 
-    struct HGRAPH_EXPORT GraphExecutor : nb::intrusive_base {
-        // Abstract methods.
-        virtual EvaluationMode run_mode() const = 0;
+    // struct HGRAPH_EXPORT GraphExecutor {
+    //     // Abstract methods.
+    //     virtual EvaluationMode run_mode() const = 0;
+    //
+    //     virtual void run(const engine_time_t &start_time, const engine_time_t &end_time) = 0;
+    //
+    //     void static register_with_nanobind(nb::module_ &m);
+    // };
 
-        virtual void run(const engine_time_t &start_time, const engine_time_t &end_time) = 0;
-
-        void static register_with_nanobind(nb::module_ &m);
-    };
-
-    struct HGRAPH_EXPORT GraphExecutorImpl : GraphExecutor {
-        GraphExecutorImpl(graph_builder_ptr graph_builder, EvaluationMode run_mode,
+    struct HGRAPH_EXPORT GraphExecutor {
+        GraphExecutor(graph_builder_ptr graph_builder, EvaluationMode run_mode,
                           std::vector<EvaluationLifeCycleObserver::ptr> observers = {});
 
-        EvaluationMode run_mode() const override;
+        EvaluationMode run_mode() const;
 
-        void run(const engine_time_t &start_time, const engine_time_t &end_time) override;
+        void run(const engine_time_t &start_time, const engine_time_t &end_time);
 
         void static register_with_nanobind(nb::module_ &m);
 

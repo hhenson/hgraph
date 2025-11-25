@@ -14,8 +14,6 @@ void export_runtime(nb::module_ &m) {
     using namespace hgraph;
 
     GraphExecutor::register_with_nanobind(m);
-    //TODO: Fix
-    GraphExecutorImpl::register_with_nanobind(m);
 
     // Register wrapper classes for Python API (these wrap the base classes)
     PyEvaluationClock::register_with_nanobind(m);
