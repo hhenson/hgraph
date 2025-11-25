@@ -1,7 +1,9 @@
 #pragma once
 
-#include <hgraph/hgraph_base.h>
 #include <hgraph/api/python/api_ptr.h>
+#include <hgraph/api/python/py_evaluation_clock.h>
+#include <hgraph/api/python/py_evaluation_engine.h>
+#include <hgraph/hgraph_base.h>
 
 namespace hgraph {
 
@@ -41,9 +43,9 @@ namespace hgraph {
 
         [[nodiscard]] nb::object label() const;
 
-        [[nodiscard]] nb::ref<EvaluationEngineApi> evaluation_engine_api();
+        [[nodiscard]] PyEvaluationEngineApi evaluation_engine_api();
 
-        [[nodiscard]] nb::ref<EvaluationClock> evaluation_clock() const;
+        [[nodiscard]] PyEvaluationClock evaluation_clock() const;
 
         [[nodiscard]] nb::int_ push_source_nodes_end() const;
 

@@ -143,6 +143,8 @@ include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(HGRAPH_INCLUDES
         include/hgraph/api/python/api_ptr.h
+        include/hgraph/api/python/py_evaluation_clock.h
+        include/hgraph/api/python/py_evaluation_engine.h
         include/hgraph/api/python/py_graph.h
         include/hgraph/api/python/py_node.h
         include/hgraph/api/python/py_special_nodes.h

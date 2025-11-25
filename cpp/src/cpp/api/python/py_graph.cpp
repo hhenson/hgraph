@@ -1,7 +1,10 @@
 #include "hgraph/api/python/wrapper_factory.h"
 
 #include <fmt/format.h>
+#include <hgraph/api/python/py_evaluation_clock.h>
+#include <hgraph/api/python/py_evaluation_engine.h>
 #include <hgraph/api/python/py_graph.h>
+#include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/traits.h>
@@ -53,9 +56,26 @@ namespace hgraph
         return lbl.has_value() ? nb::cast(*lbl) : nb::none();
     }
 
-    nb::ref<EvaluationEngineApi> PyGraph::evaluation_engine_api() { return _impl->evaluation_engine_api(); }
+    PyEvaluationEngineApi PyGraph::evaluation_engine_api()
+    {
+        auto engine_api = _impl->evaluation_engine_api();
+        if (!engine_api) {
+            throw std::runtime_error("Graph::evaluation_engine_api() returned null");
+        }
+        // engine_api is EvaluationEngineApi::ptr (nb::ref), which wraps EvaluationEngine*
+        // We need to get the raw pointer and cast it to EvaluationEngineApi*
+        auto *raw_ptr = static_cast<EvaluationEngineApi *>(engine_api.get());
+        return PyEvaluationEngineApi(ApiPtr<EvaluationEngineApi>(raw_ptr, _impl.control_block()));
+    }
 
-    EvaluationClock::ptr PyGraph::evaluation_clock() const { return _impl->evaluation_clock(); }
+    PyEvaluationClock PyGraph::evaluation_clock() const
+    {
+        auto clock = _impl->evaluation_clock();
+        if (!clock) {
+            throw std::runtime_error("Graph::evaluation_clock() returned null");
+        }
+        return PyEvaluationClock(ApiPtr<EvaluationClock>(clock.get(), _impl.control_block()));
+    }
 
     nb::int_ PyGraph::push_source_nodes_end() const { return nb::int_(_impl->push_source_nodes_end()); }
 
@@ -82,7 +102,7 @@ namespace hgraph
             .def_prop_ro("parent_node", &PyGraph::parent_node)
             .def_prop_ro("label", &PyGraph::label)
             .def_prop_ro("evaluation_engine_api", &PyGraph::evaluation_engine_api)
-            .def_prop_ro("evaluation_clock", static_cast<EvaluationClock::ptr (PyGraph::*)() const>(&PyGraph::evaluation_clock))
+            .def_prop_ro("evaluation_clock", &PyGraph::evaluation_clock)
             .def_prop_ro("push_source_nodes_end", &PyGraph::push_source_nodes_end)
             .def("schedule_node", static_cast<void (PyGraph::*)(int64_t, engine_time_t, bool)>(&PyGraph::schedule_node),
                  "node_ndx"_a, "when"_a, "force_set"_a = false)

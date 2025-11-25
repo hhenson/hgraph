@@ -1,6 +1,7 @@
 #include <hgraph/api/python/wrapper_factory.h>
 
 #include <hgraph/nodes/base_python_node.h>
+#include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
@@ -52,13 +53,27 @@ namespace hgraph
                         auto sched    = scheduler();
                         wrapped_value = wrap_node_scheduler(sched.get(), cb);
                     } else if ((injectable & InjectableTypesEnum::ENGINE_API) != InjectableTypesEnum::NONE) {
-                        auto engine_api = g ? g->evaluation_engine_api() : EvaluationEngineApi::ptr{};
-                        // wrapped_value = wrap_evaluation_engine_api(engine_api.get(), cb);
-                        wrapped_value = nb::cast(engine_api);
+                        if (g) {
+                            auto engine_api = g->evaluation_engine_api();
+                            if (engine_api) {
+                                wrapped_value = wrap_evaluation_engine_api(engine_api.get(), cb);
+                            } else {
+                                wrapped_value = nb::none();
+                            }
+                        } else {
+                            wrapped_value = nb::none();
+                        }
                     } else if ((injectable & InjectableTypesEnum::CLOCK) != InjectableTypesEnum::NONE) {
-                        auto clock = g ? g->evaluation_clock() : EvaluationClock::ptr{};
-                        // wrapped_value = wrap_evaluation_clock(clock.get(), cb);
-                        wrapped_value = nb::cast(clock);
+                        if (g) {
+                            auto clock = g->evaluation_clock();
+                            if (clock) {
+                                wrapped_value = wrap_evaluation_clock(clock.get(), cb);
+                            } else {
+                                wrapped_value = nb::none();
+                            }
+                        } else {
+                            wrapped_value = nb::none();
+                        }
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
                         wrapped_value = g ? wrap_traits(g->traits().get(), cb) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {

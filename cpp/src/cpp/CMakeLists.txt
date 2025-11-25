@@ -1,6 +1,8 @@
 project(_hgraph)
 
 set(HGRAPH_SOURCES
+        api/python/py_evaluation_clock.cpp
+        api/python/py_evaluation_engine.cpp
         api/python/py_graph.cpp
         api/python/py_node.cpp
         api/python/py_special_nodes.cpp

@@ -9,6 +9,8 @@ namespace hgraph {
     }
 
     void EvaluationClock::register_with_nanobind(nb::module_ &m) {
+        // Keep the original registration - subclasses need this base class
+        // The wrapper PyEvaluationClock is registered separately and is the preferred Python API
         nb::class_<EvaluationClock, nb::intrusive_base>(m, "EvaluationClock")
                 .def_prop_ro("evaluation_time", &EvaluationClock::evaluation_time)
                 .def_prop_ro("now", &EvaluationClock::now)
@@ -95,6 +97,8 @@ namespace hgraph {
     }
 
     void EvaluationEngineApi::register_with_nanobind(nb::module_ &m) {
+        // Keep the original registration - subclasses need this base class
+        // The wrapper PyEvaluationEngineApi is registered separately and is the preferred Python API
         nb::class_<EvaluationEngineApi, ComponentLifeCycle>(m, "EvaluationEngineApi")
                 .def_prop_ro("evaluation_mode", &EvaluationEngineApi::evaluation_mode)
                 .def_prop_ro("start_time", &EvaluationEngineApi::start_time)

@@ -3,6 +3,8 @@
 //
 
 #include <fmt/format.h>
+#include <hgraph/api/python/py_evaluation_clock.h>
+#include <hgraph/api/python/py_evaluation_engine.h>
 #include <hgraph/api/python/py_node.h>
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/py_signal.h>
@@ -541,20 +543,19 @@ namespace hgraph
 
     TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_) { return output_.impl(); }
 
-    // nb::object wrap_evaluation_engine_api(const EvaluationEngineApi *impl, control_block_ptr control_block) {
-    //     return get_or_create_wrapper(impl, std::move(control_block), [](EvaluationEngineApi *impl, control_block_ptr cb)
-    //     {
-    //         return PyEvaluationEngineApi(impl, std::move(cb));
-    //     });
-    // }
-    //
-    // nb::object wrap_evaluation_clock(const EvaluationClock *impl, control_block_ptr control_block) {
-    //     if (impl == nullptr) { return nb::none(); }
-    //
-    //     return get_or_create_wrapper(impl, control_block, [](EvaluationClock *mutable_impl, control_block_ptr cb) {
-    //         return PyEvaluationClock(mutable_impl, std::move(cb));
-    //     });
-    // }
+    nb::object wrap_evaluation_engine_api(const EvaluationEngineApi *impl, control_block_ptr control_block) {
+        if (!impl) { return nb::none(); }
+        return get_or_create_wrapper(impl, std::move(control_block), [](EvaluationEngineApi *impl, const auto &cb) {
+            return PyEvaluationEngineApi({impl, cb});
+        });
+    }
+
+    nb::object wrap_evaluation_clock(const EvaluationClock *impl, control_block_ptr control_block) {
+        if (!impl) { return nb::none(); }
+        return get_or_create_wrapper(impl, std::move(control_block), [](EvaluationClock *mutable_impl, const auto &cb) {
+            return PyEvaluationClock({mutable_impl, cb});
+        });
+    }
 
     nb::object wrap_traits(const Traits *impl, const control_block_ptr &control_block) {
         // Don't cache traits wrappers - traits is a member of Graph, not a separate heap object
