@@ -35,9 +35,8 @@ namespace hgraph
 
     void PyEvaluationClock::register_with_nanobind(nb::module_ &m)
     {
-        // Register wrapper with a different name to avoid conflict with base class
-        // Python code should use this wrapper, not the base class directly
-        nb::class_<PyEvaluationClock>(m, "PyEvaluationClock")
+        // Register wrapper as EvaluationClock - this is the only Python API for clocks
+        nb::class_<PyEvaluationClock>(m, "EvaluationClock")
             .def_prop_ro("evaluation_time", &PyEvaluationClock::evaluation_time)
             .def_prop_ro("now", &PyEvaluationClock::now)
             .def_prop_ro("next_cycle_evaluation_time", &PyEvaluationClock::next_cycle_evaluation_time)

@@ -70,10 +70,8 @@ namespace hgraph
 
     void PyEvaluationEngineApi::register_with_nanobind(nb::module_ &m)
     {
-        // Register wrapper with a different name to avoid conflict with base class
-        // Python code should use this wrapper, not the base class directly
-        // Note: We'll need to update PyGraph to return this, but for now keep both
-        nb::class_<PyEvaluationEngineApi>(m, "PyEvaluationEngineApi")
+        // Register wrapper as EvaluationEngineApi - this is the only Python API for the engine
+        nb::class_<PyEvaluationEngineApi>(m, "EvaluationEngineApi")
             .def_prop_ro("evaluation_mode", &PyEvaluationEngineApi::evaluation_mode)
             .def_prop_ro("start_time", &PyEvaluationEngineApi::start_time)
             .def_prop_ro("end_time", &PyEvaluationEngineApi::end_time)
