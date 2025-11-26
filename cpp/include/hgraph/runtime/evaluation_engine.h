@@ -15,6 +15,7 @@ namespace hgraph
     struct HGRAPH_EXPORT EvaluationClock
     {
         using ptr = std::shared_ptr<EvaluationClock>;
+        virtual ~EvaluationClock() = default;
 
         [[nodiscard]] virtual engine_time_t evaluation_time() const = 0;
 

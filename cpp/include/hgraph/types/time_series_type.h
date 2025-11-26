@@ -49,6 +49,7 @@ namespace hgraph
 
         TimeSeriesType &operator=(const TimeSeriesType &) = default;
         TimeSeriesType &operator=(TimeSeriesType &&)      = default;
+        virtual ~TimeSeriesType()                         = default;
 
         // Pure virtual methods to be implemented in derived classes
 
