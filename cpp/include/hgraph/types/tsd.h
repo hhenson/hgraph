@@ -83,6 +83,7 @@ namespace hgraph
         using ptr                 = nb::ref<TimeSeriesDictOutput_T>;
         using key_type            = T_Key;
         using value_type          = time_series_output_ptr;
+        using ts_type_ptr         = time_series_output_ptr;  // Override base class to use shared_ptr
         using k_set_type          = std::unordered_set<key_type>;
         using map_type            = std::unordered_map<key_type, value_type>;
         using item_iterator       = typename map_type::iterator;
@@ -151,8 +152,8 @@ namespace hgraph
         }
 
         [[nodiscard]] auto added_items() const {
-            return key_set_t().added() |
-                   std::views::transform([&](const auto &key) { 
+            return key_set_t().added() 
+                   | std::views::transform([&](const auto &key) { 
                        auto value = operator[](key);
                        return std::make_pair(key, value); 
                    });

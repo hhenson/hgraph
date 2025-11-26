@@ -86,17 +86,17 @@ namespace hgraph {
 
         explicit TimeSeriesSetOutput(const TimeSeriesType::ptr &parent);
 
-        [[nodiscard]] virtual TimeSeriesValueOutput<bool>::ptr get_contains_output(const nb::object &item,
+        [[nodiscard]] virtual std::shared_ptr<TimeSeriesValueOutput<bool>> get_contains_output(const nb::object &item,
             const nb::object &requester) = 0;
 
         virtual void release_contains_output(const nb::object &item, const nb::object &requester) = 0;
 
-        [[nodiscard]] TimeSeriesValueOutput<bool>::ptr &is_empty_output();
+        [[nodiscard]] std::shared_ptr<TimeSeriesValueOutput<bool>> &is_empty_output();
 
         void invalidate() override;
 
     private:
-        nb::ref<TimeSeriesValueOutput<bool> > _is_empty_ref_output;
+        std::shared_ptr<TimeSeriesValueOutput<bool>> _is_empty_ref_output;
     };
 
     struct TimeSeriesSetInput : TimeSeriesSet<BaseTimeSeriesInput> {
@@ -183,7 +183,7 @@ namespace hgraph {
 
         [[nodiscard]] bool empty() const override;
 
-        [[nodiscard]] TimeSeriesValueOutput<bool>::ptr get_contains_output(const nb::object &item,
+        [[nodiscard]] std::shared_ptr<TimeSeriesValueOutput<bool>> get_contains_output(const nb::object &item,
                                                                            const nb::object &requester) override;
 
         void release_contains_output(const nb::object &item, const nb::object &requester) override;
@@ -219,10 +219,12 @@ namespace hgraph {
         void _reset();
 
     private:
+        void _ensure_contains_ref_outputs() const;
+        
         collection_type _value;
         collection_type _added;
         collection_type _removed;
-        FeatureOutputExtension<element_type> _contains_ref_outputs;
+        mutable std::optional<FeatureOutputExtension<element_type>> _contains_ref_outputs;
 
         // These are caches and not a key part of the object and could be constructed in a "const" function.
         mutable nb::frozenset _py_value{};

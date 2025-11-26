@@ -389,7 +389,7 @@ namespace hgraph
     template <typename T_Key>
     nb::object TimeSeriesDictOutput_T<T_Key>::py_get_ref(const nb::object &key, const nb::object &requester) {
         //TODO: move this function out so we can have better access to the control block, this could be an expensive call!
-        return wrap_output(get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr())), owning_graph()->control_block());
+        return wrap_output(get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr())));
     }
 
     template <typename T_Key>
@@ -899,7 +899,7 @@ namespace hgraph
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::create(const key_type &key) {
         key_set_t().add(key);  // This handles adding to the _added set in TSS
-        auto item{_ts_builder->make_instance(this)};
+        auto item{_ts_builder->make_instance(shared_from_this(), nullptr, nullptr)};
         _ts_values.insert({key, item});
         _add_key_value(key, item);
 

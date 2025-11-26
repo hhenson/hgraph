@@ -313,7 +313,7 @@ const std::function < bool(const ts_type &) > &constraint)
         if (!other_b) { return false; }
         if (this->size() != other_b->size()) { return false; }
         for (size_t i = 0; i < this->size(); ++i) {
-            if (!(*this)[i]->is_same_type((*other_b)[i])) { return false; }
+            if (!(*this)[i]->is_same_type((*other_b)[i].get())) { return false; }
         }
         return true;
     }
@@ -329,7 +329,7 @@ const std::function < bool(const ts_type &) > &constraint)
         if (!other_b) { return false; }
         if (this->size() != other_b->size()) { return false; }
         for (size_t i = 0; i < this->size(); ++i) {
-            if (!(*this)[i]->is_same_type((*other_b)[i])) { return false; }
+            if (!(*this)[i]->is_same_type((*other_b)[i].get())) { return false; }
         }
         return true;
     }

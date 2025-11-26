@@ -149,14 +149,16 @@ namespace hgraph
     }
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const node_ptr &parent)
-        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{dynamic_cast_ref<TimeSeriesValueOutput<bool>>(
-                                                           TimeSeriesValueOutputBuilder<bool>().make_instance(this))} {}
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{
+                                                           std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
+                                                           TimeSeriesValueOutputBuilder<bool>().make_instance(parent, nullptr, nullptr))} {}
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const TimeSeriesType::ptr &parent)
-        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{dynamic_cast_ref<TimeSeriesValueOutput<bool>>(
-                                                           TimeSeriesValueOutputBuilder<bool>().make_instance(this))} {}
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{
+                                                           std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
+                                                           TimeSeriesValueOutputBuilder<bool>().make_instance(parent->owning_node(), nullptr, nullptr))} {}
 
-    TimeSeriesValueOutput<bool>::ptr &TimeSeriesSetOutput::is_empty_output() {
+    std::shared_ptr<TimeSeriesValueOutput<bool>> &TimeSeriesSetOutput::is_empty_output() {
         if (!_is_empty_ref_output->valid()) { _is_empty_ref_output->set_value(empty()); }
         return _is_empty_ref_output;
     }
@@ -170,25 +172,33 @@ namespace hgraph
 
     template <typename T_Key>
     TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const node_ptr &parent)
-        : TimeSeriesSetOutput(parent),
-          _contains_ref_outputs{this,
-                                new TimeSeriesValueOutputBuilder<bool>(),
-                                [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
-                                    reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
-                                        reinterpret_cast<const TimeSeriesSetOutput_T<element_type> &>(ts).contains(key));
-                                },
-                                {}} {}
+        : TimeSeriesSetOutput(parent) {
+        // _contains_ref_outputs will be lazy-initialized when first accessed
+        // This allows shared_from_this() to work for both heap and arena-allocated objects
+    }
 
     template <typename T_Key>
     TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const TimeSeriesType::ptr &parent)
-        : TimeSeriesSetOutput(parent),
-          _contains_ref_outputs{this,
-                                new TimeSeriesValueOutputBuilder<bool>(),
-                                [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
-                                    reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
-                                        reinterpret_cast<const TimeSeriesSetOutput_T<element_type> &>(ts).contains(key));
-                                },
-                                {}} {}
+        : TimeSeriesSetOutput(parent) {
+        // _contains_ref_outputs will be lazy-initialized when first accessed
+        // This allows shared_from_this() to work for both heap and arena-allocated objects
+    }
+
+    // Helper function to lazy-initialize _contains_ref_outputs
+    template <typename T_Key>
+    void TimeSeriesSetOutput_T<T_Key>::_ensure_contains_ref_outputs() const {
+        if (!_contains_ref_outputs.has_value()) {
+            // Now we can safely use shared_from_this() because the shared_ptr has been created
+            _contains_ref_outputs = FeatureOutputExtension<element_type>(
+                const_cast<TimeSeriesSetOutput_T<T_Key>*>(this)->shared_from_this(),
+                std::make_shared<TimeSeriesValueOutputBuilder<bool>>(),
+                [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
+                    reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
+                        reinterpret_cast<const TimeSeriesSetOutput_T<element_type> &>(ts).contains(key));
+                },
+                {});
+        }
+    }
 
     template <typename T_Key>
     TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const TimeSeriesOutput::ptr &parent)
@@ -340,8 +350,9 @@ namespace hgraph
             } else if (_removed.size() > 0 && empty()) {
                 is_empty_output()->set_value(true);
             }
-            _contains_ref_outputs.update_all(_added.begin(), _added.end());
-            _contains_ref_outputs.update_all(_removed.begin(), _removed.end());
+            _ensure_contains_ref_outputs();
+            _contains_ref_outputs->update_all(_added.begin(), _added.end());
+            _contains_ref_outputs->update_all(_removed.begin(), _removed.end());
         }
     }
 
@@ -477,7 +488,8 @@ namespace hgraph
             if (!_added.contains(item)) { _removed.emplace(item); }
         }
         _added.clear();
-        _contains_ref_outputs.update_all(_value.begin(), _value.end());
+        _ensure_contains_ref_outputs();
+        _contains_ref_outputs->update_all(_value.begin(), _value.end());
         _value.clear();
         is_empty_output()->set_value(true);
         // Clear the caches
@@ -513,8 +525,9 @@ namespace hgraph
             _py_removed.reset();
             _py_value.reset();
             is_empty_output()->set_value(empty());
-            _contains_ref_outputs.update_all(_added.begin(), _added.end());
-            _contains_ref_outputs.update_all(_removed.begin(), _removed.end());
+            _ensure_contains_ref_outputs();
+            _contains_ref_outputs->update_all(_added.begin(), _added.end());
+            _contains_ref_outputs->update_all(_removed.begin(), _removed.end());
             mark_modified();
         }
     }
@@ -547,8 +560,9 @@ namespace hgraph
             _py_removed.reset();
             _py_value.reset();
             is_empty_output()->set_value(empty());
-            _contains_ref_outputs.update_all(_added.begin(), _added.end());
-            _contains_ref_outputs.update_all(_removed.begin(), _removed.end());
+            _ensure_contains_ref_outputs();
+            _contains_ref_outputs->update_all(_added.begin(), _added.end());
+            _contains_ref_outputs->update_all(_removed.begin(), _removed.end());
             mark_modified();
         }
     }
@@ -595,7 +609,8 @@ namespace hgraph
                 _remove(key);
             }
 
-            _contains_ref_outputs.update(key);
+            _ensure_contains_ref_outputs();
+            _contains_ref_outputs->update(key);
 
             if (empty()) { is_empty_output()->set_value(true); }
 
@@ -607,7 +622,8 @@ namespace hgraph
         if (!contains(key)) {
             if (empty()) { is_empty_output()->set_value(false); }
             _add(key);
-            _contains_ref_outputs.update(key);
+            _ensure_contains_ref_outputs();
+            _contains_ref_outputs->update(key);
             mark_modified();
         }
     }
@@ -615,15 +631,17 @@ namespace hgraph
     template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::empty() const { return _value.empty(); }
 
     template <typename T_Key>
-    TimeSeriesValueOutput<bool>::ptr TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
+    std::shared_ptr<TimeSeriesValueOutput<bool>> TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
                                                                                        const nb::object &requester) {
-        return dynamic_cast<TimeSeriesValueOutput<bool> *>(
-            _contains_ref_outputs.create_or_increment(nb::cast<element_type>(item), static_cast<void *>(requester.ptr())).get());
+        _ensure_contains_ref_outputs();
+        auto result = _contains_ref_outputs->create_or_increment(nb::cast<element_type>(item), static_cast<void *>(requester.ptr()));
+        return std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(result);
     }
 
     template <typename T_Key>
     void TimeSeriesSetOutput_T<T_Key>::release_contains_output(const nb::object &item, const nb::object &requester) {
-        _contains_ref_outputs.release(nb::cast<element_type>(item), static_cast<void *>(requester.ptr()));
+        _ensure_contains_ref_outputs();
+        _contains_ref_outputs->release(nb::cast<element_type>(item), static_cast<void *>(requester.ptr()));
     }
 
     // template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::post_modify() { _post_modify(); }
