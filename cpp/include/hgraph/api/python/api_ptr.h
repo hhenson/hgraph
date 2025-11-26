@@ -26,8 +26,9 @@ namespace hgraph {
 
         // Constructor from raw pointer and control block (donor)
         // Uses aliasing constructor: shared_ptr<T>(control_block, raw_ptr)
-        ApiPtr(T* impl, control_block_ptr control_block)
-            : _impl(control_block, impl) {}
+        // Accepts const T* for convenience, but stores as non-const shared_ptr
+        ApiPtr(const T* impl, control_block_ptr control_block)
+            : _impl(control_block, const_cast<T*>(impl)) {}
 
         // Constructor from existing shared_ptr
         // If the shared_ptr already exists, we can use it directly
