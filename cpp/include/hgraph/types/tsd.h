@@ -53,47 +53,47 @@ namespace hgraph {
 
         virtual void py_create(const nb::object &item) = 0;
 
-        [[nodiscard]] virtual nb::iterator py_iter() = 0;
+        [[nodiscard]] virtual nb::object py_iter() = 0;
 
         [[nodiscard]] virtual bool py_contains(const nb::object &item) const = 0;
 
         [[nodiscard]] virtual nb::object py_key_set() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_keys() const = 0;
+        [[nodiscard]] virtual nb::object py_keys() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_values() const = 0;
+        [[nodiscard]] virtual nb::object py_values() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_items() const = 0;
+        [[nodiscard]] virtual nb::object py_items() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_modified_keys() const = 0;
+        [[nodiscard]] virtual nb::object py_modified_keys() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_modified_values() const = 0;
+        [[nodiscard]] virtual nb::object py_modified_values() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_modified_items() const = 0;
+        [[nodiscard]] virtual nb::object py_modified_items() const = 0;
 
         [[nodiscard]] virtual bool py_was_modified(const nb::object &key) const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_valid_keys() const = 0;
+        [[nodiscard]] virtual nb::object py_valid_keys() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_valid_values() const = 0;
+        [[nodiscard]] virtual nb::object py_valid_values() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_valid_items() const = 0;
+        [[nodiscard]] virtual nb::object py_valid_items() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_added_keys() const = 0;
+        [[nodiscard]] virtual nb::object py_added_keys() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_added_values() const = 0;
+        [[nodiscard]] virtual nb::object py_added_values() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_added_items() const = 0;
+        [[nodiscard]] virtual nb::object py_added_items() const = 0;
 
         [[nodiscard]] virtual bool has_added() const = 0;
 
         [[nodiscard]] virtual bool py_was_added(const nb::object &key) const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_removed_keys() const = 0;
+        [[nodiscard]] virtual nb::object py_removed_keys() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_removed_values() const = 0;
+        [[nodiscard]] virtual nb::object py_removed_values() const = 0;
 
-        [[nodiscard]] virtual nb::iterator py_removed_items() const = 0;
+        [[nodiscard]] virtual nb::object py_removed_items() const = 0;
 
         [[nodiscard]] virtual bool has_removed() const = 0;
 
@@ -164,7 +164,7 @@ namespace hgraph {
 
         void py_create(const nb::object &item) override;
 
-        [[nodiscard]] nb::iterator py_iter() override;
+        [[nodiscard]] nb::object py_iter() override;
 
         void mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) override;
 
@@ -208,19 +208,19 @@ namespace hgraph {
 
         [[nodiscard]] item_iterator end();
 
-        [[nodiscard]] nb::iterator py_keys() const override;
+        [[nodiscard]] nb::object py_keys() const override;
 
-        [[nodiscard]] nb::iterator py_values() const override;
+        [[nodiscard]] nb::object py_values() const override;
 
-        [[nodiscard]] nb::iterator py_items() const override;
+        [[nodiscard]] nb::object py_items() const override;
 
         [[nodiscard]] const map_type &modified_items() const;
 
-        [[nodiscard]] nb::iterator py_modified_keys() const override;
+        [[nodiscard]] nb::object py_modified_keys() const override;
 
-        [[nodiscard]] nb::iterator py_modified_values() const override;
+        [[nodiscard]] nb::object py_modified_values() const override;
 
-        [[nodiscard]] nb::iterator py_modified_items() const override;
+        [[nodiscard]] nb::object py_modified_items() const override;
 
         [[nodiscard]] bool py_was_modified(const nb::object &key) const override;
 
@@ -228,19 +228,19 @@ namespace hgraph {
 
         [[nodiscard]] auto valid_items() const;
 
-        [[nodiscard]] nb::iterator py_valid_keys() const override;
+        [[nodiscard]] nb::object py_valid_keys() const override;
 
-        [[nodiscard]] nb::iterator py_valid_values() const override;
+        [[nodiscard]] nb::object py_valid_values() const override;
 
-        [[nodiscard]] nb::iterator py_valid_items() const override;
+        [[nodiscard]] nb::object py_valid_items() const override;
 
         [[nodiscard]] const k_set_type &added_keys() const;
 
-        [[nodiscard]] nb::iterator py_added_keys() const override;
+        [[nodiscard]] nb::object py_added_keys() const override;
 
-        [[nodiscard]] nb::iterator py_added_values() const override;
+        [[nodiscard]] nb::object py_added_values() const override;
 
-        [[nodiscard]] nb::iterator py_added_items() const override;
+        [[nodiscard]] nb::object py_added_items() const override;
 
         [[nodiscard]] bool py_was_added(const nb::object &key) const override;
 
@@ -248,11 +248,11 @@ namespace hgraph {
 
         [[nodiscard]] const map_type &removed_items() const;
 
-        [[nodiscard]] nb::iterator py_removed_keys() const override;
+        [[nodiscard]] nb::object py_removed_keys() const override;
 
-        [[nodiscard]] nb::iterator py_removed_values() const override;
+        [[nodiscard]] nb::object py_removed_values() const override;
 
-        [[nodiscard]] nb::iterator py_removed_items() const override;
+        [[nodiscard]] nb::object py_removed_items() const override;
 
         [[nodiscard]] bool py_was_removed(const nb::object &key) const override;
 
@@ -410,7 +410,7 @@ namespace hgraph {
 
         void py_create(const nb::object &item) override;
 
-        [[nodiscard]] nb::iterator py_iter() override;
+        [[nodiscard]] nb::object py_iter() override;
 
         [[nodiscard]] nb::object py_get_item(const nb::object &item) const override;
 
@@ -420,19 +420,19 @@ namespace hgraph {
 
         [[nodiscard]] value_type operator[](const key_type &item);
 
-        [[nodiscard]] nb::iterator py_keys() const override;
+        [[nodiscard]] nb::object py_keys() const override;
 
-        [[nodiscard]] nb::iterator py_values() const override;
+        [[nodiscard]] nb::object py_values() const override;
 
-        [[nodiscard]] nb::iterator py_items() const override;
+        [[nodiscard]] nb::object py_items() const override;
 
         [[nodiscard]] const map_type &modified_items() const;
 
-        [[nodiscard]] nb::iterator py_modified_keys() const override;
+        [[nodiscard]] nb::object py_modified_keys() const override;
 
-        [[nodiscard]] nb::iterator py_modified_values() const override;
+        [[nodiscard]] nb::object py_modified_values() const override;
 
-        [[nodiscard]] nb::iterator py_modified_items() const override;
+        [[nodiscard]] nb::object py_modified_items() const override;
 
         [[nodiscard]] bool py_was_modified(const nb::object &key) const override;
 
@@ -440,19 +440,19 @@ namespace hgraph {
 
         [[nodiscard]] const map_type &valid_items() const;
 
-        [[nodiscard]] nb::iterator py_valid_keys() const override;
+        [[nodiscard]] nb::object py_valid_keys() const override;
 
-        [[nodiscard]] nb::iterator py_valid_values() const override;
+        [[nodiscard]] nb::object py_valid_values() const override;
 
-        [[nodiscard]] nb::iterator py_valid_items() const override;
+        [[nodiscard]] nb::object py_valid_items() const override;
 
         [[nodiscard]] const map_type &added_items() const;
 
-        [[nodiscard]] nb::iterator py_added_keys() const override;
+        [[nodiscard]] nb::object py_added_keys() const override;
 
-        [[nodiscard]] nb::iterator py_added_values() const override;
+        [[nodiscard]] nb::object py_added_values() const override;
 
-        [[nodiscard]] nb::iterator py_added_items() const override;
+        [[nodiscard]] nb::object py_added_items() const override;
 
         [[nodiscard]] bool py_was_added(const nb::object &key) const override;
 
@@ -460,11 +460,11 @@ namespace hgraph {
 
         [[nodiscard]] const map_type &removed_items() const;
 
-        [[nodiscard]] nb::iterator py_removed_keys() const override;
+        [[nodiscard]] nb::object py_removed_keys() const override;
 
-        [[nodiscard]] nb::iterator py_removed_values() const override;
+        [[nodiscard]] nb::object py_removed_values() const override;
 
-        [[nodiscard]] nb::iterator py_removed_items() const override;
+        [[nodiscard]] nb::object py_removed_items() const override;
 
         [[nodiscard]] bool py_was_removed(const nb::object &key) const override;
 
