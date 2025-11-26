@@ -55,7 +55,7 @@ namespace hgraph
 
     template <typename T_U>
         requires is_tsw_output<T_U>
-    auto PyTimeSeriesWindowOutput<T_U>::impl() const -> T_U * {
+    auto PyTimeSeriesWindowOutput<T_U>::impl() const -> std::shared_ptr<T_U> {
         return this->template static_cast_impl<T_U>();
     }
 
@@ -86,7 +86,7 @@ namespace hgraph
         return nb::int_(0);
     }
 
-    template <typename T> auto PyTimeSeriesWindowInput<T>::impl() const -> TimeSeriesWindowInput<T> * {
+    template <typename T> auto PyTimeSeriesWindowInput<T>::impl() const -> std::shared_ptr<TimeSeriesWindowInput<T>> {
         return this->template static_cast_impl<TimeSeriesWindowInput<T>>();
     }
 

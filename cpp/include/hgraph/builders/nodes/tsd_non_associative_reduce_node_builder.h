@@ -29,7 +29,7 @@ namespace hgraph {
     struct TsdNonAssociativeReduceNodeBuilder : BaseTsdNonAssociativeReduceNodeBuilder {
         using BaseTsdNonAssociativeReduceNodeBuilder::BaseTsdNonAssociativeReduceNodeBuilder;
 
-        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
+        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, void* buffer = nullptr, size_t* offset = nullptr) const override;
     };
 
     void tsd_non_associative_reduce_node_builder_register_with_nanobind(nb::module_ & m);

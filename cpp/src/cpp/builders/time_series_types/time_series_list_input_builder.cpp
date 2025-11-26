@@ -11,14 +11,21 @@ namespace hgraph {
         : input_builder{std::move(input_builder)}, size{size} {
     }
 
-    time_series_input_ptr TimeSeriesListInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesListInput{owning_node}};
-        return make_and_set_inputs(v);
+    time_series_input_ptr TimeSeriesListInputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+        auto result = make_instance_impl<TimeSeriesListInput, TimeSeriesInput>(
+            buffer, offset, "TimeSeriesListInput", owning_node);
+        return make_and_set_inputs(result.get(), buffer, offset);
     }
 
-    time_series_input_ptr TimeSeriesListInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        auto v{new TimeSeriesListInput{dynamic_cast_ref<TimeSeriesType>(owning_input)}};
-        return make_and_set_inputs(v);
+    time_series_input_ptr TimeSeriesListInputBuilder::make_instance(time_series_input_ptr owning_input, void* buffer, size_t* offset) const {
+        // Convert owning_input to TimeSeriesType shared_ptr
+        auto owning_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_input);
+        if (!owning_ts) {
+            throw std::runtime_error("TimeSeriesListInputBuilder: owning_input must be a TimeSeriesType");
+        }
+        auto result = make_instance_impl<TimeSeriesListInput, TimeSeriesInput>(
+            buffer, offset, "TimeSeriesListInput", owning_ts);
+        return make_and_set_inputs(result.get(), buffer, offset);
     }
 
     bool TimeSeriesListInputBuilder::has_reference() const { return input_builder->has_reference(); }
@@ -38,12 +45,15 @@ namespace hgraph {
         for (auto &value: list->_ts_values) { input_builder->release_instance(value); }
     }
 
-    time_series_input_ptr TimeSeriesListInputBuilder::make_and_set_inputs(TimeSeriesListInput *input) const {
+    time_series_input_ptr TimeSeriesListInputBuilder::make_and_set_inputs(TimeSeriesListInput *input, void* buffer, size_t* offset) const {
         std::vector<time_series_input_ptr> inputs;
         inputs.reserve(size);
-        for (size_t i = 0; i < size; ++i) { inputs.push_back(input_builder->make_instance(input)); }
+        time_series_input_ptr input_ptr{input, input->owning_graph()->control_block()};
+        for (size_t i = 0; i < size; ++i) { 
+            inputs.push_back(input_builder->make_instance(input_ptr, buffer, offset)); 
+        }
         input->set_ts_values(inputs);
-        return input;
+        return input_ptr;
     }
 
     size_t TimeSeriesListInputBuilder::memory_size() const {

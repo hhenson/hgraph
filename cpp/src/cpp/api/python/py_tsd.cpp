@@ -18,7 +18,8 @@ namespace hgraph
     nb::object PyTimeSeriesDict<T_TS, T_U>::get_item(const nb::object &item) const {
         auto self{impl()};
         if (get_key_set_id().is(item)) { return key_set(); }
-        return wrap_time_series(self->operator[](nb::cast<typename T_U::key_type>(item)), this->control_block());
+        auto value = self->operator[](nb::cast<typename T_U::key_type>(item));
+        return wrap_time_series(value.get(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
@@ -33,7 +34,8 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::object PyTimeSeriesDict<T_TS, T_U>::get_or_create(const nb::object &key) {
-        return wrap_time_series(impl()->get_or_create(nb::cast<typename T_U::key_type>(key)), this->control_block());
+        auto value = impl()->get_or_create(nb::cast<typename T_U::key_type>(key));
+        return wrap_time_series(value.get(), this->control_block());
     }
 
     template <typename T_TS, typename T_U>
@@ -57,7 +59,9 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::object PyTimeSeriesDict<T_TS, T_U>::key_set() const {
-        return wrap_time_series(&impl()->key_set(), this->control_block());
+        auto self = impl();
+        auto& key_set_ref = self->key_set();
+        return wrap_time_series(&key_set_ref, this->control_block());
     }
 
     template <typename T_TS, typename T_U>
@@ -280,7 +284,7 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
-    T_U *PyTimeSeriesDict<T_TS, T_U>::impl() const {
+    std::shared_ptr<T_U> PyTimeSeriesDict<T_TS, T_U>::impl() const {
         return this->template static_cast_impl<T_U>();
     }
 

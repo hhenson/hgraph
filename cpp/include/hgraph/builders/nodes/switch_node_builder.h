@@ -31,7 +31,7 @@ namespace hgraph {
                           const std::unordered_map<std::string, int> &default_input_node_ids = {},
                           int default_output_node_id = -1);
 
-        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
+        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, void* buffer = nullptr, size_t* offset = nullptr) const override;
 
         const std::unordered_map<K, graph_builder_ptr> nested_graph_builders;
         const std::unordered_map<K, std::unordered_map<std::string, int> > input_node_ids;

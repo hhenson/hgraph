@@ -11,18 +11,18 @@ namespace hgraph
     }
 
     void PyLastValuePullNode::copy_from_input(const nb::handle &input) {
-        auto input_ts{unwrap_input(input)};
+        auto input_ts = unwrap_input(input);
         if (!input_ts) {throw std::runtime_error("Invalid input type for LastValuePullNode");}
         impl()->copy_from_input(*input_ts);
     }
 
     void PyLastValuePullNode::copy_from_output(const nb::handle &output) {
-        auto output_ts{unwrap_output(output)};
+        auto output_ts = unwrap_output(output);
         if (!output_ts) {throw std::runtime_error("Invalid output type for LastValuePullNode");}
         impl()->copy_from_output(*output_ts);
     }
 
-    LastValuePullNode *PyLastValuePullNode::impl() {
+    std::shared_ptr<LastValuePullNode> PyLastValuePullNode::impl() {
         return this->static_cast_impl<LastValuePullNode>();
     }
 

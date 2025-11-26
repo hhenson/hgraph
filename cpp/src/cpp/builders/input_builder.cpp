@@ -34,7 +34,12 @@ namespace hgraph {
                     "make_instance",
                     [](InputBuilder::ptr self, nb::object owning_node,
                        nb::object owning_output) -> time_series_input_ptr {
-                        if (!owning_node.is_none()) { return self->make_instance(unwrap_node(owning_node)); }
+                        if (!owning_node.is_none()) { 
+                            node_ptr node_shared = unwrap_node(owning_node);
+                            if (!node_shared) { throw std::runtime_error("Invalid node"); }
+                            // Python bindings only support heap allocation (no buffer/offset)
+                            return self->make_instance(node_shared, nullptr, nullptr); 
+                        }
                         if (!owning_output.is_none()) {
                             return self->make_instance(nb::cast<time_series_input_ptr>(owning_output));
                         }

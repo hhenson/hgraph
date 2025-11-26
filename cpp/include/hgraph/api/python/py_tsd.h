@@ -76,7 +76,7 @@ namespace hgraph
         [[nodiscard]] nb::str py_repr();
       protected:
         using T_TS::T_TS;
-        T_U *impl() const;
+        std::shared_ptr<T_U> impl() const;
     };
 
     template<typename T_U>

@@ -28,14 +28,18 @@ namespace hgraph {
                     [](OutputBuilder::ptr self, nb::object owning_node,
                        nb::object owning_output) -> nb::object {
                         if (!owning_node.is_none()) {
-                            auto node{unwrap_node(owning_node)};
-                            auto output_{self->make_instance(node)} ;
-                            return wrap_time_series(output_.get() );
+                            node_ptr node_shared = unwrap_node(owning_node);
+                            if (!node_shared) { throw std::runtime_error("Invalid node"); }
+                            // Python bindings only support heap allocation (no buffer/offset)
+                            auto output_{self->make_instance(node_shared, nullptr, nullptr)} ;
+                            return wrap_time_series(output_);
                         }
                         if (!owning_output.is_none()) {
-                            auto object_{unwrap_output(owning_output)};
-                            auto result_{self->make_instance(object_)};
-                            return wrap_time_series(result_.get());
+                            time_series_output_ptr output_shared = unwrap_output(owning_output);
+                            if (!output_shared) { throw std::runtime_error("Invalid output"); }
+                            // Python bindings only support heap allocation (no buffer/offset)
+                            auto result_{self->make_instance(output_shared, nullptr, nullptr)};
+                            return wrap_time_series(result_);
                         }
                         // TODO: Here we need to create a standalone instance of the output
 

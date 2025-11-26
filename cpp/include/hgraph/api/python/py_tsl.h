@@ -69,7 +69,7 @@ namespace hgraph
         [[nodiscard]] nb::str py_repr();
 
       private:
-        underlying_type *impl() const;
+        std::shared_ptr<underlying_type> impl() const;
     };
 
 

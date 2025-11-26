@@ -29,6 +29,11 @@ namespace hgraph {
         ApiPtr(T* impl, control_block_ptr control_block)
             : _impl(control_block, impl) {}
 
+        // Constructor from existing shared_ptr
+        // If the shared_ptr already exists, we can use it directly
+        explicit ApiPtr(std::shared_ptr<T> impl)
+            : _impl(std::move(impl)) {}
+
         // Move constructor
         ApiPtr(ApiPtr&& other) noexcept
             : _impl(std::move(other._impl)) {}

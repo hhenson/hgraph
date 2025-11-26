@@ -103,8 +103,8 @@ namespace hgraph
         using PyTimeSeriesType::PyTimeSeriesType;
 
       private:
-        friend TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_);
-        [[nodiscard]] TimeSeriesOutput *impl() const;
+        friend time_series_output_ptr unwrap_output(const PyTimeSeriesOutput &output_);
+        [[nodiscard]] time_series_output_ptr impl() const;
     };
 
     struct HGRAPH_EXPORT PyTimeSeriesInput : PyTimeSeriesType
@@ -142,8 +142,8 @@ namespace hgraph
         using PyTimeSeriesType::PyTimeSeriesType;
 
       private:
-        [[nodiscard]] TimeSeriesInput *impl() const;
-        friend TimeSeriesInput        *unwrap_input(const PyTimeSeriesInput &input_);
+        [[nodiscard]] time_series_input_ptr impl() const;
+        friend time_series_input_ptr unwrap_input(const PyTimeSeriesInput &input_);
     };
 
 }  // namespace hgraph

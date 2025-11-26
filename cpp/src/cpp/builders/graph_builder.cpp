@@ -19,16 +19,17 @@ namespace hgraph {
     time_series_output_ptr _extract_output(node_ptr node, const std::vector<int64_t> &path) {
         if (path.empty()) { throw std::runtime_error("No path to find an output for"); }
 
-        TimeSeriesOutput *output = node->output();
+        time_series_output_ptr output = node->output();
         for (auto index: path) {
             if (index == KEY_SET) {
-                auto tsd_output = dynamic_cast<TimeSeriesDictOutput *>(output);
+                auto tsd_output = std::dynamic_pointer_cast<TimeSeriesDictOutput>(output);
                 if (!tsd_output) { throw std::runtime_error("Output is not a TSD for KEY_SET access"); }
-                output = &tsd_output->key_set();
+                // key_set() returns a reference, we need to create an aliasing shared_ptr
+                output = time_series_output_ptr(output, &tsd_output->key_set());
             } else {
-                auto indexed_output = dynamic_cast<IndexedTimeSeriesOutput *>(output);
+                auto indexed_output = std::dynamic_pointer_cast<IndexedTimeSeriesOutput>(output);
                 if (!indexed_output) { throw std::runtime_error("Output is not an indexed time series"); }
-                output = (*indexed_output)[index].get();
+                output = (*indexed_output)[index];
             }
         }
         return output;
@@ -37,10 +38,15 @@ namespace hgraph {
     time_series_input_ptr _extract_input(node_ptr node, const std::vector<int64_t> &path) {
         if (path.empty()) { throw std::runtime_error("No path to find an input for"); }
 
-        auto input = dynamic_cast<TimeSeriesInput *>(node->input().get());
+        auto input_bundle = node->input();
+        auto input = dynamic_cast<TimeSeriesInput *>(input_bundle.get());
 
-        for (const auto &ndx: path) { input = input->get_input(ndx); }
-        return input;
+        for (const auto &ndx: path) { 
+            input = input->get_input(ndx);
+        }
+        // Convert raw pointer to shared_ptr using aliasing constructor
+        // The input is owned by the input_bundle, so we use it as the donor
+        return time_series_input_ptr(input_bundle, input);
     }
 
     GraphBuilder::GraphBuilder(std::vector<node_builder_ptr> node_builders_, std::vector<Edge> edges_)
@@ -70,10 +76,12 @@ namespace hgraph {
         char* buffer = static_cast<char*>(arena_buffer);
         
         // Construct Traits first (we need it for Graph constructor)
-        Traits traits{};
+        Traits* parent_traits_ptr = nullptr;
         if (parent_node && parent_node->graph()) {
-            traits = Traits{&parent_node->graph()->_traits};
+            auto parent_graph = parent_node->graph();
+            parent_traits_ptr = &parent_graph->_traits;
         }
+        Traits traits(parent_traits_ptr);
         
         // Construct Graph in-place at the start of the buffer
         offset = align_size(offset, alignof(Graph));
@@ -85,9 +93,9 @@ namespace hgraph {
             *canary_ptr = ARENA_CANARY_PATTERN;
         }
         // Now construct the object
-        Graph* graph_ptr = new (buffer + offset) Graph{graph_id, {}, parent_node, label, std::move(traits)};
+        Graph* graph_ptr_raw = new (buffer + offset) Graph{graph_id, {}, parent_node, label, std::move(traits)};
         // Immediately check canary after construction
-        verify_canary(graph_ptr, sizeof(Graph), "Graph");
+        verify_canary(graph_ptr_raw, sizeof(Graph), "Graph");
         offset += add_canary_size(sizeof(Graph));
         
         // Traits is now stored as a value member in Graph, so we don't need separate construction
@@ -117,18 +125,22 @@ namespace hgraph {
         }
         
         // Update Graph's nodes vector
-        graph_ptr->_nodes = std::move(nodes);
+        graph_ptr_raw->_nodes = std::move(nodes);
         
         // Connect edges
         for (const auto &edge: edges) {
-            auto src_node = graph_ptr->_nodes[edge.src_node];
-            auto dst_node = graph_ptr->_nodes[edge.dst_node];
+            auto src_node = graph_ptr_raw->_nodes[edge.src_node];
+            auto dst_node = graph_ptr_raw->_nodes[edge.dst_node];
 
             time_series_output_ptr output;
             if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
                 output = src_node->error_output();
             } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
-                output = dynamic_cast_ref<TimeSeriesOutput>(src_node->recordable_state());
+                auto recordable_state = src_node->recordable_state();
+                output = std::dynamic_pointer_cast<TimeSeriesOutput>(recordable_state);
+                if (!output) {
+                    throw std::runtime_error("recordable_state is not a TimeSeriesOutput");
+                }
             } else {
                 output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path);
             }
@@ -143,15 +155,16 @@ namespace hgraph {
         // This 'result' shared_ptr is the first one managing the Graph, so it initializes enable_shared_from_this.
         // Store the GraphBuilder as nb::ref to ensure we retain a reference
         // Since this is a const method, we need to cast away const to create the ref
-        nb::ref<const GraphBuilder> builder_ref = nb::cast<const GraphBuilder*>(this);
+        const GraphBuilder* builder_ptr = this;
+        nb::ref<const GraphBuilder> builder_ref = nb::ref<const GraphBuilder>(builder_ptr);
         graph_ptr result = std::shared_ptr<Graph>(
-            graph_ptr,
+            graph_ptr_raw,
             [builder_ref, arena_buffer](Graph* g) {
                 // Call release_instance to clean up resources and validate canaries
                 if (g) {
                     // Create a temporary shared_ptr for release_instance
-                    graph_ptr temp(g, [](Graph*){ /* no-op, already managing lifetime */ });
-                    builder_ref->release_instance(temp);
+                    graph_ptr temp_ptr(g, [](Graph*){ /* no-op, already managing lifetime */ });
+                    builder_ref->release_instance(temp_ptr);
                 }
                 // Free the arena buffer
                 std::free(arena_buffer);
@@ -188,7 +201,11 @@ namespace hgraph {
             if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
                 output = src_node->error_output();
             } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
-                output = dynamic_cast_ref<TimeSeriesOutput>(src_node->recordable_state());
+                auto recordable_state = src_node->recordable_state();
+                output = std::dynamic_pointer_cast<TimeSeriesOutput>(recordable_state);
+                if (!output) {
+                    throw std::runtime_error("recordable_state is not a TimeSeriesOutput");
+                }
             } else {
                 output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path);
             }

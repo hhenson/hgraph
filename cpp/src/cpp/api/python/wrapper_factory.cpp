@@ -41,79 +41,112 @@ namespace hgraph
 {
 
     /**
-     * Generic wrapper caching function.
-     * Checks for cached wrapper via intrusive_base::self_py(), creates if needed.
+     * Generic wrapper creation function.
+     * Creates a new Python wrapper for the given C++ implementation object.
      *
-     * @tparam ImplType The C++ implementation type (must inherit from intrusive_base)
+     * @tparam ImplType The C++ implementation type
+     * @tparam ControlOrShared Type that can be either control_block_ptr or a shared_ptr
      * @tparam Creator Function/lambda type that creates the wrapper
      * @param impl Pointer to the C++ implementation object
-     * @param control_block Control block for lifetime tracking
-     * @param creator Function that creates the wrapper: (ImplType*, control_block_ptr) -> Wrapper
-     * @return nb::object containing the cached or newly created wrapper
+     * @param control_or_shared Either a control_block_ptr or a shared_ptr for lifetime tracking
+     * @param creator Function that creates the wrapper: (ImplType*, ControlOrShared) -> Wrapper
+     * @return nb::object containing the newly created wrapper
      */
-    template <typename ImplType, typename Creator>
-    nb::object get_or_create_wrapper(const ImplType *impl, const control_block_ptr &control_block, Creator &&creator) {
+    template <typename ImplType, typename ControlOrShared, typename Creator>
+    nb::object create_wrapper(const ImplType *impl, const ControlOrShared &control_or_shared, Creator &&creator) {
         if (!impl) { return nb::none(); }
 
-        // const_cast is safe here - we need non-const to access intrusive_base methods
+        // const_cast is safe here - we need non-const to create the wrapper
         auto *mutable_impl = const_cast<ImplType *>(impl);
 
-        // Check if we already have a cached Python wrapper
-        PyObject *cached_ptr = mutable_impl->self_py();
-        if (cached_ptr) { return nb::borrow(cached_ptr); }
-
         // Create new wrapper using the provided creator
-        auto       wrapper = creator(mutable_impl, control_block);
+        auto       wrapper = creator(mutable_impl, control_or_shared);
         nb::object py_obj  = nb::cast(std::move(wrapper));
 
-        // Cache and return
-        mutable_impl->set_self_py(py_obj.ptr());
         return py_obj;
     }
 
-    nb::object wrap_node(const Node *impl) { return wrap_node(impl, impl->graph()->control_block()); }
-
-    template <typename T> std::optional<nb::object> wrap_map_node_t(const Node *node) {
-        if (auto i = dynamic_cast<const MeshNode<T> *>(node); i) {
-            return get_or_create_wrapper(i, node->graph()->control_block(),
-                                         [](MeshNode<T> *impl, const auto &cb) {
-                                             PyNode::api_ptr ptr{impl, cb};
-                                             return PyMeshNestedNode::make_mesh_node<T>(std::move(ptr));
-                                         });
+    // Core wrap_node that takes ApiPtr directly
+    nb::object wrap_node(PyNode::api_ptr api_ptr) {
+        if (!api_ptr) { return nb::none(); }
+        auto* impl = api_ptr.get();
+        // TODO: Make this better, but for now:
+        if (dynamic_cast<const LastValuePullNode *>(impl)) {
+            return nb::cast(PyLastValuePullNode(std::move(api_ptr)));
         }
-        return std::nullopt;
+        // Check for mesh nodes - check type first, then move only once
+        if (dynamic_cast<const MeshNode<bool> *>(impl)) {
+            return nb::cast(PyMeshNestedNode::make_mesh_node<bool>(std::move(api_ptr)));
+        }
+        if (dynamic_cast<const MeshNode<int64_t> *>(impl)) {
+            return nb::cast(PyMeshNestedNode::make_mesh_node<int64_t>(std::move(api_ptr)));
+        }
+        if (dynamic_cast<const MeshNode<double> *>(impl)) {
+            return nb::cast(PyMeshNestedNode::make_mesh_node<double>(std::move(api_ptr)));
+        }
+        if (dynamic_cast<const MeshNode<engine_date_t> *>(impl)) {
+            return nb::cast(PyMeshNestedNode::make_mesh_node<engine_date_t>(std::move(api_ptr)));
+        }
+        if (dynamic_cast<const MeshNode<engine_time_t> *>(impl)) {
+            return nb::cast(PyMeshNestedNode::make_mesh_node<engine_time_t>(std::move(api_ptr)));
+        }
+        if (dynamic_cast<const MeshNode<engine_time_delta_t> *>(impl)) {
+            return nb::cast(PyMeshNestedNode::make_mesh_node<engine_time_delta_t>(std::move(api_ptr)));
+        }
+        if (dynamic_cast<const MeshNode<nb::object> *>(impl)) {
+            return nb::cast(PyMeshNestedNode::make_mesh_node<nb::object>(std::move(api_ptr)));
+        }
+        if (dynamic_cast<const NestedNode *>(impl)) {
+            return nb::cast(PyNestedNode(std::move(api_ptr)));
+        }
+        return nb::cast(PyNode(std::move(api_ptr)));
     }
 
-    std::optional<nb::object> map_node(const Node *impl) {
-        if (auto r = wrap_map_node_t<bool>(impl)) { return r; }
-        if (auto r = wrap_map_node_t<int64_t>(impl)) { return r; }
-        if (auto r = wrap_map_node_t<double>(impl)) { return r; }
-        if (auto r = wrap_map_node_t<engine_date_t>(impl)) { return r; }
-        if (auto r = wrap_map_node_t<engine_time_t>(impl)) { return r; }
-        if (auto r = wrap_map_node_t<engine_time_delta_t>(impl)) { return r; }
-        if (auto r = wrap_map_node_t<nb::object>(impl)) { return r; }
-        return std::nullopt;
+    nb::object wrap_node(const Node *impl) { 
+        if (!impl) { return nb::none(); }
+        return wrap_node(impl, impl->graph()->control_block()); 
     }
 
     nb::object wrap_node(const Node *impl, const control_block_ptr &control_block) {
-        // TODO: Make this better, but for now:
-        if (dynamic_cast<const LastValuePullNode *>(impl)) {
-            return get_or_create_wrapper(impl, control_block,
-                                         [](auto impl, const auto &cb) { return PyLastValuePullNode({impl, cb}); });
-        }
-        if (auto r_val = map_node(impl)) { return *r_val; }
-        if (dynamic_cast<const NestedNode *>(impl)) {
-            return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNestedNode({impl, cb}); });
-        }
-        return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNode({impl, cb}); });
+        if (!impl) { return nb::none(); }
+        PyNode::api_ptr api_ptr(impl, control_block);
+        return wrap_node(std::move(api_ptr));
+    }
+
+    nb::object wrap_node(const node_ptr &impl) {
+        if (!impl) { return nb::none(); }
+        PyNode::api_ptr api_ptr(impl);
+        return wrap_node(std::move(api_ptr));
+    }
+
+    // Core wrap_graph that takes ApiPtr directly
+    nb::object wrap_graph(PyGraph::api_ptr api_ptr) {
+        if (!api_ptr) { return nb::none(); }
+        return nb::cast(PyGraph(std::move(api_ptr)));
     }
 
     nb::object wrap_graph(const Graph *impl, const control_block_ptr &control_block) {
-        return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyGraph({impl, cb}); });
+        if (!impl) { return nb::none(); }
+        PyGraph::api_ptr api_ptr(impl, control_block);
+        return wrap_graph(std::move(api_ptr));
+    }
+
+    nb::object wrap_graph(const graph_ptr &impl) {
+        if (!impl) { return nb::none(); }
+        PyGraph::api_ptr api_ptr(impl);
+        return wrap_graph(std::move(api_ptr));
+    }
+
+    // Core wrap_node_scheduler that takes ApiPtr directly
+    nb::object wrap_node_scheduler(PyNodeScheduler::api_ptr api_ptr) {
+        if (!api_ptr) { return nb::none(); }
+        return nb::cast(PyNodeScheduler(std::move(api_ptr)));
     }
 
     nb::object wrap_node_scheduler(const NodeScheduler *impl, const control_block_ptr &control_block) {
-        return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNodeScheduler({impl, cb}); });
+        if (!impl) { return nb::none(); }
+        PyNodeScheduler::api_ptr api_ptr(impl, control_block);
+        return wrap_node_scheduler(std::move(api_ptr));
     }
 
     // Simple double dispatch visitor for wrapping TimeSeriesInput objects
@@ -306,14 +339,30 @@ namespace hgraph
         }
     };
 
-    nb::object wrap_input(const TimeSeriesInput *impl) { return wrap_input(impl, impl->owning_graph()->control_block()); }
+    // Core wrap_input that takes ApiPtr directly
+    nb::object wrap_input(ApiPtr<TimeSeriesInput> api_ptr) {
+        if (!api_ptr) { return nb::none(); }
+        control_block_ptr control_block = api_ptr.control_block();
+        WrapInputVisitor visitor(control_block);
+        api_ptr.get()->accept(visitor);
+        return visitor.wrapped_visitor.is_valid() ? visitor.wrapped_visitor : nb::none();
+    }
+
+    nb::object wrap_input(const TimeSeriesInput *impl) { 
+        if (!impl) { return nb::none(); }
+        return wrap_input(impl, impl->owning_graph()->control_block()); 
+    }
 
     nb::object wrap_input(const TimeSeriesInput *impl, const control_block_ptr &control_block) {
-        return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) {
-            WrapInputVisitor visitor(cb);
-            impl->accept(visitor);
-            return visitor.wrapped_visitor.is_valid() ? visitor.wrapped_visitor : nb::none();
-        });
+        if (!impl) { return nb::none(); }
+        ApiPtr<TimeSeriesInput> api_ptr(impl, control_block);
+        return wrap_input(std::move(api_ptr));
+    }
+
+    nb::object wrap_input(const time_series_input_ptr &impl) {
+        if (!impl) { return nb::none(); }
+        ApiPtr<TimeSeriesInput> api_ptr(impl);
+        return wrap_input(std::move(api_ptr));
     }
 
     // Simple double dispatch visitor for wrapping TimeSeriesOutput objects
@@ -496,74 +545,97 @@ namespace hgraph
         }
     };
 
-    // wrap when no control block is readily available.
-    nb::object wrap_output(const TimeSeriesOutput *impl) { return wrap_output(impl, impl->owning_graph()->control_block()); }
+    // Core wrap_output that takes ApiPtr directly
+    nb::object wrap_output(ApiPtr<TimeSeriesOutput> api_ptr) {
+        if (!api_ptr) { return nb::none(); }
+        control_block_ptr control_block = api_ptr.control_block();
+        WrapOutputVisitor visitor(control_block);
+        api_ptr.get()->accept(visitor);
+        return visitor.wrapped_visitor.is_valid() ? visitor.wrapped_visitor : nb::none();
+    }
+
+    nb::object wrap_output(const TimeSeriesOutput *impl) { 
+        if (!impl) { return nb::none(); }
+        return wrap_output(impl, impl->owning_graph()->control_block()); 
+    }
 
     nb::object wrap_output(const TimeSeriesOutput *impl, const control_block_ptr &control_block) {
-        return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) {
-            WrapOutputVisitor visitor(cb);
-            impl->accept(visitor);
-            return visitor.wrapped_visitor.is_valid() ? visitor.wrapped_visitor : nb::none();
-        });
+        if (!impl) { return nb::none(); }
+        ApiPtr<TimeSeriesOutput> api_ptr(impl, control_block);
+        return wrap_output(std::move(api_ptr));
+    }
+
+    nb::object wrap_output(const time_series_output_ptr &impl) {
+        if (!impl) { return nb::none(); }
+        ApiPtr<TimeSeriesOutput> api_ptr(impl);
+        return wrap_output(std::move(api_ptr));
     }
 
     nb::object wrap_time_series(const TimeSeriesInput *impl, const control_block_ptr &control_block) {
         return wrap_input(impl, control_block);
     }
 
-    nb::object wrap_time_series(const TimeSeriesInput *impl) { return wrap_input(impl, impl->owning_graph()->control_block()); }
+    nb::object wrap_time_series(const TimeSeriesInput *impl) { 
+        return wrap_input(impl); 
+    }
 
     nb::object wrap_time_series(const TimeSeriesOutput *impl, const control_block_ptr &control_block) {
         return wrap_output(impl, control_block);
     }
 
-    nb::object wrap_time_series(const TimeSeriesOutput *impl) { return wrap_output(impl, impl->owning_graph()->control_block()); }
+    nb::object wrap_time_series(const TimeSeriesOutput *impl) { 
+        return wrap_output(impl); 
+    }
 
-    Node *unwrap_node(const nb::handle &obj) {
-        if (auto *py_node = nb::inst_ptr<PyNode>(obj)) { unwrap_node(*py_node); }
+    nb::object wrap_time_series(const time_series_input_ptr &impl) {
+        return wrap_input(impl);
+    }
+
+    nb::object wrap_time_series(const time_series_output_ptr &impl) {
+        return wrap_output(impl);
+    }
+
+    node_ptr unwrap_node(const nb::handle &obj) {
+        if (auto *py_node = nb::inst_ptr<PyNode>(obj)) { return unwrap_node(*py_node); }
         return nullptr;
     }
 
-    Node *unwrap_node(const PyNode &node_) { return node_._impl.get(); }
+    node_ptr unwrap_node(const PyNode &node_) { return node_._impl.static_cast_<Node>(); }
 
-    TimeSeriesInput *unwrap_input(const nb::handle &obj) {
+    time_series_input_ptr unwrap_input(const nb::handle &obj) {
         if (auto *py_input = nb::inst_ptr<PyTimeSeriesInput>(obj)) { return unwrap_input(*py_input); }
         return nullptr;
     }
 
-    TimeSeriesInput *unwrap_input(const PyTimeSeriesInput &input_) {
-        // return input_._impl.get();
+    time_series_input_ptr unwrap_input(const PyTimeSeriesInput &input_) {
         return input_.impl();
     }
 
-    TimeSeriesOutput *unwrap_output(const nb::handle &obj) {
+    time_series_output_ptr unwrap_output(const nb::handle &obj) {
         if (auto *py_output = nb::inst_ptr<PyTimeSeriesOutput>(obj)) { return unwrap_output(*py_output); }
         return nullptr;
     }
 
-    TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_) { return output_.impl(); }
+    time_series_output_ptr unwrap_output(const PyTimeSeriesOutput &output_) { return output_.impl(); }
 
     nb::object wrap_evaluation_engine_api(const EvaluationEngineApi *impl, control_block_ptr control_block) {
         if (!impl) { return nb::none(); }
-        return get_or_create_wrapper(impl, std::move(control_block), [](EvaluationEngineApi *impl, const auto &cb) {
-            return PyEvaluationEngineApi({impl, cb});
-        });
+        PyEvaluationEngineApi::api_ptr api_ptr(impl, control_block);
+        return nb::cast(PyEvaluationEngineApi(std::move(api_ptr)));
     }
 
     nb::object wrap_evaluation_clock(const EvaluationClock *impl, control_block_ptr control_block) {
         if (!impl) { return nb::none(); }
-        return get_or_create_wrapper(impl, std::move(control_block), [](EvaluationClock *mutable_impl, const auto &cb) {
-            return PyEvaluationClock({mutable_impl, cb});
-        });
+        PyEvaluationClock::api_ptr api_ptr(impl, control_block);
+        return nb::cast(PyEvaluationClock(std::move(api_ptr)));
     }
 
     nb::object wrap_traits(const Traits *impl, const control_block_ptr &control_block) {
         // Don't cache traits wrappers - traits is a member of Graph, not a separate heap object
         // Caching on intrusive_base could cause issues during graph teardown
         if (!impl) { return nb::none(); }
-        auto *mutable_impl = const_cast<Traits *>(impl);
-        auto  wrapper      = PyTraits({mutable_impl, std::move(control_block)});
-        return nb::cast(std::move(wrapper));
+        PyTraits::api_ptr api_ptr(impl, control_block);
+        return nb::cast(PyTraits(std::move(api_ptr)));
     }
 
 }  // namespace hgraph

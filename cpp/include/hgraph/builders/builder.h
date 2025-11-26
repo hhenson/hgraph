@@ -10,6 +10,8 @@
 #include <typeinfo>
 #include <cstddef>
 #include <stdexcept>
+#include <memory>
+#include <utility>
 #include <fmt/format.h>
 
 namespace hgraph {
@@ -108,6 +110,45 @@ namespace hgraph {
                 fmt::format("Arena allocation buffer overrun detected for {} at address {:p}. "
                            "Canary value was overwritten, indicating memory corruption.",
                            object_name, ptr));
+        }
+    }
+
+    /**
+     * Helper function to construct an object either in-place (arena allocation) or on the heap.
+     * This reduces duplication in make_instance methods.
+     * 
+     * @tparam ConcreteType The concrete type to construct (e.g., TimeSeriesValueInput<T>)
+     * @tparam BaseType The base type to cast to (e.g., TimeSeriesInput)
+     * @tparam Args Constructor argument types
+     * @param buffer Arena buffer (nullptr for heap allocation)
+     * @param offset Pointer to current offset in buffer (updated on arena allocation)
+     * @param type_name Name of the type (for error messages)
+     * @param args Constructor arguments (perfect forwarded)
+     * @return shared_ptr to BaseType
+     */
+    template<typename ConcreteType, typename BaseType, typename... Args>
+    std::shared_ptr<BaseType> make_instance_impl(void* buffer, size_t* offset, const char* type_name, Args&&... args) {
+        if (buffer != nullptr && offset != nullptr) {
+            // Arena allocation: construct in-place
+            char* buf = static_cast<char*>(buffer);
+            size_t obj_size = sizeof(ConcreteType);
+            size_t aligned_obj_size = align_size(obj_size, alignof(size_t));
+            // Set canary BEFORE construction
+            if (arena_debug_mode) {
+                size_t* canary_ptr = reinterpret_cast<size_t*>(buf + *offset + aligned_obj_size);
+                *canary_ptr = ARENA_CANARY_PATTERN;
+            }
+            // Now construct the object
+            ConcreteType* obj_ptr_raw = new (buf + *offset) ConcreteType(std::forward<Args>(args)...);
+            // Immediately check canary after construction
+            verify_canary(obj_ptr_raw, sizeof(ConcreteType), type_name);
+            *offset += add_canary_size(sizeof(ConcreteType));
+            // Create shared_ptr with no-op deleter (arena manages lifetime)
+            return std::static_pointer_cast<BaseType>(
+                std::shared_ptr<ConcreteType>(obj_ptr_raw, [](ConcreteType*){ /* no-op, arena manages lifetime */ }));
+        } else {
+            // Heap allocation (legacy path) - use make_shared for proper memory management
+            return std::static_pointer_cast<BaseType>(std::make_shared<ConcreteType>(std::forward<Args>(args)...));
         }
     }
     /**

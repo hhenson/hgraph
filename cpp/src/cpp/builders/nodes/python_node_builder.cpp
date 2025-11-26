@@ -42,7 +42,7 @@ namespace hgraph {
             
             // Construct Node in-place
             Node* node_ptr_raw = nullptr;
-            if (signature->is_push_source_node()) {
+            if (this->signature->is_push_source_node()) {
                 size_t node_size = sizeof(PushQueueNode);
                 size_t aligned_node_size = align_size(node_size, alignof(size_t));
                 // Set canary BEFORE construction
@@ -51,7 +51,9 @@ namespace hgraph {
                     *canary_ptr = ARENA_CANARY_PATTERN;
                 }
                 // Now construct the object
-                node_ptr_raw = new (buf + *offset) PushQueueNode{node_ndx, owning_graph_id, signature, scalars};
+                // Convert std::shared_ptr<NodeSignature> to nb::ref<NodeSignature>
+                NodeSignature::ptr sig_ref = nb::ref<NodeSignature>(this->signature.get());
+                node_ptr_raw = new (buf + *offset) PushQueueNode(node_ndx, owning_graph_id, sig_ref, this->scalars);
                 // Immediately check canary after construction
                 verify_canary(node_ptr_raw, sizeof(PushQueueNode), "PushQueueNode");
                 *offset += add_canary_size(sizeof(PushQueueNode));
@@ -66,7 +68,9 @@ namespace hgraph {
                     *canary_ptr = ARENA_CANARY_PATTERN;
                 }
                 // Now construct the object
-                node_ptr_raw = new (buf + *offset) PythonNode{node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn};
+                // Convert std::shared_ptr<NodeSignature> to nb::ref<NodeSignature>
+                NodeSignature::ptr sig_ref = nb::ref<NodeSignature>(this->signature.get());
+                node_ptr_raw = new (buf + *offset) PythonNode(node_ndx, owning_graph_id, sig_ref, this->scalars, eval_fn_to_use, start_fn, stop_fn);
                 // Immediately check canary after construction
                 verify_canary(node_ptr_raw, sizeof(PythonNode), "PythonNode");
                 *offset += add_canary_size(sizeof(PythonNode));
@@ -89,19 +93,16 @@ namespace hgraph {
             // Build inputs and outputs in-place
             _build_inputs_and_outputs(node, buffer, offset);
         } else {
-            // Heap allocation (legacy path)
-            if (signature->is_push_source_node()) {
-                nb::ref<Node> node_ref{new PushQueueNode{node_ndx, owning_graph_id, signature, scalars}};
-                _build_inputs_and_outputs(node_ref);
+            // Heap allocation (legacy path) - use make_shared for proper memory management
+            NodeSignature::ptr sig_ref = nb::ref<NodeSignature>(this->signature.get());
+            if (this->signature->is_push_source_node()) {
+                node = std::make_shared<PushQueueNode>(node_ndx, owning_graph_id, sig_ref, this->scalars);
+                _build_inputs_and_outputs(node, nullptr, nullptr);
                 // Provide the eval function so the node can expose a sender in start()
-                dynamic_cast<PushQueueNode &>(*node_ref).set_eval_fn(eval_fn_to_use);
-                node = node_ref;
+                dynamic_cast<PushQueueNode &>(*node).set_eval_fn(eval_fn_to_use);
             } else {
-                nb::ref<Node> node_ref{
-                    new PythonNode{node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn}
-                };
-                _build_inputs_and_outputs(node_ref);
-                node = node_ref;
+                node = std::make_shared<PythonNode>(node_ndx, owning_graph_id, sig_ref, this->scalars, eval_fn_to_use, start_fn, stop_fn);
+                _build_inputs_and_outputs(node, nullptr, nullptr);
             }
         }
         

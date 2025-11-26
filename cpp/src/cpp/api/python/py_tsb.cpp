@@ -156,7 +156,7 @@ namespace hgraph
     nb::str PyTimeSeriesBundle<T_TS, T_U>::py_str() {
         auto                  self = impl();
         constexpr const char *name = get_bundle_type_name<T_TS, T_U>();
-        auto                  str  = fmt::format(name, static_cast<const void *>(self), self->keys().size(), self->valid());
+        auto                  str  = fmt::format(name, static_cast<const void *>(self.get()), self->keys().size(), self->valid());
         return nb::str(str.c_str());
     }
 
@@ -168,7 +168,7 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    T_U *PyTimeSeriesBundle<T_TS, T_U>::impl() const {
+    std::shared_ptr<typename PyTimeSeriesBundle<T_TS, T_U>::underlying_type> PyTimeSeriesBundle<T_TS, T_U>::impl() const {
         return this->template static_cast_impl<T_U>();
     }
 

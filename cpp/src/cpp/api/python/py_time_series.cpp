@@ -7,9 +7,15 @@
 
 namespace hgraph
 {
-    nb::object PyTimeSeriesType::owning_node() const { return wrap_node(_impl->owning_node(), _impl.control_block()); }
+    nb::object PyTimeSeriesType::owning_node() const { 
+        auto node = _impl->owning_node();
+        return node ? wrap_node(node.get(), _impl.control_block()) : nb::none();
+    }
 
-    nb::object PyTimeSeriesType::owning_graph() const { return wrap_graph(_impl->owning_graph(), _impl.control_block()); }
+    nb::object PyTimeSeriesType::owning_graph() const { 
+        auto graph = _impl->owning_graph();
+        return graph ? wrap_graph(graph.get(), _impl.control_block()) : nb::none();
+    }
 
     nb::bool_ PyTimeSeriesType::has_parent_or_node() const { return nb::bool_(_impl->has_parent_or_node()); }
 
@@ -54,7 +60,10 @@ namespace hgraph
 
     control_block_ptr PyTimeSeriesType::control_block() const { return _impl.control_block(); }
 
-    nb::object PyTimeSeriesOutput::parent_output() const { return wrap_output(impl()->parent_output()); }
+    nb::object PyTimeSeriesOutput::parent_output() const { 
+        auto parent = impl()->parent_output();
+        return parent ? wrap_output(parent.get(), control_block()) : nb::none();
+    }
 
     nb::bool_ PyTimeSeriesOutput::has_parent_output() const { return nb::bool_(impl()->has_parent_output()); }
 
@@ -63,10 +72,16 @@ namespace hgraph
     void PyTimeSeriesOutput::set_value(nb::object value) { impl()->py_set_value(std::move(value)); }
 
     void PyTimeSeriesOutput::copy_from_output(const PyTimeSeriesOutput &output) {
-        impl()->copy_from_output(*unwrap_output(output));
+        auto output_ptr = unwrap_output(output);
+        if (!output_ptr) { throw std::runtime_error("Invalid output"); }
+        impl()->copy_from_output(*output_ptr);
     }
 
-    void PyTimeSeriesOutput::copy_from_input(const PyTimeSeriesInput &input) { impl()->copy_from_input(*unwrap_input(input)); }
+    void PyTimeSeriesOutput::copy_from_input(const PyTimeSeriesInput &input) { 
+        auto input_ptr = unwrap_input(input);
+        if (!input_ptr) { throw std::runtime_error("Invalid input"); }
+        impl()->copy_from_input(*input_ptr);
+    }
 
     void PyTimeSeriesOutput::clear() { impl()->clear(); }
 
@@ -92,9 +107,12 @@ namespace hgraph
             .def("copy_from_input", &PyTimeSeriesOutput::copy_from_input);
     }
 
-    TimeSeriesOutput *PyTimeSeriesOutput::impl() const { return static_cast_impl<TimeSeriesOutput>(); }
+    time_series_output_ptr PyTimeSeriesOutput::impl() const { return static_cast_impl<TimeSeriesOutput>(); }
 
-    nb::object PyTimeSeriesInput::parent_input() const { return wrap_input(impl()->parent_input()); }
+    nb::object PyTimeSeriesInput::parent_input() const { 
+        auto parent = impl()->parent_input();
+        return parent ? wrap_input(parent.get(), control_block()) : nb::none();
+    }
 
     nb::bool_ PyTimeSeriesInput::has_parent_input() const { return nb::bool_(impl()->has_parent_input()); }
 
@@ -108,11 +126,21 @@ namespace hgraph
 
     nb::bool_ PyTimeSeriesInput::has_peer() const { return nb::bool_(impl()->has_peer()); }
 
-    nb::object PyTimeSeriesInput::output() const { return wrap_output(impl()->output(), control_block()); }
+    nb::object PyTimeSeriesInput::output() const { 
+        auto out = impl()->output();
+        return out ? wrap_output(out.get(), control_block()) : nb::none();
+    }
 
     nb::bool_ PyTimeSeriesInput::has_output() const { return nb::bool_(impl()->has_output()); }
 
-    nb::bool_ PyTimeSeriesInput::bind_output(nb::object output_) { return nb::bool_(impl()->bind_output(unwrap_output(output_))); }
+    nb::bool_ PyTimeSeriesInput::bind_output(nb::object output_) { 
+        // unwrap_output now returns shared_ptr directly
+        time_series_output_ptr output_shared = unwrap_output(output_);
+        if (!output_shared) {
+            throw std::runtime_error("bind_output: invalid output type");
+        }
+        return nb::bool_(impl()->bind_output(output_shared));
+    }
 
     void PyTimeSeriesInput::un_bind_output(bool unbind_refs) { return impl()->un_bind_output(unbind_refs); }
 
@@ -138,5 +166,5 @@ namespace hgraph
             .def("make_passive", &PyTimeSeriesInput::make_passive);
     }
 
-    TimeSeriesInput *PyTimeSeriesInput::impl() const { return static_cast_impl<TimeSeriesInput>(); }
+    time_series_input_ptr PyTimeSeriesInput::impl() const { return static_cast_impl<TimeSeriesInput>(); }
 }  // namespace hgraph

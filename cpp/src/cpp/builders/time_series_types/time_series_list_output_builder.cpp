@@ -11,14 +11,21 @@ namespace hgraph {
         : output_builder{std::move(output_builder)}, size{size} {
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesListOutput(owning_node)};
-        return make_and_set_outputs(v);
+    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+        auto result = make_instance_impl<TimeSeriesListOutput, TimeSeriesOutput>(
+            buffer, offset, "TimeSeriesListOutput", owning_node);
+        return make_and_set_outputs(result.get(), buffer, offset);
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        auto v{new TimeSeriesListOutput(dynamic_cast_ref<TimeSeriesType>(owning_output))};
-        return make_and_set_outputs(v);
+    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(time_series_output_ptr owning_output, void* buffer, size_t* offset) const {
+        // Convert owning_output to TimeSeriesType shared_ptr
+        auto owning_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_output);
+        if (!owning_ts) {
+            throw std::runtime_error("TimeSeriesListOutputBuilder: owning_output must be a TimeSeriesType");
+        }
+        auto result = make_instance_impl<TimeSeriesListOutput, TimeSeriesOutput>(
+            buffer, offset, "TimeSeriesListOutput", owning_ts);
+        return make_and_set_outputs(result.get(), buffer, offset);
     }
 
     bool TimeSeriesListOutputBuilder::is_same_type(const Builder &other) const {
@@ -36,12 +43,15 @@ namespace hgraph {
         }
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_and_set_outputs(TimeSeriesListOutput *output) const {
+    time_series_output_ptr TimeSeriesListOutputBuilder::make_and_set_outputs(TimeSeriesListOutput *output, void* buffer, size_t* offset) const {
         std::vector<time_series_output_ptr> outputs;
         outputs.reserve(size);
-        for (size_t i = 0; i < size; ++i) { outputs.push_back(output_builder->make_instance(output)); }
+        time_series_output_ptr output_ptr{output, output->owning_graph()->control_block()};
+        for (size_t i = 0; i < size; ++i) { 
+            outputs.push_back(output_builder->make_instance(output_ptr, buffer, offset)); 
+        }
         output->set_ts_values(outputs);
-        return output;
+        return output_ptr;
     }
 
     size_t TimeSeriesListOutputBuilder::memory_size() const {

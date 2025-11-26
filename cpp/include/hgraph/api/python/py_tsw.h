@@ -34,7 +34,7 @@ namespace hgraph
         [[nodiscard]] nb::int_ len() const;
 
     private:
-        [[nodiscard]] auto impl() const -> T_U *;
+        [[nodiscard]] auto impl() const -> std::shared_ptr<T_U>;
     };
 
     // Unified window input that works with both fixed-size and timedelta outputs
@@ -53,7 +53,7 @@ namespace hgraph
 
         [[nodiscard]] nb::int_ len() const;
     private:
-        [[nodiscard]] auto impl() const -> TimeSeriesWindowInput<T> *;
+        [[nodiscard]] auto impl() const -> std::shared_ptr<TimeSeriesWindowInput<T>>;
     };
 
     // Registration

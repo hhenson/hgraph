@@ -152,7 +152,10 @@ namespace hgraph
 
         [[nodiscard]] auto added_items() const {
             return key_set_t().added() |
-                   std::views::transform([&](const auto &key) { return std::pair<const key_type, value_type>(key, operator[](key)); });
+                   std::views::transform([&](const auto &key) { 
+                       auto value = operator[](key);
+                       return std::make_pair(key, value); 
+                   });
         }
 
         [[nodiscard]] const k_set_type &added_keys() const;

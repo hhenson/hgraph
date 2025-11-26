@@ -4,15 +4,20 @@
 
 namespace hgraph {
     template<typename T>
-    time_series_input_ptr TimeSeriesSetInputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesSetInput_T<T>{owning_node}};
-        return v;
+    time_series_input_ptr TimeSeriesSetInputBuilder_T<T>::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+        return make_instance_impl<TimeSeriesSetInput_T<T>, TimeSeriesInput>(
+            buffer, offset, "TimeSeriesSetInput", owning_node);
     }
 
     template<typename T>
-    time_series_input_ptr TimeSeriesSetInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input) const {
-        auto v{new TimeSeriesSetInput_T<T>{dynamic_cast_ref<TimeSeriesType>(owning_input)}};
-        return v;
+    time_series_input_ptr TimeSeriesSetInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input, void* buffer, size_t* offset) const {
+        // Convert owning_input to TimeSeriesType shared_ptr
+        auto owning_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_input);
+        if (!owning_ts) {
+            throw std::runtime_error("TimeSeriesSetInputBuilder: owning_input must be a TimeSeriesType");
+        }
+        return make_instance_impl<TimeSeriesSetInput_T<T>, TimeSeriesInput>(
+            buffer, offset, "TimeSeriesSetInput", owning_ts);
     }
 
     template<typename T>

@@ -21,9 +21,9 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesDictInputBuilder_T : TimeSeriesDictInputBuilder {
         using TimeSeriesDictInputBuilder::TimeSeriesDictInputBuilder;
 
-        time_series_input_ptr make_instance(node_ptr owning_node) const override;
+        time_series_input_ptr make_instance(node_ptr owning_node, void* buffer = nullptr, size_t* offset = nullptr) const override;
 
-        time_series_input_ptr make_instance(time_series_input_ptr owning_input) const override;
+        time_series_input_ptr make_instance(time_series_input_ptr owning_input, void* buffer = nullptr, size_t* offset = nullptr) const override;
 
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
 

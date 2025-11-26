@@ -56,10 +56,10 @@ namespace hgraph {
     }
 
     void NodeBuilder::release_instance(node_ptr &item) const {
-        if (input_builder) { (*input_builder)->release_instance(item->input().get()); }
-        if (output_builder) { (*output_builder)->release_instance(item->output().get()); }
-        if (error_builder) { (*error_builder)->release_instance(item->error_output().get()); }
-        if (recordable_state_builder) { (*recordable_state_builder)->release_instance(item->recordable_state().get()); }
+        if (input_builder) { (*input_builder)->release_instance(item->input()); }
+        if (output_builder) { (*output_builder)->release_instance(item->output()); }
+        if (error_builder) { (*error_builder)->release_instance(item->error_output()); }
+        if (recordable_state_builder) { (*recordable_state_builder)->release_instance(item->recordable_state()); }
         dispose_component(*item.get());
     }
 
@@ -90,7 +90,9 @@ namespace hgraph {
 
     void NodeBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_ < NodeBuilder, Builder > (m, "NodeBuilder")
-                .def("make_instance", &NodeBuilder::make_instance, "owning_graph_id"_a, "node_ndx"_a)
+                .def("make_instance", [](const NodeBuilder& self, const std::vector<int64_t>& owning_graph_id, int64_t node_ndx) {
+                    return self.make_instance(owning_graph_id, node_ndx);
+                }, "owning_graph_id"_a, "node_ndx"_a)
                 .def("release_instance", &NodeBuilder::release_instance, "node"_a)
                 .def_ro("signature", &NodeBuilder::signature)
                 .def_ro("scalars", &NodeBuilder::scalars)
@@ -128,7 +130,12 @@ namespace hgraph {
     void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node, void* buffer, size_t* offset) const {
         if (input_builder.has_value()) {
             auto ts_input = (*input_builder)->make_instance(node, buffer, offset);
-            node->set_input(dynamic_cast_ref<TimeSeriesBundleInput>(ts_input));
+            // Cast to TimeSeriesBundleInput - input() returns time_series_bundle_input_ptr
+            auto bundle_input = std::dynamic_pointer_cast<TimeSeriesBundleInput>(ts_input);
+            if (!bundle_input) {
+                throw std::runtime_error("Input builder must create a TimeSeriesBundleInput");
+            }
+            node->set_input(bundle_input);
         }
 
         if (output_builder.has_value()) {
@@ -143,7 +150,12 @@ namespace hgraph {
 
         if (recordable_state_builder.has_value()) {
             auto ts_recordable_state = (*recordable_state_builder)->make_instance(node, buffer, offset);
-            node->set_recordable_state(dynamic_cast_ref<TimeSeriesBundleOutput>(ts_recordable_state));
+            // Cast to TimeSeriesBundleOutput - recordable_state() returns time_series_bundle_output_ptr
+            auto bundle_output = std::dynamic_pointer_cast<TimeSeriesBundleOutput>(ts_recordable_state);
+            if (!bundle_output) {
+                throw std::runtime_error("Recordable state builder must create a TimeSeriesBundleOutput");
+            }
+            node->set_recordable_state(bundle_output);
         }
     }
 } // namespace hgraph

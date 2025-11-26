@@ -38,7 +38,7 @@ namespace hgraph
 
     template <typename T_U> nb::str PyTimeSeriesSetOutput<T_U>::py_str() const {
         auto self{this->impl()};
-        auto s{fmt::format("TimeSeriesSetOutput@{:p}[size={}, valid={}]", static_cast<const void *>(self), self->size(),
+        auto s{fmt::format("TimeSeriesSetOutput@{:p}[size={}, valid={}]", static_cast<const void *>(self.get()), self->size(),
                            self->valid())};
         return nb::str(s.c_str());
     }
@@ -55,7 +55,7 @@ namespace hgraph
     template <typename T_U> nb::str PyTimeSeriesSetInput<T_U>::py_str() const {
         auto self{this->impl()};
         auto s =
-            fmt::format("TimeSeriesSetInput@{:p}[size={}, valid={}]", static_cast<const void *>(self), self->size(), self->valid());
+            fmt::format("TimeSeriesSetInput@{:p}[size={}, valid={}]", static_cast<const void *>(self.get()), self->size(), self->valid());
         return nb::str(s.c_str());
     }
     

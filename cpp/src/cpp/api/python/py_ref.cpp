@@ -16,9 +16,9 @@ namespace hgraph
             .def(
                 "bind_input",
                 [](TimeSeriesReference &self, PyTimeSeriesInput &ts_input) {
-                    auto input_{unwrap_input(ts_input)};
-                    if (input_ != nullptr) {
-                        self.bind_input(*unwrap_input(ts_input));
+                    auto input_ = unwrap_input(ts_input);
+                    if (input_) {
+                        self.bind_input(*input_);
                     } else {
                         throw std::runtime_error("Cannot bind to null input");
                     }
@@ -29,26 +29,39 @@ namespace hgraph
             .def_prop_ro("is_bound", &TimeSeriesReference::is_bound)
             .def_prop_ro("is_unbound", &TimeSeriesReference::is_unbound)
             .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
-            .def_prop_ro("output", [](TimeSeriesReference &self) { return wrap_output(self.output()); })
+            .def_prop_ro("output", [](TimeSeriesReference &self) { 
+                auto out = self.output();
+                if (!out) return nb::none();
+                // Use the simpler wrap_output overload that gets control block from the output itself
+                return wrap_output(out.get());
+            })
             .def_prop_ro("items", &TimeSeriesReference::items)
             .def("__getitem__", &TimeSeriesReference::operator[])
             .def_static(
                 "make",
                 [](nb::object ts, nb::object items) -> TimeSeriesReference {
                     if (!ts.is_none()) {
-                        if (nb::isinstance<PyTimeSeriesOutput>(ts))
-                            return TimeSeriesReference::make(unwrap_output(ts));
+                        if (nb::isinstance<PyTimeSeriesOutput>(ts)) {
+                            // unwrap_output now returns shared_ptr directly
+                            auto output_shared = unwrap_output(ts);
+                            if (!output_shared) { throw std::runtime_error("Invalid output"); }
+                            return TimeSeriesReference::make(output_shared);
+                        }
                         if (nb::isinstance<PyTimeSeriesReferenceInput>(ts))
                             return unwrap_input_as<TimeSeriesReferenceInput>(ts)->value();
                         if (nb::isinstance<PyTimeSeriesInput>(ts)) {
                             auto ts_input = unwrap_input(ts);
-                            if (ts_input->has_peer()) return TimeSeriesReference::make(ts_input->output());
+                            if (ts_input->has_peer()) {
+                                auto output = ts_input->output();
+                                return TimeSeriesReference::make(output);
+                            }
                             // Deal with list of inputs
                             std::vector<TimeSeriesReference> items_list;
-                            auto                             ts_ndx{dynamic_cast<IndexedTimeSeriesInput *>(ts_input)};
+                            auto ts_ndx = std::dynamic_pointer_cast<IndexedTimeSeriesInput>(ts_input);
+                            if (!ts_ndx) { throw std::runtime_error("Expected IndexedTimeSeriesInput"); }
                             items_list.reserve(ts_ndx->size());
                             for (auto &ts_ptr : ts_ndx->values()) {
-                                auto ref_input{dynamic_cast<TimeSeriesReferenceInput *>(ts_ptr.get())};
+                                auto ref_input = std::dynamic_pointer_cast<TimeSeriesReferenceInput>(ts_ptr);
                                 items_list.emplace_back(ref_input ? ref_input->value() : TimeSeriesReference::make());
                             }
                             return TimeSeriesReference::make(items_list);
@@ -109,7 +122,7 @@ namespace hgraph
             .def("__repr__", &PyTimeSeriesReferenceOutput::to_repr);
     }
 
-    TimeSeriesReferenceOutput *PyTimeSeriesReferenceOutput::impl() const { return static_cast_impl<TimeSeriesReferenceOutput>(); }
+    TimeSeriesReferenceOutput *PyTimeSeriesReferenceOutput::impl() const { return static_cast_impl<TimeSeriesReferenceOutput>().get(); }
 
     nb::str PyTimeSeriesReferenceInput::to_string() const {
         auto       *impl_{impl()};
@@ -132,7 +145,7 @@ namespace hgraph
             .def("__repr__", &PyTimeSeriesReferenceInput::to_repr);
     }
 
-    TimeSeriesReferenceInput *PyTimeSeriesReferenceInput::impl() const { return static_cast_impl<TimeSeriesReferenceInput>(); }
+    TimeSeriesReferenceInput *PyTimeSeriesReferenceInput::impl() const { return static_cast_impl<TimeSeriesReferenceInput>().get(); }
 
     PyTimeSeriesValueReferenceInput::PyTimeSeriesValueReferenceInput(TimeSeriesValueReferenceInput *ref)
         : PyTimeSeriesReferenceInput(ref) {}

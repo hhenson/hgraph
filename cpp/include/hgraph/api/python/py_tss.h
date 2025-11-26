@@ -39,7 +39,7 @@ namespace hgraph
 
       protected:
         using T_TS::T_TS;
-        [[nodiscard]] T_U *impl() const { return this->template static_cast_impl<T_U>(); };
+        [[nodiscard]] std::shared_ptr<T_U> impl() const { return this->template static_cast_impl<T_U>(); };
     };
 
     template <typename T_U> struct PyTimeSeriesSetOutput : PyTimeSeriesSet<PyTimeSeriesOutput, T_U>

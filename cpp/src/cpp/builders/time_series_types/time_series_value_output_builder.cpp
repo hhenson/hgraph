@@ -4,15 +4,20 @@
 
 namespace hgraph {
     template<typename T>
-    time_series_output_ptr TimeSeriesValueOutputBuilder<T>::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesValueOutput<T>(owning_node)};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+    time_series_output_ptr TimeSeriesValueOutputBuilder<T>::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+        return make_instance_impl<TimeSeriesValueOutput<T>, TimeSeriesOutput>(
+            buffer, offset, "TimeSeriesValueOutput", owning_node);
     }
 
     template<typename T>
-    time_series_output_ptr TimeSeriesValueOutputBuilder<T>::make_instance(time_series_output_ptr owning_output) const {
-        auto v{new TimeSeriesValueOutput<T>(dynamic_cast_ref<TimeSeriesType>(owning_output))};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+    time_series_output_ptr TimeSeriesValueOutputBuilder<T>::make_instance(time_series_output_ptr owning_output, void* buffer, size_t* offset) const {
+        // Convert owning_output to TimeSeriesType shared_ptr
+        auto owning_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_output);
+        if (!owning_ts) {
+            throw std::runtime_error("TimeSeriesValueOutputBuilder: owning_output must be a TimeSeriesType");
+        }
+        return make_instance_impl<TimeSeriesValueOutput<T>, TimeSeriesOutput>(
+            buffer, offset, "TimeSeriesValueOutput", owning_ts);
     }
 
     template<typename T>

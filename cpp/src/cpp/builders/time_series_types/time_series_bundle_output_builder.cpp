@@ -13,14 +13,21 @@ namespace hgraph {
         : OutputBuilder(), schema{std::move(schema)}, output_builders{std::move(output_builders)} {
     }
 
-    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesBundleOutput{owning_node, schema}};
-        return make_and_set_outputs(v);
+    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+        auto result = make_instance_impl<TimeSeriesBundleOutput, TimeSeriesOutput>(
+            buffer, offset, "TimeSeriesBundleOutput", owning_node, schema);
+        return make_and_set_outputs(result.get(), buffer, offset);
     }
 
-    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        auto v{new TimeSeriesBundleOutput(dynamic_cast_ref<TimeSeriesType>(owning_output), schema)};
-        return make_and_set_outputs(v);
+    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(time_series_output_ptr owning_output, void* buffer, size_t* offset) const {
+        // Convert owning_output to TimeSeriesType shared_ptr
+        auto owning_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_output);
+        if (!owning_ts) {
+            throw std::runtime_error("TimeSeriesBundleOutputBuilder: owning_output must be a TimeSeriesType");
+        }
+        auto result = make_instance_impl<TimeSeriesBundleOutput, TimeSeriesOutput>(
+            buffer, offset, "TimeSeriesBundleOutput", owning_ts, schema);
+        return make_and_set_outputs(result.get(), buffer, offset);
     }
 
     bool TimeSeriesBundleOutputBuilder::has_reference() const {
@@ -47,12 +54,12 @@ namespace hgraph {
         }
     }
 
-    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_and_set_outputs(TimeSeriesBundleOutput *output) const {
+    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_and_set_outputs(TimeSeriesBundleOutput *output, void* buffer, size_t* offset) const {
         std::vector<time_series_output_ptr> outputs;
-        time_series_output_ptr output_{output};
+        time_series_output_ptr output_{output, output->owning_graph()->control_block()};
         outputs.reserve(output_builders.size());
         std::ranges::copy(output_builders | std::views::transform([&](auto &builder) {
-                              return builder->make_instance(output_);
+                              return builder->make_instance(output_, buffer, offset);
                           }),
                           std::back_inserter(outputs));
         output->set_ts_values(outputs);

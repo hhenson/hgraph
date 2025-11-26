@@ -116,7 +116,7 @@ namespace hgraph
         }
 
       private:
-        friend Node *unwrap_node(const PyNode &obj);
+        friend node_ptr unwrap_node(const PyNode &obj);
         api_ptr      _impl;
     };
 

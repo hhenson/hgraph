@@ -45,11 +45,18 @@ namespace hgraph
     nb::tuple PyGraph::nodes() const {
         // TODO: This really should be cached
         nb::list l{};
-        for (auto &node : _impl->nodes()) { l.append(wrap_node(node, _impl.control_block())); }
+        for (auto &node : _impl->nodes()) { 
+            if (node) {
+                l.append(wrap_node(node)); 
+            }
+        }
         return nb::tuple(l);
     }
 
-    nb::object PyGraph::parent_node() const { return wrap_node(_impl->parent_node(), _impl.control_block()); }
+    nb::object PyGraph::parent_node() const { 
+        auto parent = _impl->parent_node();
+        return parent ? wrap_node(parent) : nb::none();
+    }
 
     nb::object PyGraph::label() const {
         auto lbl{_impl->label()};

@@ -13,14 +13,21 @@ namespace hgraph {
         : InputBuilder(), schema{std::move(schema)}, input_builders{std::move(input_builders)} {
     }
 
-    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v{new TimeSeriesBundleInput{owning_node, schema}};
-        return make_and_set_inputs(v);
+    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+        auto result = make_instance_impl<TimeSeriesBundleInput, TimeSeriesInput>(
+            buffer, offset, "TimeSeriesBundleInput", owning_node, schema);
+        return make_and_set_inputs(result.get(), buffer, offset);
     }
 
-    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        auto v{new TimeSeriesBundleInput{dynamic_cast_ref<TimeSeriesType>(owning_input), schema}};
-        return make_and_set_inputs(v);
+    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(time_series_input_ptr owning_input, void* buffer, size_t* offset) const {
+        // Convert owning_input to TimeSeriesType shared_ptr
+        auto owning_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_input);
+        if (!owning_ts) {
+            throw std::runtime_error("TimeSeriesBundleInputBuilder: owning_input must be a TimeSeriesType");
+        }
+        auto result = make_instance_impl<TimeSeriesBundleInput, TimeSeriesInput>(
+            buffer, offset, "TimeSeriesBundleInput", owning_ts, schema);
+        return make_and_set_inputs(result.get(), buffer, offset);
     }
 
     bool TimeSeriesBundleInputBuilder::has_reference() const {
@@ -47,12 +54,12 @@ namespace hgraph {
         }
     }
 
-    time_series_input_ptr TimeSeriesBundleInputBuilder::make_and_set_inputs(TimeSeriesBundleInput *input) const {
+    time_series_input_ptr TimeSeriesBundleInputBuilder::make_and_set_inputs(TimeSeriesBundleInput *input, void* buffer, size_t* offset) const {
         std::vector<time_series_input_ptr> inputs;
-        time_series_input_ptr input_{input};
+        time_series_input_ptr input_{input, input->owning_graph()->control_block()};
         inputs.reserve(input_builders.size());
         std::ranges::copy(input_builders | std::views::transform([&](auto &builder) {
-                              return builder->make_instance(input_);
+                              return builder->make_instance(input_, buffer, offset);
                           }),
                           std::back_inserter(inputs));
         input->set_ts_values(inputs);

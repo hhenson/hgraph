@@ -26,18 +26,20 @@ namespace hgraph
 
     /**
      * Wrap a Node pointer in a PyNode.
-     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
-     * Creates and caches new wrapper if not.
+     * Creates a new wrapper for the node.
      */
     nb::object wrap_node(const hgraph::Node *impl, const control_block_ptr &control_block);
     nb::object wrap_node(const Node *impl);
+    // Overload for shared_ptr - avoids creating new shared_ptr when one already exists
+    nb::object wrap_node(const node_ptr &impl);
 
     /**
      * Wrap a Graph pointer in a PyGraph.
-     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
-     * Creates and caches new wrapper if not.
+     * Creates a new wrapper for the graph.
      */
     nb::object wrap_graph(const hgraph::Graph *impl, const control_block_ptr &control_block);
+    // Overload for shared_ptr - avoids creating new shared_ptr when one already exists
+    nb::object wrap_graph(const graph_ptr &impl);
 
     /**
      * Wrap a Traits pointer in a PyTraits.
@@ -63,6 +65,8 @@ namespace hgraph
      */
     nb::object wrap_input(const hgraph::TimeSeriesInput *impl, const control_block_ptr &control_block);
     nb::object wrap_input(const TimeSeriesInput *impl);
+    // Overload for shared_ptr - avoids creating new shared_ptr when one already exists
+    nb::object wrap_input(const time_series_input_ptr &impl);
 
     /**
      * Wrap a TimeSeriesOutput pointer in the appropriate PyTimeSeriesXxxOutput wrapper.
@@ -75,11 +79,16 @@ namespace hgraph
     nb::object wrap_output(const hgraph::TimeSeriesOutput *impl, const control_block_ptr &control_block);
 
     nb::object wrap_output(const hgraph::TimeSeriesOutput *impl);
+    // Overload for shared_ptr - avoids creating new shared_ptr when one already exists
+    nb::object wrap_output(const time_series_output_ptr &impl);
 
     nb::object wrap_time_series(const TimeSeriesInput *impl, const control_block_ptr &control_block);
     nb::object wrap_time_series(const TimeSeriesOutput *impl, const control_block_ptr &control_block);
     nb::object wrap_time_series(const TimeSeriesInput *impl);
     nb::object wrap_time_series(const TimeSeriesOutput *impl);
+    // Overloads for shared_ptr - avoids creating new shared_ptr when one already exists
+    nb::object wrap_time_series(const time_series_input_ptr &impl);
+    nb::object wrap_time_series(const time_series_output_ptr &impl);
 
     // ---------------------------------------------------------------------
     // Lightweight Nanobind iterator helpers for time series wrapping
@@ -143,7 +152,8 @@ namespace hgraph
 
                         // Project element and wrap into a Python time series
                         auto &&elem = Accessor::get(s.it);
-                        return wrap_time_series(elem, s.cb);
+                        // elem is a shared_ptr, need to get raw pointer
+                        return wrap_time_series(elem.get(), s.cb);
                     });
             }
 
@@ -187,7 +197,8 @@ namespace hgraph
                     }
 
                     auto &&elem = detail::tsd_identity_accessor::get(s.it);
-                    return wrap_time_series(elem, s.cb);
+                    // elem is a shared_ptr, need to get raw pointer
+                    return wrap_time_series(elem.get(), s.cb);
                 });
         }
 
@@ -231,7 +242,8 @@ namespace hgraph
                     }
 
                     auto &&elem = detail::tsd_second_accessor::get(s.it);
-                    return wrap_time_series(elem, s.cb);
+                    // elem is a shared_ptr, need to get raw pointer
+                    return wrap_time_series(elem.get(), s.cb);
                 });
         }
 
@@ -289,7 +301,8 @@ namespace hgraph
                         // Do not bind to a non-const lvalue reference; take by value to avoid dangling refs.
                         const auto &[key, value] = *s.it;  // pair-like element (key, value)
                         nb::object key_obj       = nb::cast(key);
-                        nb::object val_obj       = wrap_time_series(value, s.cb);
+                        // value is a shared_ptr, need to get raw pointer
+                        nb::object val_obj       = wrap_time_series(value.get(), s.cb);
                         return nb::make_tuple(std::move(key_obj), std::move(val_obj));
                     });
             }
@@ -336,7 +349,8 @@ namespace hgraph
                     // Build (key, wrapped_value) tuple
                     const auto &[key, value] = *s.it;
                     nb::object key_obj       = nb::cast(key);
-                    nb::object val_obj       = wrap_time_series(value, s.cb);
+                    // value is a shared_ptr, need to get raw pointer
+                    nb::object val_obj       = wrap_time_series(value.get(), s.cb);
                     return nb::make_tuple(std::move(key_obj), std::move(val_obj));
                 });
         }
@@ -346,30 +360,38 @@ namespace hgraph
     }
 
     /**
-     * Extract raw Node pointer from PyNode wrapper.
+     * Extract Node shared_ptr from PyNode wrapper.
      * Returns nullptr if obj is not a PyNode.
      */
-    Node *unwrap_node(const nb::handle &obj);
+    node_ptr unwrap_node(const nb::handle &obj);
 
     /**
-     * Extract raw TimeSeriesInput pointer from PyTimeSeriesInput wrapper.
+     * Extract TimeSeriesInput shared_ptr from PyTimeSeriesInput wrapper.
      * Returns nullptr if obj is not a PyTimeSeriesInput.
      */
-    TimeSeriesInput *unwrap_input(const nb::handle &obj);
+    time_series_input_ptr unwrap_input(const nb::handle &obj);
 
-    template <typename T> requires std::is_base_of_v<TimeSeriesInput, T> T *unwrap_input_as(const nb::handle &obj) { return dynamic_cast<T *>(unwrap_input(obj)); }
+    template <typename T> requires std::is_base_of_v<TimeSeriesInput, T> 
+    std::shared_ptr<T> unwrap_input_as(const nb::handle &obj) { 
+        auto ptr = unwrap_input(obj);
+        return ptr ? std::dynamic_pointer_cast<T>(ptr) : nullptr;
+    }
 
-    TimeSeriesInput *unwrap_input(const PyTimeSeriesInput &input_);
+    time_series_input_ptr unwrap_input(const PyTimeSeriesInput &input_);
 
     /**
-     * Extract raw TimeSeriesOutput pointer from PyTimeSeriesOutput wrapper.
+     * Extract TimeSeriesOutput shared_ptr from PyTimeSeriesOutput wrapper.
      * Returns nullptr if obj is not a PyTimeSeriesOutput.
      */
-    TimeSeriesOutput *unwrap_output(const nb::handle &obj);
+    time_series_output_ptr unwrap_output(const nb::handle &obj);
 
-    TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_);
+    time_series_output_ptr unwrap_output(const PyTimeSeriesOutput &output_);
 
-    template <typename T> requires std::is_base_of_v<TimeSeriesOutput, T> T *unwrap_output_as(const nb::handle &obj) { return dynamic_cast<T *>(unwrap_output(obj)); }
+    template <typename T> requires std::is_base_of_v<TimeSeriesOutput, T> 
+    std::shared_ptr<T> unwrap_output_as(const nb::handle &obj) { 
+        auto ptr = unwrap_output(obj);
+        return ptr ? std::dynamic_pointer_cast<T>(ptr) : nullptr;
+    }
 
     /**
      * Wrap an EvaluationEngineApi pointer in a PyEvaluationEngineApi.
