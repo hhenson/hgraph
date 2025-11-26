@@ -55,7 +55,7 @@ namespace hgraph {
 
     engine_time_t NestedEvaluationEngine::start_time() const { return _nested_start_time; }
 
-    EvaluationClock::ptr NestedEvaluationEngine::evaluation_clock() { return _engine_evaluation_clock.get(); }
+    EvaluationClock::ptr NestedEvaluationEngine::evaluation_clock() { return std::static_pointer_cast<EvaluationClock>(_engine_evaluation_clock); }
 
     EngineEvaluationClock::ptr NestedEvaluationEngine::engine_evaluation_clock() { return _engine_evaluation_clock; }
 

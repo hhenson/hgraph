@@ -226,7 +226,7 @@ namespace hgraph {
             if (input.bound()) {
                 if (input.has_peer()) {
                     active_inputs.emplace(input_name,
-                                          BackTrace::capture_back_trace(input.output()->owning_node(), capture_values,
+                                          BackTrace::capture_back_trace(input.output()->owning_node().get(), capture_values,
                                                                         depth - 1));
                 } else {
                     auto iterable_inputs{dynamic_cast<const TimeSeriesBundleInput *>(&input)};
@@ -249,7 +249,7 @@ namespace hgraph {
                                 if (auto tgt = ref.output(); tgt.get() != nullptr) {
                                     active_inputs.emplace(
                                         input_name, BackTrace::capture_back_trace(
-                                            tgt->owning_node(), capture_values, depth - 1));
+                                            tgt->owning_node().get(), capture_values, depth - 1));
                                 }
                             }
                         }

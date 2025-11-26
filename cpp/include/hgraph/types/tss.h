@@ -137,6 +137,8 @@ namespace hgraph {
 
         explicit TimeSeriesSetOutput_T(const TimeSeriesType::ptr &parent);
 
+        explicit TimeSeriesSetOutput_T(const TimeSeriesOutput::ptr &parent);
+
         [[nodiscard]] nb::object py_value() const override;
 
         [[nodiscard]] const collection_type &value() const;

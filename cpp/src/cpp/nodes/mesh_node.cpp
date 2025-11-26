@@ -20,9 +20,8 @@ namespace hgraph {
     template<typename K>
     MeshNestedEngineEvaluationClock<K>::MeshNestedEngineEvaluationClock(
         EngineEvaluationClock::ptr engine_evaluation_clock, K key,
-        mesh_node_ptr<K> nested_node)
-        : NestedEngineEvaluationClock(std::move(engine_evaluation_clock),
-                                      nested_node_ptr(static_cast<NestedNode *>(nested_node.get()))),
+        nested_node_ptr nested_node)
+        : NestedEngineEvaluationClock(std::move(engine_evaluation_clock), nested_node),
           _key(key) {
     }
 
@@ -212,17 +211,18 @@ namespace hgraph {
         // Create new graph instance - concatenate node_id with negative count
         std::vector<int64_t> graph_id = this->node_id();
         graph_id.push_back(-static_cast<int64_t>(this->count_++));
-        auto graph = this->nested_graph_builder_->make_instance(graph_id, this, to_string(key));
+        auto graph = this->nested_graph_builder_->make_instance(graph_id, this->shared_from_this(), to_string(key));
 
         this->active_graphs_[key] = graph;
         active_graphs_rank_[key] = (rank == -1) ? max_rank_ : rank;
 
         // Set up evaluation engine with MeshNestedEngineEvaluationClock
         // Pattern from TsdMapNode: new NestedEvaluationEngine(&eval_engine, new Clock(&clock, key, this))
-        graph->set_evaluation_engine(new NestedEvaluationEngine(
+        nested_node_ptr nested_node_shared = std::static_pointer_cast<NestedNode>(this->shared_from_this());
+        graph->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
             this->graph()->evaluation_engine(),
-            new MeshNestedEngineEvaluationClock<K>(this->graph()->evaluation_engine()->engine_evaluation_clock(), key,
-                                                   this)));
+            std::make_shared<MeshNestedEngineEvaluationClock<K>>(this->graph()->evaluation_engine()->engine_evaluation_clock(), key,
+                                                                 nested_node_shared)));
 
         initialise_component(*graph);
         this->wire_graph(key, graph);

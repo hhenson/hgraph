@@ -97,7 +97,10 @@ namespace hgraph {
             auto ref = unwrap_input_as<TimeSeriesReferenceInput>(shared);
             if (ref->has_peer()) {
                 // Use the bound peer output (stub remains a reference node)
-                output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ref->output().get());
+                auto output_ptr = ref->output();
+                if (output_ptr) {
+                    output_ts = std::dynamic_pointer_cast<TimeSeriesReferenceOutput>(output_ptr);
+                }
             }
             // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
             value_ref = ref->value();

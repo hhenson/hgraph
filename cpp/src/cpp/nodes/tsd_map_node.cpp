@@ -21,8 +21,8 @@ namespace hgraph
 {
     template <typename K>
     MapNestedEngineEvaluationClock<K>::MapNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock, K key,
-                                                                      tsd_map_node_ptr<K> nested_node)
-        : NestedEngineEvaluationClock(engine_evaluation_clock, static_cast<NestedNode *>(nested_node.get())), _key(key) {}
+                                                                      nested_node_ptr nested_node)
+        : NestedEngineEvaluationClock(engine_evaluation_clock, nested_node), _key(key) {}
 
     template <typename K> void MapNestedEngineEvaluationClock<K>::update_next_scheduled_evaluation_time(engine_time_t next_time) {
         auto &node_{*static_cast<TsdMapNode<K> *>(node().get())};
@@ -129,15 +129,16 @@ namespace hgraph
         auto child_owning_graph_id = node_id();
         child_owning_graph_id.push_back(-static_cast<int64_t>(count_++));
         auto graph_{
-            nested_graph_builder_->make_instance(child_owning_graph_id, this,
+            nested_graph_builder_->make_instance(child_owning_graph_id, this->shared_from_this(),
                                                  to_string(key))  // This will come back to haunt me :(
         };
 
         active_graphs_[key] = graph_;
 
-        graph_->set_evaluation_engine(new NestedEvaluationEngine(
+        nested_node_ptr nested_node_shared = std::static_pointer_cast<NestedNode>(this->shared_from_this());
+        graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
             graph()->evaluation_engine(),
-            new MapNestedEngineEvaluationClock<K>(graph()->evaluation_engine()->engine_evaluation_clock(), key, this)));
+            std::make_shared<MapNestedEngineEvaluationClock<K>>(graph()->evaluation_engine()->engine_evaluation_clock(), key, nested_node_shared)));
 
         initialise_component(*graph_);
 
@@ -209,14 +210,23 @@ namespace hgraph
                     // Since this is a multiplexed arg it must be of type K
 
                     // Re-parent the per-key input back to the TSD to detach it from the nested graph
-                    (*node->input())["ts"]->re_parent(ts);
+                    // Convert ts (nb::ref) to shared_ptr for re_parent
+                    auto ts_shared = ts->shared_from_this();
+                    (*node->input())["ts"]->re_parent(ts_shared);
 
                     // Create a new empty reference input to replace the old one in the node's input bundle
                     // This ensures the per-key input is fully detached before the nested graph is torn down
-                    auto empty_ref =
+                    auto empty_ref_raw =
                         dynamic_cast<TimeSeriesReferenceInput *>(node->input()->get_input(0))->clone_blank_ref_instance();
-                    node->reset_input(node->input()->copy_with(node, {empty_ref}));
-                    empty_ref->re_parent(node->input().get());
+                    // Convert raw pointer to shared_ptr
+                    time_series_reference_input_ptr empty_ref = std::shared_ptr<TimeSeriesReferenceInput>(
+                        empty_ref_raw, [](TimeSeriesReferenceInput*){});
+                    time_series_input_ptr empty_ref_shared = std::static_pointer_cast<TimeSeriesInput>(empty_ref);
+                    auto new_input_ref = node->input()->copy_with(node, {empty_ref_shared});
+                    time_series_bundle_input_ptr new_input = std::shared_ptr<TimeSeriesBundleInput>(
+                        new_input_ref.get(), [](TimeSeriesBundleInput*){});
+                    node->reset_input(new_input);
+                    empty_ref->re_parent(node->input());
 
                     // Align with Python: only clear upstream per-key state when the key is truly absent
                     // from the upstream key set (and that key set is valid). Do NOT clear during startup
@@ -245,13 +255,22 @@ namespace hgraph
                     auto &tsd      = dynamic_cast<TimeSeriesDictInput_T<K> &>(*ts);
                     auto  ts_value = tsd.get_or_create(key);
 
-                    node->reset_input(node->input()->copy_with(node, {ts_value}));
-                    ts_value->re_parent(node->input().get());
+                    // Convert ts_value (nb::ref) to shared_ptr for copy_with
+                    time_series_input_ptr ts_value_shared = ts_value->shared_from_this();
+                    auto new_input_ref = node->input()->copy_with(node, {ts_value_shared});
+                    time_series_bundle_input_ptr new_input = std::shared_ptr<TimeSeriesBundleInput>(
+                        new_input_ref.get(), [](TimeSeriesBundleInput*){});
+                    node->reset_input(new_input);
+                    ts_value->re_parent(node->input());
                 } else {
-                    auto ts          = dynamic_cast<TimeSeriesReferenceInput *>((*input())[arg].get());
+                    auto ts_raw      = dynamic_cast<TimeSeriesReferenceInput *>((*input())[arg].get());
                     auto inner_input = dynamic_cast<TimeSeriesReferenceInput *>((*node->input())["ts"].get());
 
-                    if (ts != nullptr && inner_input != nullptr) { inner_input->clone_binding(ts); }
+                    if (ts_raw != nullptr && inner_input != nullptr) {
+                        // clone_binding expects TimeSeriesReferenceInput::ptr (nb::ref)
+                        TimeSeriesReferenceInput::ptr ts_nb(ts_raw);
+                        inner_input->clone_binding(ts_nb);
+                    }
                 }
             }
         }
@@ -260,7 +279,9 @@ namespace hgraph
             auto  node       = graph->nodes()[output_node_id_];
             auto &output_tsd = tsd_output();
             auto  output_ts  = output_tsd.get_or_create(key);
-            node->set_output(output_ts.get());
+            // Convert output_ts (nb::ref) to shared_ptr for set_output
+            time_series_output_ptr output_ts_shared = output_ts->shared_from_this();
+            node->set_output(output_ts_shared);
         }
     }
 

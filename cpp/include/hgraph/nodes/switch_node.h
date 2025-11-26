@@ -13,7 +13,7 @@ namespace hgraph {
     template<typename K>
     struct SwitchNode;
     template<typename K>
-    using switch_node_ptr = nb::ref<SwitchNode<K> >;
+    using switch_node_ptr = std::shared_ptr<SwitchNode<K> >;
 
     template<typename K>
     struct SwitchNode : NestedNode {

@@ -190,6 +190,10 @@ namespace hgraph
                                 },
                                 {}} {}
 
+    template <typename T_Key>
+    TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const TimeSeriesOutput::ptr &parent)
+        : TimeSeriesSetOutput_T(std::static_pointer_cast<TimeSeriesType>(parent)) {}
+
     template <typename T_Key> nb::object TimeSeriesSetOutput_T<T_Key>::py_value() const {
         if (!_py_value.is_valid() || _py_value.is_none()) {
             nb::set v{};

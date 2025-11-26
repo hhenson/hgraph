@@ -124,9 +124,9 @@ namespace hgraph
     template <typename T_Key>
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_ptr ts_builder,
                                                           output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(parent), _key_set{new TimeSeriesSetOutput_T<T_Key>(this)}, _ts_builder{std::move(ts_builder)},
+        : TimeSeriesDictOutput(parent), _key_set{new TimeSeriesSetOutput_T<T_Key>(shared_from_this())}, _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
-          _ref_ts_feature{this,
+          _ref_ts_feature{shared_from_this(),
                           _ts_ref_builder,
                           [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const key_type &key) {
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
@@ -143,15 +143,15 @@ namespace hgraph
                               }
                           },
                           {}} {
-        _key_set->re_parent(this);
+        _key_set->re_parent(shared_from_this());
     }
 
     template <typename T_Key>
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
                                                           output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)), _key_set{new TimeSeriesSetOutput_T<T_Key>(this)},
+        : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)), _key_set{new TimeSeriesSetOutput_T<T_Key>(shared_from_this())},
           _ts_builder{std::move(ts_builder)}, _ts_ref_builder{std::move(ts_ref_builder)},
-          _ref_ts_feature{this,
+          _ref_ts_feature{shared_from_this(),
                           _ts_ref_builder,
                           [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const key_type &key) {
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
@@ -168,7 +168,7 @@ namespace hgraph
                               }
                           },
                           {}} {
-        _key_set->re_parent(this);
+        _key_set->re_parent(shared_from_this());
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_value(nb::object value) {
@@ -439,12 +439,12 @@ namespace hgraph
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{new typename TimeSeriesDictInput_T<T_Key>::key_set_type{this}},
+        : TimeSeriesDictInput(parent), _key_set{nb::ref<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(new typename TimeSeriesDictInput_T<T_Key>::key_set_type{shared_from_this()})},
           _ts_builder{ts_builder} {}
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const time_series_type_ptr &parent, input_builder_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{new typename TimeSeriesDictInput_T<T_Key>::key_set_type{this}},
+        : TimeSeriesDictInput(parent), _key_set{nb::ref<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(new typename TimeSeriesDictInput_T<T_Key>::key_set_type{std::static_pointer_cast<TimeSeriesType>(shared_from_this())})},
           _ts_builder{ts_builder} {}
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_peer() const { return _has_peer; }
@@ -614,7 +614,8 @@ namespace hgraph
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::on_key_added(const key_type &key) {
         auto value{get_or_create(key)};
-        value->bind_output(output_t()[key].get());
+        auto output_key = output_t()[key];
+        value->bind_output(output_key->shared_from_this());
     }
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::on_key_removed(const key_type &key) {
@@ -653,9 +654,8 @@ namespace hgraph
 
         // Peer when types match AND neither has references (matching Python logic)
         bool  peer = (is_same_type(value_output) || !(value_output->has_reference() || this->has_reference()));
-        auto *output_key_set{&value_output->key_set_t()};
-
-        key_set_t().bind_output(output_key_set);
+        auto &output_key_set_ref = value_output->key_set_t();
+        key_set_t().bind_output(output_key_set_ref.shared_from_this());
 
         if (owning_node()->is_started() && has_output()) {
             output_t().remove_key_observer(this);
@@ -666,7 +666,7 @@ namespace hgraph
 
         auto active_{active()};
         make_passive();  // Ensure we are unsubscribed from the old output while has_peer has the old value
-        set_output(value_output);
+        set_output(value->shared_from_this());
         _has_peer = peer;
 
         if (active_) { make_active(); }
@@ -889,7 +889,7 @@ namespace hgraph
     }
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::create(const key_type &key) {
-        auto item{_ts_builder->make_instance(this)};
+        auto item{_ts_builder->make_instance(shared_from_this(), nullptr, nullptr)};
         // For non-peered inputs that are active, make the newly created item active too
         // This ensures proper notification chain for fast non-peer TSD scenarios
         if (!has_peer() and active()) { item->make_active(); }

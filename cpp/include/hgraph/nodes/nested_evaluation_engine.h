@@ -13,7 +13,7 @@
 
 namespace hgraph {
     struct NestedNode;
-    using nested_node_ptr = nb::ref<NestedNode>;
+    using nested_node_ptr = std::shared_ptr<NestedNode>;
 
     struct NestedEngineEvaluationClock : EngineEvaluationClockDelegate {
         NestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock, nested_node_ptr nested_node);

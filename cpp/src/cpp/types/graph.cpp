@@ -39,7 +39,7 @@ namespace hgraph
 
     std::optional<std::string> Graph::label() const { return _label; }
 
-    EvaluationEngineApi::ptr Graph::evaluation_engine_api() { return _evaluation_engine.get(); }
+    EvaluationEngineApi::ptr Graph::evaluation_engine_api() { return std::static_pointer_cast<EvaluationEngineApi>(_evaluation_engine); }
 
     EvaluationClock::ptr Graph::evaluation_clock() { return _evaluation_engine->evaluation_clock(); }
 
@@ -47,7 +47,7 @@ namespace hgraph
 
     EngineEvaluationClock::ptr Graph::evaluation_engine_clock() { return _evaluation_engine->engine_evaluation_clock(); }
 
-    EvaluationEngine::ptr Graph::evaluation_engine() { return _evaluation_engine.get(); }
+    EvaluationEngine::ptr Graph::evaluation_engine() { return _evaluation_engine; }
 
     void Graph::set_evaluation_engine(EvaluationEngine::ptr value) {
         if (_evaluation_engine.get() != nullptr && value.get() != nullptr) {
@@ -161,7 +161,8 @@ namespace hgraph
 
     traits_ptr Graph::traits() const {
         // Return an aliasing shared_ptr that points to _traits but uses Graph's control block
-        return traits_ptr(shared_from_this(), &_traits);
+        // In a const method, we need to const_cast _traits to match the aliasing constructor signature
+        return std::shared_ptr<Traits>(shared_from_this(), const_cast<Traits*>(&_traits));
     }
 
     SenderReceiverState &Graph::receiver() { return _receiver; }

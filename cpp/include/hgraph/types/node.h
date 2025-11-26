@@ -271,8 +271,8 @@ namespace hgraph
         std::vector<nb::ref<TimeSeriesReferenceInput>> _start_inputs;
 
         // Cache for these calculated values.
-        std::vector<nb::ref<TimeSeriesInput>> _check_valid_inputs;
-        std::vector<nb::ref<TimeSeriesInput>> _check_all_valid_inputs;
+        std::vector<time_series_input_ptr> _check_valid_inputs;
+        std::vector<time_series_input_ptr> _check_all_valid_inputs;
 
         // Performance optimization: Cache evaluation time pointer from graph
         // Set once when graph is assigned to node, never changes

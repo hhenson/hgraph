@@ -166,10 +166,13 @@ namespace hgraph {
         GlobalState::set(key, nb::bool_(true)); // Write marker
 
         // Create the nested graph instance
-        m_active_graph_ = m_nested_graph_builder_->make_instance(node_id(), this, id_);
+        m_active_graph_ = m_nested_graph_builder_->make_instance(node_id(), shared_from_this(), id_);
         m_active_graph_->traits()->set_trait(RECORDABLE_ID_TRAIT, nb::cast(id_));
-        m_active_graph_->set_evaluation_engine(new NestedEvaluationEngine(
-            graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
+        // Convert node_ptr to nested_node_ptr (shared_ptr) for NestedEngineEvaluationClock
+        // Since ComponentNode inherits from NestedNode, we can use static_pointer_cast
+        nested_node_ptr nested_node_shared = std::static_pointer_cast<NestedNode>(shared_from_this());
+        m_active_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
+            graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock(), nested_node_shared)));
 
         // Initialize the graph
         initialise_component(*m_active_graph_);
@@ -181,11 +184,19 @@ namespace hgraph {
             node->notify();
 
             auto ts = (*input_bundle)[arg];
-            // Copy input with new parent
-            node->reset_input(node->input()->copy_with(node.get(), {ts.get()}));
+            // Convert nb::ref to shared_ptr for copy_with
+            // ts is IndexedTimeSeriesInput::ptr (nb::ref), but copy_with expects time_series_input_ptr (shared_ptr)
+            // We need to get a shared_ptr from the IndexedTimeSeriesInput
+            time_series_input_ptr ts_shared = ts->shared_from_this();
+            // Copy input with new parent - copy_with returns nb::ref, need to convert to shared_ptr
+            auto new_input_ref = node->input()->copy_with(node, {ts_shared});
+            // Create shared_ptr from the raw pointer, with a deleter that does nothing since nb::ref manages lifetime
+            TimeSeriesBundleInput* raw_ptr = new_input_ref.get();
+            time_series_bundle_input_ptr new_input(raw_ptr, [](TimeSeriesBundleInput*){});
+            node->reset_input(new_input);
 
             // Re-parent the ts input
-            ts->re_parent(node->input().get());
+            ts->re_parent(node->input());
         }
 
         // Wire outputs

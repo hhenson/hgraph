@@ -152,12 +152,13 @@ namespace hgraph {
                 ++count_;
                 std::vector<int64_t> new_node_id = node_id();
                 new_node_id.push_back(-count_);
-                active_graph_ = active_graph_builder_->make_instance(new_node_id, this, to_string(active_key_.value()));
+                active_graph_ = active_graph_builder_->make_instance(new_node_id, this->shared_from_this(), to_string(active_key_.value()));
 
                 // Set up evaluation engine
-                active_graph_->set_evaluation_engine(new NestedEvaluationEngine(
+                nested_node_ptr nested_node_shared = std::static_pointer_cast<NestedNode>(this->shared_from_this());
+                active_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
                     graph()->evaluation_engine(),
-                    new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
+                    std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock(), nested_node_shared)));
 
                 // Initialize and wire the new graph
                 initialise_component(*active_graph_);

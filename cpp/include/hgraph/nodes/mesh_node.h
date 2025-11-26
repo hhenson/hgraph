@@ -11,11 +11,11 @@ namespace hgraph
     void register_mesh_node_with_nanobind(nb::module_ &m);
 
     template <typename K> struct MeshNode;
-    template <typename K> using mesh_node_ptr = nb::ref<MeshNode<K>>;
+    template <typename K> using mesh_node_ptr = std::shared_ptr<MeshNode<K>>;
 
     template <typename K> struct MeshNestedEngineEvaluationClock : NestedEngineEvaluationClock
     {
-        MeshNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock, K key, mesh_node_ptr<K> nested_node);
+        MeshNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock, K key, nested_node_ptr nested_node);
 
         K key() const { return _key; }
 

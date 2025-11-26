@@ -41,7 +41,7 @@ namespace hgraph
 
     time_series_input_ptr TimeSeriesListRefInputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
         return make_instance_impl<TimeSeriesListReferenceInput, TimeSeriesInput>(
-            buffer, offset, "TimeSeriesListReferenceInput", owning_node.get(), value_builder, size);
+            buffer, offset, "TimeSeriesListReferenceInput", owning_node, value_builder, size);
     }
 
     time_series_input_ptr TimeSeriesListRefInputBuilder::make_instance(time_series_input_ptr owning_input, void* buffer, size_t* offset) const {
@@ -51,7 +51,7 @@ namespace hgraph
             throw std::runtime_error("TimeSeriesListRefInputBuilder: owning_input must be a TimeSeriesType");
         }
         return make_instance_impl<TimeSeriesListReferenceInput, TimeSeriesInput>(
-            buffer, offset, "TimeSeriesListReferenceInput", owning_ts.get(), value_builder, size);
+            buffer, offset, "TimeSeriesListReferenceInput", owning_ts, value_builder, size);
     }
 
     bool TimeSeriesListRefInputBuilder::is_same_type(const Builder &other) const {
@@ -83,7 +83,7 @@ namespace hgraph
 
     time_series_input_ptr TimeSeriesBundleRefInputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
         return make_instance_impl<TimeSeriesBundleReferenceInput, TimeSeriesInput>(
-            buffer, offset, "TimeSeriesBundleReferenceInput", owning_node.get(), field_builders, field_builders.size());
+            buffer, offset, "TimeSeriesBundleReferenceInput", owning_node, field_builders, field_builders.size());
     }
 
     time_series_input_ptr TimeSeriesBundleRefInputBuilder::make_instance(time_series_input_ptr owning_input, void* buffer, size_t* offset) const {
@@ -93,7 +93,7 @@ namespace hgraph
             throw std::runtime_error("TimeSeriesBundleRefInputBuilder: owning_input must be a TimeSeriesType");
         }
         return make_instance_impl<TimeSeriesBundleReferenceInput, TimeSeriesInput>(
-            buffer, offset, "TimeSeriesBundleReferenceInput", owning_ts.get(), field_builders, field_builders.size());
+            buffer, offset, "TimeSeriesBundleReferenceInput", owning_ts, field_builders, field_builders.size());
     }
 
     bool TimeSeriesBundleRefInputBuilder::is_same_type(const Builder &other) const {
@@ -228,7 +228,7 @@ namespace hgraph
 
     time_series_output_ptr TimeSeriesListRefOutputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
         return make_instance_impl<TimeSeriesListReferenceOutput, TimeSeriesOutput>(
-            buffer, offset, "TimeSeriesListReferenceOutput", owning_node.get(), value_builder, size);
+            buffer, offset, "TimeSeriesListReferenceOutput", owning_node, value_builder, size);
     }
 
     time_series_output_ptr TimeSeriesListRefOutputBuilder::make_instance(time_series_output_ptr owning_output, void* buffer, size_t* offset) const {
@@ -238,7 +238,7 @@ namespace hgraph
             throw std::runtime_error("TimeSeriesListRefOutputBuilder: owning_output must be a TimeSeriesType");
         }
         return make_instance_impl<TimeSeriesListReferenceOutput, TimeSeriesOutput>(
-            buffer, offset, "TimeSeriesListReferenceOutput", owning_ts.get(), value_builder, size);
+            buffer, offset, "TimeSeriesListReferenceOutput", owning_ts, value_builder, size);
     }
 
     bool TimeSeriesListRefOutputBuilder::is_same_type(const Builder &other) const {
@@ -270,7 +270,7 @@ namespace hgraph
 
     time_series_output_ptr TimeSeriesBundleRefOutputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
         return make_instance_impl<TimeSeriesBundleReferenceOutput, TimeSeriesOutput>(
-            buffer, offset, "TimeSeriesBundleReferenceOutput", owning_node.get(), field_builders, field_builders.size());
+            buffer, offset, "TimeSeriesBundleReferenceOutput", owning_node, field_builders, field_builders.size());
     }
 
     time_series_output_ptr TimeSeriesBundleRefOutputBuilder::make_instance(time_series_output_ptr owning_output, void* buffer, size_t* offset) const {
@@ -280,7 +280,7 @@ namespace hgraph
             throw std::runtime_error("TimeSeriesBundleRefOutputBuilder: owning_output must be a TimeSeriesType");
         }
         return make_instance_impl<TimeSeriesBundleReferenceOutput, TimeSeriesOutput>(
-            buffer, offset, "TimeSeriesBundleReferenceOutput", owning_ts.get(), field_builders, field_builders.size());
+            buffer, offset, "TimeSeriesBundleReferenceOutput", owning_ts, field_builders, field_builders.size());
     }
 
     bool TimeSeriesBundleRefOutputBuilder::is_same_type(const Builder &other) const {

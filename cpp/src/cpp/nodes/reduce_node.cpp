@@ -55,7 +55,8 @@ namespace hgraph {
 
     template<typename K>
     time_series_reference_input_ptr ReduceNode<K>::zero() {
-        return dynamic_cast<TimeSeriesReferenceInput *>((*input())[1].get());
+        auto ref_input = (*input())[1];
+        return std::dynamic_pointer_cast<TimeSeriesReferenceInput>(ref_input->shared_from_this());
     }
 
     template<typename K>
@@ -63,9 +64,11 @@ namespace hgraph {
         //TODO: If this graph escapes into python we will need to look into providing
         //      an actual control block this may also need to be constructed from
         //      the builder.
-        nested_graph_ = new Graph(std::vector<int64_t>{node_ndx()}, std::vector<node_ptr>{}, this, "", new Traits());
-        nested_graph_->set_evaluation_engine(new NestedEvaluationEngine(
-            graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
+        Traits traits = Traits(nullptr);
+        nested_graph_ = std::make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_ptr>{}, this->shared_from_this(), "", std::move(traits));
+        nested_node_ptr nested_node_shared = std::static_pointer_cast<NestedNode>(this->shared_from_this());
+        nested_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
+            graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock(), nested_node_shared)));
         initialise_component(*nested_graph_);
     }
 
@@ -210,13 +213,21 @@ namespace hgraph {
         auto dst_input = (*dst_node->input())[0];
 
         // Swap the inputs by creating new input bundles
-        src_node->reset_input(src_node->input()->copy_with(src_node.get(), {dst_input.get()}));
-        dst_node->reset_input(dst_node->input()->copy_with(dst_node.get(), {src_input.get()}));
+        // Convert nb::ref to shared_ptr for copy_with
+        time_series_input_ptr src_input_shared = src_input->shared_from_this();
+        time_series_input_ptr dst_input_shared = dst_input->shared_from_this();
+        auto new_src_input_ref = src_node->input()->copy_with(src_node, {dst_input_shared});
+        auto new_dst_input_ref = dst_node->input()->copy_with(dst_node, {src_input_shared});
+        time_series_bundle_input_ptr new_src_input = std::shared_ptr<TimeSeriesBundleInput>(
+            new_src_input_ref.get(), [](TimeSeriesBundleInput*){});
+        time_series_bundle_input_ptr new_dst_input = std::shared_ptr<TimeSeriesBundleInput>(
+            new_dst_input_ref.get(), [](TimeSeriesBundleInput*){});
+        src_node->reset_input(new_src_input);
+        dst_node->reset_input(new_dst_input);
 
         // Re-parent the inputs to their new parent bundles (CRITICAL FIX - Python lines 159-160)
-        // Cast to TimeSeriesType::ptr for re_parent
-        dst_input->re_parent(src_node->input().get());
-        src_input->re_parent(dst_node->input().get());
+        dst_input->re_parent(src_node->input());
+        src_input->re_parent(dst_node->input());
 
         src_node->notify();
         dst_node->notify();
@@ -283,8 +294,10 @@ namespace hgraph {
             auto lhs_input = sub_graph[std::get < 0 > (input_node_ids_)];
             auto rhs_input = sub_graph[std::get < 1 > (input_node_ids_)];
 
-            dynamic_cast<TimeSeriesInput &>(*(*lhs_input->input())[0]).bind_output(left_parent.get());
-            dynamic_cast<TimeSeriesInput &>(*(*rhs_input->input())[0]).bind_output(right_parent.get());
+            auto lhs_ts = (*lhs_input->input())[0];
+            auto rhs_ts = (*rhs_input->input())[0];
+            lhs_ts->bind_output(left_parent);
+            rhs_ts->bind_output(right_parent);
 
             lhs_input->notify();
             rhs_input->notify();
@@ -350,10 +363,15 @@ namespace hgraph {
         }
 
         // Create new input bundle with the ts (Python line 198)
-        node->reset_input(node->input()->copy_with(node.get(), {ts_.get()}));
+        // Convert nb::ref to shared_ptr for copy_with
+        time_series_input_ptr ts_shared = ts_->shared_from_this();
+        auto new_input_ref = node->input()->copy_with(node, {ts_shared});
+        time_series_bundle_input_ptr new_input = std::shared_ptr<TimeSeriesBundleInput>(
+            new_input_ref.get(), [](TimeSeriesBundleInput*){});
+        node->reset_input(new_input);
 
         // Re-parent the ts to the node's input (CRITICAL FIX - Python line 200)
-        ts_->re_parent(node->input().get());
+        ts_->re_parent(node->input());
 
         // Make the time series active (CRITICAL FIX - Python line 201)
         ts_->make_active();
@@ -407,19 +425,36 @@ namespace hgraph {
             // 2. Re-parent it back to the TSD for cleanup
             // 3. Create a new unbound reference input for this node with the same specialized type as zero()
             bound_to_key_flags_.erase(inner_input.get());
-            inner_input->re_parent(ts().get());
+            // Convert ts() (nb::ref) to shared_ptr for re_parent
+            auto ts_shared = ts()->shared_from_this();
+            inner_input->re_parent(ts_shared);
 
             // Clone the specialized type from zero() instead of creating a base type
             auto zero_ref = zero();
-            auto new_ref_input = zero_ref->clone_blank_ref_instance();
-            node->reset_input(node->input()->copy_with(node.get(), {new_ref_input}));
-            new_ref_input->re_parent(node->input().get());
-            new_ref_input->clone_binding(zero_ref);
+            auto new_ref_input_raw = zero_ref->clone_blank_ref_instance();
+            // Convert raw pointer to shared_ptr
+            time_series_reference_input_ptr new_ref_input = std::shared_ptr<TimeSeriesReferenceInput>(
+                new_ref_input_raw, [](TimeSeriesReferenceInput*){});
+            time_series_input_ptr new_ref_input_shared = std::static_pointer_cast<TimeSeriesInput>(new_ref_input);
+            auto new_input_ref = node->input()->copy_with(node, {new_ref_input_shared});
+            time_series_bundle_input_ptr new_input = std::shared_ptr<TimeSeriesBundleInput>(
+                new_input_ref.get(), [](TimeSeriesBundleInput*){});
+            node->reset_input(new_input);
+            new_ref_input->re_parent(node->input());
+            // clone_binding expects TimeSeriesReferenceInput::ptr (nb::ref), but zero_ref is shared_ptr
+            // Since TimeSeriesReferenceInput still uses nb::ref, we need to get the nb::ref from the shared_ptr
+            // The object should be managed by nanobind, so we can create an nb::ref from the raw pointer
+            TimeSeriesReferenceInput::ptr zero_ref_nb(zero_ref.get());
+            new_ref_input->clone_binding(zero_ref_nb);
         } else {
             // This input is not bound to a key (it's an unbound reference we created),
             // so we can just clone the zero binding without creating a new input
             auto inner_ref = dynamic_cast<TimeSeriesReferenceInput *>(inner_input.get());
-            inner_ref->clone_binding(zero());
+            // clone_binding expects TimeSeriesReferenceInput::ptr (nb::ref), but zero() returns shared_ptr
+            // Since TimeSeriesReferenceInput still uses nb::ref, we need to get the nb::ref from the shared_ptr
+            auto zero_ref_shared = zero();
+            TimeSeriesReferenceInput::ptr zero_ref_nb(zero_ref_shared.get());
+            inner_ref->clone_binding(zero_ref_nb);
         }
 
         node->notify();

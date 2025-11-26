@@ -37,11 +37,17 @@ namespace hgraph {
                 // Fetch the outer time-series input to be passed into the inner node as its 'ts'
                 auto ts = (*input())[arg];
 
+                // Convert nb::ref to shared_ptr for copy_with
+                time_series_input_ptr ts_shared = ts->shared_from_this();
                 // Replace the inner node's input with a copy that uses the outer ts and is owned by the inner node
-                node->reset_input(node->input()->copy_with(node.get(), {ts.get()}));
+                // copy_with returns nb::ref, need to convert to shared_ptr
+                auto new_input_ref = node->input()->copy_with(node, {ts_shared});
+                time_series_bundle_input_ptr new_input = std::shared_ptr<TimeSeriesBundleInput>(
+                    new_input_ref.get(), [](TimeSeriesBundleInput*){});
+                node->reset_input(new_input);
 
                 // Re-parent the provided ts so its parent container becomes the inner node's input bundle
-                ts->re_parent(node->input().get());
+                ts->re_parent(node->input());
             }
         }
     }
@@ -55,9 +61,10 @@ namespace hgraph {
     }
 
     void NestedGraphNode::initialise() {
-        m_active_graph_ = m_nested_graph_builder_->make_instance(node_id(), this, signature().name);
-        m_active_graph_->set_evaluation_engine(new NestedEvaluationEngine(
-            graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
+        m_active_graph_ = m_nested_graph_builder_->make_instance(node_id(), this->shared_from_this(), signature().name);
+        nested_node_ptr nested_node_shared = std::static_pointer_cast<NestedNode>(this->shared_from_this());
+        m_active_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
+            graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock(), nested_node_shared)));
         initialise_component(*m_active_graph_);
         wire_graph();
     }

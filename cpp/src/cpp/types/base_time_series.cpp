@@ -94,11 +94,11 @@ namespace hgraph {
     void BaseTimeSeriesOutput::invalidate() { mark_invalid(); }
 
     TimeSeriesOutput::ptr BaseTimeSeriesOutput::parent_output() const {
-        return static_cast<TimeSeriesOutput *>(_parent_time_series().get()); // NOLINT(*-pro-type-static-cast-downcast)
+        return std::static_pointer_cast<TimeSeriesOutput>(_parent_time_series());
     }
 
     TimeSeriesOutput::ptr BaseTimeSeriesOutput::parent_output() {
-        return static_cast<TimeSeriesOutput *>(_parent_time_series().get()); // NOLINT(*-pro-type-static-cast-downcast)
+        return std::static_pointer_cast<TimeSeriesOutput>(_parent_time_series());
     }
 
     bool BaseTimeSeriesOutput::has_parent_output() const { return _has_parent_time_series(); }
@@ -264,7 +264,7 @@ namespace hgraph {
     }
 
     TimeSeriesInput::ptr BaseTimeSeriesInput::parent_input() const {
-        return static_cast<TimeSeriesInput *>(_parent_time_series().get()); // NOLINT(*-pro-type-static-cast-downcast)
+        return std::static_pointer_cast<TimeSeriesInput>(_parent_time_series());
     }
 
     bool BaseTimeSeriesInput::has_parent_input() const { return _has_parent_time_series(); }
@@ -289,8 +289,8 @@ namespace hgraph {
             // Is a TimeseriesReferenceOutput
             // Match Python behavior: only check if value exists (truthy), bind if it does
             if (ref_output->valid() && ref_output->has_value()) { ref_output->value().bind_input(*this); }
-            ref_output->observe_reference(this);
-            _reference_output = ref_output;
+            ref_output->observe_reference(shared_from_this());
+            _reference_output = std::static_pointer_cast<TimeSeriesReferenceOutput>(output_);
             peer = false;
         } else {
             if (output_ == _output) { return has_peer(); }
@@ -319,7 +319,7 @@ namespace hgraph {
 
         // Handle reference output unbinding conditionally based on unbind_refs parameter
         if (unbind_refs && _reference_output != nullptr) {
-            _reference_output->stop_observing_reference(this);
+            _reference_output->stop_observing_reference(shared_from_this());
             _reference_output.reset();
         }
 
@@ -416,7 +416,7 @@ namespace hgraph {
         }
         _active = false;
         if (_reference_output != nullptr) {
-            _reference_output->stop_observing_reference(this);
+            _reference_output->stop_observing_reference(shared_from_this());
             _reference_output.reset();
         }
         _output = nullptr;

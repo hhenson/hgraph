@@ -65,7 +65,7 @@ namespace hgraph
     void TimeSeriesReference::destroy() noexcept {
         switch (_kind) {
             case Kind::EMPTY: break;
-            case Kind::BOUND: _storage.bound.~ref(); break;
+            case Kind::BOUND: _storage.bound.~shared_ptr(); break;
             case Kind::UNBOUND: _storage.unbound.~vector(); break;
         }
     }
@@ -467,10 +467,10 @@ namespace hgraph
     }
 
     // TimeSeriesListReferenceInput - REF[TSL[...]]
-    TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(Node *owning_node, InputBuilder::ptr value_builder, size_t size)
+    TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(const node_ptr &owning_node, InputBuilder::ptr value_builder, size_t size)
         : TimeSeriesReferenceInput(owning_node), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(TimeSeriesType *parent_input, InputBuilder::ptr value_builder,
+    TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(const TimeSeriesType::ptr &parent_input, InputBuilder::ptr value_builder,
                                                                size_t size)
         : TimeSeriesReferenceInput(parent_input), _value_builder(std::move(value_builder)), _size(size) {}
 
@@ -577,9 +577,13 @@ namespace hgraph
             _items->reserve(_size);
             if (_items->empty()) {
                 for (size_t i = 0; i < _size; ++i) {
-                    auto new_item = _value_builder->make_instance(this);
+                    auto new_item = _value_builder->make_instance(shared_from_this(), nullptr, nullptr);
                     if (active()) { new_item->make_active(); }
-                    _items->push_back({dynamic_cast<TimeSeriesReferenceInput *>(new_item.get())});
+                    // Convert shared_ptr to nb::ref for _items
+                    TimeSeriesReferenceInput* new_item_raw = dynamic_cast<TimeSeriesReferenceInput *>(new_item.get());
+                    if (new_item_raw) {
+                        _items->push_back(nb::ref<TimeSeriesReferenceInput>(new_item_raw));
+                    }
                 }
             }
         }
@@ -587,11 +591,11 @@ namespace hgraph
     }
 
     // TimeSeriesBundleReferenceInput - REF[TSB[...]]
-    TimeSeriesBundleReferenceInput::TimeSeriesBundleReferenceInput(Node *owning_node, std::vector<InputBuilder::ptr> value_builders,
+    TimeSeriesBundleReferenceInput::TimeSeriesBundleReferenceInput(const node_ptr &owning_node, std::vector<InputBuilder::ptr> value_builders,
                                                                    size_t size)
         : TimeSeriesReferenceInput(owning_node), _value_builders(std::move(value_builders)), _size(size), _items{} {}
 
-    TimeSeriesBundleReferenceInput::TimeSeriesBundleReferenceInput(TimeSeriesType                *parent_input,
+    TimeSeriesBundleReferenceInput::TimeSeriesBundleReferenceInput(const TimeSeriesType::ptr &parent_input,
                                                                    std::vector<InputBuilder::ptr> value_builders, size_t size)
         : TimeSeriesReferenceInput(parent_input), _value_builders(std::move(value_builders)), _size(size) {}
 
@@ -693,9 +697,13 @@ namespace hgraph
             _items->reserve(_size);
             if (_items->empty()) {
                 for (size_t i = 0; i < _size; ++i) {
-                    auto new_item = _value_builders[i]->make_instance(this);
+                    auto new_item = _value_builders[i]->make_instance(shared_from_this(), nullptr, nullptr);
                     if (active()) { new_item->make_active(); }
-                    _items->push_back({dynamic_cast<TimeSeriesReferenceInput *>(new_item.get())});
+                    // Convert shared_ptr to nb::ref for _items
+                    TimeSeriesReferenceInput* new_item_raw = dynamic_cast<TimeSeriesReferenceInput *>(new_item.get());
+                    if (new_item_raw) {
+                        _items->push_back(nb::ref<TimeSeriesReferenceInput>(new_item_raw));
+                    }
                 }
             }
         }
@@ -719,19 +727,19 @@ namespace hgraph
     // ============================================================
 
     // TimeSeriesListReferenceOutput - REF[TSL[...]]
-    TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(Node *owning_node, OutputBuilder::ptr value_builder, size_t size)
+    TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(const node_ptr &owning_node, OutputBuilder::ptr value_builder, size_t size)
         : TimeSeriesReferenceOutput(owning_node), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(TimeSeriesType *parent_output, OutputBuilder::ptr value_builder,
+    TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(const TimeSeriesType::ptr &parent_output, OutputBuilder::ptr value_builder,
                                                                  size_t size)
         : TimeSeriesReferenceOutput(parent_output), _value_builder(std::move(value_builder)), _size(size) {}
 
     // TimeSeriesBundleReferenceOutput - REF[TSB[...]]
-    TimeSeriesBundleReferenceOutput::TimeSeriesBundleReferenceOutput(Node                           *owning_node,
+    TimeSeriesBundleReferenceOutput::TimeSeriesBundleReferenceOutput(const node_ptr &owning_node,
                                                                      std::vector<OutputBuilder::ptr> value_builder, size_t size)
         : TimeSeriesReferenceOutput(owning_node), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesBundleReferenceOutput::TimeSeriesBundleReferenceOutput(TimeSeriesType                 *parent_output,
+    TimeSeriesBundleReferenceOutput::TimeSeriesBundleReferenceOutput(const TimeSeriesType::ptr &parent_output,
                                                                      std::vector<OutputBuilder::ptr> value_builder, size_t size)
         : TimeSeriesReferenceOutput(parent_output), _value_builder(std::move(value_builder)), _size(size) {}
 

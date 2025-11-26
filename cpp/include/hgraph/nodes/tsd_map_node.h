@@ -10,11 +10,11 @@ namespace hgraph
     void register_tsd_map_with_nanobind(nb::module_ &m);
 
     template <typename K> struct TsdMapNode;
-    template <typename K> using tsd_map_node_ptr = nb::ref<TsdMapNode<K>>;
+    template <typename K> using tsd_map_node_ptr = std::shared_ptr<TsdMapNode<K>>;
 
     template <typename K> struct MapNestedEngineEvaluationClock : NestedEngineEvaluationClock
     {
-        MapNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock, K key, tsd_map_node_ptr<K> nested_node);
+        MapNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock, K key, nested_node_ptr nested_node);
 
         void update_next_scheduled_evaluation_time(engine_time_t next_time) override;
 

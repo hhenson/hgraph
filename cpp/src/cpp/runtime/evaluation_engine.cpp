@@ -408,7 +408,7 @@ namespace hgraph {
 
     engine_time_t EvaluationEngineImpl::end_time() const { return _end_time; }
 
-    EvaluationClock::ptr EvaluationEngineImpl::evaluation_clock() { return _clock.get(); }
+    EvaluationClock::ptr EvaluationEngineImpl::evaluation_clock() { return std::static_pointer_cast<EvaluationClock>(_clock); }
 
     void EvaluationEngineImpl::request_engine_stop() { _stop_requested = true; }
 
