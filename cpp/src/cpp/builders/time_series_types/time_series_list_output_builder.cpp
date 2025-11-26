@@ -14,7 +14,8 @@ namespace hgraph {
     time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
         auto result = make_instance_impl<TimeSeriesListOutput, TimeSeriesOutput>(
             buffer, offset, "TimeSeriesListOutput", owning_node);
-        return make_and_set_outputs(result.get(), buffer, offset);
+        auto list_output = std::static_pointer_cast<TimeSeriesListOutput>(result);
+        return make_and_set_outputs(list_output, buffer, offset);
     }
 
     time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(time_series_output_ptr owning_output, void* buffer, size_t* offset) const {
@@ -25,7 +26,8 @@ namespace hgraph {
         }
         auto result = make_instance_impl<TimeSeriesListOutput, TimeSeriesOutput>(
             buffer, offset, "TimeSeriesListOutput", owning_ts);
-        return make_and_set_outputs(result.get(), buffer, offset);
+        auto list_output = std::static_pointer_cast<TimeSeriesListOutput>(result);
+        return make_and_set_outputs(list_output, buffer, offset);
     }
 
     bool TimeSeriesListOutputBuilder::is_same_type(const Builder &other) const {
@@ -43,15 +45,14 @@ namespace hgraph {
         }
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_and_set_outputs(TimeSeriesListOutput *output, void* buffer, size_t* offset) const {
+    time_series_output_ptr TimeSeriesListOutputBuilder::make_and_set_outputs(std::shared_ptr<TimeSeriesListOutput> output, void* buffer, size_t* offset) const {
         std::vector<time_series_output_ptr> outputs;
         outputs.reserve(size);
-        time_series_output_ptr output_ptr{output, output->owning_graph()->control_block()};
         for (size_t i = 0; i < size; ++i) { 
-            outputs.push_back(output_builder->make_instance(output_ptr, buffer, offset)); 
+            outputs.push_back(output_builder->make_instance(output, buffer, offset)); 
         }
         output->set_ts_values(outputs);
-        return output_ptr;
+        return output;
     }
 
     size_t TimeSeriesListOutputBuilder::memory_size() const {

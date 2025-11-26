@@ -98,7 +98,7 @@ namespace hgraph
         return PyGraph(ApiPtr<Graph>(g.get(), g->control_block()));
     }
 
-    nb::object PyGraph::traits() const { return wrap_traits(_impl->traits().get(), _impl.control_block()); }
+    nb::object PyGraph::traits() const { return wrap_traits(_impl->traits()); }
 
     SenderReceiverState &PyGraph::receiver() { return _impl->receiver(); }
 

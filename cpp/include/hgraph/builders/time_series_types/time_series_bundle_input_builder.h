@@ -29,7 +29,7 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
 
     private:
-        time_series_input_ptr make_and_set_inputs(TimeSeriesBundleInput *input, void* buffer, size_t* offset) const;
+        time_series_input_ptr make_and_set_inputs(std::shared_ptr<TimeSeriesBundleInput> input, void* buffer, size_t* offset) const;
 
         time_series_schema_ptr schema;
         std::vector<InputBuilder::ptr> input_builders;

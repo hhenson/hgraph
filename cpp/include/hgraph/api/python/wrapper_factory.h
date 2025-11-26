@@ -47,6 +47,7 @@ namespace hgraph
      * Creates and caches new wrapper if not.
      */
     nb::object wrap_traits(const hgraph::Traits *impl, const control_block_ptr &control_block);
+    nb::object wrap_traits(const traits_ptr &traits);
 
     /**
      * Wrap a NodeScheduler pointer in a PyNodeScheduler.

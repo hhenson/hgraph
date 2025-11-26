@@ -16,7 +16,8 @@ namespace hgraph {
     time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
         auto result = make_instance_impl<TimeSeriesBundleInput, TimeSeriesInput>(
             buffer, offset, "TimeSeriesBundleInput", owning_node, schema);
-        return make_and_set_inputs(result.get(), buffer, offset);
+        auto bundle_input = std::static_pointer_cast<TimeSeriesBundleInput>(result);
+        return make_and_set_inputs(bundle_input, buffer, offset);
     }
 
     time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(time_series_input_ptr owning_input, void* buffer, size_t* offset) const {
@@ -27,7 +28,8 @@ namespace hgraph {
         }
         auto result = make_instance_impl<TimeSeriesBundleInput, TimeSeriesInput>(
             buffer, offset, "TimeSeriesBundleInput", owning_ts, schema);
-        return make_and_set_inputs(result.get(), buffer, offset);
+        auto bundle_input = std::static_pointer_cast<TimeSeriesBundleInput>(result);
+        return make_and_set_inputs(bundle_input, buffer, offset);
     }
 
     bool TimeSeriesBundleInputBuilder::has_reference() const {
@@ -54,16 +56,15 @@ namespace hgraph {
         }
     }
 
-    time_series_input_ptr TimeSeriesBundleInputBuilder::make_and_set_inputs(TimeSeriesBundleInput *input, void* buffer, size_t* offset) const {
+    time_series_input_ptr TimeSeriesBundleInputBuilder::make_and_set_inputs(std::shared_ptr<TimeSeriesBundleInput> input, void* buffer, size_t* offset) const {
         std::vector<time_series_input_ptr> inputs;
-        time_series_input_ptr input_{input, input->owning_graph()->control_block()};
         inputs.reserve(input_builders.size());
         std::ranges::copy(input_builders | std::views::transform([&](auto &builder) {
-                              return builder->make_instance(input_, buffer, offset);
+                              return builder->make_instance(input, buffer, offset);
                           }),
                           std::back_inserter(inputs));
         input->set_ts_values(inputs);
-        return input_;
+        return input;
     }
 
     size_t TimeSeriesBundleInputBuilder::memory_size() const {

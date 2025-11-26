@@ -150,7 +150,7 @@ namespace hgraph
 
         // Get the fully qualified recordable ID
         nb::object  fq_recordable_id_fn = get_fq_recordable_id_fn();
-        nb::object  traits_obj       = wrap_traits(graph()->traits(), graph()->control_block());  // nb::cast(&(graph()->traits()));
+        nb::object  traits_obj       = wrap_traits(graph()->traits());  // nb::cast(&(graph()->traits()));
         std::string record_replay_id = signature().record_replay_id.value_or("");
         nb::object  recordable_id    = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
 

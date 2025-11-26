@@ -27,7 +27,7 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
 
     private:
-        time_series_output_ptr make_and_set_outputs(TimeSeriesBundleOutput *output, void* buffer, size_t* offset) const;
+        time_series_output_ptr make_and_set_outputs(std::shared_ptr<TimeSeriesBundleOutput> output, void* buffer, size_t* offset) const;
 
         time_series_schema_ptr schema;
         std::vector<OutputBuilder::ptr> output_builders;

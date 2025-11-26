@@ -12,6 +12,8 @@
 #include <nanobind/nanobind.h>
 #include <string>
 
+namespace nb = nanobind;
+
 namespace hgraph {
     struct NodeSignature;
     using node_signature_ptr = std::shared_ptr<NodeSignature>;
@@ -84,7 +86,7 @@ namespace hgraph {
     using time_series_set_output_ptr = std::shared_ptr<TimeSeriesSetOutput>;
 
     struct TimeSeriesSchema;
-    using time_series_schema_ptr = std::shared_ptr<TimeSeriesSchema>;
+    using time_series_schema_ptr = nb::ref<TimeSeriesSchema>;
 
     using c_string_ref = std::reference_wrapper<const std::string>;
 

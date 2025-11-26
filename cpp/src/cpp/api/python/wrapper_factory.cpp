@@ -638,4 +638,10 @@ namespace hgraph
         return nb::cast(PyTraits(std::move(api_ptr)));
     }
 
+    nb::object wrap_traits(const traits_ptr &traits) {
+        if (!traits) { return nb::none(); }
+        PyTraits::api_ptr api_ptr(traits);
+        return nb::cast(PyTraits(std::move(api_ptr)));
+    }
+
 }  // namespace hgraph

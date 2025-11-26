@@ -14,7 +14,8 @@ namespace hgraph {
     time_series_input_ptr TimeSeriesListInputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
         auto result = make_instance_impl<TimeSeriesListInput, TimeSeriesInput>(
             buffer, offset, "TimeSeriesListInput", owning_node);
-        return make_and_set_inputs(result.get(), buffer, offset);
+        auto list_input = std::static_pointer_cast<TimeSeriesListInput>(result);
+        return make_and_set_inputs(list_input, buffer, offset);
     }
 
     time_series_input_ptr TimeSeriesListInputBuilder::make_instance(time_series_input_ptr owning_input, void* buffer, size_t* offset) const {
@@ -25,7 +26,8 @@ namespace hgraph {
         }
         auto result = make_instance_impl<TimeSeriesListInput, TimeSeriesInput>(
             buffer, offset, "TimeSeriesListInput", owning_ts);
-        return make_and_set_inputs(result.get(), buffer, offset);
+        auto list_input = std::static_pointer_cast<TimeSeriesListInput>(result);
+        return make_and_set_inputs(list_input, buffer, offset);
     }
 
     bool TimeSeriesListInputBuilder::has_reference() const { return input_builder->has_reference(); }
@@ -45,15 +47,14 @@ namespace hgraph {
         for (auto &value: list->_ts_values) { input_builder->release_instance(value); }
     }
 
-    time_series_input_ptr TimeSeriesListInputBuilder::make_and_set_inputs(TimeSeriesListInput *input, void* buffer, size_t* offset) const {
+    time_series_input_ptr TimeSeriesListInputBuilder::make_and_set_inputs(std::shared_ptr<TimeSeriesListInput> input, void* buffer, size_t* offset) const {
         std::vector<time_series_input_ptr> inputs;
         inputs.reserve(size);
-        time_series_input_ptr input_ptr{input, input->owning_graph()->control_block()};
         for (size_t i = 0; i < size; ++i) { 
-            inputs.push_back(input_builder->make_instance(input_ptr, buffer, offset)); 
+            inputs.push_back(input_builder->make_instance(input, buffer, offset)); 
         }
         input->set_ts_values(inputs);
-        return input_ptr;
+        return input;
     }
 
     size_t TimeSeriesListInputBuilder::memory_size() const {
