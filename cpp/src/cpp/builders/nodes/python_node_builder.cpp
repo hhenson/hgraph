@@ -18,7 +18,8 @@ namespace hgraph {
           eval_fn{std::move(eval_fn)}, start_fn{std::move(start_fn)}, stop_fn{std::move(stop_fn)} {
     }
 
-    node_ptr PythonNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
+    node_ptr PythonNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx,
+                                               void* buffer, size_t* offset) const {
         // Copy eval_fn if it's not a plain function (e.g., KeyStubEvalFn instance)
         // This matches Python: eval_fn=self.eval_fn if isfunction(self.eval_fn) else copy(self.eval_fn)
         nb::callable eval_fn_to_use = eval_fn;
@@ -33,20 +34,77 @@ namespace hgraph {
             eval_fn_to_use = nb::cast<nb::callable>(copy_module.attr("copy")(eval_fn));
         }
 
-        // If this is a push-queue node, build a PushQueueNode so the runtime can receive external messages
-        if (signature->is_push_source_node()) {
-            nb::ref<Node> node{new PushQueueNode{node_ndx, owning_graph_id, signature, scalars}};
-            _build_inputs_and_outputs(node);
-            // Provide the eval function so the node can expose a sender in start()
-            dynamic_cast<PushQueueNode &>(*node).set_eval_fn(eval_fn_to_use);
-            return node;
+        node_ptr node;
+        
+        if (buffer != nullptr && offset != nullptr) {
+            // Arena allocation: construct in-place
+            char* buf = static_cast<char*>(buffer);
+            
+            // Construct Node in-place
+            Node* node_ptr_raw = nullptr;
+            if (signature->is_push_source_node()) {
+                size_t node_size = sizeof(PushQueueNode);
+                size_t aligned_node_size = align_size(node_size, alignof(size_t));
+                // Set canary BEFORE construction
+                if (arena_debug_mode) {
+                    size_t* canary_ptr = reinterpret_cast<size_t*>(buf + *offset + aligned_node_size);
+                    *canary_ptr = ARENA_CANARY_PATTERN;
+                }
+                // Now construct the object
+                node_ptr_raw = new (buf + *offset) PushQueueNode{node_ndx, owning_graph_id, signature, scalars};
+                // Immediately check canary after construction
+                verify_canary(node_ptr_raw, sizeof(PushQueueNode), "PushQueueNode");
+                *offset += add_canary_size(sizeof(PushQueueNode));
+                // Provide the eval function so the node can expose a sender in start()
+                dynamic_cast<PushQueueNode &>(*node_ptr_raw).set_eval_fn(eval_fn_to_use);
+            } else {
+                size_t node_size = sizeof(PythonNode);
+                size_t aligned_node_size = align_size(node_size, alignof(size_t));
+                // Set canary BEFORE construction
+                if (arena_debug_mode) {
+                    size_t* canary_ptr = reinterpret_cast<size_t*>(buf + *offset + aligned_node_size);
+                    *canary_ptr = ARENA_CANARY_PATTERN;
+                }
+                // Now construct the object
+                node_ptr_raw = new (buf + *offset) PythonNode{node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn};
+                // Immediately check canary after construction
+                verify_canary(node_ptr_raw, sizeof(PythonNode), "PythonNode");
+                *offset += add_canary_size(sizeof(PythonNode));
+            }
+            
+            // Get shared_ptr using shared_from_this (Node needs graph to be set first for this to work)
+            // Actually, we need to set the graph first, then we can use shared_from_this
+            // But we don't have the graph yet at this point. We'll need to return a raw pointer
+            // and create the shared_ptr later, or we need to pass the graph control block.
+            // For now, let's create an aliasing shared_ptr using the graph's control block
+            // But we don't have the graph yet. Let's use a different approach:
+            // We'll need to set the graph on the node first, then use shared_from_this
+            // Actually, the graph will be set later in GraphBuilder, so we can't use shared_from_this yet.
+            // We need to pass the graph's control block or create the shared_ptr later.
+            // For now, let's create a temporary shared_ptr that will be replaced when graph is set
+            // Actually, let's just return a shared_ptr created with a no-op deleter for now
+            // The actual lifetime is managed by the arena
+            node = std::shared_ptr<Node>(node_ptr_raw, [](Node*){ /* no-op, arena manages lifetime */ });
+            
+            // Build inputs and outputs in-place
+            _build_inputs_and_outputs(node, buffer, offset);
+        } else {
+            // Heap allocation (legacy path)
+            if (signature->is_push_source_node()) {
+                nb::ref<Node> node_ref{new PushQueueNode{node_ndx, owning_graph_id, signature, scalars}};
+                _build_inputs_and_outputs(node_ref);
+                // Provide the eval function so the node can expose a sender in start()
+                dynamic_cast<PushQueueNode &>(*node_ref).set_eval_fn(eval_fn_to_use);
+                node = node_ref;
+            } else {
+                nb::ref<Node> node_ref{
+                    new PythonNode{node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn}
+                };
+                _build_inputs_and_outputs(node_ref);
+                node = node_ref;
+            }
         }
-
-        nb::ref<Node> node{
-            new PythonNode{node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn}
-        };
-
-        _build_inputs_and_outputs(node);
+        
         return node;
     }
 

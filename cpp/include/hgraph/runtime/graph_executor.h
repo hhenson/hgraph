@@ -2,6 +2,7 @@
 #define GRAPH_EXECUTOR_H
 
 #include <hgraph/hgraph_base.h>
+#include <memory>
 
 namespace hgraph {
     enum class HGRAPH_EXPORT EvaluationMode{REAL_TIME = 0, SIMULATION = 1};
@@ -9,11 +10,11 @@ namespace hgraph {
     struct Graph;
     struct Node;
     struct EvaluationEngine;
-    using graph_ptr = nb::ref<Graph>;
-    using node_ptr = nb::ref<Node>;
+    using graph_ptr = std::shared_ptr<Graph>;
+    using node_ptr = std::shared_ptr<Node>;
 
     struct EvaluationLifeCycleObserver : nb::intrusive_base {
-        using ptr = nb::ref<EvaluationLifeCycleObserver>;
+        using ptr = nb::ref<EvaluationLifeCycleObserver>;  // Not directly owned by Graph
 
         virtual void on_before_start_graph(graph_ptr) {
         };

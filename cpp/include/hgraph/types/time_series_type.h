@@ -3,7 +3,9 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/util/reference_count_subscriber.h>
+#include <hgraph/util/shared_from_this_with_parent.h>
 #include <variant>
+#include <memory>
 
 // Forward declare visitor interfaces
 namespace hgraph
@@ -36,9 +38,9 @@ namespace hgraph
 
 namespace hgraph
 {
-    struct HGRAPH_EXPORT TimeSeriesType : nb::intrusive_base
+    struct HGRAPH_EXPORT TimeSeriesType
     {
-        using ptr = nb::ref<TimeSeriesType>;
+        using ptr = std::shared_ptr<TimeSeriesType>;
 
         // Pure virtual interface - constructors in derived classes
         TimeSeriesType()                       = default;
@@ -102,10 +104,13 @@ namespace hgraph
     struct TimeSeriesReferenceOutput;
     struct TimeSeriesReferenceInput;
 
-    struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType, TimeSeriesOutputVisitable
+    struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType, TimeSeriesOutputVisitable, shared_from_this_with_parent<TimeSeriesOutput, Node, TimeSeriesType>
     {
-        using ptr          = nb::ref<TimeSeriesOutput>;
+        using ptr          = std::shared_ptr<TimeSeriesOutput>;
         TimeSeriesOutput() = default;
+
+        // Get shared_ptr to this object using parent's control block
+        using shared_from_this_with_parent<TimeSeriesOutput, Node, TimeSeriesType>::shared_from_this;
 
         // Output-specific navigation of the graph structure.
         [[nodiscard]] virtual ptr  parent_output() const     = 0;
@@ -151,10 +156,13 @@ namespace hgraph
         virtual bool can_apply_result(nb::object value) = 0;
     };
 
-    struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable, TimeSeriesInputVisitable
+    struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable, TimeSeriesInputVisitable, shared_from_this_with_parent<TimeSeriesInput, Node, TimeSeriesType>
     {
-        using ptr         = nb::ref<TimeSeriesInput>;
+        using ptr         = std::shared_ptr<TimeSeriesInput>;
         TimeSeriesInput() = default;
+
+        // Get shared_ptr to this object using parent's control block
+        using shared_from_this_with_parent<TimeSeriesInput, Node, TimeSeriesType>::shared_from_this;
 
         // Graph navigation specific to the input
         [[nodiscard]] virtual ptr  parent_input() const     = 0;

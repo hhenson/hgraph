@@ -8,12 +8,13 @@
 #include <condition_variable>
 #include <hgraph/runtime/graph_executor.h>
 #include <hgraph/util/lifecycle.h>
+#include <memory>
 
 namespace hgraph
 {
-    struct HGRAPH_EXPORT EvaluationClock : nb::intrusive_base
+    struct HGRAPH_EXPORT EvaluationClock
     {
-        using ptr = nanobind::ref<EvaluationClock>;
+        using ptr = std::shared_ptr<EvaluationClock>;
 
         [[nodiscard]] virtual engine_time_t evaluation_time() const = 0;
 
@@ -28,7 +29,7 @@ namespace hgraph
 
     struct HGRAPH_EXPORT EngineEvaluationClock : EvaluationClock
     {
-        using ptr = nanobind::ref<EngineEvaluationClock>;
+        using ptr = std::shared_ptr<EngineEvaluationClock>;
 
         virtual void set_evaluation_time(engine_time_t et) = 0;
 
@@ -86,7 +87,7 @@ namespace hgraph
 
     struct HGRAPH_EXPORT EvaluationEngineApi : ComponentLifeCycle
     {
-        using ptr = nanobind::ref<EvaluationEngineApi>;
+        using ptr = std::shared_ptr<EvaluationEngineApi>;  // ComponentLifeCycle, so keep shared_ptr
 
         [[nodiscard]] virtual EvaluationMode evaluation_mode() const = 0;
 
@@ -115,7 +116,7 @@ namespace hgraph
 
     struct EvaluationEngine : EvaluationEngineApi
     {
-        using ptr = nanobind::ref<EvaluationEngine>;
+        using ptr = std::shared_ptr<EvaluationEngine>;  // ComponentLifeCycle, so keep shared_ptr
 
         virtual EngineEvaluationClock::ptr engine_evaluation_clock() = 0;
 
@@ -275,7 +276,7 @@ namespace hgraph
 
     struct SimulationEvaluationClock : BaseEvaluationClock
     {
-        using ptr = nanobind::ref<SimulationEvaluationClock>;
+        using ptr = std::shared_ptr<SimulationEvaluationClock>;
 
         explicit SimulationEvaluationClock(engine_time_t current_time);
 
@@ -299,7 +300,7 @@ namespace hgraph
 
     struct RealTimeEvaluationClock : BaseEvaluationClock
     {
-        using ptr = nanobind::ref<RealTimeEvaluationClock>;
+        using ptr = std::shared_ptr<RealTimeEvaluationClock>;
 
         explicit RealTimeEvaluationClock(engine_time_t start_time);
 

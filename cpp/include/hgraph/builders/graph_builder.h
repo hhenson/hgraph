@@ -40,7 +40,14 @@ namespace hgraph {
         GraphBuilder(std::vector<node_builder_ptr> node_builders, std::vector<Edge> edges);
 
         /**
-         * Construct an instance of a graph. The id provided is the id for the graph instance to be constructed.
+         * Construct an instance of a graph using arena allocation.
+         * Allocates a buffer of memory_size() bytes and constructs all objects in-place.
+         * Returns a shared_ptr with a custom deleter that calls release_instance before freeing memory.
+         * 
+         * @param graph_id The id for the graph instance to be constructed
+         * @param parent_node Optional parent node
+         * @param label Optional label for the graph
+         * @return shared_ptr to the constructed Graph
          */
         graph_ptr make_instance(const std::vector<int64_t> &graph_id, node_ptr parent_node = nullptr,
                                 const std::string &label = "") const;

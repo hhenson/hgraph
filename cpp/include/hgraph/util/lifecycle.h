@@ -6,6 +6,7 @@
 #define LIFECYCLE_H
 
 #include<hgraph/hgraph_base.h>
+#include <memory>
 
 namespace hgraph {
     struct ComponentLifeCycle;
@@ -71,7 +72,9 @@ namespace hgraph {
      * Since any life-cycle controlled component is likely to reasonably heavy weight, it seems reasonable to make them
      * ref-counting as well. *** May change my mind about this, but for now seems reasonable ***
      */
-    struct HGRAPH_EXPORT ComponentLifeCycle : nb::intrusive_base {
+    struct HGRAPH_EXPORT ComponentLifeCycle {
+        using ptr = std::shared_ptr<ComponentLifeCycle>;
+        
         virtual ~ComponentLifeCycle() = default;
 
         /**

@@ -46,9 +46,8 @@ namespace hgraph {
     GraphBuilder::GraphBuilder(std::vector<node_builder_ptr> node_builders_, std::vector<Edge> edges_)
         : node_builders{std::move(node_builders_)}, edges{std::move(edges_)} {
         // Calculate and cache memory size
-        // Start with Graph (with canary), then align and add Traits (with canary)
+        // Start with Graph (with canary) - Traits is now a value member, so it's included in Graph's size
         size_t total = add_canary_size(sizeof(Graph));
-        total = add_aligned_size<Traits>(total);
         // For each node builder, align to Node alignment and add its size (Node already includes canary in memory_size)
         for (const auto &node_builder : node_builders) {
             total = align_size(total, alignof(Node));
@@ -59,8 +58,115 @@ namespace hgraph {
 
     graph_ptr GraphBuilder::make_instance(const std::vector<int64_t> &graph_id, node_ptr parent_node,
                                           const std::string &label) const {
-        auto nodes = make_and_connect_nodes(graph_id, 0);
-        return nb::ref<Graph>{new Graph{graph_id, nodes, parent_node, label, new Traits()}};
+        // Allocate arena buffer
+        size_t buffer_size = memory_size();
+        void* arena_buffer = std::malloc(buffer_size);
+        if (!arena_buffer) {
+            throw std::bad_alloc();
+        }
+        
+        // Track current offset in buffer
+        size_t offset = 0;
+        char* buffer = static_cast<char*>(arena_buffer);
+        
+        // Construct Traits first (we need it for Graph constructor)
+        Traits traits{};
+        if (parent_node && parent_node->graph()) {
+            traits = Traits{&parent_node->graph()->_traits};
+        }
+        
+        // Construct Graph in-place at the start of the buffer
+        offset = align_size(offset, alignof(Graph));
+        // Set canary BEFORE construction to detect if construction overwrites beyond object bounds
+        size_t graph_size = sizeof(Graph);
+        size_t aligned_graph_size = align_size(graph_size, alignof(size_t));
+        if (arena_debug_mode) {
+            size_t* canary_ptr = reinterpret_cast<size_t*>(buffer + offset + aligned_graph_size);
+            *canary_ptr = ARENA_CANARY_PATTERN;
+        }
+        // Now construct the object
+        Graph* graph_ptr = new (buffer + offset) Graph{graph_id, {}, parent_node, label, std::move(traits)};
+        // Immediately check canary after construction
+        verify_canary(graph_ptr, sizeof(Graph), "Graph");
+        offset += add_canary_size(sizeof(Graph));
+        
+        // Traits is now stored as a value member in Graph, so we don't need separate construction
+        // The Graph constructor already initialized _traits with the passed Traits object
+        
+        // Construct nodes in-place
+        std::vector<node_ptr> nodes;
+        nodes.reserve(node_builders.size());
+        
+        for (size_t i = 0; i < node_builders.size(); ++i) {
+            // Align for Node
+            offset = align_size(offset, alignof(Node));
+            // NodeBuilder will construct the Node and its TimeSeries objects in-place
+            // We need to pass the buffer pointer and current offset
+            size_t node_offset = offset;  // Save starting offset
+            node_ptr node = node_builders[i]->make_instance(graph_id, i, buffer, &offset);
+            
+            // Set graph on the node - this will be done after we have the graph shared_ptr
+            // For now, just store the node
+            
+            nodes.push_back(node);
+            // Offset is updated by make_instance, verify it matches expected size
+            size_t expected_offset = node_offset + node_builders[i]->memory_size();
+            if (offset != expected_offset) {
+                throw std::runtime_error(fmt::format("Node {} memory size mismatch: expected offset {}, got {}", i, expected_offset, offset));
+            }
+        }
+        
+        // Update Graph's nodes vector
+        graph_ptr->_nodes = std::move(nodes);
+        
+        // Connect edges
+        for (const auto &edge: edges) {
+            auto src_node = graph_ptr->_nodes[edge.src_node];
+            auto dst_node = graph_ptr->_nodes[edge.dst_node];
+
+            time_series_output_ptr output;
+            if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
+                output = src_node->error_output();
+            } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
+                output = dynamic_cast_ref<TimeSeriesOutput>(src_node->recordable_state());
+            } else {
+                output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path);
+            }
+
+            auto input = _extract_input(dst_node, edge.input_path);
+            input->bind_output(output);
+        }
+        
+        // Create shared_ptr with custom deleter that calls release_instance before freeing
+        // The shared_ptr constructor automatically initializes enable_shared_from_this<Graph>
+        // by detecting the inheritance and setting up the internal weak_ptr to point to the control block.
+        // This 'result' shared_ptr is the first one managing the Graph, so it initializes enable_shared_from_this.
+        // Store the GraphBuilder as nb::ref to ensure we retain a reference
+        // Since this is a const method, we need to cast away const to create the ref
+        nb::ref<const GraphBuilder> builder_ref = nb::cast<const GraphBuilder*>(this);
+        graph_ptr result = std::shared_ptr<Graph>(
+            graph_ptr,
+            [builder_ref, arena_buffer](Graph* g) {
+                // Call release_instance to clean up resources and validate canaries
+                if (g) {
+                    // Create a temporary shared_ptr for release_instance
+                    graph_ptr temp(g, [](Graph*){ /* no-op, already managing lifetime */ });
+                    builder_ref->release_instance(temp);
+                }
+                // Free the arena buffer
+                std::free(arena_buffer);
+            }
+        );
+        
+        // Now that we have the graph shared_ptr, update all nodes to use it for shared_from_this
+        // Actually, we already set the graph above, so nodes should be able to use shared_from_this
+        // But we need to make sure the nodes use the graph's control block
+        for (auto& node : result->_nodes) {
+            // Re-set graph to ensure node uses graph's control block
+            node->set_graph(result);
+        }
+        
+        return result;
     }
 
     std::vector<node_ptr> GraphBuilder::make_and_connect_nodes(const std::vector<int64_t> &graph_id,
@@ -70,7 +176,8 @@ namespace hgraph {
 
         for (size_t i = 0; i < node_builders.size(); ++i) {
             // Pass graph_id as the node's owning_graph_id (the graph that owns this node)
-            nodes.push_back(node_builders[i]->make_instance(graph_id, i + first_node_ndx));
+            size_t dummy_offset = 0;
+            nodes.push_back(node_builders[i]->make_instance(graph_id, i + first_node_ndx, nullptr, &dummy_offset));
         }
 
         for (const auto &edge: edges) {

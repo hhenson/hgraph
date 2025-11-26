@@ -14,14 +14,18 @@ namespace hgraph {
         using ptr = nb::ref<InputBuilder>;
 
         /**
-         * Create an instance of InputBuilder using an owning node
+         * Create an instance of InputBuilder using an owning node.
+         * If buffer is provided, uses arena allocation (in-place construction).
+         * Otherwise, uses heap allocation (legacy path).
          */
-        virtual time_series_input_ptr make_instance(node_ptr owning_node) const = 0;
+        virtual time_series_input_ptr make_instance(node_ptr owning_node, void* buffer = nullptr, size_t* offset = nullptr) const = 0;
 
         /**
-         * Create an instance of InputBuilder using an parent input
+         * Create an instance of InputBuilder using an parent input.
+         * If buffer is provided, uses arena allocation (in-place construction).
+         * Otherwise, uses heap allocation (legacy path).
          */
-        virtual time_series_input_ptr make_instance(time_series_input_ptr owning_input) const = 0;
+        virtual time_series_input_ptr make_instance(time_series_input_ptr owning_input, void* buffer = nullptr, size_t* offset = nullptr) const = 0;
 
         /**
          * Release an instance of the input type.

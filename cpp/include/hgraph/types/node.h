@@ -3,6 +3,8 @@
 
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/util/reference_count_subscriber.h>
+#include <hgraph/util/shared_from_this_with_parent.h>
+#include <memory>
 
 namespace hgraph
 {
@@ -161,9 +163,9 @@ namespace hgraph
         engine_time_t                                   _last_scheduled_time{MIN_DT};
     };
 
-    struct HGRAPH_EXPORT Node : ComponentLifeCycle, Notifiable
+    struct HGRAPH_EXPORT Node : ComponentLifeCycle, Notifiable, shared_from_this_with_parent<Node, Graph>
     {
-        using ptr = nanobind::ref<Node>;
+        using ptr = std::shared_ptr<Node>;
 
         Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature, nb::dict scalars);
 
@@ -190,6 +192,9 @@ namespace hgraph
         graph_ptr graph() const;
 
         void set_graph(graph_ptr value);
+
+        // Get shared_ptr to this node using parent's control block
+        using shared_from_this_with_parent<Node, Graph>::shared_from_this;
 
         time_series_bundle_input_ptr input();
 

@@ -125,24 +125,24 @@ namespace hgraph {
         last_value_pull_node_builder_register_with_nanobind(m);
     }
 
-    void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node) const {
+    void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node, void* buffer, size_t* offset) const {
         if (input_builder.has_value()) {
-            auto ts_input = (*input_builder)->make_instance(node);
+            auto ts_input = (*input_builder)->make_instance(node, buffer, offset);
             node->set_input(dynamic_cast_ref<TimeSeriesBundleInput>(ts_input));
         }
 
         if (output_builder.has_value()) {
-            auto ts_output = (*output_builder)->make_instance(node);
+            auto ts_output = (*output_builder)->make_instance(node, buffer, offset);
             node->set_output(ts_output);
         }
 
         if (error_builder.has_value()) {
-            auto ts_error_output = (*error_builder)->make_instance(node);
+            auto ts_error_output = (*error_builder)->make_instance(node, buffer, offset);
             node->set_error_output(ts_error_output);
         }
 
         if (recordable_state_builder.has_value()) {
-            auto ts_recordable_state = (*recordable_state_builder)->make_instance(node);
+            auto ts_recordable_state = (*recordable_state_builder)->make_instance(node, buffer, offset);
             node->set_recordable_state(dynamic_cast_ref<TimeSeriesBundleOutput>(ts_recordable_state));
         }
     }

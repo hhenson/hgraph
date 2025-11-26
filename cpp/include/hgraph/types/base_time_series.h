@@ -31,8 +31,12 @@ namespace hgraph {
     struct HGRAPH_EXPORT BaseTimeSeriesOutput : TimeSeriesOutput {
         using ptr = nb::ref<BaseTimeSeriesOutput>;
 
-        explicit BaseTimeSeriesOutput(const node_ptr &parent) : _parent_ts_or_node{parent} {}
-        explicit BaseTimeSeriesOutput(const TimeSeriesType::ptr &parent) : _parent_ts_or_node{parent} {}
+        explicit BaseTimeSeriesOutput(const node_ptr &parent) {
+            init_parent(parent);
+        }
+        explicit BaseTimeSeriesOutput(const TimeSeriesType::ptr &parent) {
+            init_parent(parent);
+        }
 
         // Implement TimeSeriesType pure virtuals
         [[nodiscard]] node_ptr owning_node() override;
@@ -81,8 +85,6 @@ namespace hgraph {
 
     private:
         friend OutputBuilder;
-        using TsOrNode = std::variant<TimeSeriesType::ptr, node_ptr>;
-        std::optional<TsOrNode> _parent_ts_or_node{};
         std::unordered_set<Notifiable *> _subscribers{};
         engine_time_t _last_modified_time{MIN_DT};
     };
@@ -97,8 +99,12 @@ namespace hgraph {
     struct HGRAPH_EXPORT BaseTimeSeriesInput : TimeSeriesInput {
         using ptr = nb::ref<BaseTimeSeriesInput>;
 
-        explicit BaseTimeSeriesInput(const node_ptr &parent) : _parent_ts_or_node{parent} {}
-        explicit BaseTimeSeriesInput(const TimeSeriesType::ptr &parent) : _parent_ts_or_node{parent} {}
+        explicit BaseTimeSeriesInput(const node_ptr &parent) {
+            init_parent(parent);
+        }
+        explicit BaseTimeSeriesInput(const TimeSeriesType::ptr &parent) {
+            init_parent(parent);
+        }
 
         // Implement TimeSeriesType pure virtuals
         [[nodiscard]] node_ptr owning_node() override;
@@ -165,8 +171,6 @@ namespace hgraph {
         void set_active(bool active);
 
     private:
-        using TsOrNode = std::variant<TimeSeriesType::ptr, node_ptr>;
-        std::optional<TsOrNode> _parent_ts_or_node{};
         time_series_output_ptr _output;
         time_series_reference_output_ptr _reference_output;
         bool _active{false};

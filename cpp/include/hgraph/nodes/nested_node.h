@@ -9,10 +9,10 @@
 
 namespace hgraph {
     struct Graph;
-    using graph_ptr = nb::ref<Graph>;
+    using graph_ptr = std::shared_ptr<Graph>;  // Graph-owned
 
     struct NestedNode : Node {
-        using ptr = nb::ref<NestedNode>;
+        using ptr = std::shared_ptr<NestedNode>;  // Node is Graph-owned
         using Node::Node;
 
         void start() override;

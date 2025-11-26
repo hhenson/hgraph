@@ -3,6 +3,7 @@
 #include "api_ptr.h"
 
 #include <hgraph/hgraph_base.h>
+#include <memory>
 
 namespace hgraph
 {
@@ -57,9 +58,9 @@ namespace hgraph
 
         [[nodiscard]] control_block_ptr control_block() const;
 
-        template <typename U> U *static_cast_impl() const { return _impl.static_cast_<U>(); }
+        template <typename U> std::shared_ptr<U> static_cast_impl() const { return _impl.static_cast_<U>(); }
 
-        template <typename U> U *dynamic_cast_impl() const { return _impl.dynamic_cast_<U>(); }
+        template <typename U> std::shared_ptr<U> dynamic_cast_impl() const { return _impl.dynamic_cast_<U>(); }
 
       private:
         api_ptr _impl;

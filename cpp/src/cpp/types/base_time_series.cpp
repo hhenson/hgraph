@@ -24,14 +24,20 @@ namespace hgraph {
     bool BaseTimeSeriesOutput::is_reference() const { return false; }
     bool BaseTimeSeriesOutput::has_reference() const { return false; }
 
-    void BaseTimeSeriesOutput::reset_parent_or_node() { _parent_ts_or_node.reset(); }
+    void BaseTimeSeriesOutput::reset_parent_or_node() {
+        // Reset parent variant - we can't easily reset a variant, so we'll leave it as-is
+        // The variant will remain in its current state, but we can check for null parent
+        // by checking if both alternatives are null
+        // For now, we'll set it to a default-constructed Node shared_ptr (null)
+        set_parent(node_ptr{});
+    }
     
     // Implement re_parent methods
     void BaseTimeSeriesOutput::re_parent(const node_ptr &parent) {
-        _parent_ts_or_node = parent;
+        set_parent(parent);
     }
     void BaseTimeSeriesOutput::re_parent(const TimeSeriesType::ptr &parent) {
-        _parent_ts_or_node = parent;
+        set_parent(parent);
     }
 
     // TimeSeriesType helper methods
@@ -40,55 +46,46 @@ namespace hgraph {
     }
 
     TimeSeriesType::ptr &BaseTimeSeriesOutput::_parent_time_series() {
-        if (_parent_ts_or_node.has_value() && std::holds_alternative<TimeSeriesType::ptr>(*_parent_ts_or_node)) {
-            return std::get<TimeSeriesType::ptr>(*_parent_ts_or_node);
-        } else {
-            return TimeSeriesType::null_ptr;
+        // Access the variant directly to get a mutable reference
+        auto& variant = const_cast<BaseTimeSeriesOutput*>(this)->parent();
+        if (auto* ptr = std::get_if<TimeSeriesType::ptr>(&variant)) {
+            return *ptr;
         }
+        return TimeSeriesType::null_ptr;
     }
 
     bool BaseTimeSeriesOutput::_has_parent_time_series() const {
-        return _parent_ts_or_node.has_value() && std::holds_alternative<TimeSeriesType::ptr>(*_parent_ts_or_node);
+        return is_parent_type<TimeSeriesType>();
     }
 
     void BaseTimeSeriesOutput::_set_parent_time_series(TimeSeriesType *ts) {
-        if (_parent_ts_or_node.has_value() && std::holds_alternative<TimeSeriesType::ptr>(*_parent_ts_or_node)) {
-            std::get<TimeSeriesType::ptr>(*_parent_ts_or_node) = ts;
-        } else {
-            _parent_ts_or_node = TimeSeriesType::ptr{ts};
-        }
+        set_parent(TimeSeriesType::ptr{ts});
     }
 
-    bool BaseTimeSeriesOutput::has_parent_or_node() const { return _parent_ts_or_node.has_value(); }
+    bool BaseTimeSeriesOutput::has_parent_or_node() const {
+        // Check if variant is not default-constructed (has a value)
+        // We can check by trying to get either alternative
+        return parent_as<Node>() != nullptr || parent_as<TimeSeriesType>() != nullptr;
+    }
 
     bool BaseTimeSeriesOutput::has_owning_node() const {
-        if (_parent_ts_or_node.has_value()) {
-            if (std::holds_alternative<node_ptr>(*_parent_ts_or_node)) {
-                return std::get<node_ptr>(*_parent_ts_or_node) != node_ptr{};
-            }
-            return std::get<TimeSeriesType::ptr>(*_parent_ts_or_node)->has_owning_node();
-        } else {
-            return false;
+        if (auto node_parent = parent_as<Node>()) {
+            return node_parent != nullptr;
         }
+        if (auto ts_parent = parent_as<TimeSeriesType>()) {
+            return ts_parent->has_owning_node();
+        }
+        return false;
     }
 
     node_ptr BaseTimeSeriesOutput::_owning_node() const {
-        if (_parent_ts_or_node.has_value()) {
-            return std::visit(
-                []<typename T_>(T_ &&value) -> node_ptr {
-                    using T = std::decay_t<T_>;
-                    if constexpr (std::is_same_v<T, TimeSeriesType::ptr>) {
-                        return value->owning_node();
-                    } else if constexpr (std::is_same_v<T, node_ptr>) {
-                        return value;
-                    } else {
-                        throw std::runtime_error("Unknown type");
-                    }
-                },
-                _parent_ts_or_node.value());
-        } else {
-            throw std::runtime_error("No node is accessible");
+        if (auto node_parent = parent_as<Node>()) {
+            return node_parent;
         }
+        if (auto ts_parent = parent_as<TimeSeriesType>()) {
+            return ts_parent->owning_node();
+        }
+        throw std::runtime_error("No node is accessible");
     }
 
     void BaseTimeSeriesOutput::clear() {
@@ -202,14 +199,20 @@ namespace hgraph {
     bool BaseTimeSeriesInput::is_reference() const { return false; }
     bool BaseTimeSeriesInput::has_reference() const { return false; }
 
-    void BaseTimeSeriesInput::reset_parent_or_node() { _parent_ts_or_node.reset(); }
+    void BaseTimeSeriesInput::reset_parent_or_node() {
+        // Reset parent variant - we can't easily reset a variant, so we'll leave it as-is
+        // The variant will remain in its current state, but we can check for null parent
+        // by checking if both alternatives are null
+        // For now, we'll set it to a default-constructed Node shared_ptr (null)
+        set_parent(node_ptr{});
+    }
     
     // Implement re_parent methods
     void BaseTimeSeriesInput::re_parent(const node_ptr &parent) {
-        _parent_ts_or_node = parent;
+        set_parent(parent);
     }
     void BaseTimeSeriesInput::re_parent(const TimeSeriesType::ptr &parent) {
-        _parent_ts_or_node = parent;
+        set_parent(parent);
     }
 
     // TimeSeriesType helper methods
@@ -218,55 +221,46 @@ namespace hgraph {
     }
 
     TimeSeriesType::ptr &BaseTimeSeriesInput::_parent_time_series() {
-        if (_parent_ts_or_node.has_value() && std::holds_alternative<TimeSeriesType::ptr>(*_parent_ts_or_node)) {
-            return std::get<TimeSeriesType::ptr>(*_parent_ts_or_node);
-        } else {
-            return TimeSeriesType::null_ptr;
+        // Access the variant directly to get a mutable reference
+        auto& variant = const_cast<BaseTimeSeriesInput*>(this)->parent();
+        if (auto* ptr = std::get_if<TimeSeriesType::ptr>(&variant)) {
+            return *ptr;
         }
+        return TimeSeriesType::null_ptr;
     }
 
     bool BaseTimeSeriesInput::_has_parent_time_series() const {
-        return _parent_ts_or_node.has_value() && std::holds_alternative<TimeSeriesType::ptr>(*_parent_ts_or_node);
+        return is_parent_type<TimeSeriesType>();
     }
 
     void BaseTimeSeriesInput::_set_parent_time_series(TimeSeriesType *ts) {
-        if (_parent_ts_or_node.has_value() && std::holds_alternative<TimeSeriesType::ptr>(*_parent_ts_or_node)) {
-            std::get<TimeSeriesType::ptr>(*_parent_ts_or_node) = ts;
-        } else {
-            _parent_ts_or_node = TimeSeriesType::ptr{ts};
-        }
+        set_parent(TimeSeriesType::ptr{ts});
     }
 
-    bool BaseTimeSeriesInput::has_parent_or_node() const { return _parent_ts_or_node.has_value(); }
+    bool BaseTimeSeriesInput::has_parent_or_node() const {
+        // Check if variant is not default-constructed (has a value)
+        // We can check by trying to get either alternative
+        return parent_as<Node>() != nullptr || parent_as<TimeSeriesType>() != nullptr;
+    }
 
     bool BaseTimeSeriesInput::has_owning_node() const {
-        if (_parent_ts_or_node.has_value()) {
-            if (std::holds_alternative<node_ptr>(*_parent_ts_or_node)) {
-                return std::get<node_ptr>(*_parent_ts_or_node) != node_ptr{};
-            }
-            return std::get<TimeSeriesType::ptr>(*_parent_ts_or_node)->has_owning_node();
-        } else {
-            return false;
+        if (auto node_parent = parent_as<Node>()) {
+            return node_parent != nullptr;
         }
+        if (auto ts_parent = parent_as<TimeSeriesType>()) {
+            return ts_parent->has_owning_node();
+        }
+        return false;
     }
 
     node_ptr BaseTimeSeriesInput::_owning_node() const {
-        if (_parent_ts_or_node.has_value()) {
-            return std::visit(
-                []<typename T_>(T_ &&value) -> node_ptr {
-                    using T = std::decay_t<T_>;
-                    if constexpr (std::is_same_v<T, TimeSeriesType::ptr>) {
-                        return value->owning_node();
-                    } else if constexpr (std::is_same_v<T, node_ptr>) {
-                        return value;
-                    } else {
-                        throw std::runtime_error("Unknown type");
-                    }
-                },
-                _parent_ts_or_node.value());
-        } else {
-            throw std::runtime_error("No node is accessible");
+        if (auto node_parent = parent_as<Node>()) {
+            return node_parent;
         }
+        if (auto ts_parent = parent_as<TimeSeriesType>()) {
+            return ts_parent->owning_node();
+        }
+        throw std::runtime_error("No node is accessible");
     }
 
     TimeSeriesInput::ptr BaseTimeSeriesInput::parent_input() const {

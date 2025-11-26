@@ -661,6 +661,8 @@ namespace hgraph
     graph_ptr Node::graph() const { return _graph; }
 
     void Node::set_graph(graph_ptr value) {
+        // Initialize parent for shared_from_this
+        set_parent(value);
         _graph = value;
         // Cache the evaluation time pointer from the graph for performance
         _cached_evaluation_time_ptr = value->cached_evaluation_time_ptr();

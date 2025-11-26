@@ -6,34 +6,16 @@
 //
 
 #include <memory>
-#include <stdexcept>
-#include <atomic>
 
 namespace hgraph {
 
-    /**
-     * Control block for tracking graph lifetime.
-     * Shared across all API pointers within a graph's lifetime.
-     */
-    struct ApiControlBlock {
-        std::atomic<bool> graph_alive{true};
-
-        void mark_dead() {
-            graph_alive.store(false, std::memory_order_release);
-        }
-
-        [[nodiscard]] bool is_alive() const {
-            return graph_alive.load(std::memory_order_acquire);
-        }
-    };
-
-    using control_block_ptr = std::shared_ptr<ApiControlBlock>;
+    using control_block_ptr = std::shared_ptr<void>;
 
     /**
-     * Smart pointer for API wrappers that validates graph lifetime before dereferencing.
+     * Smart pointer for API wrappers that uses shared_ptr with control block as donor.
      * - Move-only (not copyable)
-     * - Validates graph is alive before accessing implementation
-     * - Throws exception if graph has been destroyed
+     * - Uses aliasing constructor to share control block from arena
+     * - Lifetime is managed by shared_ptr, no manual validation needed
      *
      * @tparam T The implementation type being wrapped
      */
@@ -42,24 +24,19 @@ namespace hgraph {
     public:
         ApiPtr() = default;
 
-        // Constructor from raw pointer and control block
+        // Constructor from raw pointer and control block (donor)
+        // Uses aliasing constructor: shared_ptr<T>(control_block, raw_ptr)
         ApiPtr(T* impl, control_block_ptr control_block)
-            : _impl(impl)
-            , _control_block(std::move(control_block)) {}
+            : _impl(control_block, impl) {}
 
         // Move constructor
         ApiPtr(ApiPtr&& other) noexcept
-            : _impl(other._impl)
-            , _control_block(std::move(other._control_block)) {
-            other._impl = nullptr;
-        }
+            : _impl(std::move(other._impl)) {}
 
         // Move assignment
         ApiPtr& operator=(ApiPtr&& other) noexcept {
             if (this != &other) {
-                _impl = other._impl;
-                _control_block = std::move(other._control_block);
-                other._impl = nullptr;
+                _impl = std::move(other._impl);
             }
             return *this;
         }
@@ -68,34 +45,30 @@ namespace hgraph {
         ApiPtr(const ApiPtr&) = delete;
         ApiPtr& operator=(const ApiPtr&) = delete;
 
-        // Dereference operators - validate before access
-        T* operator->() const {
-            validate();
-            return _impl;
+        // Dereference operators - shared_ptr handles lifetime
+        T* operator->() const noexcept {
+            return _impl.get();
         }
 
-        T& operator*() const {
-            validate();
+        T& operator*() const noexcept {
             return *_impl;
         }
 
         // Perform a static cast on the result.
         template<typename U>
-        U* static_cast_() const {
-            validate();
-            return static_cast<U*>(_impl);
+        std::shared_ptr<U> static_cast_() const noexcept {
+            return std::static_pointer_cast<U>(_impl);
         }
 
         // Perform a dynamic cast on the result.
         template<typename U>
-        U* dynamic_cast_() const {
-            validate();
-            return dynamic_cast<U*>(_impl);
+        std::shared_ptr<U> dynamic_cast_() const noexcept {
+            return std::dynamic_pointer_cast<U>(_impl);
         }
 
-        // Get raw pointer (for internal use - does not validate)
+        // Get raw pointer (for internal use)
         [[nodiscard]] T* get() const noexcept {
-            return _impl;
+            return _impl.get();
         }
 
         // Check if pointer is valid (non-null)
@@ -103,14 +76,12 @@ namespace hgraph {
             return _impl != nullptr;
         }
 
-        // Check if graph is still alive
-        [[nodiscard]] bool is_graph_alive() const noexcept {
-            return _control_block && _control_block->is_alive();
-        }
-
-        // Get control block (for passing to factory functions)
+        // Get control block (extracted from shared_ptr's control block)
         [[nodiscard]] control_block_ptr control_block() const noexcept {
-            return _control_block;
+            // Extract the control block from the shared_ptr using aliasing constructor
+            // Since _impl was constructed with control_block as donor, we can extract it
+            // by creating a shared_ptr<void> that aliases from _impl's control block
+            return std::shared_ptr<void>(_impl, static_cast<void*>(nullptr));
         }
 
         // Explicit bool conversion
@@ -120,22 +91,11 @@ namespace hgraph {
 
         // Reset the pointer
         void reset() noexcept {
-            _impl = nullptr;
-            _control_block.reset();
+            _impl.reset();
         }
 
     private:
-        void validate() const {
-            if (!_impl) {
-                throw std::runtime_error("ApiPtr: Attempt to dereference null pointer");
-            }
-            if (!_control_block || !_control_block->is_alive()) {
-                throw std::runtime_error("ApiPtr: Attempt to access object after graph destruction");
-            }
-        }
-
-        T* _impl{nullptr};
-        control_block_ptr _control_block;
+        std::shared_ptr<T> _impl;
     };
 
 
