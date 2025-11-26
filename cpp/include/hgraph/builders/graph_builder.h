@@ -35,6 +35,7 @@ namespace hgraph {
     struct GraphBuilder : Builder {
         std::vector<node_builder_ptr> node_builders;
         std::vector<Edge> edges;
+        size_t _memory_size;  // Cached memory size, calculated in constructor
 
         GraphBuilder(std::vector<node_builder_ptr> node_builders, std::vector<Edge> edges);
 
@@ -56,6 +57,8 @@ namespace hgraph {
          * Release resources constructed during the build process, plus the graph.
          */
         void release_instance(graph_ptr item) const;
+
+        [[nodiscard]] size_t memory_size() const override;
 
         static void register_with_nanobind(nb::module_ &m);
     };

@@ -1,5 +1,7 @@
 #include <hgraph/builders/time_series_types/time_series_list_output_builder.h>
+#include <hgraph/builders/builder.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsl.h>
 
 #include <utility>
@@ -40,6 +42,16 @@ namespace hgraph {
         for (size_t i = 0; i < size; ++i) { outputs.push_back(output_builder->make_instance(output)); }
         output->set_ts_values(outputs);
         return output;
+    }
+
+    size_t TimeSeriesListOutputBuilder::memory_size() const {
+        size_t total = sizeof(TimeSeriesListOutput);
+        // For each element, align and add its size
+        for (size_t i = 0; i < size; ++i) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += output_builder->memory_size();
+        }
+        return total;
     }
 
     void TimeSeriesListOutputBuilder::register_with_nanobind(nb::module_ &m) {

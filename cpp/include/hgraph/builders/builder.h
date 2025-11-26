@@ -8,8 +8,28 @@
 #include<hgraph/hgraph_base.h>
 
 #include <typeinfo>
+#include <cstddef>
 
 namespace hgraph {
+    /**
+     * Helper function to calculate aligned size.
+     * Rounds up the current size to the next alignment boundary.
+     */
+    inline size_t align_size(size_t current_size, size_t alignment) {
+        if (alignment == 0) return current_size;
+        size_t remainder = current_size % alignment;
+        return remainder == 0 ? current_size : current_size + (alignment - remainder);
+    }
+
+    /**
+     * Helper function to calculate size with alignment for a type.
+     * Returns the current size rounded up to alignof(T), then adds sizeof(T).
+     */
+    template<typename T>
+    inline size_t add_aligned_size(size_t current_size) {
+        size_t aligned = align_size(current_size, alignof(T));
+        return aligned + sizeof(T);
+    }
     /**
      * The Builder class is responsible for constructing and initializing
      * the item type it is responsible for. It is also responsible for
@@ -42,6 +62,13 @@ namespace hgraph {
          * Default implementation compares concrete builder types.
          */
         [[nodiscard]] virtual bool is_same_type(const Builder &other) const { return typeid(*this) == typeid(other); }
+
+        /**
+         * Calculate the memory size required to allocate the object(s) this builder constructs.
+         * For leaf builders, this is a simple sizeof calculation.
+         * For complex builders with nested builders, this is a recursive computation.
+         */
+        [[nodiscard]] virtual size_t memory_size() const = 0;
 
         static void register_with_nanobind(nb::module_ &m);
     };

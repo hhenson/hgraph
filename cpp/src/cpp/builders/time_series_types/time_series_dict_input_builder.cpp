@@ -37,6 +37,11 @@ namespace hgraph {
         for (auto &value: dict->_ts_values) { ts_builder->release_instance(value.second); }
     }
 
+    template<typename T>
+    size_t TimeSeriesDictInputBuilder_T<T>::memory_size() const {
+        return sizeof(TimeSeriesDictInput_T<T>);
+    }
+
     void time_series_dict_input_builder_register_with_nanobind(nb::module_ &m) {
         nb::class_ < TimeSeriesDictInputBuilder, InputBuilder > (m, "InputBuilder_TSD")
                 .def_ro("ts_builder", &TimeSeriesDictInputBuilder::ts_builder);

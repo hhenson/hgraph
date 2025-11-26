@@ -1,5 +1,7 @@
 #include <hgraph/builders/time_series_types/time_series_bundle_input_builder.h>
+#include <hgraph/builders/builder.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
 
 #include <ranges>
@@ -55,6 +57,16 @@ namespace hgraph {
                           std::back_inserter(inputs));
         input->set_ts_values(inputs);
         return input_;
+    }
+
+    size_t TimeSeriesBundleInputBuilder::memory_size() const {
+        size_t total = sizeof(TimeSeriesBundleInput);
+        // Align before each nested time-series input
+        for (const auto &builder : input_builders) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += builder->memory_size();
+        }
+        return total;
     }
 
     void TimeSeriesBundleInputBuilder::register_with_nanobind(nb::module_ &m) {

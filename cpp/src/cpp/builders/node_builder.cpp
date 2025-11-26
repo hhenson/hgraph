@@ -2,6 +2,7 @@
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
 
+#include <hgraph/builders/builder.h>
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/node_builder.h>
@@ -60,6 +61,30 @@ namespace hgraph {
         if (error_builder) { (*error_builder)->release_instance(item->error_output().get()); }
         if (recordable_state_builder) { (*recordable_state_builder)->release_instance(item->recordable_state().get()); }
         dispose_component(*item.get());
+    }
+
+    size_t NodeBuilder::memory_size() const {
+        // Base size for Node - concrete node builders should override if they create different node types
+        size_t total = sizeof(Node);
+        // Align and add each time-series builder's size
+        if (input_builder) {
+            // We don't know the exact type, so use TimeSeriesType alignment as a conservative estimate
+            total = align_size(total, alignof(TimeSeriesType));
+            total += (*input_builder)->memory_size();
+        }
+        if (output_builder) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += (*output_builder)->memory_size();
+        }
+        if (error_builder) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += (*error_builder)->memory_size();
+        }
+        if (recordable_state_builder) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += (*recordable_state_builder)->memory_size();
+        }
+        return total;
     }
 
     void NodeBuilder::register_with_nanobind(nb::module_ &m) {

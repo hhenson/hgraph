@@ -22,6 +22,8 @@ namespace hgraph {
 
         void release_instance(TimeSeriesSignalInput *item) const;
 
+        [[nodiscard]] size_t memory_size() const override;
+
         static void register_with_nanobind(nb::module_ &m);
     };
 } // namespace hgraph

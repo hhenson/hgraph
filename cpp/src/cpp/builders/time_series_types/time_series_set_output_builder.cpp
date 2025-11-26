@@ -22,6 +22,11 @@ namespace hgraph {
         if (set) { set->_reset_value(); }
     }
 
+    template<typename T>
+    size_t TimeSeriesSetOutputBuilder_T<T>::memory_size() const {
+        return sizeof(TimeSeriesSetOutput_T<T>);
+    }
+
     void time_series_set_output_builder_register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesSetOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSS");
         nb::class_<TimeSeriesSetOutputBuilder_T<bool>, TimeSeriesSetOutputBuilder>(m, "OutputBuilder_TSS_Bool").def(

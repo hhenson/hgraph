@@ -20,6 +20,8 @@ namespace hgraph {
         [[nodiscard]] bool is_same_type(const Builder &other) const override {
             return dynamic_cast<const TimeSeriesWindowInputBuilder_T<T> *>(&other) != nullptr;
         }
+
+        [[nodiscard]] size_t memory_size() const override;
     };
 
     void time_series_window_input_builder_register_with_nanobind(nb::module_ & m);

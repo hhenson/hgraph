@@ -15,6 +15,11 @@ namespace hgraph {
         return v;
     }
 
+    template<typename T>
+    size_t TimeSeriesSetInputBuilder_T<T>::memory_size() const {
+        return sizeof(TimeSeriesSetInput_T<T>);
+    }
+
     void time_series_set_input_builder_register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesSetInputBuilder, InputBuilder>(m, "InputBuilder_TSS");
 

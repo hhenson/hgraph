@@ -24,6 +24,10 @@ namespace hgraph {
         for (auto &ts_value: signal_input->_ts_values) { release_instance(ts_value.get()); }
     }
 
+    size_t TimeSeriesSignalInputBuilder::memory_size() const {
+        return sizeof(TimeSeriesSignalInput);
+    }
+
     void TimeSeriesSignalInputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesSignalInputBuilder, InputBuilder>(m, "InputBuilder_TS_Signal").def(nb::init<>());
     }

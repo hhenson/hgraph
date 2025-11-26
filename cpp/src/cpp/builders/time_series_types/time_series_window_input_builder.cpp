@@ -17,6 +17,11 @@ namespace hgraph {
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
+    template<typename T>
+    size_t TimeSeriesWindowInputBuilder_T<T>::memory_size() const {
+        return sizeof(TimeSeriesWindowInput<T>);
+    }
+
     void time_series_window_input_builder_register_with_nanobind(nb::module_ &m) {
         // Unified window input builders
         using InputBuilder_TSW_Bool = TimeSeriesWindowInputBuilder_T<bool>;
