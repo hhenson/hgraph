@@ -46,11 +46,12 @@ namespace hgraph {
     GraphBuilder::GraphBuilder(std::vector<node_builder_ptr> node_builders_, std::vector<Edge> edges_)
         : node_builders{std::move(node_builders_)}, edges{std::move(edges_)} {
         // Calculate and cache memory size
-        // Start with Graph, then align and add Traits
-        size_t total = add_aligned_size<Traits>(sizeof(Graph));
-        // For each node builder, align to Node alignment and add its size
+        // Start with Graph (with canary), then align and add Traits (with canary)
+        size_t total = add_canary_size(sizeof(Graph));
+        total = add_aligned_size<Traits>(total);
+        // For each node builder, align to Node alignment and add its size (Node already includes canary in memory_size)
         for (const auto &node_builder : node_builders) {
-            total = add_aligned_size<Node>(total);
+            total = align_size(total, alignof(Node));
             total += node_builder->memory_size();
         }
         _memory_size = total;

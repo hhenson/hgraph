@@ -25,7 +25,7 @@ namespace hgraph {
     }
 
     size_t TimeSeriesSignalInputBuilder::memory_size() const {
-        return sizeof(TimeSeriesSignalInput);
+        return add_canary_size(sizeof(TimeSeriesSignalInput));
     }
 
     void TimeSeriesSignalInputBuilder::register_with_nanobind(nb::module_ &m) {

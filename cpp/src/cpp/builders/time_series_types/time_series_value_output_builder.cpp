@@ -24,7 +24,7 @@ namespace hgraph {
 
     template<typename T>
     size_t TimeSeriesValueOutputBuilder<T>::memory_size() const {
-        return sizeof(TimeSeriesValueOutput<T>);
+        return add_canary_size(sizeof(TimeSeriesValueOutput<T>));
     }
 
     void time_series_value_output_builder_register_with_nanobind(nb::module_ &m) {

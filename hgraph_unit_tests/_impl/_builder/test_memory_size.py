@@ -6,6 +6,16 @@ import pytest
 from hgraph import graph, wire_graph, const, print_, TS, compute_node, null_sink
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
 
+# Import C++ module to access debug functions
+try:
+    import hgraph._hgraph as _hgraph
+    set_arena_debug_mode = _hgraph.set_arena_debug_mode
+    get_arena_debug_mode = _hgraph.get_arena_debug_mode
+    ARENA_CANARY_PATTERN = _hgraph.ARENA_CANARY_PATTERN
+    HAS_CPP_DEBUG = True
+except (ImportError, AttributeError):
+    HAS_CPP_DEBUG = False
+
 
 def test_memory_size_simple_graph():
     """Test memory_size for a simple graph with basic nodes."""
@@ -144,4 +154,78 @@ def test_memory_size_for_nested_structures():
     # Verify it includes sizes for nested structures
     # (The exact value depends on implementation, but should be reasonable)
     assert size >= 200, f"memory_size for nested structures seems too small: {size}"
+
+
+@pytest.mark.skipif(not HAS_CPP_DEBUG, reason="C++ debug functions not available")
+def test_memory_size_with_debug_mode():
+    """Test that memory_size increases when debug mode is enabled."""
+    @graph
+    def debug_test():
+        c = const("test")
+        print_("{}", c)
+
+    with WiringNodeInstanceContext():
+        # Test with debug mode off
+        if HAS_CPP_DEBUG:
+            set_arena_debug_mode(False)
+        gb_off = wire_graph(debug_test)
+        size_off = gb_off.memory_size()
+
+        # Test with debug mode on
+        if HAS_CPP_DEBUG:
+            set_arena_debug_mode(True)
+        gb_on = wire_graph(debug_test)
+        size_on = gb_on.memory_size()
+
+        # Debug mode should increase the size (each object gets a canary)
+        assert size_on > size_off, \
+            f"Debug mode should increase memory_size: {size_off} -> {size_on}"
+
+        # Verify canary pattern is defined
+        if HAS_CPP_DEBUG:
+            assert ARENA_CANARY_PATTERN == 0xDEADBEEFCAFEBABE, \
+                f"Canary pattern should be 0xDEADBEEFCAFEBABE, got {hex(ARENA_CANARY_PATTERN)}"
+
+        # Reset debug mode
+        if HAS_CPP_DEBUG:
+            set_arena_debug_mode(False)
+
+
+@pytest.mark.skipif(not HAS_CPP_DEBUG, reason="C++ debug functions not available")
+def test_debug_mode_toggle():
+    """Test that debug mode can be toggled and affects memory_size calculation."""
+    @graph
+    def toggle_test():
+        c1 = const("a")
+        c2 = const("b")
+        print_("{}", c1)
+        print_("{}", c2)
+
+    with WiringNodeInstanceContext():
+        # Start with debug off
+        set_arena_debug_mode(False)
+        assert get_arena_debug_mode() == False
+
+        gb1 = wire_graph(toggle_test)
+        size1 = gb1.memory_size()
+
+        # Turn debug on
+        set_arena_debug_mode(True)
+        assert get_arena_debug_mode() == True
+
+        gb2 = wire_graph(toggle_test)
+        size2 = gb2.memory_size()
+
+        # Debug mode should increase size
+        assert size2 > size1
+
+        # Turn debug off again
+        set_arena_debug_mode(False)
+        assert get_arena_debug_mode() == False
+
+        gb3 = wire_graph(toggle_test)
+        size3 = gb3.memory_size()
+
+        # Should be back to original size
+        assert size3 == size1, f"Size should return to original after disabling debug: {size1} vs {size3}"
 

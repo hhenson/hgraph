@@ -60,7 +60,8 @@ namespace hgraph {
     }
 
     size_t TimeSeriesBundleOutputBuilder::memory_size() const {
-        size_t total = sizeof(TimeSeriesBundleOutput);
+        // Add canary size to the base bundle object
+        size_t total = add_canary_size(sizeof(TimeSeriesBundleOutput));
         // Align before each nested time-series output
         for (const auto &builder : output_builders) {
             total = align_size(total, alignof(TimeSeriesType));

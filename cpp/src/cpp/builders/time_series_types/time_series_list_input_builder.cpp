@@ -47,7 +47,8 @@ namespace hgraph {
     }
 
     size_t TimeSeriesListInputBuilder::memory_size() const {
-        size_t total = sizeof(TimeSeriesListInput);
+        // Add canary size to the base list object
+        size_t total = add_canary_size(sizeof(TimeSeriesListInput));
         // For each element, align and add its size
         for (size_t i = 0; i < size; ++i) {
             total = align_size(total, alignof(TimeSeriesType));

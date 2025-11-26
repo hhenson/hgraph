@@ -65,7 +65,8 @@ namespace hgraph {
 
     size_t NodeBuilder::memory_size() const {
         // Base size for Node - concrete node builders should override if they create different node types
-        size_t total = sizeof(Node);
+        // Add canary size to the base Node object
+        size_t total = add_canary_size(sizeof(Node));
         // Align and add each time-series builder's size
         if (input_builder) {
             // We don't know the exact type, so use TimeSeriesType alignment as a conservative estimate

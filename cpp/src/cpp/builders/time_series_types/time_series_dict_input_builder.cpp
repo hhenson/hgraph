@@ -39,7 +39,7 @@ namespace hgraph {
 
     template<typename T>
     size_t TimeSeriesDictInputBuilder_T<T>::memory_size() const {
-        return sizeof(TimeSeriesDictInput_T<T>);
+        return add_canary_size(sizeof(TimeSeriesDictInput_T<T>));
     }
 
     void time_series_dict_input_builder_register_with_nanobind(nb::module_ &m) {

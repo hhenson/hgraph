@@ -45,7 +45,8 @@ namespace hgraph {
     }
 
     size_t TimeSeriesListOutputBuilder::memory_size() const {
-        size_t total = sizeof(TimeSeriesListOutput);
+        // Add canary size to the base list object
+        size_t total = add_canary_size(sizeof(TimeSeriesListOutput));
         // For each element, align and add its size
         for (size_t i = 0; i < size; ++i) {
             total = align_size(total, alignof(TimeSeriesType));

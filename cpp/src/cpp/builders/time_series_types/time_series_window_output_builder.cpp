@@ -39,7 +39,7 @@ namespace hgraph {
 
     template<typename T>
     size_t TimeSeriesWindowOutputBuilder_T<T>::memory_size() const {
-        return sizeof(TimeSeriesFixedWindowOutput<T>);
+        return add_canary_size(sizeof(TimeSeriesFixedWindowOutput<T>));
     }
 
     // TimeSeriesTimeWindowOutputBuilder_T implementations (timedelta-based)
@@ -78,7 +78,7 @@ namespace hgraph {
 
     template<typename T>
     size_t TimeSeriesTimeWindowOutputBuilder_T<T>::memory_size() const {
-        return sizeof(TimeSeriesTimeWindowOutput<T>);
+        return add_canary_size(sizeof(TimeSeriesTimeWindowOutput<T>));
     }
 
     void time_series_window_output_builder_register_with_nanobind(nb::module_ &m) {

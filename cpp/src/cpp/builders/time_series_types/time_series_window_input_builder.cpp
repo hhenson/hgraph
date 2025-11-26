@@ -19,7 +19,7 @@ namespace hgraph {
 
     template<typename T>
     size_t TimeSeriesWindowInputBuilder_T<T>::memory_size() const {
-        return sizeof(TimeSeriesWindowInput<T>);
+        return add_canary_size(sizeof(TimeSeriesWindowInput<T>));
     }
 
     void time_series_window_input_builder_register_with_nanobind(nb::module_ &m) {

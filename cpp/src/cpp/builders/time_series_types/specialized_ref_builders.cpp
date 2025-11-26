@@ -23,7 +23,7 @@ namespace hgraph
     }
 
     size_t TimeSeriesValueRefInputBuilder::memory_size() const {
-        return sizeof(TimeSeriesValueReferenceInput);
+        return add_canary_size(sizeof(TimeSeriesValueReferenceInput));
     }
 
     void TimeSeriesValueRefInputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -51,7 +51,8 @@ namespace hgraph
     }
 
     size_t TimeSeriesListRefInputBuilder::memory_size() const {
-        size_t total = sizeof(TimeSeriesListReferenceInput);
+        // Add canary size to the base list reference object
+        size_t total = add_canary_size(sizeof(TimeSeriesListReferenceInput));
         // For each element, align and add its size
         for (size_t i = 0; i < size; ++i) {
             total = align_size(total, alignof(TimeSeriesType));
@@ -92,7 +93,8 @@ namespace hgraph
     }
 
     size_t TimeSeriesBundleRefInputBuilder::memory_size() const {
-        size_t total = sizeof(TimeSeriesBundleReferenceInput);
+        // Add canary size to the base bundle reference object
+        size_t total = add_canary_size(sizeof(TimeSeriesBundleReferenceInput));
         // Align before each nested time-series input
         for (const auto &builder : field_builders) {
             total = align_size(total, alignof(TimeSeriesType));
@@ -118,7 +120,7 @@ namespace hgraph
     }
 
     size_t TimeSeriesDictRefInputBuilder::memory_size() const {
-        return sizeof(TimeSeriesDictReferenceInput);
+        return add_canary_size(sizeof(TimeSeriesDictReferenceInput));
     }
 
     void TimeSeriesDictRefInputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -137,7 +139,7 @@ namespace hgraph
     }
 
     size_t TimeSeriesSetRefInputBuilder::memory_size() const {
-        return sizeof(TimeSeriesSetReferenceInput);
+        return add_canary_size(sizeof(TimeSeriesSetReferenceInput));
     }
 
     void TimeSeriesSetRefInputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -156,7 +158,7 @@ namespace hgraph
     }
 
     size_t TimeSeriesWindowRefInputBuilder::memory_size() const {
-        return sizeof(TimeSeriesWindowReferenceInput);
+        return add_canary_size(sizeof(TimeSeriesWindowReferenceInput));
     }
 
     void TimeSeriesWindowRefInputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -179,7 +181,7 @@ namespace hgraph
     }
 
     size_t TimeSeriesValueRefOutputBuilder::memory_size() const {
-        return sizeof(TimeSeriesValueReferenceOutput);
+        return add_canary_size(sizeof(TimeSeriesValueReferenceOutput));
     }
 
     void TimeSeriesValueRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -207,7 +209,8 @@ namespace hgraph
     }
 
     size_t TimeSeriesListRefOutputBuilder::memory_size() const {
-        size_t total = sizeof(TimeSeriesListReferenceOutput);
+        // Add canary size to the base list reference object
+        size_t total = add_canary_size(sizeof(TimeSeriesListReferenceOutput));
         // For each element, align and add its size
         for (size_t i = 0; i < size; ++i) {
             total = align_size(total, alignof(TimeSeriesType));
@@ -248,7 +251,8 @@ namespace hgraph
     }
 
     size_t TimeSeriesBundleRefOutputBuilder::memory_size() const {
-        size_t total = sizeof(TimeSeriesBundleReferenceOutput);
+        // Add canary size to the base bundle reference object
+        size_t total = add_canary_size(sizeof(TimeSeriesBundleReferenceOutput));
         // Align before each nested time-series output
         for (const auto &builder : field_builders) {
             total = align_size(total, alignof(TimeSeriesType));
@@ -274,7 +278,7 @@ namespace hgraph
     }
 
     size_t TimeSeriesDictRefOutputBuilder::memory_size() const {
-        return sizeof(TimeSeriesDictReferenceOutput);
+        return add_canary_size(sizeof(TimeSeriesDictReferenceOutput));
     }
 
     void TimeSeriesDictRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -293,7 +297,7 @@ namespace hgraph
     }
 
     size_t TimeSeriesSetRefOutputBuilder::memory_size() const {
-        return sizeof(TimeSeriesSetReferenceOutput);
+        return add_canary_size(sizeof(TimeSeriesSetReferenceOutput));
     }
 
     void TimeSeriesSetRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -312,7 +316,7 @@ namespace hgraph
     }
 
     size_t TimeSeriesWindowRefOutputBuilder::memory_size() const {
-        return sizeof(TimeSeriesWindowReferenceOutput);
+        return add_canary_size(sizeof(TimeSeriesWindowReferenceOutput));
     }
 
     void TimeSeriesWindowRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
