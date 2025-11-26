@@ -31,7 +31,7 @@ namespace hgraph {
     using sender_receiver_state_ptr = SenderReceiverState *;
 
     struct GraphBuilder;
-    using graph_builder_ptr = std::shared_ptr<GraphBuilder>;
+    using graph_builder_ptr = nb::ref<GraphBuilder>;
 
     struct NodeBuilder;
 
@@ -39,13 +39,13 @@ namespace hgraph {
     using engine_evalaution_clock_ptr = std::shared_ptr<EngineEvaluationClock>;  // Clock is wrapped
 
     struct InputBuilder;
-    using input_builder_ptr = std::shared_ptr<InputBuilder>;
+    using input_builder_ptr = nb::ref<InputBuilder>;
 
     struct OutputBuilder;
-    using output_builder_ptr = std::shared_ptr<OutputBuilder>;
+    using output_builder_ptr = nb::ref<OutputBuilder>;
 
     struct NodeBuilder;
-    using node_builder_ptr = std::shared_ptr<NodeBuilder>;
+    using node_builder_ptr = nb::ref<NodeBuilder>;
 
     struct TimeSeriesType;
     using time_series_type_ptr = std::shared_ptr<TimeSeriesType>;

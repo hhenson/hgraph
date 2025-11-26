@@ -189,9 +189,12 @@ namespace hgraph
     void TimeSeriesSetOutput_T<T_Key>::_ensure_contains_ref_outputs() const {
         if (!_contains_ref_outputs.has_value()) {
             // Now we can safely use shared_from_this() because the shared_ptr has been created
+            // Use a static builder instance since builders are Python-managed (nb::ref)
+            // TimeSeriesValueOutputBuilder<bool> has no state, so a static instance is safe
+            static TimeSeriesValueOutputBuilder<bool> static_builder;
             _contains_ref_outputs = FeatureOutputExtension<element_type>(
                 const_cast<TimeSeriesSetOutput_T<T_Key>*>(this)->shared_from_this(),
-                std::make_shared<TimeSeriesValueOutputBuilder<bool>>(),
+                nb::ref<OutputBuilder>(&static_builder),
                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
                     reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
                         reinterpret_cast<const TimeSeriesSetOutput_T<element_type> &>(ts).contains(key));
