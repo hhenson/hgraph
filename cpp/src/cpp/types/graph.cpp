@@ -28,6 +28,8 @@ namespace hgraph
 
     control_block_ptr Graph::control_block() const {
         // Extract control block from shared_from_this() to be used as donor for child objects
+        // shared_from_this() will throw std::bad_weak_ptr if the Graph isn't managed by a shared_ptr
+        // This can happen if control_block() is called before the Graph's shared_ptr is created
         return std::shared_ptr<void>(shared_from_this(), static_cast<void*>(nullptr));
     }
 

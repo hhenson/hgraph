@@ -65,11 +65,35 @@ namespace hgraph {
 
     size_t NodeBuilder::memory_size() const {
         // Base size for Node - concrete node builders should override if they create different node types
-        // Add canary size to the base Node object
-        size_t total = add_canary_size(sizeof(Node));
+        return add_canary_size(sizeof(Node)) + _calculate_time_series_builders_size();
+    }
+
+    size_t NodeBuilder::_calculate_time_series_builders_size() const {
+        size_t total = 0;
         // Align and add each time-series builder's size
         if (input_builder) {
-            // We don't know the exact type, so use TimeSeriesType alignment as a conservative estimate
+            total = align_size(total, alignof(TimeSeriesType));
+            total += (*input_builder)->memory_size();
+        }
+        if (output_builder) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += (*output_builder)->memory_size();
+        }
+        if (error_builder) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += (*error_builder)->memory_size();
+        }
+        if (recordable_state_builder) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += (*recordable_state_builder)->memory_size();
+        }
+        return total;
+    }
+
+    size_t BaseNodeBuilder::_calculate_memory_size(size_t node_size) const {
+        size_t total = add_canary_size(node_size);
+        // Align and add each time-series builder's size
+        if (input_builder) {
             total = align_size(total, alignof(TimeSeriesType));
             total += (*input_builder)->memory_size();
         }

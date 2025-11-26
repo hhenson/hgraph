@@ -1,6 +1,7 @@
 #include <hgraph/builders/nodes/python_node_builder.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series_type.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/nodes/push_queue_node.h>
 
@@ -108,6 +109,15 @@ namespace hgraph {
         }
         
         return node;
+    }
+
+    size_t PythonNodeBuilder::memory_size() const {
+        // PythonNodeBuilder can create either PythonNode or PushQueueNode
+        // Use the appropriate size based on node type
+        size_t node_size = this->signature->is_push_source_node() 
+            ? sizeof(PushQueueNode) 
+            : sizeof(PythonNode);
+        return _calculate_memory_size(node_size);
     }
 
     void python_node_builder_register_with_nanobind(nb::module_ &m) {

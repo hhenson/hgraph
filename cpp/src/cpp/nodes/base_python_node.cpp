@@ -25,8 +25,10 @@ namespace hgraph
 
         auto g = graph();
         if (g == nullptr) { throw std::runtime_error("BasePythonNode::_initialise_kwargs: missing owning graph"); }
+        // control_block() returns a shared_ptr that uses the Graph's control block as donor
+        // It will throw std::bad_weak_ptr if the Graph isn't managed by a shared_ptr, but won't return null
         const auto &cb = g->control_block();
-        if (cb == nullptr) { throw std::runtime_error("BasePythonNode::_initialise_kwargs: graph missing API control block"); }
+        // A shared_ptr from shared_from_this() is never null, so we don't need to check for null
 
         nb::object node_wrapper{};
         auto       get_node_wrapper = [&]() -> nb::object {

@@ -43,6 +43,14 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
+    protected:
+        /**
+         * Helper method to calculate the total size of all time-series builders.
+         * Used by memory_size() implementations.
+         */
+        [[nodiscard]] size_t _calculate_time_series_builders_size() const;
+
+    public:
         node_signature_ptr signature;
         nb::dict scalars;
         std::optional<input_builder_ptr> input_builder;
@@ -63,6 +71,14 @@ namespace hgraph {
          * @param offset Current offset in the buffer (will be updated, ignored if buffer is nullptr)
          */
         void _build_inputs_and_outputs(node_ptr node, void* buffer = nullptr, size_t* offset = nullptr) const;
+
+        /**
+         * Helper method to calculate memory size for a node builder.
+         * Takes the node type size and adds sizes for all time-series builders.
+         * @param node_size Size of the node type (e.g., sizeof(PythonNode))
+         * @return Total memory size including node, canary, and all time-series builders
+         */
+        [[nodiscard]] size_t _calculate_memory_size(size_t node_size) const;
     };
 } // namespace hgraph
 

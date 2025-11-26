@@ -22,6 +22,8 @@ namespace hgraph {
         node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx,
                                void* buffer = nullptr, size_t* offset = nullptr) const override;
 
+        [[nodiscard]] size_t memory_size() const override;
+
         nb::callable eval_fn;
         nb::callable start_fn;
         nb::callable stop_fn;

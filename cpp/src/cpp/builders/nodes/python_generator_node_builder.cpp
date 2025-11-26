@@ -1,6 +1,7 @@
 #include <hgraph/builders/nodes/python_generator_node_builder.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series_type.h>
 #include <hgraph/nodes/python_generator_node.h>
 #include <fmt/format.h>
 
@@ -54,6 +55,11 @@ namespace hgraph {
             _build_inputs_and_outputs(node, nullptr, nullptr);
         }
         return node;
+    }
+
+    size_t PythonGeneratorNodeBuilder::memory_size() const {
+        // PythonGeneratorNode is larger than Node, so we need to use its actual size
+        return _calculate_memory_size(sizeof(PythonGeneratorNode));
     }
 
     void python_generator_node_builder_register_with_nanobind(nb::module_ &m) {

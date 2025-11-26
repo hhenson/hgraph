@@ -98,63 +98,9 @@ namespace hgraph {
         verify_canary(graph_ptr_raw, sizeof(Graph), "Graph");
         offset += add_canary_size(sizeof(Graph));
         
-        // Traits is now stored as a value member in Graph, so we don't need separate construction
-        // The Graph constructor already initialized _traits with the passed Traits object
-        
-        // Construct nodes in-place
-        std::vector<node_ptr> nodes;
-        nodes.reserve(node_builders.size());
-        
-        for (size_t i = 0; i < node_builders.size(); ++i) {
-            // Align for Node
-            offset = align_size(offset, alignof(Node));
-            // NodeBuilder will construct the Node and its TimeSeries objects in-place
-            // We need to pass the buffer pointer and current offset
-            size_t node_offset = offset;  // Save starting offset
-            node_ptr node = node_builders[i]->make_instance(graph_id, i, buffer, &offset);
-            
-            // Set graph on the node - this will be done after we have the graph shared_ptr
-            // For now, just store the node
-            
-            nodes.push_back(node);
-            // Offset is updated by make_instance, verify it matches expected size
-            size_t expected_offset = node_offset + node_builders[i]->memory_size();
-            if (offset != expected_offset) {
-                throw std::runtime_error(fmt::format("Node {} memory size mismatch: expected offset {}, got {}", i, expected_offset, offset));
-            }
-        }
-        
-        // Update Graph's nodes vector
-        graph_ptr_raw->_nodes = std::move(nodes);
-        
-        // Connect edges
-        for (const auto &edge: edges) {
-            auto src_node = graph_ptr_raw->_nodes[edge.src_node];
-            auto dst_node = graph_ptr_raw->_nodes[edge.dst_node];
-
-            time_series_output_ptr output;
-            if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
-                output = src_node->error_output();
-            } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
-                auto recordable_state = src_node->recordable_state();
-                output = std::dynamic_pointer_cast<TimeSeriesOutput>(recordable_state);
-                if (!output) {
-                    throw std::runtime_error("recordable_state is not a TimeSeriesOutput");
-                }
-            } else {
-                output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path);
-            }
-
-            auto input = _extract_input(dst_node, edge.input_path);
-            input->bind_output(output);
-        }
-        
-        // Create shared_ptr with custom deleter that calls release_instance before freeing
-        // The shared_ptr constructor automatically initializes enable_shared_from_this<Graph>
-        // by detecting the inheritance and setting up the internal weak_ptr to point to the control block.
-        // This 'result' shared_ptr is the first one managing the Graph, so it initializes enable_shared_from_this.
+        // Create shared_ptr IMMEDIATELY after construction to initialize enable_shared_from_this
+        // This is critical: enable_shared_from_this must be initialized before any code tries to call shared_from_this()
         // Store the GraphBuilder as nb::ref to ensure we retain a reference
-        // Since this is a const method, we need to cast away const to create the ref
         const GraphBuilder* builder_ptr = this;
         nb::ref<const GraphBuilder> builder_ref = nb::ref<const GraphBuilder>(builder_ptr);
         graph_ptr result = std::shared_ptr<Graph>(
@@ -171,12 +117,55 @@ namespace hgraph {
             }
         );
         
-        // Now that we have the graph shared_ptr, update all nodes to use it for shared_from_this
-        // Actually, we already set the graph above, so nodes should be able to use shared_from_this
-        // But we need to make sure the nodes use the graph's control block
-        for (auto& node : result->_nodes) {
-            // Re-set graph to ensure node uses graph's control block
+        // Traits is now stored as a value member in Graph, so we don't need separate construction
+        // The Graph constructor already initialized _traits with the passed Traits object
+        
+        // Construct nodes in-place
+        std::vector<node_ptr> nodes;
+        nodes.reserve(node_builders.size());
+        
+        for (size_t i = 0; i < node_builders.size(); ++i) {
+            // Align for Node
+            offset = align_size(offset, alignof(Node));
+            // NodeBuilder will construct the Node and its TimeSeries objects in-place
+            // We need to pass the buffer pointer and current offset
+            size_t node_offset = offset;  // Save starting offset
+            node_ptr node = node_builders[i]->make_instance(graph_id, i, buffer, &offset);
+            
+            // Set graph on the node immediately so it can use graph's control block if needed
             node->set_graph(result);
+            
+            nodes.push_back(node);
+            // Offset is updated by make_instance, verify it matches expected size
+            size_t expected_offset = node_offset + node_builders[i]->memory_size();
+            if (offset != expected_offset) {
+                throw std::runtime_error(fmt::format("Node {} memory size mismatch: expected offset {}, got {}", i, expected_offset, offset));
+            }
+        }
+        
+        // Update Graph's nodes vector
+        result->_nodes = std::move(nodes);
+        
+        // Connect edges
+        for (const auto &edge: edges) {
+            auto src_node = result->_nodes[edge.src_node];
+            auto dst_node = result->_nodes[edge.dst_node];
+
+            time_series_output_ptr output;
+            if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
+                output = src_node->error_output();
+            } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
+                auto recordable_state = src_node->recordable_state();
+                output = std::dynamic_pointer_cast<TimeSeriesOutput>(recordable_state);
+                if (!output) {
+                    throw std::runtime_error("recordable_state is not a TimeSeriesOutput");
+                }
+            } else {
+                output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path);
+            }
+
+            auto input = _extract_input(dst_node, edge.input_path);
+            input->bind_output(output);
         }
         
         return result;
