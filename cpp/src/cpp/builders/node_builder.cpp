@@ -31,7 +31,7 @@ namespace hgraph {
                              std::optional<output_builder_ptr> output_builder_,
                              std::optional<output_builder_ptr> error_builder_,
                              std::optional<output_builder_ptr> recordable_state_builder_)
-        : signature(signature_), scalars(std::move(scalars_)), input_builder(std::move(input_builder_)),
+        : signature(std::move(signature_)), scalars(std::move(scalars_)), input_builder(std::move(input_builder_)),
           output_builder(std::move(output_builder_)), error_builder(std::move(error_builder_)),
           recordable_state_builder(std::move(recordable_state_builder_)) {
     }

@@ -2,6 +2,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/nodes/python_generator_node.h>
+#include <fmt/format.h>
 
 namespace hgraph {
     PythonGeneratorNodeBuilder::PythonGeneratorNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
@@ -59,8 +60,8 @@ namespace hgraph {
         nb::class_ < PythonGeneratorNodeBuilder, BaseNodeBuilder > (m, "PythonGeneratorNodeBuilder")
                 .def("__init__",
                      [](PythonGeneratorNodeBuilder *self, const nb::kwargs &kwargs) {
-                         // Cast NodeSignature from Python - node_signature_ptr is nb::ref<NodeSignature>
-                         node_signature_ptr signature_ = nb::cast<node_signature_ptr>(kwargs["signature"]);
+                         auto signature_obj = kwargs["signature"];
+                         auto signature_ = nb::cast<node_signature_ptr>(signature_obj);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
 
                          std::optional<input_builder_ptr> input_builder_ =
@@ -77,7 +78,7 @@ namespace hgraph {
                                      : std::nullopt;
                          auto eval_fn = nb::cast<nb::callable>(kwargs["eval_fn"]);
                          new(self)
-                                 PythonGeneratorNodeBuilder(signature_, std::move(scalars_),
+                                 PythonGeneratorNodeBuilder(std::move(signature_), std::move(scalars_),
                                                             std::move(input_builder_),
                                                             std::move(output_builder_), std::move(error_builder_),
                                                             std::move(eval_fn));
