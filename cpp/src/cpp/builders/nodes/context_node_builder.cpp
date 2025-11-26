@@ -12,7 +12,7 @@ namespace hgraph {
             // Arena allocation: construct in-place
             char* buf = static_cast<char*>(buffer);
             // Convert std::shared_ptr<NodeSignature> to nb::ref<NodeSignature>
-            NodeSignature::ptr sig_ref = nb::ref<NodeSignature>(this->signature.get());
+            NodeSignature::ptr sig_ref = this->signature;
             size_t node_size = sizeof(ContextStubSourceNode);
             size_t aligned_node_size = align_size(node_size, alignof(size_t));
             // Set canary BEFORE construction
@@ -30,7 +30,7 @@ namespace hgraph {
             _build_inputs_and_outputs(node, buffer, offset);
         } else {
             // Heap allocation (legacy path) - use make_shared for proper memory management
-            NodeSignature::ptr sig_ref = nb::ref<NodeSignature>(this->signature.get());
+            NodeSignature::ptr sig_ref = this->signature;
             node = std::make_shared<ContextStubSourceNode>(node_ndx, owning_graph_id, sig_ref, this->scalars);
             _build_inputs_and_outputs(node, nullptr, nullptr);
         }

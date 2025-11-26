@@ -51,8 +51,8 @@ namespace hgraph {
                     *canary_ptr = ARENA_CANARY_PATTERN;
                 }
                 // Now construct the object
-                // Convert std::shared_ptr<NodeSignature> to nb::ref<NodeSignature>
-                NodeSignature::ptr sig_ref = nb::ref<NodeSignature>(this->signature.get());
+                // Use signature directly (it's already NodeSignature::ptr)
+                NodeSignature::ptr sig_ref = this->signature;
                 node_ptr_raw = new (buf + *offset) PushQueueNode(node_ndx, owning_graph_id, sig_ref, this->scalars);
                 // Immediately check canary after construction
                 verify_canary(node_ptr_raw, sizeof(PushQueueNode), "PushQueueNode");
@@ -68,8 +68,8 @@ namespace hgraph {
                     *canary_ptr = ARENA_CANARY_PATTERN;
                 }
                 // Now construct the object
-                // Convert std::shared_ptr<NodeSignature> to nb::ref<NodeSignature>
-                NodeSignature::ptr sig_ref = nb::ref<NodeSignature>(this->signature.get());
+                // Use signature directly (it's already NodeSignature::ptr)
+                NodeSignature::ptr sig_ref = this->signature;
                 node_ptr_raw = new (buf + *offset) PythonNode(node_ndx, owning_graph_id, sig_ref, this->scalars, eval_fn_to_use, start_fn, stop_fn);
                 // Immediately check canary after construction
                 verify_canary(node_ptr_raw, sizeof(PythonNode), "PythonNode");
@@ -94,7 +94,8 @@ namespace hgraph {
             _build_inputs_and_outputs(node, buffer, offset);
         } else {
             // Heap allocation (legacy path) - use make_shared for proper memory management
-            NodeSignature::ptr sig_ref = nb::ref<NodeSignature>(this->signature.get());
+            // Use signature directly (it's already NodeSignature::ptr)
+            NodeSignature::ptr sig_ref = this->signature;
             if (this->signature->is_push_source_node()) {
                 node = std::make_shared<PushQueueNode>(node_ndx, owning_graph_id, sig_ref, this->scalars);
                 _build_inputs_and_outputs(node, nullptr, nullptr);

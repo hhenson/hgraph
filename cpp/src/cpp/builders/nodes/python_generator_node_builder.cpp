@@ -21,8 +21,8 @@ namespace hgraph {
         if (buffer != nullptr && offset != nullptr) {
             // Arena allocation: construct in-place
             char* buf = static_cast<char*>(buffer);
-            // Convert std::shared_ptr<NodeSignature> to nb::ref<NodeSignature>
-            NodeSignature::ptr sig_ref = nb::ref<NodeSignature>(this->signature.get());
+            // Use signature directly (it's already NodeSignature::ptr)
+            NodeSignature::ptr sig_ref = this->signature;
             size_t node_size = sizeof(PythonGeneratorNode);
             size_t aligned_node_size = align_size(node_size, alignof(size_t));
             // Set canary BEFORE construction
@@ -44,7 +44,8 @@ namespace hgraph {
         } else {
             // Heap allocation (legacy path) - use make_shared for proper memory management
             // PythonGeneratorNode uses BasePythonNode constructor which takes eval_fn, start_fn, stop_fn
-            NodeSignature::ptr sig_ref = nb::ref<NodeSignature>(this->signature.get());
+            // Use signature directly (it's already NodeSignature::ptr)
+            NodeSignature::ptr sig_ref = this->signature;
             // Use default-constructed callables for start_fn and stop_fn (generator nodes don't use them)
             nb::callable empty_start;
             nb::callable empty_stop;
@@ -58,8 +59,8 @@ namespace hgraph {
         nb::class_ < PythonGeneratorNodeBuilder, BaseNodeBuilder > (m, "PythonGeneratorNodeBuilder")
                 .def("__init__",
                      [](PythonGeneratorNodeBuilder *self, const nb::kwargs &kwargs) {
-                         auto signature_obj = kwargs["signature"];
-                         auto signature_ = nb::cast<node_signature_ptr>(signature_obj);
+                         // Cast NodeSignature from Python - node_signature_ptr is nb::ref<NodeSignature>
+                         node_signature_ptr signature_ = nb::cast<node_signature_ptr>(kwargs["signature"]);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
 
                          std::optional<input_builder_ptr> input_builder_ =
@@ -76,7 +77,7 @@ namespace hgraph {
                                      : std::nullopt;
                          auto eval_fn = nb::cast<nb::callable>(kwargs["eval_fn"]);
                          new(self)
-                                 PythonGeneratorNodeBuilder(std::move(signature_), std::move(scalars_),
+                                 PythonGeneratorNodeBuilder(signature_, std::move(scalars_),
                                                             std::move(input_builder_),
                                                             std::move(output_builder_), std::move(error_builder_),
                                                             std::move(eval_fn));

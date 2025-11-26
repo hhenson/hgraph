@@ -16,7 +16,7 @@ namespace nb = nanobind;
 
 namespace hgraph {
     struct NodeSignature;
-    using node_signature_ptr = std::shared_ptr<NodeSignature>;
+    using node_signature_ptr = nb::ref<NodeSignature>;  // NodeSignature uses intrusive_base
 
     struct Node;
     using node_ptr = std::shared_ptr<Node>;
