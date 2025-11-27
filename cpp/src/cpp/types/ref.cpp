@@ -263,7 +263,12 @@ namespace hgraph
 
     void TimeSeriesReferenceOutput::stop_observing_reference(TimeSeriesInput* input_) { _reference_observers.erase(input_); }
 
-    void TimeSeriesReferenceOutput::clear() { set_value(TimeSeriesReference::make()); }
+    void TimeSeriesReferenceOutput::clear() { 
+        // Clear the value without notifying observers, as they may have been destroyed during cleanup
+        _value = TimeSeriesReference::make();
+        mark_modified();
+        // Don't iterate over observers - they may have been destroyed
+    }
 
     nb::object TimeSeriesReferenceOutput::py_value() const { return has_value() ? nb::cast(*_value) : nb::none(); }
 

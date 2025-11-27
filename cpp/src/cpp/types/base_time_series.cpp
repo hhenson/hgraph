@@ -299,7 +299,11 @@ namespace hgraph {
             _reference_output = std::static_pointer_cast<TimeSeriesReferenceOutput>(output_);
             peer = false;
         } else {
-            if (output_ == _output) { return has_peer(); }
+            // NOTE: We intentionally do NOT check `output_ == _output` here.
+            // In C++, heap memory reuse can cause a NEW output object to have the same address
+            // as a previously-destroyed output. Python's `is` check is safe because Python
+            // doesn't reuse object identities after destruction, but C++ raw pointers don't 
+            // have this guarantee. The do_bind_output call handles re-subscription correctly.
             peer = do_bind_output(output_);
         }
 
