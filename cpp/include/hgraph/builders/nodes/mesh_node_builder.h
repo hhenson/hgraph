@@ -7,6 +7,7 @@
 
 #include <hgraph/builders/node_builder.h>
 #include <hgraph/builders/graph_builder.h>
+#include <hgraph/nodes/mesh_node.h>
 #include <unordered_map>
 #include <unordered_set>
 
@@ -37,6 +38,10 @@ namespace hgraph {
         using BaseMeshNodeBuilder::BaseMeshNodeBuilder;
 
         node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        
+        size_t memory_size() const override {
+            return _calculate_memory_size(sizeof(MeshNode<T>));
+        }
     };
 
     void mesh_node_builder_register_with_nanobind(nb::module_ & m);

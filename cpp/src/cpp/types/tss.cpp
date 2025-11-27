@@ -713,8 +713,22 @@ namespace hgraph
         // A cheat but should be OK
         if (_pending_reset_prev) { return; }
         _pending_reset_prev = true;
-        auto self           = const_cast<TimeSeriesSetInput *>(this);
-        owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self]() { self->reset_prev(); });
+        // Capture weak_ptr to safely check if object is still valid when callback runs
+        // This is necessary because the TimeSeriesSetInput might be destroyed during the graph cycle
+        // (e.g., when a TSD key is removed)
+        auto self = const_cast<TimeSeriesSetInput *>(this);
+        if (!self->can_shared_from_this()) {
+            // Object can't safely provide shared_from_this - skip the callback
+            // This can happen for embedded value members during cleanup
+            _pending_reset_prev = false;
+            return;
+        }
+        std::weak_ptr<TimeSeriesSetInput> weak_self = std::dynamic_pointer_cast<TimeSeriesSetInput>(self->shared_from_this());
+        owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() { 
+            if (auto self_ptr = weak_self.lock()) {
+                self_ptr->reset_prev(); 
+            }
+        });
     }
 
     bool TimeSeriesSetInput::do_bind_output(TimeSeriesOutput::ptr &output) {

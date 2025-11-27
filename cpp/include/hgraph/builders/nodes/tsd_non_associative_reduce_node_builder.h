@@ -7,6 +7,7 @@
 
 #include <hgraph/builders/node_builder.h>
 #include <hgraph/builders/graph_builder.h>
+#include <hgraph/nodes/non_associative_reduce_node.h>
 #include <tuple>
 
 namespace hgraph {
@@ -30,6 +31,10 @@ namespace hgraph {
         using BaseTsdNonAssociativeReduceNodeBuilder::BaseTsdNonAssociativeReduceNodeBuilder;
 
         node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        
+        size_t memory_size() const override {
+            return _calculate_memory_size(sizeof(TsdNonAssociativeReduceNode));
+        }
     };
 
     void tsd_non_associative_reduce_node_builder_register_with_nanobind(nb::module_ & m);

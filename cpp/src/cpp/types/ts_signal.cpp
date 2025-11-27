@@ -10,7 +10,9 @@ namespace hgraph {
         // Create child signals on demand, similar to Python implementation
         while (index >= _ts_values.size()) {
             // Create child with this as parent - child will notify parent, parent notifies node
-            auto new_item = std::make_shared<TimeSeriesSignalInput>(TimeSeriesType::ptr{this});
+            // Use ts_shared_from_this() to get a proper shared_ptr to pass as parent
+            // (avoids creating a shared_ptr from raw pointer that would try to delete arena memory)
+            auto new_item = std::make_shared<TimeSeriesSignalInput>(ts_shared_from_this());
             if (active()) { new_item->make_active(); }
             _ts_values.push_back(new_item);
         }
