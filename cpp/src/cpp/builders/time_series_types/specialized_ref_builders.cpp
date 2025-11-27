@@ -61,14 +61,8 @@ namespace hgraph
     }
 
     size_t TimeSeriesListRefInputBuilder::memory_size() const {
-        // Add canary size to the base list reference object
-        size_t total = add_canary_size(sizeof(TimeSeriesListReferenceInput));
-        // For each element, align and add its size
-        for (size_t i = 0; i < size; ++i) {
-            total = align_size(total, alignof(TimeSeriesType));
-            total += value_builder->memory_size();
-        }
-        return total;
+        // Only the base object is allocated in the arena; nested elements are lazily created on the heap
+        return add_canary_size(sizeof(TimeSeriesListReferenceInput));
     }
 
     void TimeSeriesListRefInputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -107,14 +101,8 @@ namespace hgraph
     }
 
     size_t TimeSeriesBundleRefInputBuilder::memory_size() const {
-        // Add canary size to the base bundle reference object
-        size_t total = add_canary_size(sizeof(TimeSeriesBundleReferenceInput));
-        // Align before each nested time-series input
-        for (const auto &builder : field_builders) {
-            total = align_size(total, alignof(TimeSeriesType));
-            total += builder->memory_size();
-        }
-        return total;
+        // Only the base object is allocated in the arena; nested elements are lazily created on the heap
+        return add_canary_size(sizeof(TimeSeriesBundleReferenceInput));
     }
 
     void TimeSeriesBundleRefInputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -248,14 +236,8 @@ namespace hgraph
     }
 
     size_t TimeSeriesListRefOutputBuilder::memory_size() const {
-        // Add canary size to the base list reference object
-        size_t total = add_canary_size(sizeof(TimeSeriesListReferenceOutput));
-        // For each element, align and add its size
-        for (size_t i = 0; i < size; ++i) {
-            total = align_size(total, alignof(TimeSeriesType));
-            total += value_builder->memory_size();
-        }
-        return total;
+        // Only the base object is allocated in the arena; nested elements are lazily created on the heap
+        return add_canary_size(sizeof(TimeSeriesListReferenceOutput));
     }
 
     void TimeSeriesListRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -294,14 +276,8 @@ namespace hgraph
     }
 
     size_t TimeSeriesBundleRefOutputBuilder::memory_size() const {
-        // Add canary size to the base bundle reference object
-        size_t total = add_canary_size(sizeof(TimeSeriesBundleReferenceOutput));
-        // Align before each nested time-series output
-        for (const auto &builder : field_builders) {
-            total = align_size(total, alignof(TimeSeriesType));
-            total += builder->memory_size();
-        }
-        return total;
+        // Only the base object is allocated in the arena; nested elements are lazily created on the heap
+        return add_canary_size(sizeof(TimeSeriesBundleReferenceOutput));
     }
 
     void TimeSeriesBundleRefOutputBuilder::register_with_nanobind(nb::module_ &m) {

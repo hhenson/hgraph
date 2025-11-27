@@ -139,7 +139,8 @@ namespace hgraph {
             // Offset is updated by make_instance, verify it matches expected size
             size_t expected_offset = node_offset + node_builders[i]->memory_size();
             if (offset != expected_offset) {
-                throw std::runtime_error(fmt::format("Node {} memory size mismatch: expected offset {}, got {}", i, expected_offset, offset));
+                throw std::runtime_error(fmt::format("Node {} memory size mismatch: expected offset {}, got {} (signature: {})", 
+                    i, expected_offset, offset, node->signature().name));
             }
         }
         
