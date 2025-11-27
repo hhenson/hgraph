@@ -167,6 +167,7 @@ namespace hgraph {
         [[nodiscard]] bool sampled() const;
 
         void reset_output();
+        void reset_output_ptr() override;  // Public interface version
         void set_output(time_series_output_ptr output);
         void set_active(bool active);
 

@@ -449,6 +449,8 @@ namespace hgraph {
 
     void BaseTimeSeriesInput::reset_output() { _output = nullptr; }
 
+    void BaseTimeSeriesInput::reset_output_ptr() { reset_output(); }
+
     void BaseTimeSeriesInput::set_output(time_series_output_ptr output) { _output = std::move(output); }
 
     void BaseTimeSeriesInput::set_active(bool active) { _active = active; }

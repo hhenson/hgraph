@@ -766,16 +766,20 @@ namespace hgraph
         // Guard against cleared node (matches Python: if self.owning_node is None)
         if (!has_owning_node()) { return; }
 
-        // Release instances with deferred callback to ensure cleanup happens after all processing
-        // Could this fall foul of clean-up ordering? Since key-set-removed could have already been cleaned up.
-        for (auto &[key, value_pair] : _removed_items) {
-            auto &[value, was_valid] = value_pair;
-            // Capture by value to ensure the lambda has valid references
-            auto builder  = _ts_builder;
-            auto instance = value;
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification(
-                [builder, instance]() { builder->release_instance(instance); });
-            value->un_bind_output(true);
+        // Iterate over removed keys from key_set, not all _removed_items (matches Python behavior)
+        for (const auto &key : key_set_t().removed()) {
+            auto it = _removed_items.find(key);
+            if (it != _removed_items.end()) {
+                auto &[value, was_valid] = it->second;
+                // Capture by value to ensure the lambda has valid references
+                auto builder  = _ts_builder;
+                auto instance = value;
+                owning_graph()->evaluation_engine_api()->add_after_evaluation_notification(
+                    [builder, instance]() { builder->release_instance(instance); });
+                // Reset the output pointer directly instead of calling un_bind_output
+                // This avoids issues with accessing potentially invalid output objects in arena allocation
+                value->reset_output_ptr();
+            }
         }
 
         _removed_items.clear();

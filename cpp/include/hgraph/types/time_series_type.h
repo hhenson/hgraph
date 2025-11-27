@@ -183,6 +183,7 @@ namespace hgraph
         [[nodiscard]] virtual bool                   has_output() const                          = 0;
         virtual bool                                 bind_output(time_series_output_ptr output_) = 0;
         virtual void                                 un_bind_output(bool unbind_refs)            = 0;
+        virtual void                                 reset_output_ptr()                          = 0;
 
         // This is a feature used by the BackTrace tooling, this is not something that is generally
         // Useful, it could be handled through a visitor, or some other means of extraction.
