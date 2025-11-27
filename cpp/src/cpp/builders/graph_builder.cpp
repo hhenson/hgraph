@@ -143,8 +143,16 @@ namespace hgraph {
             }
         }
         
-        // Update Graph's nodes vector
+        // Update Graph's nodes vector and resize schedule
         result->_nodes = std::move(nodes);
+        
+        // Resize _schedule to match nodes size (was 0 because Graph was constructed with empty nodes)
+        result->_schedule.resize(result->_nodes.size(), MIN_DT);
+        
+        // Recalculate _push_source_nodes_end
+        auto it = std::find_if(result->_nodes.begin(), result->_nodes.end(),
+                               [](const node_ptr &v) { return v->signature().node_type != NodeTypeEnum::PUSH_SOURCE_NODE; });
+        result->_push_source_nodes_end = std::distance(result->_nodes.begin(), it);
         
         // Connect edges
         for (const auto &edge: edges) {
