@@ -37,8 +37,16 @@ namespace hgraph {
         explicit BaseTimeSeriesOutput(const TimeSeriesType::ptr &parent) {
             init_parent(parent);
         }
+        
+    protected:
+        // Default constructor for embedded value members - parent must be set via set_parent()
+        BaseTimeSeriesOutput() = default;
+        
+    public:
 
         // Implement TimeSeriesType pure virtuals
+        [[nodiscard]] TimeSeriesType::ptr ts_shared_from_this() override;
+        [[nodiscard]] std::shared_ptr<const TimeSeriesType> ts_shared_from_this() const override;
         [[nodiscard]] node_ptr owning_node() override;
         [[nodiscard]] node_ptr owning_node() const override;
         [[nodiscard]] graph_ptr owning_graph() override;
@@ -74,8 +82,8 @@ namespace hgraph {
 
     protected:
         // State and helpers moved from TimeSeriesType
-        TimeSeriesType::ptr &_parent_time_series() const;
-        TimeSeriesType::ptr &_parent_time_series();
+        TimeSeriesType::ptr _parent_time_series() const;
+        TimeSeriesType::ptr _parent_time_series();
         bool _has_parent_time_series() const;
         void _set_parent_time_series(TimeSeriesType *ts);
         node_ptr _owning_node() const;
@@ -107,6 +115,8 @@ namespace hgraph {
         }
 
         // Implement TimeSeriesType pure virtuals
+        [[nodiscard]] TimeSeriesType::ptr ts_shared_from_this() override;
+        [[nodiscard]] std::shared_ptr<const TimeSeriesType> ts_shared_from_this() const override;
         [[nodiscard]] node_ptr owning_node() override;
         [[nodiscard]] node_ptr owning_node() const override;
         [[nodiscard]] graph_ptr owning_graph() override;
@@ -149,8 +159,8 @@ namespace hgraph {
 
     protected:
         // State and helpers moved from TimeSeriesType
-        TimeSeriesType::ptr &_parent_time_series() const;
-        TimeSeriesType::ptr &_parent_time_series();
+        TimeSeriesType::ptr _parent_time_series() const;
+        TimeSeriesType::ptr _parent_time_series();
         bool _has_parent_time_series() const;
         void _set_parent_time_series(TimeSeriesType *ts);
         node_ptr _owning_node() const;

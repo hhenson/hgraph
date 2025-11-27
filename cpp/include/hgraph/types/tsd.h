@@ -213,6 +213,13 @@ namespace hgraph
         }
 
         void create(const key_type &key);
+        
+        // Get aliased shared_ptr to embedded _key_set (for binding to inputs)
+        std::shared_ptr<key_set_type> key_set_ptr() const {
+            return std::shared_ptr<key_set_type>(
+                const_cast<TimeSeriesDictOutput_T*>(this)->shared_from_this(), 
+                const_cast<key_set_type*>(&_key_set));
+        }
 
       protected:
         friend TSDOutBuilder<T_Key>;
@@ -222,16 +229,18 @@ namespace hgraph
         void _clear_key_changes();
 
         void remove_value(const key_type &key, bool raise_if_not_found);
-
         // Isolate the modified tracking logic here
         const key_type &key_from_value(TimeSeriesOutput *value) const;
         void            _clear_key_tracking();
         void            _add_key_value(const key_type &key, const value_type &value);
         void            _key_updated(const key_type &key);
         void            _remove_key_value(const key_type &key, const value_type &value);
+        
+        // Helper to lazily initialize _ref_ts_feature
+        FeatureOutputExtension<key_type>& _ensure_ref_ts_feature() const;
 
       private:
-        std::shared_ptr<key_set_type> _key_set;
+        key_set_type _key_set;  // Embedded value member - use aliasing constructor for shared_ptr
         map_type              _ts_values;
 
         reverse_map _ts_values_to_keys;
@@ -243,7 +252,7 @@ namespace hgraph
         output_builder_ptr _ts_builder;
         output_builder_ptr _ts_ref_builder;
 
-        FeatureOutputExtension<key_type>        _ref_ts_feature;
+        mutable std::optional<FeatureOutputExtension<key_type>> _ref_ts_feature;  // Lazy-initialized to avoid shared_from_this() in ctor
         std::vector<TSDKeyObserver<key_type> *> _key_observers;
         engine_time_t                           _last_cleanup_time{MIN_DT};
         static inline map_type                  _empty;
@@ -382,6 +391,7 @@ namespace hgraph
         void                          _add_key_value(const key_type &key, const value_type &value);
         void                          _key_updated(const key_type &key);
         void                          _remove_key_value(const key_type &key, const value_type &value);
+        void                          _ensure_key_set() const;  // Lazy initialization of _key_set
 
       private:
         friend TSD_Builder<T_Key>;

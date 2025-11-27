@@ -158,6 +158,11 @@ namespace hgraph
               TimeSeriesValueOutputBuilder<bool>().make_instance(parent->owning_node(), nullptr, nullptr))} {}
 
     std::shared_ptr<TimeSeriesValueOutput<bool>> &TimeSeriesSetOutput::is_empty_output() {
+        // Lazy initialization for embedded value members (where default constructor was used)
+        if (!_is_empty_ref_output) {
+            _is_empty_ref_output = std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
+                TimeSeriesValueOutputBuilder<bool>().make_instance(owning_node(), nullptr, nullptr));
+        }
         if (!_is_empty_ref_output->valid()) { _is_empty_ref_output->set_value(empty()); }
         return _is_empty_ref_output;
     }
@@ -181,21 +186,27 @@ namespace hgraph
         // This allows shared_from_this() to work for both heap and arena-allocated objects
     }
 
+    template <typename T_Key>
+    TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(TimeSeriesType* parent_raw) : TimeSeriesSetOutput() {
+        // Constructor for embedded value members - initialize with raw pointer
+        // No shared_from_this() needed during construction
+        set_parent(parent_raw);
+    }
+
     // Helper function to lazy-initialize _contains_ref_outputs
     template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::_ensure_contains_ref_outputs() const {
         if (!_contains_ref_outputs.has_value()) {
             // Now we can safely use shared_from_this() because the shared_ptr has been created
-            // Use a static builder instance since builders are Python-managed (nb::ref)
-            // TimeSeriesValueOutputBuilder<bool> has no state, so a static instance is safe
-            static TimeSeriesValueOutputBuilder<bool> static_builder;
+            // Use a static nb::ref to manage the builder lifetime properly
+            static output_builder_ptr static_builder{new TimeSeriesValueOutputBuilder<bool>()};
             _contains_ref_outputs = FeatureOutputExtension<element_type>(
                 const_cast<TimeSeriesSetOutput_T<T_Key> *>(this)->shared_from_this(),
-                &static_builder,
+                static_builder,
                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
                     reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
                         reinterpret_cast<const TimeSeriesSetOutput_T<element_type> &>(ts).contains(key));
                 },
-                {});
+                std::nullopt);
         }
     }
 
@@ -717,7 +728,14 @@ namespace hgraph
 
     void TimeSeriesSetInput::do_un_bind_output(bool unbind_refs) {
         if (has_output()) {
-            _prev_output = std::dynamic_pointer_cast<TimeSeriesSetOutput>(set_output().shared_from_this());
+            // Only get shared_ptr if the output can safely call shared_from_this
+            // (may fail for embedded value members during cleanup)
+            auto& output = set_output();
+            if (output.can_shared_from_this()) {
+                _prev_output = std::dynamic_pointer_cast<TimeSeriesSetOutput>(output.shared_from_this());
+            } else {
+                _prev_output.reset();  // Can't safely capture output
+            }
             _add_reset_prev();
         }
         BaseTimeSeriesInput::do_un_bind_output(unbind_refs);

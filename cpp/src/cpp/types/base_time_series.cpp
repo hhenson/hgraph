@@ -10,6 +10,12 @@ namespace hgraph {
     // ============================================================================
 
     // Implement TimeSeriesType pure virtuals for Output
+    TimeSeriesType::ptr BaseTimeSeriesOutput::ts_shared_from_this() {
+        return std::static_pointer_cast<TimeSeriesType>(shared_from_this());
+    }
+    std::shared_ptr<const TimeSeriesType> BaseTimeSeriesOutput::ts_shared_from_this() const {
+        return std::static_pointer_cast<const TimeSeriesType>(shared_from_this());
+    }
     node_ptr BaseTimeSeriesOutput::owning_node() { return _owning_node(); }
     node_ptr BaseTimeSeriesOutput::owning_node() const { return _owning_node(); }
 
@@ -41,17 +47,16 @@ namespace hgraph {
     }
 
     // TimeSeriesType helper methods
-    TimeSeriesType::ptr &BaseTimeSeriesOutput::_parent_time_series() const {
+    TimeSeriesType::ptr BaseTimeSeriesOutput::_parent_time_series() const {
         return const_cast<BaseTimeSeriesOutput *>(this)->_parent_time_series();
     }
 
-    TimeSeriesType::ptr &BaseTimeSeriesOutput::_parent_time_series() {
-        // Access the variant directly to get a mutable reference
-        auto& variant = const_cast<BaseTimeSeriesOutput*>(this)->parent();
-        if (auto* ptr = std::get_if<TimeSeriesType::ptr>(&variant)) {
-            return *ptr;
+    TimeSeriesType::ptr BaseTimeSeriesOutput::_parent_time_series() {
+        // Output parent can only be another TimeSeriesOutput
+        if (auto ts = parent_as<TimeSeriesType>()) {
+            return static_cast<TimeSeriesOutput*>(ts)->shared_from_this();
         }
-        return TimeSeriesType::null_ptr;
+        return nullptr;
     }
 
     bool BaseTimeSeriesOutput::_has_parent_time_series() const {
@@ -59,18 +64,16 @@ namespace hgraph {
     }
 
     void BaseTimeSeriesOutput::_set_parent_time_series(TimeSeriesType *ts) {
-        set_parent(TimeSeriesType::ptr{ts});
+        set_parent(ts);
     }
 
     bool BaseTimeSeriesOutput::has_parent_or_node() const {
-        // Check if variant is not default-constructed (has a value)
-        // We can check by trying to get either alternative
         return parent_as<Node>() != nullptr || parent_as<TimeSeriesType>() != nullptr;
     }
 
     bool BaseTimeSeriesOutput::has_owning_node() const {
         if (auto node_parent = parent_as<Node>()) {
-            return node_parent != nullptr;
+            return true;
         }
         if (auto ts_parent = parent_as<TimeSeriesType>()) {
             return ts_parent->has_owning_node();
@@ -80,7 +83,7 @@ namespace hgraph {
 
     node_ptr BaseTimeSeriesOutput::_owning_node() const {
         if (auto node_parent = parent_as<Node>()) {
-            return node_parent;
+            return node_parent->shared_from_this();
         }
         if (auto ts_parent = parent_as<TimeSeriesType>()) {
             return ts_parent->owning_node();
@@ -185,6 +188,12 @@ namespace hgraph {
     // ============================================================================
 
     // Implement TimeSeriesType pure virtuals for Input
+    TimeSeriesType::ptr BaseTimeSeriesInput::ts_shared_from_this() {
+        return std::static_pointer_cast<TimeSeriesType>(shared_from_this());
+    }
+    std::shared_ptr<const TimeSeriesType> BaseTimeSeriesInput::ts_shared_from_this() const {
+        return std::static_pointer_cast<const TimeSeriesType>(shared_from_this());
+    }
     node_ptr BaseTimeSeriesInput::owning_node() { return _owning_node(); }
     node_ptr BaseTimeSeriesInput::owning_node() const { return _owning_node(); }
 
@@ -216,17 +225,16 @@ namespace hgraph {
     }
 
     // TimeSeriesType helper methods
-    TimeSeriesType::ptr &BaseTimeSeriesInput::_parent_time_series() const {
+    TimeSeriesType::ptr BaseTimeSeriesInput::_parent_time_series() const {
         return const_cast<BaseTimeSeriesInput *>(this)->_parent_time_series();
     }
 
-    TimeSeriesType::ptr &BaseTimeSeriesInput::_parent_time_series() {
-        // Access the variant directly to get a mutable reference
-        auto& variant = const_cast<BaseTimeSeriesInput*>(this)->parent();
-        if (auto* ptr = std::get_if<TimeSeriesType::ptr>(&variant)) {
-            return *ptr;
+    TimeSeriesType::ptr BaseTimeSeriesInput::_parent_time_series() {
+        // Input parent can only be another TimeSeriesInput
+        if (auto ts = parent_as<TimeSeriesType>()) {
+            return static_cast<TimeSeriesInput*>(ts)->shared_from_this();
         }
-        return TimeSeriesType::null_ptr;
+        return nullptr;
     }
 
     bool BaseTimeSeriesInput::_has_parent_time_series() const {
@@ -234,18 +242,16 @@ namespace hgraph {
     }
 
     void BaseTimeSeriesInput::_set_parent_time_series(TimeSeriesType *ts) {
-        set_parent(TimeSeriesType::ptr{ts});
+        set_parent(ts);
     }
 
     bool BaseTimeSeriesInput::has_parent_or_node() const {
-        // Check if variant is not default-constructed (has a value)
-        // We can check by trying to get either alternative
         return parent_as<Node>() != nullptr || parent_as<TimeSeriesType>() != nullptr;
     }
 
     bool BaseTimeSeriesInput::has_owning_node() const {
         if (auto node_parent = parent_as<Node>()) {
-            return node_parent != nullptr;
+            return true;
         }
         if (auto ts_parent = parent_as<TimeSeriesType>()) {
             return ts_parent->has_owning_node();
@@ -255,7 +261,7 @@ namespace hgraph {
 
     node_ptr BaseTimeSeriesInput::_owning_node() const {
         if (auto node_parent = parent_as<Node>()) {
-            return node_parent;
+            return node_parent->shared_from_this();
         }
         if (auto ts_parent = parent_as<TimeSeriesType>()) {
             return ts_parent->owning_node();
@@ -289,7 +295,7 @@ namespace hgraph {
             // Is a TimeseriesReferenceOutput
             // Match Python behavior: only check if value exists (truthy), bind if it does
             if (ref_output->valid() && ref_output->has_value()) { ref_output->value().bind_input(*this); }
-            ref_output->observe_reference(shared_from_this());
+            ref_output->observe_reference(this);
             _reference_output = std::static_pointer_cast<TimeSeriesReferenceOutput>(output_);
             peer = false;
         } else {
@@ -319,7 +325,7 @@ namespace hgraph {
 
         // Handle reference output unbinding conditionally based on unbind_refs parameter
         if (unbind_refs && _reference_output != nullptr) {
-            _reference_output->stop_observing_reference(shared_from_this());
+            _reference_output->stop_observing_reference(this);
             _reference_output.reset();
         }
 
@@ -415,8 +421,9 @@ namespace hgraph {
             _output->un_subscribe(this);
         }
         _active = false;
+        // Stop observing the reference output (uses raw pointer so safe during cleanup)
         if (_reference_output != nullptr) {
-            _reference_output->stop_observing_reference(shared_from_this());
+            _reference_output->stop_observing_reference(this);
             _reference_output.reset();
         }
         _output = nullptr;

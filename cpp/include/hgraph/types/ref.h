@@ -96,10 +96,10 @@ namespace hgraph
         bool can_apply_result(nb::object value) override;
 
         // Registers an input as observing the reference value
-        void observe_reference(TimeSeriesInput::ptr input_);
+        void observe_reference(TimeSeriesInput* input_);
 
         // Unregisters an input as observing the reference value
-        void stop_observing_reference(TimeSeriesInput::ptr input_);
+        void stop_observing_reference(TimeSeriesInput* input_);
 
         // Clears the reference by setting it to an empty reference
         void clear() override;
@@ -135,7 +135,7 @@ namespace hgraph
         // Use a raw pointer as we don't have hash implemented on ptr at the moment,
         // So this is a work arround the code managing this also ensures the pointers are incremented
         // and decremented.
-        std::unordered_set<TimeSeriesInput::ptr> _reference_observers;
+        std::unordered_set<TimeSeriesInput*> _reference_observers;
     };
 
     struct TimeSeriesReferenceInput : BaseTimeSeriesInput

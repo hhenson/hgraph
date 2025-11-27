@@ -9,7 +9,7 @@ namespace hgraph {
     }
 
     template<typename T>
-    FeatureOutputExtension<T>::FeatureOutputExtension(TimeSeriesOutput::ptr owning_output_,
+    FeatureOutputExtension<T>::FeatureOutputExtension(time_series_output_ptr owning_output_,
                                                       output_builder_ptr output_builder_,
                                                       feature_fn value_getter_,
                                                       std::optional<feature_fn> initial_value_getter_)

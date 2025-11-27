@@ -138,16 +138,19 @@ namespace hgraph {
                 size_t* canary_ptr = reinterpret_cast<size_t*>(buf + *offset + aligned_obj_size);
                 *canary_ptr = ARENA_CANARY_PATTERN;
             }
-            // Now construct the object
+            // Construct the object in arena memory
             ConcreteType* obj_ptr_raw = new (buf + *offset) ConcreteType(std::forward<Args>(args)...);
-            // Immediately check canary after construction
+            // Check canary after construction
             verify_canary(obj_ptr_raw, sizeof(ConcreteType), type_name);
             *offset += add_canary_size(sizeof(ConcreteType));
+            
             // Create shared_ptr with no-op deleter (arena manages lifetime)
+            // This will initialize enable_shared_from_this's weak_ptr if the type inherits from it
             return std::static_pointer_cast<BaseType>(
                 std::shared_ptr<ConcreteType>(obj_ptr_raw, [](ConcreteType*){ /* no-op, arena manages lifetime */ }));
         } else {
-            // Heap allocation (legacy path) - use make_shared for proper memory management
+            // Heap allocation - use make_shared for proper memory management
+            // This automatically initializes enable_shared_from_this
             return std::static_pointer_cast<BaseType>(std::make_shared<ConcreteType>(std::forward<Args>(args)...));
         }
     }

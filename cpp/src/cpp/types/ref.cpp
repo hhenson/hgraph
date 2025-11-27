@@ -259,9 +259,9 @@ namespace hgraph
 
     bool TimeSeriesReferenceOutput::can_apply_result(nb::object value) { return !modified(); }
 
-    void TimeSeriesReferenceOutput::observe_reference(TimeSeriesInput::ptr input_) { _reference_observers.emplace(input_); }
+    void TimeSeriesReferenceOutput::observe_reference(TimeSeriesInput* input_) { _reference_observers.emplace(input_); }
 
-    void TimeSeriesReferenceOutput::stop_observing_reference(TimeSeriesInput::ptr input_) { _reference_observers.erase(input_); }
+    void TimeSeriesReferenceOutput::stop_observing_reference(TimeSeriesInput* input_) { _reference_observers.erase(input_); }
 
     void TimeSeriesReferenceOutput::clear() { set_value(TimeSeriesReference::make()); }
 

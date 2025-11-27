@@ -52,6 +52,10 @@ namespace hgraph
         virtual ~TimeSeriesType()                         = default;
 
         // Pure virtual methods to be implemented in derived classes
+        
+        // Get a shared_ptr to this object (for aliasing constructor support)
+        [[nodiscard]] virtual ptr ts_shared_from_this() = 0;
+        [[nodiscard]] virtual std::shared_ptr<const TimeSeriesType> ts_shared_from_this() const = 0;
 
         // Graph navigation methods. These may not be required
         // (Other than for debugging) if we used the context approach
@@ -110,8 +114,9 @@ namespace hgraph
         using ptr          = std::shared_ptr<TimeSeriesOutput>;
         TimeSeriesOutput() = default;
 
-        // Get shared_ptr to this object using parent's control block
+        // Get shared_ptr to this object (has its own control block via enable_shared_from_this)
         using shared_from_this_with_parent<TimeSeriesOutput, Node, TimeSeriesType>::shared_from_this;
+        using shared_from_this_with_parent<TimeSeriesOutput, Node, TimeSeriesType>::can_shared_from_this;
 
         // Output-specific navigation of the graph structure.
         [[nodiscard]] virtual ptr  parent_output() const     = 0;
@@ -162,8 +167,9 @@ namespace hgraph
         using ptr         = std::shared_ptr<TimeSeriesInput>;
         TimeSeriesInput() = default;
 
-        // Get shared_ptr to this object using parent's control block
+        // Get shared_ptr to this object (has its own control block via enable_shared_from_this)
         using shared_from_this_with_parent<TimeSeriesInput, Node, TimeSeriesType>::shared_from_this;
+        using shared_from_this_with_parent<TimeSeriesInput, Node, TimeSeriesType>::can_shared_from_this;
 
         // Graph navigation specific to the input
         [[nodiscard]] virtual ptr  parent_input() const     = 0;

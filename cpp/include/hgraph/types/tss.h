@@ -74,6 +74,11 @@ namespace hgraph {
         >;
         using T_TS::T_TS;
 
+    protected:
+        // Default constructor for embedded value members
+        TimeSeriesSet() = default;
+        
+    public:
         [[nodiscard]] virtual size_t size() const = 0;
 
         [[nodiscard]] virtual bool empty() const = 0;
@@ -85,6 +90,11 @@ namespace hgraph {
         explicit TimeSeriesSetOutput(const node_ptr &parent);
 
         explicit TimeSeriesSetOutput(const TimeSeriesType::ptr &parent);
+        
+    protected:
+        TimeSeriesSetOutput() = default;  // For embedded value members
+        
+    public:
 
         [[nodiscard]] virtual std::shared_ptr<TimeSeriesValueOutput<bool>> get_contains_output(const nb::object &item,
             const nb::object &requester) = 0;
@@ -138,6 +148,9 @@ namespace hgraph {
         explicit TimeSeriesSetOutput_T(const TimeSeriesType::ptr &parent);
 
         explicit TimeSeriesSetOutput_T(const TimeSeriesOutput::ptr &parent);
+        
+        // Constructor for embedded value members - takes raw pointer, no shared_from_this needed
+        explicit TimeSeriesSetOutput_T(TimeSeriesType* parent_raw);
 
         [[nodiscard]] nb::object py_value() const override;
 

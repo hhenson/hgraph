@@ -88,7 +88,7 @@ namespace hgraph
         if (!was_added) { _removed_items.emplace(key, item); }
         // Note: TSS key_set handles all added/removed tracking via key_set_t().remove()
         _remove_key_value(key, item);
-        _ref_ts_feature.update(key);
+        _ensure_ref_ts_feature().update(key);
         _modified_items.erase(key);
 
         // Schedule cleanup notification only once per evaluation cycle
@@ -124,51 +124,49 @@ namespace hgraph
     template <typename T_Key>
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_ptr ts_builder,
                                                           output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(parent), _key_set{std::make_shared<TimeSeriesSetOutput_T<T_Key>>(shared_from_this())}, _ts_builder{std::move(ts_builder)},
+        : TimeSeriesDictOutput(parent), 
+          _key_set{static_cast<TimeSeriesType*>(this)},  // Initialize with raw pointer - embedded value member
+          _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
-          _ref_ts_feature{shared_from_this(),
-                          _ts_ref_builder,
-                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const key_type &key) {
-                              auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
-                              auto  it = output_t._ts_values.find(key);
-                              if (it != output_t._ts_values.end()) {
-                                  auto r{TimeSeriesReference::make(it->second)};
-                                  auto r_val{nb::cast(r)};
-                                  result_output.apply_result(r_val);
-                              } else {
-                                  // Key removed: propagate empty reference and mark modified to match Python semantics
-                                  auto r{TimeSeriesReference::make()};
-                                  auto r_val{nb::cast(r)};
-                                  result_output.apply_result(r_val);
-                              }
-                          },
-                          {}} {
-        _key_set->re_parent(shared_from_this());
+          _ref_ts_feature{std::nullopt} {  // Will be lazy-initialized
     }
 
     template <typename T_Key>
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
                                                           output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)), _key_set{std::make_shared<TimeSeriesSetOutput_T<T_Key>>(shared_from_this())},
-          _ts_builder{std::move(ts_builder)}, _ts_ref_builder{std::move(ts_ref_builder)},
-          _ref_ts_feature{shared_from_this(),
-                          _ts_ref_builder,
-                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const key_type &key) {
-                              auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
-                              auto  it = output_t._ts_values.find(key);
-                              if (it != output_t._ts_values.end()) {
-                                  auto r{TimeSeriesReference::make(it->second)};
-                                  auto r_val{nb::cast(r)};
-                                  result_output.apply_result(r_val);
-                              } else {
-                                  // Key removed: propagate empty reference and mark modified to match Python semantics
-                                  auto r{TimeSeriesReference::make()};
-                                  auto r_val{nb::cast(r)};
-                                  result_output.apply_result(r_val);
-                              }
-                          },
-                          {}} {
-        _key_set->re_parent(shared_from_this());
+        : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)), 
+          _key_set{static_cast<TimeSeriesType*>(this)},  // Initialize with raw pointer - embedded value member
+          _ts_builder{std::move(ts_builder)}, 
+          _ts_ref_builder{std::move(ts_ref_builder)},
+          _ref_ts_feature{std::nullopt} {  // Will be lazy-initialized
+    }
+
+    template <typename T_Key>
+    FeatureOutputExtension<typename TimeSeriesDictOutput_T<T_Key>::key_type>& 
+    TimeSeriesDictOutput_T<T_Key>::_ensure_ref_ts_feature() const {
+        if (!_ref_ts_feature.has_value()) {
+            using feature_ext_type = FeatureOutputExtension<key_type>;
+            using feature_fn = typename feature_ext_type::feature_fn;
+            _ref_ts_feature = feature_ext_type(
+                const_cast<TimeSeriesDictOutput_T*>(this)->shared_from_this(),
+                _ts_ref_builder,
+                feature_fn([](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const key_type &key) {
+                    auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
+                    auto  it = output_t._ts_values.find(key);
+                    if (it != output_t._ts_values.end()) {
+                        auto r{TimeSeriesReference::make(it->second)};
+                        auto r_val{nb::cast(r)};
+                        result_output.apply_result(r_val);
+                    } else {
+                        // Key removed: propagate empty reference and mark modified to match Python semantics
+                        auto r{TimeSeriesReference::make()};
+                        auto r_val{nb::cast(r)};
+                        result_output.apply_result(r_val);
+                    }
+                }),
+                std::nullopt);
+        }
+        return *_ref_ts_feature;
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_value(nb::object value) {
@@ -241,7 +239,7 @@ namespace hgraph
         _removed_items.clear();
         std::swap(_removed_items, _ts_values);
         _clear_key_tracking();
-        _ref_ts_feature.update_all(std::views::keys(_removed_items).begin(), std::views::keys(_removed_items).end());
+        _ensure_ref_ts_feature().update_all(std::views::keys(_removed_items).begin(), std::views::keys(_removed_items).end());
         _modified_items.clear();
 
         for (auto &observer : _key_observers) {
@@ -354,13 +352,13 @@ namespace hgraph
 
     template <typename T_Key>
     TimeSeriesSetOutput_T<typename TimeSeriesDictOutput_T<T_Key>::key_type> &TimeSeriesDictOutput_T<T_Key>::key_set_t() {
-        return *_key_set;
+        return _key_set;  // Value member, return by reference
     }
 
     template <typename T_Key>
     const TimeSeriesSetOutput_T<typename TimeSeriesDictOutput_T<T_Key>::key_type> &
     TimeSeriesDictOutput_T<T_Key>::key_set_t() const {
-        return *_key_set;
+        return _key_set;  // Value member, return by reference
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_item(const nb::object &key, const nb::object &value) {
@@ -399,11 +397,11 @@ namespace hgraph
 
     template <typename T_Key>
     time_series_output_ptr TimeSeriesDictOutput_T<T_Key>::get_ref(const key_type &key, const void *requester) {
-        return _ref_ts_feature.create_or_increment(key, requester);
+        return _ensure_ref_ts_feature().create_or_increment(key, requester);
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::release_ref(const key_type &key, const void *requester) {
-        _ref_ts_feature.release(key, requester);
+        _ensure_ref_ts_feature().release(key, requester);
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_dispose() {
@@ -439,12 +437,12 @@ namespace hgraph
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{std::make_shared<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(shared_from_this())},
+        : TimeSeriesDictInput(parent), _key_set{nullptr},  // Lazy initialization - will be created on first access
           _ts_builder{ts_builder} {}
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const time_series_type_ptr &parent, input_builder_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{std::make_shared<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(std::static_pointer_cast<TimeSeriesType>(shared_from_this()))},
+        : TimeSeriesDictInput(parent), _key_set{nullptr},  // Lazy initialization - will be created on first access
           _ts_builder{ts_builder} {}
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_peer() const { return _has_peer; }
@@ -654,8 +652,8 @@ namespace hgraph
 
         // Peer when types match AND neither has references (matching Python logic)
         bool  peer = (is_same_type(value_output) || !(value_output->has_reference() || this->has_reference()));
-        auto &output_key_set_ref = value_output->key_set_t();
-        key_set_t().bind_output(output_key_set_ref.shared_from_this());
+        // Use aliased shared_ptr to the embedded key_set (can't call shared_from_this on value members)
+        key_set_t().bind_output(value_output->key_set_ptr());
 
         if (owning_node()->is_started() && has_output()) {
             output_t().remove_key_observer(this);
@@ -721,12 +719,24 @@ namespace hgraph
 
     template <typename T_Key>
     TimeSeriesSetInput_T<typename TimeSeriesDictInput_T<T_Key>::key_type> &TimeSeriesDictInput_T<T_Key>::key_set_t() {
+        _ensure_key_set();
         return *_key_set;
     }
 
     template <typename T_Key>
     const TimeSeriesSetInput_T<typename TimeSeriesDictInput_T<T_Key>::key_type> &TimeSeriesDictInput_T<T_Key>::key_set_t() const {
+        _ensure_key_set();
         return *_key_set;
+    }
+
+    template <typename T_Key>
+    void TimeSeriesDictInput_T<T_Key>::_ensure_key_set() const {
+        if (!_key_set) {
+            // Lazy initialization - now shared_from_this() is safe because the shared_ptr has been created
+            const_cast<TimeSeriesDictInput_T*>(this)->_key_set = 
+                std::make_shared<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(
+                    const_cast<TimeSeriesDictInput_T*>(this)->shared_from_this());
+        }
     }
 
     template <typename T_Key>
@@ -793,7 +803,20 @@ namespace hgraph
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::register_clear_key_changes() {
         if (!_clear_key_changes_registered) {
             _clear_key_changes_registered = true;
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { clear_key_changes(); });
+            
+            // For nested inputs (those with a parent time series), don't register
+            // after-evaluation callbacks because the nested input may be destroyed
+            // before the callback runs (e.g., when a parent TSD removes a key).
+            // The cleanup will happen when release_instance is called.
+            if (has_parent_input()) {
+                // For nested inputs, do synchronous cleanup instead
+                return;
+            }
+            
+            auto* self_ptr = this;
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self_ptr]() { 
+                self_ptr->clear_key_changes(); 
+            });
         }
     }
 
@@ -913,7 +936,7 @@ namespace hgraph
             _removed_items.erase(it);
         }
 
-        _ref_ts_feature.update(key);
+        _ensure_ref_ts_feature().update(key);
         for (auto &observer : _key_observers) { observer->on_key_added(key); }
 
         auto et{owning_graph()->evaluation_clock()->evaluation_time()};
