@@ -124,7 +124,7 @@ namespace hgraph
     template <typename T_Key>
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_ptr ts_builder,
                                                           output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(parent), _key_set{new TimeSeriesSetOutput_T<T_Key>(shared_from_this())}, _ts_builder{std::move(ts_builder)},
+        : TimeSeriesDictOutput(parent), _key_set{std::make_shared<TimeSeriesSetOutput_T<T_Key>>(shared_from_this())}, _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{shared_from_this(),
                           _ts_ref_builder,
@@ -149,7 +149,7 @@ namespace hgraph
     template <typename T_Key>
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
                                                           output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)), _key_set{new TimeSeriesSetOutput_T<T_Key>(shared_from_this())},
+        : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)), _key_set{std::make_shared<TimeSeriesSetOutput_T<T_Key>>(shared_from_this())},
           _ts_builder{std::move(ts_builder)}, _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{shared_from_this(),
                           _ts_ref_builder,
@@ -439,12 +439,12 @@ namespace hgraph
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{nb::ref<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(new typename TimeSeriesDictInput_T<T_Key>::key_set_type{shared_from_this()})},
+        : TimeSeriesDictInput(parent), _key_set{std::make_shared<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(shared_from_this())},
           _ts_builder{ts_builder} {}
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const time_series_type_ptr &parent, input_builder_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{nb::ref<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(new typename TimeSeriesDictInput_T<T_Key>::key_set_type{std::static_pointer_cast<TimeSeriesType>(shared_from_this())})},
+        : TimeSeriesDictInput(parent), _key_set{std::make_shared<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(std::static_pointer_cast<TimeSeriesType>(shared_from_this()))},
           _ts_builder{ts_builder} {}
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_peer() const { return _has_peer; }

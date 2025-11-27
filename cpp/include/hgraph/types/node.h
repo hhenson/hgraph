@@ -232,7 +232,7 @@ namespace hgraph
         friend struct Graph;
         friend struct NodeScheduler;
 
-        void add_start_input(nb::ref<TimeSeriesReferenceInput> input);
+        void add_start_input(TimeSeriesReferenceInput* input);
 
         bool has_input() const;
 
@@ -268,7 +268,7 @@ namespace hgraph
         NodeScheduler::ptr            _scheduler;
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.
-        std::vector<nb::ref<TimeSeriesReferenceInput>> _start_inputs;
+        std::vector<TimeSeriesReferenceInput*> _start_inputs;
 
         // Cache for these calculated values.
         std::vector<time_series_input_ptr> _check_valid_inputs;

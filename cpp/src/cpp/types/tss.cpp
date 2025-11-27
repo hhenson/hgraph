@@ -711,7 +711,7 @@ namespace hgraph
 
     bool TimeSeriesSetInput::do_bind_output(TimeSeriesOutput::ptr &output) {
         if (has_output()) {
-            _prev_output = &set_output();
+            _prev_output = std::dynamic_pointer_cast<TimeSeriesSetOutput>(set_output().shared_from_this());
             // Clean up after the engine cycle is complete
             _add_reset_prev();
         }
@@ -720,7 +720,7 @@ namespace hgraph
 
     void TimeSeriesSetInput::do_un_bind_output(bool unbind_refs) {
         if (has_output()) {
-            _prev_output = &set_output();
+            _prev_output = std::dynamic_pointer_cast<TimeSeriesSetOutput>(set_output().shared_from_this());
             _add_reset_prev();
         }
         BaseTimeSeriesInput::do_un_bind_output(unbind_refs);

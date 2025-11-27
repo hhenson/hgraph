@@ -735,7 +735,7 @@ namespace hgraph
 
     void Node::set_error_output(time_series_output_ptr value) { _error_output = std::move(value); }
 
-    void Node::add_start_input(nb::ref<TimeSeriesReferenceInput> input) { _start_inputs.push_back(std::move(input)); }
+    void Node::add_start_input(TimeSeriesReferenceInput* input) { _start_inputs.push_back(input); }
 
     bool Node::has_input() const { return _input.get() != nullptr; }
 

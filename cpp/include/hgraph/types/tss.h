@@ -118,7 +118,7 @@ namespace hgraph {
         void _add_reset_prev() const;
 
     private:
-        TimeSeriesSetOutput::ptr _prev_output;
+        std::shared_ptr<TimeSeriesSetOutput> _prev_output;  // Owning pointer to retain output for delta calculations
         mutable bool _pending_reset_prev{false};
     };
 
