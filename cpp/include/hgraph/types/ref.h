@@ -190,7 +190,7 @@ namespace hgraph
 
         [[nodiscard]] bool has_reference() const override;
 
-        virtual TimeSeriesReferenceInput *clone_blank_ref_instance() = 0;
+        virtual std::shared_ptr<TimeSeriesReferenceInput> clone_blank_ref_instance() = 0;
 
         virtual std::vector<TimeSeriesReferenceInput::ptr> &items() { return empty_items; }
 
@@ -237,7 +237,7 @@ namespace hgraph
 
         void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
 
-        TimeSeriesReferenceInput *clone_blank_ref_instance() override;
+        std::shared_ptr<TimeSeriesReferenceInput> clone_blank_ref_instance() override;
     };
 
     struct TimeSeriesListReferenceInput : TimeSeriesReferenceInput
@@ -269,7 +269,7 @@ namespace hgraph
 
         void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
 
-        TimeSeriesReferenceInput *clone_blank_ref_instance() override;
+        std::shared_ptr<TimeSeriesReferenceInput> clone_blank_ref_instance() override;
 
         [[nodiscard]] TimeSeriesReferenceInput *get_ref_input(size_t index) override;
 
@@ -307,7 +307,7 @@ namespace hgraph
 
         void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
 
-        TimeSeriesReferenceInput *clone_blank_ref_instance() override;
+        std::shared_ptr<TimeSeriesReferenceInput> clone_blank_ref_instance() override;
 
         [[nodiscard]] TimeSeriesReferenceInput *get_ref_input(size_t index) override;
 
@@ -326,7 +326,7 @@ namespace hgraph
 
         void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
 
-        TimeSeriesReferenceInput *clone_blank_ref_instance() override;
+        std::shared_ptr<TimeSeriesReferenceInput> clone_blank_ref_instance() override;
     };
 
     struct TimeSeriesSetReferenceInput : TimeSeriesReferenceInput
@@ -338,7 +338,7 @@ namespace hgraph
 
         void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
 
-        TimeSeriesReferenceInput *clone_blank_ref_instance() override;
+        std::shared_ptr<TimeSeriesReferenceInput> clone_blank_ref_instance() override;
     };
 
     struct TimeSeriesWindowReferenceInput : TimeSeriesReferenceInput
@@ -350,7 +350,7 @@ namespace hgraph
 
         void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
 
-        TimeSeriesReferenceInput *clone_blank_ref_instance() override;
+        std::shared_ptr<TimeSeriesReferenceInput> clone_blank_ref_instance() override;
     };
 
     // ============================================================

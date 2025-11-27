@@ -462,8 +462,8 @@ namespace hgraph
     // Specialized Reference Input Implementations
     // ============================================================
 
-    TimeSeriesReferenceInput *TimeSeriesValueReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesValueReferenceInput(owning_node());
+    std::shared_ptr<TimeSeriesReferenceInput> TimeSeriesValueReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesValueReferenceInput>(owning_node());
     }
 
     // TimeSeriesListReferenceInput - REF[TSL[...]]
@@ -567,8 +567,8 @@ namespace hgraph
         }
     }
 
-    TimeSeriesReferenceInput *TimeSeriesListReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesListReferenceInput(owning_node(), _value_builder, _size);
+    std::shared_ptr<TimeSeriesReferenceInput> TimeSeriesListReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesListReferenceInput>(owning_node(), _value_builder, _size);
     }
 
     TimeSeriesReferenceInput *TimeSeriesListReferenceInput::get_ref_input(size_t index) {
@@ -687,8 +687,8 @@ namespace hgraph
         }
     }
 
-    TimeSeriesReferenceInput *TimeSeriesBundleReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesBundleReferenceInput(owning_node(), _value_builders, _size);
+    std::shared_ptr<TimeSeriesReferenceInput> TimeSeriesBundleReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesBundleReferenceInput>(owning_node(), _value_builders, _size);
     }
 
     TimeSeriesReferenceInput *TimeSeriesBundleReferenceInput::get_ref_input(size_t index) {
@@ -710,16 +710,16 @@ namespace hgraph
         return (*_items)[index].get();
     }
 
-    TimeSeriesReferenceInput *TimeSeriesDictReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesDictReferenceInput(owning_node());
+    std::shared_ptr<TimeSeriesReferenceInput> TimeSeriesDictReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesDictReferenceInput>(owning_node());
     }
 
-    TimeSeriesReferenceInput *TimeSeriesSetReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesSetReferenceInput(owning_node());
+    std::shared_ptr<TimeSeriesReferenceInput> TimeSeriesSetReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesSetReferenceInput>(owning_node());
     }
 
-    TimeSeriesReferenceInput *TimeSeriesWindowReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesWindowReferenceInput(owning_node());
+    std::shared_ptr<TimeSeriesReferenceInput> TimeSeriesWindowReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesWindowReferenceInput>(owning_node());
     }
 
     // ============================================================

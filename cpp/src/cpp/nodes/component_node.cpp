@@ -188,11 +188,8 @@ namespace hgraph {
             // ts is IndexedTimeSeriesInput::ptr (nb::ref), but copy_with expects time_series_input_ptr (shared_ptr)
             // We need to get a shared_ptr from the IndexedTimeSeriesInput
             time_series_input_ptr ts_shared = ts->shared_from_this();
-            // Copy input with new parent - copy_with returns nb::ref, need to convert to shared_ptr
-            auto new_input_ref = node->input()->copy_with(node, {ts_shared});
-            // Create shared_ptr from the raw pointer, with a deleter that does nothing since nb::ref manages lifetime
-            TimeSeriesBundleInput* raw_ptr = new_input_ref.get();
-            time_series_bundle_input_ptr new_input(raw_ptr, [](TimeSeriesBundleInput*){});
+            // Copy input with new parent
+            auto new_input = node->input()->copy_with(node, {ts_shared});
             node->reset_input(new_input);
 
             // Re-parent the ts input

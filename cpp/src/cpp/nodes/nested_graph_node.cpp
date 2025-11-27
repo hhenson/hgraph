@@ -40,10 +40,7 @@ namespace hgraph {
                 // Convert nb::ref to shared_ptr for copy_with
                 time_series_input_ptr ts_shared = ts->shared_from_this();
                 // Replace the inner node's input with a copy that uses the outer ts and is owned by the inner node
-                // copy_with returns nb::ref, need to convert to shared_ptr
-                auto new_input_ref = node->input()->copy_with(node, {ts_shared});
-                time_series_bundle_input_ptr new_input = std::shared_ptr<TimeSeriesBundleInput>(
-                    new_input_ref.get(), [](TimeSeriesBundleInput*){});
+                auto new_input = node->input()->copy_with(node, {ts_shared});
                 node->reset_input(new_input);
 
                 // Re-parent the provided ts so its parent container becomes the inner node's input bundle

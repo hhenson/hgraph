@@ -216,16 +216,11 @@ namespace hgraph
 
                     // Create a new empty reference input to replace the old one in the node's input bundle
                     // This ensures the per-key input is fully detached before the nested graph is torn down
-                    auto empty_ref_raw =
+                    auto empty_ref =
                         dynamic_cast<TimeSeriesReferenceInput *>(node->input()->get_input(0))->clone_blank_ref_instance();
-                    // Convert raw pointer to shared_ptr
-                    time_series_reference_input_ptr empty_ref = std::shared_ptr<TimeSeriesReferenceInput>(
-                        empty_ref_raw, [](TimeSeriesReferenceInput*){});
                     time_series_input_ptr empty_ref_shared = std::static_pointer_cast<TimeSeriesInput>(empty_ref);
                     auto new_input_ref = node->input()->copy_with(node, {empty_ref_shared});
-                    time_series_bundle_input_ptr new_input = std::shared_ptr<TimeSeriesBundleInput>(
-                        new_input_ref.get(), [](TimeSeriesBundleInput*){});
-                    node->reset_input(new_input);
+                    node->reset_input(new_input_ref);
                     empty_ref->re_parent(node->input());
 
                     // Align with Python: only clear upstream per-key state when the key is truly absent
@@ -258,18 +253,15 @@ namespace hgraph
                     // Convert ts_value (nb::ref) to shared_ptr for copy_with
                     time_series_input_ptr ts_value_shared = ts_value->shared_from_this();
                     auto new_input_ref = node->input()->copy_with(node, {ts_value_shared});
-                    time_series_bundle_input_ptr new_input = std::shared_ptr<TimeSeriesBundleInput>(
-                        new_input_ref.get(), [](TimeSeriesBundleInput*){});
-                    node->reset_input(new_input);
+                    node->reset_input(new_input_ref);
                     ts_value->re_parent(node->input());
                 } else {
-                    auto ts_raw      = dynamic_cast<TimeSeriesReferenceInput *>((*input())[arg].get());
+                    auto ts_input = (*input())[arg];
+                    auto ts_ref = std::dynamic_pointer_cast<TimeSeriesReferenceInput>(ts_input);
                     auto inner_input = dynamic_cast<TimeSeriesReferenceInput *>((*node->input())["ts"].get());
 
-                    if (ts_raw != nullptr && inner_input != nullptr) {
-                        // clone_binding expects TimeSeriesReferenceInput::ptr (nb::ref)
-                        TimeSeriesReferenceInput::ptr ts_nb(ts_raw);
-                        inner_input->clone_binding(ts_nb);
+                    if (ts_ref != nullptr && inner_input != nullptr) {
+                        inner_input->clone_binding(ts_ref);
                     }
                 }
             }
