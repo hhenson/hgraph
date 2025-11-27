@@ -102,7 +102,7 @@ namespace hgraph {
         // Add nodes to the chain (matches Python lines 389-409)
         int64_t curr_size = node_count();
         auto zero = (*input())["zero"];
-        auto zero_ref = dynamic_cast<TimeSeriesReferenceInput *>(zero.get());
+        auto zero_ref = std::dynamic_pointer_cast<TimeSeriesReferenceInput>(zero);
         auto tsd = (*input())["ts"];
         auto tsd_input = dynamic_cast<TimeSeriesDictInput_T<int64_t> *>(tsd.get());
 
@@ -128,8 +128,8 @@ namespace hgraph {
             // Bind RHS input to TSD[ndx]
             auto rhs_node = new_graph[std::get < 1 > (input_node_ids_)];
             auto rhs = (*tsd_input)[ndx];
-            auto rhs_ref = dynamic_cast<TimeSeriesReferenceInput *>(rhs.get());
-            auto rhs_input = dynamic_cast<TimeSeriesReferenceInput *>((*rhs_node->input())[0].get());
+            auto rhs_ref = std::dynamic_pointer_cast<TimeSeriesReferenceInput>(rhs);
+            auto rhs_input = std::dynamic_pointer_cast<TimeSeriesReferenceInput>((*rhs_node->input())[0]);
             rhs_input->clone_binding(rhs_ref);
 
             // Notify the nodes

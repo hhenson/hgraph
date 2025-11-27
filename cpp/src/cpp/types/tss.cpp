@@ -128,11 +128,10 @@ namespace hgraph
             .def(
                 "__str__",
                 [](const SetDelta &self) { return nb::str("SetDelta(added={}, removed={})").format(self.added(), self.removed()); })
-            .def(
-                "__repr__",
-                [](const SetDelta &self) {
-                    return nb::str("SetDelta[{}](added={}, removed={})").format(self.py_type(), self.added(), self.removed());
-                })
+            .def("__repr__",
+                 [](const SetDelta &self) {
+                     return nb::str("SetDelta[{}](added={}, removed={})").format(self.py_type(), self.added(), self.removed());
+                 })
             .def("__eq__", &eq<T>)
             .def("__hash__", &SetDelta::hash)
             .def("__add__", &SetDelta::operator+);
@@ -149,14 +148,14 @@ namespace hgraph
     }
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const node_ptr &parent)
-        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{
-                                                           std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
-                                                           TimeSeriesValueOutputBuilder<bool>().make_instance(parent, nullptr, nullptr))} {}
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent),
+          _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
+              TimeSeriesValueOutputBuilder<bool>().make_instance(parent, nullptr, nullptr))} {}
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const TimeSeriesType::ptr &parent)
-        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{
-                                                           std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
-                                                           TimeSeriesValueOutputBuilder<bool>().make_instance(parent->owning_node(), nullptr, nullptr))} {}
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent),
+          _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
+              TimeSeriesValueOutputBuilder<bool>().make_instance(parent->owning_node(), nullptr, nullptr))} {}
 
     std::shared_ptr<TimeSeriesValueOutput<bool>> &TimeSeriesSetOutput::is_empty_output() {
         if (!_is_empty_ref_output->valid()) { _is_empty_ref_output->set_value(empty()); }
@@ -171,30 +170,27 @@ namespace hgraph
     TimeSeriesSetOutput &TimeSeriesSetInput::set_output() const { return dynamic_cast<TimeSeriesSetOutput &>(*output()); }
 
     template <typename T_Key>
-    TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const node_ptr &parent)
-        : TimeSeriesSetOutput(parent) {
+    TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const node_ptr &parent) : TimeSeriesSetOutput(parent) {
         // _contains_ref_outputs will be lazy-initialized when first accessed
         // This allows shared_from_this() to work for both heap and arena-allocated objects
     }
 
     template <typename T_Key>
-    TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const TimeSeriesType::ptr &parent)
-        : TimeSeriesSetOutput(parent) {
+    TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const TimeSeriesType::ptr &parent) : TimeSeriesSetOutput(parent) {
         // _contains_ref_outputs will be lazy-initialized when first accessed
         // This allows shared_from_this() to work for both heap and arena-allocated objects
     }
 
     // Helper function to lazy-initialize _contains_ref_outputs
-    template <typename T_Key>
-    void TimeSeriesSetOutput_T<T_Key>::_ensure_contains_ref_outputs() const {
+    template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::_ensure_contains_ref_outputs() const {
         if (!_contains_ref_outputs.has_value()) {
             // Now we can safely use shared_from_this() because the shared_ptr has been created
             // Use a static builder instance since builders are Python-managed (nb::ref)
             // TimeSeriesValueOutputBuilder<bool> has no state, so a static instance is safe
             static TimeSeriesValueOutputBuilder<bool> static_builder;
             _contains_ref_outputs = FeatureOutputExtension<element_type>(
-                const_cast<TimeSeriesSetOutput_T<T_Key>*>(this)->shared_from_this(),
-                nb::ref<OutputBuilder>(&static_builder),
+                const_cast<TimeSeriesSetOutput_T<T_Key> *>(this)->shared_from_this(),
+                &static_builder,
                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
                     reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
                         reinterpret_cast<const TimeSeriesSetOutput_T<element_type> &>(ts).contains(key));
@@ -635,9 +631,10 @@ namespace hgraph
 
     template <typename T_Key>
     std::shared_ptr<TimeSeriesValueOutput<bool>> TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
-                                                                                       const nb::object &requester) {
+                                                                                                   const nb::object &requester) {
         _ensure_contains_ref_outputs();
-        auto result = _contains_ref_outputs->create_or_increment(nb::cast<element_type>(item), static_cast<void *>(requester.ptr()));
+        auto result =
+            _contains_ref_outputs->create_or_increment(nb::cast<element_type>(item), static_cast<void *>(requester.ptr()));
         return std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(result);
     }
 

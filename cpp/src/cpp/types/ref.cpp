@@ -204,7 +204,7 @@ namespace hgraph
         return TimeSeriesReference(std::move(items));
     }
 
-    TimeSeriesReference TimeSeriesReference::make(std::vector<nb::ref<TimeSeriesReferenceInput>> items) {
+    TimeSeriesReference TimeSeriesReference::make(std::vector<std::shared_ptr<TimeSeriesReferenceInput>> items) {
         if (items.empty()) { return make(); }
         std::vector<TimeSeriesReference> refs;
         refs.reserve(items.size());
@@ -580,9 +580,9 @@ namespace hgraph
                     auto new_item = _value_builder->make_instance(shared_from_this(), nullptr, nullptr);
                     if (active()) { new_item->make_active(); }
                     // Convert shared_ptr to nb::ref for _items
-                    TimeSeriesReferenceInput* new_item_raw = dynamic_cast<TimeSeriesReferenceInput *>(new_item.get());
+                    auto new_item_raw {std::dynamic_pointer_cast<TimeSeriesReferenceInput>(new_item)};
                     if (new_item_raw) {
-                        _items->push_back(nb::ref<TimeSeriesReferenceInput>(new_item_raw));
+                        _items->push_back(new_item_raw);
                     }
                 }
             }
@@ -700,9 +700,9 @@ namespace hgraph
                     auto new_item = _value_builders[i]->make_instance(shared_from_this(), nullptr, nullptr);
                     if (active()) { new_item->make_active(); }
                     // Convert shared_ptr to nb::ref for _items
-                    TimeSeriesReferenceInput* new_item_raw = dynamic_cast<TimeSeriesReferenceInput *>(new_item.get());
+                    auto new_item_raw {std::dynamic_pointer_cast<TimeSeriesReferenceInput>(new_item)};
                     if (new_item_raw) {
-                        _items->push_back(nb::ref<TimeSeriesReferenceInput>(new_item_raw));
+                        _items->push_back(new_item_raw);
                     }
                 }
             }

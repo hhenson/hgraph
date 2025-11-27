@@ -12,7 +12,7 @@ namespace hgraph {
     template<typename K>
     struct ReduceNode;
     template<typename K>
-    using reduce_node_ptr = nb::ref<ReduceNode<K> >;
+    using reduce_node_ptr = std::shared_ptr<ReduceNode<K> >;
 
     /**
      * C++ implementation of PythonReduceNodeImpl.

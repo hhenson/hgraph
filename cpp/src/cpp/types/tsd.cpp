@@ -659,7 +659,7 @@ namespace hgraph
 
         if (owning_node()->is_started() && has_output()) {
             output_t().remove_key_observer(this);
-            _prev_output = {&output_t()};
+            _prev_output = std::dynamic_pointer_cast<TimeSeriesDictOutput_T<T_Key>>(output_t().shared_from_this());
             // TODO: check this will not enter again
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { this->reset_prev(); });
         }

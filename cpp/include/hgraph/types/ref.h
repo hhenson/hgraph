@@ -45,7 +45,7 @@ namespace hgraph
         static TimeSeriesReference make();
         static TimeSeriesReference make(time_series_output_ptr output);
         static TimeSeriesReference make(std::vector<TimeSeriesReference> items);
-        static TimeSeriesReference make(std::vector<nb::ref<TimeSeriesReferenceInput>> items);
+        static TimeSeriesReference make(std::vector<std::shared_ptr<TimeSeriesReferenceInput>> items);
 
       private:
         // Private constructors - must use make() factory methods
@@ -140,7 +140,7 @@ namespace hgraph
 
     struct TimeSeriesReferenceInput : BaseTimeSeriesInput
     {
-        using ptr = nb::ref<TimeSeriesReferenceInput>;
+        using ptr = std::shared_ptr<TimeSeriesReferenceInput>;
         using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {

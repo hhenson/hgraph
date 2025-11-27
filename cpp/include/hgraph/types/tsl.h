@@ -14,7 +14,7 @@ namespace hgraph {
         requires IndexedTimeSeriesT<T_TS>
     struct TimeSeriesList : T_TS {
         using list_type = TimeSeriesList<T_TS>;
-        using ptr = nb::ref<list_type>;
+        using ptr = std::shared_ptr<list_type>;
         using typename T_TS::index_ts_type;
         using typename T_TS::ts_type;
 

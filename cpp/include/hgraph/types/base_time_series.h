@@ -29,7 +29,7 @@ namespace hgraph {
      * Eventually, TimeSeriesOutput will become a pure virtual interface.
      */
     struct HGRAPH_EXPORT BaseTimeSeriesOutput : TimeSeriesOutput {
-        using ptr = nb::ref<BaseTimeSeriesOutput>;
+        using ptr = std::shared_ptr<BaseTimeSeriesOutput>;
 
         explicit BaseTimeSeriesOutput(const node_ptr &parent) {
             init_parent(parent);
@@ -97,7 +97,7 @@ namespace hgraph {
      * Eventually, TimeSeriesInput will become a pure virtual interface.
      */
     struct HGRAPH_EXPORT BaseTimeSeriesInput : TimeSeriesInput {
-        using ptr = nb::ref<BaseTimeSeriesInput>;
+        using ptr = std::shared_ptr<BaseTimeSeriesInput>;
 
         explicit BaseTimeSeriesInput(const node_ptr &parent) {
             init_parent(parent);

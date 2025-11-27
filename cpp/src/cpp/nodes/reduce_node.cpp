@@ -50,7 +50,7 @@ namespace hgraph {
 
     template<typename K>
     typename TimeSeriesDictInput_T<K>::ptr ReduceNode<K>::ts() {
-        return dynamic_cast<TimeSeriesDictInput_T<K> *>((*input())[0].get());
+        return std::dynamic_pointer_cast<TimeSeriesDictInput_T<K>>((*input())[0]);
     }
 
     template<typename K>

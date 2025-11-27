@@ -36,7 +36,7 @@ namespace hgraph
     {
         // Map concrete Base types back to interface types for collections
         using ts_type     = std::conditional_t<std::is_base_of_v<TimeSeriesInput, T_TS>, TimeSeriesInput, TimeSeriesOutput>;
-        using ts_type_ptr = nb::ref<ts_type>;  // Use interface type for pointers
+        using ts_type_ptr = std::shared_ptr<ts_type>;  // Use interface type for pointers
         using T_TS::T_TS;
 
         [[nodiscard]] virtual size_t size() const = 0;
@@ -48,7 +48,7 @@ namespace hgraph
 
     struct TimeSeriesDictOutput : TimeSeriesDict<BaseTimeSeriesOutput>
     {
-        using ptr = nb::ref<TimeSeriesDictOutput>;
+        using ptr = std::shared_ptr<TimeSeriesDictOutput>;
         using TimeSeriesDict::TimeSeriesDict;
 
         virtual void py_set_item(const nb::object &key, const nb::object &value) = 0;
@@ -68,7 +68,7 @@ namespace hgraph
 
     struct TimeSeriesDictInput : TimeSeriesDict<BaseTimeSeriesInput>
     {
-        using ptr = nb::ref<TimeSeriesDictInput>;
+        using ptr = std::shared_ptr<TimeSeriesDictInput>;
         using TimeSeriesDict<BaseTimeSeriesInput>::TimeSeriesDict;
 
         // Returns a TimeSeriesSetInput that tracks the keys in this dict
@@ -80,7 +80,7 @@ namespace hgraph
 
     template <typename T_Key> struct TimeSeriesDictOutput_T : TimeSeriesDictOutput
     {
-        using ptr                 = nb::ref<TimeSeriesDictOutput_T>;
+        using ptr                 = std::shared_ptr<TimeSeriesDictOutput_T>;
         using key_type            = T_Key;
         using value_type          = time_series_output_ptr;
         using ts_type_ptr         = time_series_output_ptr;  // Override base class to use shared_ptr
@@ -253,7 +253,7 @@ namespace hgraph
 
     template <typename T_Key> struct TimeSeriesDictInput_T : TimeSeriesDictInput, TSDKeyObserver<T_Key>
     {
-        using ptr                 = nb::ref<TimeSeriesDictInput_T>;
+        using ptr                 = std::shared_ptr<TimeSeriesDictInput_T>;
         using key_type            = T_Key;
         using k_set_type          = std::unordered_set<key_type>;
         using value_type          = time_series_input_ptr;
