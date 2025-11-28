@@ -78,9 +78,9 @@ namespace hgraph
 
         [[nodiscard]] nb::tuple start_inputs() const;
 
-        time_series_output_ptr output();
+        [[nodiscard]] nb::object output();
 
-        nb::object recordable_state();
+        [[nodiscard]] nb::object recordable_state();
 
         [[nodiscard]] nb::bool_ has_recordable_state() const;
 
@@ -88,7 +88,7 @@ namespace hgraph
 
         [[nodiscard]] nb::bool_ has_scheduler() const;
 
-        time_series_output_ptr error_output();
+        [[nodiscard]] nb::object error_output();
 
         [[nodiscard]] nb::bool_ has_input() const;
 

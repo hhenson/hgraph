@@ -127,7 +127,10 @@ namespace hgraph
 
     nb::tuple PyNode::start_inputs() const { return nb::make_tuple(_impl->start_inputs()); }
 
-    time_series_output_ptr PyNode::output() { return _impl->output(); }
+    nb::object PyNode::output() {
+        auto out = _impl->output();
+        return out ? wrap_time_series(out.get(), _impl.control_block()) : nb::none();
+    }
 
     nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state().get(), _impl.control_block()); }
 
@@ -137,7 +140,10 @@ namespace hgraph
 
     nb::bool_ PyNode::has_scheduler() const { return nb::bool_(_impl->has_scheduler()); }
 
-    time_series_output_ptr PyNode::error_output() { return _impl->error_output(); }
+    nb::object PyNode::error_output() {
+        auto out = _impl->error_output();
+        return out ? wrap_time_series(out.get(), _impl.control_block()) : nb::none();
+    }
 
     nb::bool_ PyNode::has_input() const { return nb::bool_(_impl->has_input()); }
 
