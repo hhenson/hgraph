@@ -170,6 +170,12 @@ namespace hgraph
             .def("notify", &PyNode::notify, "modified_time"_a = nb::none())
             // .def("notify_next_cycle", &PyNode::notify_next_cycle)
             .def_prop_ro("error_output", &PyNode::error_output)
+            .def("__eq__", [](const PyNode &self, const PyNode &other) {
+                return self._impl.get() == other._impl.get();
+            })
+            .def("__hash__", [](const PyNode &self) {
+                return reinterpret_cast<std::size_t>(self._impl.get());
+            })
             .def("__repr__", &PyNode::repr)
             .def("__str__", &PyNode::str);
     }
