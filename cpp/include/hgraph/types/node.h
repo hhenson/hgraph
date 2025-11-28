@@ -188,21 +188,21 @@ namespace hgraph {
 
         const nb::dict &scalars() const;
 
-        graph_ptr graph();
+        Graph* graph();
 
-        graph_ptr graph() const;
+        Graph* graph() const;
 
         void set_graph(graph_ptr value);
 
-        time_series_bundle_input_ptr input();
+        TimeSeriesBundleInput* input();
 
-        time_series_bundle_input_ptr input() const;
+        TimeSeriesBundleInput* input() const;
 
         void set_input(time_series_bundle_input_ptr value);
 
         virtual void reset_input(time_series_bundle_input_ptr value);
 
-        time_series_output_ptr output();
+        TimeSeriesOutput* output();
 
         void set_output(time_series_output_ptr value);
 

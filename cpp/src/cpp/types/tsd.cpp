@@ -933,7 +933,7 @@ namespace hgraph
         register_clear_key_changes();
         auto was_valid = value->valid();
 
-        if (value->parent_input().get() == this) {
+        if (value->parent_input() == this) {
             // This is our own input - deactivate and track for cleanup
             if (value->active()) { value->make_passive(); }
             _removed_items.insert({key, {value, was_valid}});
@@ -1009,7 +1009,7 @@ namespace hgraph
             removed_map_type to_keep{};
             for (auto &[key, v] : _removed_items) {
                 auto &[value, was_valid] = v;
-                if (value->parent_input().get() != this) {
+                if (value->parent_input() != this) {
                     // Check for transplanted items, these do not get removed, but can be un-bound
                     value->un_bind_output(unbind_refs);
                     _ts_values.insert({key, value});
@@ -1149,7 +1149,7 @@ namespace hgraph
             // This is an approximate solution but at this point the information about active state is lost
             for (auto &[_, value] : _ts_values) {
                 // Check if this input was transplanted from another parent
-                if (value->parent_input().get() != this) { value->make_active(); }
+                if (value->parent_input() != this) { value->make_active(); }
             }
         } else {
             set_active(true);

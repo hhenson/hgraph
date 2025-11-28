@@ -749,8 +749,8 @@ namespace hgraph {
 
     const nb::dict &Node::scalars() const { return _scalars; }
 
-    graph_ptr Node::graph() { return _graph; }
-    graph_ptr Node::graph() const { return _graph; }
+    Graph* Node::graph() { return _graph.get(); }
+    Graph* Node::graph() const { return const_cast<Graph*>(_graph.get()); }
 
     void Node::set_graph(graph_ptr value) {
         _graph = std::move(value);
@@ -758,8 +758,8 @@ namespace hgraph {
         _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
-    time_series_bundle_input_ptr Node::input() { return _input; }
-    time_series_bundle_input_ptr Node::input() const { return _input; }
+    TimeSeriesBundleInput* Node::input() { return _input.get(); }
+    TimeSeriesBundleInput* Node::input() const { return const_cast<TimeSeriesBundleInput*>(_input.get()); }
 
     void Node::set_input(time_series_bundle_input_ptr value) {
         if (has_input()) { throw std::runtime_error("Input already set on node: " + _signature->signature()); }
@@ -790,7 +790,7 @@ namespace hgraph {
         }
     }
 
-    time_series_output_ptr Node::output() { return _output; }
+    TimeSeriesOutput* Node::output() { return _output.get(); }
 
     void Node::set_output(time_series_output_ptr value) { _output = std::move(value); }
 
@@ -830,8 +830,8 @@ namespace hgraph {
                 .def_prop_ro("node_id", [](const Node& self){ nb::tuple(nb::cast(self.node_id()));})
                 .def_prop_ro("signature", &Node::signature)
                 .def_prop_ro("scalars", &Node::scalars)
-                .def_prop_rw("graph", static_cast<graph_ptr (Node::*)() const>(&Node::graph), &Node::set_graph)
-                .def_prop_rw("input", static_cast<time_series_bundle_input_ptr (Node::*)() const>(&Node::input),
+                .def_prop_rw("graph", static_cast<Graph* (Node::*)() const>(&Node::graph), &Node::set_graph)
+                .def_prop_rw("input", static_cast<TimeSeriesBundleInput* (Node::*)() const>(&Node::input),
                              &Node::set_input)
                 .def_prop_ro("inputs",
                              [](Node &self) {

@@ -181,7 +181,7 @@ namespace hgraph {
         auto gid = graph->graph_id();
         gi->id = std::vector<int64_t>(gid.begin(), gid.end());
         gi->label = graph->label().has_value() ? graph->label().value() : "";
-        gi->parent_graph = graph->parent_node() ? graph->parent_node()->graph().get() : nullptr;
+        gi->parent_graph = graph->parent_node() ? graph->parent_node()->graph() : nullptr;
         
         size_t node_count = graph->nodes().size();
         gi->node_count = node_count;

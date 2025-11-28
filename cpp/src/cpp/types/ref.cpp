@@ -420,8 +420,7 @@ namespace hgraph {
     }
 
     nb::object TimeSeriesReferenceInput::py_value() const {
-        auto v{value()};
-        return nb::cast(v);
+        return nb::cast(value());
     }
 
     nb::object TimeSeriesReferenceInput::py_delta_value() const { return py_value(); }
@@ -565,7 +564,6 @@ namespace hgraph {
         }
         // We are binding directly to a concrete output: wrap it as a reference value
         _value = TimeSeriesReference::make(std::move(output_));
-        output().reset();
         if (owning_node()->is_started()) {
             set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
             notify(sample_time());
@@ -594,7 +592,7 @@ namespace hgraph {
     }
 
     TimeSeriesReferenceOutput *TimeSeriesReferenceInput::output_t() {
-        auto _output{output().get()};
+        auto _output{output()};
         auto _result{dynamic_cast<TimeSeriesReferenceOutput *>(_output)};
         if (_result == nullptr) {
             throw std::runtime_error("TimeSeriesReferenceInput::output_t: Expected TimeSeriesReferenceOutput*");

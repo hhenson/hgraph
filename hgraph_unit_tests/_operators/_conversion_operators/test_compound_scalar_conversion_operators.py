@@ -64,3 +64,9 @@ def test_convert_cs():
         return convert[TS[CompoundScalar]](x, __strict__=False)
 
     assert eval_node(h1, [dict(b="a")]) == [AB(a=None, b="a")]
+
+    @graph
+    def u(x: TS[AB]) -> TSB[AB]:
+        return convert[TSB](x)
+    
+    assert eval_node(u, [None, AB(a=1, b="a")]) == [None, dict(a=1, b="a")]

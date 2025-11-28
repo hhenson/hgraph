@@ -26,7 +26,7 @@ namespace hgraph {
 
     const std::vector<node_ptr> &Graph::nodes() const { return _nodes; }
 
-    node_ptr Graph::parent_node() const { return _parent_node; }
+    Node* Graph::parent_node() const { return const_cast<Node*>(_parent_node.get()); }
 
     std::optional<std::string> Graph::label() const { return _label; }
 

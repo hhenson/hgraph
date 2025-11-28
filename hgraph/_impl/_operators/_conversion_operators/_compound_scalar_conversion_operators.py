@@ -1,5 +1,6 @@
 from typing import Type
 
+from hgraph import TimeSeriesSchema
 from hgraph._operators import combine, convert
 from hgraph._types import TS, TS_SCHEMA, TSB, DEFAULT, OUT, AUTO_RESOLVE, COMPOUND_SCALAR, CompoundScalar
 from hgraph._wiring import compute_node
@@ -60,3 +61,21 @@ def convert_cs_from_tsb_typed(
     return scalar_tp_(
         **{k: v.value if v.valid else None for k, v in bundle.items() if k in scalar_tp_.__meta_data_schema__}
     )
+
+
+@compute_node(
+    overloads=convert,
+    requires=lambda m, s: m[OUT].py_type is TSB,
+    resolvers={TS_SCHEMA: lambda m, s: TimeSeriesSchema.from_scalar_schema(m[COMPOUND_SCALAR].py_type)},
+)
+def convert_tsb_from_cs(
+    ts: TS[COMPOUND_SCALAR],
+    to: type[OUT] = DEFAULT[OUT],
+    tp_: type[TS_SCHEMA] = AUTO_RESOLVE
+) -> TSB[TS_SCHEMA]:
+    as_dict = ts.value.to_dict()
+    return {
+        k: v
+        for k, v in as_dict.items()
+        if k in tp_.__meta_data_schema__
+    }
