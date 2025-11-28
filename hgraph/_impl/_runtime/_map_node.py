@@ -29,6 +29,10 @@ class MapNestedEngineEvaluationClock(NestedEngineEvaluationClock):
         super().__init__(engine_evaluation_clock, nested_node)
         self._key = key
 
+    @property
+    def key(self) -> K:
+        return self._key
+
     def update_next_scheduled_evaluation_time(self, next_time: datetime):
         # First we make sure the key is correctly scheduled, then we call super, which will ensure the
         # node is scheduled if required.
