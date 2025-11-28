@@ -247,8 +247,15 @@ namespace hgraph
     }
 
     void TimeSeriesReferenceOutput::set_value(TimeSeriesReference value) {
+        bool had_value = _value.has_value();
+        bool value_changed = !had_value || (had_value && *_value != value);
+        
         _value = std::move(value);
-        mark_modified();
+        // Only mark as modified if the value actually changed
+        // This matches Python behavior where assigning the same object is a no-op
+        if (value_changed) {
+            mark_modified();
+        }
         for (auto input : _reference_observers) { _value->bind_input(*input); }
     }
 
