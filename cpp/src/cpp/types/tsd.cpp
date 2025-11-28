@@ -125,7 +125,7 @@ namespace hgraph
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &   parent, output_builder_ptr ts_builder,
                                                           output_builder_ptr ts_ref_builder)
         : TimeSeriesDictOutput(parent),
-          _key_set{static_cast<TimeSeriesType *>(this)}, // Initialize with raw pointer - embedded value member
+          _key_set{this}, // Initialize with raw pointer - embedded value member
           _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{std::nullopt} {
@@ -136,7 +136,7 @@ namespace hgraph
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
                                                           output_builder_ptr          ts_ref_builder)
         : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)),
-          _key_set{static_cast<TimeSeriesType *>(this)}, // Initialize with raw pointer - embedded value member
+          _key_set{this}, // Initialize with raw pointer - embedded value member
           _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{std::nullopt} {
@@ -428,13 +428,13 @@ namespace hgraph
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_ptr ts_builder)
         : TimeSeriesDictInput(parent),
-          _key_set{parent}, // Create with Node parent first
+          _key_set{this}, // Create with Node parent first
           _ts_builder{ts_builder} {}
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const time_series_type_ptr &parent, input_builder_ptr ts_builder)
         : TimeSeriesDictInput(parent),
-          _key_set{parent}, // Create with TimeSeriesType parent first
+          _key_set{this}, // Create with TimeSeriesType parent first
           _ts_builder{ts_builder} {}
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_peer() const { return _has_peer; }
