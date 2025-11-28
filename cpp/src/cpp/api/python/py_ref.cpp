@@ -13,6 +13,8 @@ namespace hgraph
         nb::class_<TimeSeriesReference>(m, "TimeSeriesReference")
             .def("__str__", &TimeSeriesReference::to_string)
             .def("__repr__", &TimeSeriesReference::to_string)
+            .def(nb::self == nb::self)
+            .def(nb::self != nb::self)
             .def(
                 "bind_input",
                 [](TimeSeriesReference &self, PyTimeSeriesInput &ts_input) {
