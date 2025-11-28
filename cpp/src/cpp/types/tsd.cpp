@@ -913,8 +913,14 @@ namespace hgraph
 
         if (child != &key_set_t()) {
             // Child is not the key-set instance
-            auto key{key_from_value(child)};
-            _key_updated(key);
+            try {
+                auto key{key_from_value(child)};
+                _key_updated(key);
+            } catch (const std::runtime_error&) {
+                // Child was removed from _ts_values_to_keys - ignore notification
+                // This can happen if a child notifies after being removed
+                return;
+            }
         }
 
         BaseTimeSeriesInput::notify_parent(this, modified_time);

@@ -247,11 +247,6 @@ namespace hgraph
     }
 
     void TimeSeriesReferenceOutput::set_value(TimeSeriesReference value) {
-        // Skip if the new value is equal to the current value
-        // This matches Python behavior where assigning the same object is a no-op
-        if (has_value() && *_value == value) {
-            return;
-        }
         _value = std::move(value);
         mark_modified();
         for (auto input : _reference_observers) { _value->bind_input(*input); }
