@@ -36,7 +36,7 @@ namespace hgraph
     {
         // Map concrete Base types back to interface types for collections
         using ts_type     = std::conditional_t<std::is_base_of_v<TimeSeriesInput, T_TS>, TimeSeriesInput, TimeSeriesOutput>;
-        using ts_type_ptr = std::shared_ptr<ts_type>;  // Use interface type for pointers
+        using ts_type_ptr = std::shared_ptr<ts_type>; // Use interface type for pointers
         using T_TS::T_TS;
 
         [[nodiscard]] virtual size_t size() const = 0;
@@ -62,7 +62,8 @@ namespace hgraph
         virtual void py_release_ref(const nb::object &key, const nb::object &requester) = 0;
 
         // Returns a TimeSeriesSetOutput that tracks the keys in this dict
-        [[nodiscard]] virtual TimeSeriesSetOutput       &key_set()       = 0;
+        [[nodiscard]] virtual TimeSeriesSetOutput &key_set() = 0;
+
         [[nodiscard]] virtual const TimeSeriesSetOutput &key_set() const = 0;
     };
 
@@ -72,7 +73,8 @@ namespace hgraph
         using TimeSeriesDict<BaseTimeSeriesInput>::TimeSeriesDict;
 
         // Returns a TimeSeriesSetInput that tracks the keys in this dict
-        [[nodiscard]] virtual TimeSeriesSetInput       &key_set()       = 0;
+        [[nodiscard]] virtual TimeSeriesSetInput &key_set() = 0;
+
         [[nodiscard]] virtual const TimeSeriesSetInput &key_set() const = 0;
     };
 
@@ -83,7 +85,7 @@ namespace hgraph
         using ptr                 = std::shared_ptr<TimeSeriesDictOutput_T>;
         using key_type            = T_Key;
         using value_type          = time_series_output_ptr;
-        using ts_type_ptr         = time_series_output_ptr;  // Override base class to use shared_ptr
+        using ts_type_ptr         = time_series_output_ptr; // Override base class to use shared_ptr
         using k_set_type          = std::unordered_set<key_type>;
         using map_type            = std::unordered_map<key_type, value_type>;
         using item_iterator       = typename map_type::iterator;
@@ -99,7 +101,7 @@ namespace hgraph
         explicit TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_ptr ts_builder, output_builder_ptr ts_ref_builder);
 
         explicit TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
-                                        output_builder_ptr ts_ref_builder);
+                                        output_builder_ptr          ts_ref_builder);
 
         void py_set_value(nb::object value) override;
 
@@ -152,10 +154,10 @@ namespace hgraph
         }
 
         [[nodiscard]] auto added_items() const {
-            return key_set_t().added() 
-                   | std::views::transform([&](const auto &key) { 
+            return key_set_t().added()
+                   | std::views::transform([&](const auto &key) {
                        auto value = operator[](key);
-                       return std::make_pair(key, value); 
+                       return std::make_pair(key, value);
                    });
         }
 
@@ -204,24 +206,20 @@ namespace hgraph
         [[nodiscard]] bool has_reference() const override;
 
         // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor &visitor) override {
-            visitor.visit(*this);
-        }
+        void accept(TimeSeriesOutputVisitor &visitor) override { visitor.visit(*this); }
 
-        void accept(TimeSeriesOutputVisitor &visitor) const override {
-            visitor.visit(*this);
-        }
+        void accept(TimeSeriesOutputVisitor &visitor) const override { visitor.visit(*this); }
 
         void create(const key_type &key);
-        
+
         // Get aliased shared_ptr to embedded _key_set (for binding to inputs)
         std::shared_ptr<key_set_type> key_set_ptr() const {
             return std::shared_ptr<key_set_type>(
-                const_cast<TimeSeriesDictOutput_T*>(this)->shared_from_this(), 
-                const_cast<key_set_type*>(&_key_set));
+                const_cast<TimeSeriesDictOutput_T *>(this)->shared_from_this(),
+                const_cast<key_set_type *>(&_key_set));
         }
 
-      protected:
+    protected:
         friend TSDOutBuilder<T_Key>;
 
         void _dispose();
@@ -229,30 +227,36 @@ namespace hgraph
         void _clear_key_changes();
 
         void remove_value(const key_type &key, bool raise_if_not_found);
+
         // Isolate the modified tracking logic here
         const key_type &key_from_value(TimeSeriesOutput *value) const;
-        void            _clear_key_tracking();
-        void            _add_key_value(const key_type &key, const value_type &value);
-        void            _key_updated(const key_type &key);
-        void            _remove_key_value(const key_type &key, const value_type &value);
-        
-        // Helper to lazily initialize _ref_ts_feature
-        FeatureOutputExtension<key_type>& _ensure_ref_ts_feature() const;
 
-      private:
-        key_set_type _key_set;  // Embedded value member - use aliasing constructor for shared_ptr
-        map_type              _ts_values;
+        void _clear_key_tracking();
+
+        void _add_key_value(const key_type &key, const value_type &value);
+
+        void _key_updated(const key_type &key);
+
+        void _remove_key_value(const key_type &key, const value_type &value);
+
+        // Helper to lazily initialize _ref_ts_feature
+        FeatureOutputExtension<key_type> &_ensure_ref_ts_feature() const;
+
+    private:
+        key_set_type _key_set; // Embedded value member - use aliasing constructor for shared_ptr
+        map_type     _ts_values;
 
         reverse_map _ts_values_to_keys;
         map_type    _modified_items;
         map_type    _removed_items;
         // This ensures we hold onto the values until we are sure no one needs to reference them.
-        mutable map_type _valid_items_cache;  // Cache for valid_items() to ensure iterator lifetime safety.
+        mutable map_type _valid_items_cache; // Cache for valid_items() to ensure iterator lifetime safety.
 
         output_builder_ptr _ts_builder;
         output_builder_ptr _ts_ref_builder;
 
-        mutable std::optional<FeatureOutputExtension<key_type>> _ref_ts_feature;  // Lazy-initialized to avoid shared_from_this() in ctor
+        mutable std::optional<FeatureOutputExtension<key_type> > _ref_ts_feature;
+        // Lazy-initialized to avoid shared_from_this() in ctor
         std::vector<TSDKeyObserver<key_type> *> _key_observers;
         engine_time_t                           _last_cleanup_time{MIN_DT};
         static inline map_type                  _empty;
@@ -267,7 +271,7 @@ namespace hgraph
         using k_set_type          = std::unordered_set<key_type>;
         using value_type          = time_series_input_ptr;
         using map_type            = std::unordered_map<key_type, value_type>;
-        using removed_map_type    = std::unordered_map<key_type, std::pair<value_type, bool>>;
+        using removed_map_type    = std::unordered_map<key_type, std::pair<value_type, bool> >;
         using added_map_type      = std::unordered_map<key_type, value_type>;
         using modified_map_type   = std::unordered_map<key_type, value_type>;
         using item_iterator       = typename map_type::iterator;
@@ -359,15 +363,11 @@ namespace hgraph
         [[nodiscard]] const TimeSeriesDictOutput_T<key_type> &output_t() const;
 
         // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor &visitor) override {
-            visitor.visit(*this);
-        }
+        void accept(TimeSeriesInputVisitor &visitor) override { visitor.visit(*this); }
 
-        void accept(TimeSeriesInputVisitor &visitor) const override {
-            visitor.visit(*this);
-        }
+        void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
 
-      protected:
+    protected:
         void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
 
         bool do_bind_output(time_series_output_ptr &value) override;
@@ -386,23 +386,27 @@ namespace hgraph
 
         // Isolate modified tracking here.
         [[nodiscard]] const key_type &key_from_value(TimeSeriesInput *value) const;
-        [[nodiscard]] const key_type &key_from_value(value_type value) const;
-        void                          _clear_key_tracking();
-        void                          _add_key_value(const key_type &key, const value_type &value);
-        void                          _key_updated(const key_type &key);
-        void                          _remove_key_value(const key_type &key, const value_type &value);
-        void                          _ensure_key_set() const;  // Lazy initialization of _key_set
 
-      private:
+        [[nodiscard]] const key_type &key_from_value(value_type value) const;
+
+        void _clear_key_tracking();
+
+        void _add_key_value(const key_type &key, const value_type &value);
+
+        void _key_updated(const key_type &key);
+
+        void _remove_key_value(const key_type &key, const value_type &value);
+
+    private:
         friend TSD_Builder<T_Key>;
 
-        key_set_type_ptr _key_set;
-        map_type         _ts_values;
+        key_set_type _key_set; // Eagerly initialized, shares parent with TSD
+        map_type     _ts_values;
 
         reverse_map      _ts_values_to_keys;
-        mutable map_type _valid_items_cache;     // Cache the valid items if called.
-        map_type         _modified_items;        // This is cached for performance reasons.
-        mutable map_type _modified_items_cache;  // This is cached for performance reasons.
+        mutable map_type _valid_items_cache;    // Cache the valid items if called.
+        map_type         _modified_items;       // This is cached for performance reasons.
+        mutable map_type _modified_items_cache; // This is cached for performance reasons.
         mutable map_type _added_items_cache;
         mutable map_type _removed_item_cache;
         removed_map_type _removed_items;
@@ -418,6 +422,6 @@ namespace hgraph
         mutable bool  _clear_key_changes_registered{false};
     };
 
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // TSD_H

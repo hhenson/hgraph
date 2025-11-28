@@ -113,6 +113,10 @@ namespace hgraph {
         explicit BaseTimeSeriesInput(const TimeSeriesType::ptr &parent) {
             init_parent(parent);
         }
+        // Constructor for embedded value members - takes raw pointer
+        explicit BaseTimeSeriesInput(TimeSeriesType* parent_raw) {
+            init_parent(parent_raw);
+        }
 
         // Implement TimeSeriesType pure virtuals
         [[nodiscard]] TimeSeriesType::ptr ts_shared_from_this() override;

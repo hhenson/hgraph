@@ -28,9 +28,11 @@ namespace hgraph
         auto remove           = get_remove();
         auto remove_if_exists = get_remove_if_exists();
 
-        auto items = (nb::isinstance<nb::dict>(result) ? nb::iter(nb::cast<nb::dict>(result).items())
-                      : nb::hasattr(result, "items")   ? nb::iter(nb::getattr(result, "items")())
-                                                       : nb::iter(result));
+        auto items = (nb::isinstance<nb::dict>(result)
+                          ? nb::iter(nb::cast<nb::dict>(result).items())
+                          : nb::hasattr(result, "items")
+                          ? nb::iter(nb::getattr(result, "items")())
+                          : nb::iter(result));
         for (const auto &pair : items) {
             auto k  = pair[0];
             auto v_ = pair[1];
@@ -41,9 +43,7 @@ namespace hgraph
                 if (was_modified(k_)) { return false; }
             } else {
                 if (was_removed(k_)) { return false; }
-                if (contains(k_)) {
-                    if (!operator[](k_)->can_apply_result(nb::borrow(v_))) { return false; }
-                }
+                if (contains(k_)) { if (!operator[](k_)->can_apply_result(nb::borrow(v_))) { return false; } }
             }
         }
         return true;
@@ -110,7 +110,7 @@ namespace hgraph
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_key_updated(const key_type &key) {
         auto it{_ts_values.find(key)};
         if (it != _ts_values.end()) {
-            _modified_items[key] = it->second;  // Use operator[] instead of insert to ensure update
+            _modified_items[key] = it->second; // Use operator[] instead of insert to ensure update
         } else {
             // In the output we have noted that removed keys can still update, so we can't raise an exception here
         }
@@ -122,33 +122,35 @@ namespace hgraph
     }
 
     template <typename T_Key>
-    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_ptr ts_builder,
+    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &   parent, output_builder_ptr ts_builder,
                                                           output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(parent), 
-          _key_set{static_cast<TimeSeriesType*>(this)},  // Initialize with raw pointer - embedded value member
+        : TimeSeriesDictOutput(parent),
+          _key_set{static_cast<TimeSeriesType *>(this)}, // Initialize with raw pointer - embedded value member
           _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
-          _ref_ts_feature{std::nullopt} {  // Will be lazy-initialized
+          _ref_ts_feature{std::nullopt} {
+        // Will be lazy-initialized
     }
 
     template <typename T_Key>
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
-                                                          output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)), 
-          _key_set{static_cast<TimeSeriesType*>(this)},  // Initialize with raw pointer - embedded value member
-          _ts_builder{std::move(ts_builder)}, 
+                                                          output_builder_ptr          ts_ref_builder)
+        : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)),
+          _key_set{static_cast<TimeSeriesType *>(this)}, // Initialize with raw pointer - embedded value member
+          _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
-          _ref_ts_feature{std::nullopt} {  // Will be lazy-initialized
+          _ref_ts_feature{std::nullopt} {
+        // Will be lazy-initialized
     }
 
     template <typename T_Key>
-    FeatureOutputExtension<typename TimeSeriesDictOutput_T<T_Key>::key_type>& 
+    FeatureOutputExtension<typename TimeSeriesDictOutput_T<T_Key>::key_type> &
     TimeSeriesDictOutput_T<T_Key>::_ensure_ref_ts_feature() const {
         if (!_ref_ts_feature.has_value()) {
             using feature_ext_type = FeatureOutputExtension<key_type>;
-            using feature_fn = typename feature_ext_type::feature_fn;
-            _ref_ts_feature = feature_ext_type(
-                const_cast<TimeSeriesDictOutput_T*>(this)->shared_from_this(),
+            using feature_fn       = typename feature_ext_type::feature_fn;
+            _ref_ts_feature        = feature_ext_type(
+                const_cast<TimeSeriesDictOutput_T *>(this)->shared_from_this(),
                 _ts_ref_builder,
                 feature_fn([](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const key_type &key) {
                     auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
@@ -181,7 +183,7 @@ namespace hgraph
         }
 
         if (!valid()) {
-            key_set().mark_modified();  // Even if we tick an empty set, we still need to mark this as modified
+            key_set().mark_modified(); // Even if we tick an empty set, we still need to mark this as modified
         }
         auto item_attr = nb::getattr(value, "items", nb::none());
         auto remove{get_remove()};
@@ -195,26 +197,20 @@ namespace hgraph
             auto v  = kv[1];
             if (v.is_none()) { continue; }
             if (v.is(remove) || v.is(remove_if_exists)) {
-                if (contains(k_)) {
-                    erase(k_);
-                } else {
+                if (contains(k_)) { erase(k_); } else {
                     // Python semantics: REMOVE on missing -> KeyError; REMOVE_IF_EXISTS on missing -> no-op
                     if (v.is(remove)) {
                         std::string msg = "TSD key not found for REMOVE: " + to_string(k_);
                         throw nb::key_error(msg.c_str());
-                    }  // else REMOVE_IF_EXISTS: do nothing
+                    } // else REMOVE_IF_EXISTS: do nothing
                 }
-            } else {
-                get_or_create(k_)->py_set_value(v);
-            }
+            } else { get_or_create(k_)->py_set_value(v); }
         }
     }
 
     template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_value() const {
         auto v{nb::dict()};
-        for (const auto &[key, value] : _ts_values) {
-            if (value->valid()) { v[nb::cast(key)] = value->py_value(); }
-        }
+        for (const auto &[key, value] : _ts_values) { if (value->valid()) { v[nb::cast(key)] = value->py_value(); } }
         // Return frozendict snapshot of all valid items (mirror Python `_tsd.py:value`)
         return get_frozendict()(v);
     }
@@ -242,9 +238,7 @@ namespace hgraph
         _ensure_ref_ts_feature().update_all(std::views::keys(_removed_items).begin(), std::views::keys(_removed_items).end());
         _modified_items.clear();
 
-        for (auto &observer : _key_observers) {
-            for (const auto &[key, _] : _removed_items) { observer->on_key_removed(key); }
-        }
+        for (auto &observer : _key_observers) { for (const auto &[key, _] : _removed_items) { observer->on_key_removed(key); } }
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::invalidate() {
@@ -253,28 +247,24 @@ namespace hgraph
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::copy_from_output(const TimeSeriesOutput &output) {
-        auto       &other = dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output);
+        auto &      other = dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output);
         const auto &key_set_value{key_set_t().value()};
         const auto &other_key_set_value{other.key_set_t().value()};
 
         std::vector<T_Key> to_remove;
-        for (const auto &key : key_set_value) {
-            if (other_key_set_value.contains(key)) { to_remove.push_back(key); }
-        }
+        for (const auto &key : key_set_value) { if (other_key_set_value.contains(key)) { to_remove.push_back(key); } }
         for (const auto &k : to_remove) { erase(k); }
         for (const auto &[k, v] : other._ts_values) { get_or_create(k)->copy_from_output(*v); }
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::copy_from_input(const TimeSeriesInput &input) {
-        auto       &dict_input = dynamic_cast<const TimeSeriesDictInput_T<T_Key> &>(input);
+        auto &      dict_input = dynamic_cast<const TimeSeriesDictInput_T<T_Key> &>(input);
         const auto &key_set_value{key_set_t().value()};
         const auto &other_key_set_value{dict_input.key_set_t().value()};
 
         // Remove keys that are in output but NOT in input (matching Python: self.key_set.value - input.key_set.value)
         std::vector<T_Key> to_remove;
-        for (const auto &key : key_set_value) {
-            if (!other_key_set_value.contains(key)) { to_remove.push_back(key); }
-        }
+        for (const auto &key : key_set_value) { if (!other_key_set_value.contains(key)) { to_remove.push_back(key); } }
         for (const auto &k : to_remove) { erase(k); }
         for (const auto &[k, v_input] : dict_input.value()) { get_or_create(k)->copy_from_input(*v_input); }
     }
@@ -352,13 +342,13 @@ namespace hgraph
 
     template <typename T_Key>
     TimeSeriesSetOutput_T<typename TimeSeriesDictOutput_T<T_Key>::key_type> &TimeSeriesDictOutput_T<T_Key>::key_set_t() {
-        return _key_set;  // Value member, return by reference
+        return _key_set; // Value member, return by reference
     }
 
     template <typename T_Key>
     const TimeSeriesSetOutput_T<typename TimeSeriesDictOutput_T<T_Key>::key_type> &
     TimeSeriesDictOutput_T<T_Key>::key_set_t() const {
-        return _key_set;  // Value member, return by reference
+        return _key_set; // Value member, return by reference
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_item(const nb::object &key, const nb::object &value) {
@@ -437,12 +427,14 @@ namespace hgraph
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{nullptr},  // Lazy initialization - will be created on first access
+        : TimeSeriesDictInput(parent),
+          _key_set{parent}, // Create with Node parent first
           _ts_builder{ts_builder} {}
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const time_series_type_ptr &parent, input_builder_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{nullptr},  // Lazy initialization - will be created on first access
+        : TimeSeriesDictInput(parent),
+          _key_set{parent}, // Create with TimeSeriesType parent first
           _ts_builder{ts_builder} {}
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_peer() const { return _has_peer; }
@@ -472,9 +464,7 @@ namespace hgraph
 
     template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_value() const {
         auto v{nb::dict()};
-        for (const auto &[key, value] : _ts_values) {
-            if (value->valid()) { v[nb::cast(key)] = value->py_value(); }
-        }
+        for (const auto &[key, value] : _ts_values) { if (value->valid()) { v[nb::cast(key)] = value->py_value(); } }
         // Return frozendict snapshot of all valid items to mirror Python `_tsd.py:value`
         return get_frozendict()(v);
     }
@@ -483,9 +473,7 @@ namespace hgraph
         auto delta{nb::dict()};
         // Build from currently modified and valid child inputs to avoid relying solely on observer-tracked state
         const auto &modified = modified_items();
-        for (const auto &[key, value] : modified) {
-            if (value->valid()) { delta[nb::cast(key)] = value->py_delta_value(); }
-        }
+        for (const auto &[key, value] : modified) { if (value->valid()) { delta[nb::cast(key)] = value->py_delta_value(); } }
         const auto &removed_{removed_items()};
         if (!removed_.empty()) {
             auto removed{get_remove()};
@@ -529,16 +517,12 @@ namespace hgraph
         } else if (active()) {
             // When active but not sampled or peered, only return cached modified items
             // during the current evaluation cycle
-            if (last_modified_time() == owning_graph()->evaluation_clock()->evaluation_time()) {
-                return _modified_items;
-            } else {
-                return empty_;  // Return empty set if not in current cycle
+            if (last_modified_time() == owning_graph()->evaluation_clock()->evaluation_time()) { return _modified_items; } else {
+                return empty_; // Return empty set if not in current cycle
             }
         } else {
             // When not active, return all modified items
-            for (const auto &[key, value] : _ts_values) {
-                if (value->modified()) { _modified_items_cache.emplace(key, value); }
-            }
+            for (const auto &[key, value] : _ts_values) { if (value->modified()) { _modified_items_cache.emplace(key, value); } }
         }
         return _modified_items_cache;
     }
@@ -554,9 +538,7 @@ namespace hgraph
     const typename TimeSeriesDictInput_T<T_Key>::map_type &TimeSeriesDictInput_T<T_Key>::valid_items() const {
         // Rebuild cache each call to ensure freshness; returns a reference to a member to ensure iterator lifetime safety.
         _valid_items_cache.clear();
-        for (const auto &item : _ts_values) {
-            if (item.second->valid()) { _valid_items_cache.insert(item); }
-        }
+        for (const auto &item : _ts_values) { if (item.second->valid()) { _valid_items_cache.insert(item); } }
         return _valid_items_cache;
     }
 
@@ -574,9 +556,7 @@ namespace hgraph
             // Check if key exists in _ts_values before accessing
             // During cleanup, keys might be in added set but not in _ts_values
             auto it = _ts_values.find(k);
-            if (it != _ts_values.end()) {
-                _added_items_cache.emplace(k, it->second);
-            } else {
+            if (it != _ts_values.end()) { _added_items_cache.emplace(k, it->second); } else {
                 // TODO: print out error message as this should never happen
             }
         }
@@ -622,7 +602,7 @@ namespace hgraph
         if (it == _ts_values.end()) { return; }
 
         auto value{it->second};
-        _ts_values.erase(it);  // Remove from _ts_values first
+        _ts_values.erase(it); // Remove from _ts_values first
         _remove_key_value(key, value);
 
         register_clear_key_changes();
@@ -639,7 +619,7 @@ namespace hgraph
             // This is a transplanted input - put it back and unbind it
             _ts_values.insert({key, value});
             _add_key_value(key, value);
-            value->un_bind_output(true);  // unbind_refs=True
+            value->un_bind_output(true); // unbind_refs=True
         }
     }
 
@@ -651,19 +631,19 @@ namespace hgraph
         auto *value_output{dynamic_cast<TimeSeriesDictOutput_T<T_Key> *>(value.get())};
 
         // Peer when types match AND neither has references (matching Python logic)
-        bool  peer = (is_same_type(value_output) || !(value_output->has_reference() || this->has_reference()));
+        bool peer = (is_same_type(value_output) || !(value_output->has_reference() || this->has_reference()));
         // Use aliased shared_ptr to the embedded key_set (can't call shared_from_this on value members)
         key_set_t().bind_output(value_output->key_set_ptr());
 
         if (owning_node()->is_started() && has_output()) {
             output_t().remove_key_observer(this);
-            _prev_output = std::dynamic_pointer_cast<TimeSeriesDictOutput_T<T_Key>>(output_t().shared_from_this());
+            _prev_output = std::dynamic_pointer_cast<TimeSeriesDictOutput_T<T_Key> >(output_t().shared_from_this());
             // TODO: check this will not enter again
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { this->reset_prev(); });
         }
 
         auto active_{active()};
-        make_passive();  // Ensure we are unsubscribed from the old output while has_peer has the old value
+        make_passive(); // Ensure we are unsubscribed from the old output while has_peer has the old value
         set_output(value->shared_from_this());
         _has_peer = peer;
 
@@ -702,41 +682,25 @@ namespace hgraph
                     value->un_bind_output(unbind_refs);
                     _ts_values.insert({key, value});
                     _add_key_value(key, value);
-                } else {
-                    to_keep.insert({key, {value, was_valid}});
-                }
+                } else { to_keep.insert({key, {value, was_valid}}); }
             }
             std::swap(_removed_items, to_keep);
         }
         // If we are un-binding then the output must exist by definition.
         output_t().remove_key_observer(this);
-        if (has_peer()) {
-            BaseTimeSeriesInput::do_un_bind_output(unbind_refs);
-        } else {
-            reset_output();
-        }
+        if (has_peer()) { BaseTimeSeriesInput::do_un_bind_output(unbind_refs); } else { reset_output(); }
     }
 
     template <typename T_Key>
     TimeSeriesSetInput_T<typename TimeSeriesDictInput_T<T_Key>::key_type> &TimeSeriesDictInput_T<T_Key>::key_set_t() {
-        _ensure_key_set();
-        return *_key_set;
+        // Eagerly initialized, never null
+        return _key_set;
     }
 
     template <typename T_Key>
     const TimeSeriesSetInput_T<typename TimeSeriesDictInput_T<T_Key>::key_type> &TimeSeriesDictInput_T<T_Key>::key_set_t() const {
-        _ensure_key_set();
-        return *_key_set;
-    }
-
-    template <typename T_Key>
-    void TimeSeriesDictInput_T<T_Key>::_ensure_key_set() const {
-        if (!_key_set) {
-            // Lazy initialization - now shared_from_this() is safe because the shared_ptr has been created
-            const_cast<TimeSeriesDictInput_T*>(this)->_key_set = 
-                std::make_shared<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(
-                    const_cast<TimeSeriesDictInput_T*>(this)->shared_from_this());
-        }
+        // Eagerly initialized, never null
+        return _key_set;
     }
 
     template <typename T_Key>
@@ -803,23 +767,21 @@ namespace hgraph
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::register_clear_key_changes() {
         if (!_clear_key_changes_registered) {
             _clear_key_changes_registered = true;
-            
+
             // Try to use weak_ptr for safe cleanup, but fall back to raw pointer
             // if shared_from_this() fails (e.g., for embedded value members)
             try {
-                std::weak_ptr<TimeSeriesDictInput_T> weak_self = 
+                std::weak_ptr<TimeSeriesDictInput_T> weak_self =
                     std::dynamic_pointer_cast<TimeSeriesDictInput_T>(this->shared_from_this());
-                owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() { 
-                    if (auto self = weak_self.lock()) {
-                        self->clear_key_changes(); 
-                    }
+                owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                    if (auto self = weak_self.lock()) { self->clear_key_changes(); }
                 });
             } catch (...) {
                 // shared_from_this() failed - use raw pointer with caution
                 // This mirrors the original behavior
-                auto* self_ptr = this;
-                owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self_ptr]() { 
-                    self_ptr->clear_key_changes(); 
+                auto *self_ptr = this;
+                owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self_ptr]() {
+                    self_ptr->clear_key_changes();
                 });
             }
         }
@@ -834,7 +796,7 @@ namespace hgraph
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::_key_updated(const key_type &key) {
         auto it{_ts_values.find(key)};
         if (it != _ts_values.end()) {
-            _modified_items[key] = it->second;  // Use operator[] instead of insert to ensure update
+            _modified_items[key] = it->second; // Use operator[] instead of insert to ensure update
         } else {
             // If we cannot find the child there is a bug, let's rather catch this condition
             throw nb::key_error("Key not found in TSD");
@@ -842,7 +804,7 @@ namespace hgraph
     }
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::_remove_key_value(const key_type &key, const value_type &value) {
-        _ts_values_to_keys.erase(const_cast<TimeSeriesInput *>(value.get()));  // Remove from reverse map
+        _ts_values_to_keys.erase(const_cast<TimeSeriesInput *>(value.get())); // Remove from reverse map
     }
 
     template <typename T_Key>
@@ -876,9 +838,7 @@ namespace hgraph
     }
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::make_passive() {
-        if (has_peer()) {
-            TimeSeriesDictInput::make_passive();
-        } else {
+        if (has_peer()) { TimeSeriesDictInput::make_passive(); } else {
             set_active(false);
             key_set().make_passive();
             for (auto &[_, value] : _ts_values) { value->make_passive(); }
@@ -898,9 +858,10 @@ namespace hgraph
     template <typename T_Key> engine_time_t TimeSeriesDictInput_T<T_Key>::last_modified_time() const {
         if (has_peer()) { return TimeSeriesDictInput::last_modified_time(); }
         if (active()) { return std::max(std::max(_last_modified_time, key_set_t().last_modified_time()), sample_time()); }
-        auto max_e{std::max_element(_ts_values.begin(), _ts_values.end(), [](const auto &pair1, const auto &pair2) {
-            return pair1.second->last_modified_time() < pair2.second->last_modified_time();
-        })};
+        auto max_e{
+            std::max_element(_ts_values.begin(), _ts_values.end(), [](const auto &pair1, const auto &pair2) {
+                return pair1.second->last_modified_time() < pair2.second->last_modified_time();
+            })};
         return std::max(key_set_t().last_modified_time(), max_e == end() ? MIN_DT : max_e->second->last_modified_time());
     }
 
@@ -916,7 +877,7 @@ namespace hgraph
             try {
                 auto key{key_from_value(child)};
                 _key_updated(key);
-            } catch (const std::runtime_error&) {
+            } catch (const std::runtime_error &) {
                 // Child was removed from _ts_values_to_keys - ignore notification
                 // This can happen if a child notifies after being removed
                 return;
@@ -936,7 +897,7 @@ namespace hgraph
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::create(const key_type &key) {
-        key_set_t().add(key);  // This handles adding to the _added set in TSS
+        key_set_t().add(key); // This handles adding to the _added set in TSS
         auto item{_ts_builder->make_instance(shared_from_this(), nullptr, nullptr)};
         _ts_values.insert({key, item});
         _add_key_value(key, item);
@@ -1009,4 +970,4 @@ namespace hgraph
 
     // template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::post_modify() { _post_modify(); }
 
-}  // namespace hgraph
+} // namespace hgraph

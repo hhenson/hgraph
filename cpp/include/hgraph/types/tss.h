@@ -74,10 +74,6 @@ namespace hgraph {
         >;
         using T_TS::T_TS;
 
-    protected:
-        // Default constructor for embedded value members
-        TimeSeriesSet() = default;
-        
     public:
         [[nodiscard]] virtual size_t size() const = 0;
 

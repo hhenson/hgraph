@@ -260,10 +260,12 @@ namespace hgraph {
     }
 
     node_ptr BaseTimeSeriesInput::_owning_node() const {
-        if (auto node_parent = parent_as<Node>()) {
+        auto node_parent = parent_as<Node>();
+        if (node_parent) {
             return node_parent->shared_from_this();
         }
-        if (auto ts_parent = parent_as<TimeSeriesType>()) {
+        auto ts_parent = parent_as<TimeSeriesType>();
+        if (ts_parent) {
             return ts_parent->owning_node();
         }
         throw std::runtime_error("No node is accessible");
