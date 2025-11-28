@@ -804,19 +804,24 @@ namespace hgraph
         if (!_clear_key_changes_registered) {
             _clear_key_changes_registered = true;
             
-            // For nested inputs (those with a parent time series), don't register
-            // after-evaluation callbacks because the nested input may be destroyed
-            // before the callback runs (e.g., when a parent TSD removes a key).
-            // The cleanup will happen when release_instance is called.
-            if (has_parent_input()) {
-                // For nested inputs, do synchronous cleanup instead
-                return;
+            // Try to use weak_ptr for safe cleanup, but fall back to raw pointer
+            // if shared_from_this() fails (e.g., for embedded value members)
+            try {
+                std::weak_ptr<TimeSeriesDictInput_T> weak_self = 
+                    std::dynamic_pointer_cast<TimeSeriesDictInput_T>(this->shared_from_this());
+                owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() { 
+                    if (auto self = weak_self.lock()) {
+                        self->clear_key_changes(); 
+                    }
+                });
+            } catch (...) {
+                // shared_from_this() failed - use raw pointer with caution
+                // This mirrors the original behavior
+                auto* self_ptr = this;
+                owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self_ptr]() { 
+                    self_ptr->clear_key_changes(); 
+                });
             }
-            
-            auto* self_ptr = this;
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self_ptr]() { 
-                self_ptr->clear_key_changes(); 
-            });
         }
     }
 
