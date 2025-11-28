@@ -153,6 +153,10 @@ namespace hgraph {
 
     void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node, void* buffer, size_t* offset) const {
         if (input_builder.has_value()) {
+            // Align offset before constructing, matching memory_size() calculation
+            if (offset != nullptr) {
+                *offset = align_size(*offset, alignof(TimeSeriesType));
+            }
             auto ts_input = (*input_builder)->make_instance(node, buffer, offset);
             // Cast to TimeSeriesBundleInput - input() returns time_series_bundle_input_ptr
             auto bundle_input = std::dynamic_pointer_cast<TimeSeriesBundleInput>(ts_input);
@@ -163,16 +167,28 @@ namespace hgraph {
         }
 
         if (output_builder.has_value()) {
+            // Align offset before constructing, matching memory_size() calculation
+            if (offset != nullptr) {
+                *offset = align_size(*offset, alignof(TimeSeriesType));
+            }
             auto ts_output = (*output_builder)->make_instance(node, buffer, offset);
             node->set_output(ts_output);
         }
 
         if (error_builder.has_value()) {
+            // Align offset before constructing, matching memory_size() calculation
+            if (offset != nullptr) {
+                *offset = align_size(*offset, alignof(TimeSeriesType));
+            }
             auto ts_error_output = (*error_builder)->make_instance(node, buffer, offset);
             node->set_error_output(ts_error_output);
         }
 
         if (recordable_state_builder.has_value()) {
+            // Align offset before constructing, matching memory_size() calculation
+            if (offset != nullptr) {
+                *offset = align_size(*offset, alignof(TimeSeriesType));
+            }
             auto ts_recordable_state = (*recordable_state_builder)->make_instance(node, buffer, offset);
             // Cast to TimeSeriesBundleOutput - recordable_state() returns time_series_bundle_output_ptr
             auto bundle_output = std::dynamic_pointer_cast<TimeSeriesBundleOutput>(ts_recordable_state);
