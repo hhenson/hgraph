@@ -742,13 +742,13 @@ namespace hgraph
 
     void TimeSeriesSetInput::do_un_bind_output(bool unbind_refs) {
         if (has_output()) {
-            // Only get shared_ptr if the output can safely call shared_from_this
-            // (may fail for embedded value members during cleanup)
+            // Get shared_ptr to output - shared_from_this() handles both direct ownership
+            // and embedded value members (via aliased shared_ptr from parent)
             auto& output = set_output();
-            if (output.can_shared_from_this()) {
+            try {
                 _prev_output = std::dynamic_pointer_cast<TimeSeriesSetOutput>(output.shared_from_this());
-            } else {
-                _prev_output.reset();  // Can't safely capture output
+            } catch (...) {
+                _prev_output.reset();  // Fallback if shared_ptr creation fails
             }
             _add_reset_prev();
         }
