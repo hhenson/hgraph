@@ -72,7 +72,7 @@ namespace hgraph {
     }
 
     bool BaseTimeSeriesOutput::has_owning_node() const {
-        if (auto node_parent = parent_as<Node>()) {
+        if (parent_as<Node>()) {
             return true;
         }
         if (auto ts_parent = parent_as<TimeSeriesType>()) {
@@ -250,7 +250,7 @@ namespace hgraph {
     }
 
     bool BaseTimeSeriesInput::has_owning_node() const {
-        if (auto node_parent = parent_as<Node>()) {
+        if (parent_as<Node>()) {
             return true;
         }
         if (auto ts_parent = parent_as<TimeSeriesType>()) {
