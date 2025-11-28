@@ -409,9 +409,10 @@ namespace hgraph {
                 // Cast to BaseTimeSeriesInput to access protected notify_parent
                 auto parent = static_cast<BaseTimeSeriesInput*>(parent_input().get());
                 parent->notify_parent(this, modified_time);
-            } else {
+            } else if (has_owning_node()) {
                 owning_node()->notify(modified_time);
             }
+            // else: no parent and no owning_node - skip notification (during teardown)
         }
     }
 
