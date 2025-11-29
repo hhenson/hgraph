@@ -41,10 +41,10 @@ namespace hgraph {
                             auto result_{self->make_instance(output_shared, nullptr, nullptr)};
                             return wrap_time_series(result_);
                         }
-                        // Create an output with a null node_ptr
-                        node_ptr node_shared = nullptr;
-                        auto result_{self->make_instance(node_shared, nullptr, nullptr)};
-                        return wrap_time_series(result_);
+                        // A standalone output is now pretty much not possible, another strategy must be followed to
+                        // implement the recording.
+                        // Allow both to be None to match Python behavior
+                        throw std::runtime_error("At least one of owning_node or owning_output must be provided");
                     },
                     "owning_node"_a = nb::none(), "owning_output"_a = nb::none())
                 .def("release_instance", &OutputBuilder::release_instance)
