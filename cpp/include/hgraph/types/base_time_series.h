@@ -35,10 +35,10 @@ namespace hgraph {
         explicit BaseTimeSeriesOutput(const TimeSeriesType::ptr &parent) : _parent_ts_or_node{parent} {}
 
         // Implement TimeSeriesType pure virtuals
-        [[nodiscard]] node_ptr owning_node() override;
-        [[nodiscard]] node_ptr owning_node() const override;
-        [[nodiscard]] graph_ptr owning_graph() override;
-        [[nodiscard]] graph_ptr owning_graph() const override;
+        [[nodiscard]] Node* owning_node() override;
+        [[nodiscard]] Node* owning_node() const override;
+        [[nodiscard]] Graph* owning_graph() override;
+        [[nodiscard]] Graph* owning_graph() const override;
         [[nodiscard]] bool is_reference() const override;
         [[nodiscard]] bool has_reference() const override;
         void reset_parent_or_node() override;
@@ -85,11 +85,11 @@ namespace hgraph {
 
     protected:
         // State and helpers moved from TimeSeriesType
-        TimeSeriesType::ptr &_parent_time_series() const;
-        TimeSeriesType::ptr &_parent_time_series();
+        TimeSeriesType* _parent_time_series() const;
+        TimeSeriesType* _parent_time_series();
         bool _has_parent_time_series() const;
         void _set_parent_time_series(TimeSeriesType *ts);
-        node_ptr _owning_node() const;
+        Node* _owning_node() const;
 
         void _notify(engine_time_t modified_time);
         void _reset_last_modified_time();
@@ -116,10 +116,10 @@ namespace hgraph {
         explicit BaseTimeSeriesInput(const TimeSeriesType::ptr &parent) : _parent_ts_or_node{parent} {}
 
         // Implement TimeSeriesType pure virtuals
-        [[nodiscard]] node_ptr owning_node() override;
-        [[nodiscard]] node_ptr owning_node() const override;
-        [[nodiscard]] graph_ptr owning_graph() override;
-        [[nodiscard]] graph_ptr owning_graph() const override;
+        [[nodiscard]] Node* owning_node() override;
+        [[nodiscard]] Node* owning_node() const override;
+        [[nodiscard]] Graph* owning_graph() override;
+        [[nodiscard]] Graph* owning_graph() const override;
         [[nodiscard]] bool is_reference() const override;
         [[nodiscard]] bool has_reference() const override;
         void reset_parent_or_node() override;
@@ -129,11 +129,11 @@ namespace hgraph {
         void re_parent(const TimeSeriesType::ptr &parent) override;
 
         // Inherited interface implementations
-        [[nodiscard]] TimeSeriesInput::ptr parent_input() const override;
+        [[nodiscard]] TimeSeriesInput* parent_input() const override;
         [[nodiscard]] bool has_parent_input() const override;
         [[nodiscard]] bool bound() const override;
         [[nodiscard]] bool has_peer() const override;
-        [[nodiscard]] time_series_output_ptr output() const override;
+        [[nodiscard]] TimeSeriesOutput* output() const override;
 
         bool bind_output(const time_series_output_ptr& output_) override;
         void un_bind_output(bool unbind_refs) override;
@@ -173,11 +173,11 @@ namespace hgraph {
 
     protected:
         // State and helpers moved from TimeSeriesType
-        TimeSeriesType::ptr &_parent_time_series() const;
-        TimeSeriesType::ptr &_parent_time_series();
+        TimeSeriesType* _parent_time_series() const;
+        TimeSeriesType* _parent_time_series();
         bool _has_parent_time_series() const;
         void _set_parent_time_series(TimeSeriesType *ts);
-        node_ptr _owning_node() const;
+        Node* _owning_node() const;
 
         // Protected virtual methods for derived classes to override
         virtual bool do_bind_output(const time_series_output_ptr& output_);

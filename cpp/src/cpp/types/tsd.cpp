@@ -14,7 +14,45 @@
 
 namespace hgraph
 {
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::apply_result(const nb::object& value) {
+    // Helper template functions to convert maps/collections to Python tuples
+
+    template<typename Map>
+    nb::object keys_to_tuple(const Map& map) {
+        nb::list result;
+        for (const auto& [key, _] : map) {
+            result.append(nb::cast(key));
+        }
+        return nb::tuple(result);
+    }
+
+    template<typename Map>
+    nb::object values_to_tuple(const Map& map) {
+        nb::list result;
+        for (const auto& [_, value] : map) {
+            result.append(nb::cast(value.get()));
+        }
+        return nb::tuple(result);
+    }
+
+    template<typename Map>
+    nb::object items_to_tuple(const Map& map) {
+        nb::list result;
+        for (const auto& [key, value] : map) {
+            result.append(nb::make_tuple(nb::cast(key), nb::cast(value.get())));
+        }
+        return nb::tuple(result);
+    }
+
+    template<typename Set>
+    nb::object set_to_tuple(const Set& set) {
+        nb::list result;
+        for (const auto& item : set) {
+            result.append(nb::cast(item));
+        }
+        return nb::tuple(result);
+    }
+
+    template<typename T_Key> void TimeSeriesDictOutput_T<T_Key>::apply_result(const nb::object& value) {
         // Ensure any Python API interaction occurs under the GIL and protect against exceptions
         if (value.is_none()) { return; }
         py_set_value(value);
@@ -65,7 +103,10 @@ namespace hgraph
         _create(nb::cast<T_Key>(item));
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_iter() { return py_keys(); }
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_iter() {
+        // Return an iterator over the tuple of keys
+        return nb::iter(py_keys());
+    }
 
     template <typename T_Key>
     void TimeSeriesDictOutput_T<T_Key>::mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) {
@@ -357,18 +398,17 @@ namespace hgraph
         return _ts_values.end();
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_keys() const {
-        // Return keys from _ts_values map, not from key_set (which only contains current tick's modifications)
-        // This matches Python behavior: __iter__ returns iter(self._ts_values)
-        return nb::make_key_iterator(nb::type<map_type>(), "KeyIterator", begin(), end());
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_keys() const {
+        // Return tuple of keys from _ts_values map
+        return keys_to_tuple(_ts_values);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_values() const {
-        return nb::make_value_iterator(nb::type<map_type>(), "ValueIterator", begin(), end());
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_values() const {
+        return values_to_tuple(_ts_values);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_items() const {
-        return nb::make_iterator(nb::type<map_type>(), "ItemIterator", begin(), end());
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_items() const {
+        return items_to_tuple(_ts_values);
     }
 
     template <typename T_Key>
@@ -376,19 +416,19 @@ namespace hgraph
         return modified() ? _modified_items : _empty;
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_modified_keys() const {
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_modified_keys() const {
         const auto &_modified{modified_items()};
-        return nb::make_key_iterator(nb::type<map_type>(), "ModifiedKeyIterator", _modified.begin(), _modified.end());
+        return keys_to_tuple(_modified);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_modified_values() const {
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_modified_values() const {
         const auto &_modified{modified_items()};
-        return nb::make_value_iterator(nb::type<map_type>(), "ModifiedValueIterator", _modified.begin(), _modified.end());
+        return values_to_tuple(_modified);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_modified_items() const {
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_modified_items() const {
         const auto &_modified{modified_items()};
-        return nb::make_iterator(nb::type<map_type>(), "ModifiedItemIterator", _modified.begin(), _modified.end());
+        return items_to_tuple(_modified);
     }
 
     template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::py_was_modified(const nb::object &key) const {
@@ -403,19 +443,31 @@ namespace hgraph
         return _ts_values | std::views::filter([](const auto &item) { return item.second->valid(); });
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_valid_keys() const {
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_valid_keys() const {
         auto valid_items_ = valid_items();
-        return nb::make_key_iterator(nb::type<map_type>(), "ValidKeyIterator", valid_items_.begin(), valid_items_.end());
+        nb::list result;
+        for (const auto& [key, _] : valid_items_) {
+            result.append(nb::cast(key));
+        }
+        return nb::tuple(result);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_valid_values() const {
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_valid_values() const {
         auto valid_items_ = valid_items();
-        return nb::make_value_iterator(nb::type<map_type>(), "ValidValueIterator", valid_items_.begin(), valid_items_.end());
+        nb::list result;
+        for (const auto& [_, value] : valid_items_) {
+            result.append(nb::cast(value.get()));
+        }
+        return nb::tuple(result);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_valid_items() const {
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_valid_items() const {
         auto valid_items_ = valid_items();
-        return nb::make_iterator(nb::type<map_type>(), "ValidItemIterator", valid_items_.begin(), valid_items_.end());
+        nb::list result;
+        for (const auto& [key, value] : valid_items_) {
+            result.append(nb::make_tuple(nb::cast(key), nb::cast(value.get())));
+        }
+        return nb::tuple(result);
     }
 
     template <typename T_Key>
@@ -424,21 +476,25 @@ namespace hgraph
         return key_set_t().added();
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_added_keys() const {
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_added_keys() const {
         auto const &_keys{added_keys()};
-        return nb::make_iterator(nb::type<k_set_type>(), "AddedKeyIterator", _keys.begin(), _keys.end());
+        return set_to_tuple(_keys);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_added_values() const {
-        nb::list l{};
-        for (const auto &k : added_keys()) { l.append(nb::cast(operator[](k).get())); }
-        return nb::iter(l);
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_added_values() const {
+        nb::list result;
+        for (const auto &k : added_keys()) {
+            result.append(nb::cast(operator[](k).get()));
+        }
+        return nb::tuple(result);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_added_items() const {
-        nb::dict d{};
-        for (const auto &k : added_keys()) { d[nb::cast(k)] = (nb::cast(operator[](k).get())); }
-        return nb::iter(d);
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_added_items() const {
+        nb::list result;
+        for (const auto &k : added_keys()) {
+            result.append(nb::make_tuple(nb::cast(k), nb::cast(operator[](k).get())));
+        }
+        return nb::tuple(result);
     }
 
     template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::py_was_added(const nb::object &key) const {
@@ -455,19 +511,19 @@ namespace hgraph
         return _removed_items;
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_removed_keys() const {
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_removed_keys() const {
         const auto &_removed{removed_items()};
-        return nb::make_key_iterator(nb::type<map_type>(), "RemovedKeyIterator", _removed.begin(), _removed.end());
+        return keys_to_tuple(_removed);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_removed_values() const {
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_removed_values() const {
         const auto &_removed{removed_items()};
-        return nb::make_value_iterator(nb::type<map_type>(), "RemovedValueIterator", _removed.begin(), _removed.end());
+        return values_to_tuple(_removed);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictOutput_T<T_Key>::py_removed_items() const {
+    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_removed_items() const {
         const auto &_removed{removed_items()};
-        return nb::make_iterator(nb::type<map_type>(), "RemovedItemIterator", _removed.begin(), _removed.end());
+        return items_to_tuple(_removed);
     }
 
     template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::py_was_removed(const nb::object &key) const {
@@ -665,7 +721,10 @@ namespace hgraph
         return _create(nb::cast<T_Key>(item));
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_iter() { return py_keys(); }
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_iter() {
+        // Return an iterator over the tuple of keys
+        return nb::iter(py_keys());
+    }
 
     template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_get_item(const nb::object &item) const {
         if (get_key_set_id().is(item)) { return nb::cast(const_cast<TimeSeriesDictInput_T *>(this)->key_set_t()); }
@@ -682,16 +741,16 @@ namespace hgraph
         return get_or_create(item);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_keys() const {
-        return nb::make_key_iterator(nb::type<map_type>(), "KeyIterator", _ts_values.begin(), _ts_values.end());
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_keys() const {
+        return keys_to_tuple(_ts_values);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_values() const {
-        return nb::make_value_iterator(nb::type<map_type>(), "ValueIterator", _ts_values.begin(), _ts_values.end());
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_values() const {
+        return values_to_tuple(_ts_values);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_items() const {
-        return nb::make_iterator(nb::type<map_type>(), "ItemIterator", _ts_values.begin(), _ts_values.end());
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_items() const {
+        return items_to_tuple(_ts_values);
     }
 
     template <typename T_Key>
@@ -723,19 +782,19 @@ namespace hgraph
         return _modified_items_cache;
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_modified_keys() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_modified_keys() const {
         const auto &items = modified_items();  // Ensure modified_items is populated first
-        return nb::make_key_iterator(nb::type<map_type>(), "ModifiedKeyIterator", items.begin(), items.end());
+        return keys_to_tuple(items);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_modified_values() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_modified_values() const {
         const auto &items = modified_items();
-        return nb::make_value_iterator(nb::type<map_type>(), "ModifiedValueIterator", items.begin(), items.end());
+        return values_to_tuple(items);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_modified_items() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_modified_items() const {
         const auto &items = modified_items();
-        return nb::make_iterator(nb::type<map_type>(), "ModifiedItemIterator", items.begin(), items.end());
+        return items_to_tuple(items);
     }
 
     template <typename T_Key> TimeSeriesSetInput &TimeSeriesDictInput_T<T_Key>::key_set() {
@@ -761,19 +820,19 @@ namespace hgraph
         return _valid_items_cache;
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_valid_keys() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_valid_keys() const {
         const auto &items{valid_items()};
-        return nb::make_key_iterator(nb::type<map_type>(), "ValidKeyIterator", items.begin(), items.end());
+        return keys_to_tuple(items);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_valid_values() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_valid_values() const {
         const auto &items{valid_items()};
-        return nb::make_value_iterator(nb::type<map_type>(), "ValidValueIterator", items.begin(), items.end());
+        return values_to_tuple(items);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_valid_items() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_valid_items() const {
         const auto &items{valid_items()};
-        return nb::make_iterator(nb::type<map_type>(), "ValidItemIterator", items.begin(), items.end());
+        return items_to_tuple(items);
     }
 
     template <typename T_Key>
@@ -794,19 +853,19 @@ namespace hgraph
         return _added_items_cache;
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_added_keys() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_added_keys() const {
         const auto &items = added_items();  // Ensure cache is populated
-        return nb::make_key_iterator(nb::type<map_type>(), "AddedKeyIterator", items.begin(), items.end());
+        return keys_to_tuple(items);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_added_values() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_added_values() const {
         const auto &items = added_items();  // Ensure cache is populated
-        return nb::make_value_iterator(nb::type<map_type>(), "AddedValueIterator", items.begin(), items.end());
+        return values_to_tuple(items);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_added_items() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_added_items() const {
         const auto &items = added_items();  // Ensure cache is populated
-        return nb::make_iterator(nb::type<map_type>(), "AddedItemIterator", items.begin(), items.end());
+        return items_to_tuple(items);
     }
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_added() const { return !key_set_t().added().empty(); }
@@ -836,19 +895,19 @@ namespace hgraph
         return _removed_item_cache;
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_removed_keys() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_removed_keys() const {
         auto const &removed_{removed_items()};
-        return nb::make_key_iterator(nb::type<map_type>(), "RemovedKeyIterator", removed_.begin(), removed_.end());
+        return keys_to_tuple(removed_);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_removed_values() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_removed_values() const {
         auto const &removed_{removed_items()};
-        return nb::make_value_iterator(nb::type<map_type>(), "RemovedValueIterator", removed_.begin(), removed_.end());
+        return values_to_tuple(removed_);
     }
 
-    template <typename T_Key> nb::iterator TimeSeriesDictInput_T<T_Key>::py_removed_items() const {
+    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_removed_items() const {
         auto const &removed_{removed_items()};
-        return nb::make_iterator(nb::type<map_type>(), "RemovedItemIterator", removed_.begin(), removed_.end());
+        return items_to_tuple(removed_);
     }
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_removed() const { return !_removed_items.empty(); }
@@ -874,7 +933,7 @@ namespace hgraph
         register_clear_key_changes();
         auto was_valid = value->valid();
 
-        if (value->parent_input().get() == this) {
+        if (value->parent_input() == this) {
             // This is our own input - deactivate and track for cleanup
             if (value->active()) { value->make_passive(); }
             _removed_items.insert({key, {value, was_valid}});
@@ -950,7 +1009,7 @@ namespace hgraph
             removed_map_type to_keep{};
             for (auto &[key, v] : _removed_items) {
                 auto &[value, was_valid] = v;
-                if (value->parent_input().get() != this) {
+                if (value->parent_input() != this) {
                     // Check for transplanted items, these do not get removed, but can be un-bound
                     value->un_bind_output(unbind_refs);
                     _ts_values.insert({key, value});
@@ -1090,7 +1149,7 @@ namespace hgraph
             // This is an approximate solution but at this point the information about active state is lost
             for (auto &[_, value] : _ts_values) {
                 // Check if this input was transplanted from another parent
-                if (value->parent_input().get() != this) { value->make_active(); }
+                if (value->parent_input() != this) { value->make_active(); }
             }
         } else {
             set_active(true);

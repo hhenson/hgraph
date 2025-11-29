@@ -125,7 +125,7 @@ namespace hgraph {
 
         // Propagate output if changed
         auto l = dynamic_cast<TimeSeriesReferenceOutput *>(last_output().get());
-        auto o = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
+        auto o = dynamic_cast<TimeSeriesReferenceOutput *>(output());
 
         // Since l is the last output and o is the main output, they are different TimeSeriesReferenceOutput objects
         // We need to compare their values (both are TimeSeriesReference values)
@@ -212,8 +212,8 @@ namespace hgraph {
 
         // Re-parent the inputs to their new parent bundles (CRITICAL FIX - Python lines 159-160)
         // Cast to TimeSeriesType::ptr for re_parent
-        dst_input->re_parent(src_node->input().get());
-        src_input->re_parent(dst_node->input().get());
+        dst_input->re_parent(src_node->input());
+        src_input->re_parent(dst_node->input());
 
         src_node->notify();
         dst_node->notify();
@@ -350,7 +350,7 @@ namespace hgraph {
         node->reset_input(node->input()->copy_with(node.get(), {ts_.get()}));
 
         // Re-parent the ts to the node's input (CRITICAL FIX - Python line 200)
-        ts_->re_parent(node->input().get());
+        ts_->re_parent(node->input());
 
         // Make the time series active (CRITICAL FIX - Python line 201)
         ts_->make_active();
@@ -383,7 +383,7 @@ namespace hgraph {
 
             auto new_ref_input = new TimeSeriesReferenceInput(node.get());
             node->reset_input(node->input()->copy_with(node.get(), {new_ref_input}));
-            new_ref_input->re_parent(node->input().get());
+            new_ref_input->re_parent(node->input());
             new_ref_input->clone_binding(zero());
         } else {
             // This input is not bound to a key (it's an unbound reference we created),

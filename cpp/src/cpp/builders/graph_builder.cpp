@@ -36,7 +36,7 @@ namespace hgraph {
     time_series_input_ptr _extract_input(node_ptr node, const std::vector<int64_t> &path) {
         if (path.empty()) { throw std::runtime_error("No path to find an input for"); }
 
-        auto input = dynamic_cast<TimeSeriesInput *>(node->input().get());
+        auto input = dynamic_cast<TimeSeriesInput *>(node->input());
 
         for (const auto &ndx: path) { input = input->get_input(ndx); }
         return input;
@@ -72,7 +72,7 @@ namespace hgraph {
             } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
                 output = dynamic_cast_ref<TimeSeriesOutput>(src_node->recordable_state());
             } else {
-                output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path);
+                output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path).get();
             }
 
             auto input = _extract_input(dst_node, edge.input_path);

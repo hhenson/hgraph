@@ -19,7 +19,7 @@ namespace hgraph {
 
         [[nodiscard]] const std::vector<node_ptr> &nodes() const;
 
-        [[nodiscard]] node_ptr parent_node() const;
+        [[nodiscard]] Node* parent_node() const;
 
         [[nodiscard]] std::optional<std::string> label() const;
 

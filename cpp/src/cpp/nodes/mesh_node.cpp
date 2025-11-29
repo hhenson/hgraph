@@ -76,7 +76,7 @@ namespace hgraph {
 
         // Set up the reference output and register in GlobalState
         if (GlobalState::has_instance()) {
-            auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
+            auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output());
             // Get the "out" and "ref" outputs from the output bundle
             auto &tsd_output = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*tsb_output)["out"]);
             auto &ref_output = dynamic_cast<TimeSeriesReferenceOutput &>(*(*tsb_output)["ref"]);
@@ -202,7 +202,7 @@ namespace hgraph {
     template<typename K>
     TimeSeriesDictOutput_T<K> &MeshNode<K>::tsd_output() {
         // Access output bundle's "out" member - output() returns smart pointer to TimeSeriesBundleOutput
-        auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
+        auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output());
         return dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*output_bundle)["out"]);
     }
 

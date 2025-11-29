@@ -128,11 +128,11 @@ namespace hgraph {
 
         // Helpers to dynamically get the output as the correct type
         [[nodiscard]] TimeSeriesFixedWindowOutput<T> *as_fixed_output() const {
-            return dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(output().get());
+            return dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(output());
         }
 
         [[nodiscard]] TimeSeriesTimeWindowOutput<T> *as_time_output() const {
-            return dynamic_cast<TimeSeriesTimeWindowOutput<T> *>(output().get());
+            return dynamic_cast<TimeSeriesTimeWindowOutput<T> *>(output());
         }
 
         [[nodiscard]] nb::object py_value() const override {

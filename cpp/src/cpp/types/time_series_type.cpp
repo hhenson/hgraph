@@ -7,9 +7,9 @@ namespace hgraph {
     void TimeSeriesType::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesType, nb::intrusive_base>(m, "TimeSeriesType")
                 .def_prop_ro("owning_node",
-                             static_cast<node_ptr (TimeSeriesType::*)() const>(&TimeSeriesType::owning_node))
+                             static_cast<Node* (TimeSeriesType::*)() const>(&TimeSeriesType::owning_node))
                 .def_prop_ro("owning_graph",
-                             static_cast<graph_ptr (TimeSeriesType::*)() const>(&TimeSeriesType::owning_graph))
+                             static_cast<Graph* (TimeSeriesType::*)() const>(&TimeSeriesType::owning_graph))
                 .def_prop_ro("value", &TimeSeriesType::py_value)
                 .def_prop_ro("delta_value", &TimeSeriesType::py_delta_value)
                 .def_prop_ro("modified", &TimeSeriesType::modified)
