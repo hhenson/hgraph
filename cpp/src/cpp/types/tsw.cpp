@@ -91,7 +91,7 @@ namespace hgraph
 
     template <typename T> std::vector<engine_time_t> TimeSeriesFixedWindowOutput<T>::value_times() const {
         // Simplify to work with _length and not _size
-        std::vector<std::chrono::system_clock::time_point> out;
+        std::vector<engine_time_t> out;
         if (_length < _size) {
             out.assign(_times.begin(), _times.begin() + _length);
         } else {

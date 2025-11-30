@@ -4,7 +4,7 @@
 #include <hgraph/hgraph_base.h>
 
 namespace hgraph {
-    enum class HGRAPH_EXPORT EvaluationMode{REAL_TIME = 0, SIMULATION = 1};
+    enum class EvaluationMode { REAL_TIME = 0, SIMULATION = 1 };
 
     struct Graph;
     struct Node;
