@@ -6,13 +6,13 @@ namespace hgraph {
     // Unified window input builder implementations
     // Creates unified input that dynamically works with both fixed-size and timedelta outputs
     template<typename T>
-    time_series_input_ptr TimeSeriesWindowInputBuilder_T<T>::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+    time_series_input_ptr TimeSeriesWindowInputBuilder_T<T>::make_instance(node_ptr owning_node, std::shared_ptr<void> buffer, size_t* offset) const {
         return make_instance_impl<TimeSeriesWindowInput<T>, TimeSeriesInput>(
             buffer, offset, "TimeSeriesWindowInput", owning_node);
     }
 
     template<typename T>
-    time_series_input_ptr TimeSeriesWindowInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input, void* buffer, size_t* offset) const {
+    time_series_input_ptr TimeSeriesWindowInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input, std::shared_ptr<void> buffer, size_t* offset) const {
         // Convert owning_input to TimeSeriesType shared_ptr
         auto owning_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_input);
         if (!owning_ts) {

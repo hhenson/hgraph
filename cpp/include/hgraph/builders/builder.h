@@ -127,10 +127,10 @@ namespace hgraph {
      * @return shared_ptr to BaseType
      */
     template<typename ConcreteType, typename BaseType, typename... Args>
-    std::shared_ptr<BaseType> make_instance_impl(void* buffer, size_t* offset, const char* type_name, Args&&... args) {
+    std::shared_ptr<BaseType> make_instance_impl(const std::shared_ptr<void> &buffer, size_t* offset, const char* type_name, Args&&... args) {
         if (buffer != nullptr && offset != nullptr) {
             // Arena allocation: construct in-place
-            char* buf = static_cast<char*>(buffer);
+            char* buf = static_cast<char*>(buffer.get());
             size_t obj_size = sizeof(ConcreteType);
             size_t aligned_obj_size = align_size(obj_size, alignof(size_t));
             // Set canary BEFORE construction
@@ -147,13 +147,14 @@ namespace hgraph {
             // Create shared_ptr with no-op deleter (arena manages lifetime)
             // This will initialize enable_shared_from_this's weak_ptr if the type inherits from it
             return std::static_pointer_cast<BaseType>(
-                std::shared_ptr<ConcreteType>(obj_ptr_raw, [](ConcreteType*){ /* no-op, arena manages lifetime */ }));
+                std::shared_ptr<ConcreteType>(buffer, obj_ptr_raw));
         } else {
             // Heap allocation - use make_shared for proper memory management
             // This automatically initializes enable_shared_from_this
             return std::static_pointer_cast<BaseType>(std::make_shared<ConcreteType>(std::forward<Args>(args)...));
         }
     }
+
     /**
      * The Builder class is responsible for constructing and initializing
      * the item type it is responsible for. It is also responsible for

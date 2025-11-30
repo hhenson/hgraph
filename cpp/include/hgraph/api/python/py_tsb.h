@@ -16,6 +16,7 @@ namespace hgraph
     struct PyTimeSeriesBundle : T_TS
     {
         using underlying_type = T_U;
+        using underlying_type_ptr = std::shared_ptr<T_U>;
 
         explicit PyTimeSeriesBundle(underlying_type *impl, const control_block_ptr &cb);
         explicit PyTimeSeriesBundle(underlying_type *impl);
@@ -75,7 +76,7 @@ namespace hgraph
         [[nodiscard]] nb::str py_repr();
 
       private:
-        std::shared_ptr<underlying_type> impl() const;
+        underlying_type_ptr impl() const;
     };
 
     using PyTimeSeriesBundleOutput = PyTimeSeriesBundle<PyTimeSeriesOutput, TimeSeriesBundleOutput>;

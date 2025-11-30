@@ -77,7 +77,7 @@ namespace hgraph
                             wrapped_value = nb::none();
                         }
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
-                        wrapped_value = g ? wrap_traits(g->traits().get(), cb) : nb::none();
+                        wrapped_value = g ? wrap_traits(&g->traits(), cb) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
                         auto recordable_state = this->recordable_state().get();
                         if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }
@@ -152,7 +152,7 @@ namespace hgraph
 
         // Get the fully qualified recordable ID
         nb::object  fq_recordable_id_fn = get_fq_recordable_id_fn();
-        nb::object  traits_obj       = wrap_traits(graph()->traits());  // nb::cast(&(graph()->traits()));
+        nb::object  traits_obj       = wrap_traits(&graph()->traits(), shared_from_this());  // nb::cast(&(graph()->traits()));
         std::string record_replay_id = signature().record_replay_id.value_or("");
         nb::object  recordable_id    = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
 

@@ -13,9 +13,9 @@ namespace hgraph {
 
         TimeSeriesListOutputBuilder(OutputBuilder::ptr output_builder, size_t size);
 
-        time_series_output_ptr make_instance(node_ptr owning_node, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_output_ptr make_instance(node_ptr owning_node, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_output_ptr make_instance(time_series_output_ptr owning_output, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
         bool has_reference() const override { return output_builder->has_reference(); }
 
@@ -28,7 +28,7 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
 
     private:
-        time_series_output_ptr make_and_set_outputs(std::shared_ptr<TimeSeriesListOutput> output, void* buffer, size_t* offset) const;
+        time_series_output_ptr make_and_set_outputs(std::shared_ptr<TimeSeriesListOutput> output, std::shared_ptr<void> buffer, size_t* offset) const;
 
         OutputBuilder::ptr output_builder;
         size_t size;

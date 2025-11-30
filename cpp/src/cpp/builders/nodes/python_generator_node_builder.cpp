@@ -18,43 +18,13 @@ namespace hgraph {
     }
 
     node_ptr PythonGeneratorNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id,
-                                                       int64_t node_ndx, void* buffer, size_t* offset) const {
-        node_ptr node;
-        if (buffer != nullptr && offset != nullptr) {
-            // Arena allocation: construct in-place
-            char* buf = static_cast<char*>(buffer);
-            // Use signature directly (it's already NodeSignature::ptr)
-            NodeSignature::ptr sig_ref = this->signature;
-            size_t node_size = sizeof(PythonGeneratorNode);
-            size_t aligned_node_size = align_size(node_size, alignof(size_t));
-            // Set canary BEFORE construction
-            if (arena_debug_mode) {
-                size_t* canary_ptr = reinterpret_cast<size_t*>(buf + *offset + aligned_node_size);
-                *canary_ptr = ARENA_CANARY_PATTERN;
-            }
-            // Now construct the object
-            // Use default-constructed callables for start_fn and stop_fn (generator nodes don't use them)
-            nb::callable empty_start;
-            nb::callable empty_stop;
-            Node* node_ptr_raw = new (buf + *offset) PythonGeneratorNode(node_ndx, owning_graph_id, sig_ref, this->scalars, eval_fn, empty_start, empty_stop);
-            // Immediately check canary after construction
-            verify_canary(node_ptr_raw, sizeof(PythonGeneratorNode), "PythonGeneratorNode");
-            *offset += add_canary_size(sizeof(PythonGeneratorNode));
-            // Create shared_ptr with no-op deleter (arena manages lifetime)
-            node = std::shared_ptr<Node>(node_ptr_raw, [](Node*){ /* no-op, arena manages lifetime */ });
-            _build_inputs_and_outputs(node, buffer, offset);
-        } else {
-            // Heap allocation (legacy path) - use make_shared for proper memory management
-            // PythonGeneratorNode uses BasePythonNode constructor which takes eval_fn, start_fn, stop_fn
-            // Use signature directly (it's already NodeSignature::ptr)
-            NodeSignature::ptr sig_ref = this->signature;
-            // Use default-constructed callables for start_fn and stop_fn (generator nodes don't use them)
-            nb::callable empty_start;
-            nb::callable empty_stop;
-            node = std::make_shared<PythonGeneratorNode>(node_ndx, owning_graph_id, sig_ref, this->scalars, eval_fn, empty_start, empty_stop);
-            _build_inputs_and_outputs(node, nullptr, nullptr);
-        }
-        return node;
+                                                       int64_t node_ndx, std::shared_ptr<void> buffer, size_t* offset) const {
+        // Use default-constructed callables for start_fn and stop_fn (generator nodes don't use them)
+        nb::callable empty_start;
+        nb::callable empty_stop;
+        return _make_instance<PythonGeneratorNode>(buffer, offset, "PythonGeneratorNode", owning_graph_id, node_ndx,
+                                                         eval_fn, empty_start, empty_stop);
+
     }
 
     size_t PythonGeneratorNodeBuilder::memory_size() const {

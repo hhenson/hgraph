@@ -8,13 +8,15 @@
 #include <hgraph/hgraph_base.h>
 #include <memory>
 
-namespace hgraph {
-    struct Traits {
+namespace hgraph
+{
+    struct Traits
+    {
         using ptr = std::shared_ptr<Traits>;
 
         Traits() = default;
 
-        explicit Traits(Traits* parent_traits = nullptr);
+        explicit Traits(const Traits *parent_traits = nullptr);
 
         void set_traits(nb::kwargs traits);
 
@@ -28,16 +30,16 @@ namespace hgraph {
          * Copy this Traits object. If parent_traits is provided, it will be used as the parent.
          * Otherwise, the current parent (if any) will be copied.
          */
-        [[nodiscard]] Traits copy(Traits* new_parent_traits = nullptr) const;
-        
+        [[nodiscard]] Traits copy(Traits *new_parent_traits = nullptr) const;
+
         /**
          * Get the traits dictionary (for internal use, e.g., copying traits)
          */
-        [[nodiscard]] const nb::dict& get_traits_dict() const { return _traits; }
+        [[nodiscard]] const nb::dict &get_traits_dict() const { return _traits; }
 
     private:
-        Traits* _parent_traits{nullptr};  // Raw pointer - parent Graph outlives this Graph
-        nb::dict _traits;
+        const Traits *_parent_traits{nullptr}; // Raw pointer - parent Graph outlives this Graph
+        nb::dict      _traits;
     };
 } // namespace hgraph
 

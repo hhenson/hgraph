@@ -12,9 +12,9 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesBundleOutputBuilder : OutputBuilder {
         TimeSeriesBundleOutputBuilder(time_series_schema_ptr schema, std::vector<OutputBuilder::ptr> output_builders);
 
-        time_series_output_ptr make_instance(node_ptr owning_node, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_output_ptr make_instance(node_ptr owning_node, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_output_ptr make_instance(time_series_output_ptr owning_output, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
         bool has_reference() const override;
 
@@ -27,7 +27,7 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
 
     private:
-        time_series_output_ptr make_and_set_outputs(std::shared_ptr<TimeSeriesBundleOutput> output, void* buffer, size_t* offset) const;
+        time_series_output_ptr make_and_set_outputs(std::shared_ptr<TimeSeriesBundleOutput> output, std::shared_ptr<void> buffer, size_t* offset) const;
 
         time_series_schema_ptr schema;
         std::vector<OutputBuilder::ptr> output_builders;

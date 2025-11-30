@@ -22,7 +22,7 @@ namespace hgraph
         impl()->copy_from_output(*output_ts);
     }
 
-    std::shared_ptr<LastValuePullNode> PyLastValuePullNode::impl() {
+    LastValuePullNode::ptr PyLastValuePullNode::impl() {
         return this->static_cast_impl<LastValuePullNode>();
     }
 

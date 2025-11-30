@@ -21,9 +21,9 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesDictOutputBuilder_T : TimeSeriesDictOutputBuilder {
         using TimeSeriesDictOutputBuilder::TimeSeriesDictOutputBuilder;
 
-        time_series_output_ptr make_instance(node_ptr owning_node, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_output_ptr make_instance(node_ptr owning_node, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_output_ptr make_instance(time_series_output_ptr owning_output, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
 

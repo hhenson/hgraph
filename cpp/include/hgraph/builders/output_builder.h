@@ -14,14 +14,14 @@ namespace hgraph {
          * If buffer is provided, uses arena allocation (in-place construction).
          * Otherwise, uses heap allocation (legacy path).
          */
-        virtual time_series_output_ptr make_instance(node_ptr owning_node, void* buffer = nullptr, size_t* offset = nullptr) const = 0;
+        virtual time_series_output_ptr make_instance(node_ptr owning_node, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const = 0;
 
         /**
          * Create an instance of OutputBuilder using an parent output.
          * If buffer is provided, uses arena allocation (in-place construction).
          * Otherwise, uses heap allocation (legacy path).
          */
-        virtual time_series_output_ptr make_instance(time_series_output_ptr owning_output, void* buffer = nullptr, size_t* offset = nullptr) const = 0;
+        virtual time_series_output_ptr make_instance(time_series_output_ptr owning_output, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const = 0;
 
         virtual void release_instance(time_series_output_ptr item) const;
 

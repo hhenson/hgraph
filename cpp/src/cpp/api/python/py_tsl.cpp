@@ -46,7 +46,7 @@ namespace hgraph
         auto        self{impl()};
         auto items = self->values();  // Copy the collection to ensure lifetime
         return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "TSLValuesIterator",
-                                               std::move(items), this->control_block());
+                                               std::move(items));
     }
 
     template <typename T_TS, typename T_U>
@@ -75,7 +75,7 @@ namespace hgraph
         auto        self{impl()};
         auto items = self->items();  // Copy the collection to ensure lifetime
         return make_time_series_items_iterator(nb::type<typename T_U::enumerated_collection_type>(), "ItemsIterator",
-                                               std::move(items), this->control_block());
+                                               std::move(items));
     }
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
@@ -83,7 +83,7 @@ namespace hgraph
         auto        self{impl()};
         auto items = self->valid_values();  // Copy the collection to ensure lifetime
         return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "ValidValuesIterator",
-                                               std::move(items), this->control_block());
+                                               std::move(items));
     }
 
     template <typename T_TS, typename T_U>
@@ -92,7 +92,7 @@ namespace hgraph
         auto        self{impl()};
         auto items = self->valid_items();  // Copy the collection to ensure lifetime
         return make_time_series_items_iterator(nb::type<typename T_U::enumerated_collection_type>(), "ValidItemsIterator",
-                                               std::move(items), this->control_block());
+                                               std::move(items));
     }
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
@@ -100,7 +100,7 @@ namespace hgraph
         auto        self{impl()};
         auto items = self->modified_values();  // Copy the collection to ensure lifetime
         return make_time_series_iterator(nb::type<typename T_U::collection_type>(), "ModifiedValuesIterator",
-                                               std::move(items), this->control_block());
+                                               std::move(items));
     }
 
     template <typename T_TS, typename T_U>
@@ -109,7 +109,7 @@ namespace hgraph
         auto        self{impl()};
         auto items = self->modified_items();  // Copy the collection to ensure lifetime
         return make_time_series_items_iterator(nb::type<typename T_U::enumerated_collection_type>(), "ModifiedItemsIterator",
-                                               std::move(items), this->control_block());
+                                               std::move(items));
     }
 
     template <typename T_TS, typename T_U>

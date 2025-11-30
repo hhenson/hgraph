@@ -4,6 +4,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <memory>
+#include <concepts>
 
 namespace hgraph
 {
@@ -58,11 +59,13 @@ namespace hgraph
 
         [[nodiscard]] control_block_ptr control_block() const;
 
-        template <typename U> std::shared_ptr<U> static_cast_impl() const { return _impl.static_cast_<U>(); }
+        template <typename U> requires std::derived_from<U, TimeSeriesType>
+        std::shared_ptr<U> static_cast_impl() const { return _impl.static_cast_<U>(); }
 
-        template <typename U> std::shared_ptr<U> dynamic_cast_impl() const { return _impl.dynamic_cast_<U>(); }
+        template <typename U> requires std::derived_from<U, TimeSeriesType>
+        std::shared_ptr<U> dynamic_cast_impl() const { return _impl.dynamic_cast_<U>(); }
 
-      private:
+    private:
         api_ptr _impl;
     };
 

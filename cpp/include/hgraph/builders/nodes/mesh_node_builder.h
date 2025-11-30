@@ -6,7 +6,6 @@
 #define MESH_NODE_BUILDER_H
 
 #include <hgraph/builders/node_builder.h>
-#include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/mesh_node.h>
 #include <unordered_map>
 #include <unordered_set>
@@ -37,7 +36,7 @@ namespace hgraph {
     struct MeshNodeBuilder : BaseMeshNodeBuilder {
         using BaseMeshNodeBuilder::BaseMeshNodeBuilder;
 
-        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
         
         size_t memory_size() const override {
             return _calculate_memory_size(sizeof(MeshNode<T>));

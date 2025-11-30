@@ -16,7 +16,7 @@ namespace hgraph {
                                    std::optional<output_builder_ptr> output_builder_,
                                    std::optional<output_builder_ptr> error_builder_, nb::callable eval_fn);
 
-        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
         [[nodiscard]] size_t memory_size() const override;
 

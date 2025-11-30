@@ -5,9 +5,11 @@
 #include <hgraph/types/tsb.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/nodes/tsd_map_node.h>
+#include <string>
 
-namespace hgraph {
-    template<typename T>
+namespace hgraph
+{
+    template <typename T>
     auto create_tsd_map_node_builder(T *self, const nb::args &args) {
         // Expected Python signature (positional):
         // (signature, scalars, input_builder, output_builder, error_builder, recordable_state_builder,
@@ -19,32 +21,32 @@ namespace hgraph {
                 "multiplexed_args, key_arg)");
         }
 
-        auto signature_ = nb::cast<node_signature_ptr>(args[0]);
-        auto scalars_ = nb::cast<nb::dict>(args[1]);
+        auto                             signature_     = nb::cast<node_signature_ptr>(args[0]);
+        auto                             scalars_       = nb::cast<nb::dict>(args[1]);
         std::optional<input_builder_ptr> input_builder_ =
-                args[2].is_none()
-                    ? std::nullopt
-                    : std::optional<input_builder_ptr>(nb::cast<input_builder_ptr>(args[2]));
+            args[2].is_none()
+                ? std::nullopt
+                : std::optional<input_builder_ptr>(nb::cast<input_builder_ptr>(args[2]));
         std::optional<output_builder_ptr> output_builder_ =
-                args[3].is_none()
-                    ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[3]));
+            args[3].is_none()
+                ? std::nullopt
+                : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[3]));
         std::optional<output_builder_ptr> error_builder_ =
-                args[4].is_none()
-                    ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[4]));
+            args[4].is_none()
+                ? std::nullopt
+                : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[4]));
         std::optional<output_builder_ptr> recordable_state_builder_ =
-                args[5].is_none()
-                    ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[5]));
+            args[5].is_none()
+                ? std::nullopt
+                : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[5]));
         if (args[6].is_none()) {
             throw nb::type_error("TsdMapNodeBuilder requires a nested_graph (arg[6]) and it must not be None");
         }
         graph_builder_ptr nested_graph_builder = nb::cast<graph_builder_ptr>(args[6]);
-        auto input_node_ids = nb::cast<std::unordered_map<std::string, int64_t> >(args[7]);
-        auto output_node_id = nb::cast<int64_t>(args[8]);
-        auto multiplexed_args = nb::cast<std::unordered_set<std::string> >(args[9]);
-        auto key_arg = nb::cast<std::string>(args[10]);
+        auto              input_node_ids       = nb::cast<std::unordered_map<std::string, int64_t> >(args[7]);
+        auto              output_node_id       = nb::cast<int64_t>(args[8]);
+        auto              multiplexed_args     = nb::cast<std::unordered_set<std::string> >(args[9]);
+        auto              key_arg              = nb::cast<std::string>(args[10]);
 
         return new(self) T(std::move(signature_), std::move(scalars_), std::move(input_builder_),
                            std::move(output_builder_),
@@ -65,41 +67,14 @@ namespace hgraph {
                           std::move(error_builder_), std::move(recordable_state_builder_)),
           nested_graph_builder(std::move(nested_graph_builder)), input_node_ids(input_node_ids),
           output_node_id(output_node_id),
-          multiplexed_args(multiplexed_args), key_arg(key_arg) {
-    }
+          multiplexed_args(multiplexed_args), key_arg(key_arg) {}
 
-    template<typename T>
-    node_ptr TsdMapNodeBuilder<T>::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, void* buffer, size_t* offset) const {
-        node_ptr node;
-        if (buffer != nullptr && offset != nullptr) {
-            // Arena allocation: construct in-place
-            char* buf = static_cast<char*>(buffer);
-            // Convert std::shared_ptr<NodeSignature> to nb::ref<NodeSignature>
-            NodeSignature::ptr sig_ref = this->signature;
-            size_t node_size = sizeof(TsdMapNode<T>);
-            size_t aligned_node_size = align_size(node_size, alignof(size_t));
-            // Set canary BEFORE construction
-            if (arena_debug_mode) {
-                size_t* canary_ptr = reinterpret_cast<size_t*>(buf + *offset + aligned_node_size);
-                *canary_ptr = ARENA_CANARY_PATTERN;
-            }
-            // Now construct the object
-            Node* node_ptr_raw = new (buf + *offset) TsdMapNode<T>(node_ndx, owning_graph_id, sig_ref, this->scalars, nested_graph_builder, input_node_ids,
-                                  output_node_id, multiplexed_args, key_arg);
-            // Immediately check canary after construction
-            verify_canary(node_ptr_raw, sizeof(TsdMapNode<T>), "TsdMapNode");
-            *offset += add_canary_size(sizeof(TsdMapNode<T>));
-            // Create shared_ptr with no-op deleter (arena manages lifetime)
-            node = std::shared_ptr<Node>(node_ptr_raw, [](Node*){ /* no-op, arena manages lifetime */ });
-            _build_inputs_and_outputs(node, buffer, offset);
-        } else {
-            // Heap allocation (legacy path) - use make_shared for proper memory management
-            NodeSignature::ptr sig_ref = this->signature;
-            node = std::make_shared<TsdMapNode<T>>(node_ndx, owning_graph_id, sig_ref, this->scalars, nested_graph_builder, input_node_ids,
-                              output_node_id, multiplexed_args, key_arg);
-            _build_inputs_and_outputs(node, nullptr, nullptr);
-        }
-        return node;
+    template <typename T>
+    node_ptr TsdMapNodeBuilder<T>::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx,
+                                                 std::shared_ptr<void>       buffer, size_t *         offset) const {
+        return _make_instance<TsdMapNode<T> >(buffer, offset, "TsdMapNode<T>", owning_graph_id, node_ndx,
+                                              nested_graph_builder, input_node_ids,
+                                              output_node_id, multiplexed_args, key_arg);
     }
 
     // Explicit template instantiations
@@ -112,46 +87,44 @@ namespace hgraph {
     template struct TsdMapNodeBuilder<nb::object>;
 
     void tsd_map_node_builder_register_with_nanobind(nb::module_ &m) {
-        nb::class_ < BaseTsdMapNodeBuilder, BaseNodeBuilder > (m, "BaseTsdMapNodeBuilder")
-                .def_ro("nested_graph_builder", &BaseTsdMapNodeBuilder::nested_graph_builder)
-                .def_ro("input_node_ids", &BaseTsdMapNodeBuilder::input_node_ids)
-                .def_ro("output_node_id", &BaseTsdMapNodeBuilder::output_node_id)
-                .def_ro("multiplexed_args", &BaseTsdMapNodeBuilder::multiplexed_args)
-                .def_ro("key_arg", &BaseTsdMapNodeBuilder::key_arg);
+        nb::class_<BaseTsdMapNodeBuilder, BaseNodeBuilder>(m, "BaseTsdMapNodeBuilder")
+            .def_ro("nested_graph_builder", &BaseTsdMapNodeBuilder::nested_graph_builder)
+            .def_ro("input_node_ids", &BaseTsdMapNodeBuilder::input_node_ids)
+            .def_ro("output_node_id", &BaseTsdMapNodeBuilder::output_node_id)
+            .def_ro("multiplexed_args", &BaseTsdMapNodeBuilder::multiplexed_args)
+            .def_ro("key_arg", &BaseTsdMapNodeBuilder::key_arg);
 
         nb::class_<TsdMapNodeBuilder<bool>, BaseTsdMapNodeBuilder>(m, "TsdMapNodeBuilder_bool")
-                .def("__init__", [](TsdMapNodeBuilder<bool> *self, const nb::args &args) {
-                    create_tsd_map_node_builder(self, args);
-                });
+            .def("__init__", [](TsdMapNodeBuilder<bool> *self, const nb::args &args) { create_tsd_map_node_builder(self, args); });
 
         nb::class_<TsdMapNodeBuilder<int64_t>, BaseTsdMapNodeBuilder>(m, "TsdMapNodeBuilder_int")
-                .def("__init__", [](TsdMapNodeBuilder<int64_t> *self, const nb::args &args) {
-                    create_tsd_map_node_builder(self, args);
-                });
+            .def("__init__", [](TsdMapNodeBuilder<int64_t> *self, const nb::args &args) {
+                create_tsd_map_node_builder(self, args);
+            });
 
         nb::class_<TsdMapNodeBuilder<double>, BaseTsdMapNodeBuilder>(m, "TsdMapNodeBuilder_float")
-                .def("__init__", [](TsdMapNodeBuilder<double> *self, const nb::args &args) {
-                    create_tsd_map_node_builder(self, args);
-                });
+            .def("__init__", [](TsdMapNodeBuilder<double> *self, const nb::args &args) {
+                create_tsd_map_node_builder(self, args);
+            });
 
         nb::class_<TsdMapNodeBuilder<engine_date_t>, BaseTsdMapNodeBuilder>(m, "TsdMapNodeBuilder_date")
-                .def("__init__", [](TsdMapNodeBuilder<engine_date_t> *self, const nb::args &args) {
-                    create_tsd_map_node_builder(self, args);
-                });
+            .def("__init__", [](TsdMapNodeBuilder<engine_date_t> *self, const nb::args &args) {
+                create_tsd_map_node_builder(self, args);
+            });
 
         nb::class_<TsdMapNodeBuilder<engine_time_t>, BaseTsdMapNodeBuilder>(m, "TsdMapNodeBuilder_date_time")
-                .def("__init__", [](TsdMapNodeBuilder<engine_time_t> *self, const nb::args &args) {
-                    create_tsd_map_node_builder(self, args);
-                });
+            .def("__init__", [](TsdMapNodeBuilder<engine_time_t> *self, const nb::args &args) {
+                create_tsd_map_node_builder(self, args);
+            });
 
         nb::class_<TsdMapNodeBuilder<engine_time_delta_t>, BaseTsdMapNodeBuilder>(m, "TsdMapNodeBuilder_time_delta")
-                .def("__init__", [](TsdMapNodeBuilder<engine_time_delta_t> *self, const nb::args &args) {
-                    create_tsd_map_node_builder(self, args);
-                });
+            .def("__init__", [](TsdMapNodeBuilder<engine_time_delta_t> *self, const nb::args &args) {
+                create_tsd_map_node_builder(self, args);
+            });
 
         nb::class_<TsdMapNodeBuilder<nb::object>, BaseTsdMapNodeBuilder>(m, "TsdMapNodeBuilder_object")
-                .def("__init__", [](TsdMapNodeBuilder<nb::object> *self, const nb::args &args) {
-                    create_tsd_map_node_builder(self, args);
-                });
+            .def("__init__", [](TsdMapNodeBuilder<nb::object> *self, const nb::args &args) {
+                create_tsd_map_node_builder(self, args);
+            });
     }
 } // namespace hgraph

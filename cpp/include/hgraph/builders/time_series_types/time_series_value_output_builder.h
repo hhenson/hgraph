@@ -12,9 +12,9 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesValueOutputBuilder : OutputBuilder {
         using OutputBuilder::OutputBuilder;
 
-        time_series_output_ptr make_instance(node_ptr owning_node, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_output_ptr make_instance(node_ptr owning_node, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_output_ptr make_instance(time_series_output_ptr owning_output, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
         void release_instance(time_series_output_ptr item) const override;
 

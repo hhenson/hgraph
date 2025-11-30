@@ -151,7 +151,7 @@ namespace hgraph {
         last_value_pull_node_builder_register_with_nanobind(m);
     }
 
-    void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node, void* buffer, size_t* offset) const {
+    void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node, std::shared_ptr<void> buffer, size_t* offset) const {
         if (input_builder.has_value()) {
             auto ts_input = (*input_builder)->make_instance(node, buffer, offset);
             // Cast to TimeSeriesBundleInput - input() returns time_series_bundle_input_ptr

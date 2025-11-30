@@ -23,9 +23,8 @@ namespace hgraph {
      * - Custom eval function: optional callable that receives a sender
      */
     struct PushQueueNode : Node {
-        using Node::Node;
 
-        void set_eval_fn(nb::callable fn) { _eval_fn = std::move(fn); }
+        PushQueueNode(int64_t node_ndx, const std::vector<int64_t> &owning_graph_id, NodeSignature::ptr signature, nb::dict scalars, nb::callable eval_fn);
 
         void enqueue_message(nb::object message);
 

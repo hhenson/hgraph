@@ -11,14 +11,14 @@ namespace hgraph {
         : output_builder{std::move(output_builder)}, size{size} {
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node, std::shared_ptr<void> buffer, size_t* offset) const {
         auto result = make_instance_impl<TimeSeriesListOutput, TimeSeriesOutput>(
             buffer, offset, "TimeSeriesListOutput", owning_node);
         auto list_output = std::static_pointer_cast<TimeSeriesListOutput>(result);
         return make_and_set_outputs(list_output, buffer, offset);
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(time_series_output_ptr owning_output, void* buffer, size_t* offset) const {
+    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(time_series_output_ptr owning_output, std::shared_ptr<void> buffer, size_t* offset) const {
         // Convert owning_output to TimeSeriesType shared_ptr
         auto owning_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_output);
         if (!owning_ts) {
@@ -45,7 +45,7 @@ namespace hgraph {
         }
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_and_set_outputs(std::shared_ptr<TimeSeriesListOutput> output, void* buffer, size_t* offset) const {
+    time_series_output_ptr TimeSeriesListOutputBuilder::make_and_set_outputs(std::shared_ptr<TimeSeriesListOutput> output, std::shared_ptr<void> buffer, size_t* offset) const {
         std::vector<time_series_output_ptr> outputs;
         outputs.reserve(size);
         for (size_t i = 0; i < size; ++i) { 

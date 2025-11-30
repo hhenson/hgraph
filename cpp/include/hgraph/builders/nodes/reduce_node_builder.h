@@ -29,7 +29,7 @@ namespace hgraph {
     struct ReduceNodeBuilder : BaseReduceNodeBuilder {
         using BaseReduceNodeBuilder::BaseReduceNodeBuilder;
 
-        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
         
         size_t memory_size() const override {
             return _calculate_memory_size(sizeof(ReduceNode<T>));

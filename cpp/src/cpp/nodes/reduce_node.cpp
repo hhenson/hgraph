@@ -64,8 +64,7 @@ namespace hgraph {
         //TODO: If this graph escapes into python we will need to look into providing
         //      an actual control block this may also need to be constructed from
         //      the builder.
-        Traits traits = Traits(nullptr);
-        nested_graph_ = std::make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_ptr>{}, this->shared_from_this(), "", std::move(traits));
+        nested_graph_ = std::make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_ptr>{}, this->shared_from_this(), "", nullptr);
         nested_node_ptr nested_node_shared = std::static_pointer_cast<NestedNode>(this->shared_from_this());
         nested_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
             graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock(), nested_node_shared)));

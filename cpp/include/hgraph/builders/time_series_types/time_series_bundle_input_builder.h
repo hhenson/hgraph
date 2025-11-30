@@ -14,9 +14,9 @@ namespace hgraph {
 
         TimeSeriesBundleInputBuilder(time_series_schema_ptr schema, std::vector<InputBuilder::ptr> input_builders);
 
-        time_series_input_ptr make_instance(node_ptr owning_node, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_input_ptr make_instance(node_ptr owning_node, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
-        time_series_input_ptr make_instance(time_series_input_ptr owning_input, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_input_ptr make_instance(time_series_input_ptr owning_input, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
         bool has_reference() const override;
 
@@ -29,7 +29,7 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
 
     private:
-        time_series_input_ptr make_and_set_inputs(std::shared_ptr<TimeSeriesBundleInput> input, void* buffer, size_t* offset) const;
+        time_series_input_ptr make_and_set_inputs(std::shared_ptr<TimeSeriesBundleInput> input, std::shared_ptr<void> buffer, size_t* offset) const;
 
         time_series_schema_ptr schema;
         std::vector<InputBuilder::ptr> input_builders;

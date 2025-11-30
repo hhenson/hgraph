@@ -5,14 +5,18 @@
 #ifndef NODE_BUILDER_H
 #define NODE_BUILDER_H
 
+#include "hgraph/nodes/mesh_node.h"
+
 #include <hgraph/builders/builder.h>
 
-namespace hgraph {
-    struct NodeBuilder : Builder {
-        NodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
-                    std::optional<input_builder_ptr> input_builder_ = std::nullopt,
-                    std::optional<output_builder_ptr> output_builder_ = std::nullopt,
-                    std::optional<output_builder_ptr> error_builder_ = std::nullopt,
+namespace hgraph
+{
+    struct NodeBuilder : Builder
+    {
+        NodeBuilder(node_signature_ptr                signature_, nb::dict scalars_,
+                    std::optional<input_builder_ptr>  input_builder_            = std::nullopt,
+                    std::optional<output_builder_ptr> output_builder_           = std::nullopt,
+                    std::optional<output_builder_ptr> error_builder_            = std::nullopt,
                     std::optional<output_builder_ptr> recordable_state_builder_ = std::nullopt);
 
         // Explicitly define move operations to avoid leaving Python-visible instances in a moved-from (null) state.
@@ -34,8 +38,8 @@ namespace hgraph {
          * @param offset Current offset in the buffer (will be updated, ignored if buffer is nullptr)
          * @return shared_ptr to the constructed Node
          */
-        virtual node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx,
-                                       void* buffer = nullptr, size_t* offset = nullptr) const = 0;
+        virtual node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t  node_ndx,
+                                       std::shared_ptr<void>       buffer = nullptr, size_t *offset = nullptr) const = 0;
 
         virtual void release_instance(node_ptr &item) const;
 
@@ -51,15 +55,17 @@ namespace hgraph {
         [[nodiscard]] size_t _calculate_time_series_builders_size() const;
 
     public:
-        node_signature_ptr signature;
-        nb::dict scalars;
-        std::optional<input_builder_ptr> input_builder;
+        node_signature_ptr                signature;
+        nb::dict                          scalars;
+        std::optional<input_builder_ptr>  input_builder;
         std::optional<output_builder_ptr> output_builder;
         std::optional<output_builder_ptr> error_builder;
         std::optional<output_builder_ptr> recordable_state_builder;
     };
 
-    struct BaseNodeBuilder : NodeBuilder {
+
+    struct BaseNodeBuilder : NodeBuilder
+    {
         using NodeBuilder::NodeBuilder;
 
     protected:
@@ -70,7 +76,7 @@ namespace hgraph {
          * @param buffer Pointer to the arena buffer (nullptr for heap allocation)
          * @param offset Current offset in the buffer (will be updated, ignored if buffer is nullptr)
          */
-        void _build_inputs_and_outputs(node_ptr node, void* buffer = nullptr, size_t* offset = nullptr) const;
+        void _build_inputs_and_outputs(node_ptr node, std::shared_ptr<void> buffer = nullptr, size_t *offset = nullptr) const;
 
         /**
          * Helper method to calculate memory size for a node builder.
@@ -79,6 +85,24 @@ namespace hgraph {
          * @return Total memory size including node, canary, and all time-series builders
          */
         [[nodiscard]] size_t _calculate_memory_size(size_t node_size) const;
+
+        template <typename T_Node, typename... Args>
+        node_ptr _make_instance(std::shared_ptr<void>       buffer, size_t *offset, const char *name,
+                                const std::vector<int64_t> &owning_graph_id,
+                                int64_t                     node_ndx, Args &&... args) const {
+            node_ptr node;
+            if (buffer != nullptr && offset != nullptr) {
+                // Now construct the object
+                node = make_instance_impl<T_Node, Node>(buffer, offset, name, node_ndx, owning_graph_id,
+                                                        this->signature, this->scalars, std::forward<Args>(args)...);
+            } else {
+                // Heap allocation (legacy path) - use make_shared for proper memory management
+                node = std::make_shared<T_Node>(node_ndx, owning_graph_id, this->signature, this->scalars,
+                                                std::forward<Args>(args)...);
+            }
+            _build_inputs_and_outputs(node, buffer, offset);
+            return node;
+        }
     };
 } // namespace hgraph
 

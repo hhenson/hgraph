@@ -21,6 +21,7 @@ namespace hgraph {
      * and combine them when multiple values are received before evaluation.
      */
     struct HGRAPH_EXPORT LastValuePullNode : Node {
+        using ptr = std::shared_ptr<LastValuePullNode>;
         using Node::Node;
 
         /**

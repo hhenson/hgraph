@@ -1,7 +1,7 @@
 #include <hgraph/types/traits.h>
 
 namespace hgraph {
-    Traits::Traits(Traits* parent_traits) : _parent_traits{parent_traits} {
+    Traits::Traits(const Traits* parent_traits) : _parent_traits{parent_traits} {
     }
 
     void Traits::set_traits(nb::kwargs traits) { _traits.update(traits); }

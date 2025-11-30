@@ -16,10 +16,11 @@ namespace hgraph
 {
     struct HGRAPH_EXPORT Graph : ComponentLifeCycle, std::enable_shared_from_this<Graph>
     {
-        using ptr = std::shared_ptr<Graph>;
+        using ptr       = std::shared_ptr<Graph>;
+        using node_list = std::vector<node_ptr>;
 
-        Graph(std::vector<int64_t> graph_id_, std::vector<node_ptr> nodes_,
-              std::optional<node_ptr> parent_node_, std::string label_, Traits traits_);
+        Graph(std::vector<int64_t>    graph_id_, node_list      nodes_,
+              std::optional<node_ptr> parent_node_, std::string label_, const Traits *parent_traits_);
 
         ~Graph() override;
 
@@ -65,7 +66,7 @@ namespace hgraph
          * Get traits as a shared_ptr using aliasing constructor with Graph's control block.
          * Traits is stored as a value object inside Graph.
          */
-        [[nodiscard]] traits_ptr traits() const;
+        [[nodiscard]] const Traits &traits() const;
 
         [[nodiscard]] SenderReceiverState &receiver();
 
@@ -83,9 +84,9 @@ namespace hgraph
 
         // Performance: Cached clock pointer and evaluation time reference set during initialization
         [[nodiscard]] EngineEvaluationClock *cached_engine_clock() const { return _cached_engine_clock; }
-        [[nodiscard]] const engine_time_t   *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
+        [[nodiscard]] const engine_time_t *  cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
 
-      protected:
+    protected:
         void initialise() override;
 
         void start() override;
@@ -94,16 +95,16 @@ namespace hgraph
 
         void dispose() override;
 
-        friend struct GraphBuilder;  // Allow GraphBuilder to access private members for in-place construction
+        friend struct GraphBuilder; // Allow GraphBuilder to access private members for in-place construction
 
-      private:
+    private:
         EvaluationEngine::ptr      _evaluation_engine;
         std::vector<int64_t>       _graph_id;
-        std::vector<node_ptr>      _nodes;
+        node_list                  _nodes;
         std::vector<engine_time_t> _schedule;
         node_ptr                   _parent_node;
         std::string                _label;
-        Traits                     _traits;  // Stored as value object
+        Traits                     _traits; // Stored as value object
         SenderReceiverState        _receiver;
         engine_time_t              _last_evaluation_time{MIN_DT};
         int64_t                    _push_source_nodes_end{-1};
@@ -111,8 +112,8 @@ namespace hgraph
         // Performance optimization: Cache clock pointer and evaluation time pointer at initialization
         // Set once when evaluation engine is assigned, never changes
         EngineEvaluationClock *_cached_engine_clock{nullptr};
-        const engine_time_t   *_cached_evaluation_time_ptr{nullptr};
+        const engine_time_t *  _cached_evaluation_time_ptr{nullptr};
     };
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // GRAPH_H

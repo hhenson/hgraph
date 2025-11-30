@@ -60,7 +60,7 @@ namespace hgraph {
 
     std::pair<std::string, bool> ComponentNode::recordable_id() {
         // Get outer recordable_id from graph traits
-        auto outer_id_obj = graph()->traits()->get_trait_or(RECORDABLE_ID_TRAIT, nb::str(""));
+        auto outer_id_obj = graph()->traits().get_trait_or(RECORDABLE_ID_TRAIT, nb::str(""));
         auto outer_id = nb::cast<std::string>(outer_id_obj);
 
         // Build the full id: outer_id + "-" + record_replay_id
@@ -167,7 +167,7 @@ namespace hgraph {
 
         // Create the nested graph instance
         m_active_graph_ = m_nested_graph_builder_->make_instance(node_id(), shared_from_this(), id_);
-        m_active_graph_->traits()->set_trait(RECORDABLE_ID_TRAIT, nb::cast(id_));
+        m_active_graph_->traits().set_trait(RECORDABLE_ID_TRAIT, nb::cast(id_));
         // Convert node_ptr to nested_node_ptr (shared_ptr) for NestedEngineEvaluationClock
         // Since ComponentNode inherits from NestedNode, we can use static_pointer_cast
         nested_node_ptr nested_node_shared = std::static_pointer_cast<NestedNode>(shared_from_this());
@@ -240,7 +240,7 @@ namespace hgraph {
 
     void ComponentNode::dispose() {
         if (m_active_graph_) {
-            auto id_ = nb::cast<std::string>(m_active_graph_->traits()->get_trait(RECORDABLE_ID_TRAIT));
+            auto id_ = nb::cast<std::string>(m_active_graph_->traits().get_trait(RECORDABLE_ID_TRAIT));
             GlobalState::remove(keys::component_key(id_));
 
             dispose_component(*m_active_graph_);

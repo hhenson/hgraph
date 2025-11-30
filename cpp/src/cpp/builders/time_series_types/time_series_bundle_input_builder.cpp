@@ -13,14 +13,14 @@ namespace hgraph {
         : InputBuilder(), schema{std::move(schema)}, input_builders{std::move(input_builders)} {
     }
 
-    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(node_ptr owning_node, std::shared_ptr<void> buffer, size_t* offset) const {
         auto result = make_instance_impl<TimeSeriesBundleInput, TimeSeriesInput>(
             buffer, offset, "TimeSeriesBundleInput", owning_node, schema);
         auto bundle_input = std::static_pointer_cast<TimeSeriesBundleInput>(result);
         return make_and_set_inputs(bundle_input, buffer, offset);
     }
 
-    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(time_series_input_ptr owning_input, void* buffer, size_t* offset) const {
+    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(time_series_input_ptr owning_input, std::shared_ptr<void> buffer, size_t* offset) const {
         // Convert owning_input to TimeSeriesType shared_ptr
         auto owning_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_input);
         if (!owning_ts) {
@@ -56,7 +56,7 @@ namespace hgraph {
         }
     }
 
-    time_series_input_ptr TimeSeriesBundleInputBuilder::make_and_set_inputs(std::shared_ptr<TimeSeriesBundleInput> input, void* buffer, size_t* offset) const {
+    time_series_input_ptr TimeSeriesBundleInputBuilder::make_and_set_inputs(std::shared_ptr<TimeSeriesBundleInput> input, std::shared_ptr<void> buffer, size_t* offset) const {
         std::vector<time_series_input_ptr> inputs;
         inputs.reserve(input_builders.size());
         std::ranges::copy(input_builders | std::views::transform([&](auto &builder) {

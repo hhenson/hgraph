@@ -14,6 +14,9 @@ namespace hgraph
         requires is_py_tsd<T_TS, T_U>
     struct PyTimeSeriesDict : T_TS
     {
+        using underlying_type = T_U;
+        using underlying_type_ptr = std::shared_ptr<T_U>;
+
         [[nodiscard]] size_t size() const;
 
         // Create a set of Python-based API, for non-object-based instances there will
@@ -76,7 +79,7 @@ namespace hgraph
         [[nodiscard]] nb::str py_repr();
       protected:
         using T_TS::T_TS;
-        std::shared_ptr<T_U> impl() const;
+        underlying_type_ptr impl() const;
     };
 
     template<typename T_U>

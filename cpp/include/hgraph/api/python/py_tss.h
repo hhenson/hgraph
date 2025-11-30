@@ -13,6 +13,9 @@ namespace hgraph
         requires PyTSType<T_TS, T_U>
     struct PyTimeSeriesSet : T_TS
     {
+        using underlying_type = T_U;
+        using underlying_type_ptr = std::shared_ptr<underlying_type>;
+
         [[nodiscard]] bool contains(const nb::object &item) const {
             return impl()->contains(nb::cast<typename T_U::element_type>(item));
         }
@@ -39,7 +42,7 @@ namespace hgraph
 
       protected:
         using T_TS::T_TS;
-        [[nodiscard]] std::shared_ptr<T_U> impl() const { return this->template static_cast_impl<T_U>(); };
+        [[nodiscard]] underlying_type_ptr impl() const { return this->template static_cast_impl<T_U>(); };
     };
 
     template <typename T_U> struct PyTimeSeriesSetOutput : PyTimeSeriesSet<PyTimeSeriesOutput, T_U>

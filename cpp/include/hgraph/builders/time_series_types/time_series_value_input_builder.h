@@ -13,9 +13,9 @@ namespace hgraph {
         using ptr = nb::ref<TimeSeriesValueInputBuilder<T> >;
         using InputBuilder::InputBuilder;
 
-        time_series_input_ptr make_instance(node_ptr owning_node, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_input_ptr make_instance(node_ptr owning_node, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
-        time_series_input_ptr make_instance(time_series_input_ptr owning_input, void* buffer = nullptr, size_t* offset = nullptr) const override;
+        time_series_input_ptr make_instance(time_series_input_ptr owning_input, std::shared_ptr<void> buffer = nullptr, size_t* offset = nullptr) const override;
 
         [[nodiscard]] size_t memory_size() const override;
     };

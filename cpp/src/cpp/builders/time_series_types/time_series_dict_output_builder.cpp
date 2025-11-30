@@ -11,13 +11,13 @@ namespace hgraph {
     }
 
     template<typename T>
-    time_series_output_ptr TimeSeriesDictOutputBuilder_T<T>::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+    time_series_output_ptr TimeSeriesDictOutputBuilder_T<T>::make_instance(node_ptr owning_node, std::shared_ptr<void> buffer, size_t* offset) const {
         return make_instance_impl<TimeSeriesDictOutput_T<T>, TimeSeriesOutput>(
             buffer, offset, "TimeSeriesDictOutput", owning_node, ts_builder, ts_ref_builder);
     }
 
     template<typename T>
-    time_series_output_ptr TimeSeriesDictOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output, void* buffer, size_t* offset) const {
+    time_series_output_ptr TimeSeriesDictOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output, std::shared_ptr<void> buffer, size_t* offset) const {
         // Convert owning_output to TimeSeriesType shared_ptr
         auto parent_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_output);
         if (!parent_ts) {

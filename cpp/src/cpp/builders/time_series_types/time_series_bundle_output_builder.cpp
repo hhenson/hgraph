@@ -13,14 +13,14 @@ namespace hgraph {
         : OutputBuilder(), schema{std::move(schema)}, output_builders{std::move(output_builders)} {
     }
 
-    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(node_ptr owning_node, void* buffer, size_t* offset) const {
+    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(node_ptr owning_node, std::shared_ptr<void> buffer, size_t* offset) const {
         auto result = make_instance_impl<TimeSeriesBundleOutput, TimeSeriesOutput>(
             buffer, offset, "TimeSeriesBundleOutput", owning_node, schema);
         auto bundle_output = std::static_pointer_cast<TimeSeriesBundleOutput>(result);
         return make_and_set_outputs(bundle_output, buffer, offset);
     }
 
-    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(time_series_output_ptr owning_output, void* buffer, size_t* offset) const {
+    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(time_series_output_ptr owning_output, std::shared_ptr<void> buffer, size_t* offset) const {
         // Convert owning_output to TimeSeriesType shared_ptr
         auto owning_ts = std::dynamic_pointer_cast<TimeSeriesType>(owning_output);
         if (!owning_ts) {
@@ -56,7 +56,7 @@ namespace hgraph {
         }
     }
 
-    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_and_set_outputs(std::shared_ptr<TimeSeriesBundleOutput> output, void* buffer, size_t* offset) const {
+    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_and_set_outputs(std::shared_ptr<TimeSeriesBundleOutput> output, std::shared_ptr<void> buffer, size_t* offset) const {
         std::vector<time_series_output_ptr> outputs;
         outputs.reserve(output_builders.size());
         std::ranges::copy(output_builders | std::views::transform([&](auto &builder) {

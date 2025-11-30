@@ -9,9 +9,7 @@ namespace hgraph
     // ===== Template impl for PyTimeSeriesDict =====
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
-    size_t PyTimeSeriesDict<T_TS, T_U>::size() const {
-        return impl()->size();
-    }
+    size_t PyTimeSeriesDict<T_TS, T_U>::size() const { return impl()->size(); }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
@@ -40,15 +38,11 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
-    void PyTimeSeriesDict<T_TS, T_U>::create(const nb::object &item) {
-        impl()->create(nb::cast<typename T_U::key_type>(item));
-    }
+    void PyTimeSeriesDict<T_TS, T_U>::create(const nb::object &item) { impl()->create(nb::cast<typename T_U::key_type>(item)); }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
-    nb::iterator PyTimeSeriesDict<T_TS, T_U>::iter() {
-        return keys();
-    }
+    nb::iterator PyTimeSeriesDict<T_TS, T_U>::iter() { return keys(); }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
@@ -59,8 +53,8 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::object PyTimeSeriesDict<T_TS, T_U>::key_set() const {
-        auto self = impl();
-        auto& key_set_ref = self->key_set();
+        auto  self        = impl();
+        auto &key_set_ref = self->key_set();
         return wrap_time_series(&key_set_ref, this->control_block());
     }
 
@@ -83,15 +77,15 @@ namespace hgraph
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::items() const {
         auto self{impl()};
-        return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ItemsIterator", self->begin(), self->end(),
-                                               this->control_block());
+        return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ItemsIterator", self->begin(), self->end()
+            );
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::modified_keys() const {
         auto        self{impl()};
-        const auto &items = self->modified_items();  // Ensure modified_items is populated first
+        const auto &items = self->modified_items(); // Ensure modified_items is populated first
         return nb::make_key_iterator(nb::type<typename T_U::map_type>(), "ModifiedKeysIterator", items.begin(), items.end());
     }
 
@@ -99,7 +93,7 @@ namespace hgraph
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::modified_values() const {
         auto        self{impl()};
-        const auto &items = self->modified_items();  // Ensure modified_items is populated first
+        const auto &items = self->modified_items(); // Ensure modified_items is populated first
         return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "ModifiedValuesIterator", items.begin(),
                                                items.end(), this->control_block());
     }
@@ -108,9 +102,9 @@ namespace hgraph
         requires is_py_tsd<T_TS, T_U>
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::modified_items() const {
         auto        self{impl()};
-        const auto &items = self->modified_items();  // Ensure modified_items is populated first
+        const auto &items = self->modified_items(); // Ensure modified_items is populated first
         return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ModifiedItemsIterator", items.begin(),
-                                               items.end(), this->control_block());
+                                               items.end());
     }
 
     template <typename T_TS, typename T_U>
@@ -125,7 +119,7 @@ namespace hgraph
         auto self{impl()};
         // Distinguish at compile-time between a view (hold by value) and a container ref (bind by const ref)
         using items_t = decltype(self->valid_items());
-        if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
+        if constexpr (std::ranges::view<std::remove_cvref_t<items_t> >) {
             auto items = self->valid_items();
             return nb::make_key_iterator(nb::type<typename T_U::map_type>(), "ValidKeysIterator", items.begin(), items.end());
         } else {
@@ -139,7 +133,7 @@ namespace hgraph
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::valid_values() const {
         auto self{impl()};
         using items_t = decltype(self->valid_items());
-        if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
+        if constexpr (std::ranges::view<std::remove_cvref_t<items_t> >) {
             auto items = self->valid_items();
             return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "ValidValuesIterator", items.begin(),
                                                    items.end(), this->control_block());
@@ -155,14 +149,14 @@ namespace hgraph
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::valid_items() const {
         auto self{impl()};
         using items_t = decltype(self->valid_items());
-        if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
-            auto items = self->valid_items();  // view must be non-const to have begin()/end()
+        if constexpr (std::ranges::view<std::remove_cvref_t<items_t> >) {
+            auto items = self->valid_items(); // view must be non-const to have begin()/end()
             return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ValidItemsIterator", items.begin(),
-                                                   items.end(), this->control_block());
+                                                   items.end());
         } else {
             const auto &items = self->valid_items();
             return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ValidItemsIterator", items.begin(),
-                                                   items.end(), this->control_block());
+                                                   items.end());
         }
     }
 
@@ -179,7 +173,7 @@ namespace hgraph
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::added_values() const {
         auto self{impl()};
         using items_t = decltype(self->added_items());
-        if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
+        if constexpr (std::ranges::view<std::remove_cvref_t<items_t> >) {
             auto items = self->added_items();
             return make_time_series_value_iterator(nb::type<typename T_U::map_type>(), "AddedValueIterator", items.begin(),
                                                    items.end(), this->control_block());
@@ -195,22 +189,20 @@ namespace hgraph
     nb::iterator PyTimeSeriesDict<T_TS, T_U>::added_items() const {
         auto self{impl()};
         using items_t = decltype(self->added_items());
-        if constexpr (std::ranges::view<std::remove_cvref_t<items_t>>) {
-            auto items = self->added_items();  // Hold non-const view
+        if constexpr (std::ranges::view<std::remove_cvref_t<items_t> >) {
+            auto items = self->added_items(); // Hold non-const view
             return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ModifiedValueIterator", items.begin(),
-                                                   items.end(), this->control_block());
+                                                   items.end());
         } else {
             const auto &items = self->added_items();
             return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "ModifiedValueIterator", items.begin(),
-                                                   items.end(), this->control_block());
+                                                   items.end());
         }
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
-    bool PyTimeSeriesDict<T_TS, T_U>::has_added() const {
-        return impl()->has_added();
-    }
+    bool PyTimeSeriesDict<T_TS, T_U>::has_added() const { return impl()->has_added(); }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
@@ -241,14 +233,12 @@ namespace hgraph
         auto        self{impl()};
         const auto &items = self->removed_items();
         return make_time_series_items_iterator(nb::type<typename T_U::map_type>(), "RemovedItemsIterator", items.begin(),
-                                               items.end(), this->control_block());
+                                               items.end());
     }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
-    bool PyTimeSeriesDict<T_TS, T_U>::has_removed() const {
-        return impl()->has_removed();
-    }
+    bool PyTimeSeriesDict<T_TS, T_U>::has_removed() const { return impl()->has_removed(); }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
@@ -259,13 +249,11 @@ namespace hgraph
     namespace
     {
         template <typename T_TS> constexpr const char *get_tsd_type_name() {
-            if constexpr (std::is_same_v<T_TS, PyTimeSeriesInput>) {
-                return "TimeSeriesDictInput@{:p}[size={}, valid={}]";
-            } else {
+            if constexpr (std::is_same_v<T_TS, PyTimeSeriesInput>) { return "TimeSeriesDictInput@{:p}[size={}, valid={}]"; } else {
                 return "TimeSeriesDictOutput@{:p}[size={}, valid={}]";
             }
         }
-    }  // namespace
+    } // namespace
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
@@ -278,15 +266,11 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
-    nb::str PyTimeSeriesDict<T_TS, T_U>::py_repr() {
-        return py_str();
-    }
+    nb::str PyTimeSeriesDict<T_TS, T_U>::py_repr() { return py_str(); }
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
-    std::shared_ptr<T_U> PyTimeSeriesDict<T_TS, T_U>::impl() const {
-        return this->template static_cast_impl<T_U>();
-    }
+    std::shared_ptr<T_U> PyTimeSeriesDict<T_TS, T_U>::impl() const { return this->template static_cast_impl<T_U>(); }
 
     // ===== PyTimeSeriesDictOutput =====
     template <typename T_U>
@@ -306,9 +290,7 @@ namespace hgraph
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    void PyTimeSeriesDictOutput<T_U>::del_item(const nb::object &key) {
-        this->impl()->py_del_item(key);
-    }
+    void PyTimeSeriesDictOutput<T_U>::del_item(const nb::object &key) { this->impl()->py_del_item(key); }
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
@@ -352,7 +334,7 @@ namespace hgraph
 
     // TODO: Make this a template
     template <typename T_Key> void _tsd_register_with_nanobind(nb::module_ &m, std::string name) {
-        using TSD_OUT          = PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<T_Key>>;
+        using TSD_OUT          = PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<T_Key> >;
         std::string class_name = fmt::format("TimeSeriesDictOutput_{}", name);
 
         auto output = nb::class_<TSD_OUT, PyTimeSeriesOutput>(m, class_name.c_str());
@@ -407,7 +389,7 @@ namespace hgraph
                                    static_cast<bool>(self.valid()));
             });
 
-        using TSD_IN = PyTimeSeriesDictInput<TimeSeriesDictInput_T<T_Key>>;
+        using TSD_IN = PyTimeSeriesDictInput<TimeSeriesDictInput_T<T_Key> >;
 
         auto input_ = nb::class_<TSD_IN, PyTimeSeriesInput>(m, fmt::format("TimeSeriesDictInput_{}", name).c_str());
 
@@ -458,22 +440,22 @@ namespace hgraph
             });
     }
 
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<bool>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<int64_t>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<double>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_date_t>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_t>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_delta_t>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<nb::object>>;
+    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<bool> >;
+    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<int64_t> >;
+    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<double> >;
+    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_date_t> >;
+    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_t> >;
+    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_delta_t> >;
+    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<nb::object> >;
 
     // Explicit instantiations for input types
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<bool>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<int64_t>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<double>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_date_t>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_time_t>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_time_delta_t>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<nb::object>>;
+    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<bool> >;
+    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<int64_t> >;
+    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<double> >;
+    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_date_t> >;
+    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_time_t> >;
+    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_time_delta_t> >;
+    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<nb::object> >;
 
     void tsd_register_with_nanobind(nb::module_ &m) {
         _tsd_register_with_nanobind<bool>(m, "Bool");
@@ -484,4 +466,4 @@ namespace hgraph
         _tsd_register_with_nanobind<engine_time_delta_t>(m, "TimeDelta");
         _tsd_register_with_nanobind<nb::object>(m, "Object");
     }
-}  // namespace hgraph
+} // namespace hgraph

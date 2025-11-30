@@ -63,37 +63,9 @@ namespace hgraph {
     }
 
     template<typename T>
-    node_ptr ReduceNodeBuilder<T>::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, void* buffer, size_t* offset) const {
-        node_ptr node;
-        if (buffer != nullptr && offset != nullptr) {
-            // Arena allocation: construct in-place
-            char* buf = static_cast<char*>(buffer);
-            // Convert std::shared_ptr<NodeSignature> to nb::ref<NodeSignature>
-            NodeSignature::ptr sig_ref = this->signature;
-            size_t node_size = sizeof(ReduceNode<T>);
-            size_t aligned_node_size = align_size(node_size, alignof(size_t));
-            // Set canary BEFORE construction
-            if (arena_debug_mode) {
-                size_t* canary_ptr = reinterpret_cast<size_t*>(buf + *offset + aligned_node_size);
-                *canary_ptr = ARENA_CANARY_PATTERN;
-            }
-            // Now construct the object
-            Node* node_ptr_raw = new (buf + *offset) ReduceNode<T>(node_ndx, owning_graph_id, sig_ref, this->scalars, nested_graph_builder, input_node_ids,
-                              output_node_id);
-            // Immediately check canary after construction
-            verify_canary(node_ptr_raw, sizeof(ReduceNode<T>), "ReduceNode");
-            *offset += add_canary_size(sizeof(ReduceNode<T>));
-            // Create shared_ptr with no-op deleter (arena manages lifetime)
-            node = std::shared_ptr<Node>(node_ptr_raw, [](Node*){ /* no-op, arena manages lifetime */ });
-            _build_inputs_and_outputs(node, buffer, offset);
-        } else {
-            // Heap allocation (legacy path) - use make_shared for proper memory management
-            NodeSignature::ptr sig_ref = this->signature;
-            node = std::make_shared<ReduceNode<T>>(node_ndx, owning_graph_id, sig_ref, this->scalars, nested_graph_builder, input_node_ids,
-                              output_node_id);
-            _build_inputs_and_outputs(node, nullptr, nullptr);
-        }
-        return node;
+    node_ptr ReduceNodeBuilder<T>::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx, std::shared_ptr<void> buffer, size_t* offset) const {
+        return _make_instance<ReduceNode<T>>(buffer, offset, "ReduceNode", owning_graph_id, node_ndx,
+                                                   nested_graph_builder, input_node_ids, output_node_id);
     }
 
     // Explicit template instantiations

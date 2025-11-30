@@ -8,9 +8,14 @@
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsd.h>
 
-namespace hgraph {
-    void PushQueueNode::do_eval() {
-    }
+namespace hgraph
+{
+    void PushQueueNode::do_eval() {}
+
+    PushQueueNode::PushQueueNode(int64_t      node_ndx, const std::vector<int64_t> &owning_graph_id, NodeSignature::ptr signature,
+                                 nb::dict     scalars,
+                                 nb::callable eval_fn) : Node(node_ndx, owning_graph_id, std::move(signature), std::move(scalars)),
+                                                         _eval_fn(std::move(eval_fn)) {}
 
     void PushQueueNode::enqueue_message(nb::object message) {
         ++_messages_queued;
@@ -27,32 +32,32 @@ namespace hgraph {
                 //       Handle this better with correct type-matched objects.
                 auto tsd_output = wrap_time_series(output_ptr.get(), graph()->control_block());
 
-                auto remove = get_remove();
+                auto remove          = get_remove();
                 auto remove_if_exist = get_remove_if_exists();
 
                 // For TSD outputs, iterate over message dict
                 auto msg_dict = nb::cast<nb::dict>(message);
-                for (auto [key, val]: msg_dict) {
+                for (auto [key, val] : msg_dict) {
                     if (val.is(remove) || val.is(remove_if_exist)) {
                         auto child_output = tsd_output.attr("get")(nb::cast<nb::object>(key), nb::none());
                         if (!child_output.is_none()) {
                             auto unwrapped = unwrap_output(child_output);
                             if (unwrapped && unwrapped->modified()) {
                                 return false; // reject message because cannot remove when there is unprocessed data
-                           }
+                            }
                         }
                     }
                 }
-                for (auto [key, val]: msg_dict) {
+                for (auto [key, val] : msg_dict) {
                     if (!val.is(remove) && !val.is(remove_if_exist)) {
                         auto child_output_obj = tsd_output.attr("get_or_create")(nb::cast<nb::object>(key));
-                        auto child_output = unwrap_output(child_output_obj);
+                        auto child_output     = unwrap_output(child_output_obj);
 
                         if (child_output->modified()) {
                             // Append to existing tuple
-                            auto existing = child_output->py_value();
-                            size_t existing_len = PyTuple_Size(existing.ptr());
-                            nb::tuple new_tuple = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
+                            auto      existing     = child_output->py_value();
+                            size_t    existing_len = PyTuple_Size(existing.ptr());
+                            nb::tuple new_tuple    = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
                             for (size_t i = 0; i < existing_len; ++i) {
                                 PyTuple_SET_ITEM(new_tuple.ptr(), i, nb::borrow(existing[i]).release().ptr());
                             }
@@ -63,17 +68,15 @@ namespace hgraph {
                             nb::tuple new_tuple = nb::make_tuple(val);
                             child_output->py_set_value(new_tuple);
                         }
-                    } else {
-                        tsd_output.attr("pop")(nb::cast<nb::object>(key), nb::none());
-                    }
+                    } else { tsd_output.attr("pop")(nb::cast<nb::object>(key), nb::none()); }
                 }
             } else {
                 // For non-TSD outputs, accumulate messages into a tuple
                 if (output_ptr->modified()) {
                     // Append to existing tuple
-                    auto existing = output_ptr->py_value();
-                    size_t existing_len = PyTuple_Size(existing.ptr());
-                    nb::tuple new_tuple = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
+                    auto      existing     = output_ptr->py_value();
+                    size_t    existing_len = PyTuple_Size(existing.ptr());
+                    nb::tuple new_tuple    = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
                     for (size_t i = 0; i < existing_len; ++i) {
                         PyTuple_SET_ITEM(new_tuple.ptr(), i, nb::borrow(existing[i]).release().ptr());
                     }
@@ -104,9 +107,9 @@ namespace hgraph {
 
     void PushQueueNode::do_start() {
         _receiver = &graph()->receiver();
-        _elide = scalars().contains("elide") ? nb::cast<bool>(scalars()["elide"]) : false;
-        _batch = scalars().contains("batch") ? nb::cast<bool>(scalars()["batch"]) : false;
-        _is_tsd = dynamic_cast<TimeSeriesDictOutput *>(output().get()) != nullptr;
+        _elide    = scalars().contains("elide") ? nb::cast<bool>(scalars()["elide"]) : false;
+        _batch    = scalars().contains("batch") ? nb::cast<bool>(scalars()["batch"]) : false;
+        _is_tsd   = dynamic_cast<TimeSeriesDictOutput *>(output().get()) != nullptr;
 
         // If an eval function was provided (from push_queue decorator), call it with a sender and scalar kwargs
         if (_eval_fn.is_valid() && !_eval_fn.is_none()) {
@@ -118,9 +121,9 @@ namespace hgraph {
                 this->enqueue_message(std::move(m));
             });
             // Call eval_fn(sender, **scalars)
-            try {
-                _eval_fn(sender, **scalars());
-            } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During push-queue start"); }
+            try { _eval_fn(sender, **scalars()); } catch (nb::python_error &e) {
+                throw NodeException::capture_error(e, *this, "During push-queue start");
+            }
         }
     }
 } // namespace hgraph

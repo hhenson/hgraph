@@ -12,10 +12,10 @@
 namespace hgraph
 {
     Graph::Graph(std::vector<int64_t> graph_id_, std::vector<Node::ptr> nodes_, std::optional<Node::ptr> parent_node_,
-                 std::string label_, Traits traits_)
+                 std::string          label_, const Traits *                  parent_traits_)
         : ComponentLifeCycle(), std::enable_shared_from_this<Graph>(), _graph_id{std::move(graph_id_)},
           _nodes{std::move(nodes_)}, _parent_node{parent_node_.has_value() ? std::move(*parent_node_) : nullptr},
-          _label{std::move(label_)}, _traits{std::move(traits_)} {
+          _label{std::move(label_)}, _traits{parent_traits_} {
         auto it{std::find_if(_nodes.begin(), _nodes.end(),
                              [](const Node::ptr &v) { return v->signature().node_type != NodeTypeEnum::PUSH_SOURCE_NODE; })};
         _push_source_nodes_end = std::distance(_nodes.begin(), it);
@@ -30,7 +30,7 @@ namespace hgraph
         // Extract control block from shared_from_this() to be used as donor for child objects
         // shared_from_this() will throw std::bad_weak_ptr if the Graph isn't managed by a shared_ptr
         // This can happen if control_block() is called before the Graph's shared_ptr is created
-        return std::shared_ptr<void>(shared_from_this(), static_cast<void*>(nullptr));
+        return std::shared_ptr<void>(shared_from_this(), static_cast<void *>(nullptr));
     }
 
     const std::vector<int64_t> &Graph::graph_id() const { return _graph_id; }
@@ -41,7 +41,9 @@ namespace hgraph
 
     std::optional<std::string> Graph::label() const { return _label; }
 
-    EvaluationEngineApi::ptr Graph::evaluation_engine_api() { return std::static_pointer_cast<EvaluationEngineApi>(_evaluation_engine); }
+    EvaluationEngineApi::ptr Graph::evaluation_engine_api() {
+        return std::static_pointer_cast<EvaluationEngineApi>(_evaluation_engine);
+    }
 
     EvaluationClock::ptr Graph::evaluation_clock() { return _evaluation_engine->evaluation_clock(); }
 
@@ -94,8 +96,8 @@ namespace hgraph
         // Use cached pointers (set at initialization) for direct memory access
         auto          clock    = _cached_engine_clock;
         engine_time_t now      = *_cached_evaluation_time_ptr;
-        auto         &nodes    = _nodes;
-        auto         &schedule = _schedule;
+        auto &        nodes    = _nodes;
+        auto &        schedule = _schedule;
 
         _last_evaluation_time = now;
 
@@ -104,9 +106,9 @@ namespace hgraph
             clock->reset_push_node_requires_scheduling();
 
             while (auto value = receiver().dequeue()) {
-                auto [i, message] = *value;  // Use the already dequeued value
-                auto  node        = nodes[i];
-                auto &node_ref    = *node;
+                auto  [i, message] = *value; // Use the already dequeued value
+                auto  node         = nodes[i];
+                auto &node_ref     = *node;
                 try {
                     NotifyNodeEvaluation nne{evaluation_engine(), node};
                     bool                 success = dynamic_cast<PushQueueNode &>(node_ref).apply_message(message);
@@ -116,7 +118,7 @@ namespace hgraph
                         break;
                     }
                 } catch (const NodeException &e) {
-                    throw;  // already enriched
+                    throw; // already enriched
                 } catch (const std::exception &e) {
                     throw NodeException::capture_error(e, node_ref, "During push node message application");
                 } catch (...) {
@@ -124,10 +126,8 @@ namespace hgraph
                                                        "Unknown error during push node message application");
                 }
             }
-            try {
-                evaluation_engine()->notify_after_push_nodes_evaluation(shared_from_this());
-            } catch (const NodeException &e) {
-                throw;  // already enriched
+            try { evaluation_engine()->notify_after_push_nodes_evaluation(shared_from_this()); } catch (const NodeException &e) {
+                throw; // already enriched
             } catch (const std::exception &e) {
                 throw std::runtime_error(std::string("Error in notify_after_push_nodes_evaluation: ") + e.what());
             } catch (...) { throw std::runtime_error("Unknown error in notify_after_push_nodes_evaluation"); }
@@ -147,9 +147,7 @@ namespace hgraph
                 } catch (...) {
                     throw NodeException::capture_error(std::current_exception(), node, "Unknown error during node evaluation");
                 }
-            } else if (scheduled_time > now) {
-                clock->update_next_scheduled_evaluation_time(scheduled_time);
-            }
+            } else if (scheduled_time > now) { clock->update_next_scheduled_evaluation_time(scheduled_time); }
         }
     }
 
@@ -157,14 +155,16 @@ namespace hgraph
         // This is a copy, need to make sure we copy the graph contents
         // TODO: This REALLY should be constructed using a builder, for now we will just allow to continue
         // Copy traits, preserving parent relationship if it exists
-        Traits copied_traits = _traits.copy();
-        return ptr{new Graph(_graph_id, std::move(nodes), _parent_node, _label, std::move(copied_traits))};
+        // This will loose any benefit from slab allocation.
+        auto   graph{std::make_shared<Graph>(_graph_id, std::move(nodes), _parent_node, _label, nullptr)};
+        graph->_traits = _traits.copy();
+        return graph;
     }
 
-    traits_ptr Graph::traits() const {
+    const Traits &Graph::traits() const {
         // Return an aliasing shared_ptr that points to _traits but uses Graph's control block
         // In a const method, we need to const_cast _traits to match the aliasing constructor signature
-        return std::shared_ptr<Traits>(shared_from_this(), const_cast<Traits*>(&_traits));
+        return _traits;
     }
 
     SenderReceiverState &Graph::receiver() { return _receiver; }
@@ -214,7 +214,7 @@ namespace hgraph
                 start_component(*node);
                 evaluation_engine()->notify_after_start_node(node);
             } catch (const NodeException &e) {
-                throw;  // already enriched
+                throw; // already enriched
             } catch (const std::exception &e) { throw NodeException::capture_error(e, *node, "During node start"); } catch (...) {
                 throw NodeException::capture_error(std::current_exception(), *node, "Unknown error during node start");
             }
@@ -229,7 +229,7 @@ namespace hgraph
                 stop_component(*node);
                 evaluation_engine()->notify_after_stop_node(node);
             } catch (const NodeException &e) {
-                throw;  // already enriched
+                throw; // already enriched
             } catch (const std::exception &e) { throw NodeException::capture_error(e, *node, "During node stop"); } catch (...) {
                 throw NodeException::capture_error(std::current_exception(), *node, "Unknown error during node stop");
             }
@@ -246,9 +246,7 @@ namespace hgraph
     void Graph::initialise() {
         // Need to ensure that the graph is set prior to initialising the nodes
         // In case of interaction between nodes.
-        for (auto &node : _nodes) { 
-            node->set_graph(shared_from_this()); 
-        }
+        for (auto &node : _nodes) { node->set_graph(shared_from_this()); }
         for (auto &node : _nodes) { node->initialise(); }
     }
 
@@ -268,25 +266,11 @@ namespace hgraph
         engine.notify_before_stop_graph(shared_from_this());
         std::exception_ptr first_exc;
         for (auto &node : _nodes) {
-            try {
-                engine.notify_before_stop_node(node);
-            } catch (...) {
-                if (!first_exc) first_exc = std::current_exception();
-            }
-            try {
-                stop_component(*node);
-            } catch (...) {
-                if (!first_exc) first_exc = std::current_exception();
-            }
-            try {
-                engine.notify_after_stop_node(node);
-            } catch (...) {
-                if (!first_exc) first_exc = std::current_exception();
-            }
+            try { engine.notify_before_stop_node(node); } catch (...) { if (!first_exc) first_exc = std::current_exception(); }
+            try { stop_component(*node); } catch (...) { if (!first_exc) first_exc = std::current_exception(); }
+            try { engine.notify_after_stop_node(node); } catch (...) { if (!first_exc) first_exc = std::current_exception(); }
         }
-        try {
-            engine.notify_after_stop_graph(shared_from_this());
-        } catch (...) {
+        try { engine.notify_after_stop_graph(shared_from_this()); } catch (...) {
             if (!first_exc) first_exc = std::current_exception();
         }
         if (first_exc) std::rethrow_exception(first_exc);
@@ -296,4 +280,4 @@ namespace hgraph
         // Since we initialise nodes from within the graph, we need to dispose them here.
         for (auto &node : _nodes) { node->dispose(); }
     }
-}  // namespace hgraph
+} // namespace hgraph

@@ -18,6 +18,8 @@ namespace hgraph
         requires is_tsw_output<T_U>
     struct PyTimeSeriesWindowOutput : PyTimeSeriesOutput
     {
+        using underlying_type = T_U;
+        using underlying_type_ptr = std::shared_ptr<underlying_type>;
 
         explicit PyTimeSeriesWindowOutput(T_U *impl, const control_block_ptr &cb);
         explicit PyTimeSeriesWindowOutput(T_U *impl);
@@ -34,12 +36,15 @@ namespace hgraph
         [[nodiscard]] nb::int_ len() const;
 
     private:
-        [[nodiscard]] auto impl() const -> std::shared_ptr<T_U>;
+        [[nodiscard]] underlying_type_ptr impl() const;
     };
 
     // Unified window input that works with both fixed-size and timedelta outputs
     template <typename T> struct PyTimeSeriesWindowInput : PyTimeSeriesInput
     {
+        using underlying_type = TimeSeriesWindowInput<T>;
+        using underlying_type_ptr = std::shared_ptr<underlying_type>;
+
         explicit PyTimeSeriesWindowInput(TimeSeriesWindowInput<T> *impl, const control_block_ptr &cb);
         explicit PyTimeSeriesWindowInput(TimeSeriesWindowInput<T> *impl);
         
@@ -53,7 +58,7 @@ namespace hgraph
 
         [[nodiscard]] nb::int_ len() const;
     private:
-        [[nodiscard]] auto impl() const -> std::shared_ptr<TimeSeriesWindowInput<T>>;
+        [[nodiscard]] underlying_type_ptr impl() const;
     };
 
     // Registration

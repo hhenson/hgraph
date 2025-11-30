@@ -20,7 +20,7 @@ namespace hgraph
      void copy_from_output(const nb::handle &output);
 
  private:
-     [[nodiscard]] std::shared_ptr<LastValuePullNode> impl();
+     [[nodiscard]] LastValuePullNode::ptr impl();
  };
 
     void register_special_nodes_with_nanobind(nb::module_ &m);
