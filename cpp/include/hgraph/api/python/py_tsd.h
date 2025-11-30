@@ -6,9 +6,9 @@
 namespace hgraph
 {
     template <typename T_TS, typename T_U>
-    concept is_py_tsd = ((std::is_same_v<T_TS, PyTimeSeriesInput> || std::is_same_v<T_TS, PyTimeSeriesOutput>) &&
-                         ((std::is_same_v<T_TS, PyTimeSeriesInput> && std::is_base_of_v<TimeSeriesDictInput, T_U>) ||
-                          (std::is_same_v<T_TS, PyTimeSeriesOutput> && std::is_base_of_v<TimeSeriesDictOutput, T_U>)));
+    concept is_py_tsd = ((std::is_base_of_v<PyTimeSeriesInput, T_TS> || std::is_base_of_v<PyTimeSeriesOutput, T_TS>) &&
+                         ((std::is_base_of_v<PyTimeSeriesInput, T_TS> && std::is_base_of_v<TimeSeriesDictInput, T_U>) ||
+                          (std::is_base_of_v<PyTimeSeriesOutput, T_TS> && std::is_base_of_v<TimeSeriesDictOutput, T_U>)));
 
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
@@ -79,12 +79,17 @@ namespace hgraph
         T_U *impl() const;
     };
 
+    struct PyTimeSeriesDictOutput : PyTimeSeriesOutput
+    {
+        using PyTimeSeriesOutput::PyTimeSeriesOutput;
+    };
+
     template<typename T_U>
     requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    struct PyTimeSeriesDictOutput : PyTimeSeriesDict<PyTimeSeriesOutput, T_U>
+    struct PyTimeSeriesDictOutput_T : PyTimeSeriesDict<PyTimeSeriesDictOutput, T_U>
     {
-        explicit PyTimeSeriesDictOutput(T_U* o, control_block_ptr cb);
-        explicit PyTimeSeriesDictOutput(T_U* o);
+        explicit PyTimeSeriesDictOutput_T(T_U* o, control_block_ptr cb);
+        explicit PyTimeSeriesDictOutput_T(T_U* o);
 
         void set_item(const nb::object &key, const nb::object &value);
 
@@ -97,15 +102,20 @@ namespace hgraph
         void release_ref(const nb::object &key, const nb::object &requester);
     };
 
+    struct PyTimeSeriesDictInput : PyTimeSeriesInput
+    {
+        using PyTimeSeriesInput::PyTimeSeriesInput;
+    };
+
     template<typename T_U>
     requires std::is_base_of_v<TimeSeriesDictInput, T_U>
-    struct PyTimeSeriesDictInput : PyTimeSeriesDict<PyTimeSeriesInput, T_U>
+    struct PyTimeSeriesDictInput_T : PyTimeSeriesDict<PyTimeSeriesDictInput, T_U>
     {
         void on_key_added(const nb::object &key);
         void on_key_removed(const nb::object &key);
 
-        explicit PyTimeSeriesDictInput(T_U* o, control_block_ptr cb);
-        explicit PyTimeSeriesDictInput(T_U* o);
+        explicit PyTimeSeriesDictInput_T(T_U* o, control_block_ptr cb);
+        explicit PyTimeSeriesDictInput_T(T_U* o);
     };
 
     void tsd_register_with_nanobind(nb::module_ & m);

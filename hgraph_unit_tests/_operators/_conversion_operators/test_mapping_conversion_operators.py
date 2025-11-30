@@ -62,8 +62,8 @@ def test_convert_tsb_to_mapping():
     @graph
     def g(ts: TSB[ABBundle]) -> TS[Mapping[str, int]]:
         return convert[TS[Mapping[str, int]]](ts)
-
-    assert eval_node(g, [{"a": 1}, {"b": 2}]) == [{"a": 1}, {"a": 1, "b": 2}]
+    results = eval_node(g, [{"a": 1}, {"b": 2}])
+    assert results == [{"a": 1}, {"a": 1, "b": 2}]
 
 
 def test_collect_mapping():

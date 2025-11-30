@@ -6,62 +6,61 @@ namespace hgraph
 {
 
     template <typename T_U>
-    PyTimeSeriesSetOutput<T_U>::PyTimeSeriesSetOutput(TimeSeriesSetOutput *o, control_block_ptr cb)
-        : PyTimeSeriesSet<PyTimeSeriesOutput, T_U>(o, std::move(cb)) {}
+    PyTimeSeriesSetOutput_T<T_U>::PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o, control_block_ptr cb)
+        : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>(o, std::move(cb)) {}
 
     template <typename T_U>
-    PyTimeSeriesSetOutput<T_U>::PyTimeSeriesSetOutput(TimeSeriesSetOutput *o) : PyTimeSeriesSet<PyTimeSeriesOutput, T_U>(o) {}
+    PyTimeSeriesSetOutput_T<
+        T_U>::PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o) : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>(o) {}
 
-    template <typename T_U> void PyTimeSeriesSetOutput<T_U>::remove(const nb::object &key) const {
+    template <typename T_U> void PyTimeSeriesSetOutput_T<T_U>::remove(const nb::object &key) const {
         if (key.is_none()) { return; }
         this->impl()->remove(nb::cast<typename T_U::element_type>(key));
     }
 
-    template <typename T_U> void PyTimeSeriesSetOutput<T_U>::add(const nb::object &key) const {
+    template <typename T_U> void PyTimeSeriesSetOutput_T<T_U>::add(const nb::object &key) const {
         if (key.is_none()) { return; }
         this->impl()->add(nb::cast<typename T_U::element_type>(key));
     }
 
     template <typename T_U>
-    nb::object PyTimeSeriesSetOutput<T_U>::get_contains_output(const nb::object &item, const nb::object &requester) const {
+    nb::object PyTimeSeriesSetOutput_T<T_U>::get_contains_output(const nb::object &item, const nb::object &requester) const {
         return wrap_output(this->impl()->get_contains_output(item, requester).get(), this->control_block());
     }
 
     template <typename T_U>
-    void PyTimeSeriesSetOutput<T_U>::release_contains_output(const nb::object &item, const nb::object &requester) const {
+    void PyTimeSeriesSetOutput_T<T_U>::release_contains_output(const nb::object &item, const nb::object &requester) const {
         this->impl()->release_contains_output(item, requester);
     }
 
-    template <typename T_U> nb::object PyTimeSeriesSetOutput<T_U>::is_empty_output() const {
+    template <typename T_U> nb::object PyTimeSeriesSetOutput_T<T_U>::is_empty_output() const {
         return wrap_output(this->impl()->is_empty_output().get(), this->control_block());
     }
 
-    template <typename T_U> nb::str PyTimeSeriesSetOutput<T_U>::py_str() const {
+    template <typename T_U> nb::str PyTimeSeriesSetOutput_T<T_U>::py_str() const {
         auto self{this->impl()};
         auto s{fmt::format("TimeSeriesSetOutput@{:p}[size={}, valid={}]", static_cast<const void *>(self), self->size(),
                            self->valid())};
         return nb::str(s.c_str());
     }
 
-    template <typename T_U> nb::str PyTimeSeriesSetOutput<T_U>::py_repr() const { return py_str(); }
+    template <typename T_U> nb::str PyTimeSeriesSetOutput_T<T_U>::py_repr() const { return py_str(); }
 
     template <typename T_U>
-    PyTimeSeriesSetInput<T_U>::PyTimeSeriesSetInput(TimeSeriesSetInput *o, control_block_ptr cb)
-        : PyTimeSeriesSet<PyTimeSeriesInput, T_U>(o, std::move(cb)) {}
+    PyTimeSeriesSetInput_T<T_U>::PyTimeSeriesSetInput_T(TimeSeriesSetInput *o, control_block_ptr cb)
+        : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>(o, std::move(cb)) {}
 
     template <typename T_U>
-    PyTimeSeriesSetInput<T_U>::PyTimeSeriesSetInput(TimeSeriesSetInput *o) : PyTimeSeriesSet<PyTimeSeriesInput, T_U>(o) {}
+    PyTimeSeriesSetInput_T<T_U>::PyTimeSeriesSetInput_T(TimeSeriesSetInput *o) : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>(o) {}
 
-    template <typename T_U> nb::str PyTimeSeriesSetInput<T_U>::py_str() const {
+    template <typename T_U> nb::str PyTimeSeriesSetInput_T<T_U>::py_str() const {
         auto self{this->impl()};
         auto s =
             fmt::format("TimeSeriesSetInput@{:p}[size={}, valid={}]", static_cast<const void *>(self), self->size(), self->valid());
         return nb::str(s.c_str());
     }
-    
-    template <typename T_U> nb::str PyTimeSeriesSetInput<T_U>::py_repr() const {
-        return py_str();
-    }
+
+    template <typename T_U> nb::str PyTimeSeriesSetInput_T<T_U>::py_repr() const { return py_str(); }
 
     template <typename T, typename... U> void _add_base_methods_to_tss(nb::class_<T, U...> &cls) {
         cls.def("__contains__", &T::contains)
@@ -77,12 +76,12 @@ namespace hgraph
     }
 
     template <typename T> void _tss_register_with_nanobind(nb::module_ &m, const std::string &name) {
-        using TSS_I = PyTimeSeriesSetInput<TimeSeriesSetInput_T<T>>;
-        using TSS_O = PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<T>>;
-        auto tss_i  = nb::class_<TSS_I, PyTimeSeriesInput>(m, ("TimeSeriesSetInput_" + name).c_str());
+        using TSS_I = PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<T> >;
+        using TSS_O = PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<T> >;
+        auto tss_i  = nb::class_<TSS_I, PyTimeSeriesSetInput>(m, ("TimeSeriesSetInput_" + name).c_str());
         _add_base_methods_to_tss(tss_i);
 
-        auto tss_o = nb::class_<TSS_O, PyTimeSeriesOutput>(m, ("TimeSeriesSetOutput_"+name).c_str());
+        auto tss_o = nb::class_<TSS_O, PyTimeSeriesSetOutput>(m, ("TimeSeriesSetOutput_" + name).c_str());
         _add_base_methods_to_tss(tss_o);
         tss_o.def("add", &TSS_O::add)
             .def("remove", &TSS_O::remove, "key"_a)
@@ -92,6 +91,8 @@ namespace hgraph
     }
 
     void tss_register_with_nanobind(nb::module_ &m) {
+        nb::class_<PyTimeSeriesSetInput, PyTimeSeriesInput>(m, "TimeSeriesSetInput");
+        nb::class_<PyTimeSeriesSetOutput, PyTimeSeriesOutput>(m, "TimeSeriesSetOutput");
         _tss_register_with_nanobind<bool>(m, "bool");
         _tss_register_with_nanobind<int64_t>(m, "int");
         _tss_register_with_nanobind<double>(m, "float");
@@ -103,21 +104,21 @@ namespace hgraph
 
     // Explicit instantiations for the concrete interface types we bind
 
-    template struct PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<bool>>;
-    template struct PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<int64_t>>;
-    template struct PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<double>>;
-    template struct PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_date_t>>;
-    template struct PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_time_t>>;
-    template struct PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_time_delta_t>>;
-    template struct PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<nb::object>>;
-    
-    // Explicit instantiations for input types
-    template struct PyTimeSeriesSetInput<TimeSeriesSetInput_T<bool>>;
-    template struct PyTimeSeriesSetInput<TimeSeriesSetInput_T<int64_t>>;
-    template struct PyTimeSeriesSetInput<TimeSeriesSetInput_T<double>>;
-    template struct PyTimeSeriesSetInput<TimeSeriesSetInput_T<engine_date_t>>;
-    template struct PyTimeSeriesSetInput<TimeSeriesSetInput_T<engine_time_t>>;
-    template struct PyTimeSeriesSetInput<TimeSeriesSetInput_T<engine_time_delta_t>>;
-    template struct PyTimeSeriesSetInput<TimeSeriesSetInput_T<nb::object>>;
+    template struct PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<bool> >;
+    template struct PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<int64_t> >;
+    template struct PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<double> >;
+    template struct PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<engine_date_t> >;
+    template struct PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<engine_time_t> >;
+    template struct PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<engine_time_delta_t> >;
+    template struct PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<nb::object> >;
 
-}  // namespace hgraph
+    // Explicit instantiations for input types
+    template struct PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<bool> >;
+    template struct PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<int64_t> >;
+    template struct PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<double> >;
+    template struct PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<engine_date_t> >;
+    template struct PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<engine_time_t> >;
+    template struct PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<engine_time_delta_t> >;
+    template struct PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<nb::object> >;
+
+} // namespace hgraph

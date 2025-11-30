@@ -5,9 +5,9 @@
 namespace hgraph
 {
     template <typename T_TS, typename T_U>
-    concept PyTSType = ((std::is_same_v<T_TS, PyTimeSeriesInput> || std::is_same_v<T_TS, PyTimeSeriesOutput>) &&
-                        ((std::is_same_v<T_TS, PyTimeSeriesInput> && std::is_base_of_v<TimeSeriesSetInput, T_U>) ||
-                         (std::is_same_v<T_TS, PyTimeSeriesOutput> && std::is_base_of_v<TimeSeriesSetOutput, T_U>)));
+    concept PyTSType = ((std::is_base_of_v<PyTimeSeriesInput, T_TS> || std::is_base_of_v<PyTimeSeriesOutput,T_TS>) &&
+                        ((std::is_base_of_v<PyTimeSeriesInput, T_TS> && std::is_base_of_v<TimeSeriesSetInput, T_U>) ||
+                         (std::is_base_of_v<PyTimeSeriesOutput,T_TS> && std::is_base_of_v<TimeSeriesSetOutput, T_U>)));
 
     template <typename T_TS, typename T_U>
         requires PyTSType<T_TS, T_U>
@@ -42,10 +42,15 @@ namespace hgraph
         [[nodiscard]] T_U *impl() const { return this->template static_cast_impl<T_U>(); };
     };
 
-    template <typename T_U> struct PyTimeSeriesSetOutput : PyTimeSeriesSet<PyTimeSeriesOutput, T_U>
+    struct PyTimeSeriesSetOutput: PyTimeSeriesOutput
     {
-        explicit PyTimeSeriesSetOutput(TimeSeriesSetOutput *o, control_block_ptr cb);
-        explicit PyTimeSeriesSetOutput(TimeSeriesSetOutput *o);
+        using PyTimeSeriesOutput::PyTimeSeriesOutput;
+    };
+
+    template <typename T_U> struct PyTimeSeriesSetOutput_T : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>
+    {
+        explicit PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o, control_block_ptr cb);
+        explicit PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o);
 
         void remove(const nb::object &key) const;
 
@@ -61,10 +66,15 @@ namespace hgraph
         [[nodiscard]] nb::str py_repr() const;
     };
 
-    template <typename T_U> struct PyTimeSeriesSetInput : PyTimeSeriesSet<PyTimeSeriesInput, T_U>
+    struct PyTimeSeriesSetInput: PyTimeSeriesInput
     {
-        explicit PyTimeSeriesSetInput(TimeSeriesSetInput *o, control_block_ptr cb);
-        explicit PyTimeSeriesSetInput(TimeSeriesSetInput *o);
+        using PyTimeSeriesInput::PyTimeSeriesInput;
+    };
+
+    template <typename T_U> struct PyTimeSeriesSetInput_T : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>
+    {
+        explicit PyTimeSeriesSetInput_T(TimeSeriesSetInput *o, control_block_ptr cb);
+        explicit PyTimeSeriesSetInput_T(TimeSeriesSetInput *o);
 
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;

@@ -119,6 +119,15 @@ namespace hgraph
         api_ptr      _impl;
     };
 
+    struct PyPushQueueNode : PyNode
+    {
+        using PyNode::PyNode;
+
+        nb::int_ messages_in_queue() const;
+
+        static void register_with_nanobind(nb::module_ &m);
+    };
+
     struct PyNestedNode : PyNode
     {
         using PyNode::PyNode;

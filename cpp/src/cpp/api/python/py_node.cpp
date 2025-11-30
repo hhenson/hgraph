@@ -1,3 +1,5 @@
+#include "hgraph/nodes/push_queue_node.h"
+
 #include <hgraph/api/python/wrapper_factory.h>
 
 #include <hgraph/nodes/nested_node.h>
@@ -113,7 +115,7 @@ namespace hgraph
 
     PyGraph PyNode::graph() const {
         auto graph{_impl->graph()};
-        return PyGraph(ApiPtr<Graph>(graph.get(), graph->control_block()));
+        return PyGraph(ApiPtr<Graph>(graph, graph->control_block()));
     }
 
     time_series_bundle_input_ptr PyNode::input() const { return _impl->input(); }
@@ -170,6 +172,15 @@ namespace hgraph
 
     control_block_ptr PyNode::control_block() const { return _impl.control_block(); }
 
+    nb::int_ PyPushQueueNode::messages_in_queue() const {
+        return nb::int_(this->static_cast_impl<PushQueueNode>()->messages_in_queue());
+    }
+
+    void PyPushQueueNode::register_with_nanobind(nb::module_ &m) {
+        nb::class_<PyPushQueueNode, PyNode>(m, "PushQueueNode")
+            .def_prop_ro("messages_in_queue", &PyPushQueueNode::messages_in_queue);
+    }
+
     engine_time_t PyNestedNode::last_evaluation_time() const {
         return this->static_cast_impl<NestedNode>()->last_evaluation_time();
     }
@@ -186,4 +197,4 @@ namespace hgraph
             .def("_remove_graph_dependency", &PyMeshNestedNode::remove_graph_dependency, "key"_a, "depends_on"_a);
     }
 
-}  // namespace hgraph
+} // namespace hgraph

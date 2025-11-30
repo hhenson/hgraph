@@ -23,6 +23,7 @@
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
+#include <hgraph/nodes/push_queue_node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_visitor.h>
 #include <hgraph/types/traits.h>
@@ -101,6 +102,10 @@ namespace hgraph
             return get_or_create_wrapper(impl, control_block,
                                          [](auto impl, const auto &cb) { return PyLastValuePullNode({impl, cb}); });
         }
+        if (dynamic_cast<const PushQueueNode *>(impl)) {
+            return get_or_create_wrapper(impl, control_block,
+                                         [](auto impl, const auto &cb) { return PyPushQueueNode({impl, cb}); });
+        }
         if (auto r_val = map_node(impl)) { return *r_val; }
         if (dynamic_cast<const NestedNode *>(impl)) {
             return get_or_create_wrapper(impl, control_block, [](auto impl, const auto &cb) { return PyNestedNode({impl, cb}); });
@@ -145,20 +150,20 @@ namespace hgraph
         void visit_dict_input_impl(TimeSeriesType *input) override {
             // Try to determine the key type by trying all registered types (in order of likelihood)
             if (auto *dict_obj = dynamic_cast<TimeSeriesDictInput_T<nb::object> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<nb::object>>(dict_obj, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<nb::object>>(dict_obj, control_block));
             } else if (auto *dict_int = dynamic_cast<TimeSeriesDictInput_T<int64_t> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<int64_t>>(dict_int, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<int64_t>>(dict_int, control_block));
             } else if (auto *dict_double = dynamic_cast<TimeSeriesDictInput_T<double> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<double>>(dict_double, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<double>>(dict_double, control_block));
             } else if (auto *dict_bool = dynamic_cast<TimeSeriesDictInput_T<bool> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<bool>>(dict_bool, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<bool>>(dict_bool, control_block));
             } else if (auto *dict_date = dynamic_cast<TimeSeriesDictInput_T<engine_date_t> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_date_t>>(dict_date, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<engine_date_t>>(dict_date, control_block));
             } else if (auto *dict_time = dynamic_cast<TimeSeriesDictInput_T<engine_time_t> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_time_t>>(dict_time, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<engine_time_t>>(dict_time, control_block));
             } else if (auto *dict_timedelta = dynamic_cast<TimeSeriesDictInput_T<engine_time_delta_t> *>(input)) {
                 wrapped_visitor =
-                    nb::cast(PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_time_delta_t>>(dict_timedelta, control_block));
+                    nb::cast(PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<engine_time_delta_t>>(dict_timedelta, control_block));
             } else {
                 wrapped_visitor = nb::none();
             }
@@ -167,20 +172,20 @@ namespace hgraph
         void visit_set_input_impl(TimeSeriesType *input) override {
             // Try all registered key types (in order of likelihood)
             if (auto *set_obj = dynamic_cast<TimeSeriesSetInput_T<nb::object> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<nb::object>>(set_obj, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<nb::object>>(set_obj, control_block));
             } else if (auto *set_int = dynamic_cast<TimeSeriesSetInput_T<int64_t> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<int64_t>>(set_int, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<int64_t>>(set_int, control_block));
             } else if (auto *set_double = dynamic_cast<TimeSeriesSetInput_T<double> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<double>>(set_double, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<double>>(set_double, control_block));
             } else if (auto *set_bool = dynamic_cast<TimeSeriesSetInput_T<bool> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<bool>>(set_bool, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<bool>>(set_bool, control_block));
             } else if (auto *set_date = dynamic_cast<TimeSeriesSetInput_T<engine_date_t> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<engine_date_t>>(set_date, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<engine_date_t>>(set_date, control_block));
             } else if (auto *set_time = dynamic_cast<TimeSeriesSetInput_T<engine_time_t> *>(input)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<engine_time_t>>(set_time, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<engine_time_t>>(set_time, control_block));
             } else if (auto *set_timedelta = dynamic_cast<TimeSeriesSetInput_T<engine_time_delta_t> *>(input)) {
                 wrapped_visitor =
-                    nb::cast(PyTimeSeriesSetInput<TimeSeriesSetInput_T<engine_time_delta_t>>(set_timedelta, control_block));
+                    nb::cast(PyTimeSeriesSetInput_T<TimeSeriesSetInput_T<engine_time_delta_t>>(set_timedelta, control_block));
             } else {
                 wrapped_visitor = nb::none();
             }
@@ -345,20 +350,20 @@ namespace hgraph
         void visit_dict_output_impl(TimeSeriesType *output) override {
             // Try to determine the key type by trying all registered types (in order of likelihood)
             if (auto *dict_obj = dynamic_cast<TimeSeriesDictOutput_T<nb::object> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<nb::object>>(dict_obj, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<nb::object>>(dict_obj, control_block));
             } else if (auto *dict_int = dynamic_cast<TimeSeriesDictOutput_T<int64_t> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<int64_t>>(dict_int, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<int64_t>>(dict_int, control_block));
             } else if (auto *dict_double = dynamic_cast<TimeSeriesDictOutput_T<double> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<double>>(dict_double, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<double>>(dict_double, control_block));
             } else if (auto *dict_bool = dynamic_cast<TimeSeriesDictOutput_T<bool> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<bool>>(dict_bool, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<bool>>(dict_bool, control_block));
             } else if (auto *dict_date = dynamic_cast<TimeSeriesDictOutput_T<engine_date_t> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_date_t>>(dict_date, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<engine_date_t>>(dict_date, control_block));
             } else if (auto *dict_time = dynamic_cast<TimeSeriesDictOutput_T<engine_time_t> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_t>>(dict_time, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<engine_time_t>>(dict_time, control_block));
             } else if (auto *dict_timedelta = dynamic_cast<TimeSeriesDictOutput_T<engine_time_delta_t> *>(output)) {
                 wrapped_visitor =
-                    nb::cast(PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_delta_t>>(dict_timedelta, control_block));
+                    nb::cast(PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<engine_time_delta_t>>(dict_timedelta, control_block));
             } else {
                 wrapped_visitor = nb::none();
             }
@@ -367,20 +372,20 @@ namespace hgraph
         void visit_set_output_impl(TimeSeriesType *output) override {
             // Try all registered key types (in order of likelihood)
             if (auto *set_obj = dynamic_cast<TimeSeriesSetOutput_T<nb::object> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<nb::object>>(set_obj, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<nb::object>>(set_obj, control_block));
             } else if (auto *set_int = dynamic_cast<TimeSeriesSetOutput_T<int64_t> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<int64_t>>(set_int, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<int64_t>>(set_int, control_block));
             } else if (auto *set_double = dynamic_cast<TimeSeriesSetOutput_T<double> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<double>>(set_double, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<double>>(set_double, control_block));
             } else if (auto *set_bool = dynamic_cast<TimeSeriesSetOutput_T<bool> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<bool>>(set_bool, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<bool>>(set_bool, control_block));
             } else if (auto *set_date = dynamic_cast<TimeSeriesSetOutput_T<engine_date_t> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_date_t>>(set_date, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<engine_date_t>>(set_date, control_block));
             } else if (auto *set_time = dynamic_cast<TimeSeriesSetOutput_T<engine_time_t> *>(output)) {
-                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_time_t>>(set_time, control_block));
+                wrapped_visitor = nb::cast(PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<engine_time_t>>(set_time, control_block));
             } else if (auto *set_timedelta = dynamic_cast<TimeSeriesSetOutput_T<engine_time_delta_t> *>(output)) {
                 wrapped_visitor =
-                    nb::cast(PyTimeSeriesSetOutput<TimeSeriesSetOutput_T<engine_time_delta_t>>(set_timedelta, control_block));
+                    nb::cast(PyTimeSeriesSetOutput_T<TimeSeriesSetOutput_T<engine_time_delta_t>>(set_timedelta, control_block));
             } else {
                 wrapped_visitor = nb::none();
             }

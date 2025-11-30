@@ -48,7 +48,7 @@ namespace hgraph
                     } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
                         auto out = output();
                         // wrapped_value = wrap_output(out.get(), cb);
-                        wrapped_value = wrap_time_series(out.get(), graph()->control_block());
+                        wrapped_value = wrap_time_series(out, graph()->control_block());
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
                         wrapped_value = wrap_node_scheduler(sched.get(), cb);
@@ -106,7 +106,7 @@ namespace hgraph
         // This can be called during wiring in the current flow, would be worth looking into that to clean up, but for now protect
         if (graph() == nullptr) { return; }
         // If is not a compute node or sink node, there are no inputs to map
-        auto input_{input().get()};
+        auto input_{input()};
         if (!input_) { return; }
         const auto &cb{graph()->control_block()};
         auto &signature_args = signature().args;

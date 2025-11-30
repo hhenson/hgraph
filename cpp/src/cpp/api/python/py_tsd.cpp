@@ -287,71 +287,71 @@ namespace hgraph
     // ===== PyTimeSeriesDictOutput =====
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    PyTimeSeriesDictOutput<T_U>::PyTimeSeriesDictOutput(T_U *o, control_block_ptr cb)
-        : PyTimeSeriesDict<PyTimeSeriesOutput, T_U>(o, std::move(cb)) {}
+    PyTimeSeriesDictOutput_T<T_U>::PyTimeSeriesDictOutput_T(T_U *o, control_block_ptr cb)
+        : PyTimeSeriesDict<PyTimeSeriesDictOutput, T_U>(o, std::move(cb)) {}
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    PyTimeSeriesDictOutput<T_U>::PyTimeSeriesDictOutput(T_U *o) : PyTimeSeriesDict<PyTimeSeriesOutput, T_U>(o) {}
+    PyTimeSeriesDictOutput_T<T_U>::PyTimeSeriesDictOutput_T(T_U *o) : PyTimeSeriesDict<PyTimeSeriesDictOutput, T_U>(o) {}
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    void PyTimeSeriesDictOutput<T_U>::set_item(const nb::object &key, const nb::object &value) {
+    void PyTimeSeriesDictOutput_T<T_U>::set_item(const nb::object &key, const nb::object &value) {
         this->impl()->py_set_item(key, value);
     }
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    void PyTimeSeriesDictOutput<T_U>::del_item(const nb::object &key) {
+    void PyTimeSeriesDictOutput_T<T_U>::del_item(const nb::object &key) {
         this->impl()->py_del_item(key);
     }
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    nb::object PyTimeSeriesDictOutput<T_U>::pop(const nb::object &key, const nb::object &default_value) {
+    nb::object PyTimeSeriesDictOutput_T<T_U>::pop(const nb::object &key, const nb::object &default_value) {
         return this->impl()->py_pop(key, default_value);
     }
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    nb::object PyTimeSeriesDictOutput<T_U>::get_ref(const nb::object &key, const nb::object &requester) {
+    nb::object PyTimeSeriesDictOutput_T<T_U>::get_ref(const nb::object &key, const nb::object &requester) {
         return this->impl()->py_get_ref(key, requester);
     }
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    void PyTimeSeriesDictOutput<T_U>::release_ref(const nb::object &key, const nb::object &requester) {
+    void PyTimeSeriesDictOutput_T<T_U>::release_ref(const nb::object &key, const nb::object &requester) {
         this->impl()->py_release_ref(key, requester);
     }
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictInput, T_U>
-    void PyTimeSeriesDictInput<T_U>::on_key_added(const nb::object &key) {
+    void PyTimeSeriesDictInput_T<T_U>::on_key_added(const nb::object &key) {
         this->impl()->on_key_added(nb::cast<typename T_U::key_type>(key));
     }
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictInput, T_U>
-    void PyTimeSeriesDictInput<T_U>::on_key_removed(const nb::object &key) {
+    void PyTimeSeriesDictInput_T<T_U>::on_key_removed(const nb::object &key) {
         this->impl()->on_key_removed(nb::cast<typename T_U::key_type>(key));
     }
 
     // ===== PyTimeSeriesDictInput =====
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictInput, T_U>
-    PyTimeSeriesDictInput<T_U>::PyTimeSeriesDictInput(T_U *o, control_block_ptr cb)
-        : PyTimeSeriesDict<PyTimeSeriesInput, T_U>(o, std::move(cb)) {}
+    PyTimeSeriesDictInput_T<T_U>::PyTimeSeriesDictInput_T(T_U *o, control_block_ptr cb)
+        : PyTimeSeriesDict<PyTimeSeriesDictInput, T_U>(o, std::move(cb)) {}
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictInput, T_U>
-    PyTimeSeriesDictInput<T_U>::PyTimeSeriesDictInput(T_U *o) : PyTimeSeriesDict<PyTimeSeriesInput, T_U>(o) {}
+    PyTimeSeriesDictInput_T<T_U>::PyTimeSeriesDictInput_T(T_U *o) : PyTimeSeriesDict<PyTimeSeriesDictInput, T_U>(o) {}
 
     // TODO: Make this a template
     template <typename T_Key> void _tsd_register_with_nanobind(nb::module_ &m, std::string name) {
-        using TSD_OUT          = PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<T_Key>>;
+        using TSD_OUT          = PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<T_Key>>;
         std::string class_name = fmt::format("TimeSeriesDictOutput_{}", name);
 
-        auto output = nb::class_<TSD_OUT, PyTimeSeriesOutput>(m, class_name.c_str());
+        auto output = nb::class_<TSD_OUT, PyTimeSeriesDictOutput>(m, class_name.c_str());
 
         output.def("__contains__", &TSD_OUT::contains, "key"_a)
             .def("__getitem__", &TSD_OUT::get_item, "key"_a)
@@ -403,9 +403,9 @@ namespace hgraph
                                    static_cast<bool>(self.valid()));
             });
 
-        using TSD_IN = PyTimeSeriesDictInput<TimeSeriesDictInput_T<T_Key>>;
+        using TSD_IN = PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<T_Key>>;
 
-        auto input_ = nb::class_<TSD_IN, PyTimeSeriesInput>(m, fmt::format("TimeSeriesDictInput_{}", name).c_str());
+        auto input_ = nb::class_<TSD_IN, PyTimeSeriesDictInput>(m, fmt::format("TimeSeriesDictInput_{}", name).c_str());
 
         input_.def("__contains__", &TSD_IN::contains, "key"_a)
             .def("__getitem__", &TSD_IN::get_item, "key"_a)
@@ -454,24 +454,26 @@ namespace hgraph
             });
     }
 
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<bool>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<int64_t>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<double>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_date_t>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_t>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<engine_time_delta_t>>;
-    template struct PyTimeSeriesDictOutput<TimeSeriesDictOutput_T<nb::object>>;
+    template struct PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<bool>>;
+    template struct PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<int64_t>>;
+    template struct PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<double>>;
+    template struct PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<engine_date_t>>;
+    template struct PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<engine_time_t>>;
+    template struct PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<engine_time_delta_t>>;
+    template struct PyTimeSeriesDictOutput_T<TimeSeriesDictOutput_T<nb::object>>;
 
     // Explicit instantiations for input types
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<bool>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<int64_t>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<double>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_date_t>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_time_t>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<engine_time_delta_t>>;
-    template struct PyTimeSeriesDictInput<TimeSeriesDictInput_T<nb::object>>;
+    template struct PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<bool>>;
+    template struct PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<int64_t>>;
+    template struct PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<double>>;
+    template struct PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<engine_date_t>>;
+    template struct PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<engine_time_t>>;
+    template struct PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<engine_time_delta_t>>;
+    template struct PyTimeSeriesDictInput_T<TimeSeriesDictInput_T<nb::object>>;
 
     void tsd_register_with_nanobind(nb::module_ &m) {
+        nb::class_<PyTimeSeriesDictOutput, PyTimeSeriesOutput>(m, "TimeSeriesDictOutput");
+        nb::class_<PyTimeSeriesDictInput, PyTimeSeriesInput>(m, "TimeSeriesDictInput");
         _tsd_register_with_nanobind<bool>(m, "Bool");
         _tsd_register_with_nanobind<int64_t>(m, "Int");
         _tsd_register_with_nanobind<double>(m, "Float");
