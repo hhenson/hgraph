@@ -146,7 +146,7 @@ namespace hgraph
         if (!is_recover_mode) { return; }
 
         // Get the evaluation clock as a Python object
-        nb::object clock = nb::cast(graph()->evaluation_clock());
+        nb::object clock = wrap_evaluation_clock(graph()->evaluation_clock(), graph()->control_block());
 
         // Get the fully qualified recordable ID
         nb::object  fq_recordable_id_fn = get_fq_recordable_id_fn();
