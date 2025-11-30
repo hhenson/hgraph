@@ -281,8 +281,14 @@ def test_race_tsd_of_bundles_all_free_bundles():
     assert eval_node(
         g,
         a=[None, {1: 0, 2: 0}, {2: 2}, {2: 2, 3: 3}, {1: REMOVE}, {2: 0}],
-        b=[None, {1: 0, 2: 0}, {1: 1}, {2: 2, 3: 3}, {1: REMOVE}, {2: 0}],
-    ) == [None, None, {"a": 2, "b": 1}, {"a": 2}, {"b": 2}, {"a": 3, "b": 3}]
+        b=[None, {1: 0, 2: 0}, {1: 1}, {2: 2,}, {1: REMOVE}, {2: 0}],
+    ) == [None, None, {"a": 2, "b": 1}, {"a": 2}, {"b": 2}, {"a": 3}]
+    # NOTE: The original test:
+    # a=[None, {1: 0, 2: 0}, {2: 2}, {2: 2, 3: 3}, {1: REMOVE}, {2: 0}]
+    # b=[None, {1: 0, 2: 0}, {1: 1}, {2: 2, 3: 3}, {1: REMOVE}, {2: 0}],
+    #     ) == [None, None, {"a": 2, "b": 1}, {"a": 2}, {"b": 2}, {"a": 3, "b": 3}]
+    # has non-determinism under C++ as order of dictionaries is not guaranteed. So simplified the test to make it
+    # deterministic.
 
 
 def test_race_tsd_of_bundles_switch_bundle_types():
