@@ -5,18 +5,18 @@ Verifies that memory_size is calculated correctly and cached at the graph level.
 import pytest
 from hgraph import graph, wire_graph, const, print_, TS, compute_node, null_sink
 from hgraph._wiring._wiring_node_instance import WiringNodeInstanceContext
+from hgraph import is_feature_enabled
 
+HAS_CPP_DEBUG = is_feature_enabled("use_cpp")
+if HAS_CPP_DEBUG:
 # Import C++ module to access debug functions
-try:
     import hgraph._hgraph as _hgraph
     set_arena_debug_mode = _hgraph.set_arena_debug_mode
     get_arena_debug_mode = _hgraph.get_arena_debug_mode
     ARENA_CANARY_PATTERN = _hgraph.ARENA_CANARY_PATTERN
-    HAS_CPP_DEBUG = True
-except (ImportError, AttributeError):
-    HAS_CPP_DEBUG = False
 
 
+@pytest.mark.skipif(not HAS_CPP_DEBUG, reason="C++ debug functions not available")
 def test_memory_size_simple_graph():
     """Test memory_size for a simple graph with basic nodes."""
     @graph
@@ -37,6 +37,7 @@ def test_memory_size_simple_graph():
     assert size == size2, "memory_size should be cached and return the same value"
 
 
+@pytest.mark.skipif(not HAS_CPP_DEBUG, reason="C++ debug functions not available")
 def test_memory_size_with_compute_node():
     """Test memory_size for a graph with compute nodes."""
     @compute_node
@@ -59,6 +60,7 @@ def test_memory_size_with_compute_node():
     assert gb.memory_size() == size
 
 
+@pytest.mark.skipif(not HAS_CPP_DEBUG, reason="C++ debug functions not available")
 def test_memory_size_increases_with_more_nodes():
     """Test that memory_size increases as more nodes are added."""
     @compute_node
@@ -92,6 +94,7 @@ def test_memory_size_increases_with_more_nodes():
         f"Large graph ({size_large}) should have larger memory_size than small graph ({size_small})"
 
 
+@pytest.mark.skipif(not HAS_CPP_DEBUG, reason="C++ debug functions not available")
 def test_memory_size_accounts_for_alignment():
     """Test that memory_size accounts for alignment requirements."""
     @graph
@@ -114,6 +117,7 @@ def test_memory_size_accounts_for_alignment():
     assert size >= 100, f"memory_size seems too small: {size}"
 
 
+@pytest.mark.skipif(not HAS_CPP_DEBUG, reason="C++ debug functions not available")
 def test_memory_size_consistent_across_calls():
     """Test that memory_size is consistent across multiple calls."""
     @graph
@@ -133,6 +137,7 @@ def test_memory_size_consistent_across_calls():
     assert len(set(sizes)) == 1, f"memory_size should be cached, got different values: {sizes}"
 
 
+@pytest.mark.skipif(not HAS_CPP_DEBUG, reason="C++ debug functions not available")
 def test_memory_size_for_nested_structures():
     """Test memory_size for graphs with nested time-series structures."""
     @compute_node

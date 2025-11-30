@@ -42,26 +42,26 @@ namespace hgraph
         [[nodiscard]] nb::object get_item(const nb::handle &key) const;
 
         // Retrieves valid keys
-        [[nodiscard]] auto keys() const;
+        [[nodiscard]] nb::object keys() const;
 
-        [[nodiscard]] auto values() const;
+        [[nodiscard]] nb::object values() const;
 
-        [[nodiscard]] auto valid_keys() const;
+        [[nodiscard]] nb::object valid_keys() const;
 
-        [[nodiscard]] auto modified_keys() const;
+        [[nodiscard]] nb::object modified_keys() const;
 
         [[nodiscard]] nb::int_ len() const;
 
         // Retrieves valid items
-        [[nodiscard]] auto items() const;
+        [[nodiscard]] nb::object items() const;
 
-        [[nodiscard]] auto valid_values() const;
+        [[nodiscard]] nb::object valid_values() const;
 
-        [[nodiscard]] auto valid_items() const;
+        [[nodiscard]] nb::object valid_items() const;
 
-        [[nodiscard]] auto modified_values() const;
+        [[nodiscard]] nb::object modified_values() const;
 
-        [[nodiscard]] auto modified_items() const;
+        [[nodiscard]] nb::object modified_items() const;
 
         [[nodiscard]] bool empty() const;
 

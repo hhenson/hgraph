@@ -42,7 +42,7 @@ def merge_ts_scalar(*tsl: TSL[TS[SCALAR], SIZE], _output: TS[SCALAR] = None) -> 
     list.
     """
     if tsl.modified:
-        return next(tsl.modified_values()).value
+        return next(iter(tsl.modified_values())).value
     else:
         # This implies a value has gone away, if this is the last ticked value, revert to the last ticked value that
         # is still valid

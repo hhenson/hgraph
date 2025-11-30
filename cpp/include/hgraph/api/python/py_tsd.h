@@ -26,47 +26,47 @@ namespace hgraph
 
         void create(const nb::object &item);
 
-        [[nodiscard]] nb::iterator iter();
+        [[nodiscard]] nb::object iter() const;
 
         [[nodiscard]] bool contains(const nb::object &item) const;
 
         [[nodiscard]] nb::object key_set() const;
 
-        [[nodiscard]] nb::iterator keys() const;
+        [[nodiscard]] nb::object keys() const;
 
-        [[nodiscard]] nb::iterator values() const;
+        [[nodiscard]] nb::object values() const;
 
-        [[nodiscard]] nb::iterator items() const;
+        [[nodiscard]] nb::object items() const;
 
-        [[nodiscard]] nb::iterator modified_keys() const;
+        [[nodiscard]] nb::object modified_keys() const;
 
-        [[nodiscard]] nb::iterator modified_values() const;
+        [[nodiscard]] nb::object modified_values() const;
 
-        [[nodiscard]] nb::iterator modified_items() const;
+        [[nodiscard]] nb::object modified_items() const;
 
         [[nodiscard]] bool was_modified(const nb::object &key) const;
 
-        [[nodiscard]] nb::iterator valid_keys() const;
+        [[nodiscard]] nb::object valid_keys() const;
 
-        [[nodiscard]] nb::iterator valid_values() const;
+        [[nodiscard]] nb::object valid_values() const;
 
-        [[nodiscard]] nb::iterator valid_items() const;
+        [[nodiscard]] nb::object valid_items() const;
 
-        [[nodiscard]] nb::iterator added_keys() const;
+        [[nodiscard]] nb::object added_keys() const;
 
-        [[nodiscard]] nb::iterator added_values() const;
+        [[nodiscard]] nb::object added_values() const;
 
-        [[nodiscard]] nb::iterator added_items() const;
+        [[nodiscard]] nb::object added_items() const;
 
         [[nodiscard]] bool has_added() const;
 
         [[nodiscard]] bool was_added(const nb::object &key) const;
 
-        [[nodiscard]] nb::iterator removed_keys() const;
+        [[nodiscard]] nb::object removed_keys() const;
 
-        [[nodiscard]] nb::iterator removed_values() const;
+        [[nodiscard]] nb::object removed_values() const;
 
-        [[nodiscard]] nb::iterator removed_items() const;
+        [[nodiscard]] nb::object removed_items() const;
 
         [[nodiscard]] bool has_removed() const;
 

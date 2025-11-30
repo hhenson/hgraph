@@ -15,43 +15,6 @@
 
 namespace hgraph
 {
-    // Helper template functions to convert maps/collections to Python tuples
-
-    template<typename Map>
-    nb::object keys_to_tuple(const Map& map) {
-        nb::list result;
-        for (const auto& [key, _] : map) {
-            result.append(nb::cast(key));
-        }
-        return nb::tuple(result);
-    }
-
-    template<typename Map>
-    nb::object values_to_tuple(const Map& map) {
-        nb::list result;
-        for (const auto& [_, value] : map) {
-            result.append(nb::cast(value.get()));
-        }
-        return nb::tuple(result);
-    }
-
-    template<typename Map>
-    nb::object items_to_tuple(const Map& map) {
-        nb::list result;
-        for (const auto& [key, value] : map) {
-            result.append(nb::make_tuple(nb::cast(key), nb::cast(value.get())));
-        }
-        return nb::tuple(result);
-    }
-
-    template<typename Set>
-    nb::object set_to_tuple(const Set& set) {
-        nb::list result;
-        for (const auto& item : set) {
-            result.append(nb::cast(item));
-        }
-        return nb::tuple(result);
-    }
 
     template<typename T_Key> void TimeSeriesDictOutput_T<T_Key>::apply_result(const nb::object& value) {
         // Ensure any Python API interaction occurs under the GIL and protect against exceptions

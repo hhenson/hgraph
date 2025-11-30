@@ -82,267 +82,68 @@ namespace hgraph
     nb::object wrap_time_series(const TimeSeriesOutput *impl);
 
     // ---------------------------------------------------------------------
-    // Lightweight Nanobind iterator helpers for time series wrapping
+    // List-based helpers for time series wrapping
     // ---------------------------------------------------------------------
-    // These helpers create Python iterators that transform underlying C++
-    // iterator elements into wrapped time series Python objects using the
-    // provided control block. Implemented as templates fully in the header
-    // to keep usage simple and avoid separate adapter iterator types.
+    // These helpers convert C++ containers/ranges to Python lists, wrapping
+    // time series values appropriately using the provided control block.
+    // All functions return nb::list - wrap with nb::iter() in __iter__ methods.
 
-    namespace detail
-    {
-        // Accessors used by iterator helpers
-        struct tsd_identity_accessor
-        {
-            template <typename Iterator> static decltype(auto) get(Iterator &it) { return (*it); }
-        };
-
-        struct tsd_second_accessor
-        {
-            template <typename Iterator> static decltype(auto) get(Iterator &it) { return (*it).second; }
-        };
-
-        template <typename Iterator, typename Sentinel, typename Accessor> struct tsd_mapped_iter_state
-        {
-            Iterator          it;
-            Sentinel          end;
-            control_block_ptr cb;
-            bool              first_or_done;
-        };
-
-        // State that stores the collection to ensure iterator lifetime
-        template <typename Collection, typename Accessor> struct tsd_collection_iter_state
-        {
-            std::shared_ptr<Collection>   collection;  // Store the collection in shared_ptr
-            typename Collection::iterator it;
-            typename Collection::iterator end;
-            control_block_ptr             cb;
-            bool                          first_or_done;
-        };
-
-        template <typename Iterator, typename Sentinel, typename Accessor,
-                  typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
-        inline nb::typed<nb::iterator, ValueType> make_time_series_iterator_ex(nb::handle scope, const char *name, Iterator first,
-                                                                               Sentinel last, control_block_ptr cb) {
-            using State = tsd_mapped_iter_state<Iterator, Sentinel, Accessor>;
-
-            static nb::ft_mutex mu;
-            nb::ft_lock_guard   lock(mu);
-            if (!nb::type<State>().is_valid()) {
-                nb::class_<State>(scope, name)
-                    .def("__iter__", [](nb::handle h) { return h; })
-                    .def("__next__", [](State &s) -> nb::object {
-                        if (!s.first_or_done) ++s.it;
-                        else
-                            s.first_or_done = false;
-
-                        if (s.it == s.end) {
-                            s.first_or_done = true;
-                            throw nb::stop_iteration();
-                        }
-
-                        // Project element and wrap into a Python time series
-                        auto &&elem = Accessor::get(s.it);
-                        return wrap_time_series(elem, s.cb);
-                    });
-            }
-
-            return nb::borrow<nb::typed<nb::iterator, nb::object>>(
-                nb::cast(State{std::move(first), std::move(last), std::move(cb), true}));
-        }
-    }  // namespace detail
-
-    // Direct-iteration version: wraps elements yielded by the iterator
-    // (use when the iterator dereferences to a time series pointer/ref)
-    template <typename Iterator, typename Sentinel,
-              typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
-    inline nb::typed<nb::iterator, ValueType> make_time_series_iterator(nb::handle scope, const char *name, Iterator first,
-                                                                        Sentinel last, control_block_ptr cb) {
-        return detail::make_time_series_iterator_ex<Iterator, Sentinel, detail::tsd_identity_accessor>(
-            scope, name, std::move(first), std::move(last), std::move(cb));
+    // Convert range keys to a Python list (for map-like iterators)
+    template <typename Iterator> nb::list keys_to_list(Iterator begin, Iterator end) {
+        nb::list result;
+        for (auto it = begin; it != end; ++it) { result.append(nb::cast(it->first)); }
+        return result;
     }
 
-    // Collection-based version: stores the collection to ensure iterator lifetime
-    template <typename Collection,
-              typename ValueType = typename nb::detail::iterator_access<decltype(std::declval<Collection>().begin())>::result_type>
-    inline nb::typed<nb::iterator, ValueType> make_time_series_iterator(nb::handle scope, const char *name, Collection &&collection,
-                                                                        control_block_ptr cb) {
-        // Store the collection in the state to ensure lifetime
-        using CollectionType = std::decay_t<Collection>;
-        using State          = detail::tsd_collection_iter_state<CollectionType, detail::tsd_identity_accessor>;
-
-        static nb::ft_mutex mu;
-        nb::ft_lock_guard   lock(mu);
-        if (!nb::type<State>().is_valid()) {
-            nb::class_<State>(scope, name)
-                .def("__iter__", [](nb::handle h) { return h; })
-                .def("__next__", [](State &s) -> nb::object {
-                    if (!s.first_or_done) ++s.it;
-                    else
-                        s.first_or_done = false;
-
-                    if (s.it == s.end) {
-                        s.first_or_done = true;
-                        throw nb::stop_iteration();
-                    }
-
-                    auto &&elem = detail::tsd_identity_accessor::get(s.it);
-                    return wrap_time_series(elem, s.cb);
-                });
-        }
-
-        // Move the collection into a shared_ptr to extend its lifetime
-        auto coll_ptr = std::make_shared<CollectionType>(std::forward<Collection>(collection));
-        return nb::borrow<nb::typed<nb::iterator, ValueType>>(
-            nb::cast(State{coll_ptr, coll_ptr->begin(), coll_ptr->end(), std::move(cb), true}));
+    // Convert map/range keys to a Python list (takes by value to handle views)
+    template <typename Range> nb::list keys_to_list(Range range) {
+        nb::list result;
+        for (const auto &[key, _] : range) { result.append(nb::cast(key)); }
+        return result;
     }
 
-    // Value-iteration version: wraps the `.second` of pair-like iterators
-    template <typename Iterator, typename Sentinel,
-              typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
-    inline nb::typed<nb::iterator, ValueType> make_time_series_value_iterator(nb::handle scope, const char *name, Iterator first,
-                                                                              Sentinel last, control_block_ptr cb) {
-        return detail::make_time_series_iterator_ex<Iterator, Sentinel, detail::tsd_second_accessor>(
-            scope, name, std::move(first), std::move(last), std::move(cb));
+    // Convert range values to a Python list, wrapping time series values
+    template <typename Iterator> nb::list values_to_list(Iterator begin, Iterator end, const control_block_ptr &cb) {
+        nb::list result;
+        for (auto it = begin; it != end; ++it) { result.append(wrap_time_series(it->second, cb)); }
+        return result;
     }
 
-    // Collection-based version: stores the collection to ensure iterator lifetime
-    template <typename Collection,
-              typename ValueType = typename nb::detail::iterator_access<decltype(std::declval<Collection>().begin())>::result_type>
-    inline nb::typed<nb::iterator, ValueType> make_time_series_value_iterator(nb::handle scope, const char *name,
-                                                                              Collection &&collection, control_block_ptr cb) {
-        // Store the collection in the state to ensure lifetime
-        using CollectionType = std::decay_t<Collection>;
-        using State          = detail::tsd_collection_iter_state<CollectionType, detail::tsd_second_accessor>;
-
-        static nb::ft_mutex mu;
-        nb::ft_lock_guard   lock(mu);
-        if (!nb::type<State>().is_valid()) {
-            nb::class_<State>(scope, name)
-                .def("__iter__", [](nb::handle h) { return h; })
-                .def("__next__", [](State &s) -> nb::object {
-                    if (!s.first_or_done) ++s.it;
-                    else
-                        s.first_or_done = false;
-
-                    if (s.it == s.end) {
-                        s.first_or_done = true;
-                        throw nb::stop_iteration();
-                    }
-
-                    auto &&elem = detail::tsd_second_accessor::get(s.it);
-                    return wrap_time_series(elem, s.cb);
-                });
-        }
-
-        // Move the collection into a shared_ptr to extend its lifetime
-        auto coll_ptr = std::make_shared<CollectionType>(std::forward<Collection>(collection));
-        return nb::borrow<nb::typed<nb::iterator, ValueType>>(
-            nb::cast(State{coll_ptr, coll_ptr->begin(), coll_ptr->end(), std::move(cb), true}));
+    // Convert map/range values to a Python list, wrapping time series values (takes by value to handle views)
+    template <typename Range> nb::list values_to_list(Range range, const control_block_ptr &cb) {
+        nb::list result;
+        for (const auto &[_, value] : range) { result.append(wrap_time_series(value, cb)); }
+        return result;
     }
 
-    namespace detail
-    {
-        // Items iterator state mirroring the mapped iterator style above
-        template <typename Iterator, typename Sentinel> struct tsd_items_iter_state
-        {
-            Iterator          it;
-            Sentinel          end;
-            control_block_ptr cb;
-            bool              first_or_done;
-        };
-
-        // State that stores the collection for items iterator to ensure iterator lifetime
-        template <typename Collection> struct tsd_collection_items_iter_state
-        {
-            std::shared_ptr<Collection>   collection;  // Store the collection in shared_ptr
-            typename Collection::iterator it;
-            typename Collection::iterator end;
-            control_block_ptr             cb;
-            bool                          first_or_done;
-        };
-
-        template <typename Iterator, typename Sentinel,
-                  typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
-        inline nb::typed<nb::iterator, ValueType> make_time_series_items_iterator_ex(nb::handle scope, const char *name,
-                                                                                     Iterator first, Sentinel last,
-                                                                                     control_block_ptr cb) {
-            using State = tsd_items_iter_state<Iterator, Sentinel>;
-
-            static nb::ft_mutex mu;
-            nb::ft_lock_guard   lock(mu);
-            if (!nb::type<State>().is_valid()) {
-                nb::class_<State>(scope, name)
-                    .def("__iter__", [](nb::handle h) { return h; })
-                    .def("__next__", [](State &s) -> nb::object {
-                        if (!s.first_or_done) ++s.it;
-                        else
-                            s.first_or_done = false;
-
-                        if (s.it == s.end) {
-                            s.first_or_done = true;
-                            throw nb::stop_iteration();
-                        }
-
-                        // Build (key, wrapped_value) tuple
-                        // Note: many range views (filter/transform) yield proxy objects on dereference.
-                        // Do not bind to a non-const lvalue reference; take by value to avoid dangling refs.
-                        const auto &[key, value] = *s.it;  // pair-like element (key, value)
-                        nb::object key_obj       = nb::cast(key);
-                        nb::object val_obj       = wrap_time_series(value, s.cb);
-                        return nb::make_tuple(std::move(key_obj), std::move(val_obj));
-                    });
-            }
-
-            return nb::borrow<nb::typed<nb::iterator, ValueType>>(
-                nb::cast(State{std::move(first), std::move(last), std::move(cb), true}));
+    // Convert range items to a Python list of (key, wrapped_value) tuples
+    template <typename Iterator> nb::list items_to_list(Iterator begin, Iterator end, const control_block_ptr &cb) {
+        nb::list result;
+        for (auto it = begin; it != end; ++it) {
+            result.append(nb::make_tuple(nb::cast(it->first), wrap_time_series(it->second, cb)));
         }
-    }  // namespace detail
-
-    // Items-iteration version: returns (key, wrapped(value)) tuples for pair-like iterators
-    // The key is converted using nb::cast; the value is wrapped with the provided control block.
-    template <typename Iterator, typename Sentinel,
-              typename ValueType = typename nb::detail::iterator_access<Iterator>::result_type>
-    inline nb::typed<nb::iterator, ValueType> make_time_series_items_iterator(nb::handle scope, const char *name, Iterator first,
-                                                                              Sentinel last, control_block_ptr cb) {
-        return detail::make_time_series_items_iterator_ex(scope, name, std::move(first), std::move(last), std::move(cb));
+        return result;
     }
 
-    // Collection-based version: stores the collection to ensure iterator lifetime
-    template <typename Collection,
-              typename ValueType = typename nb::detail::iterator_access<decltype(std::declval<Collection>().begin())>::result_type>
-    inline nb::typed<nb::iterator, ValueType> make_time_series_items_iterator(nb::handle scope, const char *name,
-                                                                              Collection &&collection, control_block_ptr cb) {
-        // Store the collection in the state to ensure lifetime
-        using CollectionType  = std::decay_t<Collection>;
-        using CollectionState = detail::tsd_collection_items_iter_state<CollectionType>;
-        auto coll_ptr         = std::make_shared<CollectionType>(std::forward<Collection>(collection));
+    // Convert map/range items to a Python list of (key, wrapped_value) tuples (takes by value to handle views)
+    template <typename Range> nb::list items_to_list(Range range, const control_block_ptr &cb) {
+        nb::list result;
+        for (const auto &[key, value] : range) { result.append(nb::make_tuple(nb::cast(key), wrap_time_series(value, cb))); }
+        return result;
+    }
 
-        static nb::ft_mutex mu;
-        nb::ft_lock_guard   lock(mu);
-        if (!nb::type<CollectionState>().is_valid()) {
-            nb::class_<CollectionState>(scope, name)
-                .def("__iter__", [](nb::handle h) { return h; })
-                .def("__next__", [](CollectionState &s) -> nb::object {
-                    if (!s.first_or_done) ++s.it;
-                    else
-                        s.first_or_done = false;
+    // Convert a set/collection to a Python list
+    template <typename Set> nb::list set_to_list(const Set &set) {
+        nb::list result;
+        for (const auto &item : set) { result.append(nb::cast(item)); }
+        return result;
+    }
 
-                    if (s.it == s.end) {
-                        s.first_or_done = true;
-                        throw nb::stop_iteration();
-                    }
-
-                    // Build (key, wrapped_value) tuple
-                    const auto &[key, value] = *s.it;
-                    nb::object key_obj       = nb::cast(key);
-                    nb::object val_obj       = wrap_time_series(value, s.cb);
-                    return nb::make_tuple(std::move(key_obj), std::move(val_obj));
-                });
-        }
-
-        return nb::borrow<nb::typed<nb::iterator, ValueType>>(
-            nb::cast(CollectionState{coll_ptr, coll_ptr->begin(), coll_ptr->end(), std::move(cb), true}));
+    // Convert a list/vector of time series to a Python list, wrapping each element
+    template <typename Collection> nb::list list_to_list(const Collection &collection, const control_block_ptr &cb) {
+        nb::list result;
+        for (const auto &item : collection) { result.append(wrap_time_series(item, cb)); }
+        return result;
     }
 
     /**
