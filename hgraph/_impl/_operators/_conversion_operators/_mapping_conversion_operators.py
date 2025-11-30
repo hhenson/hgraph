@@ -88,7 +88,9 @@ def convert_tsd_to_mapping(
 def convert_tsb_to_mapping(
     ts: TSB[TS_SCHEMA], to: Type[OUT] = DEFAULT[OUT], __strict__: bool = False
 ) -> TS[Mapping[str, SCALAR]]:
-    return ts.value
+    # TODO: This was just ts.value, perhaps  this will work if we adopt the iter changes
+    # In the last merged request from AB
+    return {k: v.value for k, v in ts.items() if v.valid}
 
 
 @compute_node(
