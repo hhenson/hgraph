@@ -1,6 +1,21 @@
 project(_hgraph)
 
 set(HGRAPH_SOURCES
+        api/python/py_evaluation_clock.cpp
+        api/python/py_evaluation_engine.cpp
+        api/python/py_graph.cpp
+        api/python/py_node.cpp
+        api/python/py_special_nodes.cpp
+        api/python/py_time_series.cpp
+        api/python/py_ref.cpp
+        api/python/py_signal.cpp
+        api/python/py_ts.cpp
+        api/python/py_tsb.cpp
+        api/python/py_tsd.cpp
+        api/python/py_tsl.cpp
+        api/python/py_tss.cpp
+        api/python/py_tsw.cpp
+        api/python/wrapper_factory.cpp
         builders/builder.cpp
         builders/graph_builder.cpp
         builders/input_builder.cpp
@@ -21,7 +36,6 @@ set(HGRAPH_SOURCES
         builders/nodes/last_value_pull_node_builder.cpp
         builders/time_series_types/time_series_signal_input_builder.cpp
         builders/time_series_types/time_series_value_input_builder.cpp
-        builders/time_series_types/time_series_ref_input_builder.cpp
         builders/time_series_types/specialized_ref_builders.cpp
         builders/time_series_types/time_series_list_input_builder.cpp
         builders/time_series_types/time_series_bundle_input_builder.cpp
@@ -29,7 +43,6 @@ set(HGRAPH_SOURCES
         builders/time_series_types/time_series_window_input_builder.cpp
         builders/time_series_types/time_series_dict_input_builder.cpp
         builders/time_series_types/time_series_value_output_builder.cpp
-        builders/time_series_types/time_series_ref_output_builder.cpp
         builders/time_series_types/time_series_list_output_builder.cpp
         builders/time_series_types/time_series_bundle_output_builder.cpp
         builders/time_series_types/time_series_set_output_builder.cpp

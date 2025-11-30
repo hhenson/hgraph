@@ -8,7 +8,6 @@ from hgraph._runtime._constants import MIN_ST, MIN_TD
 from hgraph._runtime._evaluation_clock import EvaluationClock
 from hgraph._runtime._evaluation_engine import EvaluationEngineApi
 from hgraph._runtime._global_state import GlobalState
-from hgraph._runtime._node import Node
 from hgraph._runtime._traits import Traits
 from hgraph._types import (
     AUTO_RESOLVE,
@@ -17,10 +16,10 @@ from hgraph._types import (
     LOGGER,
     STATE,
     TIME_SERIES_TYPE,
-    TimeSeriesOutput,
-    HgTimeSeriesTypeMetaData,
+    OUT
 )
 from hgraph._wiring._decorators import generator, sink_node, graph, const_fn
+from hgraph._wiring._lift import lower
 
 __all__ = (
     "ReplaySource",
@@ -68,12 +67,12 @@ def set_replay_values(label: str, value: ReplaySource, recordable_id: str = None
 
 @generator(overloads=replay, requires=record_replay_model_restriction(IN_MEMORY, True))
 def replay_from_memory(
-    key: str,
-    tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-    is_operator: bool = False,
-    recordable_id: str = None,
-    _traits: Traits = None,
-    _clock: EvaluationClock = None,
+        key: str,
+        tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+        is_operator: bool = False,
+        recordable_id: str = None,
+        _traits: Traits = None,
+        _clock: EvaluationClock = None,
 ) -> TIME_SERIES_TYPE:
     """
     This will replay a sequence of values, a None value will be ignored (skip the tick).
@@ -102,50 +101,59 @@ def replay_from_memory(
 
 @const_fn(overloads=replay_const, requires=record_replay_model_restriction(IN_MEMORY, True))
 def replay_const_from_memory(
-    key: str,
-    tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
-    is_operator: bool = False,
-    recordable_id: str = None,
-    tm: datetime = None,
-    as_of: datetime = None,
-    _traits: Traits = None,
-    _clock: EvaluationClock = None,
-    _node: Node = None,
+        key: str,
+        tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE,
+        is_operator: bool = False,
+        recordable_id: str = None,
+        tm: datetime = None,
+        as_of: datetime = None,
+        _traits: Traits = None,
+        _clock: EvaluationClock = None,
 ) -> TIME_SERIES_TYPE:
     recordable_id = get_fq_recordable_id(_traits, recordable_id)
     recordable_id = f":memory:{recordable_id}.{key}"
-    source = GlobalState.instance().get(recordable_id, None)
+    gs = GlobalState.instance()
+    source = gs.get(recordable_id, None)
     tm = _clock.evaluation_time if tm is None else tm
     if source is not None:
-        from hgraph import TimeSeriesBuilderFactory
+        from hgraph import evaluate_graph
+        from hgraph import GraphConfiguration
+        evaluate_graph(_recover_initial_state, GraphConfiguration(end_time=tm), recordable_id=recordable_id, path=(
+            path := f"{recordable_id}::out"), tp=tp)
+        return gs.pop(path, None)
 
-        # Create an output to match type so we can determine the value through repeated processing of the deltas.
-        output: TimeSeriesOutput = (
-            TimeSeriesBuilderFactory.instance()
-            .make_output_builder(HgTimeSeriesTypeMetaData.parse_type(tp))
-            .make_instance(_node, None)
-        )
-        for ts, v in source:
-            # This is a slow approach, but since we don't have an index, this is the best we can do.
-            # Additionally, since we are recording delta values, we need to apply the successive results to form the
-            # full picture of state.
-            if ts <= tm:
-                # Combine results when dealing with Collection results
-                output.apply_result(v)
-            else:
-                break
-        return output.value
+
+@graph
+def _recover_initial_state(recordable_id: str, path: str, tp: type[TIME_SERIES_TYPE] = AUTO_RESOLVE):
+    _capture(path, _replay[tp](recordable_id))
+
+
+@generator
+def _replay(recordable_id: str) -> OUT:
+    source = GlobalState.instance().get(recordable_id, None)
+    for ts, v in source:
+        yield ts, v
+
+
+@sink_node
+def _capture(path: str, ts: OUT):
+    ...
+
+
+@_capture.stop
+def _capture_stop(path: str, ts: OUT):
+    GlobalState.instance()[path] = ts.value
 
 
 @sink_node(overloads=record, requires=record_replay_model_restriction(IN_MEMORY, True))
 def record_to_memory(
-    ts: TIME_SERIES_TYPE,
-    key: str = "out",
-    is_operator: bool = False,
-    recordable_id: str = None,
-    _api: EvaluationEngineApi = None,
-    _state: STATE = None,
-    _traits: Traits = None,
+        ts: TIME_SERIES_TYPE,
+        key: str = "out",
+        is_operator: bool = False,
+        recordable_id: str = None,
+        _api: EvaluationEngineApi = None,
+        _state: STATE = None,
+        _traits: Traits = None,
 ):
     """
     This node will record the values of the time series into the provided list.

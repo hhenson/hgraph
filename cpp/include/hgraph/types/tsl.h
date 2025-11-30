@@ -74,33 +74,14 @@ namespace hgraph {
 
         void py_set_value(const nb::object& value) override;
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesListOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesOutputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesListOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        void accept(TimeSeriesOutputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
-        }
-
-        static void register_with_nanobind(nb::module_ &m);
 
     protected:
         friend TimeSeriesListOutputBuilder;
@@ -113,33 +94,14 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesListInput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesInputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesListInput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        void accept(TimeSeriesInputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
-        }
-
-        static void register_with_nanobind(nb::module_ &m);
 
     protected:
         friend TimeSeriesListInputBuilder;

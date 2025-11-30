@@ -60,7 +60,7 @@ namespace hgraph {
 
     std::pair<std::string, bool> ComponentNode::recordable_id() {
         // Get outer recordable_id from graph traits
-        auto outer_id_obj = graph()->traits().get_trait_or(RECORDABLE_ID_TRAIT, nb::str(""));
+        auto outer_id_obj = graph()->traits()->get_trait_or(RECORDABLE_ID_TRAIT, nb::str(""));
         auto outer_id = nb::cast<std::string>(outer_id_obj);
 
         // Build the full id: outer_id + "-" + record_replay_id
@@ -167,7 +167,7 @@ namespace hgraph {
 
         // Create the nested graph instance
         m_active_graph_ = m_nested_graph_builder_->make_instance(node_id(), this, id_);
-        m_active_graph_->traits().set_trait(RECORDABLE_ID_TRAIT, nb::cast(id_));
+        m_active_graph_->traits()->set_trait(RECORDABLE_ID_TRAIT, nb::cast(id_));
         m_active_graph_->set_evaluation_engine(new NestedEvaluationEngine(
             graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
 
@@ -232,7 +232,7 @@ namespace hgraph {
 
     void ComponentNode::dispose() {
         if (m_active_graph_) {
-            auto id_ = nb::cast<std::string>(m_active_graph_->traits().get_trait(RECORDABLE_ID_TRAIT));
+            auto id_ = nb::cast<std::string>(m_active_graph_->traits()->get_trait(RECORDABLE_ID_TRAIT));
             GlobalState::remove(keys::component_key(id_));
 
             dispose_component(*m_active_graph_);
@@ -276,9 +276,4 @@ namespace hgraph {
         }
     }
 
-    void ComponentNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < ComponentNode, NestedNode > (m, "ComponentNode")
-                .def_prop_ro("active_graph", [](ComponentNode &self) { return self.m_active_graph_; })
-                .def_prop_ro("nested_graphs", &ComponentNode::nested_graphs);
-    }
 } // namespace hgraph

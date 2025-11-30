@@ -8,24 +8,24 @@ namespace hgraph {
     bool ComponentLifeCycle::is_stopping() const { return _transitioning && _started; }
 
     void ComponentLifeCycle::register_with_nanobind(nb::module_ &m) {
-        nb::class_<ComponentLifeCycle, nb::intrusive_base>(m, "ComponentLifeCycle")
-                .def_prop_ro("is_started", &ComponentLifeCycle::is_started)
-                .def_prop_ro("is_starting", &ComponentLifeCycle::is_starting)
-                .def_prop_ro("is_stopping", &ComponentLifeCycle::is_stopping)
-                .def("initialise", &initialise_component)
-                .def("start", &start_component)
-                .def("stop", &stop_component)
-                .def("dispose", &dispose_component);
-
-        m.def("initialise_component", &initialise_component, "component"_a);
-        m.def("start_component", &start_component, "component"_a);
-        m.def("stop_component", &stop_component, "component"_a);
-        m.def("dispose_component", &dispose_component, "component"_a);
-
-        nb::class_<InitialiseDisposeContext>(m, "initialise_dispose_context").def(
-            nb::init<ComponentLifeCycle &>(), "component"_a);
-
-        nb::class_<StartStopContext>(m, "start_stop_context").def(nb::init<ComponentLifeCycle &>(), "component"_a);
+        // nb::class_<ComponentLifeCycle, nb::intrusive_base>(m, "ComponentLifeCycle")
+        //         .def_prop_ro("is_started", &ComponentLifeCycle::is_started)
+        //         .def_prop_ro("is_starting", &ComponentLifeCycle::is_starting)
+        //         .def_prop_ro("is_stopping", &ComponentLifeCycle::is_stopping)
+        //         .def("initialise", &initialise_component)
+        //         .def("start", &start_component)
+        //         .def("stop", &stop_component)
+        //         .def("dispose", &dispose_component);
+        //
+        // m.def("initialise_component", &initialise_component, "component"_a);
+        // m.def("start_component", &start_component, "component"_a);
+        // m.def("stop_component", &stop_component, "component"_a);
+        // m.def("dispose_component", &dispose_component, "component"_a);
+        //
+        // nb::class_<InitialiseDisposeContext>(m, "initialise_dispose_context").def(
+        //     nb::init<ComponentLifeCycle &>(), "component"_a);
+        //
+        // nb::class_<StartStopContext>(m, "start_stop_context").def(nb::init<ComponentLifeCycle &>(), "component"_a);
     }
 
     struct TransitionGuard {

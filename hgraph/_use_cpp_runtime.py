@@ -66,95 +66,15 @@ if is_feature_enabled("use_cpp"):
         hgraph._builder._graph_builder.GraphBuilder.register(_hgraph.GraphBuilder)
         hgraph.GraphBuilderFactory.declare(_make_cpp_graph_builder)
 
-        # Register the graph engine via a thin Python wrapper that coerces args
-        class _PyCppGraphExecutor:
-            def __init__(self, graph, run_mode, observers=None):
-                # Coerce run_mode from Python enum to C++ enum reliably
-                def _to_cpp_mode(mode):
-                    try:
-                        if hasattr(mode, "name"):
-                            return _hgraph.EvaluationMode[mode.name]
-                        return _hgraph.EvaluationMode(int(mode))
-                    except Exception:
-                        return mode
+        def _make_cpp_graph_engine(graph_builder, run_mode, observers):
+            """Create a C++ GraphEngine from a Python GraphBuilder"""
+            if hasattr(run_mode, "name"):
+                run_mode = _hgraph.EvaluationMode[run_mode.name]
+            else:
+                run_mode = _hgraph.EvaluationMode(int(run_mode))
+            return _hgraph.GraphExecutor(graph_builder, run_mode, observers)
 
-                # Adapter to wrap Python observers so they are acceptable to C++ nanobind type
-                class _ObserverAdapter(_hgraph.EvaluationLifeCycleObserver):
-                    def __init__(self, delegate):
-                        # Properly initialize nanobind intrusive base
-                        _hgraph.EvaluationLifeCycleObserver.__init__(self)
-                        self._d = delegate
-
-                    def on_before_start_graph(self, graph):
-                        if hasattr(self._d, "on_before_start_graph"):
-                            self._d.on_before_start_graph(graph)
-
-                    def on_after_start_graph(self, graph):
-                        if hasattr(self._d, "on_after_start_graph"):
-                            self._d.on_after_start_graph(graph)
-
-                    def on_before_start_node(self, node):
-                        if hasattr(self._d, "on_before_start_node"):
-                            self._d.on_before_start_node(node)
-
-                    def on_after_start_node(self, node):
-                        if hasattr(self._d, "on_after_start_node"):
-                            self._d.on_after_start_node(node)
-
-                    def on_before_graph_evaluation(self, graph):
-                        if hasattr(self._d, "on_before_graph_evaluation"):
-                            self._d.on_before_graph_evaluation(graph)
-
-                    def on_after_graph_evaluation(self, graph):
-                        if hasattr(self._d, "on_after_graph_evaluation"):
-                            self._d.on_after_graph_evaluation(graph)
-
-                    def on_before_node_evaluation(self, node):
-                        if hasattr(self._d, "on_before_node_evaluation"):
-                            self._d.on_before_node_evaluation(node)
-
-                    def on_after_node_evaluation(self, node):
-                        if hasattr(self._d, "on_after_node_evaluation"):
-                            self._d.on_after_node_evaluation(node)
-
-                    def on_before_stop_node(self, node):
-                        if hasattr(self._d, "on_before_stop_node"):
-                            self._d.on_before_stop_node(node)
-
-                    def on_after_stop_node(self, node):
-                        if hasattr(self._d, "on_after_stop_node"):
-                            self._d.on_after_stop_node(node)
-
-                    def on_before_stop_graph(self, graph):
-                        if hasattr(self._d, "on_before_stop_graph"):
-                            self._d.on_before_stop_graph(graph)
-
-                    def on_after_stop_graph(self, graph):
-                        if hasattr(self._d, "on_after_stop_graph"):
-                            self._d.on_after_stop_graph(graph)
-
-                cpp_mode = _to_cpp_mode(run_mode)
-                # NOTE: Passing observers across the Python/C++ boundary is currently unstable.
-                # To avoid constructor mismatches, we construct without observers.
-                # Observers are still active in the Python runtime; with C++ runtime they are currently ignored.
-                self._impl = _hgraph.GraphExecutorImpl(
-                    graph,
-                    cpp_mode,
-                    [],
-                )
-
-            @property
-            def run_mode(self):
-                return self._impl.run_mode
-
-            @property
-            def graph(self):
-                return self._impl.graph
-
-            def run(self, start_time, end_time):
-                return self._impl.run(start_time, end_time)
-
-        hgraph.GraphEngineFactory.declare(_PyCppGraphExecutor)
+        hgraph.GraphEngineFactory.declare(_make_cpp_graph_engine)
 
 
         # === TimeSeriesBuilderFactory ===
@@ -252,25 +172,49 @@ if is_feature_enabled("use_cpp"):
                         child_ref_tp = hgraph.HgREFTypeMetaData(child_tp)
                         return self._make_ref_input_builder(child_ref_tp)
                 
-                # Use dictionary lookup for type-based dispatch (matching Python pattern)
-                return {
-                    hgraph.HgTSTypeMetaData: lambda: _hgraph.InputBuilder_TS_Value_Ref(),
-                    hgraph.HgTSLTypeMetaData: lambda: _hgraph.InputBuilder_TSL_Ref(
+                def _make_ts_value_ref():
+                    """REF[TS[...]] - value/scalar reference"""
+                    return _hgraph.InputBuilder_TS_Value_Ref()
+                
+                def _make_tsl_ref():
+                    """REF[TSL[...]] - list reference"""
+                    return _hgraph.InputBuilder_TSL_Ref(
                         _make_child_ref_builder(referenced_tp.value_tp),
                         referenced_tp.size_tp.py_type.SIZE
-                    ),
-                    hgraph.HgTSBTypeMetaData: lambda: _hgraph.InputBuilder_TSB_Ref(
+                    )
+                
+                def _make_tsb_ref():
+                    """REF[TSB[...]] - bundle reference"""
+                    return _hgraph.InputBuilder_TSB_Ref(
                         _hgraph.TimeSeriesSchema(
                             tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys()),
                             tp
                         ) if (tp := referenced_tp.bundle_schema_tp.py_type.scalar_type()) is not None
                         else _hgraph.TimeSeriesSchema(tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys())),
                         [_make_child_ref_builder(tp) for tp in referenced_tp.bundle_schema_tp.meta_data_schema.values()]
-                    ),
-                    hgraph.HgTSDTypeMetaData: lambda: _hgraph.InputBuilder_TSD_Ref(),
-                    hgraph.HgTSSTypeMetaData: lambda: _hgraph.InputBuilder_TSS_Ref(),
-                    hgraph.HgTSWTypeMetaData: lambda: _hgraph.InputBuilder_TSW_Ref(),
-                }.get(type(referenced_tp), lambda: _hgraph.InputBuilder_TS_Ref())()
+                    )
+                
+                def _make_tsd_ref():
+                    """REF[TSD[...]] - dict reference"""
+                    return _hgraph.InputBuilder_TSD_Ref()
+                
+                def _make_tss_ref():
+                    """REF[TSS[...]] - set reference"""
+                    return _hgraph.InputBuilder_TSS_Ref()
+                
+                def _make_tsw_ref():
+                    """REF[TSW[...]] - window reference"""
+                    return _hgraph.InputBuilder_TSW_Ref()
+                
+                # Use dictionary lookup for type-based dispatch (matching Python pattern)
+                return {
+                    hgraph.HgTSTypeMetaData: _make_ts_value_ref,
+                    hgraph.HgTSLTypeMetaData: _make_tsl_ref,
+                    hgraph.HgTSBTypeMetaData: _make_tsb_ref,
+                    hgraph.HgTSDTypeMetaData: _make_tsd_ref,
+                    hgraph.HgTSSTypeMetaData: _make_tss_ref,
+                    hgraph.HgTSWTypeMetaData: _make_tsw_ref,
+                }.get(type(referenced_tp), _make_ts_value_ref)()
             
             def _make_ref_output_builder(self, ref_tp):
                 """Create specialized C++ reference output builder based on what's being referenced"""
@@ -286,25 +230,49 @@ if is_feature_enabled("use_cpp"):
                         child_ref_tp = hgraph.HgREFTypeMetaData(child_tp)
                         return self._make_ref_output_builder(child_ref_tp)
                 
-                # Use dictionary lookup for type-based dispatch (matching Python pattern)
-                return {
-                    hgraph.HgTSTypeMetaData: lambda: _hgraph.OutputBuilder_TS_Value_Ref(),
-                    hgraph.HgTSLTypeMetaData: lambda: _hgraph.OutputBuilder_TSL_Ref(
+                def _make_ts_value_ref():
+                    """REF[TS[...]] - value/scalar reference"""
+                    return _hgraph.OutputBuilder_TS_Value_Ref()
+                
+                def _make_tsl_ref():
+                    """REF[TSL[...]] - list reference"""
+                    return _hgraph.OutputBuilder_TSL_Ref(
                         _make_child_ref_builder(referenced_tp.value_tp),
                         referenced_tp.size_tp.py_type.SIZE
-                    ),
-                    hgraph.HgTSBTypeMetaData: lambda: _hgraph.OutputBuilder_TSB_Ref(
+                    )
+                
+                def _make_tsb_ref():
+                    """REF[TSB[...]] - bundle reference"""
+                    return _hgraph.OutputBuilder_TSB_Ref(
                         _hgraph.TimeSeriesSchema(
                             tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys()),
                             tp
                         ) if (tp := referenced_tp.bundle_schema_tp.py_type.scalar_type()) is not None
                         else _hgraph.TimeSeriesSchema(tuple(referenced_tp.bundle_schema_tp.meta_data_schema.keys())),
                         [_make_child_ref_builder(tp) for tp in referenced_tp.bundle_schema_tp.meta_data_schema.values()]
-                    ),
-                    hgraph.HgTSDTypeMetaData: lambda: _hgraph.OutputBuilder_TSD_Ref(),
-                    hgraph.HgTSSTypeMetaData: lambda: _hgraph.OutputBuilder_TSS_Ref(),
-                    hgraph.HgTSWTypeMetaData: lambda: _hgraph.OutputBuilder_TSW_Ref(),
-                }.get(type(referenced_tp), lambda: _hgraph.OutputBuilder_TS_Ref())()
+                    )
+                
+                def _make_tsd_ref():
+                    """REF[TSD[...]] - dict reference"""
+                    return _hgraph.OutputBuilder_TSD_Ref()
+                
+                def _make_tss_ref():
+                    """REF[TSS[...]] - set reference"""
+                    return _hgraph.OutputBuilder_TSS_Ref()
+                
+                def _make_tsw_ref():
+                    """REF[TSW[...]] - window reference"""
+                    return _hgraph.OutputBuilder_TSW_Ref()
+                
+                # Use dictionary lookup for type-based dispatch (matching Python pattern)
+                return {
+                    hgraph.HgTSTypeMetaData: _make_ts_value_ref,
+                    hgraph.HgTSLTypeMetaData: _make_tsl_ref,
+                    hgraph.HgTSBTypeMetaData: _make_tsb_ref,
+                    hgraph.HgTSDTypeMetaData: _make_tsd_ref,
+                    hgraph.HgTSSTypeMetaData: _make_tss_ref,
+                    hgraph.HgTSWTypeMetaData: _make_tsw_ref,
+                }.get(type(referenced_tp), _make_ts_value_ref)()
 
 
         def _ts_input_builder_type_for(scalar_type):

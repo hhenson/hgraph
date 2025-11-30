@@ -11,13 +11,13 @@ namespace hgraph {
     /**
      * Check if traits has a recordable ID
      */
-    bool has_recordable_id_trait(const Traits &traits);
+    bool has_recordable_id_trait(const Traits::ptr &traits);
 
     /**
      * Resolves the recordable id by collecting the full path or recordable id's from this recordable_id to the
      * outer component graph.
      */
-    std::string get_fq_recordable_id(const Traits &traits, const std::string &recordable_id = "");
+    std::string get_fq_recordable_id(const Traits::ptr &traits, const std::string &recordable_id = "");
 
     /**
      * Set the parent recordable ID trait on a graph

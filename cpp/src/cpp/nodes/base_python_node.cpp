@@ -1,4 +1,7 @@
+#include <hgraph/api/python/wrapper_factory.h>
+
 #include <hgraph/nodes/base_python_node.h>
+#include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
@@ -6,30 +9,86 @@
 #include <hgraph/types/tsb.h>
 #include <hgraph/util/date_time.h>
 
-namespace hgraph {
+namespace hgraph
+{
     BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                                    nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn)
-        : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
-          _eval_fn{std::move(eval_fn)},
-          _start_fn{std::move(start_fn)}, _stop_fn{std::move(stop_fn)} {
-    }
+        : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)), _eval_fn{std::move(eval_fn)},
+          _start_fn{std::move(start_fn)}, _stop_fn{std::move(stop_fn)} {}
 
     void BasePythonNode::_initialise_kwargs() {
         // Assuming Injector and related types are properly defined, and scalars is a map-like container
         _kwargs = {};
 
-        bool has_injectables{signature().injectables != 0};
-        for (const auto &[key_, value]: scalars()) {
+        bool  has_injectables{signature().injectables != 0};
+        auto *injectable_map = has_injectables ? &(*signature().injectable_inputs) : nullptr;
+
+        auto g = graph();
+        if (g == nullptr) { throw std::runtime_error("BasePythonNode::_initialise_kwargs: missing owning graph"); }
+        const auto &cb = g->control_block();
+        if (cb == nullptr) { throw std::runtime_error("BasePythonNode::_initialise_kwargs: graph missing API control block"); }
+
+        nb::object node_wrapper{};
+        auto       get_node_wrapper = [&]() -> nb::object {
+            if (!node_wrapper && g) { node_wrapper = wrap_node(this, cb); }
+            return node_wrapper;
+        };
+        auto &signature_args = signature().args;
+        for (const auto &[key_, value] : scalars()) {
             std::string key{nb::cast<std::string>(key_)};
+            // Only include scalars that are in signature.args (same as Python implementation)
+            if (std::ranges::find(signature_args, key) == std::ranges::end(signature_args)) { continue; }
             try {
-                if (has_injectables && signature().injectable_inputs->contains(key)) {
-                    // TODO: This may be better extracted directly, but for now use the python function calls.
-                    nb::object node{nb::cast(this)};
-                    nb::object key_handle{value(node)};
-                    _kwargs[key_] = key_handle; // Assuming this call applies the Injector properly
-                } else {
-                    _kwargs[key_] = value;
+                if (injectable_map && injectable_map->contains(key)) {
+                    auto       injectable = injectable_map->at(key);
+                    nb::object wrapped_value;
+
+                    if ((injectable & InjectableTypesEnum::NODE) != InjectableTypesEnum::NONE) {
+                        wrapped_value = get_node_wrapper();
+                    } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
+                        auto out = output();
+                        // wrapped_value = wrap_output(out.get(), cb);
+                        wrapped_value = wrap_time_series(out, graph()->control_block());
+                    } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
+                        auto sched    = scheduler();
+                        wrapped_value = wrap_node_scheduler(sched.get(), cb);
+                    } else if ((injectable & InjectableTypesEnum::ENGINE_API) != InjectableTypesEnum::NONE) {
+                        if (g) {
+                            auto engine_api = g->evaluation_engine_api();
+                            if (engine_api) {
+                                wrapped_value = wrap_evaluation_engine_api(engine_api.get(), cb);
+                            } else {
+                                wrapped_value = nb::none();
+                            }
+                        } else {
+                            wrapped_value = nb::none();
+                        }
+                    } else if ((injectable & InjectableTypesEnum::CLOCK) != InjectableTypesEnum::NONE) {
+                        if (g) {
+                            auto clock = g->evaluation_clock();
+                            if (clock) {
+                                wrapped_value = wrap_evaluation_clock(clock.get(), cb);
+                            } else {
+                                wrapped_value = nb::none();
+                            }
+                        } else {
+                            wrapped_value = nb::none();
+                        }
+                    } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
+                        wrapped_value = g ? wrap_traits(g->traits().get(), cb) : nb::none();
+                    } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
+                        auto recordable_state = this->recordable_state().get();
+                        if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }
+                        wrapped_value = wrap_time_series(recordable_state, cb);
+                    } else {
+                        // Fallback: call injector with this node (same behaviour as python impl)
+                        wrapped_value = value(get_node_wrapper());
+                    }
+
+                    _kwargs[key_] = wrapped_value;
+                    continue;
                 }
+                _kwargs[key_] = value;
             } catch (const nb::python_error &e) {
                 throw NodeException::capture_error(e, *this, std::string("Initialising kwargs for '" + key + "'"));
             } catch (const std::exception &e) {
@@ -40,23 +99,30 @@ namespace hgraph {
             _initialise_kwarg_inputs();
         } catch (const nb::python_error &e) {
             throw NodeException::capture_error(e, *this, "Initialising kwargs");
-        } catch (const std::exception &e) {
-            throw NodeException::capture_error(e, *this, "Initialising kwargs");
-        }
+        } catch (const std::exception &e) { throw NodeException::capture_error(e, *this, "Initialising kwargs"); }
     }
 
     void BasePythonNode::_initialise_kwarg_inputs() {
+        // This can be called during wiring in the current flow, would be worth looking into that to clean up, but for now protect
+        if (graph() == nullptr) { return; }
+        // If is not a compute node or sink node, there are no inputs to map
+        auto input_{input()};
+        if (!input_) { return; }
+        const auto &cb{graph()->control_block()};
         auto &signature_args = signature().args;
+        // Match main branch behavior: iterate over time_series_inputs
         for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0;
              i < l;
              ++i) {
-            // Apple does not yet support ranges::contains :(
-            auto key{input()->schema().keys()[i]};
+            auto key{input_->schema().keys()[i]};
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                // Expose inputs as base TimeSeriesInput using nb::ref to preserve lifetime semantics.
-                // Avoid casting to raw pointer, which bypasses intrusive ref counting and can cause
-                // dangling references when Python holds onto the object (e.g., during iteration).
-                _kwargs[key.c_str()] = nb::cast((*input())[i]);
+                auto wrapped = wrap_time_series(input_->operator[](i).get(), cb);
+                if (wrapped.is_none()) {
+                    throw std::runtime_error(
+                        std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap time-series input '") +
+                        key + "' - wrap_time_series returned None. This indicates a bug in the wrapper factory.");
+                }
+                _kwargs[key.c_str()] = wrapped;
             }
         }
     }
@@ -66,46 +132,45 @@ namespace hgraph {
 
         // Get RecordReplayContext and check if RECOVER mode is active
         nb::object context_cls = get_record_replay_context();
-        nb::object context = context_cls.attr("instance")();
-        nb::object mode = context.attr("mode");
+        nb::object context     = context_cls.attr("instance")();
+        nb::object mode        = context.attr("mode");
 
         // Get RecordReplayEnum to check for RECOVER flag
-        nb::object enum_cls = get_record_replay_enum();
+        nb::object enum_cls     = get_record_replay_enum();
         nb::object recover_flag = enum_cls.attr("RECOVER");
 
         // Check if RECOVER is in mode (using bitwise 'in' operation via Python __contains__)
         nb::object anded{mode.attr("__and__")(recover_flag)};
-        bool is_recover_mode = nb::cast<bool>(nb::bool_(anded));
+        bool       is_recover_mode = nb::cast<bool>(nb::bool_(anded));
 
         if (!is_recover_mode) { return; }
 
         // Get the evaluation clock as a Python object
-        nb::object clock = nb::cast(graph()->evaluation_clock());
+        nb::object clock = wrap_evaluation_clock(graph()->evaluation_clock(), graph()->control_block());
 
         // Get the fully qualified recordable ID
-        nb::object fq_recordable_id_fn = get_fq_recordable_id_fn();
-        nb::object traits_obj = nb::cast(&(graph()->traits()));
+        nb::object  fq_recordable_id_fn = get_fq_recordable_id_fn();
+        nb::object  traits_obj       = wrap_traits(graph()->traits(), graph()->control_block());  // nb::cast(&(graph()->traits()));
         std::string record_replay_id = signature().record_replay_id.value_or("");
-        nb::object recordable_id = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
+        nb::object  recordable_id    = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
 
         // Get evaluation time minus MIN_TD
         engine_time_t eval_time = graph()->evaluation_clock()->evaluation_time();
-        engine_time_t tm = eval_time - MIN_TD;
+        engine_time_t tm        = eval_time - MIN_TD;
 
         // Get as_of time
         nb::object get_as_of = get_as_of_fn();
-        nb::object as_of = get_as_of(clock);
+        nb::object as_of     = get_as_of(clock);
 
         // Get the recordable_state type from the Python signature object
         // Cast the C++ signature to a Python object to access the recordable_state property
-        nb::object py_signature = nb::cast(&signature());
+        nb::object py_signature          = nb::cast(&signature());
         nb::object recordable_state_type = py_signature.attr("recordable_state");
-        nb::object tsb_type = recordable_state_type.attr("tsb_type").attr("py_type");
+        nb::object tsb_type              = recordable_state_type.attr("tsb_type").attr("py_type");
 
         // Call replay_const to restore state
-        nb::object replay_const = get_replay_const_fn();
-        nb::object restored_state = replay_const(nb::str("__state__"), tsb_type,
-                                                 nb::arg("recordable_id") = recordable_id,
+        nb::object replay_const   = get_replay_const_fn();
+        nb::object restored_state = replay_const(nb::str("__state__"), tsb_type, nb::arg("recordable_id") = recordable_id,
                                                  nb::arg("tm") = nb::cast(tm), nb::arg("as_of") = as_of);
 
         // Set the value on recordable_state
@@ -117,12 +182,13 @@ namespace hgraph {
         _initialise_kwarg_inputs();
     }
 
-    class ContextManager {
-    public:
+    class ContextManager
+    {
+      public:
         explicit ContextManager(BasePythonNode &node) {
             if (node.signature().context_inputs.has_value() && !node.signature().context_inputs->empty()) {
                 contexts_.reserve(node.signature().context_inputs->size());
-                for (const auto &context_key: *node.signature().context_inputs) {
+                for (const auto &context_key : *node.signature().context_inputs) {
                     if ((*node.input())[context_key]->valid()) {
                         nb::object context_value = (*node.input())[context_key]->py_value();
                         context_value.attr("__enter__")();
@@ -146,9 +212,9 @@ namespace hgraph {
             if (first_error) { std::rethrow_exception(first_error); }
         }
 
-    private:
+      private:
         std::vector<nb::object> contexts_;
-        std::exception_ptr cached_error_;
+        std::exception_ptr      cached_error_;
     };
 
     void BasePythonNode::do_eval() {
@@ -165,12 +231,12 @@ namespace hgraph {
             // This matches Python's approach: signature(self.start_fn).parameters.keys()
             // Using __code__.co_varnames includes local variables, not just parameters
             auto inspect = nb::module_::import_("inspect");
-            auto sig = inspect.attr("signature")(_start_fn);
-            auto params = sig.attr("parameters").attr("keys")();
+            auto sig     = inspect.attr("signature")(_start_fn);
+            auto params  = sig.attr("parameters").attr("keys")();
 
             // Filter kwargs to only include parameters in start_fn signature
             nb::dict filtered_kwargs;
-            for (auto k: params) {
+            for (auto k : params) {
                 if (_kwargs.contains(k)) { filtered_kwargs[k] = _kwargs[k]; }
             }
             // Call start_fn with filtered kwargs
@@ -179,19 +245,17 @@ namespace hgraph {
     }
 
     void BasePythonNode::do_stop() {
-        if (_stop_fn.is_valid() and
-        !_stop_fn.is_none()
-        ) {
+        if (_stop_fn.is_valid() and !_stop_fn.is_none()) {
             // Get the callable signature parameters using inspect.signature
             // This matches Python's approach: signature(self.stop_fn).parameters.keys()
             // Using __code__.co_varnames includes local variables, not just parameters
             auto inspect = nb::module_::import_("inspect");
-            auto sig = inspect.attr("signature")(_stop_fn);
-            auto params = sig.attr("parameters").attr("keys")();
+            auto sig     = inspect.attr("signature")(_stop_fn);
+            auto params  = sig.attr("parameters").attr("keys")();
 
             // Filter kwargs to only include parameters in stop_fn signature
             nb::dict filtered_kwargs;
-            for (auto k: params) {
+            for (auto k : params) {
                 if (_kwargs.contains(k)) { filtered_kwargs[k] = _kwargs[k]; }
             }
 
@@ -200,10 +264,10 @@ namespace hgraph {
         }
     }
 
-    void BasePythonNode::initialise() {
-    }
+    void BasePythonNode::initialise() {}
 
     void BasePythonNode::start() {
+        if (graph() == nullptr) { throw std::runtime_error("BasePythonNode::start: missing owning graph"); }
         _initialise_kwargs();
         _initialise_inputs();
         _initialise_state();
@@ -212,4 +276,4 @@ namespace hgraph {
     }
 
     void BasePythonNode::dispose() { _kwargs.clear(); }
-} // namespace hgraph
+}  // namespace hgraph

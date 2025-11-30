@@ -17,6 +17,8 @@ namespace hgraph {
         time_series_output_ptr make_instance(const time_series_output_ptr& owning_output) const override;
 
         void release_instance(time_series_output_ptr item) const override;
+
+        [[nodiscard]] size_t memory_size() const override;
     };
 
     void time_series_value_output_builder_register_with_nanobind(nb::module_ & m);

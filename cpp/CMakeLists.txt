@@ -142,6 +142,22 @@ configure_file(
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(HGRAPH_INCLUDES
+        include/hgraph/api/python/api_ptr.h
+        include/hgraph/api/python/py_evaluation_clock.h
+        include/hgraph/api/python/py_evaluation_engine.h
+        include/hgraph/api/python/py_graph.h
+        include/hgraph/api/python/py_node.h
+        include/hgraph/api/python/py_special_nodes.h
+        include/hgraph/api/python/py_time_series.h
+        include/hgraph/api/python/py_ref.h
+        include/hgraph/api/python/py_signal.h
+        include/hgraph/api/python/py_ts.h
+        include/hgraph/api/python/py_tsb.h
+        include/hgraph/api/python/py_tsd.h
+        include/hgraph/api/python/py_tsl.h
+        include/hgraph/api/python/py_tss.h
+        include/hgraph/api/python/py_tsw.h
+        include/hgraph/api/python/wrapper_factory.h
         include/hgraph/hgraph_forward_declarations.h
         include/hgraph/builders/builder.h
         include/hgraph/builders/graph_builder.h

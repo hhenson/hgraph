@@ -22,11 +22,4 @@ namespace hgraph {
         return new_traits;
     }
 
-    void Traits::register_with_nanobind(nb::module_ &m) {
-        nb::class_ < Traits, nb::intrusive_base > (m, "Traits")
-                .def("get_trait", &Traits::get_trait, "trait_name"_a)
-                .def("set_traits", &Traits::set_traits)
-                .def("get_trait_or", &Traits::get_trait_or, "trait_name"_a, "def_value"_a = nb::none())
-                .def("copy", &Traits::copy);
-    }
 } // namespace hgraph

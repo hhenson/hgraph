@@ -28,6 +28,8 @@ namespace hgraph {
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
 
         void release_instance(time_series_output_ptr item) const override;
+
+        [[nodiscard]] size_t memory_size() const override;
     };
 
     void time_series_dict_output_builder_register_with_nanobind(nb::module_ & m);

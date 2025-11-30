@@ -125,39 +125,6 @@ namespace hgraph {
         }
     }
 
-    void TimeSeriesListOutput::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesListOutput, IndexedTimeSeriesOutput>(m, "TimeSeriesListOutput")
-                .def(nb::init<const node_ptr &>(), "owning_node"_a)
-                .def(nb::init<const TimeSeriesType::ptr &>(), "parent_input"_a)
-                .def(
-                    "__iter__",
-                    [](const TimeSeriesListOutput &self) {
-                        return nb::make_iterator(nb::type<collection_type>(), "iterator", self.begin(), self.end());
-                    },
-                    nb::keep_alive<0, 1>())
-                .def("keys", &TimeSeriesListOutput::keys)
-                .def("items",
-                     static_cast<enumerated_collection_type (TimeSeriesListOutput::*)() const>(&
-                         TimeSeriesListOutput::items))
-                .def("valid_keys", &TimeSeriesListOutput::valid_keys)
-                .def("valid_items",
-                     static_cast<enumerated_collection_type (TimeSeriesListOutput::*)() const>(&
-                         TimeSeriesListOutput::valid_items))
-                .def("modified_keys", &TimeSeriesListOutput::modified_keys)
-                .def("modified_items",
-                     static_cast<enumerated_collection_type (TimeSeriesListOutput::*)() const>(&
-                         TimeSeriesListOutput::modified_items))
-                .def("key_from_value", &TimeSeriesListOutput::key_from_value, "value"_a)
-                .def("__str__", [](const TimeSeriesListOutput &self) {
-                    return fmt::format("TimeSeriesListOutput@{:p}[size={}, valid={}]",
-                                       static_cast<const void *>(&self), self.size(), self.valid());
-                })
-                .def("__repr__", [](const TimeSeriesListOutput &self) {
-                    return fmt::format("TimeSeriesListOutput@{:p}[size={}, valid={}]",
-                                       static_cast<const void *>(&self), self.size(), self.valid());
-                });
-    }
-
     bool TimeSeriesListInput::is_same_type(const TimeSeriesType *other) const {
         auto other_list = dynamic_cast<const TimeSeriesListInput *>(other);
         if (!other_list) { return false; }
@@ -169,36 +136,6 @@ namespace hgraph {
         return (*this)[0]->is_same_type((*other_list)[0]);
     }
 
-    void TimeSeriesListInput::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesListInput, IndexedTimeSeriesInput>(m, "TimeSeriesListInput")
-                .def(nb::init<const node_ptr &>(), "owning_node"_a)
-                .def(nb::init<const TimeSeriesType::ptr &>(), "parent_input"_a)
-                .def(
-                    "__iter__",
-                    [](const TimeSeriesListInput &self) {
-                        return nb::make_iterator(nb::type<collection_type>(), "iterator", self.begin(), self.end());
-                    },
-                    nb::keep_alive<0, 1>())
-                .def("keys", &TimeSeriesListInput::keys)
-                .def("items",
-                     static_cast<enumerated_collection_type (TimeSeriesListInput::*)() const>(&
-                         TimeSeriesListInput::items))
-                .def("valid_keys", &TimeSeriesListInput::valid_keys)
-                .def("valid_items",
-                     static_cast<enumerated_collection_type (TimeSeriesListInput::*)() const>(&
-                         TimeSeriesListInput::valid_items))
-                .def("modified_keys", &TimeSeriesListInput::modified_keys)
-                .def("modified_items",
-                     static_cast<enumerated_collection_type (TimeSeriesListInput::*)() const>(&
-                         TimeSeriesListInput::modified_items))
-                .def("key_from_value", &TimeSeriesListInput::key_from_value, "value"_a)
-                .def("__str__", [](const TimeSeriesListInput &self) {
-                    return fmt::format("TimeSeriesListInput@{:p}[size={}, valid={}]",
-                                       static_cast<const void *>(&self), self.size(), self.valid());
-                })
-                .def("__repr__", [](const TimeSeriesListInput &self) {
-                    return fmt::format("TimeSeriesListInput@{:p}[size={}, valid={}]",
-                                       static_cast<const void *>(&self), self.size(), self.valid());
-                });
-    }
+    template struct TimeSeriesList<IndexedTimeSeriesInput>;
+    template struct TimeSeriesList<IndexedTimeSeriesOutput>;
 } // namespace hgraph

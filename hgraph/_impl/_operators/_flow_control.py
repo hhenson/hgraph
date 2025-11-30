@@ -42,7 +42,7 @@ def merge_ts_scalar(*tsl: TSL[TS[SCALAR], SIZE], _output: TS[SCALAR] = None) -> 
     list.
     """
     if tsl.modified:
-        return next(tsl.modified_values()).value
+        return next(iter(tsl.modified_values())).value
     else:
         # This implies a value has gone away, if this is the last ticked value, revert to the last ticked value that
         # is still valid
@@ -181,7 +181,7 @@ def reduce_tsd_with_race(
         else:  # if no winner, track timeseries where we have reference but no value
             for i, r in pending_refs.items():
                 if i not in _values:
-                    _values._create(i)
+                    _values.create(i)
                 r.bind_input(_values[i])
                 _values[i].make_active()
     elif tsd[_state.winner].modified:
@@ -281,7 +281,7 @@ def reduce_tsd_of_bundles_with_race(
                 new_winners[i] = None
                 for k, r in pending_items.get(n, {}).items():
                     if k not in _values:
-                        _values._create(k)
+                        _values.create(k)
                     if not (v := _values[k][n]).active:
                         r.bind_input(v)
                         v.make_active()
@@ -291,7 +291,7 @@ def reduce_tsd_of_bundles_with_race(
     if any(n is None for n in new_winners):
         for k, v in pending_values.items():
             if k not in _values:
-                _values._create(k)
+                _values.create(k)
             if not _values[k].active:
                 v.bind_input(_values[k])
                 _values[k].make_active()

@@ -153,33 +153,14 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesOutputVisitor<TimeSeriesBundleOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesOutputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesOutputVisitor<TimeSeriesBundleOutput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        void accept(TimeSeriesOutputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
-        }
-
-        static void register_with_nanobind(nb::module_ &m);
 
     protected:
         using bundle_type::set_ts_values;
@@ -192,38 +173,18 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        // Static method for nanobind registration
-        static void register_with_nanobind(nb::module_ &m);
-
         // This is used by the nested graph infra to rewrite the stub inputs when we build the nested graphs.
         // The general pattern in python was copy_with(node, ts=...)
         // To keep the code in sync for now, will keep this, but there is probably a better way to implement this going forward.
         ptr copy_with(const node_ptr &parent, collection_type ts_values);
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        void accept(TimeSeriesVisitor& visitor) override {
-            if (auto* typed_visitor = dynamic_cast<TimeSeriesInputVisitor<TimeSeriesBundleInput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
+        // Simple double dispatch visitor support
+        void accept(TimeSeriesInputVisitor& visitor) override {
+            visitor.visit(*this);
         }
 
-        void accept(TimeSeriesVisitor& visitor) const override {
-            if (auto* typed_visitor = dynamic_cast<ConstTimeSeriesInputVisitor<TimeSeriesBundleInput>*>(&visitor)) {
-                typed_visitor->visit(*this);
-            }
-        }
-
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
+        void accept(TimeSeriesInputVisitor& visitor) const override {
+            visitor.visit(*this);
         }
 
     protected:

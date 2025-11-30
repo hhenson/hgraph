@@ -23,8 +23,6 @@ namespace hgraph {
 
         virtual void enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const = 0;
 
-        static void register_with_nanobind(nb::module_ &m);
-
     private:
         engine_time_t _last_evaluation_time{MIN_DT};
     };

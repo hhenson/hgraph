@@ -13,8 +13,6 @@ namespace hgraph {
         nb::iterator generator{};
         nb::object next_value{};
 
-        static void register_with_nanobind(nb::module_ &m);
-
     protected:
         void do_eval() override;
 

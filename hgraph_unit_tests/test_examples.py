@@ -5,6 +5,7 @@ from examples.mesh.mesh_example import main as mesh_main
 
 
 def test_examples():
+    ...
     component_main()
     trivial_main()
     trivial_tsd_main()

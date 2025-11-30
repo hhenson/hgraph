@@ -1,5 +1,7 @@
 #include <hgraph/builders/time_series_types/time_series_list_input_builder.h>
+#include <hgraph/builders/builder.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsl.h>
 
 #include <utility>
@@ -42,6 +44,17 @@ namespace hgraph {
         for (size_t i = 0; i < size; ++i) { inputs.push_back(input_builder->make_instance(input)); }
         input->set_ts_values(inputs);
         return input;
+    }
+
+    size_t TimeSeriesListInputBuilder::memory_size() const {
+        // Add canary size to the base list object
+        size_t total = add_canary_size(sizeof(TimeSeriesListInput));
+        // For each element, align and add its size
+        for (size_t i = 0; i < size; ++i) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += input_builder->memory_size();
+        }
+        return total;
     }
 
     void TimeSeriesListInputBuilder::register_with_nanobind(nb::module_ &m) {

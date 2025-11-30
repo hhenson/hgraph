@@ -8,19 +8,22 @@
 
 #include <utility>
 
-namespace hgraph {
+namespace hgraph
+{
     Graph::Graph(std::vector<int64_t> graph_id_, std::vector<Node::ptr> nodes_, std::optional<Node::ptr> parent_node_,
                  std::string label_, traits_ptr traits_)
-        : ComponentLifeCycle(), _graph_id{std::move(graph_id_)}, _nodes{std::move(nodes_)},
-          _parent_node{parent_node_.has_value() ? std::move(*parent_node_) : nullptr}, _label{std::move(label_)},
-          _traits{std::move(traits_)} {
-        auto it{
-            std::find_if(_nodes.begin(), _nodes.end(),
-                         [](const Node *v) { return v->signature().node_type != NodeTypeEnum::PUSH_SOURCE_NODE; })
-        };
+        : ComponentLifeCycle(), _control_block{std::make_shared<ApiControlBlock>()}, _graph_id{std::move(graph_id_)},
+          _nodes{std::move(nodes_)}, _parent_node{parent_node_.has_value() ? std::move(*parent_node_) : nullptr},
+          _label{std::move(label_)}, _traits{std::move(traits_)} {
+        auto it{std::find_if(_nodes.begin(), _nodes.end(),
+                             [](const Node *v) { return v->signature().node_type != NodeTypeEnum::PUSH_SOURCE_NODE; })};
         _push_source_nodes_end = std::distance(_nodes.begin(), it);
         _schedule.resize(_nodes.size(), MIN_DT);
     }
+
+    Graph::~Graph() { _control_block->mark_dead(); }
+
+    const control_block_ptr &Graph::control_block() const { return _control_block; }
 
     const std::vector<int64_t> &Graph::graph_id() const { return _graph_id; }
 
@@ -36,9 +39,7 @@ namespace hgraph {
 
     EvaluationClock::ptr Graph::evaluation_clock() const { return _evaluation_engine->evaluation_clock(); }
 
-    EngineEvaluationClock::ptr Graph::evaluation_engine_clock() {
-        return _evaluation_engine->engine_evaluation_clock();
-    }
+    EngineEvaluationClock::ptr Graph::evaluation_engine_clock() { return _evaluation_engine->engine_evaluation_clock(); }
 
     EvaluationEngine::ptr Graph::evaluation_engine() { return _evaluation_engine.get(); }
 
@@ -49,7 +50,7 @@ namespace hgraph {
         _evaluation_engine = std::move(value);
 
         // Cache the clock pointer and evaluation time pointer once at initialization for performance
-        _cached_engine_clock = _evaluation_engine->engine_evaluation_clock().get();
+        _cached_engine_clock        = _evaluation_engine->engine_evaluation_clock().get();
         _cached_evaluation_time_ptr = _cached_engine_clock->evaluation_time_ptr();
 
         if (_push_source_nodes_end > 0) { _receiver.set_evaluation_clock(evaluation_engine_clock()); }
@@ -68,11 +69,9 @@ namespace hgraph {
         // Match Python: just throw if scheduling in the past
         if (when < et) {
             auto graph_id{this->graph_id()};
-            auto msg{
-                fmt::format(
-                    "Graph[{}] Trying to schedule node: {}[{}] for {:%Y-%m-%d %H:%M:%S} but current time is {:%Y-%m-%d %H:%M:%S}",
-                    fmt::join(graph_id, ","), this->nodes()[node_ndx]->signature().signature(), node_ndx, when, et)
-            };
+            auto msg{fmt::format(
+                "Graph[{}] Trying to schedule node: {}[{}] for {:%Y-%m-%d %H:%M:%S} but current time is {:%Y-%m-%d %H:%M:%S}",
+                fmt::join(graph_id, ","), this->nodes()[node_ndx]->signature().signature(), node_ndx, when, et)};
             throw std::runtime_error(msg);
         }
 
@@ -87,10 +86,10 @@ namespace hgraph {
         NotifyGraphEvaluation nge{evaluation_engine(), graph_ptr{this}};
 
         // Use cached pointers (set at initialization) for direct memory access
-        auto clock = _cached_engine_clock;
-        engine_time_t now = *_cached_evaluation_time_ptr;
-        auto &nodes = _nodes;
-        auto &schedule = _schedule;
+        auto          clock    = _cached_engine_clock;
+        engine_time_t now      = *_cached_evaluation_time_ptr;
+        auto         &nodes    = _nodes;
+        auto         &schedule = _schedule;
 
         _last_evaluation_time = now;
 
@@ -99,19 +98,19 @@ namespace hgraph {
             clock->reset_push_node_requires_scheduling();
 
             while (auto value = receiver().dequeue()) {
-                auto [i, message] = *value; // Use the already dequeued value
-                auto node = nodes[i];
-                auto &node_ref = *node;
+                auto [i, message] = *value;  // Use the already dequeued value
+                auto  node        = nodes[i];
+                auto &node_ref    = *node;
                 try {
                     NotifyNodeEvaluation nne{evaluation_engine(), node};
-                    bool success = dynamic_cast<PushQueueNode &>(node_ref).apply_message(message);
+                    bool                 success = dynamic_cast<PushQueueNode &>(node_ref).apply_message(message);
                     if (!success) {
                         receiver().enqueue_front({i, message});
                         clock->mark_push_node_requires_scheduling();
                         break;
                     }
                 } catch (const NodeException &e) {
-                    throw; // already enriched
+                    throw;  // already enriched
                 } catch (const std::exception &e) {
                     throw NodeException::capture_error(e, node_ref, "During push node message application");
                 } catch (...) {
@@ -122,18 +121,16 @@ namespace hgraph {
             try {
                 evaluation_engine()->notify_after_push_nodes_evaluation(graph_ptr{this});
             } catch (const NodeException &e) {
-                throw; // already enriched
+                throw;  // already enriched
             } catch (const std::exception &e) {
                 throw std::runtime_error(std::string("Error in notify_after_push_nodes_evaluation: ") + e.what());
-            } catch (...) {
-                throw std::runtime_error("Unknown error in notify_after_push_nodes_evaluation");
-            }
+            } catch (...) { throw std::runtime_error("Unknown error in notify_after_push_nodes_evaluation"); }
         }
 
         for (size_t i = push_source_nodes_end(); i < nodes.size(); ++i) {
-            auto scheduled_time = schedule[i];
-            auto nodep = nodes[i];
-            auto &node = *nodep;
+            auto  scheduled_time = schedule[i];
+            auto  nodep          = nodes[i];
+            auto &node           = *nodep;
 
             if (scheduled_time == now) {
                 try {
@@ -142,8 +139,7 @@ namespace hgraph {
                 } catch (const NodeException &e) { throw e; } catch (const std::exception &e) {
                     throw NodeException::capture_error(e, node, "During evaluation");
                 } catch (...) {
-                    throw NodeException::capture_error(std::current_exception(), node,
-                                                       "Unknown error during node evaluation");
+                    throw NodeException::capture_error(std::current_exception(), node, "Unknown error during node evaluation");
                 }
             } else if (scheduled_time > now) {
                 clock->update_next_scheduled_evaluation_time(scheduled_time);
@@ -152,11 +148,12 @@ namespace hgraph {
     }
 
     Graph::ptr Graph::copy_with(std::vector<Node::ptr> nodes) {
-        //This is a copy, need to make sure we copy the graph contents
+        // This is a copy, need to make sure we copy the graph contents
+        // TODO: This REALLY should be constructed using a builder, for now we will just allow to continue
         return ptr{new Graph(_graph_id, std::move(nodes), _parent_node, _label, _traits->copy())};
     }
 
-    const Traits &Graph::traits() const { return *_traits; }
+    const Traits:: ptr &Graph::traits() const { return _traits; }
 
     SenderReceiverState &Graph::receiver() { return _receiver; }
 
@@ -167,7 +164,7 @@ namespace hgraph {
         auto capacity{first_node_index + sz};
         _nodes.reserve(capacity);
         _schedule.reserve(capacity);
-        for (auto node: nodes) {
+        for (auto node : nodes) {
             _nodes.emplace_back(node);
             _schedule.emplace_back(MIN_DT);
         }
@@ -205,10 +202,8 @@ namespace hgraph {
                 start_component(*node);
                 evaluation_engine()->notify_after_start_node(node);
             } catch (const NodeException &e) {
-                throw; // already enriched
-            } catch (const std::exception &e) {
-                throw NodeException::capture_error(e, *node, "During node start");
-            } catch (...) {
+                throw;  // already enriched
+            } catch (const std::exception &e) { throw NodeException::capture_error(e, *node, "During node start"); } catch (...) {
                 throw NodeException::capture_error(std::current_exception(), *node, "Unknown error during node start");
             }
         }
@@ -222,10 +217,8 @@ namespace hgraph {
                 stop_component(*node);
                 evaluation_engine()->notify_after_stop_node(node);
             } catch (const NodeException &e) {
-                throw; // already enriched
-            } catch (const std::exception &e) {
-                throw NodeException::capture_error(e, *node, "During node stop");
-            } catch (...) {
+                throw;  // already enriched
+            } catch (const std::exception &e) { throw NodeException::capture_error(e, *node, "During node stop"); } catch (...) {
                 throw NodeException::capture_error(std::current_exception(), *node, "Unknown error during node stop");
             }
         }
@@ -238,60 +231,17 @@ namespace hgraph {
         }
     }
 
-    void Graph::register_with_nanobind(nb::module_ &m) {
-        nb::class_ <Graph, ComponentLifeCycle> (m, "Graph")
-                .def(nb::init<std::vector<int64_t>, std::vector<node_ptr>, std::optional<node_ptr>, std::string,
-                         traits_ptr>(),
-                     "graph_id"_a, "nodes"_a, "parent_node"_a, "label"_a, "traits"_a)
-                .def_prop_ro("graph_id", [](const Graph& self){ return nb::tuple(nb::cast(self.graph_id())); })
-                .def_prop_ro("nodes", &Graph::nodes)
-                .def_prop_ro("parent_node", &Graph::parent_node)
-                .def_prop_ro("label", &Graph::label)
-                .def_prop_ro("evaluation_engine_api", &Graph::evaluation_engine_api)
-                .def_prop_ro("evaluation_clock",
-                             static_cast<EvaluationClock::ptr (Graph::*)() const>(&Graph::evaluation_clock))
-                .def_prop_ro("engine_evaluation_clock", &Graph::evaluation_engine_clock)
-                .def_prop_rw("evaluation_engine", &Graph::evaluation_engine, &Graph::set_evaluation_engine)
-                .def_prop_ro("push_source_nodes_end", &Graph::push_source_nodes_end)
-                .def("schedule_node", static_cast<void (Graph::*)(int64_t, engine_time_t, bool)>(&Graph::schedule_node),
-                     "node_ndx"_a,
-                     "when"_a, "force_set"_a = false)
-                .def_prop_ro("schedule", &Graph::schedule)
-                .def("evaluate_graph", &Graph::evaluate_graph)
-                .def_prop_ro("last_evaluation_time", &Graph::last_evaluation_time)
-                .def("copy_with", &Graph::copy_with, "nodes"_a)
-                .def_prop_ro("traits", &Graph::traits)
-                .def("node_info", [](Graph &self, int64_t index) {
-                    if (index < 0 || index >= static_cast<int64_t>(self.nodes().size())) {
-                        throw std::out_of_range("Node index out of range");
-                    }
-                    return nb::make_tuple(nb::cast(self.nodes()[index]), nb::cast(self._schedule[index]));
-                }, "index"_a)
-                .def("__str__", [](const Graph &self) {
-                    return fmt::format("Graph@{:p}[id={}, nodes={}]",
-                                       static_cast<const void *>(&self),
-                                       fmt::join(self.graph_id(), ","),
-                                       self.nodes().size());
-                })
-                .def("__repr__", [](const Graph &self) {
-                    return fmt::format("Graph@{:p}[id={}, nodes={}]",
-                                       static_cast<const void *>(&self),
-                                       fmt::join(self.graph_id(), ","),
-                                       self.nodes().size());
-                });;
-    }
-
     void Graph::initialise() {
         // Need to ensure that the graph is set prior to initialising the nodes
         // In case of interaction between nodes.
-        for (auto &node: _nodes) { node->set_graph(this); }
-        for (auto &node: _nodes) { node->initialise(); }
+        for (auto &node : _nodes) { node->set_graph(this); }
+        for (auto &node : _nodes) { node->initialise(); }
     }
 
     void Graph::start() {
         auto &engine = *_evaluation_engine;
         engine.notify_before_start_graph(graph_ptr{this});
-        for (auto &node: _nodes) {
+        for (auto &node : _nodes) {
             engine.notify_before_start_node(node);
             start_component(*node);
             engine.notify_after_start_node(node);
@@ -303,7 +253,7 @@ namespace hgraph {
         auto &engine = *_evaluation_engine;
         engine.notify_before_stop_graph(graph_ptr{this});
         std::exception_ptr first_exc;
-        for (auto &node: _nodes) {
+        for (auto &node : _nodes) {
             try {
                 engine.notify_before_stop_node(node);
             } catch (...) {
@@ -330,6 +280,6 @@ namespace hgraph {
 
     void Graph::dispose() {
         // Since we initialise nodes from within the graph, we need to dispose them here.
-        for (auto &node: _nodes) { node->dispose(); }
+        for (auto &node : _nodes) { node->dispose(); }
     }
-} // namespace hgraph
+}  // namespace hgraph

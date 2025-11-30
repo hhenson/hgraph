@@ -60,6 +60,9 @@ namespace hgraph {
 
     template<typename K>
     void ReduceNode<K>::initialise() {
+        //TODO: If this graph escapes into python we will need to look into providing
+        //      an actual control block this may also need to be constructed from
+        //      the builder.
         nested_graph_ = new Graph(std::vector<int64_t>{node_ndx()}, std::vector<node_ptr>{}, this, "", new Traits());
         nested_graph_->set_evaluation_engine(new NestedEvaluationEngine(
             graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
@@ -377,14 +380,16 @@ namespace hgraph {
             // This input was bound to a key, so we need to:
             // 1. Remove it from our tracking set
             // 2. Re-parent it back to the TSD for cleanup
-            // 3. Create a new unbound reference input for this node
+            // 3. Create a new unbound reference input for this node with the same specialized type as zero()
             bound_to_key_flags_.erase(inner_input.get());
             inner_input->re_parent(ts().get());
 
-            auto new_ref_input = new TimeSeriesReferenceInput(node.get());
+            // Clone the specialized type from zero() instead of creating a base type
+            auto zero_ref = zero();
+            auto new_ref_input = zero_ref->clone_blank_ref_instance();
             node->reset_input(node->input()->copy_with(node.get(), {new_ref_input}));
             new_ref_input->re_parent(node->input());
-            new_ref_input->clone_binding(zero());
+            new_ref_input->clone_binding(zero_ref);
         } else {
             // This input is not bound to a key (it's an unbound reference we created),
             // so we can just clone the zero binding without creating a new input

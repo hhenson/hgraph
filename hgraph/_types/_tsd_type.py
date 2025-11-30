@@ -120,14 +120,14 @@ class TimeSeriesDict(TimeSeriesIterable[K, V], TimeSeriesDeltaValue[frozendict, 
         output is constructed but will be in an invalid state until it is set with a value.
         """
         if key not in self._ts_values:
-            self._create(key)
+            self.create(key)
         return self._ts_values[key]
 
     def get(self, key: K) -> V | None:
         return self._ts_values.get(key)
 
     @abstractmethod
-    def _create(self, key: K):
+    def create(self, key: K):
         """Implemented by subclasses to create a new time series at this index position"""
 
     def __iter__(self) -> Iterable[K]:

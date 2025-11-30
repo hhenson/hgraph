@@ -37,6 +37,11 @@ namespace hgraph {
         if (ts) { ts->reset_value(); }
     }
 
+    template<typename T>
+    size_t TimeSeriesWindowOutputBuilder_T<T>::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesFixedWindowOutput<T>));
+    }
+
     // TimeSeriesTimeWindowOutputBuilder_T implementations (timedelta-based)
     template<typename T>
     TimeSeriesTimeWindowOutputBuilder_T<T>::TimeSeriesTimeWindowOutputBuilder_T(engine_time_delta_t size,
@@ -69,6 +74,11 @@ namespace hgraph {
     void TimeSeriesTimeWindowOutputBuilder_T<T>::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
         // No reset_value for time windows
+    }
+
+    template<typename T>
+    size_t TimeSeriesTimeWindowOutputBuilder_T<T>::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesTimeWindowOutput<T>));
     }
 
     void time_series_window_output_builder_register_with_nanobind(nb::module_ &m) {

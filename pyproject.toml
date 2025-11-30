@@ -113,7 +113,7 @@ minversion = "7.4.3"
 # After 4 cores there are no measurable improvements I can measure at the moment.
 # If you want the default runs to include these arguement uncomment
 #addopts = "-n 4 -ra -q --dist=loadscope" # " --cov=hgraph --cov-report=term-missing --cov-report=xml"
-adapots = "--doctest-modules"
+#adapots = "--doctest-modules"
 # Ensure tests and IDE analysis can resolve the in-tree package
 pythonpath = ["."]
 testpaths = [

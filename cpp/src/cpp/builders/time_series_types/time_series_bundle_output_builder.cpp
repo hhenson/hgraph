@@ -1,5 +1,7 @@
 #include <hgraph/builders/time_series_types/time_series_bundle_output_builder.h>
+#include <hgraph/builders/builder.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
 
 #include <ranges>
@@ -55,6 +57,17 @@ namespace hgraph {
                           std::back_inserter(outputs));
         output->set_ts_values(outputs);
         return output_;
+    }
+
+    size_t TimeSeriesBundleOutputBuilder::memory_size() const {
+        // Add canary size to the base bundle object
+        size_t total = add_canary_size(sizeof(TimeSeriesBundleOutput));
+        // Align before each nested time-series output
+        for (const auto &builder : output_builders) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += builder->memory_size();
+        }
+        return total;
     }
 
     void TimeSeriesBundleOutputBuilder::register_with_nanobind(nb::module_ &m) {

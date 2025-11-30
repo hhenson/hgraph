@@ -1,246 +1,250 @@
 //
 // Time Series Visitor Pattern Support
 //
-// This file provides both CRTP and Acyclic visitor pattern support for TimeSeriesInput/Output.
-//
-// Design Philosophy:
-// - CRTP visitors: For internal, performance-critical code with zero overhead (compile-time dispatch)
-// - Acyclic visitors: For extensions, plugins, and Python bindings (runtime dispatch)
-// - Both patterns are supported simultaneously via function overloading and concepts
-//
-// Usage:
-// 1. For internal code: Derive from TimeSeriesOutputVisitorCRTP/TimeSeriesInputVisitorCRTP
-// 2. For extensions: Derive from TimeSeriesVisitor + specific TimeSeriesOutputVisitor<T>/TimeSeriesInputVisitor<T>
-// 3. Call accept() on any TimeSeriesInput/Output - the compiler selects the right dispatch
+// Simple double dispatch visitor pattern:
+// - Base visitor interface with visit() methods for each concrete type
+// - Concrete types override accept() to call visitor.visit(*this)
+// - This provides runtime dispatch based on the concrete type
 //
 
 #ifndef TIME_SERIES_VISITOR_H
 #define TIME_SERIES_VISITOR_H
 
 #include <hgraph/hgraph_forward_declarations.h>
-#include <type_traits>
 
 namespace hgraph {
-    // Forward declarations needed for visitor interfaces
-    // (Most are already in hgraph_forward_declarations.h)
-
-    // Value types (TS[T])
+    // Forward declarations for concrete types
     template<typename T> struct TimeSeriesValueInput;
     template<typename T> struct TimeSeriesValueOutput;
-
-    // Bundle types (TSB)
-    struct TimeSeriesBundleInput;
-    struct TimeSeriesBundleOutput;
-
-    // Dict types (TSD[K, V])
-    struct TimeSeriesDictInput;
-    struct TimeSeriesDictOutput;
-    template<typename K> struct TimeSeriesDictInput_T;
-    template<typename K> struct TimeSeriesDictOutput_T;
-
-    // List types (TSL)
+    struct TimeSeriesSignalInput;
     struct TimeSeriesListInput;
-    struct TimeSeriesListOutput;
-
-    // Set types (TSS)
-    struct TimeSeriesSetInput;
-    struct TimeSeriesSetOutput;
-    template<typename T> struct TimeSeriesSetInput_T;
-    template<typename T> struct TimeSeriesSetOutput_T;
-
-    // Reference types (REF)
+    struct TimeSeriesBundleInput;
+    template<typename K> struct TimeSeriesDictInput_T;
+    template<typename K> struct TimeSeriesSetInput_T;
+    template<typename T> struct TimeSeriesWindowInput;
     struct TimeSeriesReferenceInput;
     struct TimeSeriesReferenceOutput;
+    struct TimeSeriesValueReferenceInput;
+    struct TimeSeriesBundleReferenceInput;
+    struct TimeSeriesSetReferenceInput;
+    struct TimeSeriesListReferenceInput;
+    struct TimeSeriesDictReferenceInput;
+    struct TimeSeriesWindowReferenceInput;
 
-    // ============================================================================
-    // CRTP Visitors - For internal, performance-critical code (zero overhead)
-    // ============================================================================
-
-    /**
-     * @brief CRTP base for visiting TimeSeriesOutput types
-     *
-     * Use this for internal operations that need maximum performance.
-     * The derived class must implement visit() methods for each type.
-     *
-     * @tparam Derived The derived visitor class (CRTP pattern)
-     *
-     * Example:
-     * @code
-     * struct MyCRTPVisitor : TimeSeriesOutputVisitorCRTP<MyCRTPVisitor> {
-     *     template<typename T>
-     *     void visit(TimeSeriesValueOutput<T>& output) {
-     *         // Handle value output
-     *     }
-     *
-     *     void visit(TimeSeriesBundleOutput& output) {
-     *         // Handle bundle output
-     *     }
-     * };
-     *
-     * MyCRTPVisitor visitor;
-     * output->accept(visitor);  // Zero-overhead compile-time dispatch
-     * @endcode
-     */
-    template<typename Derived>
-    struct TimeSeriesOutputVisitorCRTP {
-        /**
-         * @brief Function call operator for visiting an output
-         * Dispatches to the derived class's visit() method
-         */
-        template<typename TS>
-        decltype(auto) operator()(TS& ts) {
-            return static_cast<Derived*>(this)->visit(ts);
-        }
-
-        template<typename TS>
-        decltype(auto) operator()(const TS& ts) const {
-            return static_cast<const Derived*>(this)->visit(ts);
-        }
-    };
+    struct TimeSeriesListOutput;
+    struct TimeSeriesBundleOutput;
+    template<typename K> struct TimeSeriesDictOutput_T;
+    template<typename K> struct TimeSeriesSetOutput_T;
+    template<typename T> struct TimeSeriesFixedWindowOutput;
+    template<typename T> struct TimeSeriesTimeWindowOutput;
+    struct TimeSeriesValueReferenceOutput;
+    struct TimeSeriesBundleReferenceOutput;
+    struct TimeSeriesSetReferenceOutput;
+    struct TimeSeriesListReferenceOutput;
+    struct TimeSeriesDictReferenceOutput;
+    struct TimeSeriesWindowReferenceOutput;
 
     /**
-     * @brief CRTP base for visiting TimeSeriesInput types
-     *
-     * @tparam Derived The derived visitor class (CRTP pattern)
-     *
-     * @see TimeSeriesOutputVisitorCRTP for usage example
+     * @brief Base visitor interface for TimeSeriesInput types
+     * 
+     * Visitors should inherit from this and implement visit() methods for the types they care about.
+     * Concrete TimeSeriesInput types will call visitor.visit(*this) in their accept() method.
      */
-    template<typename Derived>
-    struct TimeSeriesInputVisitorCRTP {
-        template<typename TS>
-        decltype(auto) operator()(TS& ts) {
-            return static_cast<Derived*>(this)->visit(ts);
-        }
-
-        template<typename TS>
-        decltype(auto) operator()(const TS& ts) const {
-            return static_cast<const Derived*>(this)->visit(ts);
-        }
-    };
-
-    // ============================================================================
-    // Acyclic Visitors - For extensions, plugins, and Python bindings
-    // ============================================================================
-
-    /**
-     * @brief Base interface for acyclic visitors (empty tag interface)
-     *
-     * This serves as a marker interface to distinguish acyclic visitors from CRTP visitors.
-     * All acyclic visitors must inherit from this interface.
-     */
-    struct HGRAPH_EXPORT TimeSeriesVisitor {
-        virtual ~TimeSeriesVisitor() = default;
-    };
-
-    /**
-     * @brief Typed visitor interface for a specific TimeSeriesOutput type
-     *
-     * Inherit from this interface for each concrete type you want to visit.
-     *
-     * @tparam T The concrete TimeSeriesOutput type
-     *
-     * Example:
-     * @code
-     * struct MyAcyclicVisitor : TimeSeriesVisitor,
-     *                           TimeSeriesOutputVisitor<TimeSeriesValueOutput<int>>,
-     *                           TimeSeriesOutputVisitor<TimeSeriesBundleOutput> {
-     *
-     *     void visit(TimeSeriesValueOutput<int>& output) override {
-     *         // Handle int output
-     *     }
-     *
-     *     void visit(TimeSeriesBundleOutput& output) override {
-     *         // Handle bundle output
-     *     }
-     * };
-     *
-     * MyAcyclicVisitor visitor;
-     * output->accept(visitor);  // Runtime dispatch via dynamic_cast
-     * @endcode
-     */
-    template<typename T>
-    struct TimeSeriesOutputVisitor {
-        virtual void visit(T& output) = 0;
-        virtual ~TimeSeriesOutputVisitor() = default;
-    };
-
-    /**
-     * @brief Typed visitor interface for a specific TimeSeriesInput type
-     *
-     * @tparam T The concrete TimeSeriesInput type
-     *
-     * @see TimeSeriesOutputVisitor for usage example
-     */
-    template<typename T>
-    struct TimeSeriesInputVisitor {
-        virtual void visit(T& input) = 0;
+    struct HGRAPH_EXPORT TimeSeriesInputVisitor {
         virtual ~TimeSeriesInputVisitor() = default;
-    };
 
-    /**
-     * @brief Const variant for read-only visiting of TimeSeriesOutput
-     *
-     * Use this when your visitor doesn't need to modify the time series.
-     *
-     * @tparam T The concrete TimeSeriesOutput type
-     */
-    template<typename T>
-    struct ConstTimeSeriesOutputVisitor {
-        virtual void visit(const T& output) = 0;
-        virtual ~ConstTimeSeriesOutputVisitor() = default;
-    };
-
-    /**
-     * @brief Const variant for read-only visiting of TimeSeriesInput
-     *
-     * @tparam T The concrete TimeSeriesInput type
-     */
-    template<typename T>
-    struct ConstTimeSeriesInputVisitor {
-        virtual void visit(const T& input) = 0;
-        virtual ~ConstTimeSeriesInputVisitor() = default;
-    };
-
-    // Note: TimeSeriesOutputVisitable and TimeSeriesInputVisitable are defined
-    // in time_series_type.h to avoid circular dependencies
-
-    // ============================================================================
-    // Helper Functions and Utilities
-    // ============================================================================
-
-    /**
-     * @brief Helper to automatically choose the right dispatch mechanism
-     *
-     * This function automatically selects CRTP or Acyclic dispatch based on the visitor type.
-     *
-     * @tparam Visitor The visitor type
-     * @tparam TS The time series type
-     * @param visitor The visitor instance
-     * @param ts The time series instance
-     * @return Whatever the visitor returns (for CRTP visitors)
-     */
-    template<typename Visitor, typename TS>
-    decltype(auto) visit_timeseries(Visitor& visitor, TS& ts) {
-        if constexpr (std::is_base_of_v<TimeSeriesVisitor, Visitor>) {
-            // Acyclic visitor - use runtime dispatch
-            ts.accept(static_cast<TimeSeriesVisitor&>(visitor));
-        } else {
-            // CRTP visitor - use compile-time dispatch
-            return ts.accept(visitor);
+        // Template visit methods for value types - these call virtual methods that can be overridden
+        template<typename T>
+        void visit(TimeSeriesValueInput<T>& input) {
+            visit_value_input_impl(&input);
         }
-    }
+
+        template<typename T>
+        void visit(const TimeSeriesValueInput<T>& input) {
+            visit_value_input_impl(const_cast<TimeSeriesValueInput<T>*>(&input));
+        }
+
+        // Virtual method that derived classes can override to handle value inputs
+        virtual void visit_value_input_impl(TimeSeriesType* input) {
+            // Default: do nothing, override in derived classes
+        }
+
+        // Visit methods for specific types
+        virtual void visit(TimeSeriesSignalInput& input) {}
+        virtual void visit(const TimeSeriesSignalInput& input) {}
+        virtual void visit(TimeSeriesListInput& input) {}
+        virtual void visit(const TimeSeriesListInput& input) {}
+        virtual void visit(TimeSeriesBundleInput& input) {}
+        virtual void visit(const TimeSeriesBundleInput& input) {}
+        
+        template<typename K>
+        void visit(TimeSeriesDictInput_T<K>& input) {
+            visit_dict_input_impl(&input);
+        }
+        
+        template<typename K>
+        void visit(const TimeSeriesDictInput_T<K>& input) {
+            visit_dict_input_impl(const_cast<TimeSeriesDictInput_T<K>*>(&input));
+        }
+        
+        template<typename K>
+        void visit(TimeSeriesSetInput_T<K>& input) {
+            visit_set_input_impl(&input);
+        }
+        
+        template<typename K>
+        void visit(const TimeSeriesSetInput_T<K>& input) {
+            visit_set_input_impl(const_cast<TimeSeriesSetInput_T<K>*>(&input));
+        }
+        
+        template<typename T>
+        void visit(TimeSeriesWindowInput<T>& input) {
+            visit_window_input_impl(&input);
+        }
+        
+        template<typename T>
+        void visit(const TimeSeriesWindowInput<T>& input) {
+            visit_window_input_impl(const_cast<TimeSeriesWindowInput<T>*>(&input));
+        }
+
+        // Virtual methods that derived classes can override to handle template types
+        virtual void visit_dict_input_impl(TimeSeriesType* input) {
+            // Default: do nothing, override in derived classes
+        }
+
+        virtual void visit_set_input_impl(TimeSeriesType* input) {
+            // Default: do nothing, override in derived classes
+        }
+
+        virtual void visit_window_input_impl(TimeSeriesType* input) {
+            // Default: do nothing, override in derived classes
+        }
+        
+        // Base reference input type - must be before specialized types
+        virtual void visit(TimeSeriesReferenceInput& input) {}
+        virtual void visit(const TimeSeriesReferenceInput& input) {}
+        
+        // Specialized reference input types
+        virtual void visit(TimeSeriesValueReferenceInput& input) {}
+        virtual void visit(const TimeSeriesValueReferenceInput& input) {}
+        virtual void visit(TimeSeriesBundleReferenceInput& input) {}
+        virtual void visit(const TimeSeriesBundleReferenceInput& input) {}
+        virtual void visit(TimeSeriesSetReferenceInput& input) {}
+        virtual void visit(const TimeSeriesSetReferenceInput& input) {}
+        virtual void visit(TimeSeriesListReferenceInput& input) {}
+        virtual void visit(const TimeSeriesListReferenceInput& input) {}
+        virtual void visit(TimeSeriesDictReferenceInput& input) {}
+        virtual void visit(const TimeSeriesDictReferenceInput& input) {}
+        virtual void visit(TimeSeriesWindowReferenceInput& input) {}
+        virtual void visit(const TimeSeriesWindowReferenceInput& input) {}
+    };
 
     /**
-     * @brief Const variant of visit_timeseries
+     * @brief Base visitor interface for TimeSeriesOutput types
+     * 
+     * Visitors should inherit from this and implement visit() methods for the types they care about.
+     * Concrete TimeSeriesOutput types will call visitor.visit(*this) in their accept() method.
      */
-    template<typename Visitor, typename TS>
-    decltype(auto) visit_timeseries(Visitor& visitor, const TS& ts) {
-        if constexpr (std::is_base_of_v<TimeSeriesVisitor, Visitor>) {
-            ts.accept(static_cast<TimeSeriesVisitor&>(visitor));
-        } else {
-            return ts.accept(visitor);
+    struct HGRAPH_EXPORT TimeSeriesOutputVisitor {
+        virtual ~TimeSeriesOutputVisitor() = default;
+
+        // Template visit methods for value types - these call virtual methods that can be overridden
+        template<typename T>
+        void visit(TimeSeriesValueOutput<T>& output) {
+            visit_value_output_impl(&output);
         }
-    }
+
+        template<typename T>
+        void visit(const TimeSeriesValueOutput<T>& output) {
+            visit_value_output_impl(const_cast<TimeSeriesValueOutput<T>*>(&output));
+        }
+
+        // Virtual method that derived classes can override to handle value outputs
+        virtual void visit_value_output_impl(TimeSeriesType* output) {
+            // Default: do nothing, override in derived classes
+        }
+
+        // Visit methods for specific types
+        virtual void visit(TimeSeriesListOutput& output) {}
+        virtual void visit(const TimeSeriesListOutput& output) {}
+        virtual void visit(TimeSeriesBundleOutput& output) {}
+        virtual void visit(const TimeSeriesBundleOutput& output) {}
+        
+        template<typename K>
+        void visit(TimeSeriesDictOutput_T<K>& output) {
+            visit_dict_output_impl(&output);
+        }
+        
+        template<typename K>
+        void visit(const TimeSeriesDictOutput_T<K>& output) {
+            visit_dict_output_impl(const_cast<TimeSeriesDictOutput_T<K>*>(&output));
+        }
+        
+        template<typename K>
+        void visit(TimeSeriesSetOutput_T<K>& output) {
+            visit_set_output_impl(&output);
+        }
+        
+        template<typename K>
+        void visit(const TimeSeriesSetOutput_T<K>& output) {
+            visit_set_output_impl(const_cast<TimeSeriesSetOutput_T<K>*>(&output));
+        }
+        
+        template<typename T>
+        void visit(TimeSeriesFixedWindowOutput<T>& output) {
+            visit_fixed_window_output_impl(&output);
+        }
+        
+        template<typename T>
+        void visit(const TimeSeriesFixedWindowOutput<T>& output) {
+            visit_fixed_window_output_impl(const_cast<TimeSeriesFixedWindowOutput<T>*>(&output));
+        }
+        
+        template<typename T>
+        void visit(TimeSeriesTimeWindowOutput<T>& output) {
+            visit_time_window_output_impl(&output);
+        }
+        
+        template<typename T>
+        void visit(const TimeSeriesTimeWindowOutput<T>& output) {
+            visit_time_window_output_impl(const_cast<TimeSeriesTimeWindowOutput<T>*>(&output));
+        }
+
+        // Virtual methods that derived classes can override to handle template types
+        virtual void visit_dict_output_impl(TimeSeriesType* output) {
+            // Default: do nothing, override in derived classes
+        }
+
+        virtual void visit_set_output_impl(TimeSeriesType* output) {
+            // Default: do nothing, override in derived classes
+        }
+
+        virtual void visit_fixed_window_output_impl(TimeSeriesType* output) {
+            // Default: do nothing, override in derived classes
+        }
+
+        virtual void visit_time_window_output_impl(TimeSeriesType* output) {
+            // Default: do nothing, override in derived classes
+        }
+        
+        // Base reference output type - must be before specialized types
+        virtual void visit(TimeSeriesReferenceOutput& output) {}
+        virtual void visit(const TimeSeriesReferenceOutput& output) {}
+        
+        // Specialized reference output types
+        virtual void visit(TimeSeriesValueReferenceOutput& output) {}
+        virtual void visit(const TimeSeriesValueReferenceOutput& output) {}
+        virtual void visit(TimeSeriesBundleReferenceOutput& output) {}
+        virtual void visit(const TimeSeriesBundleReferenceOutput& output) {}
+        virtual void visit(TimeSeriesSetReferenceOutput& output) {}
+        virtual void visit(const TimeSeriesSetReferenceOutput& output) {}
+        virtual void visit(TimeSeriesListReferenceOutput& output) {}
+        virtual void visit(const TimeSeriesListReferenceOutput& output) {}
+        virtual void visit(TimeSeriesDictReferenceOutput& output) {}
+        virtual void visit(const TimeSeriesDictReferenceOutput& output) {}
+        virtual void visit(TimeSeriesWindowReferenceOutput& output) {}
+        virtual void visit(const TimeSeriesWindowReferenceOutput& output) {}
+    };
 
 } // namespace hgraph
 

@@ -68,21 +68,6 @@ namespace hgraph {
         void invalidate() override;
         void mark_modified(engine_time_t modified_time) override;
 
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
-        }
-
-        static void register_with_nanobind(nb::module_ &m);
-
     protected:
         // State and helpers moved from TimeSeriesType
         TimeSeriesType* _parent_time_series() const;
@@ -156,21 +141,6 @@ namespace hgraph {
         [[nodiscard]] const TimeSeriesInput *get_input(size_t index) const override;
         [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
 
-        // CRTP visitor support (compile-time dispatch)
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) {
-            return visitor(*this);
-        }
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const {
-            return visitor(*this);
-        }
-
-        static void register_with_nanobind(nb::module_ &m);
-
     protected:
         // State and helpers moved from TimeSeriesType
         TimeSeriesType* _parent_time_series() const;
@@ -204,38 +174,8 @@ namespace hgraph {
         engine_time_t _notify_time{MIN_DT};
     };
 
-    // Implementation of CRTP accept forwarding for TimeSeriesInputVisitable
-    // This is tricky: we need to call the concrete type's accept(), not BaseTimeSeriesInput's
-    // The concrete types (like TimeSeriesValueReferenceInput) override this with their own accept()
-    // So we just need a default implementation that's never actually called
-    template<typename Visitor>
-        requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-    decltype(auto) TimeSeriesInputVisitable::accept(Visitor& visitor) {
-        // This should never be called - concrete types override with CRTP accept
-        throw std::runtime_error("CRTP accept() called on TimeSeriesInputVisitable base - missing override in derived class");
-    }
-
-    template<typename Visitor>
-        requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-    decltype(auto) TimeSeriesInputVisitable::accept(Visitor& visitor) const {
-        // This should never be called - concrete types override with CRTP accept
-        throw std::runtime_error("CRTP accept() called on TimeSeriesInputVisitable base - missing override in derived class");
-    }
-
-    // Implementation of CRTP accept forwarding for TimeSeriesOutputVisitable
-    template<typename Visitor>
-        requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-    decltype(auto) TimeSeriesOutputVisitable::accept(Visitor& visitor) {
-        // This should never be called - concrete types override with CRTP accept
-        throw std::runtime_error("CRTP accept() called on TimeSeriesOutputVisitable base - missing override in derived class");
-    }
-
-    template<typename Visitor>
-        requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-    decltype(auto) TimeSeriesOutputVisitable::accept(Visitor& visitor) const {
-        // This should never be called - concrete types override with CRTP accept
-        throw std::runtime_error("CRTP accept() called on TimeSeriesOutputVisitable base - missing override in derived class");
-    }
+    // Note: Simple double dispatch visitor pattern is used.
+    // Concrete types override accept() to call visitor.visit(*this).
 
 } // namespace hgraph
 

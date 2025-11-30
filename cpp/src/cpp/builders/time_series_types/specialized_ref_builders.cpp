@@ -1,9 +1,12 @@
 #include <hgraph/builders/time_series_types/specialized_ref_builders.h>
+#include <hgraph/builders/builder.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>  // For TimeSeriesSchema definition
 
-namespace hgraph {
+namespace hgraph
+{
     // ============================================================
     // Specialized Reference Input Builders
     // ============================================================
@@ -19,9 +22,12 @@ namespace hgraph {
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
+    size_t TimeSeriesValueRefInputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesValueReferenceInput));
+    }
+
     void TimeSeriesValueRefInputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesValueRefInputBuilder, InputBuilder>(m, "InputBuilder_TS_Value_Ref")
-                .def(nb::init<>());
+        nb::class_<TimeSeriesValueRefInputBuilder, InputBuilder>(m, "InputBuilder_TS_Value_Ref").def(nb::init<>());
     }
 
     // TimeSeriesListRefInputBuilder - REF[TSL[...]]
@@ -29,12 +35,12 @@ namespace hgraph {
         : value_builder(std::move(value_builder)), size(size) {}
 
     time_series_input_ptr TimeSeriesListRefInputBuilder::make_instance(const node_ptr& owning_node) const {
-        auto v{new TimeSeriesListReferenceInput(const_cast<Node*>(owning_node.get()), size)};
+        auto v{new TimeSeriesListReferenceInput(const_cast<Node*>(owning_node.get()), value_builder, size)};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
     time_series_input_ptr TimeSeriesListRefInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
-        auto v{new TimeSeriesListReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input), size)};
+        auto v{new TimeSeriesListReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input), value_builder, size)};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
@@ -44,23 +50,35 @@ namespace hgraph {
         return size == other_builder.size && value_builder->is_same_type(*other_builder.value_builder);
     }
 
+    size_t TimeSeriesListRefInputBuilder::memory_size() const {
+        // Add canary size to the base list reference object
+        size_t total = add_canary_size(sizeof(TimeSeriesListReferenceInput));
+        // For each element, align and add its size
+        for (size_t i = 0; i < size; ++i) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += value_builder->memory_size();
+        }
+        return total;
+    }
+
     void TimeSeriesListRefInputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesListRefInputBuilder, InputBuilder>(m, "InputBuilder_TSL_Ref")
-                .def(nb::init<InputBuilder::ptr, size_t>(), "value_builder"_a, "size"_a);
+            .def(nb::init<InputBuilder::ptr, size_t>(), "value_builder"_a, "size"_a);
     }
 
     // TimeSeriesBundleRefInputBuilder - REF[TSB[...]]
-    TimeSeriesBundleRefInputBuilder::TimeSeriesBundleRefInputBuilder(time_series_schema_ptr schema, 
-                                                                      std::vector<InputBuilder::ptr> field_builders)
+    TimeSeriesBundleRefInputBuilder::TimeSeriesBundleRefInputBuilder(time_series_schema_ptr         schema,
+                                                                     std::vector<InputBuilder::ptr> field_builders)
         : schema(std::move(schema)), field_builders(std::move(field_builders)) {}
 
     time_series_input_ptr TimeSeriesBundleRefInputBuilder::make_instance(const node_ptr& owning_node) const {
-        auto v{new TimeSeriesBundleReferenceInput(const_cast<Node*>(owning_node.get()), field_builders.size())};
+        auto v{new TimeSeriesBundleReferenceInput(const_cast<Node*>(owning_node.get()), field_builders, field_builders.size())};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
     time_series_input_ptr TimeSeriesBundleRefInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
-        auto v{new TimeSeriesBundleReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input), field_builders.size())};
+        auto v{new TimeSeriesBundleReferenceInput(dynamic_cast_ref<TimeSeriesType>(owning_input), field_builders,
+                                                  field_builders.size())};
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
@@ -74,10 +92,20 @@ namespace hgraph {
         return true;
     }
 
+    size_t TimeSeriesBundleRefInputBuilder::memory_size() const {
+        // Add canary size to the base bundle reference object
+        size_t total = add_canary_size(sizeof(TimeSeriesBundleReferenceInput));
+        // Align before each nested time-series input
+        for (const auto &builder : field_builders) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += builder->memory_size();
+        }
+        return total;
+    }
+
     void TimeSeriesBundleRefInputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesBundleRefInputBuilder, InputBuilder>(m, "InputBuilder_TSB_Ref")
-                .def(nb::init<TimeSeriesSchema::ptr, std::vector<InputBuilder::ptr>>(), 
-                     "schema"_a, "field_builders"_a);
+            .def(nb::init<TimeSeriesSchema::ptr, std::vector<InputBuilder::ptr>>(), "schema"_a, "field_builders"_a);
     }
 
     // TimeSeriesDictRefInputBuilder - REF[TSD[...]]
@@ -91,9 +119,12 @@ namespace hgraph {
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
+    size_t TimeSeriesDictRefInputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesDictReferenceInput));
+    }
+
     void TimeSeriesDictRefInputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesDictRefInputBuilder, InputBuilder>(m, "InputBuilder_TSD_Ref")
-                .def(nb::init<>());
+        nb::class_<TimeSeriesDictRefInputBuilder, InputBuilder>(m, "InputBuilder_TSD_Ref").def(nb::init<>());
     }
 
     // TimeSeriesSetRefInputBuilder - REF[TSS[...]]
@@ -107,9 +138,12 @@ namespace hgraph {
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
+    size_t TimeSeriesSetRefInputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesSetReferenceInput));
+    }
+
     void TimeSeriesSetRefInputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesSetRefInputBuilder, InputBuilder>(m, "InputBuilder_TSS_Ref")
-                .def(nb::init<>());
+        nb::class_<TimeSeriesSetRefInputBuilder, InputBuilder>(m, "InputBuilder_TSS_Ref").def(nb::init<>());
     }
 
     // TimeSeriesWindowRefInputBuilder - REF[TSW[...]]
@@ -123,9 +157,12 @@ namespace hgraph {
         return time_series_input_ptr{static_cast<TimeSeriesInput *>(v)};
     }
 
+    size_t TimeSeriesWindowRefInputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesWindowReferenceInput));
+    }
+
     void TimeSeriesWindowRefInputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesWindowRefInputBuilder, InputBuilder>(m, "InputBuilder_TSW_Ref")
-                .def(nb::init<>());
+        nb::class_<TimeSeriesWindowRefInputBuilder, InputBuilder>(m, "InputBuilder_TSW_Ref").def(nb::init<>());
     }
 
     // ============================================================
@@ -143,9 +180,12 @@ namespace hgraph {
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
+    size_t TimeSeriesValueRefOutputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesValueReferenceOutput));
+    }
+
     void TimeSeriesValueRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesValueRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TS_Value_Ref")
-                .def(nb::init<>());
+        nb::class_<TimeSeriesValueRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TS_Value_Ref").def(nb::init<>());
     }
 
     // TimeSeriesListRefOutputBuilder - REF[TSL[...]]
@@ -153,12 +193,12 @@ namespace hgraph {
         : value_builder(std::move(value_builder)), size(size) {}
 
     time_series_output_ptr TimeSeriesListRefOutputBuilder::make_instance(const node_ptr& owning_node) const {
-        auto v{new TimeSeriesListReferenceOutput(const_cast<Node*>(owning_node.get()), size)};
+        auto v{new TimeSeriesListReferenceOutput(const_cast<Node*>(owning_node.get()), value_builder, size)};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
     time_series_output_ptr TimeSeriesListRefOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
-        auto v{new TimeSeriesListReferenceOutput(dynamic_cast_ref<TimeSeriesType>(owning_output), size)};
+        auto v{new TimeSeriesListReferenceOutput(dynamic_cast_ref<TimeSeriesType>(owning_output), value_builder, size)};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
@@ -168,23 +208,35 @@ namespace hgraph {
         return size == other_builder.size && value_builder->is_same_type(*other_builder.value_builder);
     }
 
+    size_t TimeSeriesListRefOutputBuilder::memory_size() const {
+        // Add canary size to the base list reference object
+        size_t total = add_canary_size(sizeof(TimeSeriesListReferenceOutput));
+        // For each element, align and add its size
+        for (size_t i = 0; i < size; ++i) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += value_builder->memory_size();
+        }
+        return total;
+    }
+
     void TimeSeriesListRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesListRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSL_Ref")
-                .def(nb::init<OutputBuilder::ptr, size_t>(), "value_builder"_a, "size"_a);
+            .def(nb::init<OutputBuilder::ptr, size_t>(), "value_builder"_a, "size"_a);
     }
 
     // TimeSeriesBundleRefOutputBuilder - REF[TSB[...]]
-    TimeSeriesBundleRefOutputBuilder::TimeSeriesBundleRefOutputBuilder(time_series_schema_ptr schema,
-                                                                        std::vector<OutputBuilder::ptr> field_builders)
+    TimeSeriesBundleRefOutputBuilder::TimeSeriesBundleRefOutputBuilder(time_series_schema_ptr          schema,
+                                                                       std::vector<OutputBuilder::ptr> field_builders)
         : schema(std::move(schema)), field_builders(std::move(field_builders)) {}
 
     time_series_output_ptr TimeSeriesBundleRefOutputBuilder::make_instance(const node_ptr& owning_node) const {
-        auto v{new TimeSeriesBundleReferenceOutput(const_cast<Node*>(owning_node.get()), field_builders.size())};
+        auto v{new TimeSeriesBundleReferenceOutput(const_cast<Node*>(owning_node.get()), field_builders, field_builders.size())};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
     time_series_output_ptr TimeSeriesBundleRefOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
-        auto v{new TimeSeriesBundleReferenceOutput(dynamic_cast_ref<TimeSeriesType>(owning_output), field_builders.size())};
+        auto v{new TimeSeriesBundleReferenceOutput(dynamic_cast_ref<TimeSeriesType>(owning_output), field_builders,
+                                                   field_builders.size())};
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
@@ -198,10 +250,20 @@ namespace hgraph {
         return true;
     }
 
+    size_t TimeSeriesBundleRefOutputBuilder::memory_size() const {
+        // Add canary size to the base bundle reference object
+        size_t total = add_canary_size(sizeof(TimeSeriesBundleReferenceOutput));
+        // Align before each nested time-series output
+        for (const auto &builder : field_builders) {
+            total = align_size(total, alignof(TimeSeriesType));
+            total += builder->memory_size();
+        }
+        return total;
+    }
+
     void TimeSeriesBundleRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesBundleRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSB_Ref")
-                .def(nb::init<TimeSeriesSchema::ptr, std::vector<OutputBuilder::ptr>>(),
-                     "schema"_a, "field_builders"_a);
+            .def(nb::init<TimeSeriesSchema::ptr, std::vector<OutputBuilder::ptr>>(), "schema"_a, "field_builders"_a);
     }
 
     // TimeSeriesDictRefOutputBuilder - REF[TSD[...]]
@@ -215,9 +277,12 @@ namespace hgraph {
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
+    size_t TimeSeriesDictRefOutputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesDictReferenceOutput));
+    }
+
     void TimeSeriesDictRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesDictRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSD_Ref")
-                .def(nb::init<>());
+        nb::class_<TimeSeriesDictRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSD_Ref").def(nb::init<>());
     }
 
     // TimeSeriesSetRefOutputBuilder - REF[TSS[...]]
@@ -231,9 +296,12 @@ namespace hgraph {
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
+    size_t TimeSeriesSetRefOutputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesSetReferenceOutput));
+    }
+
     void TimeSeriesSetRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesSetRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSS_Ref")
-                .def(nb::init<>());
+        nb::class_<TimeSeriesSetRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSS_Ref").def(nb::init<>());
     }
 
     // TimeSeriesWindowRefOutputBuilder - REF[TSW[...]]
@@ -247,10 +315,12 @@ namespace hgraph {
         return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
     }
 
-    void TimeSeriesWindowRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesWindowRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSW_Ref")
-                .def(nb::init<>());
+    size_t TimeSeriesWindowRefOutputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesWindowReferenceOutput));
     }
 
-} // namespace hgraph
+    void TimeSeriesWindowRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
+        nb::class_<TimeSeriesWindowRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSW_Ref").def(nb::init<>());
+    }
 
+}  // namespace hgraph

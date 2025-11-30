@@ -237,10 +237,4 @@ namespace hgraph {
         return result;
     }
 
-    void LastValuePullNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<LastValuePullNode, Node>(m, "LastValuePullNode")
-                .def("copy_from_input", &LastValuePullNode::copy_from_input, "input"_a)
-                .def("copy_from_output", &LastValuePullNode::copy_from_input, "output"_a)
-                .def("apply_value", &LastValuePullNode::apply_value, "new_value"_a);
-    }
 } // namespace hgraph

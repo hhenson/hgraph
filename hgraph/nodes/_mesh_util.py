@@ -52,9 +52,9 @@ def mesh_subscribe_node(
 
 def _find_mesh_key(self_node, mesh_node):
     node = self_node
-    while (clock := node.graph.engine_evaluation_clock) and clock.node != mesh_node:
-        node = clock.node
-    key = clock.key  # this is the key this graph belongs to in the mesh
+    while (node_ := node.graph.parent_node) and node_ != mesh_node:
+        node = node_
+    key = node.graph.evaluation_clock.key  # this is the key this graph belongs to in the mesh
     return key
 
 

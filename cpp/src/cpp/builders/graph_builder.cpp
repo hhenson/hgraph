@@ -1,4 +1,5 @@
 #include "hgraph/types/tsd.h"
+#include <hgraph/builders/builder.h>
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/builders/node_builder.h>
 #include <hgraph/types/graph.h>
@@ -44,6 +45,16 @@ namespace hgraph {
 
     GraphBuilder::GraphBuilder(std::vector<node_builder_ptr> node_builders_, std::vector<Edge> edges_)
         : node_builders{std::move(node_builders_)}, edges{std::move(edges_)} {
+        // Calculate and cache memory size
+        // Start with Graph (with canary), then align and add Traits (with canary)
+        size_t total = add_canary_size(sizeof(Graph));
+        total = add_aligned_size<Traits>(total);
+        // For each node builder, align to Node alignment and add its size (Node already includes canary in memory_size)
+        for (const auto &node_builder : node_builders) {
+            total = align_size(total, alignof(Node));
+            total += node_builder->memory_size();
+        }
+        _memory_size = total;
     }
 
     graph_ptr GraphBuilder::make_instance(const std::vector<int64_t> &graph_id, node_ptr parent_node,
@@ -88,6 +99,11 @@ namespace hgraph {
         dispose_component(*item);
     }
 
+    size_t GraphBuilder::memory_size() const {
+        // Return cached memory size calculated in constructor
+        return _memory_size;
+    }
+
     void GraphBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_ < GraphBuilder, Builder > (m, "GraphBuilder")
                 .def(nb::init<std::vector<node_builder_ptr>, std::vector<Edge> >(), "node_builders"_a, "edges"_a)
@@ -95,6 +111,7 @@ namespace hgraph {
                      "label"_a = "")
                 .def("make_and_connect_nodes", &GraphBuilder::make_and_connect_nodes, "graph_id"_a, "first_node_ndx"_a)
                 .def("release_instance", &GraphBuilder::release_instance, "item"_a)
+                .def("memory_size", &GraphBuilder::memory_size)
                 .def_prop_ro("node_builders", [](const GraphBuilder &self) {
                     return nb::tuple(nb::cast(self.node_builders));
                 })

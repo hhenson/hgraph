@@ -6,46 +6,33 @@
 #include <variant>
 
 // Forward declare visitor interfaces
-namespace hgraph {
+namespace hgraph
+{
     struct TimeSeriesVisitor;
 
     // Forward declarations for visitable interfaces
-    struct HGRAPH_EXPORT TimeSeriesOutputVisitable {
-        // Acyclic visitor support (runtime dispatch) - implemented by concrete types
-        virtual void accept(TimeSeriesVisitor& visitor) = 0;
-        virtual void accept(TimeSeriesVisitor& visitor) const = 0;
+    // Forward declaration
+    struct TimeSeriesInputVisitor;
+    struct TimeSeriesOutputVisitor;
 
-        // CRTP visitor support (compile-time dispatch)
-        // Forward to the CRTP accept in BaseTimeSeriesOutput
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor);
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const;
+    struct HGRAPH_EXPORT TimeSeriesOutputVisitable
+    {
+        // Simple double dispatch visitor support
+        virtual void accept(TimeSeriesOutputVisitor &visitor)       = 0;
+        virtual void accept(TimeSeriesOutputVisitor &visitor) const = 0;
 
         virtual ~TimeSeriesOutputVisitable() = default;
     };
 
-    struct HGRAPH_EXPORT TimeSeriesInputVisitable {
-        // Acyclic visitor support (runtime dispatch) - implemented by concrete types
-        virtual void accept(TimeSeriesVisitor& visitor) = 0;
-        virtual void accept(TimeSeriesVisitor& visitor) const = 0;
-
-        // CRTP visitor support (compile-time dispatch)
-        // Forward to the CRTP accept in BaseTimeSeriesInput
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor);
-
-        template<typename Visitor>
-            requires (!std::is_base_of_v<TimeSeriesVisitor, Visitor>)
-        decltype(auto) accept(Visitor& visitor) const;
+    struct HGRAPH_EXPORT TimeSeriesInputVisitable
+    {
+        // Simple double dispatch visitor support
+        virtual void accept(TimeSeriesInputVisitor &visitor)       = 0;
+        virtual void accept(TimeSeriesInputVisitor &visitor) const = 0;
 
         virtual ~TimeSeriesInputVisitable() = default;
     };
-}
+}  // namespace hgraph
 
 namespace hgraph
 {
@@ -107,13 +94,13 @@ namespace hgraph
         [[nodiscard]] virtual bool is_reference() const                            = 0;
         [[nodiscard]] virtual bool has_reference() const                           = 0;
 
-        static void register_with_nanobind(nb::module_ &m);
-
         static inline time_series_type_ptr null_ptr{};
     };
 
     struct TimeSeriesInput;
     struct OutputBuilder;
+    struct TimeSeriesReferenceOutput;
+    struct TimeSeriesReferenceInput;
 
     struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType, TimeSeriesOutputVisitable
     {
@@ -162,8 +149,6 @@ namespace hgraph
         // It could be moved into the queuing logic and implemented as a visitor, this would allow us to peek
         // The queue and perform the change, if the change is successful, we then pop the queue.
         virtual bool can_apply_result(const nb::object& value) = 0;
-
-        static void register_with_nanobind(nb::module_ &m);
     };
 
     struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable, TimeSeriesInputVisitable
@@ -193,13 +178,11 @@ namespace hgraph
         // This is a feature used by the BackTrace tooling, this is not something that is generally
         // Useful, it could be handled through a visitor, or some other means of extraction.
         // This exposes internal implementation logic.
-        [[nodiscard]] virtual time_series_reference_output_ptr reference_output() const            = 0;
+        [[nodiscard]] virtual time_series_reference_output_ptr reference_output() const = 0;
 
         // This is a hack to support REF time-series binding, this definitely needs to be revisited.
         [[nodiscard]] virtual const TimeSeriesInput *get_input(size_t index) const = 0;
         [[nodiscard]] virtual TimeSeriesInput       *get_input(size_t index)       = 0;
-
-        static void register_with_nanobind(nb::module_ &m);
     };
 }  // namespace hgraph
 

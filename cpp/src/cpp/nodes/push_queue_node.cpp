@@ -1,9 +1,12 @@
+#include "hgraph/api/python/py_tsd.h"
+#include "hgraph/api/python/wrapper_factory.h"
+
 #include <hgraph/nodes/push_queue_node.h>
+#include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsd.h>
-#include <hgraph/types/constants.h>
 
 namespace hgraph {
     void PushQueueNode::do_eval() {
@@ -20,7 +23,9 @@ namespace hgraph {
             auto output_ptr = output();
 
             if (_is_tsd) {
-                auto tsd_output = static_cast<TimeSeriesDictOutput *>(output_ptr);
+                // TODO: This allows us to operate on the python level, would prefer to
+                //       Handle this better with correct type-matched objects.
+                auto tsd_output = wrap_time_series(output_ptr, graph()->control_block());
 
                 auto remove = get_remove();
                 auto remove_if_exist = get_remove_if_exists();
@@ -29,9 +34,10 @@ namespace hgraph {
                 auto msg_dict = nb::cast<nb::dict>(message);
                 for (auto [key, val]: msg_dict) {
                     if (val.is(remove) || val.is(remove_if_exist)) {
-                        auto child_output = tsd_output->py_get(nb::cast<nb::object>(key), nb::none());
+                        auto child_output = tsd_output.attr("get")(nb::cast<nb::object>(key), nb::none());
                         if (!child_output.is_none()) {
-                            if (nb::cast<TimeSeriesOutput::ptr>(child_output)->modified()) {
+                            auto* unwrapped = unwrap_output(child_output);
+                            if (unwrapped && unwrapped->modified()) {
                                 return false; // reject message because cannot remove when there is unprocessed data
                            }
                         }
@@ -39,7 +45,8 @@ namespace hgraph {
                 }
                 for (auto [key, val]: msg_dict) {
                     if (!val.is(remove) && !val.is(remove_if_exist)) {
-                        auto child_output = nb::cast<TimeSeriesOutput::ptr>(tsd_output->py_get_or_create(nb::cast<nb::object>(key)));
+                        auto child_output_obj = tsd_output.attr("get_or_create")(nb::cast<nb::object>(key));
+                        auto* child_output = unwrap_output(child_output_obj);
 
                         if (child_output->modified()) {
                             // Append to existing tuple
@@ -57,7 +64,7 @@ namespace hgraph {
                             child_output->py_set_value(new_tuple);
                         }
                     } else {
-                        tsd_output->py_pop(nb::cast<nb::object>(key), nb::none());
+                        tsd_output.attr("pop")(nb::cast<nb::object>(key), nb::none());
                     }
                 }
             } else {
@@ -115,10 +122,5 @@ namespace hgraph {
                 _eval_fn(sender, **scalars());
             } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During push-queue start"); }
         }
-    }
-
-    void PushQueueNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<PushQueueNode, Node>(m, "PushQueueNode")
-                .def_prop_ro("messages_in_queue", &PushQueueNode::messages_in_queue);
     }
 } // namespace hgraph

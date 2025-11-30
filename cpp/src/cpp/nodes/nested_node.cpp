@@ -14,8 +14,4 @@ namespace hgraph {
 
     void NestedNode::mark_evaluated() { _last_evaluation_time = graph()->evaluation_clock()->evaluation_time(); }
 
-    void NestedNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<NestedNode, Node>(m, "NestedNode")
-                .def_prop_ro("last_evaluation_time", &NestedNode::last_evaluation_time);
-    }
 } // namespace hgraph

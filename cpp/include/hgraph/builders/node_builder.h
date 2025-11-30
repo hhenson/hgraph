@@ -29,6 +29,8 @@ namespace hgraph {
 
         virtual void release_instance(node_ptr &item) const;
 
+        [[nodiscard]] size_t memory_size() const override;
+
         static void register_with_nanobind(nb::module_ &m);
 
         node_signature_ptr signature;
