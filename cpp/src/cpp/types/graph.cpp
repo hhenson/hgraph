@@ -29,7 +29,7 @@ namespace hgraph
 
     const std::vector<node_ptr> &Graph::nodes() const { return _nodes; }
 
-    node_ptr Graph::parent_node() const { return _parent_node; }
+    Node* Graph::parent_node() const { return const_cast<Node*>(_parent_node.get()); }
 
     std::optional<std::string> Graph::label() const { return _label; }
 
@@ -57,6 +57,8 @@ namespace hgraph
     }
 
     int64_t Graph::push_source_nodes_end() const { return _push_source_nodes_end; }
+
+    engine_time_t Graph::last_evaluation_time() const { return _last_evaluation_time; }
 
     void Graph::schedule_node(int64_t node_ndx, engine_time_t when) { schedule_node(node_ndx, when, false); }
 

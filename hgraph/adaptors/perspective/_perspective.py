@@ -398,7 +398,8 @@ class PerspectiveTablesManager:
         return list(self._tables.keys())
 
     def get_table(self, name):
-        return self._tables[name][0]
+        if t := self._tables.get(name):
+            return t[0]
 
     def get_table_config_files(self):
         return self._table_config_files

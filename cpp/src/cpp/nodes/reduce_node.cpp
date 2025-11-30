@@ -128,7 +128,7 @@ namespace hgraph {
 
         // Propagate output if changed
         auto l = dynamic_cast<TimeSeriesReferenceOutput *>(last_output().get());
-        auto o = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
+        auto o = dynamic_cast<TimeSeriesReferenceOutput *>(output());
 
         // Since l is the last output and o is the main output, they are different TimeSeriesReferenceOutput objects
         // We need to compare their values (both are TimeSeriesReference values)
@@ -215,8 +215,8 @@ namespace hgraph {
 
         // Re-parent the inputs to their new parent bundles (CRITICAL FIX - Python lines 159-160)
         // Cast to TimeSeriesType::ptr for re_parent
-        dst_input->re_parent(src_node->input().get());
-        src_input->re_parent(dst_node->input().get());
+        dst_input->re_parent(src_node->input());
+        src_input->re_parent(dst_node->input());
 
         src_node->notify();
         dst_node->notify();
@@ -353,7 +353,7 @@ namespace hgraph {
         node->reset_input(node->input()->copy_with(node.get(), {ts_.get()}));
 
         // Re-parent the ts to the node's input (CRITICAL FIX - Python line 200)
-        ts_->re_parent(node->input().get());
+        ts_->re_parent(node->input());
 
         // Make the time series active (CRITICAL FIX - Python line 201)
         ts_->make_active();
@@ -364,31 +364,6 @@ namespace hgraph {
 
         node->notify();
     }
-
-    // template<typename K>
-    // TimeSeriesReferenceInput *ReduceNode<K>::clone_ref_input_type(TimeSeriesReferenceInput *source, Node *owning_node) {
-    //     //TODO: This should probably use the visitor pattern, will address later.
-    //
-    //     // Determine the specialized type from source and create the same type
-    //     if (dynamic_cast<TimeSeriesValueReferenceInput *>(source)) {
-    //         return new TimeSeriesValueReferenceInput(owning_node);
-    //     } else if (auto *list_ref = dynamic_cast<TimeSeriesListReferenceInput *>(source)) {
-    //         return new TimeSeriesListReferenceInput(owning_node, list_ref->size());
-    //     } else if (auto *bundle_ref = dynamic_cast<TimeSeriesBundleReferenceInput *>(source)) {
-    //         return new TimeSeriesBundleReferenceInput(owning_node, bundle_ref->size());
-    //     } else if (dynamic_cast<TimeSeriesDictReferenceInput *>(source)) {
-    //         return new TimeSeriesDictReferenceInput(owning_node);
-    //     } else if (dynamic_cast<TimeSeriesSetReferenceInput *>(source)) {
-    //         return new TimeSeriesSetReferenceInput(owning_node);
-    //     } else if (dynamic_cast<TimeSeriesWindowReferenceInput *>(source)) {
-    //         return new TimeSeriesWindowReferenceInput(owning_node);
-    //     } else {
-    //         // This should not happen - zero() should always be a specialized type
-    //         throw std::runtime_error(
-    //             "ReduceNode::clone_ref_input_type: zero() input is a base TimeSeriesReferenceInput. "
-    //             "This is a bug - zero input should always be a specialized type.");
-    //     }
-    // }
 
     template<typename K>
     void ReduceNode<K>::zero_node(const std::tuple<int64_t, int64_t> &ndx) {
@@ -413,7 +388,7 @@ namespace hgraph {
             auto zero_ref = zero();
             auto new_ref_input = zero_ref->clone_blank_ref_instance();
             node->reset_input(node->input()->copy_with(node.get(), {new_ref_input}));
-            new_ref_input->re_parent(node->input().get());
+            new_ref_input->re_parent(node->input());
             new_ref_input->clone_binding(zero_ref);
         } else {
             // This input is not bound to a key (it's an unbound reference we created),

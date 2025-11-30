@@ -90,7 +90,7 @@ namespace hgraph {
         if (size() == 0) { return false; } else { return ts_values()[0]->has_reference(); }
     }
 
-    void TimeSeriesListOutput::apply_result(nb::object value) {
+    void TimeSeriesListOutput::apply_result(const nb::object& value) {
         if (value.is_none()) { return; }
         py_set_value(value);
     }
@@ -106,7 +106,7 @@ namespace hgraph {
         return (*this)[0]->is_same_type((*other_list)[0]);
     }
 
-    void TimeSeriesListOutput::py_set_value(nb::object value) {
+    void TimeSeriesListOutput::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             mark_invalid();
             return;

@@ -11,12 +11,12 @@ namespace hgraph {
         : input_builder{std::move(input_builder)}, size{size} {
     }
 
-    time_series_input_ptr TimeSeriesListInputBuilder::make_instance(node_ptr owning_node) const {
+    time_series_input_ptr TimeSeriesListInputBuilder::make_instance(const node_ptr& owning_node) const {
         auto v{new TimeSeriesListInput{owning_node}};
         return make_and_set_inputs(v);
     }
 
-    time_series_input_ptr TimeSeriesListInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+    time_series_input_ptr TimeSeriesListInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
         auto v{new TimeSeriesListInput{dynamic_cast_ref<TimeSeriesType>(owning_input)}};
         return make_and_set_inputs(v);
     }

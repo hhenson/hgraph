@@ -185,7 +185,7 @@ namespace hgraph {
             node->reset_input(node->input()->copy_with(node.get(), {ts.get()}));
 
             // Re-parent the ts input
-            ts->re_parent(node->input().get());
+            ts->re_parent(node->input());
         }
 
         // Wire outputs

@@ -1568,3 +1568,8 @@ Version 0.5.8 (18-11-2025)
 * Convert TimeSereisReference to be a value type and not a heap type.
 * Add visitor support to the TimeSeriesTypeInput/Output
 * Some contributed fixes to make inspector work.
+
+Version 0.5.9
+-------------
+
+* Remove py_xxx methods from set_delta.

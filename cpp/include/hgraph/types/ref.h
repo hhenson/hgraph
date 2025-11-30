@@ -87,13 +87,13 @@ namespace hgraph
         // Python-safe value access that returns the reference value or makes an empty one
         TimeSeriesReference py_value_or_empty() const;
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
         void set_value(TimeSeriesReference value);
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
-        bool can_apply_result(nb::object value) override;
+        bool can_apply_result(const nb::object& value) override;
 
         // Registers an input as observing the reference value
         void observe_reference(TimeSeriesInput::ptr input_);
@@ -168,7 +168,7 @@ namespace hgraph
 
         [[nodiscard]] engine_time_t last_modified_time() const override;
 
-        bool bind_output(time_series_output_ptr value) override;
+        bool bind_output(const time_series_output_ptr& value) override;
 
         void un_bind_output(bool unbind_refs) override;
 
@@ -198,7 +198,7 @@ namespace hgraph
 
       protected:
         friend struct PyTimeSeriesReferenceInput;
-        bool do_bind_output(time_series_output_ptr &output_) override;
+        bool do_bind_output(const time_series_output_ptr& output_) override;
 
         void do_un_bind_output(bool unbind_refs) override;
 

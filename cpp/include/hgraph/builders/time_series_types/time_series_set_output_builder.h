@@ -16,9 +16,9 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesSetOutputBuilder_T : TimeSeriesSetOutputBuilder {
         using TimeSeriesSetOutputBuilder::TimeSeriesSetOutputBuilder;
 
-        time_series_output_ptr make_instance(node_ptr owning_node) const override;
+        time_series_output_ptr make_instance(const node_ptr& owning_node) const override;
 
-        time_series_output_ptr make_instance(time_series_output_ptr owning_output) const override;
+        time_series_output_ptr make_instance(const time_series_output_ptr& owning_output) const override;
 
         void release_instance(time_series_output_ptr item) const override;
 

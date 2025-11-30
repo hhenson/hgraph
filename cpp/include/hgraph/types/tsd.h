@@ -100,11 +100,11 @@ namespace hgraph
         explicit TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
                                         output_builder_ptr ts_ref_builder);
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
-        bool can_apply_result(nb::object result) override;
+        bool can_apply_result(const nb::object& result) override;
 
         void mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) override;
 
@@ -210,7 +210,10 @@ namespace hgraph
 
         void create(const key_type &key);
 
-      protected:
+      const key_type &key_from_value(TimeSeriesOutput *value) const;
+        const key_type &key_from_value(const value_type& value) const;
+
+    protected:
         friend TSDOutBuilder<T_Key>;
 
         void _dispose();
@@ -220,7 +223,6 @@ namespace hgraph
         void remove_value(const key_type &key, bool raise_if_not_found);
 
         // Isolate the modified tracking logic here
-        const key_type &key_from_value(TimeSeriesOutput *value) const;
         void            _clear_key_tracking();
         void            _add_key_value(const key_type &key, const value_type &value);
         void            _key_updated(const key_type &key);
@@ -354,10 +356,13 @@ namespace hgraph
             visitor.visit(*this);
         }
 
-      protected:
+      [[nodiscard]] const key_type &key_from_value(TimeSeriesInput *value) const;
+        [[nodiscard]] const key_type &key_from_value(value_type value) const;
+
+    protected:
         void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
 
-        bool do_bind_output(time_series_output_ptr &value) override;
+        bool do_bind_output(const time_series_output_ptr& value) override;
 
         void do_un_bind_output(bool unbind_refs) override;
 
@@ -372,8 +377,6 @@ namespace hgraph
         void register_clear_key_changes();
 
         // Isolate modified tracking here.
-        [[nodiscard]] const key_type &key_from_value(TimeSeriesInput *value) const;
-        [[nodiscard]] const key_type &key_from_value(value_type value) const;
         void                          _clear_key_tracking();
         void                          _add_key_value(const key_type &key, const value_type &value);
         void                          _key_updated(const key_type &key);

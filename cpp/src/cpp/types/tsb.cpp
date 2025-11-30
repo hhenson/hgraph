@@ -184,6 +184,13 @@ namespace hgraph {
 
     template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
+    const std::string& TimeSeriesBundle<T_TS>::key_from_value(typename ts_type::ptr value) const {
+        size_t index = index_ts_type::key_from_value(value);
+        return _schema->keys()[index];
+    }
+
+    template<typename T_TS>
+        requires IndexedTimeSeriesT<T_TS>
     template<bool is_delta>
     nb::object TimeSeriesBundle<T_TS>::py_value_with_constraint(
 const std::function < bool(const ts_type &) > &constraint)
@@ -250,7 +257,7 @@ const std::function < bool(const ts_type &) > &constraint)
         return result;
     }
 
-    void TimeSeriesBundleOutput::py_set_value(nb::object v) {
+    void TimeSeriesBundleOutput::py_set_value(const nb::object& v) {
         // Python implementation:
         // if v is None: self.invalidate()
         // else if isinstance(v, scalar_type): set each attribute
@@ -287,7 +294,7 @@ const std::function < bool(const ts_type &) > &constraint)
         for (auto &v: ts_values()) { v->mark_invalid(); }
     }
 
-    bool TimeSeriesBundleOutput::can_apply_result(nb::object result) {
+    bool TimeSeriesBundleOutput::can_apply_result(const nb::object& result) {
         // Python implementation:
         // if result is None: return True
         // if type(result) is scalar_type: return self.modified
@@ -318,7 +325,7 @@ const std::function < bool(const ts_type &) > &constraint)
         return true;
     }
 
-    void TimeSeriesBundleOutput::apply_result(nb::object value) {
+    void TimeSeriesBundleOutput::apply_result(const nb::object& value) {
         if (value.is_none()) { return; }
         // Check if value is an instance of the scalar type (not just identity check)
         py_set_value(value);

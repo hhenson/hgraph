@@ -27,7 +27,7 @@ namespace hgraph
 
         [[nodiscard]] const std::vector<node_ptr> &nodes() const;
 
-        [[nodiscard]] node_ptr parent_node() const;
+        [[nodiscard]] Node* parent_node() const;
 
         [[nodiscard]] std::optional<std::string> label() const;
 
@@ -44,6 +44,8 @@ namespace hgraph
         void set_evaluation_engine(EvaluationEngine::ptr value);
 
         int64_t push_source_nodes_end() const;
+
+        engine_time_t last_evaluation_time() const;
 
         void schedule_node(int64_t node_ndx, engine_time_t when);
 

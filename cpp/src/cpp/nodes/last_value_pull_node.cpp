@@ -38,19 +38,19 @@ namespace hgraph {
 
         // Check the type of the output and set the appropriate combine function
         // TimeSeriesSet (TSS)
-        if (dynamic_cast<TimeSeriesSetOutput *>(output_obj.get())) {
+        if (dynamic_cast<TimeSeriesSetOutput *>(output_obj)) {
             _delta_combine_fn = _combine_tss_delta;
         }
         // TimeSeriesDict (TSD)
-        else if (dynamic_cast<TimeSeriesDictOutput *>(output_obj.get())) {
+        else if (dynamic_cast<TimeSeriesDictOutput *>(output_obj)) {
             _delta_combine_fn = _combine_tsd_delta;
         }
         // TimeSeriesBundle (TSB)
-        else if (dynamic_cast<TimeSeriesBundleOutput *>(output_obj.get())) {
+        else if (dynamic_cast<TimeSeriesBundleOutput *>(output_obj)) {
             _delta_combine_fn = _combine_tsb_delta;
         }
         // TimeSeriesList (TSL)
-        else if (dynamic_cast<TimeSeriesListOutput *>(output_obj.get())) {
+        else if (dynamic_cast<TimeSeriesListOutput *>(output_obj)) {
             _delta_combine_fn = _combine_tsl_delta_value;
         }
         // Default: simple replacement

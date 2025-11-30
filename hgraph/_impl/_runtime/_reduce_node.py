@@ -111,6 +111,7 @@ class PythonReduceNodeImpl(PythonNestedNodeImpl):
         if (not o.valid and l.valid) or (l.valid and o.value != l.value):
             o.value = l.value
 
+    @property
     def nested_graphs(self):
         return {0: self._nested_graph}
 
@@ -355,6 +356,7 @@ class PythonTsdNonAssociativeReduceNodeImpl(PythonNestedNodeImpl):
 
         self._bind_output()
 
+    @property
     def nested_graphs(self):
         return {0: self._nested_graph}
 

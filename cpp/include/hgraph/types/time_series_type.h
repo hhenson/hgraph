@@ -52,10 +52,10 @@ namespace hgraph
 
         // Graph navigation methods. These may not be required
         // (Other than for debugging) if we used the context approach
-        [[nodiscard]] virtual node_ptr  owning_node()        = 0;
-        [[nodiscard]] virtual node_ptr  owning_node() const  = 0;
-        [[nodiscard]] virtual graph_ptr owning_graph()       = 0;
-        [[nodiscard]] virtual graph_ptr owning_graph() const = 0;
+        [[nodiscard]] virtual Node*  owning_node()        = 0;
+        [[nodiscard]] virtual Node*  owning_node() const  = 0;
+        [[nodiscard]] virtual Graph* owning_graph()       = 0;
+        [[nodiscard]] virtual Graph* owning_graph() const = 0;
         // Helper methods can be removed now we use ptr return types?
         [[nodiscard]] virtual bool has_parent_or_node() const = 0;
         [[nodiscard]] virtual bool has_owning_node() const    = 0;
@@ -120,9 +120,9 @@ namespace hgraph
         // Mutation operations
         // The apply_result is the core mechanism to apply a python value to the
         // output, this will call py_set_value - If this gets a None, it will just return
-        virtual void apply_result(nb::object value) = 0;
+        virtual void apply_result(const nb::object& value) = 0;
         // This os the method that does most of the work - if this gets a None, it will call invalidate
-        virtual void py_set_value(nb::object value) = 0;
+        virtual void py_set_value(const nb::object& value) = 0;
         // These methods were designed to allow C++ to perform a more optimal copy of values given its
         // knowledge of the internal state of the input/output passed. A copy visitor.
         virtual void copy_from_output(const TimeSeriesOutput &output) = 0;
@@ -148,7 +148,7 @@ namespace hgraph
         // This is used by the dequeing logic to work out how much we can de-queue from a push queue.
         // It could be moved into the queuing logic and implemented as a visitor, this would allow us to peek
         // The queue and perform the change, if the change is successful, we then pop the queue.
-        virtual bool can_apply_result(nb::object value) = 0;
+        virtual bool can_apply_result(const nb::object& value) = 0;
     };
 
     struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable, TimeSeriesInputVisitable
@@ -157,7 +157,7 @@ namespace hgraph
         TimeSeriesInput() = default;
 
         // Graph navigation specific to the input
-        [[nodiscard]] virtual ptr  parent_input() const     = 0;
+        [[nodiscard]] virtual TimeSeriesInput*  parent_input() const     = 0;
         [[nodiscard]] virtual bool has_parent_input() const = 0;
 
         // This is used to indicate if the owner of this input is interested in being notified when
@@ -170,9 +170,9 @@ namespace hgraph
         // should not need to be exposed as a client facing API, but is used for internal state management.
         [[nodiscard]] virtual bool                   bound() const                               = 0;
         [[nodiscard]] virtual bool                   has_peer() const                            = 0;
-        [[nodiscard]] virtual time_series_output_ptr output() const                              = 0;
+        [[nodiscard]] virtual TimeSeriesOutput*      output() const                              = 0;
         [[nodiscard]] virtual bool                   has_output() const                          = 0;
-        virtual bool                                 bind_output(time_series_output_ptr output_) = 0;
+        virtual bool                                 bind_output(const time_series_output_ptr& output_) = 0;
         virtual void                                 un_bind_output(bool unbind_refs)            = 0;
 
         // This is a feature used by the BackTrace tooling, this is not something that is generally

@@ -13,12 +13,12 @@ namespace hgraph {
         : InputBuilder(), schema{std::move(schema)}, input_builders{std::move(input_builders)} {
     }
 
-    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(node_ptr owning_node) const {
+    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(const node_ptr& owning_node) const {
         auto v{new TimeSeriesBundleInput{owning_node, schema}};
         return make_and_set_inputs(v);
     }
 
-    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+    time_series_input_ptr TimeSeriesBundleInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
         auto v{new TimeSeriesBundleInput{dynamic_cast_ref<TimeSeriesType>(owning_input), schema}};
         return make_and_set_inputs(v);
     }

@@ -17,7 +17,7 @@ namespace hgraph
             out.assign(_buffer.begin(), _buffer.begin() + _length);
         } else {
             out.reserve(_size); // Only allocate, don't construct
-            
+
             size_t first_chunk = _size - _start;
             // Copy from start to end of buffer
             out.insert(out.end(), _buffer.begin() + _start, _buffer.end());
@@ -47,7 +47,7 @@ namespace hgraph
         return {};
     }
 
-    template <typename T> void TimeSeriesFixedWindowOutput<T>::py_set_value(nb::object value) {
+    template <typename T> void TimeSeriesFixedWindowOutput<T>::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
             return;
@@ -72,7 +72,7 @@ namespace hgraph
         mark_modified();
     }
 
-    template <typename T> void TimeSeriesFixedWindowOutput<T>::apply_result(nb::object value) {
+    template <typename T> void TimeSeriesFixedWindowOutput<T>::apply_result(const nb::object& value) {
         if (!value.is_valid() || value.is_none()) return;
         py_set_value(value);
     }
@@ -106,7 +106,7 @@ namespace hgraph
     template <typename T> engine_time_t TimeSeriesFixedWindowOutput<T>::first_modified_time() const {
         return _times.empty() ? engine_time_t{} : _times[_start];
     }
-    
+
 
     // Unified TimeSeriesWindowInput implementation
     template <typename T> bool TimeSeriesWindowInput<T>::all_valid() const {
@@ -198,7 +198,7 @@ namespace hgraph
         return nb::none();
     }
 
-    template <typename T> void TimeSeriesTimeWindowOutput<T>::py_set_value(nb::object value) {
+    template <typename T> void TimeSeriesTimeWindowOutput<T>::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
             return;
@@ -207,7 +207,7 @@ namespace hgraph
         throw std::runtime_error("py_set_value should not be called on TimeSeriesTimeWindowOutput");
     }
 
-    template <typename T> void TimeSeriesTimeWindowOutput<T>::apply_result(nb::object value) {
+    template <typename T> void TimeSeriesTimeWindowOutput<T>::apply_result(const nb::object& value) {
         if (!value.is_valid() || value.is_none()) return;
         try {
             T v = nb::cast<T>(value);
@@ -250,7 +250,7 @@ namespace hgraph
         }
     }
 
-   
+
 
     // Template instantiations for unified TimeSeriesWindowInput
     template struct TimeSeriesWindowInput<bool>;

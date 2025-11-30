@@ -117,6 +117,9 @@ namespace hgraph {
 
         [[nodiscard]] bool has_reference() const override;
 
+        // Override to return string key instead of index
+        [[nodiscard]] const std::string& key_from_value(typename ts_type::ptr value) const;
+
     protected:
         using T_TS::index_with_constraint;
         using T_TS::ts_values;
@@ -140,13 +143,13 @@ namespace hgraph {
         using ptr = nb::ref<TimeSeriesBundleOutput>;
         using bundle_type::TimeSeriesBundle;
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
         void mark_invalid() override;
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
-        [[nodiscard]] bool can_apply_result(nb::object value) override;
+        [[nodiscard]] bool can_apply_result(const nb::object& value) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 

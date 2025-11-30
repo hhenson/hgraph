@@ -25,6 +25,8 @@ namespace hgraph {
     struct PushQueueNode : Node {
         using Node::Node;
 
+        static void register_with_nanobind(nb::module_ &m);
+
         void set_eval_fn(nb::callable fn) { _eval_fn = std::move(fn); }
 
         void enqueue_message(nb::object message);

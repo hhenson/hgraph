@@ -41,7 +41,7 @@ namespace hgraph {
                 node->reset_input(node->input()->copy_with(node.get(), {ts.get()}));
 
                 // Re-parent the provided ts so its parent container becomes the inner node's input bundle
-                ts->re_parent(node->input().get());
+                ts->re_parent(node->input());
             }
         }
     }

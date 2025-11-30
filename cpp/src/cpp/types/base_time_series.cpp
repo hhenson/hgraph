@@ -10,15 +10,15 @@ namespace hgraph {
     // ============================================================================
 
     // Implement TimeSeriesType pure virtuals for Output
-    node_ptr BaseTimeSeriesOutput::owning_node() { return _owning_node(); }
-    node_ptr BaseTimeSeriesOutput::owning_node() const { return _owning_node(); }
+    Node* BaseTimeSeriesOutput::owning_node() { return _owning_node(); }
+    Node* BaseTimeSeriesOutput::owning_node() const { return _owning_node(); }
 
-    graph_ptr BaseTimeSeriesOutput::owning_graph() {
-        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
+    Graph* BaseTimeSeriesOutput::owning_graph() {
+        return has_owning_node() ? owning_node()->graph() : nullptr;
     }
 
-    graph_ptr BaseTimeSeriesOutput::owning_graph() const {
-        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
+    Graph* BaseTimeSeriesOutput::owning_graph() const {
+        return has_owning_node() ? owning_node()->graph() : nullptr;
     }
 
     bool BaseTimeSeriesOutput::is_reference() const { return false; }
@@ -35,11 +35,11 @@ namespace hgraph {
     }
 
     // TimeSeriesType helper methods
-    TimeSeriesType::ptr &BaseTimeSeriesOutput::_parent_time_series() const {
+    TimeSeriesType* BaseTimeSeriesOutput::_parent_time_series() const {
         return const_cast<BaseTimeSeriesOutput *>(this)->_parent_time_series();
     }
 
-    TimeSeriesType::ptr &BaseTimeSeriesOutput::_parent_time_series() {
+    TimeSeriesType* BaseTimeSeriesOutput::_parent_time_series() {
         if (_parent_ts_or_node.has_value() && std::holds_alternative<TimeSeriesType::ptr>(*_parent_ts_or_node)) {
             return std::get<TimeSeriesType::ptr>(*_parent_ts_or_node);
         } else {
@@ -72,15 +72,15 @@ namespace hgraph {
         }
     }
 
-    node_ptr BaseTimeSeriesOutput::_owning_node() const {
+    Node* BaseTimeSeriesOutput::_owning_node() const {
         if (_parent_ts_or_node.has_value()) {
             return std::visit(
-                []<typename T_>(T_ &&value) -> node_ptr {
+                []<typename T_>(T_ &&value) -> Node* {
                     using T = std::decay_t<T_>;
                     if constexpr (std::is_same_v<T, TimeSeriesType::ptr>) {
                         return value->owning_node();
                     } else if constexpr (std::is_same_v<T, node_ptr>) {
-                        return value;
+                        return const_cast<Node*>(value.get());
                     } else {
                         throw std::runtime_error("Unknown type");
                     }
@@ -97,16 +97,16 @@ namespace hgraph {
     void BaseTimeSeriesOutput::invalidate() { mark_invalid(); }
 
     TimeSeriesOutput::ptr BaseTimeSeriesOutput::parent_output() const {
-        return static_cast<TimeSeriesOutput *>(_parent_time_series().get()); // NOLINT(*-pro-type-static-cast-downcast)
+        return static_cast<TimeSeriesOutput *>(_parent_time_series()); // NOLINT(*-pro-type-static-cast-downcast)
     }
 
     TimeSeriesOutput::ptr BaseTimeSeriesOutput::parent_output() {
-        return static_cast<TimeSeriesOutput *>(_parent_time_series().get()); // NOLINT(*-pro-type-static-cast-downcast)
+        return static_cast<TimeSeriesOutput *>(_parent_time_series()); // NOLINT(*-pro-type-static-cast-downcast)
     }
 
     bool BaseTimeSeriesOutput::has_parent_output() const { return _has_parent_time_series(); }
 
-    bool BaseTimeSeriesOutput::can_apply_result(nb::object value) {
+    bool BaseTimeSeriesOutput::can_apply_result(const nb::object& value) {
         return !modified();
     }
 
@@ -119,7 +119,7 @@ namespace hgraph {
 
     bool BaseTimeSeriesOutput::modified() const {
         auto n = owning_node();
-        if (n.get() == nullptr) { return false; }
+        if (n == nullptr) { return false; }
         // Use cached evaluation time pointer from node for performance
         return *n->cached_evaluation_time_ptr() == _last_modified_time;
     }
@@ -136,7 +136,7 @@ namespace hgraph {
         if (_last_modified_time > MIN_DT) {
             _last_modified_time = MIN_DT;
             auto n = owning_node();
-            if (n.get() != nullptr) {
+            if (n != nullptr) {
                 // Use cached evaluation time pointer from node for performance
                 _notify(*n->cached_evaluation_time_ptr());
             } else {
@@ -148,7 +148,7 @@ namespace hgraph {
     void BaseTimeSeriesOutput::mark_modified() {
         if (has_parent_or_node()) {
             auto n = owning_node();
-            if (n.get() != nullptr) {
+            if (n != nullptr) {
                 // Use cached evaluation time pointer from node for performance
                 mark_modified(*n->cached_evaluation_time_ptr());
             } else {
@@ -188,15 +188,15 @@ namespace hgraph {
     // ============================================================================
 
     // Implement TimeSeriesType pure virtuals for Input
-    node_ptr BaseTimeSeriesInput::owning_node() { return _owning_node(); }
-    node_ptr BaseTimeSeriesInput::owning_node() const { return _owning_node(); }
+    Node* BaseTimeSeriesInput::owning_node() { return _owning_node(); }
+    Node* BaseTimeSeriesInput::owning_node() const { return _owning_node(); }
 
-    graph_ptr BaseTimeSeriesInput::owning_graph() {
-        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
+    Graph* BaseTimeSeriesInput::owning_graph() {
+        return has_owning_node() ? owning_node()->graph() : nullptr;
     }
 
-    graph_ptr BaseTimeSeriesInput::owning_graph() const {
-        return has_owning_node() ? owning_node()->graph() : graph_ptr{};
+    Graph* BaseTimeSeriesInput::owning_graph() const {
+        return has_owning_node() ? owning_node()->graph() : nullptr;
     }
 
     bool BaseTimeSeriesInput::is_reference() const { return false; }
@@ -213,11 +213,11 @@ namespace hgraph {
     }
 
     // TimeSeriesType helper methods
-    TimeSeriesType::ptr &BaseTimeSeriesInput::_parent_time_series() const {
+    TimeSeriesType* BaseTimeSeriesInput::_parent_time_series() const {
         return const_cast<BaseTimeSeriesInput *>(this)->_parent_time_series();
     }
 
-    TimeSeriesType::ptr &BaseTimeSeriesInput::_parent_time_series() {
+    TimeSeriesType* BaseTimeSeriesInput::_parent_time_series() {
         if (_parent_ts_or_node.has_value() && std::holds_alternative<TimeSeriesType::ptr>(*_parent_ts_or_node)) {
             return std::get<TimeSeriesType::ptr>(*_parent_ts_or_node);
         } else {
@@ -250,7 +250,7 @@ namespace hgraph {
         }
     }
 
-    node_ptr BaseTimeSeriesInput::_owning_node() const {
+    Node* BaseTimeSeriesInput::_owning_node() const {
         if (_parent_ts_or_node.has_value()) {
             return std::visit(
                 []<typename T_>(T_ &&value) -> node_ptr {
@@ -258,7 +258,7 @@ namespace hgraph {
                     if constexpr (std::is_same_v<T, TimeSeriesType::ptr>) {
                         return value->owning_node();
                     } else if constexpr (std::is_same_v<T, node_ptr>) {
-                        return value;
+                        return const_cast<Node*>(value.get());
                     } else {
                         throw std::runtime_error("Unknown type");
                     }
@@ -269,8 +269,8 @@ namespace hgraph {
         }
     }
 
-    TimeSeriesInput::ptr BaseTimeSeriesInput::parent_input() const {
-        return static_cast<TimeSeriesInput *>(_parent_time_series().get()); // NOLINT(*-pro-type-static-cast-downcast)
+    TimeSeriesInput* BaseTimeSeriesInput::parent_input() const {
+        return static_cast<TimeSeriesInput *>(_parent_time_series()); // NOLINT(*-pro-type-static-cast-downcast)
     }
 
     bool BaseTimeSeriesInput::has_parent_input() const { return _has_parent_time_series(); }
@@ -283,15 +283,15 @@ namespace hgraph {
         return _output != nullptr;
     }
 
-    time_series_output_ptr BaseTimeSeriesInput::output() const { return _output; }
+    TimeSeriesOutput* BaseTimeSeriesInput::output() const { return const_cast<TimeSeriesOutput*>(_output.get()); }
 
     bool BaseTimeSeriesInput::has_output() const { return _output.get() != nullptr; }
 
-    bool BaseTimeSeriesInput::bind_output(time_series_output_ptr output_) {
+    bool BaseTimeSeriesInput::bind_output(const time_series_output_ptr& output_) {
         bool peer;
         bool was_bound = bound(); // Track if input was previously bound (matches Python behavior)
 
-        if (auto ref_output = dynamic_cast<TimeSeriesReferenceOutput *>(output_.get())) {
+        if (auto ref_output = dynamic_cast<TimeSeriesReferenceOutput *>(const_cast<TimeSeriesOutput*>(output_.get()))) {
             // Is a TimeseriesReferenceOutput
             // Match Python behavior: only check if value exists (truthy), bind if it does
             if (ref_output->valid() && ref_output->has_value()) { ref_output->value().bind_input(*this); }
@@ -384,7 +384,7 @@ namespace hgraph {
         }
     }
 
-    bool BaseTimeSeriesInput::do_bind_output(time_series_output_ptr &output_) {
+    bool BaseTimeSeriesInput::do_bind_output(const time_series_output_ptr& output_) {
         auto active_{active()};
         make_passive(); // Ensure we are unsubscribed from the old output.
         _output = output_;
@@ -401,7 +401,7 @@ namespace hgraph {
             _notify_time = modified_time;
             if (has_parent_input()) {
                 // Cast to BaseTimeSeriesInput to access protected notify_parent
-                auto parent = static_cast<BaseTimeSeriesInput*>(parent_input().get());
+                auto parent = static_cast<BaseTimeSeriesInput*>(parent_input());
                 parent->notify_parent(this, modified_time);
             } else {
                 owning_node()->notify(modified_time);
@@ -438,7 +438,7 @@ namespace hgraph {
 
     bool BaseTimeSeriesInput::sampled() const {
         auto n = owning_node();
-        if (n.get() == nullptr) { return false; }
+        if (n == nullptr) { return false; }
         // Use cached evaluation time pointer from node for performance
         return _sample_time != MIN_DT && _sample_time == *n->cached_evaluation_time_ptr();
     }

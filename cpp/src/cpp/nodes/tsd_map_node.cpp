@@ -216,7 +216,7 @@ namespace hgraph
                     auto empty_ref =
                         dynamic_cast<TimeSeriesReferenceInput *>(node->input()->get_input(0))->clone_blank_ref_instance();
                     node->reset_input(node->input()->copy_with(node, {empty_ref}));
-                    empty_ref->re_parent(node->input().get());
+                    empty_ref->re_parent(node->input());
 
                     // Align with Python: only clear upstream per-key state when the key is truly absent
                     // from the upstream key set (and that key set is valid). Do NOT clear during startup
@@ -246,7 +246,7 @@ namespace hgraph
                     auto  ts_value = tsd.get_or_create(key);
 
                     node->reset_input(node->input()->copy_with(node, {ts_value}));
-                    ts_value->re_parent(node->input().get());
+                    ts_value->re_parent(node->input());
                 } else {
                     auto ts          = dynamic_cast<TimeSeriesReferenceInput *>((*input())[arg].get());
                     auto inner_input = dynamic_cast<TimeSeriesReferenceInput *>((*node->input())["ts"].get());

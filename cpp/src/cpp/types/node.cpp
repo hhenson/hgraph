@@ -445,7 +445,7 @@ namespace hgraph
         return d;
     }
 
-    NodeSignature::ptr NodeSignature::copy_with(nb::kwargs kwargs) const {
+    NodeSignature::ptr NodeSignature::copy_with(const nb::kwargs& kwargs) const {
         // Get override values from kwargs, otherwise use current values
         std::string  name_val      = kwargs.contains("name") ? nb::cast<std::string>(kwargs["name"]) : this->name;
         NodeTypeEnum node_type_val = kwargs.contains("node_type") ? nb::cast<NodeTypeEnum>(kwargs["node_type"]) : this->node_type;
@@ -657,17 +657,17 @@ namespace hgraph
 
     const nb::dict &Node::scalars() const { return _scalars; }
 
-    graph_ptr Node::graph() { return _graph; }
-    graph_ptr Node::graph() const { return _graph; }
+    Graph* Node::graph() { return _graph.get(); }
+    Graph* Node::graph() const { return const_cast<Graph*>(_graph.get()); }
 
     void Node::set_graph(graph_ptr value) {
-        _graph = value;
+        _graph = std::move(value);
         // Cache the evaluation time pointer from the graph for performance
-        _cached_evaluation_time_ptr = value->cached_evaluation_time_ptr();
+        _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
-    time_series_bundle_input_ptr Node::input() { return _input; }
-    time_series_bundle_input_ptr Node::input() const { return _input; }
+    TimeSeriesBundleInput* Node::input() { return _input.get(); }
+    TimeSeriesBundleInput* Node::input() const { return const_cast<TimeSeriesBundleInput*>(_input.get()); }
 
     void Node::set_input(time_series_bundle_input_ptr value) {
         if (has_input()) { throw std::runtime_error("Input already set on node: " + _signature->signature()); }
@@ -695,13 +695,13 @@ namespace hgraph
         }
     }
 
-    time_series_output_ptr Node::output() { return _output; }
+    TimeSeriesOutput* Node::output() { return _output.get(); }
 
-    void Node::set_output(time_series_output_ptr value) { _output = value; }
+    void Node::set_output(time_series_output_ptr value) { _output = std::move(value); }
 
     time_series_bundle_output_ptr Node::recordable_state() { return _recordable_state; }
 
-    void Node::set_recordable_state(nb::ref<TimeSeriesBundleOutput> value) { _recordable_state = value; }
+    void Node::set_recordable_state(nb::ref<TimeSeriesBundleOutput> value) { _recordable_state = std::move(value); }
 
     bool Node::has_recordable_state() const { return _recordable_state.get() != nullptr; }
 

@@ -112,7 +112,7 @@ namespace hgraph
 
         [[nodiscard]] nb::dict to_dict() const;
 
-        [[nodiscard]] ptr copy_with(nb::kwargs kwargs) const;
+        [[nodiscard]] ptr copy_with(const nb::kwargs& kwargs) const;
 
         static void register_with_nanobind(nb::module_ &m);
     };
@@ -185,15 +185,15 @@ namespace hgraph
 
         const nb::dict &scalars() const;
 
-        graph_ptr graph();
+        Graph* graph();
 
-        graph_ptr graph() const;
+        Graph* graph() const;
 
         void set_graph(graph_ptr value);
 
-        time_series_bundle_input_ptr input();
+        TimeSeriesBundleInput* input();
 
-        time_series_bundle_input_ptr input() const;
+        TimeSeriesBundleInput* input() const;
 
         auto start_inputs() const { return _start_inputs; }
 
@@ -201,7 +201,7 @@ namespace hgraph
 
         virtual void reset_input(time_series_bundle_input_ptr value);
 
-        time_series_output_ptr output();
+        TimeSeriesOutput* output();
 
         void set_output(time_series_output_ptr value);
 

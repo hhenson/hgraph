@@ -150,7 +150,7 @@ namespace hgraph {
 
     void TsdNonAssociativeReduceNode::bind_output() {
         // Bind the output to the last node's output value (matches Python lines 411-414)
-        auto out = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
+        auto out = dynamic_cast<TimeSeriesReferenceOutput *>(output());
 
         int64_t nc = node_count();
         if (nc == 0) {
@@ -165,7 +165,7 @@ namespace hgraph {
             auto sub_graph = get_node(nc - 1);
             auto last_out_node = sub_graph[output_node_id_];
             auto last_out = last_out_node->output();
-            auto last_ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(last_out.get());
+            auto last_ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(last_out);
 
             if (!out->valid() || !out->has_value() || !(out->value() == last_ref_out->value())) {
                 out->set_value(last_ref_out->value());
@@ -184,7 +184,7 @@ namespace hgraph {
 
         auto sub_graph = get_node(nc - 1);
         auto out_node = sub_graph[output_node_id_];
-        auto ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(out_node->output().get());
+        auto ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(out_node->output());
         return nb::cast(ref_out->value());
     }
 

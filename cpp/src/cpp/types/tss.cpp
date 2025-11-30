@@ -278,7 +278,7 @@ namespace hgraph
         return nb::cast(make_set_delta<T_Key>(_added, _removed));
     }
 
-    template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::py_set_value(nb::object value) {
+    template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
         } else {
@@ -286,7 +286,7 @@ namespace hgraph
         }
     }
 
-    template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::apply_result(nb::object value) {
+    template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::apply_result(const nb::object& value) {
         if (value.is_none()) { return; }
         py_set_value(value);
     }
@@ -684,7 +684,7 @@ namespace hgraph
         owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self]() { self->reset_prev(); });
     }
 
-    bool TimeSeriesSetInput::do_bind_output(TimeSeriesOutput::ptr &output) {
+    bool TimeSeriesSetInput::do_bind_output(const TimeSeriesOutput::ptr& output) {
         if (has_output()) {
             _prev_output = &set_output();
             // Clean up after the engine cycle is complete

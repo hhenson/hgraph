@@ -11,6 +11,7 @@
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/context_node.h>
 #include <hgraph/nodes/python_generator_node.h>
+#include <hgraph/nodes/push_queue_node.h>
 
 void export_nodes(nb::module_ &m) {
     using namespace hgraph;

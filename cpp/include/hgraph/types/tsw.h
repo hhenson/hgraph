@@ -42,13 +42,13 @@ namespace hgraph {
 
         [[nodiscard]] std::optional<T> delta_value() const;
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
         void set_value(const T& value);
 
-        bool can_apply_result(nb::object) override { return !modified(); }
+        bool can_apply_result(const nb::object&) override { return !modified(); }
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
         void invalidate() override { mark_invalid(); }
 
@@ -121,11 +121,11 @@ namespace hgraph {
 
         // Helpers to dynamically get the output as the correct type
         [[nodiscard]] TimeSeriesFixedWindowOutput<T> *as_fixed_output() const {
-            return dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(output().get());
+            return dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(output());
         }
 
         [[nodiscard]] TimeSeriesTimeWindowOutput<T> *as_time_output() const {
-            return dynamic_cast<TimeSeriesTimeWindowOutput<T> *>(output().get());
+            return dynamic_cast<TimeSeriesTimeWindowOutput<T> *>(output());
         }
 
         [[nodiscard]] nb::object py_value() const override {
@@ -222,11 +222,11 @@ namespace hgraph {
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        void py_set_value(nb::object value) override;
+        void py_set_value(const nb::object& value) override;
 
-        bool can_apply_result(nb::object) override { return !modified(); }
+        bool can_apply_result(const nb::object&) override { return !modified(); }
 
-        void apply_result(nb::object value) override;
+        void apply_result(const nb::object& value) override;
 
         void invalidate() override { mark_invalid(); }
 
