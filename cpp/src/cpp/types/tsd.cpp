@@ -674,7 +674,7 @@ namespace hgraph
 
         auto active_{active()};
         make_passive();  // Ensure we are unsubscribed from the old output while has_peer has the old value
-        set_output(value_output);
+        set_output(value_output->shared_from_this());
         _has_peer = peer;
 
         if (active_) { make_active(); }

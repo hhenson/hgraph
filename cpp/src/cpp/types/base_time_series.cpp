@@ -283,7 +283,7 @@ namespace hgraph {
         return _output != nullptr;
     }
 
-    TimeSeriesOutput* BaseTimeSeriesInput::output() const { return const_cast<TimeSeriesOutput*>(_output); }
+    TimeSeriesOutput* BaseTimeSeriesInput::output() const { return _output.get(); }
 
     bool BaseTimeSeriesInput::has_output() const { return _output != nullptr; }
 
@@ -299,7 +299,7 @@ namespace hgraph {
             _reference_output = ref_output;
             peer = false;
         } else {
-            if (output_ == _output) { return has_peer(); }
+            if (output_ == _output.get()) { return has_peer(); }
             peer = do_bind_output(output_);
         }
 
@@ -387,7 +387,8 @@ namespace hgraph {
     bool BaseTimeSeriesInput::do_bind_output(const_time_series_output_ptr output_) {
         auto active_{active()};
         make_passive(); // Ensure we are unsubscribed from the old output.
-        _output = const_cast<time_series_output_ptr>(output_);
+        // Get shared_ptr from output to keep it alive while bound (mirrors original nb::ref behavior)
+        _output = const_cast<TimeSeriesOutput*>(output_)->shared_from_this();
         if (active_) {
             make_active(); // If we were active now subscribe to the new output,
             // this is important even if we were not bound previously as this will ensure the new output gets
@@ -455,7 +456,7 @@ namespace hgraph {
 
     void BaseTimeSeriesInput::reset_output() { _output = nullptr; }
 
-    void BaseTimeSeriesInput::set_output(time_series_output_ptr output) { _output = std::move(output); }
+    void BaseTimeSeriesInput::set_output(const time_series_output_s_ptr& output) { _output = output; }
 
     void BaseTimeSeriesInput::set_active(bool active) { _active = active; }
 

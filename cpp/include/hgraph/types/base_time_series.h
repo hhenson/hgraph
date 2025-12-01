@@ -163,13 +163,13 @@ namespace hgraph {
         [[nodiscard]] bool sampled() const;
 
         void reset_output();
-        void set_output(const time_series_output_ptr output);
+        void set_output(const time_series_output_s_ptr& output);
         void set_active(bool active);
 
     private:
         using TsOrNode = std::variant<time_series_input_ptr, node_ptr>;
         std::optional<TsOrNode> _parent_ts_or_node{};
-        time_series_output_ptr _output;
+        time_series_output_s_ptr _output;  // Keep output alive while bound (was nb::ref<TimeSeriesOutput>)
         time_series_reference_output_ptr _reference_output;
         bool _active{false};
         engine_time_t _sample_time{MIN_DT};
