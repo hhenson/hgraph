@@ -48,7 +48,7 @@ namespace hgraph
 
     struct TimeSeriesDictOutput : TimeSeriesDict<BaseTimeSeriesOutput>
     {
-        using ptr = nb::ref<TimeSeriesDictOutput>;
+        using ptr = TimeSeriesDictOutput*;
         using TimeSeriesDict::TimeSeriesDict;
 
         virtual void py_set_item(const nb::object &key, const nb::object &value) = 0;
@@ -68,7 +68,7 @@ namespace hgraph
 
     struct TimeSeriesDictInput : TimeSeriesDict<BaseTimeSeriesInput>
     {
-        using ptr = nb::ref<TimeSeriesDictInput>;
+        using ptr = TimeSeriesDictInput*;
         using TimeSeriesDict<BaseTimeSeriesInput>::TimeSeriesDict;
 
         // Returns a TimeSeriesSetInput that tracks the keys in this dict
@@ -80,7 +80,7 @@ namespace hgraph
 
     template <typename T_Key> struct TimeSeriesDictOutput_T : TimeSeriesDictOutput
     {
-        using ptr                 = nb::ref<TimeSeriesDictOutput_T>;
+        using ptr                 = TimeSeriesDictOutput_T*;
         using key_type            = T_Key;
         using value_type          = time_series_output_s_ptr;
         using k_set_type          = std::unordered_set<key_type>;
@@ -251,7 +251,7 @@ namespace hgraph
 
     template <typename T_Key> struct TimeSeriesDictInput_T : TimeSeriesDictInput, TSDKeyObserver<T_Key>
     {
-        using ptr                 = nb::ref<TimeSeriesDictInput_T>;
+        using ptr                 = TimeSeriesDictInput_T*;
         using key_type            = T_Key;
         using k_set_type          = std::unordered_set<key_type>;
         using value_type          = time_series_input_s_ptr;

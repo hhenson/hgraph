@@ -18,7 +18,7 @@ namespace hgraph {
             TimeSeriesOutput
         >;
         using index_ts_type = IndexedTimeSeries<T_TS>;
-        using ptr = nb::ref<IndexedTimeSeries<ts_type> >;
+        using ptr = IndexedTimeSeries<ts_type>*;
         using collection_type = std::vector<typename ts_type::s_ptr>;
         using enumerated_collection_type = std::vector<std::pair<size_t, typename ts_type::s_ptr> >;
         using index_collection_type = std::vector<size_t>;

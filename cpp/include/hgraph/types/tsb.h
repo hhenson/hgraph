@@ -45,7 +45,7 @@ namespace hgraph {
         requires IndexedTimeSeriesT<T_TS>
     struct TimeSeriesBundle : T_TS {
         using bundle_type = TimeSeriesBundle<T_TS>;
-        using ptr = nb::ref<bundle_type>;
+        using ptr = bundle_type*;
         using typename T_TS::index_ts_type;
         using typename T_TS::ts_type;
 
@@ -140,7 +140,7 @@ namespace hgraph {
     };
 
     struct TimeSeriesBundleOutput : TimeSeriesBundle<IndexedTimeSeriesOutput> {
-        using ptr = nb::ref<TimeSeriesBundleOutput>;
+        using ptr = TimeSeriesBundleOutput*;
         using bundle_type::TimeSeriesBundle;
 
         void py_set_value(const nb::object& value) override;
@@ -168,7 +168,7 @@ namespace hgraph {
     };
 
     struct TimeSeriesBundleInput : TimeSeriesBundle<IndexedTimeSeriesInput> {
-        using ptr = nb::ref<TimeSeriesBundleInput>;
+        using ptr = TimeSeriesBundleInput*;
         using s_ptr = std::shared_ptr<TimeSeriesBundleInput>;
         using bundle_type::TimeSeriesBundle;
 

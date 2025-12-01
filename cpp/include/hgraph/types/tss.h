@@ -80,7 +80,7 @@ namespace hgraph {
     };
 
     struct TimeSeriesSetOutput : TimeSeriesSet<BaseTimeSeriesOutput> {
-        using ptr = nb::ref<TimeSeriesSetOutput>;
+        using ptr = TimeSeriesSetOutput*;
 
         explicit TimeSeriesSetOutput(const node_ptr &parent);
 

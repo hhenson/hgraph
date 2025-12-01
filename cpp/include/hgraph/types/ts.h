@@ -65,7 +65,7 @@ namespace hgraph {
     template<typename T>
     struct TimeSeriesValueInput : TimeSeriesValueInputBase {
         using value_type = T;
-        using ptr = nb::ref<TimeSeriesValueInput<T> >;
+        using ptr = TimeSeriesValueInput<T>*;
 
         using TimeSeriesValueInputBase::TimeSeriesValueInputBase;
 
