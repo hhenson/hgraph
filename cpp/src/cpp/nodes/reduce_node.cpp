@@ -386,9 +386,10 @@ namespace hgraph {
             // Clone the specialized type from zero() instead of creating a base type
             auto zero_ref = zero();
             auto new_ref_input = zero_ref->clone_blank_ref_instance();
-            node->reset_input(node->input()->copy_with(node.get(), {new_ref_input->shared_from_this()}));
-            new_ref_input->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
-            new_ref_input->clone_binding(zero_ref);
+            node->reset_input(node->input()->copy_with(node.get(), {new_ref_input}));
+            auto new_ref_input_ptr = dynamic_cast<TimeSeriesReferenceInput*>(new_ref_input.get());
+            new_ref_input_ptr->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
+            new_ref_input_ptr->clone_binding(zero_ref);
         } else {
             // This input is not bound to a key (it's an unbound reference we created),
             // so we can just clone the zero binding without creating a new input

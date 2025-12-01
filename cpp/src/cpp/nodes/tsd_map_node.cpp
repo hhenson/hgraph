@@ -215,8 +215,8 @@ namespace hgraph
                     // This ensures the per-key input is fully detached before the nested graph is torn down
                     auto empty_ref =
                         dynamic_cast<TimeSeriesReferenceInput *>(node->input()->get_input(0))->clone_blank_ref_instance();
-                    node->reset_input(node->input()->copy_with(node.get(), {empty_ref->shared_from_this()}));
-                    empty_ref->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
+                    node->reset_input(node->input()->copy_with(node.get(), {empty_ref}));
+                    dynamic_cast<TimeSeriesReferenceInput *>(empty_ref.get())->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
 
                     // Align with Python: only clear upstream per-key state when the key is truly absent
                     // from the upstream key set (and that key set is valid). Do NOT clear during startup
