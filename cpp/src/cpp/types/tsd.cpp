@@ -133,7 +133,7 @@ namespace hgraph
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
                               auto  it = output_t._ts_values.find(key);
                               if (it != output_t._ts_values.end()) {
-                                  auto r{TimeSeriesReference::make(it->second.get())};
+                                  auto r{TimeSeriesReference::make(it->second)};
                                   auto r_val{nb::cast(r)};
                                   result_output.apply_result(r_val);
                               } else {
@@ -157,7 +157,7 @@ namespace hgraph
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
                               auto  it = output_t._ts_values.find(key);
                               if (it != output_t._ts_values.end()) {
-                                  auto r{TimeSeriesReference::make(it->second.get())};
+                                  auto r{TimeSeriesReference::make(it->second)};
                                   auto r_val{nb::cast(r)};
                                   result_output.apply_result(r_val);
                               } else {

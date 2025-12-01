@@ -23,8 +23,8 @@ namespace hgraph
         // _storage.empty is already initialized
     }
 
-    TimeSeriesReference::TimeSeriesReference(time_series_output_ptr output) : _kind(Kind::BOUND) {
-        new (&_storage.bound) TimeSeriesOutput::ptr(std::move(output));
+    TimeSeriesReference::TimeSeriesReference(time_series_output_s_ptr output) : _kind(Kind::BOUND) {
+        new (&_storage.bound) time_series_output_s_ptr(std::move(output));
     }
 
     TimeSeriesReference::TimeSeriesReference(std::vector<TimeSeriesReference> items) : _kind(Kind::UNBOUND) {
@@ -65,7 +65,7 @@ namespace hgraph
     void TimeSeriesReference::destroy() noexcept {
         switch (_kind) {
             case Kind::EMPTY: break;
-            case Kind::BOUND: _storage.bound = nullptr; break;  // Raw pointer, no destructor needed
+            case Kind::BOUND: _storage.bound.~shared_ptr(); break;  // Call shared_ptr destructor
             case Kind::UNBOUND: _storage.unbound.~vector(); break;
         }
     }
@@ -73,7 +73,7 @@ namespace hgraph
     void TimeSeriesReference::copy_from(const TimeSeriesReference &other) {
         switch (other._kind) {
             case Kind::EMPTY: break;
-            case Kind::BOUND: new (&_storage.bound) TimeSeriesOutput::ptr(other._storage.bound); break;
+            case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(other._storage.bound); break;
             case Kind::UNBOUND: new (&_storage.unbound) std::vector<TimeSeriesReference>(other._storage.unbound); break;
         }
     }
@@ -81,13 +81,13 @@ namespace hgraph
     void TimeSeriesReference::move_from(TimeSeriesReference &&other) noexcept {
         switch (other._kind) {
             case Kind::EMPTY: break;
-            case Kind::BOUND: new (&_storage.bound) TimeSeriesOutput::ptr(std::move(other._storage.bound)); break;
+            case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(std::move(other._storage.bound)); break;
             case Kind::UNBOUND: new (&_storage.unbound) std::vector<TimeSeriesReference>(std::move(other._storage.unbound)); break;
         }
     }
 
     // Accessors with validation
-    const TimeSeriesOutput::ptr &TimeSeriesReference::output() const {
+    const time_series_output_s_ptr &TimeSeriesReference::output() const {
         if (_kind != Kind::BOUND) { throw std::runtime_error("TimeSeriesReference::output() called on non-bound reference"); }
         return _storage.bound;
     }
@@ -115,7 +115,7 @@ namespace hgraph
                         reactivate = ts_input.active();
                         ts_input.un_bind_output(false);
                     }
-                    ts_input.bind_output(_storage.bound);
+                    ts_input.bind_output(_storage.bound.get());  // Pass raw pointer to bind_output
                     if (reactivate) { ts_input.make_active(); }
                     break;
                 }
@@ -176,7 +176,7 @@ namespace hgraph
             case Kind::BOUND:
                 return fmt::format("REF[{}<{}>.output@{:p}]", _storage.bound->owning_node()->signature().name,
                                    fmt::join(_storage.bound->owning_node()->node_id(), ", "),
-                                   const_cast<void *>(static_cast<const void *>(_storage.bound)));
+                                   const_cast<void *>(static_cast<const void *>(_storage.bound.get())));
             case Kind::UNBOUND:
                 {
                     std::vector<std::string> string_items;
@@ -191,11 +191,11 @@ namespace hgraph
     // Factory methods
     TimeSeriesReference TimeSeriesReference::make() { return TimeSeriesReference(); }
 
-    TimeSeriesReference TimeSeriesReference::make(time_series_output_ptr output) {
+    TimeSeriesReference TimeSeriesReference::make(time_series_output_s_ptr output) {
         if (output == nullptr) {
             return make();
         } else {
-            return TimeSeriesReference(output);
+            return TimeSeriesReference(std::move(output));
         }
     }
 
@@ -418,7 +418,8 @@ namespace hgraph
             return BaseTimeSeriesInput::do_bind_output(output_);
         }
         // We are binding directly to a concrete output: wrap it as a reference value
-        _value = TimeSeriesReference::make(const_cast<time_series_output_ptr>(output_));
+        // Get shared_ptr to keep the output alive while this reference holds it
+        _value = TimeSeriesReference::make(const_cast<TimeSeriesOutput*>(output_)->shared_from_this());
         if (owning_node()->is_started()) {
             set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
             notify(sample_time());

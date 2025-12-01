@@ -103,6 +103,9 @@ namespace hgraph
     nb::object wrap_time_series(TimeSeriesInput *impl);
     nb::object wrap_time_series(TimeSeriesOutput *impl);
 
+    // Overload for shared_ptr - avoids redundant shared_from_this() call
+    nb::object wrap_output(const time_series_output_s_ptr &impl);
+
     // ---------------------------------------------------------------------
     // List-based helpers for time series wrapping
     // ---------------------------------------------------------------------
@@ -196,6 +199,11 @@ namespace hgraph
     TimeSeriesOutput *unwrap_output(const nb::handle &obj);
 
     TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_);
+
+    // Return shared_ptr versions - avoids redundant shared_from_this() calls
+    time_series_output_s_ptr unwrap_output_s_ptr(const nb::handle &obj);
+
+    time_series_output_s_ptr unwrap_output_s_ptr(const PyTimeSeriesOutput &output_);
 
     template <typename T> requires std::is_base_of_v<TimeSeriesOutput, T> T *unwrap_output_as(const nb::handle &obj) { return dynamic_cast<T *>(unwrap_output(obj)); }
 

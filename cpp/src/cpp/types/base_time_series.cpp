@@ -388,7 +388,11 @@ namespace hgraph {
         auto active_{active()};
         make_passive(); // Ensure we are unsubscribed from the old output.
         // Get shared_ptr from output to keep it alive while bound (mirrors original nb::ref behavior)
-        _output = const_cast<TimeSeriesOutput*>(output_)->shared_from_this();
+        if (output_ != nullptr) {
+            _output = const_cast<TimeSeriesOutput*>(output_)->shared_from_this();
+        } else {
+            _output.reset();
+        }
         if (active_) {
             make_active(); // If we were active now subscribe to the new output,
             // this is important even if we were not bound previously as this will ensure the new output gets

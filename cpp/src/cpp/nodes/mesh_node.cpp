@@ -79,11 +79,12 @@ namespace hgraph {
         if (GlobalState::has_instance()) {
             auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
             // Get the "out" and "ref" outputs from the output bundle
-            auto &tsd_output = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*tsb_output)["out"]);
+            auto tsd_output_ptr = (*tsb_output)["out"];
             auto &ref_output = dynamic_cast<TimeSeriesReferenceOutput &>(*(*tsb_output)["ref"]);
 
             // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
-            auto reference = TimeSeriesReference::make(time_series_output_ptr(&tsd_output));
+            // Pass the shared_ptr directly to keep the output alive
+            auto reference = TimeSeriesReference::make(tsd_output_ptr);
             ref_output.set_value(reference);
 
             // Store the ref output in GlobalState

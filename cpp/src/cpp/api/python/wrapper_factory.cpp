@@ -520,6 +520,11 @@ namespace hgraph
         return wrap_output(ApiPtr<TimeSeriesOutput>(impl->shared_from_this()));
     }
 
+    nb::object wrap_output(const time_series_output_s_ptr &impl) {
+        if (!impl) { return nb::none(); }
+        return wrap_output(ApiPtr<TimeSeriesOutput>(impl));
+    }
+
     nb::object wrap_time_series(TimeSeriesInput *impl) {
         if (!impl) { return nb::none(); }
         return wrap_time_series(impl->shared_from_this());
@@ -553,6 +558,13 @@ namespace hgraph
     }
 
     TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_) { return output_.impl(); }
+
+    time_series_output_s_ptr unwrap_output_s_ptr(const nb::handle &obj) {
+        if (auto *py_output = nb::inst_ptr<PyTimeSeriesOutput>(obj)) { return unwrap_output_s_ptr(*py_output); }
+        return nullptr;
+    }
+
+    time_series_output_s_ptr unwrap_output_s_ptr(const PyTimeSeriesOutput &output_) { return output_.impl_s_ptr<TimeSeriesOutput>(); }
 
     nb::object wrap_evaluation_engine_api(EvaluationEngineApi::s_ptr impl) {
         if (!impl) { return nb::none(); }

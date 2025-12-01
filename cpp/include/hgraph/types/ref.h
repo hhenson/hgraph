@@ -32,7 +32,7 @@ namespace hgraph
         [[nodiscard]] bool is_valid() const;
 
         // Accessors (throw if wrong kind)
-        [[nodiscard]] const TimeSeriesOutput::ptr            &output() const;
+        [[nodiscard]] const time_series_output_s_ptr         &output() const;
         [[nodiscard]] const std::vector<TimeSeriesReference> &items() const;
         [[nodiscard]] const TimeSeriesReference              &operator[](size_t ndx) const;
 
@@ -43,7 +43,7 @@ namespace hgraph
 
         // Factory methods - use these to construct instances
         static TimeSeriesReference make();
-        static TimeSeriesReference make(time_series_output_ptr output);
+        static TimeSeriesReference make(time_series_output_s_ptr output);
         static TimeSeriesReference make(std::vector<TimeSeriesReference> items);
         static TimeSeriesReference make(const std::vector<TimeSeriesReferenceInput*>& items);
         static TimeSeriesReference make(const std::vector<std::shared_ptr<TimeSeriesReferenceInput>>& items);
@@ -51,7 +51,7 @@ namespace hgraph
       private:
         // Private constructors - must use make() factory methods
         TimeSeriesReference() noexcept;                                        // Empty
-        explicit TimeSeriesReference(time_series_output_ptr output);           // Bound
+        explicit TimeSeriesReference(time_series_output_s_ptr output);         // Bound
         explicit TimeSeriesReference(std::vector<TimeSeriesReference> items);  // Unbound
 
         Kind _kind;
@@ -60,8 +60,8 @@ namespace hgraph
         union Storage {
             // Empty uses no storage
             char empty;
-            // Bound stores a single output pointer
-            TimeSeriesOutput::ptr bound;
+            // Bound stores a shared_ptr to keep output alive (mirrors original nb::ref behavior)
+            time_series_output_s_ptr bound;
             // Unbound stores a vector of references
             std::vector<TimeSeriesReference> unbound;
 

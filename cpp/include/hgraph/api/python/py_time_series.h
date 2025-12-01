@@ -62,6 +62,8 @@ namespace hgraph
 
         template <typename U> U *dynamic_cast_impl() const { return _impl.dynamic_cast_<U>(); }
 
+        template <typename U> std::shared_ptr<U> impl_s_ptr() const { return _impl.control_block_typed<U>(); }
+
       private:
         api_ptr _impl;
     };
@@ -105,6 +107,7 @@ namespace hgraph
 
       private:
         friend TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_);
+        friend time_series_output_s_ptr unwrap_output_s_ptr(const PyTimeSeriesOutput &output_);
         [[nodiscard]] TimeSeriesOutput *impl() const;
     };
 
