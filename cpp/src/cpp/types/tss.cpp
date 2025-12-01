@@ -172,6 +172,8 @@ namespace hgraph
     TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const node_ptr &parent)
         : TimeSeriesSetOutput(parent),
           _contains_ref_outputs{this,
+                                // Note: naked new is correct here - output_builder_s_ptr is nb::ref<OutputBuilder>
+                                // which uses intrusive reference counting and accepts raw pointers from new
                                 new TimeSeriesValueOutputBuilder<bool>(),
                                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
                                     reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
@@ -183,6 +185,8 @@ namespace hgraph
     TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(time_series_output_ptr parent)
         : TimeSeriesSetOutput(parent),
           _contains_ref_outputs{this,
+                                // Note: naked new is correct here - output_builder_s_ptr is nb::ref<OutputBuilder>
+                                // which uses intrusive reference counting and accepts raw pointers from new
                                 new TimeSeriesValueOutputBuilder<bool>(),
                                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
                                     reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
