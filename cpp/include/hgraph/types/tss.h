@@ -81,6 +81,7 @@ namespace hgraph {
 
     struct TimeSeriesSetOutput : TimeSeriesSet<BaseTimeSeriesOutput> {
         using ptr = TimeSeriesSetOutput*;
+        using s_ptr = std::shared_ptr<TimeSeriesSetOutput>;
 
         explicit TimeSeriesSetOutput(const node_ptr &parent);
 
@@ -118,7 +119,7 @@ namespace hgraph {
         void _add_reset_prev() const;
 
     private:
-        TimeSeriesSetOutput::ptr _prev_output;
+        TimeSeriesSetOutput::s_ptr _prev_output;
         mutable bool _pending_reset_prev{false};
     };
 

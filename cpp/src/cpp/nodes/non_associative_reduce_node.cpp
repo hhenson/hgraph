@@ -12,7 +12,7 @@
 
 namespace hgraph {
     TsdNonAssociativeReduceNode::TsdNonAssociativeReduceNode(
-        int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+        int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
         nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
         const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id)
         : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),

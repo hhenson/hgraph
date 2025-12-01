@@ -11,7 +11,7 @@
 
 namespace hgraph
 {
-    BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+    BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                                    nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn)
         : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)), _eval_fn{std::move(eval_fn)},
           _start_fn{std::move(start_fn)}, _stop_fn{std::move(stop_fn)} {}

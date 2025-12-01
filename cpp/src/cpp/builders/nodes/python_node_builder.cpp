@@ -5,7 +5,7 @@
 #include <hgraph/nodes/push_queue_node.h>
 
 namespace hgraph {
-    PythonNodeBuilder::PythonNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
+    PythonNodeBuilder::PythonNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
                                          std::optional<input_builder_s_ptr> input_builder_,
                                          std::optional<output_builder_s_ptr> output_builder_,
                                          std::optional<output_builder_s_ptr> error_builder_,
@@ -52,7 +52,7 @@ namespace hgraph {
         nb::class_ < PythonNodeBuilder, BaseNodeBuilder > (m, "PythonNodeBuilder")
                 .def("__init__",
                      [](PythonNodeBuilder *self, const nb::kwargs &kwargs) {
-                         auto signature_ = nb::cast<node_signature_ptr>(kwargs["signature"]);
+                         auto signature_ = nb::cast<node_signature_s_ptr>(kwargs["signature"]);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
 
                          std::optional<input_builder_s_ptr> input_builder_ =

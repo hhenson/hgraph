@@ -11,7 +11,7 @@
 
 namespace hgraph {
     struct PythonNodeBuilder : BaseNodeBuilder {
-        PythonNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
+        PythonNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
                           std::optional<input_builder_s_ptr> input_builder_,
                           std::optional<output_builder_s_ptr> output_builder_,
                           std::optional<output_builder_s_ptr> error_builder_,

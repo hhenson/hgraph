@@ -12,7 +12,7 @@
 
 namespace hgraph {
     struct BaseTsdMapNodeBuilder : BaseNodeBuilder {
-        BaseTsdMapNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
+        BaseTsdMapNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
                               std::optional<input_builder_s_ptr> input_builder_ = std::nullopt,
                               std::optional<output_builder_s_ptr> output_builder_ = std::nullopt,
                               std::optional<output_builder_s_ptr> error_builder_ = std::nullopt,

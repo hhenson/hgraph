@@ -17,7 +17,7 @@ namespace hgraph {
                 "recordable_state_builder, nested_graph, input_node_ids, output_node_id)");
         }
 
-        auto signature_ = nb::cast<node_signature_ptr>(args[0]);
+        auto signature_ = nb::cast<node_signature_s_ptr>(args[0]);
         auto scalars_ = nb::cast<nb::dict>(args[1]);
         std::optional<input_builder_s_ptr> input_builder_ =
                 args[2].is_none()
@@ -47,7 +47,7 @@ namespace hgraph {
     }
 
     BaseTsdNonAssociativeReduceNodeBuilder::BaseTsdNonAssociativeReduceNodeBuilder(
-        node_signature_ptr signature_, nb::dict scalars_, std::optional<input_builder_s_ptr> input_builder_,
+        node_signature_s_ptr signature_, nb::dict scalars_, std::optional<input_builder_s_ptr> input_builder_,
         std::optional<output_builder_s_ptr> output_builder_, std::optional<output_builder_s_ptr> error_builder_,
         std::optional<output_builder_s_ptr> recordable_state_builder_, graph_builder_s_ptr nested_graph_builder,
         const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id)

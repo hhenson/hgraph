@@ -5,7 +5,7 @@
 
 namespace hgraph {
     struct NestedGraphNode : NestedNode {
-        NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+        NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                         nb::dict scalars,
                         graph_builder_s_ptr nested_graph_builder,
                         const std::unordered_map<std::string, int> &input_node_ids,

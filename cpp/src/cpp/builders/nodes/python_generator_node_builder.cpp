@@ -4,7 +4,7 @@
 #include <hgraph/nodes/python_generator_node.h>
 
 namespace hgraph {
-    PythonGeneratorNodeBuilder::PythonGeneratorNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
+    PythonGeneratorNodeBuilder::PythonGeneratorNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
                                                            std::optional<input_builder_s_ptr> input_builder_,
                                                            std::optional<output_builder_s_ptr> output_builder_,
                                                            std::optional<output_builder_s_ptr> error_builder_,
@@ -27,7 +27,7 @@ namespace hgraph {
                 .def("__init__",
                      [](PythonGeneratorNodeBuilder *self, const nb::kwargs &kwargs) {
                          auto signature_obj = kwargs["signature"];
-                         auto signature_ = nb::cast<node_signature_ptr>(signature_obj);
+                         auto signature_ = nb::cast<node_signature_s_ptr>(signature_obj);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
 
                          std::optional<input_builder_s_ptr> input_builder_ =

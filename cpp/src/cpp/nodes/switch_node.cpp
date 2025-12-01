@@ -38,7 +38,7 @@ namespace hgraph {
     }
 
     template<typename K>
-    SwitchNode<K>::SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+    SwitchNode<K>::SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                               nb::dict scalars, const std::unordered_map<K, graph_builder_s_ptr> &nested_graph_builders,
                               const std::unordered_map<K, std::unordered_map<std::string, int> > &input_node_ids,
                               const std::unordered_map<K, int> &output_node_ids, bool reload_on_ticked,

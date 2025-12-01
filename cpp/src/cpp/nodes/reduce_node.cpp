@@ -26,7 +26,7 @@ namespace hgraph {
     inline bool keys_equal<nb::object>(const nb::object &a, const nb::object &b) { return a.equal(b); }
 
     template<typename K>
-    ReduceNode<K>::ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+    ReduceNode<K>::ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                               nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
                               const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id)
         : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
@@ -448,7 +448,7 @@ namespace hgraph {
     template<typename K>
     void register_reduce_node_type(nb::module_ &m, const char *class_name) {
         nb::class_<ReduceNode<K>, NestedNode>(m, class_name)
-                .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_s_ptr,
+                .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::s_ptr, nb::dict, graph_builder_s_ptr,
                          const std::tuple<int64_t, int64_t> &, int64_t>(),
                      "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a,
                      "input_node_ids"_a,

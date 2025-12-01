@@ -33,7 +33,7 @@ namespace hgraph {
 
         using K = typename T::key_type;
 
-        auto signature_ = nb::cast<node_signature_ptr>(args[0]);
+        auto signature_ = nb::cast<node_signature_s_ptr>(args[0]);
         auto scalars_ = nb::cast<nb::dict>(args[1]);
         std::optional<input_builder_s_ptr> input_builder_ =
                 args[2].is_none()
@@ -107,7 +107,7 @@ namespace hgraph {
 
     template<typename K>
     SwitchNodeBuilder<K>::SwitchNodeBuilder(
-        node_signature_ptr signature_, nb::dict scalars_, std::optional<input_builder_s_ptr> input_builder_,
+        node_signature_s_ptr signature_, nb::dict scalars_, std::optional<input_builder_s_ptr> input_builder_,
         std::optional<output_builder_s_ptr> output_builder_, std::optional<output_builder_s_ptr> error_builder_,
         std::optional<output_builder_s_ptr> recordable_state_builder_,
         const std::unordered_map<K, graph_builder_s_ptr> &nested_graph_builders,

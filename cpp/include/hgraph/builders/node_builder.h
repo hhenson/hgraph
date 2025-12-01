@@ -9,7 +9,7 @@
 
 namespace hgraph {
     struct NodeBuilder : Builder {
-        NodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
+        NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
                     std::optional<input_builder_s_ptr> input_builder_ = std::nullopt,
                     std::optional<output_builder_s_ptr> output_builder_ = std::nullopt,
                     std::optional<output_builder_s_ptr> error_builder_ = std::nullopt,
@@ -33,7 +33,7 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
-        node_signature_ptr signature;
+        node_signature_s_ptr signature;
         nb::dict scalars;
         std::optional<input_builder_s_ptr> input_builder;
         std::optional<output_builder_s_ptr> output_builder;

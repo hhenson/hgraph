@@ -22,7 +22,7 @@ namespace hgraph {
      * - PythonGeneratorNode: Generator-based nodes
      */
     struct BasePythonNode : Node {
-        BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+        BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                        nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
 
         void _initialise_kwargs();

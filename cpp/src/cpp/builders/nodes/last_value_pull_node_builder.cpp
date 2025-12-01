@@ -17,7 +17,7 @@ namespace hgraph {
         nb::class_<LastValuePullNodeBuilder, BaseNodeBuilder>(m, "LastValuePullNodeBuilder")
                 .def("__init__",
                      [](LastValuePullNodeBuilder *self, const nb::kwargs &kwargs) {
-                         auto signature_ = nb::cast<node_signature_ptr>(kwargs["signature"]);
+                         auto signature_ = nb::cast<node_signature_s_ptr>(kwargs["signature"]);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
 
                          std::optional<input_builder_s_ptr> input_builder_ =
