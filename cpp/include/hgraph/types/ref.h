@@ -45,7 +45,7 @@ namespace hgraph
         static TimeSeriesReference make();
         static TimeSeriesReference make(time_series_output_ptr output);
         static TimeSeriesReference make(std::vector<TimeSeriesReference> items);
-        static TimeSeriesReference make(std::vector<nb::ref<TimeSeriesReferenceInput>> items);
+        static TimeSeriesReference make(const std::vector<TimeSeriesReferenceInput*>& items);
 
       private:
         // Private constructors - must use make() factory methods
@@ -140,7 +140,9 @@ namespace hgraph
 
     struct TimeSeriesReferenceInput : BaseTimeSeriesInput
     {
-        using ptr = nb::ref<TimeSeriesReferenceInput>;
+        using ptr = TimeSeriesReferenceInput*;
+        using s_ptr = std::shared_ptr<TimeSeriesReferenceInput>;
+
         using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
@@ -156,7 +158,7 @@ namespace hgraph
         [[nodiscard]] virtual TimeSeriesReference value() const;
 
         // Duplicate binding of another input
-        virtual void clone_binding(const TimeSeriesReferenceInput::ptr &other);
+        virtual void clone_binding(const TimeSeriesReferenceInput::ptr other);
 
         [[nodiscard]] bool bound() const override;
 
@@ -257,7 +259,7 @@ namespace hgraph
         [[nodiscard]] bool                                valid() const override;
         [[nodiscard]] bool                                all_valid() const override;
         [[nodiscard]] engine_time_t                       last_modified_time() const override;
-        void                                              clone_binding(const TimeSeriesReferenceInput::ptr &other) override;
+        void                                              clone_binding(const TimeSeriesReferenceInput::ptr other) override;
         std::vector<TimeSeriesReferenceInput::ptr>       &items() override;
         const std::vector<TimeSeriesReferenceInput::ptr> &items() const override;
 
@@ -294,7 +296,7 @@ namespace hgraph
         [[nodiscard]] bool          valid() const override;
         [[nodiscard]] bool          all_valid() const override;
         [[nodiscard]] engine_time_t last_modified_time() const override;
-        void                        clone_binding(const TimeSeriesReferenceInput::ptr &other) override;
+        void                        clone_binding(const TimeSeriesReferenceInput::ptr other) override;
 
         std::vector<TimeSeriesReferenceInput::ptr>       &items() override;
         const std::vector<TimeSeriesReferenceInput::ptr> &items() const override;

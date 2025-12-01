@@ -8,9 +8,9 @@
 #include <utility>
 
 namespace hgraph {
-    TimeSeriesBundleInputBuilder::TimeSeriesBundleInputBuilder(time_series_schema_ptr schema,
+    TimeSeriesBundleInputBuilder::TimeSeriesBundleInputBuilder(time_series_schema_s_ptr schema,
                                                                std::vector<InputBuilder::ptr> input_builders)
-        : InputBuilder(), schema{schema}, input_builders{std::move(input_builders)} {
+        : InputBuilder(), schema{std::move(schema)}, input_builders{std::move(input_builders)} {
     }
 
     time_series_input_s_ptr TimeSeriesBundleInputBuilder::make_instance(node_ptr owning_node) const {

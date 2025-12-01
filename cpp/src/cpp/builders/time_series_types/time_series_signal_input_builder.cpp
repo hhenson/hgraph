@@ -21,7 +21,7 @@ namespace hgraph {
         }
         InputBuilder::release_instance(signal_input);
         if (signal_input->_ts_values.empty()) { return; }
-        for (auto &ts_value: signal_input->_ts_values) { release_instance(ts_value.get()); }
+        for (auto &ts_value: signal_input->_ts_values) { release_instance(ts_value); }
     }
 
     size_t TimeSeriesSignalInputBuilder::memory_size() const {

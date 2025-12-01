@@ -204,12 +204,12 @@ namespace hgraph
         return TimeSeriesReference(std::move(items));
     }
 
-    TimeSeriesReference TimeSeriesReference::make(std::vector<nb::ref<TimeSeriesReferenceInput>> items) {
+
+    TimeSeriesReference TimeSeriesReference::make(const std::vector<TimeSeriesReferenceInput*>& items) {
         if (items.empty()) { return make(); }
         std::vector<TimeSeriesReference> refs;
         refs.reserve(items.size());
         for (auto item : items) {
-            // Call value() instead of accessing _value directly, so bound items return their output's value
             refs.emplace_back(item->value());
         }
         return TimeSeriesReference(std::move(refs));
@@ -337,7 +337,7 @@ namespace hgraph
         return has_output() ? output()->last_modified_time() : sample_time();
     }
 
-    void TimeSeriesReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr &other) {
+    void TimeSeriesReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr other) {
         un_bind_output(false);
         if (other->has_output()) {
             bind_output(other->output());
@@ -523,8 +523,8 @@ namespace hgraph
         return times.empty() ? sample_time() : *std::max_element(times.begin(), times.end());
     }
 
-    void TimeSeriesListReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr &other) {
-        auto other_{dynamic_cast<TimeSeriesListReferenceInput const *>(other.get())};
+    void TimeSeriesListReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr other) {
+        auto other_{dynamic_cast<TimeSeriesListReferenceInput const *>(other)};
         if (other_ == nullptr) {
             throw std::runtime_error(
                 "TimeSeriesBundleReferenceInput::clone_binding: Expected TimeSeriesBundleReferenceInput const*");
@@ -581,7 +581,7 @@ namespace hgraph
                 }
             }
         }
-        return (*_items)[index].get();
+        return (*_items)[index];
     }
 
     // TimeSeriesBundleReferenceInput - REF[TSB[...]]
@@ -629,8 +629,8 @@ namespace hgraph
         return times.empty() ? sample_time() : *std::max_element(times.begin(), times.end());
     }
 
-    void TimeSeriesBundleReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr &other) {
-        auto other_{dynamic_cast<TimeSeriesBundleReferenceInput const *>(other.get())};
+    void TimeSeriesBundleReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr other) {
+        auto other_{dynamic_cast<TimeSeriesBundleReferenceInput const *>(other)};
         if (other_ == nullptr) {
             throw std::runtime_error(
                 "TimeSeriesBundleReferenceInput::clone_binding: Expected TimeSeriesBundleReferenceInput const*");
@@ -697,7 +697,7 @@ namespace hgraph
                 }
             }
         }
-        return (*_items)[index].get();
+        return (*_items)[index];
     }
 
     TimeSeriesReferenceInput *TimeSeriesDictReferenceInput::clone_blank_ref_instance() {

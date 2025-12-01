@@ -14,7 +14,7 @@ namespace hgraph {
             if (active()) { new_item->make_active(); }
             _ts_values.push_back(new_item);
         }
-        return _ts_values[index].get();
+        return _ts_values[index];
     }
 
     bool TimeSeriesSignalInput::valid() const {

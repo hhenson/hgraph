@@ -8,7 +8,7 @@
 #include <utility>
 
 namespace hgraph {
-    TimeSeriesBundleOutputBuilder::TimeSeriesBundleOutputBuilder(time_series_schema_ptr schema,
+    TimeSeriesBundleOutputBuilder::TimeSeriesBundleOutputBuilder(time_series_schema_s_ptr schema,
                                                                  std::vector<OutputBuilder::ptr> output_builders)
         : OutputBuilder(), schema{std::move(schema)}, output_builders{std::move(output_builders)} {
     }
