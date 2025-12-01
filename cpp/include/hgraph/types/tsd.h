@@ -229,7 +229,7 @@ namespace hgraph
         void            _remove_key_value(const key_type &key, const value_type &value);
 
       private:
-        nb::ref<key_set_type> _key_set;
+        std::shared_ptr<key_set_type> _key_set;
         map_type              _ts_values;
 
         reverse_map _ts_values_to_keys;
@@ -262,7 +262,7 @@ namespace hgraph
         using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
         using key_set_type        = TimeSeriesSetInput_T<key_type>;
-        using key_set_type_ptr    = nb::ref<key_set_type>;
+        using key_set_type_ptr    = std::shared_ptr<key_set_type>;
         // Use raw pointers for reverse lookup to enable efficient lookup from notify_parent
         using reverse_map = std::unordered_map<TimeSeriesInput *, key_type>;
 
