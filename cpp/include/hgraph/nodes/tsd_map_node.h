@@ -19,6 +19,8 @@ namespace hgraph
 
         void update_next_scheduled_evaluation_time(engine_time_t next_time) override;
 
+        K key() const { return _key; }
+
         [[nodiscard]] nb::object py_key() const override { return nb::cast(_key); }
 
       private:

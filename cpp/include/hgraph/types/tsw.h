@@ -140,12 +140,14 @@ namespace hgraph {
             throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
         }
 
-        [[nodiscard]] bool modified() const override { return output()->modified(); }
-        [[nodiscard]] bool valid() const override { return output()->valid(); }
+        [[nodiscard]] bool modified() const override { return output() != nullptr && output()->modified(); }
+        [[nodiscard]] bool valid() const override { return output() != nullptr && output()->valid(); }
 
         [[nodiscard]] bool all_valid() const override;
 
-        [[nodiscard]] engine_time_t last_modified_time() const override { return output()->last_modified_time(); }
+        [[nodiscard]] engine_time_t last_modified_time() const override {
+            return output() != nullptr ? output()->last_modified_time() : MIN_DT;
+        }
 
         [[nodiscard]] nb::object py_value_times() const {
             if (auto *f = as_fixed_output()) return f->py_value_times();

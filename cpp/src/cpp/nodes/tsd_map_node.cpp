@@ -281,17 +281,25 @@ namespace hgraph
     template struct TsdMapNode<nb::object>;
 
     void register_tsd_map_with_nanobind(nb::module_ &m) {
-        nb::class_<MapNestedEngineEvaluationClock<bool>, NestedEngineEvaluationClock>(m, "MapNestedEngineEvaluationClock_bool");
-        nb::class_<MapNestedEngineEvaluationClock<int64_t>, NestedEngineEvaluationClock>(m, "MapNestedEngineEvaluationClock_int");
-        nb::class_<MapNestedEngineEvaluationClock<double>, NestedEngineEvaluationClock>(m, "MapNestedEngineEvaluationClock_float");
+        // Register MapNestedEngineEvaluationClock specializations with 'key' property so Python can discover map_ keys
+        nb::class_<MapNestedEngineEvaluationClock<bool>, NestedEngineEvaluationClock>(m, "MapNestedEngineEvaluationClock_bool")
+            .def_prop_ro("key", &MapNestedEngineEvaluationClock<bool>::key);
+        nb::class_<MapNestedEngineEvaluationClock<int64_t>, NestedEngineEvaluationClock>(m, "MapNestedEngineEvaluationClock_int")
+            .def_prop_ro("key", &MapNestedEngineEvaluationClock<int64_t>::key);
+        nb::class_<MapNestedEngineEvaluationClock<double>, NestedEngineEvaluationClock>(m, "MapNestedEngineEvaluationClock_float")
+            .def_prop_ro("key", &MapNestedEngineEvaluationClock<double>::key);
         nb::class_<MapNestedEngineEvaluationClock<engine_date_t>, NestedEngineEvaluationClock>(
-            m, "MapNestedEngineEvaluationClock_date");
+            m, "MapNestedEngineEvaluationClock_date")
+            .def_prop_ro("key", &MapNestedEngineEvaluationClock<engine_date_t>::key);
         nb::class_<MapNestedEngineEvaluationClock<engine_time_t>, NestedEngineEvaluationClock>(
-            m, "MapNestedEngineEvaluationClock_datetime");
+            m, "MapNestedEngineEvaluationClock_datetime")
+            .def_prop_ro("key", &MapNestedEngineEvaluationClock<engine_time_t>::key);
         nb::class_<MapNestedEngineEvaluationClock<engine_time_delta_t>, NestedEngineEvaluationClock>(
-            m, "MapNestedEngineEvaluationClock_timedelta");
+            m, "MapNestedEngineEvaluationClock_timedelta")
+            .def_prop_ro("key", &MapNestedEngineEvaluationClock<engine_time_delta_t>::key);
         nb::class_<MapNestedEngineEvaluationClock<nb::object>, NestedEngineEvaluationClock>(
-            m, "MapNestedEngineEvaluationClock_object");
+            m, "MapNestedEngineEvaluationClock_object")
+            .def_prop_ro("key", &MapNestedEngineEvaluationClock<nb::object>::key);
 
         nb::class_<TsdMapNode<bool>, NestedNode>(m, "TsdMapNode_bool")
             .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::s_ptr, nb::dict, graph_builder_s_ptr,

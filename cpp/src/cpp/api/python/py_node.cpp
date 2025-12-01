@@ -167,7 +167,17 @@ namespace hgraph
             // .def("notify_next_cycle", &PyNode::notify_next_cycle)
             .def_prop_ro("error_output", &PyNode::error_output)
             .def("__repr__", &PyNode::repr)
-            .def("__str__", &PyNode::str);
+            .def("__str__", &PyNode::str)
+            .def("__eq__", [](const PyNode &self, const nb::object &other) {
+                // Compare the underlying C++ pointers to determine equality
+                if (!nb::isinstance<PyNode>(other)) return false;
+                const auto &other_node = nb::cast<const PyNode &>(other);
+                return self._impl.get() == other_node._impl.get();
+            })
+            .def("__hash__", [](const PyNode &self) {
+                // Hash based on the underlying C++ pointer
+                return std::hash<const void *>{}(self._impl.get());
+            });
     }
 
     control_block_ptr PyNode::control_block() const { return _impl.control_block(); }
