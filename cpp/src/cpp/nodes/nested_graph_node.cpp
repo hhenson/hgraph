@@ -90,7 +90,7 @@ namespace hgraph {
                    : std::unordered_map<int, graph_s_ptr>();
     }
 
-    void NestedGraphNode::enumerate_nested_graphs(const std::function<void(graph_s_ptr)>& callback) const {
+    void NestedGraphNode::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const {
         if (m_active_graph_) {
             callback(m_active_graph_);
         }

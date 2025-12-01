@@ -42,7 +42,7 @@ namespace hgraph {
     }
 
     template<typename K>
-    void ReduceNode<K>::enumerate_nested_graphs(const std::function<void(graph_s_ptr)>& callback) const {
+    void ReduceNode<K>::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const {
         if (nested_graph_) {
             callback(nested_graph_);
         }

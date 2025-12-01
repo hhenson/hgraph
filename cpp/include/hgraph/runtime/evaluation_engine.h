@@ -112,7 +112,7 @@ namespace hgraph
 
         virtual void add_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) = 0;
 
-        virtual void remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) = 0;
+        virtual void remove_life_cycle_observer(const EvaluationLifeCycleObserver::s_ptr& observer) = 0;
     };
 
     struct EvaluationEngineDelegate;
@@ -209,7 +209,7 @@ namespace hgraph
 
         void add_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) override;
 
-        void remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) override;
+        void remove_life_cycle_observer(const EvaluationLifeCycleObserver::s_ptr& observer) override;
 
         void advance_engine_time() override;
 
@@ -369,7 +369,7 @@ namespace hgraph
 
         void add_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) override;
 
-        void remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) override;
+        void remove_life_cycle_observer(const EvaluationLifeCycleObserver::s_ptr& observer) override;
 
         const EngineEvaluationClock::s_ptr& engine_evaluation_clock() override;
 

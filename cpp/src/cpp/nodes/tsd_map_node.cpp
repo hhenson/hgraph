@@ -46,7 +46,7 @@ namespace hgraph
 
     template <typename K> std::unordered_map<K, graph_s_ptr> &TsdMapNode<K>::nested_graphs() { return active_graphs_; }
 
-    template <typename K> void TsdMapNode<K>::enumerate_nested_graphs(const std::function<void(graph_s_ptr)> &callback) const {
+    template <typename K> void TsdMapNode<K>::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)> &callback) const {
         for (const auto &[key, graph] : active_graphs_) {
             if (graph) { callback(graph); }
         }

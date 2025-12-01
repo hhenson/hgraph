@@ -20,7 +20,7 @@ namespace hgraph {
 
         void mark_evaluated();
 
-        virtual void enumerate_nested_graphs(const std::function<void(graph_s_ptr)>& callback) const = 0;
+        virtual void enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const = 0;
 
     private:
         engine_time_t _last_evaluation_time{MIN_DT};

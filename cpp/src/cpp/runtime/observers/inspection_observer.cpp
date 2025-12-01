@@ -106,7 +106,7 @@ namespace hgraph {
         for (auto& node : graph->nodes()) {
             if (node->signature().has_nested_graphs) {
                 const auto nested = static_cast<const NestedNode*>(node.get());
-                nested->enumerate_nested_graphs([this](graph_s_ptr g) {
+                nested->enumerate_nested_graphs([this](const graph_s_ptr& g) {
                     walk(g.get());
                 });
             }

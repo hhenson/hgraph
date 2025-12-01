@@ -299,7 +299,7 @@ namespace hgraph {
     }
 
     template<typename K>
-    void SwitchNode<K>::enumerate_nested_graphs(const std::function<void(graph_s_ptr)>& callback) const {
+    void SwitchNode<K>::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const {
         if (active_graph_) {
             callback(active_graph_);
         }

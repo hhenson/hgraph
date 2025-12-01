@@ -119,8 +119,8 @@ namespace hgraph {
         _evaluation_engine->add_life_cycle_observer(std::move(observer));
     }
 
-    void EvaluationEngineDelegate::remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) {
-        _evaluation_engine->remove_life_cycle_observer(std::move(observer));
+    void EvaluationEngineDelegate::remove_life_cycle_observer(const EvaluationLifeCycleObserver::s_ptr& observer) {
+        _evaluation_engine->remove_life_cycle_observer(observer);
     }
 
     void EvaluationEngineDelegate::advance_engine_time() { _evaluation_engine->advance_engine_time(); }
@@ -426,7 +426,7 @@ namespace hgraph {
         _life_cycle_observers.emplace_back(std::move(observer));
     }
 
-    void EvaluationEngineImpl::remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) {
+    void EvaluationEngineImpl::remove_life_cycle_observer(const EvaluationLifeCycleObserver::s_ptr& observer) {
         auto it{std::find(_life_cycle_observers.begin(), _life_cycle_observers.end(), observer)};
         if (it != _life_cycle_observers.end()) {
             // Since order is not important, we can swap the observer to remove with the last observer and then pop it.

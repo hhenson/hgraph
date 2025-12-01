@@ -213,7 +213,7 @@ namespace hgraph {
         return {{0, nested_graph_}};
     }
 
-    void TsdNonAssociativeReduceNode::enumerate_nested_graphs(const std::function<void(graph_s_ptr)>& callback) const {
+    void TsdNonAssociativeReduceNode::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const {
         if (nested_graph_) {
             callback(nested_graph_);
         }
