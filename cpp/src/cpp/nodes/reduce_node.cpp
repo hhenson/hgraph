@@ -377,9 +377,11 @@ namespace hgraph {
         // If not in flags, it's just an unbound reference that we created, so we can reuse it
         if (bound_to_key_flags_.contains(inner_input.get())) {
             // This input was bound to a key, so we need to:
-            // 1. Remove it from our tracking set
-            // 2. Re-parent it back to the TSD for cleanup
-            // 3. Create a new unbound reference input for this node with the same specialized type as zero()
+            // 1. Make it passive to unsubscribe from the output (CRITICAL: must do this before re-parenting)
+            // 2. Remove it from our tracking set
+            // 3. Re-parent it back to the TSD for cleanup
+            // 4. Create a new unbound reference input for this node with the same specialized type as zero()
+            inner_input->make_passive();  // Unsubscribe from output to prevent dangling subscriber
             bound_to_key_flags_.erase(inner_input.get());
             inner_input->re_parent(static_cast<time_series_input_ptr>(ts()));
 

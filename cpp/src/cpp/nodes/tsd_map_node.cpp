@@ -208,8 +208,13 @@ namespace hgraph
                     auto &tsd = dynamic_cast<TimeSeriesDictInput_T<K> &>(*ts);
                     // Since this is a multiplexed arg it must be of type K
 
+                    // Make the per-key input passive to unsubscribe from output before re-parenting
+                    // CRITICAL: must do this before re-parenting to prevent dangling subscriber pointers
+                    auto per_key_input = (*node->input())["ts"];
+                    per_key_input->make_passive();
+
                     // Re-parent the per-key input back to the TSD to detach it from the nested graph
-                    (*node->input())["ts"]->re_parent(static_cast<time_series_input_ptr>(ts));
+                    per_key_input->re_parent(static_cast<time_series_input_ptr>(ts));
 
                     // Create a new empty reference input to replace the old one in the node's input bundle
                     // This ensures the per-key input is fully detached before the nested graph is torn down
