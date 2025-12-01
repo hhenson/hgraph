@@ -112,13 +112,12 @@ class KafkaMessageState(MessageState):
             self._kafka_consumer.pop(topic).stop()
 
 
-def _registered_topics(m, s):
+def _registered_topics(m, topic):
     """
     Makes sure we have registered this in this implementation's topic registry, this compensates for lack of service
     impl infra for the sink node.
     """
     ms = KafkaMessageState.instance()
-    topic = s["topic"]
     return topic in ms.publishers
 
 

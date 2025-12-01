@@ -1,7 +1,12 @@
 from dataclasses import dataclass
+import sys
 from typing import Tuple
 
 from hgraph import (
+    AUTO_RESOLVE,
+    HgTupleScalarType,
+    HgTypeMetaData,
+    Type,
     compute_node,
     TS,
     TSB,
@@ -96,26 +101,22 @@ def replace_default(pattern: TS[str], repl: TS[str], s: TS[str]) -> TS[str]:
     return re.sub(pattern.value, repl.value, s.value)
 
 
-def _check_sizes(mapping, scalars):
+def _check_sizes(mapping, maxsplit):
     from hgraph import HgTSLTypeMetaData, HgTupleFixedScalarType, HgTSTypeMetaData
 
     if out := mapping.get(OUT):
         if isinstance(out, HgTSLTypeMetaData):
-            if (maxsplit := scalars["maxsplit"]) != -1:
+            if maxsplit != sys.maxsize:
                 if maxsplit != out.size.SIZE:
                     return "The maxsplit should be equal to the size of the output time-series list"
-            else:
-                scalars["maxsplit"] = out.size.SIZE - 1
 
             return True if out.value_tp.matches_type(TS[str]) else "Output type of split should be TSL[TS[str], Size]"
         elif isinstance(out, HgTSTypeMetaData):
             out_scalar = out.value_scalar_tp
             if isinstance(out_scalar, HgTupleFixedScalarType):
-                if (maxsplit := scalars["maxsplit"]) != -1:
+                if maxsplit != sys.maxsize:
                     if maxsplit != len(out_scalar.element_types):
                         return "The maxsplit should be equal to the size of the output time-series list"
-                else:
-                    scalars["maxsplit"] = len(out_scalar.element_types) - 1
                 return (
                     True
                     if (e.matches_type(str) for e in out_scalar.element_types)
@@ -131,14 +132,32 @@ def _check_sizes(mapping, scalars):
     return f"Output type of {out} is not supported for split"
 
 
-@compute_node(overloads=split, requires=_check_sizes, resolvers={OUT: lambda m, s: TS[Tuple[str, ...]]})
-def split_default(s: TS[str], separator: str, maxsplit: int = -1) -> DEFAULT[OUT]:
+@graph(overloads=split, requires=_check_sizes, resolvers={OUT: lambda m, maxsplit: TS[Tuple[str, ...]]})
+def split_default(s: TS[str], separator: str, maxsplit: int = sys.maxsize, _tp: Type[OUT] = AUTO_RESOLVE) -> DEFAULT[OUT]:
     """
     Splits the string over the separator into one of the given types:
      - TS[Tuple[str, ...]],
      - TS[Tuple[str, str]],
      - TSL[TS[str], SIZE]
     """
+    
+    from hgraph import HgTSLTypeMetaData, HgTupleFixedScalarType, HgTSTypeMetaData
+    if maxsplit == sys.maxsize:
+        meta = HgTypeMetaData.parse_type(_tp)
+        if isinstance(meta, HgTSLTypeMetaData):
+            maxsplit = meta.size.SIZE - 1
+        elif isinstance(meta, HgTSTypeMetaData):
+            out_scalar = meta.value_scalar_tp
+            if isinstance(out_scalar, HgTupleFixedScalarType):
+                maxsplit = len(out_scalar.element_types) - 1
+            elif isinstance(out_scalar, HgTupleCollectionScalarType):
+                maxsplit = -1
+    
+    return _split_default[OUT: _tp](s, separator, maxsplit)
+
+
+@compute_node
+def _split_default(s: TS[str], separator: str, maxsplit: int) -> OUT:
     return tuple(s.value.split(separator, maxsplit))
 
 
@@ -170,7 +189,7 @@ class FormatState:
 
 
 @compute_node(
-    overloads=format_, valid=("fmt",), all_valid=lambda m, s: ("__pos_args__", "__kw_args__") if s["__strict__"] else ()
+    overloads=format_, valid=("fmt",), all_valid=lambda m, __strict__: ("__pos_args__", "__kw_args__") if __strict__ else ()
 )
 def format_(
     fmt: TS[str],

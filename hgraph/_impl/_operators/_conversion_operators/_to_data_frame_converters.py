@@ -30,6 +30,7 @@ from hgraph import (
     combine,
     HgTypeMetaData,
     SCHEMA,
+    graph,
 )
 
 __all__ = (
@@ -41,59 +42,59 @@ __all__ = (
 )
 
 
-def _ts_frame_cs_resolver(mapping, scalars):
+def _ts_frame_cs_resolver(mapping, dt_col, value_col, dt_is_date):
     if HgTypeMetaData.parse_type(TS[Frame[COMPOUND_SCALAR]]).matches(mapping[OUT]):
         return mapping[OUT].value_scalar_tp.schema
-
-    dt_col = scalars["dt_col"]
-    value_col = scalars["value_col"]
 
     if value_col is None:
         raise ValueError("value_col cannot be None")
     schema = {value_col: mapping[SCALAR].py_type}
     dt_col = dt_col
     if dt_col is not None:
-        schema = {dt_col: date if scalars["dt_is_date"] else datetime} | schema
+        schema = {dt_col: date if dt_is_date else datetime} | schema
     return compound_scalar(**schema)
 
 
-def _ts_frame_cs_checker(mapping, scalars):
-    dt_col = scalars["dt_col"]
-    value_col = scalars["value_col"]
+def _ts_frame_cs_check_and_defaults(mapping, dt_col, dt_col_is_date, value_col):
     schema = mapping[COMPOUND_SCALAR].meta_data_schema
 
     if len(schema) > 2:
-        return f"to_frame_ts cannot have more than 2 columns in the schema definition, got: {schema}"
+        return f"to_frame_ts cannot have more than 2 columns in the schema definition, got: {schema}",
     if len(schema) < 1:
-        return f"to_frame_ts cannot have less than 1 column in the schema definition, got: {schema}"
+        return f"to_frame_ts cannot have less than 1 column in the schema definition, got: {schema}",
     if len(schema) == 1 and dt_col is not None:
-        return f"to_frame_ts cannot have only one column with dt_col('{dt_col}') being defined"
+        return f"to_frame_ts cannot have only one column with dt_col('{dt_col}') being defined",
 
     if dt_col is None and len(schema) == 2:
-        scalars["dt_col"], dt_type = next(iter(schema.items()))
+        dt_col_check, dt_type = next(iter(schema.items()))
 
         if dt_type.py_type not in (date, datetime):
             raise RuntimeError(
-                f"to_frame_ts type of dt_col('{dt_col}') is {dt_type}, which is not date or datetime as required"
+                f"to_frame_ts type of dt_col('{dt_col_check}') is {dt_type}, which is not date or datetime as required"
             )
-
-        scalars["dt_is_date"] = dt_type.py_type is date
+            
+        dt_col = dt_col_check
+        dt_col_is_date = dt_type.py_type is date
 
     if value_col is None:
         v, t = next(i := iter(schema.items()))
         if len(schema) == 2:
             v, t = next(i)
-        scalars["value_col"] = v
 
         if not t.matches(mapping[SCALAR]):
-            return f"to_frame_ts(ts: TS[{mapping[SCALAR]}]) value_col('{v}') is not a compatible with {t}"
+            return f"to_frame_ts(ts: TS[{mapping[SCALAR]}]) value_col('{v}') is not a compatible with {t}",
+        
+        value_col = v
 
-    return True
+    return True, dt_col, dt_col_is_date, value_col
+
+def _ts_frame_cs_check(mapping, dt_col, dt_col_is_date, value_col):
+    return _ts_frame_cs_check_and_defaults(mapping, dt_col, dt_col_is_date, value_col)[0]
 
 
-@compute_node(
+@graph(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type == TS[Frame] or _ts_frame_cs_checker(m, s),
+    requires=lambda m, dt_col, dt_is_date, value_col: m[OUT].py_type == TS[Frame] or _ts_frame_cs_check(m, dt_col, dt_is_date, value_col),
     resolvers={COMPOUND_SCALAR: _ts_frame_cs_resolver},
 )
 def convert_ts_to_frame(
@@ -103,6 +104,26 @@ def convert_ts_to_frame(
     dt_is_date: bool = False,
     to: type[OUT] = DEFAULT[OUT],
     _tp_cs: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+    _tp_ts: type[SCALAR] = AUTO_RESOLVE,
+) -> TS[Frame[COMPOUND_SCALAR]]:
+    _, dt_col, dt_is_date, value_col = _ts_frame_cs_check_and_defaults({
+        COMPOUND_SCALAR: HgTypeMetaData.parse_type(_tp_cs), SCALAR: HgTypeMetaData.parse_type(_tp_ts)
+    }, dt_col, dt_is_date, value_col)
+    
+    return _convert_ts_to_frame[COMPOUND_SCALAR: _tp_cs](
+        ts,
+        value_col=value_col,
+        dt_col=dt_col,
+        dt_is_date=dt_is_date,
+    )
+
+
+@compute_node
+def _convert_ts_to_frame(
+    ts: TS[SCALAR],
+    value_col: str,
+    dt_col: str = None,
+    dt_is_date: bool = False,
 ) -> TS[Frame[COMPOUND_SCALAR]]:
     if dt_col:
         if dt_is_date:
@@ -115,9 +136,9 @@ def convert_ts_to_frame(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type == TS[Frame] or m[OUT].matches_type(TS[Frame[m[COMPOUND_SCALAR_1].py_type]]),
+    requires=lambda m: m[OUT].py_type == TS[Frame] or m[OUT].matches_type(TS[Frame[m[COMPOUND_SCALAR_1].py_type]]),
     resolvers={
-        COMPOUND_SCALAR_1: lambda m, s: (
+        COMPOUND_SCALAR_1: lambda m: (
             m[COMPOUND_SCALAR].py_type if m[OUT].py_type == TS[Frame] else m[OUT].scalar_type().schema
         )
     },
@@ -148,84 +169,55 @@ def convert_tsd_to_frame(
     return pl.DataFrame(data)
 
 
-def _tsb_frame_cs_resolver(mapping, scalars):
+def _tsb_frame_cs_resolver(mapping, dt_col, map_, dt_is_date):
     if HgTypeMetaData.parse_type(TS[Frame[COMPOUND_SCALAR]]).matches(mapping[OUT]):
         return mapping[OUT].value_scalar_tp.schema
 
     _tsb_tp = mapping[TS_SCHEMA]
     tsb_schema = {k: v.scalar_type().py_type for k, v in _tsb_tp.py_type.__meta_data_schema__.items()}
-    map_ = scalars["map_"]
     if map_:
         tsb_schema = {map_.get(k, k): v for k, v in tsb_schema.items()}
-    dt_col = scalars["dt_col"]
     if dt_col:
-        tsb_schema = {dt_col: date if scalars["dt_is_date"] else datetime} | tsb_schema
+        tsb_schema = {dt_col: date if dt_is_date else datetime} | tsb_schema
     return compound_scalar(**tsb_schema)
 
 
-def _tsb_frame_cs_checker(mapping, scalars):
+def _tsb_frame_cs_checker(mapping, dt_col, dt_is_date, map_):
     tsb_schema = {k: v.scalar_type().py_type for k, v in mapping[TS_SCHEMA].meta_data_schema.items()}
     df_schema = {k: v.py_type for k, v in mapping[COMPOUND_SCALAR].meta_data_schema.items()}
     frame_schema = dict(df_schema)
-
-    dt_col = scalars.get("dt_col")
-    map_ = scalars.get("map_")
 
     if len(tsb_schema) + 1 == len(frame_schema):
         # Implies we are expecting date / dt col.
         if dt_col is None:
             dt_col = next(iter(frame_schema.keys()))
-            scalars["dt_col"] = dt_col
         if frame_schema[dt_col] not in (date, datetime):
             raise RuntimeError(f"the dt_col('{dt_col}') is not a date or datetime as required")
-        scalars["dt_is_date"] = frame_schema.pop(dt_col) is date
+        dt_is_date = frame_schema.pop(dt_col) is date
 
     if len(tsb_schema) == len(frame_schema):
         if tsb_schema == frame_schema:
-            if dt_col is None:
-                scalars["_to_frame"] = lambda ts: pl.DataFrame(
-                    {k: [t.value if (t := ts[k]).valid else None] for k in tsb_schema.keys()}, schema=df_schema
-                )
-            else:
-                scalars["_to_frame"] = lambda ts: pl.DataFrame(
-                    {k: [t.value if (t := ts[k]).valid else None] for k in tsb_schema.keys()}
-                    | {dt_col: [ts.last_modified_time if not scalars["dt_is_date"] else ts.last_modified_time.date()]},
-                    schema=df_schema,
-                )
+            return True, dt_col, dt_is_date
         elif map_:
             if {map_.get(k, k): v for k, v in tsb_schema.items()} == frame_schema:
-                if dt_col is None:
-                    scalars["_to_frame"] = lambda ts: pl.DataFrame(
-                        {map_.get(k, k): t.value if (t := ts[k]).valid else None for k in tsb_schema.keys()},
-                        schema=df_schema,
-                    )
-                else:
-                    scalars["_to_frame"] = lambda ts: pl.DataFrame(
-                        {map_.get(k, k): t.value if (t := ts[k]).valid else None for k in tsb_schema.keys()}
-                        | {
-                            dt_col: [
-                                ts.last_modified_time if not scalars["dt_is_date"] else ts.last_modified_time.date()
-                            ]
-                        },
-                        schema=df_schema,
-                    )
+                return True, dt_col, dt_is_date
             else:
-                return f"Unable to map from {tsb_schema} to {frame_schema} using the mapping {map_}"
+                return f"Unable to map from {tsb_schema} to {frame_schema} using the mapping {map_}",
         else:
-            return f"No mapping provided to convert from {tsb_schema} to {frame_schema}"
+            return f"No mapping provided to convert from {tsb_schema} to {frame_schema}",
     else:
         return (
             f"to_frame unable to map from {tsb_schema} to"
             f" {frame_schema} {'using the mapping ' if map_ else ''}{map_ if map_ else ''}"
-        )
+        ),
 
-    return True
+    return True, dt_col, dt_is_date
 
 
-@compute_node(
+@graph(
     overloads=convert,
-    requires=lambda m, s: (m[OUT].py_type == TS[Frame] or m[OUT].matches_type(TS[Frame[m[COMPOUND_SCALAR].py_type]]))
-    and _tsb_frame_cs_checker(m, s),
+    requires=lambda m, dt_col, dt_is_date, map_: (m[OUT].py_type == TS[Frame] or m[OUT].matches_type(TS[Frame[m[COMPOUND_SCALAR].py_type]]))
+    and _tsb_frame_cs_checker(m, dt_col, dt_is_date, map_)[0],
     resolvers={COMPOUND_SCALAR: _tsb_frame_cs_resolver},
 )
 def convert_tsb_to_frame(
@@ -235,9 +227,43 @@ def convert_tsb_to_frame(
     dt_is_date: bool = False,
     _tsb_tp: type[TS_SCHEMA] = AUTO_RESOLVE,
     _frame_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
-    _to_frame: Callable = None,
 ) -> TS[Frame[COMPOUND_SCALAR]]:
-    return _to_frame(ts)
+    _, dt_col, dt_is_date = _tsb_frame_cs_checker({
+        TS_SCHEMA: HgTypeMetaData.parse_type(_tsb_tp),
+        COMPOUND_SCALAR: HgTypeMetaData.parse_type(_frame_tp),
+    }, dt_col, dt_is_date, map_)
+    
+    return _convert_tsb_to_frame[COMPOUND_SCALAR: _frame_tp](
+        ts,
+        dt_col=dt_col,
+        map_=map_,
+        dt_is_date=dt_is_date,
+    )
+
+
+@compute_node
+def _convert_tsb_to_frame(
+    ts: TSB[TS_SCHEMA],
+    dt_col: str = None,
+    map_: frozendict[str, str] = None,
+    dt_is_date: bool = False,
+    _tsb_tp: type[TS_SCHEMA] = AUTO_RESOLVE,
+    _frame_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+) -> TS[Frame[COMPOUND_SCALAR]]:
+    tsb_schema = _tsb_tp.__meta_data_schema__
+    df_schema = {k: v.py_type for k, v in _frame_tp.__meta_data_schema__.items()}
+
+    # Build the data dictionary
+    if map_:
+        data = {map_.get(k, k): t.value if (t := ts[k]).valid else None for k in tsb_schema.keys()}
+    else:
+        data = {k: t.value if (t := ts[k]).valid else None for k in tsb_schema.keys()}
+
+    # Add date column if specified
+    if dt_col:
+        data[dt_col] = [ts.last_modified_time.date() if dt_is_date else ts.last_modified_time]
+
+    return pl.DataFrame(data, schema=df_schema)
 
 
 @compute_node(overloads=convert)
@@ -300,8 +326,8 @@ def _check_schema(scalar, bundle):
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: _check_schema(m[COMPOUND_SCALAR], m[TS_SCHEMA]),
-    all_valid=lambda m, s: ("bundle",) if s["__strict__"] else None,
+    requires=lambda m: _check_schema(m[COMPOUND_SCALAR], m[TS_SCHEMA]),
+    all_valid=lambda m, __strict__: ("bundle",) if __strict__ else None,
 )
 def combine_frame(
     tp_out_: Type[TS[Frame[COMPOUND_SCALAR]]] = DEFAULT[OUT],

@@ -202,8 +202,8 @@ def tsd_get_items_stop(
 
 @compute_node(
     overloads=keys_,
-    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[K].py_type]),
-    resolvers={OUT: lambda m, s: TSS[m[K].py_type]},
+    requires=lambda m: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[K].py_type]),
+    resolvers={OUT: lambda m: TSS[m[K].py_type]},
 )
 def keys_tsd_as_tss(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
     # Use tsd as a reference to avoid the cost of the input wrapper
@@ -216,7 +216,7 @@ def keys_tsd_as_tss(tsd: REF[TSD[K, TIME_SERIES_TYPE]]) -> REF[TSS[K]]:
 
 @compute_node(
     overloads=keys_,
-    requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
+    requires=lambda m: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
     or m[OUT].matches_type(TS[Set[m[K].py_type]]),
 )
 def keys_tsd_as_set(tsd: TSD[K, TIME_SERIES_TYPE]) -> TS[Set[K]]:
@@ -284,7 +284,7 @@ def get_schema_type(schema: Type[TS_SCHEMA], key: str) -> Type[TIME_SERIES_TYPE]
 
 @compute_node(
     overloads=getattr_,
-    resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars["key"])},
+    resolvers={TIME_SERIES_TYPE: lambda mapping, key: get_schema_type(mapping[TS_SCHEMA], key)},
 )
 def tsd_get_bundle_item(
     tsd: TSD[K, REF[TSB[TS_SCHEMA]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
@@ -318,7 +318,7 @@ def tsd_get_bundle_item_nested(
 
 @graph(
     overloads=getattr_,
-    resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars["key"])},
+    resolvers={TIME_SERIES_TYPE: lambda mapping, key: get_schema_type(mapping[TS_SCHEMA], key)},
 )
 def tsd_get_bundle_item_2(
     tsd: TSD[K, TSD[K_1, REF[TSB[TS_SCHEMA]]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
@@ -328,7 +328,7 @@ def tsd_get_bundle_item_2(
 
 @graph(
     overloads=getattr_,
-    resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: get_schema_type(mapping[TS_SCHEMA], scalars["key"])},
+    resolvers={TIME_SERIES_TYPE: lambda mapping, key: get_schema_type(mapping[TS_SCHEMA], key)},
 )
 def tsd_get_bundle_item_3(
     tsd: TSD[K, TSD[K_1, TSD[K_2, REF[TSB[TS_SCHEMA]]]]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
@@ -338,7 +338,7 @@ def tsd_get_bundle_item_3(
 
 @compute_node(
     overloads=getattr_,
-    resolvers={SCALAR: lambda mapping, scalars: get_schema_type(mapping[SCHEMA].meta_data_schema, scalars["key"])},
+    resolvers={SCALAR: lambda mapping, key: get_schema_type(mapping[SCHEMA].meta_data_schema, key)},
 )
 def tsd_get_cs_item(tsd: TSD[K, TS[SCHEMA]], key: str, _schema: Type[SCHEMA] = AUTO_RESOLVE) -> TSD[K, TS[SCALAR]]:
     """
@@ -378,7 +378,7 @@ def _key_type_as_tuple(tp):
     return tp.element_types if isinstance(tp, HgTupleFixedScalarType) else (tp.py_type,)
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: Tuple[*(_key_type_as_tuple(m[K]) + _key_type_as_tuple(m[K_1]))]})
+@compute_node(resolvers={SCALAR: lambda m: Tuple[*(_key_type_as_tuple(m[K]) + _key_type_as_tuple(m[K_1]))]})
 def _collapse_merge_keys_tsd(ts: TSD[K, TSD[K_1, REF[TIME_SERIES_TYPE]]]) -> TSD[SCALAR, REF[TIME_SERIES_TYPE]]:
     """
     Collapse the nested TSDs to a TSD with a tuple key, merging keys if they are tuples.
@@ -453,8 +453,8 @@ def _make_recursive_tsd_type(keys, value):
 
 @compute_node(
     overloads=uncollapse_keys,
-    requires=lambda m, s: isinstance(m[K], HgTupleFixedScalarType),
-    resolvers={OUT: lambda m, s: _make_recursive_tsd_type(m[K].element_types, REF[m[TIME_SERIES_TYPE].py_type])},
+    requires=lambda m: isinstance(m[K], HgTupleFixedScalarType),
+    resolvers={OUT: lambda m: _make_recursive_tsd_type(m[K].element_types, REF[m[TIME_SERIES_TYPE].py_type])},
 )
 def uncollapse_more_keys_tsd(ts: TSD[K, REF[TIME_SERIES_TYPE]], remove_empty: bool = True, _output: TSD = None) -> OUT:
     """
@@ -630,7 +630,7 @@ def flip_tsd(ts: TSD[K, TS[K_1]], _state: STATE[TsdRekeyState] = None) -> TSD[K_
     return out
 
 
-@compute_node(overloads=flip, requires=lambda m, s: s["unique"] is False)
+@compute_node(overloads=flip, requires=lambda m, unique: unique is False)
 def flip_tsd_non_unique(
     ts: TSD[K, TS[K_1]], unique: bool, _state: STATE[TsdRekeyState] = None, _output: TSD_OUT[K_1, TSS[K]] = None
 ) -> TSD[K_1, TSS[K]]:
@@ -707,7 +707,7 @@ def merge_tsd(
     return map_(merge, *tsl)
 
 
-@compute_node(overloads=merge, requires=lambda m, s: s["disjoint"])
+@compute_node(overloads=merge, requires=lambda m, disjoint: disjoint)
 def merge_tsd_disjoint(
     *tsl: TSL[TSD[K, REF[TIME_SERIES_TYPE]], SIZE],
     disjoint: bool = False,

@@ -22,7 +22,7 @@ from hgraph._types._scalar_types import TUPLE, STATE
 from hgraph._impl._operators._conversion_operators._conversion_operator_util import _BufferState
 
 
-@graph(overloads=combine, requires=lambda m, s: OUT not in m or m[OUT].py_type == TSL)
+@graph(overloads=combine, requires=lambda m: OUT not in m or m[OUT].py_type == TSL)
 def combine_tsl(*tsl: TSL[TIME_SERIES_TYPE, SIZE]) -> TSL[TIME_SERIES_TYPE, SIZE]:
     return tsl
 
@@ -36,10 +36,10 @@ def combine_tsl(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: SIZE in m and (m[OUT].py_type is TSL or m[OUT].value_tp.scalar_type().matches(m[SCALAR])),
+    requires=lambda m: SIZE in m and (m[OUT].py_type is TSL or m[OUT].value_tp.scalar_type().matches(m[SCALAR])),
     resolvers={
-        TIME_SERIES_TYPE: lambda m, s: TS[m[SCALAR]] if m[OUT].py_type is TSL else m[OUT].value_tp,
-        SIZE: lambda m, s: None if m[OUT].py_type is TSL else m[OUT].size(),
+        TIME_SERIES_TYPE: lambda m: TS[m[SCALAR]] if m[OUT].py_type is TSL else m[OUT].value_tp,
+        SIZE: lambda m: None if m[OUT].py_type is TSL else m[OUT].size(),
     },
 )
 def convert_tuple_to_tsl(
@@ -50,10 +50,10 @@ def convert_tuple_to_tsl(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSL or m[OUT].value_tp.scalar_type().matches(m[SCALAR]),
+    requires=lambda m: m[OUT].py_type is TSL or m[OUT].value_tp.scalar_type().matches(m[SCALAR]),
     resolvers={
-        TIME_SERIES_TYPE: lambda m, s: TS[m[SCALAR]] if m[OUT].py_type is TSL else m[OUT].value_tp,
-        SIZE: lambda m, s: m[TUPLE].size(),
+        TIME_SERIES_TYPE: lambda m: TS[m[SCALAR]] if m[OUT].py_type is TSL else m[OUT].value_tp,
+        SIZE: lambda m: m[TUPLE].size(),
     },
 )
 def convert_tuple_to_tsl(
@@ -64,7 +64,7 @@ def convert_tuple_to_tsl(
 
 @compute_node(
     overloads=emit,
-    resolvers={SCALAR: lambda m, s: m[TIME_SERIES_TYPE].scalar_type()},
+    resolvers={SCALAR: lambda m: m[TIME_SERIES_TYPE].scalar_type()},
 )
 def emit_tsl(
     ts: TSL[TIME_SERIES_TYPE, SIZE], _state: STATE[_BufferState] = None, _schedule: SCHEDULER = None

@@ -32,7 +32,7 @@ def _check_conversion_mode(check_mode, from_scalar, to_scalar):
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[SCALAR] != m[SCALAR_1]
+    requires=lambda m: m[SCALAR] != m[SCALAR_1]
     and _check_conversion_mode(0, m[SCALAR].py_type, m[SCALAR_1].py_type),
 )
 def convert_ts_scalar(
@@ -53,7 +53,7 @@ def convert_ts_bytes_to_str(ts: TS[bytes], to: type[TS[str]] = DEFAULT[OUT]) -> 
 
 @graph(
     overloads=convert,
-    requires=lambda m, s: m[SCALAR] != m[SCALAR_1]
+    requires=lambda m: m[SCALAR] != m[SCALAR_1]
     and _check_conversion_mode(1, m[SCALAR].py_type, m[SCALAR_1].py_type),
 )
 def convert_ts_scalar_upcast(
@@ -64,7 +64,7 @@ def convert_ts_scalar_upcast(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[SCALAR] != m[SCALAR_1]
+    requires=lambda m: m[SCALAR] != m[SCALAR_1]
     and _check_conversion_mode(-1, m[SCALAR].py_type, m[SCALAR_1].py_type),
 )
 def convert_ts_scalar_downcast(

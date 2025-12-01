@@ -22,11 +22,11 @@ Here is an example:
     def add_(lhs: TIME_SERIES_TYPE_1, rhs: TIME_SERIES_TYPE_2) -> TIME_SERIES_TYPE_1:
         ...
 
-    @compute_node(overloads=add_, requires=lambda m, s: s["__strict__"] == True)
+    @compute_node(overloads=add_, requires=lambda m, __strict__: __strict__ == True)
     def add_strict(lhs: TS[int], rhs: TS[int], __strict__: bool) -> TS[int]:
         return lhs.value + rhs.value
 
-    @compute_node(overloads=add_, valid=(), requires=lambda m, s: s["__strict__"] == False)
+    @compute_node(overloads=add_, valid=(), requires=lambda m, __strict__: __strict__ == False)
     def add_not_strict(lhs: TS[int], rhs: TS[int], __strict__: bool) -> TS[int]:
         if lhs.valid and rhs.valid:
             return lhs.value + rhs.value

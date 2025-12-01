@@ -23,8 +23,8 @@ __all__ = ["as_array", "get_item"]
 
 
 @graph(
-    resolvers={SIZE: lambda m, s: Size[m[WINDOW_SIZE].py_type.SIZE]},
-    requires=lambda m, s: True if m[WINDOW_SIZE].py_type.FIXED_SIZE else "Only fixed size windows are supported.",
+    resolvers={SIZE: lambda m: Size[m[WINDOW_SIZE].py_type.SIZE]},
+    requires=lambda m: True if m[WINDOW_SIZE].py_type.FIXED_SIZE else "Only fixed size windows are supported.",
 )
 def as_array(
     tsw: TSW[SCALAR, WINDOW_SIZE, WINDOW_SIZE_MIN],
@@ -79,8 +79,7 @@ def get_item(ts: TS[ARRAY], idx: SCALAR) -> OUT:
     """
 
 
-def _get_item_resolver(m, s):
-    idx = s["idx"]
+def _get_item_resolver(m, idx):
     if isinstance(idx, int):
         idx = (idx,)
     arr = m[ARRAY].py_type
@@ -94,8 +93,7 @@ def _get_item_resolver(m, s):
         return TS[Array[scalar, *(Size[i] for i in dimensions[len(idx) :])]]
 
 
-def _get_item_scalar_resolver(m, s):
-    idx = s["idx"]
+def _get_item_scalar_resolver(m, idx):
     if isinstance(idx, int):
         idx = (idx,)
     arr = m[ARRAY].py_type
@@ -107,8 +105,7 @@ def _get_item_scalar_resolver(m, s):
         return None
 
 
-def _get_item_not_scalar(m, s):
-    idx = s["idx"]
+def _get_item_not_scalar(m, idx):
     if isinstance(idx, int):
         idx = (idx,)
     arr = m[ARRAY].py_type

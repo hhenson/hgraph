@@ -6,7 +6,7 @@ from hgraph._wiring._decorators import compute_node, sink_node
 __all__ = ["apply", "call"]
 
 
-@compute_node(valid=("fn",), resolvers={TIME_SERIES_TYPE: lambda m, s: TS[s["fn"].__annotations__["return"]]})
+@compute_node(valid=("fn",), resolvers={TIME_SERIES_TYPE: lambda m, fn: TS[fn.__annotations__["return"]]})
 def apply(fn: TS[Callable], *args: TSB[TS_SCHEMA], **kwargs: TSB[TS_SCHEMA_1]) -> DEFAULT[TIME_SERIES_TYPE]:
     """
     Apply the inputs to the fn provided.

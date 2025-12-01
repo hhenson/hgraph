@@ -34,7 +34,7 @@ from hgraph._impl._operators._conversion_operators._conversion_operator_util imp
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
+    requires=lambda m: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
 )
 def convert_ts_to_tuple(ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> OUT:
     return (ts.value,)
@@ -42,7 +42,7 @@ def convert_ts_to_tuple(ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> OUT:
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
+    requires=lambda m: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
 )
 def convert_set_to_tuple(ts: TS[Set[SCALAR]], to: Type[OUT] = DEFAULT[OUT]) -> OUT:
     return tuple(ts.value)
@@ -50,7 +50,7 @@ def convert_set_to_tuple(ts: TS[Set[SCALAR]], to: Type[OUT] = DEFAULT[OUT]) -> O
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
+    requires=lambda m: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
 )
 def convert_tss_to_tuple(ts: TSS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> OUT:
     return tuple(ts.value)
@@ -58,7 +58,7 @@ def convert_tss_to_tuple(ts: TSS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> OUT:
 
 @graph(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
+    requires=lambda m: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
 )
 def convert_tsl_to_tuple(ts: TSL[TS[SCALAR], SIZE], to: Type[OUT] = DEFAULT[OUT], __strict__: bool = True) -> OUT:
     return combine[to](tsl=ts, __strict__=__strict__)
@@ -66,7 +66,7 @@ def convert_tsl_to_tuple(ts: TSL[TS[SCALAR], SIZE], to: Type[OUT] = DEFAULT[OUT]
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
+    requires=lambda m: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR], ...]]),
 )
 def convert_series_to_tuple(ts: TS[Series[SCALAR]]) -> OUT:
     return tuple(ts.value)
@@ -74,8 +74,8 @@ def convert_series_to_tuple(ts: TS[Series[SCALAR]]) -> OUT:
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: m[OUT].py_type == TS[Tuple],
-    all_valid=lambda m, s: ("tsl",) if s["__strict__"] else None,
+    requires=lambda m: m[OUT].py_type == TS[Tuple],
+    all_valid=lambda m, __strict__: ("tsl",) if __strict__ else None,
 )
 def combine_tuple_generic(*tsl: TSL[TS[SCALAR], SIZE], __strict__: bool = True) -> TS[Tuple[SCALAR, ...]]:
     return tuple(v.value for v in tsl)
@@ -83,8 +83,8 @@ def combine_tuple_generic(*tsl: TSL[TS[SCALAR], SIZE], __strict__: bool = True) 
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: HgTypeMetaData.parse_type(TS[Tuple[m[SCALAR], ...]]).matches(m[OUT]),
-    all_valid=lambda m, s: ("tsl",) if s["__strict__"] else None,
+    requires=lambda m: HgTypeMetaData.parse_type(TS[Tuple[m[SCALAR], ...]]).matches(m[OUT]),
+    all_valid=lambda m, __strict__: ("tsl",) if __strict__ else None,
 )
 def combine_tuple_specific(*tsl: TSL[TS[SCALAR], SIZE], __strict__: bool = True) -> OUT:
     return tuple(v.value for v in tsl)
@@ -92,8 +92,8 @@ def combine_tuple_specific(*tsl: TSL[TS[SCALAR], SIZE], __strict__: bool = True)
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: isinstance(m[OUT].value_scalar_tp, HgTupleFixedScalarType),
-    all_valid=lambda m, s: ("tsl",) if s["__strict__"] else None,
+    requires=lambda m: isinstance(m[OUT].value_scalar_tp, HgTupleFixedScalarType),
+    all_valid=lambda m, __strict__: ("tsl",) if __strict__ else None,
 )
 def combine_tuple_specific_nonuniform(*tsl: TSB[TS_SCHEMA], __strict__: bool = True) -> OUT:
     return tuple(v.value for v in tsl.values())
@@ -101,7 +101,7 @@ def combine_tuple_specific_nonuniform(*tsl: TSB[TS_SCHEMA], __strict__: bool = T
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR].py_type, ...]]),
+    requires=lambda m: m[OUT].py_type == TS[Tuple] or m[OUT].matches_type(TS[Tuple[m[SCALAR].py_type, ...]]),
     valid=("ts",),
 )
 def collect_tuple(

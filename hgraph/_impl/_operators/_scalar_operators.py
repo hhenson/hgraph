@@ -58,7 +58,7 @@ from hgraph import (
 __all__ = tuple()
 
 
-@compute_node(overloads=add_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__add__"))
+@compute_node(overloads=add_, requires=lambda m: hasattr(m[SCALAR].py_type, "__add__"))
 def add_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Adds two timeseries values of scalars (which support +)
@@ -66,7 +66,7 @@ def add_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     return lhs.value + rhs.value
 
 
-@compute_node(overloads=sub_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__sub__"))
+@compute_node(overloads=sub_, requires=lambda m: hasattr(m[SCALAR].py_type, "__sub__"))
 def sub_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Subtracts two timeseries values of scalars (which support -)
@@ -74,7 +74,7 @@ def sub_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     return lhs.value - rhs.value
 
 
-@compute_node(overloads=mul_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__mul__"))
+@compute_node(overloads=mul_, requires=lambda m: hasattr(m[SCALAR].py_type, "__mul__"))
 def mul_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Multiples two timeseries values of scalars (which support *)
@@ -82,7 +82,7 @@ def mul_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     return lhs.value * rhs.value
 
 
-@compute_node(overloads=pow_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__pow__"))
+@compute_node(overloads=pow_, requires=lambda m: hasattr(m[SCALAR].py_type, "__pow__"))
 def pow_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR], divide_by_zero: DivideByZero = DivideByZero.ERROR) -> TS[SCALAR]:
     """
     Raises a timeseries value to the power of the other timeseries value
@@ -104,7 +104,7 @@ def pow_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR], divide_by_zero: DivideByZero =
             raise
 
 
-@compute_node(overloads=lshift_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__lshift__"))
+@compute_node(overloads=lshift_, requires=lambda m: hasattr(m[SCALAR].py_type, "__lshift__"))
 def lshift_scalars(lhs: TS[SCALAR], rhs: TS[int]) -> TS[SCALAR]:
     """
     Shifts the values in the lhs timeseries left by the rhs value
@@ -112,7 +112,7 @@ def lshift_scalars(lhs: TS[SCALAR], rhs: TS[int]) -> TS[SCALAR]:
     return lhs.value << rhs.value
 
 
-@compute_node(overloads=rshift_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__rshift__"))
+@compute_node(overloads=rshift_, requires=lambda m: hasattr(m[SCALAR].py_type, "__rshift__"))
 def rshift_scalars(lhs: TS[SCALAR], rhs: TS[int]) -> TS[SCALAR]:
     """
     Shifts the values in the lhs timeseries right by the rhs value
@@ -120,7 +120,7 @@ def rshift_scalars(lhs: TS[SCALAR], rhs: TS[int]) -> TS[SCALAR]:
     return lhs.value >> rhs.value
 
 
-@compute_node(overloads=bit_and, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__and__"))
+@compute_node(overloads=bit_and, requires=lambda m: hasattr(m[SCALAR].py_type, "__and__"))
 def bit_and_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Timeseries equivalent of lhs & rhs
@@ -128,7 +128,7 @@ def bit_and_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     return lhs.value & rhs.value
 
 
-@compute_node(overloads=bit_or, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__or__"))
+@compute_node(overloads=bit_or, requires=lambda m: hasattr(m[SCALAR].py_type, "__or__"))
 def bit_or_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Timeseries equivalent of lhs | rhs
@@ -136,7 +136,7 @@ def bit_or_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     return lhs.value | rhs.value
 
 
-@compute_node(overloads=bit_xor, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__xor__"))
+@compute_node(overloads=bit_xor, requires=lambda m: hasattr(m[SCALAR].py_type, "__xor__"))
 def bit_xor_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     """
     Timeseries equivalent of lhs ^ rhs
@@ -144,7 +144,7 @@ def bit_xor_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     return lhs.value ^ rhs.value
 
 
-@compute_node(overloads=eq_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__eq__"))
+@compute_node(overloads=eq_, requires=lambda m: hasattr(m[SCALAR].py_type, "__eq__"))
 def eq_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Equality of two scalar timeseries
@@ -153,7 +153,7 @@ def eq_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
 
 
 @compute_node(
-    overloads=cmp_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__eq__") and hasattr(m[SCALAR].py_type, "__lt__")
+    overloads=cmp_, requires=lambda m: hasattr(m[SCALAR].py_type, "__eq__") and hasattr(m[SCALAR].py_type, "__lt__")
 )
 def cmp_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> TS[CmpResult]:
     """
@@ -191,7 +191,7 @@ def cmp_ts_dict(lhs: TS[Mapping[SCALAR, SCALAR_1]], rhs: TS[Mapping[SCALAR, SCAL
                 return CmpResult.GT
 
 
-@compute_node(overloads=ne_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__ne__"))
+@compute_node(overloads=ne_, requires=lambda m: hasattr(m[SCALAR].py_type, "__ne__"))
 def ne_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Not equality of two scalar timeseries
@@ -199,7 +199,7 @@ def ne_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     return bool(lhs.value != rhs.value)
 
 
-@compute_node(overloads=lt_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__lt__"))
+@compute_node(overloads=lt_, requires=lambda m: hasattr(m[SCALAR].py_type, "__lt__"))
 def lt_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Test for less than of two scalar timeseries
@@ -207,7 +207,7 @@ def lt_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     return bool(lhs.value < rhs.value)
 
 
-@compute_node(overloads=le_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__le__"))
+@compute_node(overloads=le_, requires=lambda m: hasattr(m[SCALAR].py_type, "__le__"))
 def le_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Test for less than or equal of two scalar timeseries
@@ -215,7 +215,7 @@ def le_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     return bool(lhs.value <= rhs.value)
 
 
-@compute_node(overloads=gt_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__gt__"))
+@compute_node(overloads=gt_, requires=lambda m: hasattr(m[SCALAR].py_type, "__gt__"))
 def gt_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Test for greater than of two scalar timeseries
@@ -223,7 +223,7 @@ def gt_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     return bool(lhs.value > rhs.value)
 
 
-@compute_node(overloads=ge_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__ge__"))
+@compute_node(overloads=ge_, requires=lambda m: hasattr(m[SCALAR].py_type, "__ge__"))
 def ge_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     """
     Test for greater than or equal of two scalar timeseries
@@ -231,7 +231,7 @@ def ge_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     return bool(lhs.value >= rhs.value)
 
 
-@compute_node(overloads=neg_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__neg__"))
+@compute_node(overloads=neg_, requires=lambda m: hasattr(m[SCALAR].py_type, "__neg__"))
 def neg_scalar(ts: TS[SCALAR]) -> TS[SCALAR]:
     """
     Unary negative operator for scalar timeseries
@@ -239,7 +239,7 @@ def neg_scalar(ts: TS[SCALAR]) -> TS[SCALAR]:
     return -ts.value
 
 
-@compute_node(overloads=pos_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__pos__"))
+@compute_node(overloads=pos_, requires=lambda m: hasattr(m[SCALAR].py_type, "__pos__"))
 def pos_scalar(ts: TS[SCALAR]) -> TS[SCALAR]:
     """
     Unary positive operator for scalar timeseries
@@ -247,7 +247,7 @@ def pos_scalar(ts: TS[SCALAR]) -> TS[SCALAR]:
     return +ts.value
 
 
-@compute_node(overloads=invert_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__invert__"))
+@compute_node(overloads=invert_, requires=lambda m: hasattr(m[SCALAR].py_type, "__invert__"))
 def invert_scalar(ts: TS[SCALAR]) -> TS[int]:
     """
     Unary ~ operator for scalar timeseries
@@ -255,7 +255,7 @@ def invert_scalar(ts: TS[SCALAR]) -> TS[int]:
     return ~ts.value
 
 
-@compute_node(overloads=abs_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__abs__"))
+@compute_node(overloads=abs_, requires=lambda m: hasattr(m[SCALAR].py_type, "__abs__"))
 def abs_scalar(ts: TS[SCALAR]) -> TS[SCALAR]:
     """
     Unary abs() operator for scalar timeseries
@@ -264,7 +264,7 @@ def abs_scalar(ts: TS[SCALAR]) -> TS[SCALAR]:
 
 
 @compute_node(
-    overloads=len_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__len__") or m[SCALAR].py_type.__name__ == "Frame"
+    overloads=len_, requires=lambda m: hasattr(m[SCALAR].py_type, "__len__") or m[SCALAR].py_type.__name__ == "Frame"
 )
 def len_scalar(ts: TS[SCALAR]) -> TS[int]:
     """
@@ -298,7 +298,7 @@ def or_scalars(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[bool]:
     return bool(lhs.value or rhs.value)
 
 
-@compute_node(overloads=contains_, requires=lambda m, s: hasattr(m[SCALAR].py_type, "__contains__"))
+@compute_node(overloads=contains_, requires=lambda m: hasattr(m[SCALAR].py_type, "__contains__"))
 def contains_scalar(ts: TS[SCALAR], key: TS[SCALAR_1]) -> TS[bool]:
     """
     Implements the python ``in`` operator
@@ -320,7 +320,7 @@ def min_scalar(
         return min_scalar_multi(*ts, default_value=default_value, __strict__=__strict__)
 
 
-@compute_node(valid=lambda m, s: ("lhs", "rhs") if s["__strict__"] else ())
+@compute_node(valid=lambda m, __strict__: ("lhs", "rhs") if __strict__ else ())
 def min_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = True) -> TS[SCALAR]:
     """
     Binary min()
@@ -354,7 +354,7 @@ def min_scalar_unary(ts: TS[SCALAR], reset: SIGNAL = None, _output: TS_OUT[SCALA
         return ts_value
 
 
-@compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)
+@compute_node(all_valid=lambda m, __strict__: ("ts",) if __strict__ else None)
 def min_scalar_multi(
     *ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict__: bool = True
 ) -> TS[SCALAR]:
@@ -395,7 +395,7 @@ def max_scalar_unary(ts: TS[SCALAR], reset: SIGNAL = None, _output: TS_OUT[SCALA
         return ts_value
 
 
-@compute_node(valid=lambda m, s: ("lhs", "rhs") if s["__strict__"] else ())
+@compute_node(valid=lambda m, __strict__: ("lhs", "rhs") if __strict__ else ())
 def max_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = True) -> TS[SCALAR]:
     """
     Binary max()
@@ -412,7 +412,7 @@ def max_scalar_binary(lhs: TS[SCALAR], rhs: TS[SCALAR], __strict__: bool = True)
         return r
 
 
-@compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)
+@compute_node(all_valid=lambda m, __strict__: ("ts",) if __strict__ else None)
 def max_scalar_multi(
     *ts: TSL[TS[SCALAR], SIZE], default_value: TS[SCALAR] = None, __strict__: bool = True
 ) -> TS[SCALAR]:

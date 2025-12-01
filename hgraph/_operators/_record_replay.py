@@ -139,12 +139,12 @@ def record_replay_model_restriction(model: str, check_operator: bool = False):
     """
     if check_operator:
 
-        def restriction(m, s):
-            return not s.get("is_operator", False) or record_replay_model() == model
+        def restriction(m, is_operator=False):
+            return not is_operator or record_replay_model() == model
 
     else:
 
-        def restriction(m, s):
+        def restriction(m):
             return record_replay_model() == model
 
     return restriction

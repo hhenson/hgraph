@@ -42,27 +42,27 @@ def json_encode_bytes(ts: TS[JSON], _tp: Type[bytes] = DEFAULT[SCALAR]) -> TS[by
     return json.dumps(ts.value.json).encode("utf-8")
 
 
-@compute_node(overloads=getattr_, requires=lambda m, s: s["attr"] == "str")
+@compute_node(overloads=getattr_, requires=lambda m, attr: attr == "str")
 def getattr_json_str(ts: TS[JSON], attr: str) -> TS[str]:
     return ts.value.json
 
 
-@compute_node(overloads=getattr_, requires=lambda m, s: s["attr"] == "bool")
+@compute_node(overloads=getattr_, requires=lambda m, attr: attr == "bool")
 def getattr_json_bool(ts: TS[JSON], attr: str) -> TS[bool]:
     return ts.value.json
 
 
-@compute_node(overloads=getattr_, requires=lambda m, s: s["attr"] == "int")
+@compute_node(overloads=getattr_, requires=lambda m, attr: attr == "int")
 def getattr_json_int(ts: TS[JSON], attr: str) -> TS[int]:
     return ts.value.json
 
 
-@compute_node(overloads=getattr_, requires=lambda m, s: s["attr"] == "float")
+@compute_node(overloads=getattr_, requires=lambda m, attr: attr == "float")
 def getattr_json_float(ts: TS[JSON], attr: str) -> TS[float]:
     return ts.value.json
 
 
-@compute_node(overloads=getattr_, requires=lambda m, s: s["attr"] == "obj")
+@compute_node(overloads=getattr_, requires=lambda m, attr: attr == "obj")
 def getattr_json_obj(ts: TS[JSON], attr: str) -> TS[object]:
     return ts.value.json
 
@@ -79,7 +79,7 @@ def getitem_json_int(ts: TS[JSON], key: int) -> TS[JSON]:
 
 @compute_node(
     overloads=combine,
-    all_valid=lambda m, s: ("bundle",) if s["__strict__"] else None,
+    all_valid=lambda m, __strict__: ("bundle",) if __strict__ else None,
 )
 def combine_json(
     tp_out_: Type[TS[JSON]] = DEFAULT[OUT],
@@ -89,7 +89,7 @@ def combine_json(
     return JSON({k: v if type(v) is not JSON else v.json for k, v in bundle.value.items() if v is not None})
 
 
-@compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[JSON])
+@compute_node(overloads=convert, requires=lambda m: m[OUT].py_type == TS[JSON])
 def convert_tsd_to_json(
     ts: TSD[K, TS[JSON]],
     to: Type[TS[JSON]] = DEFAULT[OUT],

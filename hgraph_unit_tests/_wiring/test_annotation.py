@@ -5,7 +5,7 @@ from hgraph.test import eval_node
 
 
 def test_valid_lambda():
-    @compute_node(valid=lambda m, s: None if s["__strict__"] else ())
+    @compute_node(valid=lambda m, __strict__: None if __strict__ else ())
     def f(x: TS[int], y: TS[int], __strict__: bool) -> TS[Tuple[int, int]]:
         return x.value, y.value
 
@@ -14,7 +14,7 @@ def test_valid_lambda():
 
 
 def test_active_lambda():
-    @compute_node(active=lambda m, s: {"x"} if s["__lazy__"] else None, valid=())
+    @compute_node(active=lambda m, __lazy__: {"x"} if __lazy__ else None, valid=())
     def f(x: TS[int], y: TS[int], __lazy__: bool = False) -> TS[Tuple[int, int]]:
         return x.value, y.value
 

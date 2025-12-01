@@ -49,24 +49,23 @@ def schema_from_frame(frame: pl.DataFrame) -> COMPOUND_SCALAR:
 
 
 def _schema_and_dt_col(
-    mapping, scalars
+    mapping, dt_col
 ) -> tuple[OrderedDict[str, HgScalarTypeMetaData], tuple[str, HgScalarTypeMetaData]]:
     dfs: type[DATA_FRAME_SOURCE] = mapping[DATA_FRAME_SOURCE].py_type
     dfs_instance = DataStore.instance().get_data_source(dfs)
     schema = dfs_instance.schema
-    dt_col = scalars["dt_col"]
     return {k: _convert_type(v) for k, v in schema.items() if k != dt_col}, (dt_col, _convert_type(schema[dt_col]))
 
 
-def _extract_schema(mapping, scalars) -> TS_SCHEMA:
+def _extract_schema(mapping, dt_col) -> TS_SCHEMA:
     """Extract the schema from the mapping"""
-    schema, _ = _schema_and_dt_col(mapping, scalars)
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
     return ts_schema(**{k: HgTSTypeMetaData(v) for k, v in schema.items()})
 
 
-def _extract_scalar(mapping, scalars) -> SCALAR:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    return schema[scalars["value_col"]]
+def _extract_scalar(mapping, dt_col, value_col) -> SCALAR:
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
+    return schema[value_col]
 
 
 @generator(resolvers={SCALAR: _extract_scalar})
@@ -105,14 +104,14 @@ def tsb_from_data_source(
             yield dt + offset, value
 
 
-def _extract_tsd_key_scalar(mapping, scalars) -> SCALAR:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    return schema[scalars["key_col"]].py_type
+def _extract_tsd_key_scalar(mapping, dt_col, key_col) -> SCALAR:
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
+    return schema[key_col].py_type
 
 
-def _extract_tsd_key_value_scalar(mapping, scalars) -> SCALAR_1:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    schema.pop(scalars["key_col"])
+def _extract_tsd_key_value_scalar(mapping, dt_col, key_col) -> SCALAR_1:
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
+    schema.pop(key_col)
     assert len(schema) == 1
     return next(iter(schema.values())).py_type
 
@@ -147,15 +146,15 @@ def tsd_k_v_from_data_source(
             yield dt + offset, {k: v for k, v in df.select(key_col, value_col).iter_rows()}
 
 
-def _extract_tsd_pivot_key_value_scalar(mapping, scalars) -> SCALAR_1:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    return schema[scalars["pivot_col"]].py_type
+def _extract_tsd_pivot_key_value_scalar(mapping, dt_col, pivot_col) -> SCALAR_1:
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
+    return schema[pivot_col].py_type
 
 
-def _extract_tsd_pivot_value_value_scalar(mapping, scalars) -> SCALAR_1:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    schema.pop(scalars["key_col"])
-    schema.pop(scalars["pivot_col"])
+def _extract_tsd_pivot_value_value_scalar(mapping, dt_col, key_col, pivot_col) -> SCALAR_1:
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
+    schema.pop(key_col)
+    schema.pop(pivot_col)
     assert len(schema) == 1
     return next(iter(schema.values())).py_type
 
@@ -201,9 +200,9 @@ def tsd_k_tsd_from_data_source(
             yield dt + offset, out
 
 
-def _extract_tsd_key_value_bundle(mapping, scalars) -> TS_SCHEMA:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    schema.pop(scalars["key_col"])
+def _extract_tsd_key_value_bundle(mapping, dt_col, key_col) -> TS_SCHEMA:
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
+    schema.pop(key_col)
     return ts_schema(**{k: HgTSTypeMetaData(v) for k, v in schema.items()})
 
 
@@ -239,17 +238,17 @@ def tsd_k_b_from_data_source(
             yield dt + offset, {k: v for k, v in zip(key_df, value_df.iter_rows(named=True))}
 
 
-def _extract_tsd_array_value(mapping, scalars) -> SCALAR_1:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    schema.pop(scalars["key_col"])
+def _extract_tsd_array_value(mapping, dt_col, key_col) -> SCALAR_1:
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
+    schema.pop(key_col)
     tp = next(iter(schema.values())).py_type
     assert all(tp == v.py_type for v in schema.values()), f"All columns must be of same type ({tp}): {schema}"
     return tp
 
 
-def _extract_tsd_array_size(mapping, scalars) -> SIZE:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    schema.pop(scalars["key_col"])
+def _extract_tsd_array_size(mapping, dt_col, key_col) -> SIZE:
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
+    schema.pop(key_col)
     return Size[len(schema)]
 
 
@@ -280,15 +279,15 @@ def tsd_k_a_from_data_source(
             yield dt + offset, out
 
 
-def _extract_array_value(mapping, scalars) -> SCALAR:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
+def _extract_array_value(mapping, dt_col) -> SCALAR:
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
     tp = next(iter(schema.values())).py_type
     assert all(tp == v.py_type for v in schema.values()), f"All columns must be of same type ({tp}): {schema}"
     return tp
 
 
-def _extract_array_size(mapping, scalars) -> SIZE:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
+def _extract_array_size(mapping, dt_col) -> SIZE:
+    schema, _ = _schema_and_dt_col(mapping, dt_col)
     return Size[len(schema)]
 
 
@@ -335,7 +334,7 @@ def tsl_from_data_source(
 SIZE_1 = clone_type_var(SIZE, "SIZE_1")
 
 
-@generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size, SIZE_1: lambda m, s: Size[-1]})
+@generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size, SIZE_1: lambda m: Size[-1]})
 def ts_of_matrix_from_data_source(
     dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta(), _api: EvaluationEngineApi = None
 ) -> TS[Array[SCALAR, SIZE, SIZE_1]]:
@@ -358,11 +357,10 @@ def ts_of_matrix_from_data_source(
             yield dt + offset, df_values.to_numpy()
 
 
-def _extract_frame_schema(mapping, scalars) -> COMPOUND_SCALAR:
-    schema, dt_col = _schema_and_dt_col(mapping, scalars)
-    remove_dt_col = scalars["remove_dt_col"]
+def _extract_frame_schema(mapping, dt_col, remove_dt_col) -> COMPOUND_SCALAR:
+    schema, dt_col_info = _schema_and_dt_col(mapping, dt_col)
     if not remove_dt_col:
-        schema = {dt_col[0]: dt_col[1]} | schema
+        schema = {dt_col_info[0]: dt_col_info[1]} | schema
     cs = compound_scalar(**{k: v.py_type for k, v in schema.items()})
     return cs
 
