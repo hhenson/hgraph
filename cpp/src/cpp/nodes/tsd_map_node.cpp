@@ -105,7 +105,7 @@ namespace hgraph
             if (dt < last_evaluation_time()) {
                 throw std::runtime_error(
                     fmt::format("Scheduled time is in the past; last evaluation time: {}, scheduled time: {}, evaluation time: {}",
-                                last_evaluation_time(), dt, graph()->evaluation_clock()->evaluation_time()));
+                                last_evaluation_time(), dt, graph()->evaluation_time()));
             }
             engine_time_t next_dt;
             if (dt == last_evaluation_time()) {

@@ -219,7 +219,7 @@ namespace hgraph {
             wire_graph();
             if (!m_active_graph_) {
                 // Still pending - reschedule
-                graph()->schedule_node(node_ndx(), graph()->evaluation_clock()->evaluation_time());
+                graph()->schedule_node(node_ndx(), graph()->evaluation_time());
             }
         }
     }

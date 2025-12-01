@@ -337,7 +337,7 @@ namespace hgraph
 
         bool has_changes{_added.size() > 0 || _removed.size() > 0};
         bool needs_validation{!valid()};
-        bool is_current_cycle = (last_modified_time() < owning_graph()->evaluation_clock()->evaluation_time());
+        bool is_current_cycle = (last_modified_time() < owning_graph()->evaluation_time());
         if ((has_changes || needs_validation) && is_current_cycle) {
             mark_modified();
             if (_added.size() > 0 && is_empty_output()->valid() && is_empty_output()->value()) {

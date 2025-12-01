@@ -154,7 +154,7 @@ namespace hgraph
         nb::object  recordable_id    = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
 
         // Get evaluation time minus MIN_TD
-        engine_time_t eval_time = graph()->evaluation_clock()->evaluation_time();
+        engine_time_t eval_time = graph()->evaluation_time();
         engine_time_t tm        = eval_time - MIN_TD;
 
         // Get as_of time

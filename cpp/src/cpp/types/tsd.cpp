@@ -93,7 +93,7 @@ namespace hgraph
         _modified_items.erase(key);
 
         // Schedule cleanup notification only once per evaluation cycle
-        auto et = owning_graph()->evaluation_clock()->evaluation_time();
+        auto et = owning_graph()->evaluation_time();
 
         if (_last_cleanup_time < et) {
             _last_cleanup_time = et;
@@ -543,7 +543,7 @@ namespace hgraph
         } else if (active()) {
             // When active but not sampled or peered, only return cached modified items
             // during the current evaluation cycle
-            if (last_modified_time() == owning_graph()->evaluation_clock()->evaluation_time()) {
+            if (last_modified_time() == owning_graph()->evaluation_time()) {
                 return _modified_items;
             } else {
                 return empty_;  // Return empty set if not in current cycle
@@ -878,7 +878,7 @@ namespace hgraph
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::modified() const {
         if (has_peer()) { return TimeSeriesDictInput::modified(); }
         if (active()) {
-            auto et{owning_graph()->evaluation_clock()->evaluation_time()};
+            auto et{owning_graph()->evaluation_time()};
             return _last_modified_time == et || key_set_t().modified() || sample_time() == et;
         }
         return key_set_t().modified() ||
@@ -934,7 +934,7 @@ namespace hgraph
         _ref_ts_feature.update(key);
         for (auto &observer : _key_observers) { observer->on_key_added(key); }
 
-        auto et{owning_graph()->evaluation_clock()->evaluation_time()};
+        auto et{owning_graph()->evaluation_time()};
         if (_last_cleanup_time < et) {
             _last_cleanup_time = et;
             auto weak_self = weak_from_this();

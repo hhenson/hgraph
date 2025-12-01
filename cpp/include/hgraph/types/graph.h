@@ -94,6 +94,9 @@ namespace hgraph
         [[nodiscard]] EngineEvaluationClock *cached_engine_clock() const { return _cached_engine_clock; }
         [[nodiscard]] const engine_time_t   *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
 
+        // Performance: Direct access to evaluation time without shared_ptr overhead
+        [[nodiscard]] engine_time_t evaluation_time() const { return *_cached_evaluation_time_ptr; }
+
       protected:
         void initialise() override;
 
