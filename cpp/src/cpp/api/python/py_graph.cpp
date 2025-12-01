@@ -58,14 +58,11 @@ namespace hgraph
 
     PyEvaluationEngineApi PyGraph::evaluation_engine_api()
     {
-        auto engine_api = _impl->evaluation_engine_api();
-        if (!engine_api) {
-            throw std::runtime_error("Graph::evaluation_engine_api() returned null");
+        const auto& engine = _impl->evaluation_engine();
+        if (!engine) {
+            throw std::runtime_error("Graph::evaluation_engine() returned null");
         }
-        // engine_api is EvaluationEngineApi::ptr (nb::ref), which wraps EvaluationEngine*
-        // We need to get the raw pointer and cast it to EvaluationEngineApi*
-        auto *raw_ptr = static_cast<EvaluationEngineApi *>(engine_api.get());
-        return PyEvaluationEngineApi(ApiPtr<EvaluationEngineApi>(raw_ptr, _impl.control_block()));
+        return PyEvaluationEngineApi(ApiPtr<EvaluationEngineApi>(engine));
     }
 
     PyEvaluationClock PyGraph::evaluation_clock() const
@@ -74,7 +71,7 @@ namespace hgraph
         if (!clock) {
             throw std::runtime_error("Graph::evaluation_clock() returned null");
         }
-        return PyEvaluationClock(ApiPtr<EvaluationClock>(clock.get(), _impl.control_block()));
+        return PyEvaluationClock(ApiPtr<EvaluationClock>(clock));
     }
 
     nb::int_ PyGraph::push_source_nodes_end() const { return nb::int_(_impl->push_source_nodes_end()); }

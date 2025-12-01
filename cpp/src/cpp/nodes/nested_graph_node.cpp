@@ -56,9 +56,8 @@ namespace hgraph {
 
     void NestedGraphNode::initialise() {
         m_active_graph_ = m_nested_graph_builder_->make_instance(node_id(), this, signature().name);
-        // Note: using 'new' here as NestedEvaluationEngine and NestedEngineEvaluationClock are nb::intrusive_base types
-        m_active_graph_->set_evaluation_engine(new NestedEvaluationEngine(
-            graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
+        m_active_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
+            graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), this)));
         initialise_component(*m_active_graph_);
         wire_graph();
     }

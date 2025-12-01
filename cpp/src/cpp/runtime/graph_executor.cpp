@@ -96,14 +96,14 @@ namespace hgraph
             }
         }
 
-        EngineEvaluationClock::ptr clock;
+        EngineEvaluationClock::s_ptr clock;
         switch (_run_mode) {
-            case EvaluationMode::REAL_TIME: clock = new RealTimeEvaluationClock(start_time); break;
-            case EvaluationMode::SIMULATION: clock = new SimulationEvaluationClock(start_time); break;
+            case EvaluationMode::REAL_TIME: clock = std::make_shared<RealTimeEvaluationClock>(start_time); break;
+            case EvaluationMode::SIMULATION: clock = std::make_shared<SimulationEvaluationClock>(start_time); break;
             default: throw std::runtime_error("Unknown run mode");
         }
 
-        nb::ref<EvaluationEngine> evaluationEngine = new EvaluationEngineImpl(clock, start_time, end_time, _run_mode);
+        auto evaluationEngine = std::make_shared<EvaluationEngineImpl>(clock, start_time, end_time, _run_mode);
         graph->set_evaluation_engine(evaluationEngine);
 
         for (const auto &observer : _observers) { evaluationEngine->add_life_cycle_observer(observer); }

@@ -55,7 +55,7 @@ namespace hgraph
                         if (g) {
                             auto engine_api = g->evaluation_engine_api();
                             if (engine_api) {
-                                wrapped_value = wrap_evaluation_engine_api(engine_api.get(), cb);
+                                wrapped_value = wrap_evaluation_engine_api(engine_api);
                             } else {
                                 wrapped_value = nb::none();
                             }
@@ -66,7 +66,7 @@ namespace hgraph
                         if (g) {
                             auto clock = g->evaluation_clock();
                             if (clock) {
-                                wrapped_value = wrap_evaluation_clock(clock.get(), cb);
+                                wrapped_value = wrap_evaluation_clock(clock);
                             } else {
                                 wrapped_value = nb::none();
                             }
@@ -145,7 +145,7 @@ namespace hgraph
         if (!is_recover_mode) { return; }
 
         // Get the evaluation clock as a Python object
-        nb::object clock = wrap_evaluation_clock(graph()->evaluation_clock(), graph()->control_block());
+        nb::object clock = wrap_evaluation_clock(graph()->evaluation_clock());
 
         // Get the fully qualified recordable ID
         nb::object  fq_recordable_id_fn = get_fq_recordable_id_fn();

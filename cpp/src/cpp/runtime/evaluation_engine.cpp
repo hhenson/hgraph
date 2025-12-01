@@ -88,7 +88,7 @@ namespace hgraph {
         }
     }
 
-    EvaluationEngineDelegate::EvaluationEngineDelegate(ptr api) : _evaluation_engine{std::move(api)} {
+    EvaluationEngineDelegate::EvaluationEngineDelegate(s_ptr api) : _evaluation_engine{std::move(api)} {
     }
 
     EvaluationMode EvaluationEngineDelegate::evaluation_mode() const { return _evaluation_engine->evaluation_mode(); }
@@ -97,9 +97,9 @@ namespace hgraph {
 
     engine_time_t EvaluationEngineDelegate::end_time() const { return _evaluation_engine->end_time(); }
 
-    EvaluationClock::ptr EvaluationEngineDelegate::evaluation_clock() { return _evaluation_engine->evaluation_clock(); }
+    EvaluationClock::s_ptr EvaluationEngineDelegate::evaluation_clock() { return _evaluation_engine->evaluation_clock(); }
 
-    EngineEvaluationClock::ptr EvaluationEngineDelegate::engine_evaluation_clock() {
+    const EngineEvaluationClock::s_ptr& EvaluationEngineDelegate::engine_evaluation_clock() {
         return _evaluation_engine->engine_evaluation_clock();
     }
 
@@ -382,7 +382,7 @@ namespace hgraph {
         }
     }
 
-    EvaluationEngineImpl::EvaluationEngineImpl(EngineEvaluationClock::ptr clock, engine_time_t start_time,
+    EvaluationEngineImpl::EvaluationEngineImpl(EngineEvaluationClock::s_ptr clock, engine_time_t start_time,
                                                engine_time_t end_time,
                                                EvaluationMode run_mode)
         : _clock{std::move(clock)}, _start_time{start_time}, _end_time{end_time}, _run_mode{run_mode} {
@@ -400,7 +400,7 @@ namespace hgraph {
     void EvaluationEngineImpl::dispose() {
     }
 
-    EngineEvaluationClock::ptr EvaluationEngineImpl::engine_evaluation_clock() { return _clock; }
+    const EngineEvaluationClock::s_ptr& EvaluationEngineImpl::engine_evaluation_clock() { return _clock; }
 
     EvaluationMode EvaluationEngineImpl::evaluation_mode() const { return _run_mode; }
 
@@ -408,7 +408,7 @@ namespace hgraph {
 
     engine_time_t EvaluationEngineImpl::end_time() const { return _end_time; }
 
-    EvaluationClock::ptr EvaluationEngineImpl::evaluation_clock() { return _clock.get(); }
+    EvaluationClock::s_ptr EvaluationEngineImpl::evaluation_clock() { return _clock; }
 
     void EvaluationEngineImpl::request_engine_stop() { _stop_requested = true; }
 

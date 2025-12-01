@@ -29,7 +29,7 @@ namespace hgraph {
     template<typename K>
     void MeshNestedEngineEvaluationClock<K>::update_next_scheduled_evaluation_time(engine_time_t next_time) {
         // Cast nested_node_ptr to MeshNode<K> using dynamic_cast
-        auto node = dynamic_cast<MeshNode<K> *>(_nested_node.get());
+        auto node = dynamic_cast<MeshNode<K> *>(_nested_node);
         if (!node) {
             return; // Safety check - should not happen
         }
@@ -218,10 +218,9 @@ namespace hgraph {
         active_graphs_rank_[key] = (rank == -1) ? max_rank_ : rank;
 
         // Set up evaluation engine with MeshNestedEngineEvaluationClock
-        // Note: using 'new' here as NestedEvaluationEngine and MeshNestedEngineEvaluationClock are nb::intrusive_base types
-        graph->set_evaluation_engine(new NestedEvaluationEngine(
+        graph->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
             this->graph()->evaluation_engine(),
-            new MeshNestedEngineEvaluationClock<K>(this->graph()->evaluation_engine()->engine_evaluation_clock(), key, this)));
+            std::make_shared<MeshNestedEngineEvaluationClock<K>>(this->graph()->evaluation_engine()->engine_evaluation_clock().get(), key, this)));
 
         initialise_component(*graph);
         this->wire_graph(key, graph);

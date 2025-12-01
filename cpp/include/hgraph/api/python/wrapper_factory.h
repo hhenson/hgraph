@@ -200,18 +200,14 @@ namespace hgraph
     template <typename T> requires std::is_base_of_v<TimeSeriesOutput, T> T *unwrap_output_as(const nb::handle &obj) { return dynamic_cast<T *>(unwrap_output(obj)); }
 
     /**
-     * Wrap an EvaluationEngineApi pointer in a PyEvaluationEngineApi.
-     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
-     * Creates and caches new wrapper if not.
+     * Wrap an EvaluationEngineApi shared_ptr in a PyEvaluationEngineApi.
      */
-    nb::object wrap_evaluation_engine_api(const hgraph::EvaluationEngineApi* impl, control_block_ptr control_block);
+    nb::object wrap_evaluation_engine_api(hgraph::EvaluationEngineApi::s_ptr impl);
 
     /**
-     * Wrap an EvaluationClock pointer in a PyEvaluationClock.
-     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
-     * Creates and caches new wrapper if not.
+     * Wrap an EvaluationClock shared_ptr in a PyEvaluationClock.
      */
-    nb::object wrap_evaluation_clock(const hgraph::EvaluationClock* impl, control_block_ptr control_block);
+    nb::object wrap_evaluation_clock(hgraph::EvaluationClock::s_ptr impl);
 
 }  // namespace hgraph
 

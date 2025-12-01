@@ -35,18 +35,18 @@ namespace hgraph
 
     std::optional<std::string> Graph::label() const { return _label; }
 
-    EvaluationEngineApi::ptr Graph::evaluation_engine_api() { return _evaluation_engine.get(); }
+    EvaluationEngineApi::s_ptr Graph::evaluation_engine_api() { return _evaluation_engine; }
 
-    EvaluationClock::ptr Graph::evaluation_clock() { return _evaluation_engine->evaluation_clock(); }
+    EvaluationClock::s_ptr Graph::evaluation_clock() { return _evaluation_engine->engine_evaluation_clock(); }
 
-    EvaluationClock::ptr Graph::evaluation_clock() const { return _evaluation_engine->evaluation_clock(); }
+    EvaluationClock::s_ptr Graph::evaluation_clock() const { return _evaluation_engine->engine_evaluation_clock(); }
 
-    EngineEvaluationClock::ptr Graph::evaluation_engine_clock() { return _evaluation_engine->engine_evaluation_clock(); }
+    const EngineEvaluationClock::s_ptr& Graph::evaluation_engine_clock() { return _evaluation_engine->engine_evaluation_clock(); }
 
-    EvaluationEngine::ptr Graph::evaluation_engine() { return _evaluation_engine.get(); }
+    const EvaluationEngine::s_ptr& Graph::evaluation_engine() const { return _evaluation_engine; }
 
-    void Graph::set_evaluation_engine(EvaluationEngine::ptr value) {
-        if (_evaluation_engine.get() != nullptr && value.get() != nullptr) {
+    void Graph::set_evaluation_engine(EvaluationEngine::s_ptr value) {
+        if (_evaluation_engine != nullptr && value != nullptr) {
             throw std::runtime_error("Duplicate attempt to set evaluation engine");
         }
         _evaluation_engine = std::move(value);
@@ -55,7 +55,7 @@ namespace hgraph
         _cached_engine_clock        = _evaluation_engine->engine_evaluation_clock().get();
         _cached_evaluation_time_ptr = _cached_engine_clock->evaluation_time_ptr();
 
-        if (_push_source_nodes_end > 0) { _receiver.set_evaluation_clock(evaluation_engine_clock()); }
+        if (_push_source_nodes_end > 0) { _receiver.set_evaluation_clock(evaluation_engine_clock().get()); }
     }
 
     int64_t Graph::push_source_nodes_end() const { return _push_source_nodes_end; }
@@ -85,7 +85,7 @@ namespace hgraph
     std::vector<engine_time_t> &Graph::schedule() { return _schedule; }
 
     void Graph::evaluate_graph() {
-        NotifyGraphEvaluation nge{evaluation_engine(), graph_ptr{this}};
+        NotifyGraphEvaluation nge{evaluation_engine().get(), graph_ptr{this}};
 
         // Use cached pointers (set at initialization) for direct memory access
         auto          clock    = _cached_engine_clock;
@@ -104,7 +104,7 @@ namespace hgraph
                 auto  node        = nodes[i];
                 auto &node_ref    = *node;
                 try {
-                    NotifyNodeEvaluation nne{evaluation_engine(), node.get()};
+                    NotifyNodeEvaluation nne{evaluation_engine().get(), node.get()};
                     bool                 success = dynamic_cast<PushQueueNode &>(node_ref).apply_message(message);
                     if (!success) {
                         receiver().enqueue_front({i, message});
@@ -136,7 +136,7 @@ namespace hgraph
 
             if (scheduled_time == now) {
                 try {
-                    NotifyNodeEvaluation nne{evaluation_engine(), nodep.get()};
+                    NotifyNodeEvaluation nne{evaluation_engine().get(), nodep.get()};
                     node.eval();
                 } catch (const NodeException &e) { throw e; } catch (const std::exception &e) {
                     throw NodeException::capture_error(e, node, "During evaluation");

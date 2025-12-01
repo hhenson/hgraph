@@ -7,7 +7,7 @@
 namespace hgraph {
     NestedEngineEvaluationClock::NestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock,
                                                              nested_node_ptr nested_node)
-        : EngineEvaluationClockDelegate(std::move(engine_evaluation_clock)), _nested_node(std::move(nested_node)) {
+        : EngineEvaluationClockDelegate(std::move(engine_evaluation_clock)), _nested_node(nested_node) {
     }
 
     nested_node_ptr NestedEngineEvaluationClock::node() const { return _nested_node; }
@@ -47,16 +47,16 @@ namespace hgraph {
         }
     }
 
-    NestedEvaluationEngine::NestedEvaluationEngine(EvaluationEngine::ptr engine,
-                                                   EngineEvaluationClock::ptr evaluation_clock)
-        : EvaluationEngineDelegate(std::move(engine)), _engine_evaluation_clock(evaluation_clock),
-          _nested_start_time(evaluation_clock->evaluation_time()) {
+    NestedEvaluationEngine::NestedEvaluationEngine(EvaluationEngine::s_ptr engine,
+                                                   EngineEvaluationClock::s_ptr evaluation_clock)
+        : EvaluationEngineDelegate(std::move(engine)), _engine_evaluation_clock(std::move(evaluation_clock)),
+          _nested_start_time(_engine_evaluation_clock->evaluation_time()) {
     }
 
     engine_time_t NestedEvaluationEngine::start_time() const { return _nested_start_time; }
 
-    EvaluationClock::ptr NestedEvaluationEngine::evaluation_clock() { return _engine_evaluation_clock.get(); }
+    EvaluationClock::s_ptr NestedEvaluationEngine::evaluation_clock() { return _engine_evaluation_clock; }
 
-    EngineEvaluationClock::ptr NestedEvaluationEngine::engine_evaluation_clock() { return _engine_evaluation_clock; }
+    const EngineEvaluationClock::s_ptr& NestedEvaluationEngine::engine_evaluation_clock() { return _engine_evaluation_clock; }
 
 } // namespace hgraph

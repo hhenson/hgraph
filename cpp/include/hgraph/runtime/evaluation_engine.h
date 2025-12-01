@@ -11,9 +11,11 @@
 
 namespace hgraph
 {
-    struct HGRAPH_EXPORT EvaluationClock : nb::intrusive_base
+    struct HGRAPH_EXPORT EvaluationClock : std::enable_shared_from_this<EvaluationClock>
     {
-        using ptr = nanobind::ref<EvaluationClock>;
+        using ptr = EvaluationClock*;
+        using s_ptr = std::shared_ptr<EvaluationClock>;
+        virtual ~EvaluationClock() = default;
 
         [[nodiscard]] virtual engine_time_t evaluation_time() const = 0;
 
@@ -28,7 +30,8 @@ namespace hgraph
 
     struct HGRAPH_EXPORT EngineEvaluationClock : EvaluationClock
     {
-        using ptr = nanobind::ref<EngineEvaluationClock>;
+        using ptr = EngineEvaluationClock*;
+        using s_ptr = std::shared_ptr<EngineEvaluationClock>;
 
         virtual void set_evaluation_time(engine_time_t et) = 0;
 
@@ -84,9 +87,10 @@ namespace hgraph
     struct Graph;
     struct Node;
 
-    struct HGRAPH_EXPORT EvaluationEngineApi : ComponentLifeCycle
+    struct HGRAPH_EXPORT EvaluationEngineApi : ComponentLifeCycle, std::enable_shared_from_this<EvaluationEngineApi>
     {
-        using ptr = nanobind::ref<EvaluationEngineApi>;
+        using ptr = EvaluationEngineApi*;
+        using s_ptr = std::shared_ptr<EvaluationEngineApi>;
 
         [[nodiscard]] virtual EvaluationMode evaluation_mode() const = 0;
 
@@ -94,9 +98,9 @@ namespace hgraph
 
         [[nodiscard]] virtual engine_time_t end_time() const = 0;
 
-        EvaluationClock::ptr evaluation_clock() const { return const_cast<EvaluationEngineApi *>(this)->evaluation_clock(); };
+        EvaluationClock::s_ptr evaluation_clock() const { return const_cast<EvaluationEngineApi *>(this)->evaluation_clock(); };
 
-        [[nodiscard]] virtual EvaluationClock::ptr evaluation_clock() = 0;
+        [[nodiscard]] virtual EvaluationClock::s_ptr evaluation_clock() = 0;
 
         virtual void request_engine_stop() = 0;
 
@@ -115,11 +119,12 @@ namespace hgraph
 
     struct EvaluationEngine : EvaluationEngineApi
     {
-        using ptr = nanobind::ref<EvaluationEngine>;
+        using ptr = EvaluationEngine*;
+        using s_ptr = std::shared_ptr<EvaluationEngine>;
 
-        virtual EngineEvaluationClock::ptr engine_evaluation_clock() = 0;
+        virtual const EngineEvaluationClock::s_ptr& engine_evaluation_clock() = 0;
 
-        EngineEvaluationClock::ptr engine_evaluation_clock() const {
+        const EngineEvaluationClock::s_ptr& engine_evaluation_clock() const {
             return const_cast<EvaluationEngine *>(this)->engine_evaluation_clock();
         };
 
@@ -182,7 +187,7 @@ namespace hgraph
 
     struct HGRAPH_EXPORT EvaluationEngineDelegate : EvaluationEngine
     {
-        explicit EvaluationEngineDelegate(ptr api);
+        explicit EvaluationEngineDelegate(s_ptr api);
 
         [[nodiscard]] EvaluationMode evaluation_mode() const override;
 
@@ -190,9 +195,9 @@ namespace hgraph
 
         [[nodiscard]] engine_time_t end_time() const override;
 
-        [[nodiscard]] EvaluationClock::ptr evaluation_clock() override;
+        [[nodiscard]] EvaluationClock::s_ptr evaluation_clock() override;
 
-        EngineEvaluationClock::ptr engine_evaluation_clock() override;
+        const EngineEvaluationClock::s_ptr& engine_evaluation_clock() override;
 
         void request_engine_stop() override;
 
@@ -248,7 +253,7 @@ namespace hgraph
         void dispose() override;
 
       private:
-        ptr _evaluation_engine;
+        s_ptr _evaluation_engine;
     };
 
     struct BaseEvaluationClock : EngineEvaluationClock
@@ -333,7 +338,7 @@ namespace hgraph
 
     struct EvaluationEngineImpl : EvaluationEngine
     {
-        EvaluationEngineImpl(EngineEvaluationClock::ptr clock, engine_time_t start_time, engine_time_t end_time,
+        EvaluationEngineImpl(EngineEvaluationClock::s_ptr clock, engine_time_t start_time, engine_time_t end_time,
                              EvaluationMode run_mode);
 
       protected:
@@ -352,7 +357,7 @@ namespace hgraph
 
         [[nodiscard]] engine_time_t end_time() const override;
 
-        [[nodiscard]] EvaluationClock::ptr evaluation_clock() override;
+        [[nodiscard]] EvaluationClock::s_ptr evaluation_clock() override;
 
         void request_engine_stop() override;
 
@@ -366,7 +371,7 @@ namespace hgraph
 
         void remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) override;
 
-        EngineEvaluationClock::ptr engine_evaluation_clock() override;
+        const EngineEvaluationClock::s_ptr& engine_evaluation_clock() override;
 
         void advance_engine_time() override;
 
@@ -401,7 +406,7 @@ namespace hgraph
         void notify_after_stop_graph(graph_ptr graph) override;
 
       private:
-        EngineEvaluationClock::ptr                    _clock;
+        EngineEvaluationClock::s_ptr                  _clock;
         engine_time_t                                 _start_time;
         engine_time_t                                 _end_time;
         EvaluationMode                                _run_mode;

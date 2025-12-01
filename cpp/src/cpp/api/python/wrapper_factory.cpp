@@ -554,14 +554,14 @@ namespace hgraph
 
     TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_) { return output_.impl(); }
 
-    nb::object wrap_evaluation_engine_api(const EvaluationEngineApi *impl, control_block_ptr control_block) {
+    nb::object wrap_evaluation_engine_api(EvaluationEngineApi::s_ptr impl) {
         if (!impl) { return nb::none(); }
-        return nb::cast(PyEvaluationEngineApi(PyEvaluationEngineApi::api_ptr(impl, control_block)));
+        return nb::cast(PyEvaluationEngineApi(PyEvaluationEngineApi::api_ptr(std::move(impl))));
     }
 
-    nb::object wrap_evaluation_clock(const EvaluationClock *impl, control_block_ptr control_block) {
+    nb::object wrap_evaluation_clock(EvaluationClock::s_ptr impl) {
         if (!impl) { return nb::none(); }
-        return nb::cast(PyEvaluationClock(PyEvaluationClock::api_ptr(impl, control_block)));
+        return nb::cast(PyEvaluationClock(PyEvaluationClock::api_ptr(std::move(impl))));
     }
 
     nb::object wrap_traits(const Traits *impl, const control_block_ptr &control_block) {

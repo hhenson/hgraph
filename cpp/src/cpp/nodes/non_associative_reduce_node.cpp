@@ -25,9 +25,8 @@ namespace hgraph {
         //TODO: Should this be constructed by the GraphBuilder, if it does not escape into Python then
         //      this is fine, otherwise not.
         nested_graph_ = std::make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_s_ptr>{}, this, "", &graph()->traits());
-        // Note: using 'new' here as NestedEvaluationEngine and NestedEngineEvaluationClock are nb::intrusive_base types
-        nested_graph_->set_evaluation_engine(new NestedEvaluationEngine(
-            graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
+        nested_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
+            graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), this)));
         initialise_component(*nested_graph_);
     }
 

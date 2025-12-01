@@ -25,7 +25,7 @@ namespace hgraph
         : NestedEngineEvaluationClock(engine_evaluation_clock, static_cast<NestedNode *>(nested_node)), _key(key) {}
 
     template <typename K> void MapNestedEngineEvaluationClock<K>::update_next_scheduled_evaluation_time(engine_time_t next_time) {
-        auto &node_{*static_cast<TsdMapNode<K> *>(node().get())};
+        auto &node_{*static_cast<TsdMapNode<K> *>(node())};
         auto  let{node_.last_evaluation_time()};
         if ((let != MIN_DT && let >= next_time) || node_.is_stopping()) { return; }
 
@@ -135,10 +135,9 @@ namespace hgraph
 
         active_graphs_[key] = graph_;
 
-        // Note: using 'new' here as NestedEvaluationEngine and MapNestedEngineEvaluationClock are nb::intrusive_base types
-        graph_->set_evaluation_engine(new NestedEvaluationEngine(
+        graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
             graph()->evaluation_engine(),
-            new MapNestedEngineEvaluationClock<K>(graph()->evaluation_engine()->engine_evaluation_clock(), key, this)));
+            std::make_shared<MapNestedEngineEvaluationClock<K>>(graph()->evaluation_engine()->engine_evaluation_clock().get(), key, this)));
 
         initialise_component(*graph_);
 

@@ -39,17 +39,17 @@ namespace hgraph
 
         [[nodiscard]] std::optional<std::string> label() const;
 
-        [[nodiscard]] EvaluationEngineApi::ptr evaluation_engine_api();
+        [[nodiscard]] EvaluationEngineApi::s_ptr evaluation_engine_api();
 
-        [[nodiscard]] EvaluationClock::ptr evaluation_clock();
+        [[nodiscard]] EvaluationClock::s_ptr evaluation_clock();
 
-        [[nodiscard]] EvaluationClock::ptr evaluation_clock() const;
+        [[nodiscard]] EvaluationClock::s_ptr evaluation_clock() const;
 
-        [[nodiscard]] EngineEvaluationClock::ptr evaluation_engine_clock();
+        [[nodiscard]] const EngineEvaluationClock::s_ptr& evaluation_engine_clock();
 
-        [[nodiscard]] EvaluationEngine::ptr evaluation_engine();
+        [[nodiscard]] const EvaluationEngine::s_ptr& evaluation_engine() const;
 
-        void set_evaluation_engine(EvaluationEngine::ptr value);
+        void set_evaluation_engine(EvaluationEngine::s_ptr value);
 
         int64_t push_source_nodes_end() const;
 
@@ -106,7 +106,7 @@ namespace hgraph
         friend struct GraphBuilder;  // Allow GraphBuilder to access private members
 
     private:
-        EvaluationEngine::ptr      _evaluation_engine;
+        EvaluationEngine::s_ptr    _evaluation_engine;
         std::vector<int64_t>       _graph_id;
         node_list                  _nodes;
         std::vector<engine_time_t> _schedule;
