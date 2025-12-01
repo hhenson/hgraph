@@ -12,7 +12,7 @@ namespace hgraph {
     template<typename K>
     struct ReduceNode;
     template<typename K>
-    using reduce_node_ptr = nb::ref<ReduceNode<K> >;
+    using reduce_node_s_ptr = std::shared_ptr<ReduceNode<K>>;
 
     /**
      * C++ implementation of PythonReduceNodeImpl.
@@ -23,10 +23,10 @@ namespace hgraph {
     struct ReduceNode : NestedNode {
         ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                    nb::dict scalars,
-                   graph_builder_ptr nested_graph_builder, const std::tuple<int64_t, int64_t> &input_node_ids,
+                   graph_builder_s_ptr nested_graph_builder, const std::tuple<int64_t, int64_t> &input_node_ids,
                    int64_t output_node_id);
 
-        std::unordered_map<int, graph_ptr> &nested_graphs();
+        std::unordered_map<int, graph_s_ptr> &nested_graphs();
 
         TimeSeriesDictInput_T<K>::ptr ts();
 
@@ -34,7 +34,7 @@ namespace hgraph {
 
         // Expose attributes to allow us to more easily inspect the state in Python
         // Can make debugging easier.
-        const graph_ptr &nested_graph() const;
+        const graph_s_ptr &nested_graph() const;
 
         const std::tuple<int64_t, int64_t> &input_node_ids() const;
 
@@ -44,7 +44,7 @@ namespace hgraph {
 
         const std::vector<std::tuple<int64_t, int64_t> > &free_node_indexes() const;
 
-        void enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const override;
+        void enumerate_nested_graphs(const std::function<void(graph_s_ptr)>& callback) const override;
 
     protected:
         void initialise() override;
@@ -60,7 +60,7 @@ namespace hgraph {
         void do_eval() override {
         };
 
-        TimeSeriesOutput::ptr last_output();
+        TimeSeriesOutput::s_ptr last_output();
 
         void add_nodes(const std::unordered_set<K> &keys);
 
@@ -82,11 +82,11 @@ namespace hgraph {
 
         int64_t node_count() const;
 
-        std::vector<node_ptr> get_node(int64_t ndx);
+        std::vector<node_s_ptr> get_node(int64_t ndx);
 
     private:
-        graph_ptr nested_graph_;
-        graph_builder_ptr nested_graph_builder_;
+        graph_s_ptr nested_graph_;
+        graph_builder_s_ptr nested_graph_builder_;
         std::tuple<int64_t, int64_t> input_node_ids_; // LHS index, RHS index
         int64_t output_node_id_;
         std::unordered_map<K, std::tuple<int64_t, int64_t> > bound_node_indexes_;

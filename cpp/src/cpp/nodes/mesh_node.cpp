@@ -22,7 +22,7 @@ namespace hgraph {
         EngineEvaluationClock::ptr engine_evaluation_clock, K key,
         mesh_node_ptr<K> nested_node)
         : NestedEngineEvaluationClock(std::move(engine_evaluation_clock),
-                                      nested_node_ptr(static_cast<NestedNode *>(nested_node.get()))),
+                                      static_cast<NestedNode*>(nested_node)),
           _key(key) {
     }
 
@@ -61,7 +61,7 @@ namespace hgraph {
     template<typename K>
     MeshNode<K>::MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
                           nb::dict scalars,
-                          graph_builder_ptr nested_graph_builder,
+                          graph_builder_s_ptr nested_graph_builder,
                           const std::unordered_map<std::string, int64_t> &input_node_ids,
                           int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args,
                           const std::string &key_arg, const std::string &context_path)
@@ -77,7 +77,7 @@ namespace hgraph {
 
         // Set up the reference output and register in GlobalState
         if (GlobalState::has_instance()) {
-            auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output());
+            auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
             // Get the "out" and "ref" outputs from the output bundle
             auto &tsd_output = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*tsb_output)["out"]);
             auto &ref_output = dynamic_cast<TimeSeriesReferenceOutput &>(*(*tsb_output)["ref"]);
@@ -203,7 +203,7 @@ namespace hgraph {
     template<typename K>
     TimeSeriesDictOutput_T<K> &MeshNode<K>::tsd_output() {
         // Access output bundle's "out" member - output() returns smart pointer to TimeSeriesBundleOutput
-        auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output());
+        auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
         return dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*output_bundle)["out"]);
     }
 
@@ -218,11 +218,10 @@ namespace hgraph {
         active_graphs_rank_[key] = (rank == -1) ? max_rank_ : rank;
 
         // Set up evaluation engine with MeshNestedEngineEvaluationClock
-        // Pattern from TsdMapNode: new NestedEvaluationEngine(&eval_engine, new Clock(&clock, key, this))
+        // Note: using 'new' here as NestedEvaluationEngine and MeshNestedEngineEvaluationClock are nb::intrusive_base types
         graph->set_evaluation_engine(new NestedEvaluationEngine(
             this->graph()->evaluation_engine(),
-            new MeshNestedEngineEvaluationClock<K>(this->graph()->evaluation_engine()->engine_evaluation_clock(), key,
-                                                   this)));
+            new MeshNestedEngineEvaluationClock<K>(this->graph()->evaluation_engine()->engine_evaluation_clock(), key, this)));
 
         initialise_component(*graph);
         this->wire_graph(key, graph);

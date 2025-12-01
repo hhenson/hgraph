@@ -25,12 +25,13 @@ namespace hgraph
     struct TimeSeriesOutput;
 
     /**
-     * Wrap a Node pointer in a PyNode.
-     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
-     * Creates and caches new wrapper if not.
+     * Wrap a Node in a PyNode.
+     * Creates appropriate specialized wrapper based on runtime type.
      */
+    nb::object wrap_node(PyNode::api_ptr impl);
     nb::object wrap_node(const hgraph::Node *impl, const control_block_ptr &control_block);
     nb::object wrap_node(const Node *impl);
+    nb::object wrap_node(const node_s_ptr &impl);
 
     /**
      * Wrap a Graph pointer in a PyGraph.
@@ -57,29 +58,50 @@ namespace hgraph
      * Wrap a TimeSeriesInput pointer in the appropriate PyTimeSeriesXxxInput wrapper.
      * Uses cached Python wrapper if available (via intrusive_base::self_py()).
      * Uses dynamic_cast to determine actual runtime type and creates specialized wrapper.
-     * Caches the created wrapper for future use.
      *
      * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
      */
-    nb::object wrap_input(const hgraph::TimeSeriesInput *impl, const control_block_ptr &control_block);
-    nb::object wrap_input(const TimeSeriesInput *impl);
+    nb::object wrap_input(ApiPtr<TimeSeriesInput> impl);
 
     /**
      * Wrap a TimeSeriesOutput pointer in the appropriate PyTimeSeriesXxxOutput wrapper.
-     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
      * Uses dynamic_cast to determine actual runtime type and creates specialized wrapper.
-     * Caches the created wrapper for future use.
      *
      * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
      */
-    nb::object wrap_output(const hgraph::TimeSeriesOutput *impl, const control_block_ptr &control_block);
+    nb::object wrap_output(ApiPtr<TimeSeriesOutput> impl);
 
-    nb::object wrap_output(const hgraph::TimeSeriesOutput *impl);
+    nb::object wrap_time_series(ApiPtr<TimeSeriesInput> impl);
+    nb::object wrap_time_series(ApiPtr<TimeSeriesOutput> impl);
 
-    nb::object wrap_time_series(const TimeSeriesInput *impl, const control_block_ptr &control_block);
-    nb::object wrap_time_series(const TimeSeriesOutput *impl, const control_block_ptr &control_block);
-    nb::object wrap_time_series(const TimeSeriesInput *impl);
-    nb::object wrap_time_series(const TimeSeriesOutput *impl);
+    // Overloads for shared_ptr - the shared_ptr provides both the pointer and lifetime
+    inline nb::object wrap_time_series(const time_series_input_s_ptr &impl) {
+        return wrap_time_series(ApiPtr<TimeSeriesInput>(impl));
+    }
+    inline nb::object wrap_time_series(const time_series_output_s_ptr &impl) {
+        return wrap_time_series(ApiPtr<TimeSeriesOutput>(impl));
+    }
+
+    // Overloads for raw pointer + control_block (creates aliasing ApiPtr)
+    inline nb::object wrap_input(TimeSeriesInput *impl, const control_block_ptr &cb) {
+        return wrap_input(ApiPtr<TimeSeriesInput>(impl, cb));
+    }
+    inline nb::object wrap_output(TimeSeriesOutput *impl, const control_block_ptr &cb) {
+        return wrap_output(ApiPtr<TimeSeriesOutput>(impl, cb));
+    }
+    inline nb::object wrap_time_series(TimeSeriesInput *impl, const control_block_ptr &cb) {
+        return wrap_time_series(ApiPtr<TimeSeriesInput>(impl, cb));
+    }
+    inline nb::object wrap_time_series(TimeSeriesOutput *impl, const control_block_ptr &cb) {
+        return wrap_time_series(ApiPtr<TimeSeriesOutput>(impl, cb));
+    }
+
+    // Overloads for raw pointer only - derives control_block from owning graph
+    // These require the pointer to have a valid owning_graph
+    nb::object wrap_input(TimeSeriesInput *impl);
+    nb::object wrap_output(TimeSeriesOutput *impl);
+    nb::object wrap_time_series(TimeSeriesInput *impl);
+    nb::object wrap_time_series(TimeSeriesOutput *impl);
 
     // ---------------------------------------------------------------------
     // List-based helpers for time series wrapping
@@ -103,32 +125,36 @@ namespace hgraph
     }
 
     // Convert range values to a Python list, wrapping time series values
-    template <typename Iterator> nb::list values_to_list(Iterator begin, Iterator end, const control_block_ptr &cb) {
+    // Values are expected to be shared_ptr types
+    template <typename Iterator> nb::list values_to_list(Iterator begin, Iterator end) {
         nb::list result;
-        for (auto it = begin; it != end; ++it) { result.append(wrap_time_series(it->second, cb)); }
+        for (auto it = begin; it != end; ++it) { result.append(wrap_time_series(it->second)); }
         return result;
     }
 
     // Convert map/range values to a Python list, wrapping time series values (takes by value to handle views)
-    template <typename Range> nb::list values_to_list(Range range, const control_block_ptr &cb) {
+    // Values are expected to be shared_ptr types
+    template <typename Range> nb::list values_to_list(Range range) {
         nb::list result;
-        for (const auto &[_, value] : range) { result.append(wrap_time_series(value, cb)); }
+        for (const auto &[_, value] : range) { result.append(wrap_time_series(value)); }
         return result;
     }
 
     // Convert range items to a Python list of (key, wrapped_value) tuples
-    template <typename Iterator> nb::list items_to_list(Iterator begin, Iterator end, const control_block_ptr &cb) {
+    // Values are expected to be shared_ptr types
+    template <typename Iterator> nb::list items_to_list(Iterator begin, Iterator end) {
         nb::list result;
         for (auto it = begin; it != end; ++it) {
-            result.append(nb::make_tuple(nb::cast(it->first), wrap_time_series(it->second, cb)));
+            result.append(nb::make_tuple(nb::cast(it->first), wrap_time_series(it->second)));
         }
         return result;
     }
 
     // Convert map/range items to a Python list of (key, wrapped_value) tuples (takes by value to handle views)
-    template <typename Range> nb::list items_to_list(Range range, const control_block_ptr &cb) {
+    // Values are expected to be shared_ptr types
+    template <typename Range> nb::list items_to_list(Range range) {
         nb::list result;
-        for (const auto &[key, value] : range) { result.append(nb::make_tuple(nb::cast(key), wrap_time_series(value, cb))); }
+        for (const auto &[key, value] : range) { result.append(nb::make_tuple(nb::cast(key), wrap_time_series(value))); }
         return result;
     }
 
@@ -140,9 +166,10 @@ namespace hgraph
     }
 
     // Convert a list/vector of time series to a Python list, wrapping each element
-    template <typename Collection> nb::list list_to_list(const Collection &collection, const control_block_ptr &cb) {
+    // Items are expected to be shared_ptr types
+    template <typename Collection> nb::list list_to_list(const Collection &collection) {
         nb::list result;
-        for (const auto &item : collection) { result.append(wrap_time_series(item, cb)); }
+        for (const auto &item : collection) { result.append(wrap_time_series(item)); }
         return result;
     }
 

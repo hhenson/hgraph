@@ -15,7 +15,7 @@ namespace hgraph {
     // Helper functions for checking time-series validity and extracting values
     // These need to handle TimeSeriesReference specially
 
-    static bool _get_ts_valid(const time_series_input_ptr &ts) {
+    static bool _get_ts_valid(const time_series_input_s_ptr &ts) {
         if (!ts->valid()) {
             return false;
         }
@@ -33,7 +33,7 @@ namespace hgraph {
         }
     }
 
-    static nb::object _get_ts_value(const time_series_input_ptr &ts) {
+    static nb::object _get_ts_value(const time_series_input_s_ptr &ts) {
         auto value = ts->py_value();
 
         // Check if it's a TimeSeriesReference
@@ -51,7 +51,7 @@ namespace hgraph {
     }
 
     ComponentNode::ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
-                                 nb::dict scalars, graph_builder_ptr nested_graph_builder,
+                                 nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
                                  const std::unordered_map<std::string, int> &input_node_ids, int output_node_id)
         : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
           m_nested_graph_builder_(std::move(nested_graph_builder)), m_input_node_ids_(input_node_ids),
@@ -60,7 +60,7 @@ namespace hgraph {
 
     std::pair<std::string, bool> ComponentNode::recordable_id() {
         // Get outer recordable_id from graph traits
-        auto outer_id_obj = graph()->traits()->get_trait_or(RECORDABLE_ID_TRAIT, nb::str(""));
+        auto outer_id_obj = graph()->traits().get_trait_or(RECORDABLE_ID_TRAIT, nb::str(""));
         auto outer_id = nb::cast<std::string>(outer_id_obj);
 
         // Build the full id: outer_id + "-" + record_replay_id
@@ -167,7 +167,8 @@ namespace hgraph {
 
         // Create the nested graph instance
         m_active_graph_ = m_nested_graph_builder_->make_instance(node_id(), this, id_);
-        m_active_graph_->traits()->set_trait(RECORDABLE_ID_TRAIT, nb::cast(id_));
+        m_active_graph_->traits().set_trait(RECORDABLE_ID_TRAIT, nb::cast(id_));
+        // Note: using 'new' here as NestedEvaluationEngine and NestedEngineEvaluationClock are nb::intrusive_base types
         m_active_graph_->set_evaluation_engine(new NestedEvaluationEngine(
             graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
 
@@ -182,10 +183,10 @@ namespace hgraph {
 
             auto ts = (*input_bundle)[arg];
             // Copy input with new parent
-            node->reset_input(node->input()->copy_with(node.get(), {ts.get()}));
+            node->reset_input(node->input()->copy_with(node.get(), {ts->shared_from_this()}));
 
             // Re-parent the ts input
-            ts->re_parent(node->input());
+            ts->re_parent(node->input().get());
         }
 
         // Wire outputs
@@ -232,7 +233,7 @@ namespace hgraph {
 
     void ComponentNode::dispose() {
         if (m_active_graph_) {
-            auto id_ = nb::cast<std::string>(m_active_graph_->traits()->get_trait(RECORDABLE_ID_TRAIT));
+            auto id_ = nb::cast<std::string>(m_active_graph_->traits().get_trait(RECORDABLE_ID_TRAIT));
             GlobalState::remove(keys::component_key(id_));
 
             dispose_component(*m_active_graph_);
@@ -262,7 +263,7 @@ namespace hgraph {
         }
     }
 
-    std::unordered_map<int, graph_ptr> ComponentNode::nested_graphs() const {
+    std::unordered_map<int, graph_s_ptr> ComponentNode::nested_graphs() const {
         if (m_active_graph_) {
             return {{0, m_active_graph_}};
         } else {
@@ -270,7 +271,7 @@ namespace hgraph {
         }
     }
 
-    void ComponentNode::enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const {
+    void ComponentNode::enumerate_nested_graphs(const std::function<void(graph_s_ptr)>& callback) const {
         if (m_active_graph_) {
             callback(m_active_graph_);
         }

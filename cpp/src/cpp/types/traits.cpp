@@ -1,7 +1,7 @@
 #include <hgraph/types/traits.h>
 
 namespace hgraph {
-    Traits::Traits(Traits::ptr parent_traits) : _parent_traits{std::move(parent_traits)} {
+    Traits::Traits(const_traits_ptr parent_traits) : _parent_traits{parent_traits} {
     }
 
     void Traits::set_traits(nb::kwargs traits) { _traits.update(traits); }
@@ -16,9 +16,11 @@ namespace hgraph {
         return _traits.contains(trait_name.c_str()) ? _traits[trait_name.c_str()] : std::move(def_value);
     }
 
-    Traits::ptr Traits::copy() const {
-        auto new_traits{_parent_traits.has_value() ? new Traits(_parent_traits.value()) : new Traits()};
-        new_traits->set_traits(nb::cast<nb::kwargs>(_traits));
+    Traits Traits::copy(const_traits_ptr new_parent_traits) const {
+        // If new_parent_traits is provided, use it; otherwise use the current parent
+        const_traits_ptr parent = new_parent_traits ? new_parent_traits : _parent_traits;
+        Traits new_traits{parent};
+        new_traits.set_traits(nb::cast<nb::kwargs>(_traits));
         return new_traits;
     }
 

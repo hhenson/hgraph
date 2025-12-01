@@ -52,6 +52,7 @@ namespace hgraph
         static void register_with_nanobind(nb::module_ &m);
 
       protected:
+        explicit PyTimeSeriesType(api_ptr impl);
         explicit PyTimeSeriesType(TimeSeriesType *ts, control_block_ptr control_block);
         explicit PyTimeSeriesType(TimeSeriesType *ts);
 
@@ -69,6 +70,7 @@ namespace hgraph
 
     struct HGRAPH_EXPORT PyTimeSeriesOutput : PyTimeSeriesType
     {
+        using api_ptr = ApiPtr<TimeSeriesOutput>;
 
         // Output-specific navigation of the graph structure.
         [[nodiscard]] nb::object parent_output() const;
@@ -108,6 +110,8 @@ namespace hgraph
 
     struct HGRAPH_EXPORT PyTimeSeriesInput : PyTimeSeriesType
     {
+        using api_ptr = ApiPtr<TimeSeriesInput>;
+
         // Graph navigation specific to the input
         [[nodiscard]] nb::object parent_input() const;
         [[nodiscard]] nb::bool_  has_parent_input() const;

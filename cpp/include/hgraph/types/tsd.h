@@ -36,7 +36,7 @@ namespace hgraph
     {
         // Map concrete Base types back to interface types for collections
         using ts_type     = std::conditional_t<std::is_base_of_v<TimeSeriesInput, T_TS>, TimeSeriesInput, TimeSeriesOutput>;
-        using ts_type_ptr = nb::ref<ts_type>;  // Use interface type for pointers
+        using ts_type_s_ptr = std::shared_ptr<ts_type>;  // Use interface type for pointers
         using T_TS::T_TS;
 
         [[nodiscard]] virtual size_t size() const = 0;
@@ -82,7 +82,7 @@ namespace hgraph
     {
         using ptr                 = nb::ref<TimeSeriesDictOutput_T>;
         using key_type            = T_Key;
-        using value_type          = time_series_output_ptr;
+        using value_type          = time_series_output_s_ptr;
         using k_set_type          = std::unordered_set<key_type>;
         using map_type            = std::unordered_map<key_type, value_type>;
         using item_iterator       = typename map_type::iterator;
@@ -95,10 +95,10 @@ namespace hgraph
         // Use raw pointers for reverse lookup to enable efficient lookup from mark_child_modified
         using reverse_map = std::unordered_map<TimeSeriesOutput *, key_type>;
 
-        explicit TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_ptr ts_builder, output_builder_ptr ts_ref_builder);
+        explicit TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_s_ptr ts_builder, output_builder_s_ptr ts_ref_builder);
 
-        explicit TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
-                                        output_builder_ptr ts_ref_builder);
+        explicit TimeSeriesDictOutput_T(time_series_output_ptr parent, output_builder_s_ptr ts_builder,
+                                        output_builder_s_ptr ts_ref_builder);
 
         void py_set_value(const nb::object& value) override;
 
@@ -130,9 +130,9 @@ namespace hgraph
 
         [[nodiscard]] bool contains(const key_type &item) const;
 
-        [[nodiscard]] ts_type_ptr operator[](const key_type &item);
+        [[nodiscard]] ts_type_s_ptr operator[](const key_type &item);
 
-        [[nodiscard]] ts_type_ptr operator[](const key_type &item) const;
+        [[nodiscard]] ts_type_s_ptr operator[](const key_type &item) const;
 
         [[nodiscard]] const_item_iterator begin() const;
 
@@ -152,7 +152,7 @@ namespace hgraph
 
         [[nodiscard]] auto added_items() const {
             return key_set_t().added() |
-                   std::views::transform([&](const auto &key) { return std::pair<const key_type, value_type>(key, operator[](key)); });
+                   std::views::transform([this](const auto &key) { return std::make_pair(key, _ts_values.at(key)); });
         }
 
         [[nodiscard]] const k_set_type &added_keys() const;
@@ -183,7 +183,7 @@ namespace hgraph
 
         void py_release_ref(const nb::object &key, const nb::object &requester) override;
 
-        time_series_output_ptr get_ref(const key_type &key, const void *requester);
+        time_series_output_s_ptr& get_ref(const key_type &key, const void *requester);
 
         void release_ref(const key_type &key, const void *requester);
 
@@ -195,7 +195,7 @@ namespace hgraph
 
         // void post_modify() override;
 
-        TimeSeriesOutput::ptr get_or_create(const key_type &key);
+        value_type get_or_create(const key_type &key);
 
         [[nodiscard]] bool has_reference() const override;
 
@@ -238,8 +238,8 @@ namespace hgraph
         // This ensures we hold onto the values until we are sure no one needs to reference them.
         mutable map_type _valid_items_cache;  // Cache for valid_items() to ensure iterator lifetime safety.
 
-        output_builder_ptr _ts_builder;
-        output_builder_ptr _ts_ref_builder;
+        output_builder_s_ptr _ts_builder;
+        output_builder_s_ptr _ts_ref_builder;
 
         FeatureOutputExtension<key_type>        _ref_ts_feature;
         std::vector<TSDKeyObserver<key_type> *> _key_observers;
@@ -254,7 +254,7 @@ namespace hgraph
         using ptr                 = nb::ref<TimeSeriesDictInput_T>;
         using key_type            = T_Key;
         using k_set_type          = std::unordered_set<key_type>;
-        using value_type          = time_series_input_ptr;
+        using value_type          = time_series_input_s_ptr;
         using map_type            = std::unordered_map<key_type, value_type>;
         using removed_map_type    = std::unordered_map<key_type, std::pair<value_type, bool>>;
         using added_map_type      = std::unordered_map<key_type, value_type>;
@@ -266,9 +266,9 @@ namespace hgraph
         // Use raw pointers for reverse lookup to enable efficient lookup from notify_parent
         using reverse_map = std::unordered_map<TimeSeriesInput *, key_type>;
 
-        explicit TimeSeriesDictInput_T(const node_ptr &parent, input_builder_ptr ts_builder);
+        explicit TimeSeriesDictInput_T(const node_ptr &parent, input_builder_s_ptr ts_builder);
 
-        explicit TimeSeriesDictInput_T(const time_series_type_ptr &parent, input_builder_ptr ts_builder);
+        explicit TimeSeriesDictInput_T(time_series_input_ptr parent, input_builder_s_ptr ts_builder);
 
         [[nodiscard]] bool has_peer() const override;
 
@@ -357,12 +357,12 @@ namespace hgraph
         }
 
       [[nodiscard]] const key_type &key_from_value(TimeSeriesInput *value) const;
-        [[nodiscard]] const key_type &key_from_value(value_type value) const;
+      [[nodiscard]] const key_type &key_from_value(value_type value) const;
 
     protected:
         void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
 
-        bool do_bind_output(const time_series_output_ptr& value) override;
+        bool do_bind_output(const_time_series_output_ptr value) override;
 
         void do_un_bind_output(bool unbind_refs) override;
 
@@ -398,7 +398,7 @@ namespace hgraph
         // This ensures we hold onto the values until we are sure no one needs to reference them.
         static inline map_type empty_{};
 
-        input_builder_ptr _ts_builder;
+        input_builder_s_ptr _ts_builder;
 
         typename TimeSeriesDictOutput_T<T_Key>::ptr _prev_output;
 

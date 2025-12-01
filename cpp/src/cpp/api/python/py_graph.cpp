@@ -45,7 +45,7 @@ namespace hgraph
     nb::tuple PyGraph::nodes() const {
         // TODO: This really should be cached
         nb::list l{};
-        for (auto &node : _impl->nodes()) { l.append(wrap_node(node, _impl.control_block())); }
+        for (const auto &node : _impl->nodes()) { l.append(wrap_node(node)); }
         return nb::tuple(l);
     }
 
@@ -86,12 +86,12 @@ namespace hgraph
     nb::tuple PyGraph::schedule() { return nb::make_tuple(_impl->schedule()); }
 
     PyGraph PyGraph::copy_with(nb::object nodes) {
-        auto nodes_{nb::cast<std::vector<node_ptr>>(nodes)};
+        auto nodes_{nb::cast<std::vector<node_s_ptr>>(nodes)};
         auto g{_impl->copy_with(nodes_)};
-        return PyGraph(ApiPtr<Graph>(g.get(), g->control_block()));
+        return PyGraph(ApiPtr<Graph>(g));
     }
 
-    nb::object PyGraph::traits() const { return wrap_traits(_impl->traits().get(), _impl.control_block()); }
+    nb::object PyGraph::traits() const { return wrap_traits(&_impl->traits(), _impl.control_block()); }
 
     SenderReceiverState &PyGraph::receiver() { return _impl->receiver(); }
 

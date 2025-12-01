@@ -22,13 +22,13 @@ namespace hgraph {
         using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         // Construct with capacity and min size
-        TimeSeriesFixedWindowOutput(const node_ptr &parent, size_t size, size_t min_size)
+        TimeSeriesFixedWindowOutput(node_ptr parent, size_t size, size_t min_size)
             : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size) {
             _buffer.resize(_size);
             _times.resize(_size, engine_time_t{});
         }
 
-        TimeSeriesFixedWindowOutput(const TimeSeriesType::ptr &parent, size_t size, size_t min_size)
+        TimeSeriesFixedWindowOutput(time_series_output_ptr parent, size_t size, size_t min_size)
             : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size) {
             _buffer.resize(_size);
             _times.resize(_size, engine_time_t{});
@@ -209,11 +209,11 @@ namespace hgraph {
         using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         // Construct with time window and min time window
-        TimeSeriesTimeWindowOutput(const node_ptr &parent, engine_time_delta_t size, engine_time_delta_t min_size)
+        TimeSeriesTimeWindowOutput(node_ptr parent, engine_time_delta_t size, engine_time_delta_t min_size)
             : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size), _ready(false) {
         }
 
-        TimeSeriesTimeWindowOutput(const TimeSeriesType::ptr &parent, engine_time_delta_t size,
+        TimeSeriesTimeWindowOutput(time_series_output_ptr parent, engine_time_delta_t size,
                                    engine_time_delta_t min_size)
             : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size), _ready(false) {
         }

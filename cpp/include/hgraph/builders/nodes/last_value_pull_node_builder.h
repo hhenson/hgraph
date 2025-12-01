@@ -13,7 +13,7 @@ namespace hgraph {
     struct LastValuePullNodeBuilder : BaseNodeBuilder {
         using BaseNodeBuilder::BaseNodeBuilder;
 
-        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
+        node_s_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
     };
 
     void last_value_pull_node_builder_register_with_nanobind(nb::module_ & m);

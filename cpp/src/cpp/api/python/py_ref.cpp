@@ -134,6 +134,9 @@ namespace hgraph
 
     TimeSeriesReferenceInput *PyTimeSeriesReferenceInput::impl() const { return static_cast_impl<TimeSeriesReferenceInput>(); }
 
+    PyTimeSeriesValueReferenceInput::PyTimeSeriesValueReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
+
     PyTimeSeriesValueReferenceInput::PyTimeSeriesValueReferenceInput(TimeSeriesValueReferenceInput *ref)
         : PyTimeSeriesReferenceInput(ref) {}
 
@@ -144,6 +147,9 @@ namespace hgraph
     void PyTimeSeriesValueReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesValueReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesValueReferenceInput");
     }
+
+    PyTimeSeriesListReferenceInput::PyTimeSeriesListReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
 
     PyTimeSeriesListReferenceInput::PyTimeSeriesListReferenceInput(TimeSeriesListReferenceInput *ref)
         : PyTimeSeriesReferenceInput(ref) {}
@@ -161,6 +167,9 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesListReferenceInput::size);
     }
 
+    PyTimeSeriesBundleReferenceInput::PyTimeSeriesBundleReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
+
     PyTimeSeriesBundleReferenceInput::PyTimeSeriesBundleReferenceInput(TimeSeriesBundleReferenceInput *ref)
         : PyTimeSeriesReferenceInput(ref) {}
 
@@ -177,6 +186,9 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesBundleReferenceInput::size);
     }
 
+    PyTimeSeriesDictReferenceInput::PyTimeSeriesDictReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
+
     PyTimeSeriesDictReferenceInput::PyTimeSeriesDictReferenceInput(TimeSeriesDictReferenceInput *ref)
         : PyTimeSeriesReferenceInput(ref) {}
 
@@ -187,6 +199,9 @@ namespace hgraph
     void PyTimeSeriesDictReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesDictReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesDictReferenceInput");
     }
+
+    PyTimeSeriesSetReferenceInput::PyTimeSeriesSetReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
 
     PyTimeSeriesSetReferenceInput::PyTimeSeriesSetReferenceInput(TimeSeriesSetReferenceInput *ref)
         : PyTimeSeriesReferenceInput(ref) {}
@@ -199,6 +214,9 @@ namespace hgraph
         nb::class_<PyTimeSeriesSetReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesSetReferenceInput");
     }
 
+    PyTimeSeriesWindowReferenceInput::PyTimeSeriesWindowReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
+
     PyTimeSeriesWindowReferenceInput::PyTimeSeriesWindowReferenceInput(TimeSeriesWindowReferenceInput *ref)
         : PyTimeSeriesReferenceInput(ref) {}
 
@@ -210,6 +228,9 @@ namespace hgraph
         nb::class_<PyTimeSeriesWindowReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesWindowReferenceInput");
     }
 
+    PyTimeSeriesValueReferenceOutput::PyTimeSeriesValueReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
+
     PyTimeSeriesValueReferenceOutput::PyTimeSeriesValueReferenceOutput(TimeSeriesValueReferenceOutput *ref)
         : PyTimeSeriesReferenceOutput(ref) {}
 
@@ -220,6 +241,9 @@ namespace hgraph
     void PyTimeSeriesValueReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesValueReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesValueReferenceOutput");
     }
+
+    PyTimeSeriesListReferenceOutput::PyTimeSeriesListReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
 
     PyTimeSeriesListReferenceOutput::PyTimeSeriesListReferenceOutput(TimeSeriesListReferenceOutput *ref)
         : PyTimeSeriesReferenceOutput(ref) {}
@@ -237,6 +261,9 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesListReferenceOutput::size);
     }
 
+    PyTimeSeriesBundleReferenceOutput::PyTimeSeriesBundleReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
+
     PyTimeSeriesBundleReferenceOutput::PyTimeSeriesBundleReferenceOutput(TimeSeriesBundleReferenceOutput *ref)
         : PyTimeSeriesReferenceOutput(ref) {}
 
@@ -253,6 +280,9 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesBundleReferenceOutput::size);
     }
 
+    PyTimeSeriesDictReferenceOutput::PyTimeSeriesDictReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
+
     PyTimeSeriesDictReferenceOutput::PyTimeSeriesDictReferenceOutput(TimeSeriesDictReferenceOutput *ref)
         : PyTimeSeriesReferenceOutput(ref) {}
 
@@ -264,6 +294,9 @@ namespace hgraph
         nb::class_<PyTimeSeriesDictReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesDictReferenceOutput");
     }
 
+    PyTimeSeriesSetReferenceOutput::PyTimeSeriesSetReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
+
     PyTimeSeriesSetReferenceOutput::PyTimeSeriesSetReferenceOutput(TimeSeriesSetReferenceOutput *ref)
         : PyTimeSeriesReferenceOutput(ref) {}
 
@@ -274,6 +307,9 @@ namespace hgraph
     void PyTimeSeriesSetReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesSetReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesSetReferenceOutput");
     }
+
+    PyTimeSeriesWindowReferenceOutput::PyTimeSeriesWindowReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
 
     PyTimeSeriesWindowReferenceOutput::PyTimeSeriesWindowReferenceOutput(TimeSeriesWindowReferenceOutput *ref)
         : PyTimeSeriesReferenceOutput(ref) {}

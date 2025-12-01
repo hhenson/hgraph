@@ -21,26 +21,26 @@ namespace hgraph {
 
         auto signature_ = nb::cast<node_signature_ptr>(args[0]);
         auto scalars_ = nb::cast<nb::dict>(args[1]);
-        std::optional<input_builder_ptr> input_builder_ =
+        std::optional<input_builder_s_ptr> input_builder_ =
                 args[2].is_none()
                     ? std::nullopt
-                    : std::optional<input_builder_ptr>(nb::cast<input_builder_ptr>(args[2]));
-        std::optional<output_builder_ptr> output_builder_ =
+                    : std::optional<input_builder_s_ptr>(nb::cast<input_builder_s_ptr>(args[2]));
+        std::optional<output_builder_s_ptr> output_builder_ =
                 args[3].is_none()
                     ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[3]));
-        std::optional<output_builder_ptr> error_builder_ =
+                    : std::optional<output_builder_s_ptr>(nb::cast<output_builder_s_ptr>(args[3]));
+        std::optional<output_builder_s_ptr> error_builder_ =
                 args[4].is_none()
                     ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[4]));
-        std::optional<output_builder_ptr> recordable_state_builder_ =
+                    : std::optional<output_builder_s_ptr>(nb::cast<output_builder_s_ptr>(args[4]));
+        std::optional<output_builder_s_ptr> recordable_state_builder_ =
                 args[5].is_none()
                     ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[5]));
+                    : std::optional<output_builder_s_ptr>(nb::cast<output_builder_s_ptr>(args[5]));
         if (args[6].is_none()) {
             throw nb::type_error("TsdMapNodeBuilder requires a nested_graph (arg[6]) and it must not be None");
         }
-        graph_builder_ptr nested_graph_builder = nb::cast<graph_builder_ptr>(args[6]);
+        graph_builder_s_ptr nested_graph_builder = nb::cast<graph_builder_s_ptr>(args[6]);
         auto input_node_ids = nb::cast<std::unordered_map<std::string, int64_t> >(args[7]);
         auto output_node_id = nb::cast<int64_t>(args[8]);
         auto multiplexed_args = nb::cast<std::unordered_set<std::string> >(args[9]);
@@ -55,9 +55,9 @@ namespace hgraph {
     }
 
     BaseTsdMapNodeBuilder::BaseTsdMapNodeBuilder(
-        node_signature_ptr signature_, nb::dict scalars_, std::optional<input_builder_ptr> input_builder_,
-        std::optional<output_builder_ptr> output_builder_, std::optional<output_builder_ptr> error_builder_,
-        std::optional<output_builder_ptr> recordable_state_builder_, graph_builder_ptr nested_graph_builder,
+        node_signature_ptr signature_, nb::dict scalars_, std::optional<input_builder_s_ptr> input_builder_,
+        std::optional<output_builder_s_ptr> output_builder_, std::optional<output_builder_s_ptr> error_builder_,
+        std::optional<output_builder_s_ptr> recordable_state_builder_, graph_builder_s_ptr nested_graph_builder,
         const std::unordered_map<std::string, int64_t> &input_node_ids, int64_t output_node_id,
         const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg)
         : BaseNodeBuilder(std::move(signature_), std::move(scalars_), std::move(input_builder_),
@@ -69,12 +69,10 @@ namespace hgraph {
     }
 
     template<typename T>
-    node_ptr TsdMapNodeBuilder<T>::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
-        nb::ref<Node> node{
-            new TsdMapNode<T>(node_ndx, owning_graph_id, signature, scalars, nested_graph_builder, input_node_ids,
-                              output_node_id, multiplexed_args, key_arg)
-        };
-        _build_inputs_and_outputs(node);
+    node_s_ptr TsdMapNodeBuilder<T>::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
+        auto node = std::make_shared<TsdMapNode<T>>(node_ndx, owning_graph_id, signature, scalars, nested_graph_builder, input_node_ids,
+                              output_node_id, multiplexed_args, key_arg);
+        _build_inputs_and_outputs(node.get());
         return node;
     }
 

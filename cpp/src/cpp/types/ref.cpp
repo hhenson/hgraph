@@ -65,7 +65,7 @@ namespace hgraph
     void TimeSeriesReference::destroy() noexcept {
         switch (_kind) {
             case Kind::EMPTY: break;
-            case Kind::BOUND: _storage.bound.~ref(); break;
+            case Kind::BOUND: _storage.bound = nullptr; break;  // Raw pointer, no destructor needed
             case Kind::UNBOUND: _storage.unbound.~vector(); break;
         }
     }
@@ -176,7 +176,7 @@ namespace hgraph
             case Kind::BOUND:
                 return fmt::format("REF[{}<{}>.output@{:p}]", _storage.bound->owning_node()->signature().name,
                                    fmt::join(_storage.bound->owning_node()->node_id(), ", "),
-                                   const_cast<void *>(static_cast<const void *>(_storage.bound.get())));
+                                   const_cast<void *>(static_cast<const void *>(_storage.bound)));
             case Kind::UNBOUND:
                 {
                     std::vector<std::string> string_items;
@@ -192,10 +192,10 @@ namespace hgraph
     TimeSeriesReference TimeSeriesReference::make() { return TimeSeriesReference(); }
 
     TimeSeriesReference TimeSeriesReference::make(time_series_output_ptr output) {
-        if (output.get() == nullptr) {
+        if (output == nullptr) {
             return make();
         } else {
-            return TimeSeriesReference(std::move(output));
+            return TimeSeriesReference(output);
         }
     }
 
@@ -350,7 +350,7 @@ namespace hgraph
         }
     }
 
-    bool TimeSeriesReferenceInput::bind_output(const time_series_output_ptr& output_) {
+    bool TimeSeriesReferenceInput::bind_output(const_time_series_output_ptr output_) {
         auto peer = do_bind_output(output_);
 
         if (owning_node()->is_started() && has_output() && output()->valid()) {
@@ -401,19 +401,19 @@ namespace hgraph
         throw std::runtime_error("TimeSeriesReferenceInput::get_ref_input: Not implemented on this type");
     }
 
-    bool TimeSeriesReferenceInput::do_bind_output(const time_series_output_ptr& output_) {
-        if (dynamic_cast<const TimeSeriesReferenceOutput *>(output_.get()) != nullptr) {
+    bool TimeSeriesReferenceInput::do_bind_output(const_time_series_output_ptr output_) {
+        if (dynamic_cast<const TimeSeriesReferenceOutput *>(output_) != nullptr) {
             // Match Python behavior: bind to a TimeSeriesReferenceOutput as a normal peer
             reset_value();
             return BaseTimeSeriesInput::do_bind_output(output_);
         }
         // We are binding directly to a concrete output: wrap it as a reference value
-        _value = TimeSeriesReference::make(std::move(output_));
+        _value = TimeSeriesReference::make(const_cast<time_series_output_ptr>(output_));
         if (owning_node()->is_started()) {
             set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
             notify(sample_time());
         } else {
-            owning_node()->add_start_input(this);
+            owning_node()->add_start_input(std::dynamic_pointer_cast<TimeSeriesReferenceInput>(shared_from_this()));
         }
         return false;
     }
@@ -468,7 +468,7 @@ namespace hgraph
     TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(Node *owning_node, InputBuilder::ptr value_builder, size_t size)
         : TimeSeriesReferenceInput(owning_node), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(TimeSeriesType *parent_input, InputBuilder::ptr value_builder,
+    TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(TimeSeriesInput *parent_input, InputBuilder::ptr value_builder,
                                                                size_t size)
         : TimeSeriesReferenceInput(parent_input), _value_builder(std::move(value_builder)), _size(size) {}
 
@@ -589,7 +589,7 @@ namespace hgraph
                                                                    size_t size)
         : TimeSeriesReferenceInput(owning_node), _value_builders(std::move(value_builders)), _size(size), _items{} {}
 
-    TimeSeriesBundleReferenceInput::TimeSeriesBundleReferenceInput(TimeSeriesType                *parent_input,
+    TimeSeriesBundleReferenceInput::TimeSeriesBundleReferenceInput(TimeSeriesInput                *parent_input,
                                                                    std::vector<InputBuilder::ptr> value_builders, size_t size)
         : TimeSeriesReferenceInput(parent_input), _value_builders(std::move(value_builders)), _size(size) {}
 
@@ -720,7 +720,7 @@ namespace hgraph
     TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(Node *owning_node, OutputBuilder::ptr value_builder, size_t size)
         : TimeSeriesReferenceOutput(owning_node), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(TimeSeriesType *parent_output, OutputBuilder::ptr value_builder,
+    TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(TimeSeriesOutput *parent_output, OutputBuilder::ptr value_builder,
                                                                  size_t size)
         : TimeSeriesReferenceOutput(parent_output), _value_builder(std::move(value_builder)), _size(size) {}
 
@@ -729,7 +729,7 @@ namespace hgraph
                                                                      std::vector<OutputBuilder::ptr> value_builder, size_t size)
         : TimeSeriesReferenceOutput(owning_node), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesBundleReferenceOutput::TimeSeriesBundleReferenceOutput(TimeSeriesType                 *parent_output,
+    TimeSeriesBundleReferenceOutput::TimeSeriesBundleReferenceOutput(TimeSeriesOutput                 *parent_output,
                                                                      std::vector<OutputBuilder::ptr> value_builder, size_t size)
         : TimeSeriesReferenceOutput(parent_output), _value_builder(std::move(value_builder)), _size(size) {}
 

@@ -16,9 +16,9 @@ namespace hgraph {
     }
 
     void ContextStubSourceNode::do_stop() {
-        if (_subscribed_output.get() != nullptr) {
+        if (_subscribed_output != nullptr) {
             _subscribed_output->un_subscribe(this);
-            _subscribed_output.reset();
+            _subscribed_output = nullptr;
         }
     }
 
@@ -108,8 +108,8 @@ namespace hgraph {
         }
 
         // Manage subscription if we have a producing output
-        if (output_ts.get() != nullptr) {
-            bool is_same{_subscribed_output.get() == output_ts.get()};
+        if (output_ts != nullptr) {
+            bool is_same{_subscribed_output == output_ts};
             if (!is_same) {
                 output_ts->subscribe(this);
                 if (_subscribed_output != nullptr) { _subscribed_output->un_subscribe(this); }
@@ -118,7 +118,7 @@ namespace hgraph {
         }
 
         // Finally, set this node's own REF output to the captured value (may be None)
-        auto my_output = dynamic_cast<TimeSeriesReferenceOutput *>(output());
+        auto my_output = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
         if (!my_output) {
             throw std::runtime_error("ContextStubSourceNode: output is not a TimeSeriesReferenceOutput");
         }

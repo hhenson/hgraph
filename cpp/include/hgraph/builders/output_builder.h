@@ -9,9 +9,9 @@ namespace hgraph {
         using ptr = nb::ref<OutputBuilder>;
         using Builder::Builder;
 
-        virtual time_series_output_ptr make_instance(const node_ptr& owning_node) const = 0;
+        virtual time_series_output_s_ptr make_instance(node_ptr owning_node) const = 0;
 
-        virtual time_series_output_ptr make_instance(const time_series_output_ptr& owning_output) const = 0;
+        virtual time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const = 0;
 
         virtual void release_instance(time_series_output_ptr item) const;
 

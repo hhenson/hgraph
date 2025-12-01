@@ -17,7 +17,7 @@ namespace hgraph {
     template<typename T>
     struct TimeSeriesValueOutput : TimeSeriesValueOutputBase {
         using value_type = T;
-        using ptr = nb::ref<TimeSeriesValueOutput<T> >;
+        using s_ptr = std::shared_ptr<TimeSeriesValueOutput<T>>;
 
         using TimeSeriesValueOutputBase::TimeSeriesValueOutputBase;
 

@@ -8,11 +8,10 @@
 #include <vector>
 
 namespace hgraph {
-    struct Graph;
-    using graph_ptr = nb::ref<Graph>;
 
     struct NestedNode : Node {
-        using ptr = nb::ref<NestedNode>;
+        using ptr = NestedNode*;
+        using s_ptr = std::shared_ptr<NestedNode>;
         using Node::Node;
 
         void start() override;
@@ -21,7 +20,7 @@ namespace hgraph {
 
         void mark_evaluated();
 
-        virtual void enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const = 0;
+        virtual void enumerate_nested_graphs(const std::function<void(graph_s_ptr)>& callback) const = 0;
 
     private:
         engine_time_t _last_evaluation_time{MIN_DT};

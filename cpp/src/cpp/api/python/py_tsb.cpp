@@ -7,6 +7,10 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
+    PyTimeSeriesBundle<T_TS, T_U>::PyTimeSeriesBundle(api_ptr impl) : T_TS(std::move(impl)) {}
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsb<T_TS, T_U>)
     PyTimeSeriesBundle<T_TS, T_U>::PyTimeSeriesBundle(underlying_type *impl, const control_block_ptr &cb) : T_TS(impl, cb) {}
 
     template <typename T_TS, typename T_U>
@@ -16,17 +20,17 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::iter() const {
-        return nb::iter(list_to_list(impl()->values(), this->control_block()));
+        return nb::iter(list_to_list(impl()->values()));
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::get_item(const nb::handle &key) const {
         if (nb::isinstance<nb::str>(key)) {
-            return wrap_time_series(impl()->operator[](nb::cast<std::string>(key)).get(), this->control_block());
+            return wrap_time_series(impl()->operator[](nb::cast<std::string>(key)));
         }
         if (nb::isinstance<nb::int_>(key)) {
-            return wrap_time_series(impl()->operator[](nb::cast<size_t>(key)).get(), this->control_block());
+            return wrap_time_series(impl()->operator[](nb::cast<size_t>(key)));
         }
         throw std::runtime_error("Invalid key type for TimeSeriesBundle");
     }
@@ -59,7 +63,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::values() const {
-        return list_to_list(impl()->values(), this->control_block());
+        return list_to_list(impl()->values());
     }
 
     template <typename T_TS, typename T_U>
@@ -71,7 +75,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_values() const {
-        return list_to_list(impl()->valid_values(), this->control_block());
+        return list_to_list(impl()->valid_values());
     }
 
     template <typename T_TS, typename T_U>
@@ -83,7 +87,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_values() const {
-        return list_to_list(impl()->modified_values(), this->control_block());
+        return list_to_list(impl()->modified_values());
     }
 
     template <typename T_TS, typename T_U>
@@ -101,19 +105,19 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::items() const {
-        return items_to_list(impl()->items(), this->control_block());
+        return items_to_list(impl()->items());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_items() const {
-        return items_to_list(impl()->valid_items(), this->control_block());
+        return items_to_list(impl()->valid_items());
     }
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_items() const {
-        return items_to_list(impl()->modified_items(), this->control_block());
+        return items_to_list(impl()->modified_items());
     }
 
     template <typename T_TS, typename T_U> constexpr const char *get_bundle_type_name() {

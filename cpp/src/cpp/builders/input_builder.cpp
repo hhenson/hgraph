@@ -33,7 +33,7 @@ namespace hgraph {
                 .def(
                     "make_instance",
                     [](InputBuilder::ptr self, nb::object owning_node,
-                       nb::object owning_output) -> time_series_input_ptr {
+                       nb::object owning_output) -> time_series_input_s_ptr {
                         if (!owning_node.is_none()) { return self->make_instance(unwrap_node(owning_node)); }
                         if (!owning_output.is_none()) {
                             return self->make_instance(nb::cast<time_series_input_ptr>(owning_output));

@@ -115,11 +115,11 @@ namespace hgraph {
         _evaluation_engine->add_after_evaluation_notification(std::forward<std::function<void()> >(fn));
     }
 
-    void EvaluationEngineDelegate::add_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) {
+    void EvaluationEngineDelegate::add_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) {
         _evaluation_engine->add_life_cycle_observer(std::move(observer));
     }
 
-    void EvaluationEngineDelegate::remove_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) {
+    void EvaluationEngineDelegate::remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) {
         _evaluation_engine->remove_life_cycle_observer(std::move(observer));
     }
 
@@ -422,11 +422,11 @@ namespace hgraph {
         _after_evaluation_notification.emplace_back(fn);
     }
 
-    void EvaluationEngineImpl::add_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) {
+    void EvaluationEngineImpl::add_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) {
         _life_cycle_observers.emplace_back(std::move(observer));
     }
 
-    void EvaluationEngineImpl::remove_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) {
+    void EvaluationEngineImpl::remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) {
         auto it{std::find(_life_cycle_observers.begin(), _life_cycle_observers.end(), observer)};
         if (it != _life_cycle_observers.end()) {
             // Since order is not important, we can swap the observer to remove with the last observer and then pop it.

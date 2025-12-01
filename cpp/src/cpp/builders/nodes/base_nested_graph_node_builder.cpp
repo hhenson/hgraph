@@ -4,9 +4,9 @@
 
 namespace hgraph {
     BaseNestedGraphNodeBuilder::BaseNestedGraphNodeBuilder(
-        node_signature_ptr signature_, nb::dict scalars_, std::optional<input_builder_ptr> input_builder_,
-        std::optional<output_builder_ptr> output_builder_, std::optional<output_builder_ptr> error_builder_,
-        std::optional<output_builder_ptr> recordable_state_builder_, graph_builder_ptr nested_graph_builder,
+        node_signature_ptr signature_, nb::dict scalars_, std::optional<input_builder_s_ptr> input_builder_,
+        std::optional<output_builder_s_ptr> output_builder_, std::optional<output_builder_s_ptr> error_builder_,
+        std::optional<output_builder_s_ptr> recordable_state_builder_, graph_builder_s_ptr nested_graph_builder,
         const std::unordered_map<std::string, int> &input_node_ids, int output_node_id)
         : BaseNodeBuilder(std::move(signature_), std::move(scalars_), std::move(input_builder_),
                           std::move(output_builder_),

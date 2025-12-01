@@ -22,7 +22,7 @@ namespace hgraph
     template <typename K>
     MapNestedEngineEvaluationClock<K>::MapNestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock, K key,
                                                                       tsd_map_node_ptr<K> nested_node)
-        : NestedEngineEvaluationClock(engine_evaluation_clock, static_cast<NestedNode *>(nested_node.get())), _key(key) {}
+        : NestedEngineEvaluationClock(engine_evaluation_clock, static_cast<NestedNode *>(nested_node)), _key(key) {}
 
     template <typename K> void MapNestedEngineEvaluationClock<K>::update_next_scheduled_evaluation_time(engine_time_t next_time) {
         auto &node_{*static_cast<TsdMapNode<K> *>(node().get())};
@@ -37,16 +37,16 @@ namespace hgraph
 
     template <typename K>
     TsdMapNode<K>::TsdMapNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
-                              nb::dict scalars, graph_builder_ptr nested_graph_builder,
+                              nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
                               const std::unordered_map<std::string, int64_t> &input_node_ids, int64_t output_node_id,
                               const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg)
         : NestedNode(node_ndx, owning_graph_id, signature, scalars), nested_graph_builder_(nested_graph_builder),
           input_node_ids_(input_node_ids), output_node_id_(output_node_id), multiplexed_args_(multiplexed_args), key_arg_(key_arg) {
     }
 
-    template <typename K> std::unordered_map<K, graph_ptr> &TsdMapNode<K>::nested_graphs() { return active_graphs_; }
+    template <typename K> std::unordered_map<K, graph_s_ptr> &TsdMapNode<K>::nested_graphs() { return active_graphs_; }
 
-    template <typename K> void TsdMapNode<K>::enumerate_nested_graphs(const std::function<void(graph_ptr)> &callback) const {
+    template <typename K> void TsdMapNode<K>::enumerate_nested_graphs(const std::function<void(graph_s_ptr)> &callback) const {
         for (const auto &[key, graph] : active_graphs_) {
             if (graph) { callback(graph); }
         }
@@ -57,7 +57,7 @@ namespace hgraph
     template <typename K> void TsdMapNode<K>::do_start() {
         // Note: In Python, super().do_start() is called here, but in C++ the base Node class
         // do_start() is pure virtual and has no implementation to call.
-        auto trait{graph()->traits()->get_trait_or(RECORDABLE_ID_TRAIT, nb::none())};
+        auto trait{graph()->traits().get_trait_or(RECORDABLE_ID_TRAIT, nb::none())};
         if (!trait.is_none()) {
             auto recordable_id{signature().record_replay_id};
             recordable_id_ = get_fq_recordable_id(graph()->traits(), recordable_id.has_value() ? recordable_id.value() : "map_");
@@ -135,6 +135,7 @@ namespace hgraph
 
         active_graphs_[key] = graph_;
 
+        // Note: using 'new' here as NestedEvaluationEngine and MapNestedEngineEvaluationClock are nb::intrusive_base types
         graph_->set_evaluation_engine(new NestedEvaluationEngine(
             graph()->evaluation_engine(),
             new MapNestedEngineEvaluationClock<K>(graph()->evaluation_engine()->engine_evaluation_clock(), key, this)));
@@ -199,7 +200,7 @@ namespace hgraph
         return next;
     }
 
-    template <typename K> void TsdMapNode<K>::un_wire_graph(const K &key, Graph::ptr &graph) {
+    template <typename K> void TsdMapNode<K>::un_wire_graph(const K &key, graph_s_ptr &graph) {
         for (const auto &[arg, node_ndx] : input_node_ids_) {
             auto node = graph->nodes()[node_ndx];
             if (arg != key_arg_) {
@@ -209,14 +210,14 @@ namespace hgraph
                     // Since this is a multiplexed arg it must be of type K
 
                     // Re-parent the per-key input back to the TSD to detach it from the nested graph
-                    (*node->input())["ts"]->re_parent(ts);
+                    (*node->input())["ts"]->re_parent(static_cast<time_series_input_ptr>(ts));
 
                     // Create a new empty reference input to replace the old one in the node's input bundle
                     // This ensures the per-key input is fully detached before the nested graph is torn down
                     auto empty_ref =
                         dynamic_cast<TimeSeriesReferenceInput *>(node->input()->get_input(0))->clone_blank_ref_instance();
-                    node->reset_input(node->input()->copy_with(node, {empty_ref}));
-                    empty_ref->re_parent(node->input());
+                    node->reset_input(node->input()->copy_with(node.get(), {empty_ref->shared_from_this()}));
+                    empty_ref->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
 
                     // Align with Python: only clear upstream per-key state when the key is truly absent
                     // from the upstream key set (and that key set is valid). Do NOT clear during startup
@@ -230,7 +231,7 @@ namespace hgraph
         if (output_node_id_ >= 0) { tsd_output().erase(key); }
     }
 
-    template <typename K> void TsdMapNode<K>::wire_graph(const K &key, Graph::ptr &graph) {
+    template <typename K> void TsdMapNode<K>::wire_graph(const K &key, graph_s_ptr &graph) {
         for (const auto &[arg, node_ndx] : input_node_ids_) {
             auto node{graph->nodes()[node_ndx]};
             node->notify();
@@ -245,8 +246,8 @@ namespace hgraph
                     auto &tsd      = dynamic_cast<TimeSeriesDictInput_T<K> &>(*ts);
                     auto  ts_value = tsd.get_or_create(key);
 
-                    node->reset_input(node->input()->copy_with(node, {ts_value}));
-                    ts_value->re_parent(node->input());
+                    node->reset_input(node->input()->copy_with(node.get(), {ts_value->shared_from_this()}));
+                    ts_value->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
                 } else {
                     auto ts          = dynamic_cast<TimeSeriesReferenceInput *>((*input())[arg].get());
                     auto inner_input = dynamic_cast<TimeSeriesReferenceInput *>((*node->input())["ts"].get());
@@ -260,7 +261,7 @@ namespace hgraph
             auto  node       = graph->nodes()[output_node_id_];
             auto &output_tsd = tsd_output();
             auto  output_ts  = output_tsd.get_or_create(key);
-            node->set_output(output_ts.get());
+            node->set_output(output_ts->shared_from_this());
         }
     }
 
@@ -289,49 +290,49 @@ namespace hgraph
             m, "MapNestedEngineEvaluationClock_object");
 
         nb::class_<TsdMapNode<bool>, NestedNode>(m, "TsdMapNode_bool")
-            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_ptr,
+            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_s_ptr,
                           const std::unordered_map<std::string, int64_t> &, int64_t, const std::unordered_set<std::string> &,
                           const std::string &>(),
                  "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a, "input_node_ids"_a,
                  "output_node_id"_a, "multiplexed_args"_a, "key_arg"_a)
             .def_prop_ro("nested_graphs", &TsdMapNode<bool>::nested_graphs);
         nb::class_<TsdMapNode<int64_t>, NestedNode>(m, "TsdMapNode_int")
-            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_ptr,
+            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_s_ptr,
                           const std::unordered_map<std::string, int64_t> &, int64_t, const std::unordered_set<std::string> &,
                           const std::string &>(),
                  "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a, "input_node_ids"_a,
                  "output_node_id"_a, "multiplexed_args"_a, "key_arg"_a)
             .def_prop_ro("nested_graphs", &TsdMapNode<int64_t>::nested_graphs);
         nb::class_<TsdMapNode<double>, NestedNode>(m, "TsdMapNode_float")
-            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_ptr,
+            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_s_ptr,
                           const std::unordered_map<std::string, int64_t> &, int64_t, const std::unordered_set<std::string> &,
                           const std::string &>(),
                  "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a, "input_node_ids"_a,
                  "output_node_id"_a, "multiplexed_args"_a, "key_arg"_a)
             .def_prop_ro("nested_graphs", &TsdMapNode<double>::nested_graphs);
         nb::class_<TsdMapNode<engine_date_t>, NestedNode>(m, "TsdMapNode_date")
-            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_ptr,
+            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_s_ptr,
                           const std::unordered_map<std::string, int64_t> &, int64_t, const std::unordered_set<std::string> &,
                           const std::string &>(),
                  "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a, "input_node_ids"_a,
                  "output_node_id"_a, "multiplexed_args"_a, "key_arg"_a)
             .def_prop_ro("nested_graphs", &TsdMapNode<engine_date_t>::nested_graphs);
         nb::class_<TsdMapNode<engine_time_t>, NestedNode>(m, "TsdMapNode_datetime")
-            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_ptr,
+            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_s_ptr,
                           const std::unordered_map<std::string, int64_t> &, int64_t, const std::unordered_set<std::string> &,
                           const std::string &>(),
                  "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a, "input_node_ids"_a,
                  "output_node_id"_a, "multiplexed_args"_a, "key_arg"_a)
             .def_prop_ro("nested_graphs", &TsdMapNode<engine_time_t>::nested_graphs);
         nb::class_<TsdMapNode<engine_time_delta_t>, NestedNode>(m, "TsdMapNode_timedelta")
-            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_ptr,
+            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_s_ptr,
                           const std::unordered_map<std::string, int64_t> &, int64_t, const std::unordered_set<std::string> &,
                           const std::string &>(),
                  "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a, "input_node_ids"_a,
                  "output_node_id"_a, "multiplexed_args"_a, "key_arg"_a)
             .def_prop_ro("nested_graphs", &TsdMapNode<engine_time_delta_t>::nested_graphs);
         nb::class_<TsdMapNode<nb::object>, NestedNode>(m, "TsdMapNode_object")
-            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_ptr,
+            .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_s_ptr,
                           const std::unordered_map<std::string, int64_t> &, int64_t, const std::unordered_set<std::string> &,
                           const std::string &>(),
                  "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a, "input_node_ids"_a,

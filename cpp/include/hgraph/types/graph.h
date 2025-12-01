@@ -8,26 +8,34 @@
 #include <hgraph/api/python/api_ptr.h>
 
 #include <hgraph/runtime/evaluation_engine.h>
+#include <hgraph/types/traits.h>
 #include <hgraph/util/sender_receiver_state.h>
+#include <memory>
 
 namespace hgraph
 {
-    struct HGRAPH_EXPORT Graph : ComponentLifeCycle
+    struct HGRAPH_EXPORT Graph : ComponentLifeCycle, std::enable_shared_from_this<Graph>
     {
-        using ptr = nanobind::ref<Graph>;
+        using ptr = Graph*;
+        using s_ptr = std::shared_ptr<Graph>;
+        using node_list = std::vector<node_s_ptr>;
 
-        Graph(std::vector<int64_t> graph_id_, std::vector<node_ptr> nodes_,
-              std::optional<node_ptr> parent_node_, std::string label_, traits_ptr traits_);
+        Graph(std::vector<int64_t> graph_id_, node_list nodes_,
+              std::optional<node_ptr> parent_node_, std::string label_, const_traits_ptr parent_traits_);
 
         ~Graph() override;
 
-        [[nodiscard]] const control_block_ptr &control_block() const;
+        /**
+         * Get the control block for this graph.
+         * Extracts the control block from shared_from_this() to be used as donor for child objects.
+         */
+        [[nodiscard]] control_block_ptr control_block() const;
 
         [[nodiscard]] const std::vector<int64_t> &graph_id() const;
 
-        [[nodiscard]] const std::vector<node_ptr> &nodes() const;
+        [[nodiscard]] const node_list &nodes() const;
 
-        [[nodiscard]] Node* parent_node() const;
+        [[nodiscard]] node_ptr parent_node() const;
 
         [[nodiscard]] std::optional<std::string> label() const;
 
@@ -55,9 +63,18 @@ namespace hgraph
 
         void evaluate_graph();
 
-        Graph::ptr copy_with(std::vector<node_ptr> nodes);
+        s_ptr copy_with(node_list nodes);
 
-        const nb::ref<Traits> &traits() const;
+        /**
+         * Clone traits from another graph (copies the traits data).
+         */
+        void clone_traits_from(const Graph &other);
+
+        /**
+         * Get traits as a const reference.
+         * Traits is stored as a value object inside Graph.
+         */
+        [[nodiscard]] const Traits &traits() const;
 
         [[nodiscard]] SenderReceiverState &receiver();
 
@@ -86,15 +103,16 @@ namespace hgraph
 
         void dispose() override;
 
-      private:
-        control_block_ptr          _control_block;
+        friend struct GraphBuilder;  // Allow GraphBuilder to access private members
+
+    private:
         EvaluationEngine::ptr      _evaluation_engine;
         std::vector<int64_t>       _graph_id;
-        std::vector<node_ptr>      _nodes;
+        node_list                  _nodes;
         std::vector<engine_time_t> _schedule;
-        node_ptr                   _parent_node;
+        node_ptr                   _parent_node;  // back-pointer, not owned
         std::string                _label;
-        traits_ptr                 _traits;
+        Traits                     _traits;  // Stored as value object
         SenderReceiverState        _receiver;
         engine_time_t              _last_evaluation_time{MIN_DT};
         int64_t                    _push_source_nodes_end{-1};

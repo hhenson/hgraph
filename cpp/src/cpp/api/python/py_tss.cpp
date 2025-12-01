@@ -6,6 +6,10 @@ namespace hgraph
 {
 
     template <typename T_U>
+    PyTimeSeriesSetOutput_T<T_U>::PyTimeSeriesSetOutput_T(api_ptr impl)
+        : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>(std::move(impl)) {}
+
+    template <typename T_U>
     PyTimeSeriesSetOutput_T<T_U>::PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o, control_block_ptr cb)
         : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>(o, std::move(cb)) {}
 
@@ -45,6 +49,10 @@ namespace hgraph
     }
 
     template <typename T_U> nb::str PyTimeSeriesSetOutput_T<T_U>::py_repr() const { return py_str(); }
+
+    template <typename T_U>
+    PyTimeSeriesSetInput_T<T_U>::PyTimeSeriesSetInput_T(api_ptr impl)
+        : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>(std::move(impl)) {}
 
     template <typename T_U>
     PyTimeSeriesSetInput_T<T_U>::PyTimeSeriesSetInput_T(TimeSeriesSetInput *o, control_block_ptr cb)

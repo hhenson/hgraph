@@ -4,6 +4,10 @@ namespace hgraph
 {
     template <typename T_U>
         requires is_tsw_output<T_U>
+    PyTimeSeriesWindowOutput<T_U>::PyTimeSeriesWindowOutput(api_ptr impl) : PyTimeSeriesOutput(std::move(impl)) {}
+
+    template <typename T_U>
+        requires is_tsw_output<T_U>
     PyTimeSeriesWindowOutput<T_U>::PyTimeSeriesWindowOutput(T_U *impl, const control_block_ptr &cb)
         : PyTimeSeriesOutput(impl, cb) {}
 
@@ -58,6 +62,9 @@ namespace hgraph
     auto PyTimeSeriesWindowOutput<T_U>::impl() const -> T_U * {
         return this->template static_cast_impl<T_U>();
     }
+
+    template <typename T>
+    PyTimeSeriesWindowInput<T>::PyTimeSeriesWindowInput(api_ptr impl) : PyTimeSeriesInput(std::move(impl)) {}
 
     template <typename T>
     PyTimeSeriesWindowInput<T>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<T> *impl, const control_block_ptr &cb)
@@ -154,7 +161,15 @@ namespace hgraph
     }
 
     // Explicit template instantiations for constructors used by wrapper factory
-    // Fixed window outputs - all registered types
+    // Fixed window outputs - all registered types (ApiPtr version)
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<bool>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesFixedWindowOutput<bool>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<int64_t>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesFixedWindowOutput<int64_t>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<double>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesFixedWindowOutput<double>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_date_t>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesFixedWindowOutput<engine_date_t>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_time_t>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesFixedWindowOutput<engine_time_t>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_time_delta_t>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesFixedWindowOutput<engine_time_delta_t>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<nb::object>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesFixedWindowOutput<nb::object>>);
+    // Fixed window outputs - raw pointer versions
     template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<bool>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<bool>*, const control_block_ptr&);
     template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<bool>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<bool>*);
     template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<int64_t>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<int64_t>*, const control_block_ptr&);
@@ -169,8 +184,16 @@ namespace hgraph
     template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<engine_time_delta_t>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<engine_time_delta_t>*);
     template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<nb::object>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<nb::object>*, const control_block_ptr&);
     template PyTimeSeriesWindowOutput<TimeSeriesFixedWindowOutput<nb::object>>::PyTimeSeriesWindowOutput(TimeSeriesFixedWindowOutput<nb::object>*);
-    
-    // Time window outputs - all registered types
+
+    // Time window outputs - all registered types (ApiPtr version)
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<bool>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesTimeWindowOutput<bool>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<int64_t>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesTimeWindowOutput<int64_t>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<double>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesTimeWindowOutput<double>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_date_t>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesTimeWindowOutput<engine_date_t>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_time_t>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesTimeWindowOutput<engine_time_t>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_time_delta_t>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesTimeWindowOutput<engine_time_delta_t>>);
+    template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<nb::object>>::PyTimeSeriesWindowOutput(ApiPtr<TimeSeriesTimeWindowOutput<nb::object>>);
+    // Time window outputs - raw pointer versions
     template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<bool>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<bool>*, const control_block_ptr&);
     template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<bool>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<bool>*);
     template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<int64_t>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<int64_t>*, const control_block_ptr&);
@@ -185,8 +208,16 @@ namespace hgraph
     template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<engine_time_delta_t>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<engine_time_delta_t>*);
     template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<nb::object>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<nb::object>*, const control_block_ptr&);
     template PyTimeSeriesWindowOutput<TimeSeriesTimeWindowOutput<nb::object>>::PyTimeSeriesWindowOutput(TimeSeriesTimeWindowOutput<nb::object>*);
-    
-    // Window inputs - all registered types
+
+    // Window inputs - all registered types (ApiPtr version)
+    template PyTimeSeriesWindowInput<bool>::PyTimeSeriesWindowInput(ApiPtr<TimeSeriesWindowInput<bool>>);
+    template PyTimeSeriesWindowInput<int64_t>::PyTimeSeriesWindowInput(ApiPtr<TimeSeriesWindowInput<int64_t>>);
+    template PyTimeSeriesWindowInput<double>::PyTimeSeriesWindowInput(ApiPtr<TimeSeriesWindowInput<double>>);
+    template PyTimeSeriesWindowInput<engine_date_t>::PyTimeSeriesWindowInput(ApiPtr<TimeSeriesWindowInput<engine_date_t>>);
+    template PyTimeSeriesWindowInput<engine_time_t>::PyTimeSeriesWindowInput(ApiPtr<TimeSeriesWindowInput<engine_time_t>>);
+    template PyTimeSeriesWindowInput<engine_time_delta_t>::PyTimeSeriesWindowInput(ApiPtr<TimeSeriesWindowInput<engine_time_delta_t>>);
+    template PyTimeSeriesWindowInput<nb::object>::PyTimeSeriesWindowInput(ApiPtr<TimeSeriesWindowInput<nb::object>>);
+    // Window inputs - raw pointer versions
     template PyTimeSeriesWindowInput<bool>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<bool>*, const control_block_ptr&);
     template PyTimeSeriesWindowInput<bool>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<bool>*);
     template PyTimeSeriesWindowInput<int64_t>::PyTimeSeriesWindowInput(TimeSeriesWindowInput<int64_t>*, const control_block_ptr&);

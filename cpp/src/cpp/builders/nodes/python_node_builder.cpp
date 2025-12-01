@@ -6,10 +6,10 @@
 
 namespace hgraph {
     PythonNodeBuilder::PythonNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
-                                         std::optional<input_builder_ptr> input_builder_,
-                                         std::optional<output_builder_ptr> output_builder_,
-                                         std::optional<output_builder_ptr> error_builder_,
-                                         std::optional<output_builder_ptr> recordable_state_builder_,
+                                         std::optional<input_builder_s_ptr> input_builder_,
+                                         std::optional<output_builder_s_ptr> output_builder_,
+                                         std::optional<output_builder_s_ptr> error_builder_,
+                                         std::optional<output_builder_s_ptr> recordable_state_builder_,
                                          nb::callable eval_fn,
                                          nb::callable start_fn, nb::callable stop_fn)
         : BaseNodeBuilder(std::move(signature_), std::move(scalars_), std::move(input_builder_),
@@ -18,7 +18,7 @@ namespace hgraph {
           eval_fn{std::move(eval_fn)}, start_fn{std::move(start_fn)}, stop_fn{std::move(stop_fn)} {
     }
 
-    node_ptr PythonNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
+    node_s_ptr PythonNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
         // Copy eval_fn if it's not a plain function (e.g., KeyStubEvalFn instance)
         // This matches Python: eval_fn=self.eval_fn if isfunction(self.eval_fn) else copy(self.eval_fn)
         nb::callable eval_fn_to_use = eval_fn;
@@ -35,18 +35,16 @@ namespace hgraph {
 
         // If this is a push-queue node, build a PushQueueNode so the runtime can receive external messages
         if (signature->is_push_source_node()) {
-            nb::ref<Node> node{new PushQueueNode{node_ndx, owning_graph_id, signature, scalars}};
-            _build_inputs_and_outputs(node);
+            auto node = std::make_shared<PushQueueNode>(node_ndx, owning_graph_id, signature, scalars);
+            _build_inputs_and_outputs(node.get());
             // Provide the eval function so the node can expose a sender in start()
-            dynamic_cast<PushQueueNode &>(*node).set_eval_fn(eval_fn_to_use);
+            node->set_eval_fn(eval_fn_to_use);
             return node;
         }
 
-        nb::ref<Node> node{
-            new PythonNode{node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn}
-        };
+        auto node = std::make_shared<PythonNode>(node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn);
 
-        _build_inputs_and_outputs(node);
+        _build_inputs_and_outputs(node.get());
         return node;
     }
 
@@ -57,21 +55,21 @@ namespace hgraph {
                          auto signature_ = nb::cast<node_signature_ptr>(kwargs["signature"]);
                          auto scalars_ = nb::cast<nb::dict>(kwargs["scalars"]);
 
-                         std::optional<input_builder_ptr> input_builder_ =
+                         std::optional<input_builder_s_ptr> input_builder_ =
                                  kwargs.contains("input_builder")
-                                     ? nb::cast<std::optional<input_builder_ptr> >(kwargs["input_builder"])
+                                     ? nb::cast<std::optional<input_builder_s_ptr> >(kwargs["input_builder"])
                                      : std::nullopt;
-                         std::optional<output_builder_ptr> output_builder_ =
+                         std::optional<output_builder_s_ptr> output_builder_ =
                                  kwargs.contains("output_builder")
-                                     ? nb::cast<std::optional<output_builder_ptr> >(kwargs["output_builder"])
+                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["output_builder"])
                                      : std::nullopt;
-                         std::optional<output_builder_ptr> error_builder_ =
+                         std::optional<output_builder_s_ptr> error_builder_ =
                                  kwargs.contains("error_builder")
-                                     ? nb::cast<std::optional<output_builder_ptr> >(kwargs["error_builder"])
+                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["error_builder"])
                                      : std::nullopt;
-                         std::optional<output_builder_ptr> recordable_state_builder_ =
+                         std::optional<output_builder_s_ptr> recordable_state_builder_ =
                                  kwargs.contains("recordable_state_builder")
-                                     ? nb::cast<std::optional<output_builder_ptr> >(kwargs["recordable_state_builder"])
+                                     ? nb::cast<std::optional<output_builder_s_ptr> >(kwargs["recordable_state_builder"])
                                      : std::nullopt;
                          nb::handle eval_fn_ = kwargs.contains("eval_fn")
                                                    ? nb::cast<nb::handle>(kwargs["eval_fn"])

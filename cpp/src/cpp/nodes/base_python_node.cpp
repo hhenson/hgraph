@@ -47,8 +47,7 @@ namespace hgraph
                         wrapped_value = get_node_wrapper();
                     } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
                         auto out = output();
-                        // wrapped_value = wrap_output(out.get(), cb);
-                        wrapped_value = wrap_time_series(out, graph()->control_block());
+                        wrapped_value = wrap_time_series(out);
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
                         wrapped_value = wrap_node_scheduler(sched.get(), cb);
@@ -75,7 +74,7 @@ namespace hgraph
                             wrapped_value = nb::none();
                         }
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
-                        wrapped_value = g ? wrap_traits(g->traits().get(), cb) : nb::none();
+                        wrapped_value = g ? wrap_traits(&g->traits(), cb) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
                         auto recordable_state = this->recordable_state().get();
                         if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }
@@ -150,7 +149,7 @@ namespace hgraph
 
         // Get the fully qualified recordable ID
         nb::object  fq_recordable_id_fn = get_fq_recordable_id_fn();
-        nb::object  traits_obj       = wrap_traits(graph()->traits(), graph()->control_block());  // nb::cast(&(graph()->traits()));
+        nb::object  traits_obj       = wrap_traits(&graph()->traits(), graph()->control_block());
         std::string record_replay_id = signature().record_replay_id.value_or("");
         nb::object  recordable_id    = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
 
@@ -177,7 +176,7 @@ namespace hgraph
         recordable_state()->apply_result(restored_state.attr("value"));
     }
 
-    void BasePythonNode::reset_input(time_series_bundle_input_ptr value) {
+    void BasePythonNode::reset_input(const time_series_bundle_input_s_ptr& value) {
         Node::reset_input(value);
         _initialise_kwarg_inputs();
     }

@@ -39,10 +39,10 @@ namespace hgraph {
 
     template<typename K>
     SwitchNode<K>::SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
-                              nb::dict scalars, const std::unordered_map<K, graph_builder_ptr> &nested_graph_builders,
+                              nb::dict scalars, const std::unordered_map<K, graph_builder_s_ptr> &nested_graph_builders,
                               const std::unordered_map<K, std::unordered_map<std::string, int> > &input_node_ids,
                               const std::unordered_map<K, int> &output_node_ids, bool reload_on_ticked,
-                              graph_builder_ptr default_graph_builder,
+                              graph_builder_s_ptr default_graph_builder,
                               const std::unordered_map<std::string, int> &default_input_node_ids,
                               int default_output_node_id)
         : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
@@ -125,7 +125,7 @@ namespace hgraph {
                     stop_component(*active_graph_);
                     unwire_graph(active_graph_);
                     // Schedule deferred disposal via lambda capture
-                    graph_ptr graph_to_dispose = active_graph_;
+                    graph_s_ptr graph_to_dispose = active_graph_;
                     // Capture the nested_graph_builders and default_graph_builder by value for the lambda
                     auto builder = active_graph_builder_;
                     graph()->evaluation_engine()->add_before_evaluation_notification(
@@ -155,6 +155,7 @@ namespace hgraph {
                 active_graph_ = active_graph_builder_->make_instance(new_node_id, this, to_string(active_key_.value()));
 
                 // Set up evaluation engine
+                // Note: using 'new' here as NestedEvaluationEngine and NestedEngineEvaluationClock are nb::intrusive_base types
                 active_graph_->set_evaluation_engine(new NestedEvaluationEngine(
                     graph()->evaluation_engine(),
                     new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
@@ -188,7 +189,7 @@ namespace hgraph {
     }
 
     template<typename K>
-    void SwitchNode<K>::wire_graph(graph_ptr &graph) {
+    void SwitchNode<K>::wire_graph(graph_s_ptr &graph) {
         // Determine the effective graph key as Python does: if no specific mapping, use DEFAULT
         K graph_key = active_key_.value();
         bool has_specific = nested_graph_builders_.find(graph_key) != nested_graph_builders_.end();
@@ -234,10 +235,10 @@ namespace hgraph {
                     nb::setattr(key_node.eval_fn(), "key", nb::cast(graph_key));
                 } else {
                     // Python expects REF wiring: clone binding from outer REF input to inner REF input 'ts'
-                    auto outer_any = (*input())[arg].get();
-                    auto inner_any = (*node->input())["ts"].get();
-                    auto inner_ref = dynamic_cast<TimeSeriesReferenceInput *>(inner_any);
-                    auto outer_ref = dynamic_cast<TimeSeriesReferenceInput *>(outer_any);
+                    auto outer_any = (*input())[arg];
+                    auto inner_any = (*node->input())["ts"];
+                    auto inner_ref = dynamic_cast<TimeSeriesReferenceInput *>(inner_any.get());
+                    auto outer_ref = dynamic_cast<TimeSeriesReferenceInput *>(outer_any.get());
                     if (!inner_ref || !outer_ref) {
                         throw std::runtime_error(
                             fmt::format("SwitchNode wire_graph expects REF inputs for arg '{}'", arg));
@@ -264,7 +265,7 @@ namespace hgraph {
     }
 
     template<typename K>
-    void SwitchNode<K>::unwire_graph(graph_ptr &graph) {
+    void SwitchNode<K>::unwire_graph(graph_s_ptr &graph) {
         if (old_output_ != nullptr) {
             // Resolve the same effective key used during wiring (handles DEFAULT fallback)
             K graph_key = active_key_.value();
@@ -293,13 +294,13 @@ namespace hgraph {
     }
 
     template<typename K>
-    std::unordered_map<int, graph_ptr> SwitchNode<K>::nested_graphs() const {
+    std::unordered_map<int, graph_s_ptr> SwitchNode<K>::nested_graphs() const {
         if (active_graph_ != nullptr) { return {{static_cast<int>(count_), active_graph_}}; }
         return {};
     }
 
     template<typename K>
-    void SwitchNode<K>::enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const {
+    void SwitchNode<K>::enumerate_nested_graphs(const std::function<void(graph_s_ptr)>& callback) const {
         if (active_graph_) {
             callback(active_graph_);
         }

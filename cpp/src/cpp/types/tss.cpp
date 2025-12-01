@@ -149,14 +149,14 @@ namespace hgraph
     }
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const node_ptr &parent)
-        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{dynamic_cast_ref<TimeSeriesValueOutput<bool>>(
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
                                                            TimeSeriesValueOutputBuilder<bool>().make_instance(this))} {}
 
-    TimeSeriesSetOutput::TimeSeriesSetOutput(const TimeSeriesType::ptr &parent)
-        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{dynamic_cast_ref<TimeSeriesValueOutput<bool>>(
+    TimeSeriesSetOutput::TimeSeriesSetOutput(time_series_output_ptr parent)
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
                                                            TimeSeriesValueOutputBuilder<bool>().make_instance(this))} {}
 
-    TimeSeriesValueOutput<bool>::ptr &TimeSeriesSetOutput::is_empty_output() {
+    TimeSeriesValueOutput<bool>::s_ptr &TimeSeriesSetOutput::is_empty_output() {
         if (!_is_empty_ref_output->valid()) { _is_empty_ref_output->set_value(empty()); }
         return _is_empty_ref_output;
     }
@@ -180,7 +180,7 @@ namespace hgraph
                                 {}} {}
 
     template <typename T_Key>
-    TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const TimeSeriesType::ptr &parent)
+    TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(time_series_output_ptr parent)
         : TimeSeriesSetOutput(parent),
           _contains_ref_outputs{this,
                                 new TimeSeriesValueOutputBuilder<bool>(),
@@ -611,10 +611,10 @@ namespace hgraph
     template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::empty() const { return _value.empty(); }
 
     template <typename T_Key>
-    TimeSeriesValueOutput<bool>::ptr TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
+    TimeSeriesValueOutput<bool>::s_ptr TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
                                                                                        const nb::object &requester) {
-        return dynamic_cast<TimeSeriesValueOutput<bool> *>(
-            _contains_ref_outputs.create_or_increment(nb::cast<element_type>(item), static_cast<void *>(requester.ptr())).get());
+        return std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
+            _contains_ref_outputs.create_or_increment(nb::cast<element_type>(item), static_cast<void *>(requester.ptr())));
     }
 
     template <typename T_Key>
@@ -684,7 +684,7 @@ namespace hgraph
         owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self]() { self->reset_prev(); });
     }
 
-    bool TimeSeriesSetInput::do_bind_output(const TimeSeriesOutput::ptr& output) {
+    bool TimeSeriesSetInput::do_bind_output(const_time_series_output_ptr output) {
         if (has_output()) {
             _prev_output = &set_output();
             // Clean up after the engine cycle is complete

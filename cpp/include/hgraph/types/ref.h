@@ -168,7 +168,7 @@ namespace hgraph
 
         [[nodiscard]] engine_time_t last_modified_time() const override;
 
-        bool bind_output(const time_series_output_ptr& value) override;
+        bool bind_output(const_time_series_output_ptr value) override;
 
         void un_bind_output(bool unbind_refs) override;
 
@@ -198,7 +198,7 @@ namespace hgraph
 
       protected:
         friend struct PyTimeSeriesReferenceInput;
-        bool do_bind_output(const time_series_output_ptr& output_) override;
+        bool do_bind_output(const_time_series_output_ptr output_) override;
 
         void do_un_bind_output(bool unbind_refs) override;
 
@@ -246,7 +246,7 @@ namespace hgraph
 
         // Constructor that accepts size
         TimeSeriesListReferenceInput(Node *owning_node, InputBuilder::ptr value_builder, size_t size);
-        TimeSeriesListReferenceInput(TimeSeriesType *parent_input, InputBuilder::ptr value_builder, size_t size);
+        TimeSeriesListReferenceInput(TimeSeriesInput *parent_input, InputBuilder::ptr value_builder, size_t size);
 
         TimeSeriesInput                  *get_input(size_t index) override;
         size_t                            size() const { return _size; }
@@ -285,7 +285,7 @@ namespace hgraph
 
         // Constructor that accepts size
         TimeSeriesBundleReferenceInput(Node *owning_node, std::vector<InputBuilder::ptr> value_builders, size_t size);
-        TimeSeriesBundleReferenceInput(TimeSeriesType *parent_input, std::vector<InputBuilder::ptr> value_builders, size_t size);
+        TimeSeriesBundleReferenceInput(TimeSeriesInput *parent_input, std::vector<InputBuilder::ptr> value_builders, size_t size);
 
         TimeSeriesReference         value() const override;
         size_t                      size() const { return _size; }
@@ -373,7 +373,7 @@ namespace hgraph
 
         // Constructor that accepts size
         TimeSeriesListReferenceOutput(Node *owning_node, OutputBuilder::ptr value_builder, size_t size);
-        TimeSeriesListReferenceOutput(TimeSeriesType *parent_output, OutputBuilder::ptr value_builder, size_t size);
+        TimeSeriesListReferenceOutput(TimeSeriesOutput *parent_output, OutputBuilder::ptr value_builder, size_t size);
 
         size_t size() const { return _size; }
 
@@ -393,7 +393,7 @@ namespace hgraph
 
         // Constructor that accepts size
         TimeSeriesBundleReferenceOutput(Node *owning_node, std::vector<OutputBuilder::ptr> value_builder, size_t size);
-        TimeSeriesBundleReferenceOutput(TimeSeriesType *parent_output, std::vector<OutputBuilder::ptr> value_builder, size_t size);
+        TimeSeriesBundleReferenceOutput(TimeSeriesOutput *parent_output, std::vector<OutputBuilder::ptr> value_builder, size_t size);
 
         size_t size() const { return _size; }
 

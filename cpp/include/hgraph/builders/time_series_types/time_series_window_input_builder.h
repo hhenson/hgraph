@@ -13,9 +13,9 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesWindowInputBuilder_T : InputBuilder {
         using ptr = nb::ref<TimeSeriesWindowInputBuilder_T<T> >;
 
-        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_input_s_ptr make_instance(node_ptr owning_node) const override;
 
-        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
+        time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
 
         [[nodiscard]] bool is_same_type(const Builder &other) const override {
             return dynamic_cast<const TimeSeriesWindowInputBuilder_T<T> *>(&other) != nullptr;

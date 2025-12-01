@@ -106,8 +106,8 @@ namespace hgraph {
         for (auto& node : graph->nodes()) {
             if (node->signature().has_nested_graphs) {
                 const auto nested = static_cast<const NestedNode*>(node.get());
-                nested->enumerate_nested_graphs([this](const graph_ptr& g) {
-                    walk(g);
+                nested->enumerate_nested_graphs([this](graph_s_ptr g) {
+                    walk(g.get());
                 });
             }
         }
@@ -206,7 +206,7 @@ namespace hgraph {
             gi->size = _estimate_size(nullptr); // TODO: Estimate graph size
             gi->node_sizes.resize(node_count);
             for (size_t i = 0; i < node_count; ++i) {
-                gi->node_sizes[i] = _estimate_size(graph->nodes()[i]);
+                gi->node_sizes[i] = _estimate_size(graph->nodes()[i].get());
             }
             gi->total_size = gi->size;
             for (auto s : gi->node_sizes) {
@@ -231,7 +231,7 @@ namespace hgraph {
             // TODO: Add assertion when safe
         }
 
-        _graphs[graph.get()] = gi;
+        _graphs[graph] = gi;
         _graphs_by_id[gi->id] = gi;
         _current_graph = gi;
 
@@ -262,7 +262,7 @@ namespace hgraph {
     void InspectionObserver::on_before_graph_evaluation(graph_ptr graph) {
         auto observation_begin = std::chrono::high_resolution_clock::now();
 
-        _current_graph = _graphs[graph.get()];
+        _current_graph = _graphs[graph];
         if (!_current_graph) {
             on_before_start_graph(graph);
         }
@@ -384,7 +384,7 @@ namespace hgraph {
         for (int64_t i = 0; i < graph->push_source_nodes_end(); ++i) {
             auto node = graph->nodes()[i];
             if (node->output()->modified()) {
-                _process_node_after_eval(node);
+                _process_node_after_eval(node.get());
             }
         }
         
@@ -492,7 +492,7 @@ namespace hgraph {
     }
 
     void InspectionObserver::on_after_stop_graph(graph_ptr graph) {
-        auto it = _graphs.find(graph.get());
+        auto it = _graphs.find(graph);
         if (it != _graphs.end()) {
             auto gi = it->second;
             gi->stopped = true;

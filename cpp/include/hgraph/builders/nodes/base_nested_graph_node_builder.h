@@ -14,15 +14,15 @@
 namespace hgraph {
     struct BaseNestedGraphNodeBuilder : BaseNodeBuilder {
         BaseNestedGraphNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
-                                   std::optional<input_builder_ptr> input_builder_ = std::nullopt,
-                                   std::optional<output_builder_ptr> output_builder_ = std::nullopt,
-                                   std::optional<output_builder_ptr> error_builder_ = std::nullopt,
-                                   std::optional<output_builder_ptr> recordable_state_builder_ = std::nullopt,
-                                   graph_builder_ptr nested_graph_builder = {},
+                                   std::optional<input_builder_s_ptr> input_builder_ = std::nullopt,
+                                   std::optional<output_builder_s_ptr> output_builder_ = std::nullopt,
+                                   std::optional<output_builder_s_ptr> error_builder_ = std::nullopt,
+                                   std::optional<output_builder_s_ptr> recordable_state_builder_ = std::nullopt,
+                                   graph_builder_s_ptr nested_graph_builder = {},
                                    const std::unordered_map<std::string, int> &input_node_ids = {},
                                    int output_node_id = -1);
 
-        graph_builder_ptr nested_graph_builder;
+        graph_builder_s_ptr nested_graph_builder;
         const std::unordered_map<std::string, int> input_node_ids;
         int output_node_id;
     };
@@ -43,23 +43,23 @@ namespace hgraph {
 
         auto signature_ = nb::cast<node_signature_ptr>(args[0]);
         auto scalars_ = nb::cast<nb::dict>(args[1]);
-        std::optional<input_builder_ptr> input_builder_ =
+        std::optional<input_builder_s_ptr> input_builder_ =
                 args[2].is_none()
                     ? std::nullopt
-                    : std::optional<input_builder_ptr>(nb::cast<input_builder_ptr>(args[2]));
-        std::optional<output_builder_ptr> output_builder_ =
+                    : std::optional<input_builder_s_ptr>(nb::cast<input_builder_s_ptr>(args[2]));
+        std::optional<output_builder_s_ptr> output_builder_ =
                 args[3].is_none()
                     ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[3]));
-        std::optional<output_builder_ptr> error_builder_ =
+                    : std::optional<output_builder_s_ptr>(nb::cast<output_builder_s_ptr>(args[3]));
+        std::optional<output_builder_s_ptr> error_builder_ =
                 args[4].is_none()
                     ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[4]));
-        std::optional<output_builder_ptr> recordable_state_builder_ =
+                    : std::optional<output_builder_s_ptr>(nb::cast<output_builder_s_ptr>(args[4]));
+        std::optional<output_builder_s_ptr> recordable_state_builder_ =
                 args[5].is_none()
                     ? std::nullopt
-                    : std::optional<output_builder_ptr>(nb::cast<output_builder_ptr>(args[5]));
-        auto nested_graph_builder = nb::cast<graph_builder_ptr>(args[6]);
+                    : std::optional<output_builder_s_ptr>(nb::cast<output_builder_s_ptr>(args[5]));
+        auto nested_graph_builder = nb::cast<graph_builder_s_ptr>(args[6]);
         auto input_node_ids = nb::cast<std::unordered_map<std::string, int> >(args[7]);
         auto output_node_id = nb::cast<int>(args[8]);
 

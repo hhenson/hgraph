@@ -2,7 +2,7 @@
 #include <hgraph/util/sender_receiver_state.h>
 
 namespace hgraph {
-    void SenderReceiverState::set_evaluation_clock(engine_evalaution_clock_ptr clock) { evaluation_clock = clock; }
+    void SenderReceiverState::set_evaluation_clock(engine_evaluation_clock_ptr clock) { evaluation_clock = clock; }
 
     void SenderReceiverState::operator()(value_type value) {
         // Replace `int` with the appropriate type.

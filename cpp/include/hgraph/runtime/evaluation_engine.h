@@ -106,9 +106,9 @@ namespace hgraph
 
         virtual void add_after_evaluation_notification(std::function<void()> &&fn) = 0;
 
-        virtual void add_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) = 0;
+        virtual void add_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) = 0;
 
-        virtual void remove_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) = 0;
+        virtual void remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) = 0;
     };
 
     struct EvaluationEngineDelegate;
@@ -202,9 +202,9 @@ namespace hgraph
 
         void add_after_evaluation_notification(std::function<void()> &&fn) override;
 
-        void add_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) override;
+        void add_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) override;
 
-        void remove_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) override;
+        void remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) override;
 
         void advance_engine_time() override;
 
@@ -362,9 +362,9 @@ namespace hgraph
 
         void add_after_evaluation_notification(std::function<void()> &&fn) override;
 
-        void add_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) override;
+        void add_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) override;
 
-        void remove_life_cycle_observer(EvaluationLifeCycleObserver::ptr observer) override;
+        void remove_life_cycle_observer(EvaluationLifeCycleObserver::s_ptr observer) override;
 
         EngineEvaluationClock::ptr engine_evaluation_clock() override;
 
@@ -406,7 +406,7 @@ namespace hgraph
         engine_time_t                                 _end_time;
         EvaluationMode                                _run_mode;
         bool                                          _stop_requested{false};
-        std::vector<EvaluationLifeCycleObserver::ptr> _life_cycle_observers{};
+        std::vector<EvaluationLifeCycleObserver::s_ptr> _life_cycle_observers{};
         std::vector<std::function<void()>>            _before_evaluation_notification{};
         std::vector<std::function<void()>>            _after_evaluation_notification{};
     };

@@ -3,6 +3,7 @@
 
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/util/reference_count_subscriber.h>
+#include <memory>
 
 namespace hgraph
 {
@@ -42,9 +43,11 @@ namespace hgraph
 
     void injectable_type_enum(nb::module_ &m);
 
+    // NodeSignature - external object created from Python, keeps nb::intrusive_base
     struct HGRAPH_EXPORT NodeSignature : nanobind::intrusive_base
     {
-        using ptr = nanobind::ref<NodeSignature>;
+        using ptr = NodeSignature*;
+        using s_ptr = nanobind::ref<NodeSignature>;
 
         NodeSignature(std::string name, NodeTypeEnum node_type, std::vector<std::string> args,
                       std::optional<std::unordered_map<std::string, nb::object>> time_series_inputs,
@@ -112,14 +115,16 @@ namespace hgraph
 
         [[nodiscard]] nb::dict to_dict() const;
 
-        [[nodiscard]] ptr copy_with(const nb::kwargs& kwargs) const;
+        [[nodiscard]] s_ptr copy_with(const nb::kwargs& kwargs) const;
 
         static void register_with_nanobind(nb::module_ &m);
     };
 
-    struct NodeScheduler : nanobind::intrusive_base
+    // NodeScheduler - owned by Node, uses shared_ptr
+    struct NodeScheduler : std::enable_shared_from_this<NodeScheduler>
     {
-        using ptr = nanobind::ref<NodeScheduler>;
+        using ptr = NodeScheduler*;
+        using s_ptr = std::shared_ptr<NodeScheduler>;
 
         explicit NodeScheduler(node_ptr node);
 
@@ -153,7 +158,7 @@ namespace hgraph
         void _on_alarm(engine_time_t when, std::string tag);
 
       private:
-        // Use a node_ptr to ensure that we retain a reference if this escapes the expected scope.
+        // Back-pointer to owning node (raw pointer, no ownership)
         node_ptr                                        _node;
         std::set<std::pair<engine_time_t, std::string>> _scheduled_events;
         std::unordered_map<std::string, engine_time_t>  _tags;
@@ -161,11 +166,13 @@ namespace hgraph
         engine_time_t                                   _last_scheduled_time{MIN_DT};
     };
 
-    struct HGRAPH_EXPORT Node : ComponentLifeCycle, Notifiable
+    // Node - runtime object, uses shared_ptr
+    struct HGRAPH_EXPORT Node : ComponentLifeCycle, Notifiable, std::enable_shared_from_this<Node>
     {
-        using ptr = nanobind::ref<Node>;
+        using ptr = Node*;
+        using s_ptr = std::shared_ptr<Node>;
 
-        Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature, nb::dict scalars);
+        Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars);
 
         virtual void eval();
 
@@ -185,41 +192,41 @@ namespace hgraph
 
         const nb::dict &scalars() const;
 
-        Graph* graph();
+        graph_ptr graph();
 
-        Graph* graph() const;
+        graph_ptr graph() const;
 
         void set_graph(graph_ptr value);
 
-        TimeSeriesBundleInput* input();
+        time_series_bundle_input_s_ptr& input();
 
-        TimeSeriesBundleInput* input() const;
+        const time_series_bundle_input_s_ptr& input() const;
 
         auto start_inputs() const { return _start_inputs; }
 
-        void set_input(time_series_bundle_input_ptr value);
+        void set_input(const time_series_bundle_input_s_ptr& value);
 
-        virtual void reset_input(time_series_bundle_input_ptr value);
+        virtual void reset_input(const time_series_bundle_input_s_ptr& value);
 
-        TimeSeriesOutput* output();
+        time_series_output_s_ptr& output();
 
-        void set_output(time_series_output_ptr value);
+        void set_output(const time_series_output_s_ptr& value);
 
-        time_series_bundle_output_ptr recordable_state();
+        time_series_bundle_output_s_ptr& recordable_state();
 
-        void set_recordable_state(time_series_bundle_output_ptr value);
+        void set_recordable_state(const time_series_bundle_output_s_ptr& value);
 
         bool has_recordable_state() const;
 
-        NodeScheduler::ptr scheduler();
+        NodeScheduler::s_ptr& scheduler();
 
         bool has_scheduler() const;
 
         void unset_scheduler();
 
-        time_series_output_ptr error_output();
+        time_series_output_s_ptr& error_output();
 
-        void set_error_output(time_series_output_ptr value);
+        void set_error_output(const time_series_output_s_ptr& value);
 
         // Performance optimization: provide access to cached evaluation time pointer
         [[nodiscard]] const engine_time_t *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
@@ -227,7 +234,7 @@ namespace hgraph
         friend struct Graph;
         friend struct NodeScheduler;
 
-        void add_start_input(nb::ref<TimeSeriesReferenceInput> input);
+        void add_start_input(const time_series_reference_input_s_ptr& input);
 
         bool has_input() const;
 
@@ -251,23 +258,23 @@ namespace hgraph
         void _initialise_inputs();
 
       private:
-        int64_t                       _node_ndx;
-        std::vector<int64_t>          _owning_graph_id;
-        NodeSignature::ptr            _signature;
-        nb::dict                      _scalars;
-        graph_ptr                     _graph;
-        time_series_bundle_input_ptr  _input;
-        time_series_output_ptr        _output;
-        time_series_output_ptr        _error_output;
-        time_series_bundle_output_ptr _recordable_state;
-        NodeScheduler::ptr            _scheduler;
+        int64_t                         _node_ndx;
+        std::vector<int64_t>            _owning_graph_id;
+        node_signature_s_ptr            _signature;
+        nb::dict                        _scalars;
+        graph_ptr                       _graph;               // back-pointer, not owned
+        time_series_bundle_input_s_ptr  _input;               // owned
+        time_series_output_s_ptr        _output;              // owned
+        time_series_output_s_ptr        _error_output;        // owned
+        time_series_bundle_output_s_ptr _recordable_state;    // owned
+        NodeScheduler::s_ptr            _scheduler;           // owned
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.
-        std::vector<nb::ref<TimeSeriesReferenceInput>> _start_inputs;
+        std::vector<time_series_reference_input_s_ptr> _start_inputs;  // owned
 
-        // Cache for these calculated values.
-        std::vector<nb::ref<TimeSeriesInput>> _check_valid_inputs;
-        std::vector<nb::ref<TimeSeriesInput>> _check_all_valid_inputs;
+        // Cache for these calculated values - not owned, just references
+        std::vector<time_series_input_ptr> _check_valid_inputs;
+        std::vector<time_series_input_ptr> _check_all_valid_inputs;
 
         // Performance optimization: Cache evaluation time pointer from graph
         // Set once when graph is assigned to node, never changes

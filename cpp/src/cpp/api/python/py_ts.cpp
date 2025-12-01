@@ -5,10 +5,16 @@
 namespace hgraph
 {
 
+    PyTimeSeriesValueOutput::PyTimeSeriesValueOutput(api_ptr impl)
+        : PyTimeSeriesOutput(std::move(impl)) {}
+
     PyTimeSeriesValueOutput::PyTimeSeriesValueOutput(TimeSeriesType *ts, control_block_ptr control_block)
         : PyTimeSeriesOutput(ts, std::move(control_block)) {}
 
     PyTimeSeriesValueOutput::PyTimeSeriesValueOutput(TimeSeriesType *ts) : PyTimeSeriesOutput(ts) {}
+
+    PyTimeSeriesValueInput::PyTimeSeriesValueInput(api_ptr impl)
+        : PyTimeSeriesInput(std::move(impl)) {}
 
     PyTimeSeriesValueInput::PyTimeSeriesValueInput(TimeSeriesType *ts, control_block_ptr control_block)
         : PyTimeSeriesInput(ts, std::move(control_block)) {}

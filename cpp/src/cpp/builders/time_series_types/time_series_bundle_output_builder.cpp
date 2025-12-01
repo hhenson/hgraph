@@ -8,18 +8,18 @@
 #include <utility>
 
 namespace hgraph {
-    TimeSeriesBundleOutputBuilder::TimeSeriesBundleOutputBuilder(TimeSeriesSchema::ptr schema,
+    TimeSeriesBundleOutputBuilder::TimeSeriesBundleOutputBuilder(time_series_schema_ptr schema,
                                                                  std::vector<OutputBuilder::ptr> output_builders)
         : OutputBuilder(), schema{std::move(schema)}, output_builders{std::move(output_builders)} {
     }
 
-    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(const node_ptr& owning_node) const {
-        auto v{new TimeSeriesBundleOutput{owning_node, schema}};
+    time_series_output_s_ptr TimeSeriesBundleOutputBuilder::make_instance(node_ptr owning_node) const {
+        auto v = std::make_shared<TimeSeriesBundleOutput>(owning_node, schema);
         return make_and_set_outputs(v);
     }
 
-    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
-        auto v{new TimeSeriesBundleOutput(dynamic_cast_ref<TimeSeriesType>(owning_output), schema)};
+    time_series_output_s_ptr TimeSeriesBundleOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+        auto v = std::make_shared<TimeSeriesBundleOutput>(owning_output, schema);
         return make_and_set_outputs(v);
     }
 
@@ -40,23 +40,23 @@ namespace hgraph {
 
     void TimeSeriesBundleOutputBuilder::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
-        auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(item.get());
-        if (bundle) {
-            auto &outputs = bundle->ts_values();
-            for (size_t i = 0; i < output_builders.size(); ++i) { output_builders[i]->release_instance(outputs[i]); }
+        auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(item);
+        if (bundle == nullptr) {
+            throw std::runtime_error("TimeSeriesBundleOutputBuilder::release_instance: expected TimeSeriesBundleOutput but got different type");
         }
+        auto &outputs = bundle->ts_values();
+        for (size_t i = 0; i < output_builders.size(); ++i) { output_builders[i]->release_instance(outputs[i].get()); }
     }
 
-    time_series_output_ptr TimeSeriesBundleOutputBuilder::make_and_set_outputs(TimeSeriesBundleOutput *output) const {
-        std::vector<time_series_output_ptr> outputs;
-        time_series_output_ptr output_{output};
+    time_series_output_s_ptr TimeSeriesBundleOutputBuilder::make_and_set_outputs(time_series_bundle_output_s_ptr output) const {
+        std::vector<time_series_output_s_ptr> outputs;
         outputs.reserve(output_builders.size());
         std::ranges::copy(output_builders | std::views::transform([&](auto &builder) {
-                              return builder->make_instance(output_);
+                              return builder->make_instance(output.get());
                           }),
                           std::back_inserter(outputs));
         output->set_ts_values(outputs);
-        return output_;
+        return output;
     }
 
     size_t TimeSeriesBundleOutputBuilder::memory_size() const {

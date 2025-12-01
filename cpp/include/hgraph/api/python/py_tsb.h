@@ -16,7 +16,9 @@ namespace hgraph
     struct PyTimeSeriesBundle : T_TS
     {
         using underlying_type = T_U;
+        using api_ptr = ApiPtr<underlying_type>;
 
+        explicit PyTimeSeriesBundle(api_ptr impl);
         explicit PyTimeSeriesBundle(underlying_type *impl, const control_block_ptr &cb);
         explicit PyTimeSeriesBundle(underlying_type *impl);
 

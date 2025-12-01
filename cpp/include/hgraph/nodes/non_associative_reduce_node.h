@@ -19,10 +19,10 @@ namespace hgraph {
     struct TsdNonAssociativeReduceNode : NestedNode {
         TsdNonAssociativeReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id,
                                     NodeSignature::ptr signature,
-                                    nb::dict scalars, graph_builder_ptr nested_graph_builder,
+                                    nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
                                     const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id);
 
-        std::unordered_map<int, graph_ptr> &nested_graphs();
+        std::unordered_map<int, graph_s_ptr> nested_graphs();
 
     protected:
         void initialise() override;
@@ -52,15 +52,15 @@ namespace hgraph {
 
         int64_t node_count() const;
 
-        std::vector<node_ptr> get_node(int64_t ndx);
+        std::vector<node_s_ptr> get_node(int64_t ndx);
 
-        void enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const override;
+        void enumerate_nested_graphs(const std::function<void(graph_s_ptr)>& callback) const override;
 
     private:
-        graph_builder_ptr nested_graph_builder_;
+        graph_builder_s_ptr nested_graph_builder_;
         std::tuple<int64_t, int64_t> input_node_ids_; // LHS index, RHS index
         [[maybe_unused]] int64_t output_node_id_; // TODO: Use in implementation
-        graph_ptr nested_graph_;
+        graph_s_ptr nested_graph_;
         [[maybe_unused]] int64_t cached_node_size_{-1}; // TODO: Use in implementation
     };
 } // namespace hgraph

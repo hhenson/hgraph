@@ -25,7 +25,7 @@ namespace hgraph {
             if (_is_tsd) {
                 // TODO: This allows us to operate on the python level, would prefer to
                 //       Handle this better with correct type-matched objects.
-                auto tsd_output = wrap_time_series(output_ptr, graph()->control_block());
+                auto tsd_output = wrap_time_series(output_ptr);
 
                 auto remove = get_remove();
                 auto remove_if_exist = get_remove_if_exists();
@@ -106,7 +106,7 @@ namespace hgraph {
         _receiver = &graph()->receiver();
         _elide = scalars().contains("elide") ? nb::cast<bool>(scalars()["elide"]) : false;
         _batch = scalars().contains("batch") ? nb::cast<bool>(scalars()["batch"]) : false;
-        _is_tsd = dynamic_cast<TimeSeriesDictOutput *>(output()) != nullptr;
+        _is_tsd = dynamic_cast<TimeSeriesDictOutput *>(output().get()) != nullptr;
 
         // If an eval function was provided (from push_queue decorator), call it with a sender and scalar kwargs
         if (_eval_fn.is_valid() && !_eval_fn.is_none()) {

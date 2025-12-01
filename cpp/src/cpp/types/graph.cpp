@@ -10,26 +10,28 @@
 
 namespace hgraph
 {
-    Graph::Graph(std::vector<int64_t> graph_id_, std::vector<Node::ptr> nodes_, std::optional<Node::ptr> parent_node_,
-                 std::string label_, traits_ptr traits_)
-        : ComponentLifeCycle(), _control_block{std::make_shared<ApiControlBlock>()}, _graph_id{std::move(graph_id_)},
-          _nodes{std::move(nodes_)}, _parent_node{parent_node_.has_value() ? std::move(*parent_node_) : nullptr},
-          _label{std::move(label_)}, _traits{std::move(traits_)} {
+    Graph::Graph(std::vector<int64_t> graph_id_, node_list nodes_, std::optional<node_ptr> parent_node_,
+                 std::string label_, const_traits_ptr parent_traits_)
+        : ComponentLifeCycle(), _graph_id{std::move(graph_id_)},
+          _nodes{std::move(nodes_)}, _parent_node{parent_node_.has_value() ? *parent_node_ : nullptr},
+          _label{std::move(label_)}, _traits{parent_traits_} {
         auto it{std::find_if(_nodes.begin(), _nodes.end(),
-                             [](const Node *v) { return v->signature().node_type != NodeTypeEnum::PUSH_SOURCE_NODE; })};
+                             [](const node_s_ptr &v) { return v->signature().node_type != NodeTypeEnum::PUSH_SOURCE_NODE; })};
         _push_source_nodes_end = std::distance(_nodes.begin(), it);
         _schedule.resize(_nodes.size(), MIN_DT);
     }
 
-    Graph::~Graph() { _control_block->mark_dead(); }
+    Graph::~Graph() {}
 
-    const control_block_ptr &Graph::control_block() const { return _control_block; }
+    control_block_ptr Graph::control_block() const {
+        return std::static_pointer_cast<void>(const_cast<Graph*>(this)->shared_from_this());
+    }
 
     const std::vector<int64_t> &Graph::graph_id() const { return _graph_id; }
 
-    const std::vector<node_ptr> &Graph::nodes() const { return _nodes; }
+    const Graph::node_list &Graph::nodes() const { return _nodes; }
 
-    Node* Graph::parent_node() const { return const_cast<Node*>(_parent_node.get()); }
+    node_ptr Graph::parent_node() const { return _parent_node; }
 
     std::optional<std::string> Graph::label() const { return _label; }
 
@@ -102,7 +104,7 @@ namespace hgraph
                 auto  node        = nodes[i];
                 auto &node_ref    = *node;
                 try {
-                    NotifyNodeEvaluation nne{evaluation_engine(), node};
+                    NotifyNodeEvaluation nne{evaluation_engine(), node.get()};
                     bool                 success = dynamic_cast<PushQueueNode &>(node_ref).apply_message(message);
                     if (!success) {
                         receiver().enqueue_front({i, message});
@@ -134,7 +136,7 @@ namespace hgraph
 
             if (scheduled_time == now) {
                 try {
-                    NotifyNodeEvaluation nne{evaluation_engine(), nodep};
+                    NotifyNodeEvaluation nne{evaluation_engine(), nodep.get()};
                     node.eval();
                 } catch (const NodeException &e) { throw e; } catch (const std::exception &e) {
                     throw NodeException::capture_error(e, node, "During evaluation");
@@ -147,13 +149,19 @@ namespace hgraph
         }
     }
 
-    Graph::ptr Graph::copy_with(std::vector<Node::ptr> nodes) {
+    Graph::s_ptr Graph::copy_with(node_list nodes) {
         // This is a copy, need to make sure we copy the graph contents
         // TODO: This REALLY should be constructed using a builder, for now we will just allow to continue
-        return ptr{new Graph(_graph_id, std::move(nodes), _parent_node, _label, _traits->copy())};
+        auto new_graph = std::make_shared<Graph>(_graph_id, std::move(nodes), _parent_node, _label, nullptr);
+        new_graph->clone_traits_from(*this);
+        return new_graph;
     }
 
-    const Traits:: ptr &Graph::traits() const { return _traits; }
+    void Graph::clone_traits_from(const Graph &other) {
+        _traits = std::move(other._traits.copy());
+    }
+
+    const Traits &Graph::traits() const { return _traits; }
 
     SenderReceiverState &Graph::receiver() { return _receiver; }
 
@@ -198,9 +206,9 @@ namespace hgraph
         for (auto i = start; i < end; ++i) {
             auto node{_nodes[i]};
             try {
-                evaluation_engine()->notify_before_start_node(node);
+                evaluation_engine()->notify_before_start_node(node.get());
                 start_component(*node);
-                evaluation_engine()->notify_after_start_node(node);
+                evaluation_engine()->notify_after_start_node(node.get());
             } catch (const NodeException &e) {
                 throw;  // already enriched
             } catch (const std::exception &e) { throw NodeException::capture_error(e, *node, "During node start"); } catch (...) {
@@ -213,9 +221,9 @@ namespace hgraph
         for (auto i = start; i < end; ++i) {
             auto node{_nodes[i]};
             try {
-                evaluation_engine()->notify_before_stop_node(node);
+                evaluation_engine()->notify_before_stop_node(node.get());
                 stop_component(*node);
-                evaluation_engine()->notify_after_stop_node(node);
+                evaluation_engine()->notify_after_stop_node(node.get());
             } catch (const NodeException &e) {
                 throw;  // already enriched
             } catch (const std::exception &e) { throw NodeException::capture_error(e, *node, "During node stop"); } catch (...) {
@@ -242,9 +250,9 @@ namespace hgraph
         auto &engine = *_evaluation_engine;
         engine.notify_before_start_graph(graph_ptr{this});
         for (auto &node : _nodes) {
-            engine.notify_before_start_node(node);
+            engine.notify_before_start_node(node.get());
             start_component(*node);
-            engine.notify_after_start_node(node);
+            engine.notify_after_start_node(node.get());
         }
         engine.notify_after_start_graph(graph_ptr{this});
     }
@@ -255,7 +263,7 @@ namespace hgraph
         std::exception_ptr first_exc;
         for (auto &node : _nodes) {
             try {
-                engine.notify_before_stop_node(node);
+                engine.notify_before_stop_node(node.get());
             } catch (...) {
                 if (!first_exc) first_exc = std::current_exception();
             }
@@ -265,7 +273,7 @@ namespace hgraph
                 if (!first_exc) first_exc = std::current_exception();
             }
             try {
-                engine.notify_after_stop_node(node);
+                engine.notify_after_stop_node(node.get());
             } catch (...) {
                 if (!first_exc) first_exc = std::current_exception();
             }

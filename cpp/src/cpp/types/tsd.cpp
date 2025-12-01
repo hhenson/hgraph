@@ -123,8 +123,8 @@ namespace hgraph
     }
 
     template <typename T_Key>
-    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_ptr ts_builder,
-                                                          output_builder_ptr ts_ref_builder)
+    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_s_ptr ts_builder,
+                                                          output_builder_s_ptr ts_ref_builder)
         : TimeSeriesDictOutput(parent), _key_set{new TimeSeriesSetOutput_T<T_Key>(this)}, _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{this,
@@ -133,7 +133,7 @@ namespace hgraph
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
                               auto  it = output_t._ts_values.find(key);
                               if (it != output_t._ts_values.end()) {
-                                  auto r{TimeSeriesReference::make(it->second)};
+                                  auto r{TimeSeriesReference::make(it->second.get())};
                                   auto r_val{nb::cast(r)};
                                   result_output.apply_result(r_val);
                               } else {
@@ -148,9 +148,9 @@ namespace hgraph
     }
 
     template <typename T_Key>
-    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
-                                                          output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)), _key_set{new TimeSeriesSetOutput_T<T_Key>(this)},
+    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(time_series_output_ptr parent, output_builder_s_ptr ts_builder,
+                                                          output_builder_s_ptr ts_ref_builder)
+        : TimeSeriesDictOutput(parent), _key_set{new TimeSeriesSetOutput_T<T_Key>(this)},
           _ts_builder{std::move(ts_builder)}, _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{this,
                           _ts_ref_builder,
@@ -158,7 +158,7 @@ namespace hgraph
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
                               auto  it = output_t._ts_values.find(key);
                               if (it != output_t._ts_values.end()) {
-                                  auto r{TimeSeriesReference::make(it->second)};
+                                  auto r{TimeSeriesReference::make(it->second.get())};
                                   auto r_val{nb::cast(r)};
                                   result_output.apply_result(r_val);
                               } else {
@@ -293,12 +293,12 @@ namespace hgraph
     }
 
     template <typename T_Key>
-    typename TimeSeriesDictOutput_T<T_Key>::ts_type_ptr TimeSeriesDictOutput_T<T_Key>::operator[](const key_type &item) {
+    typename TimeSeriesDictOutput_T<T_Key>::ts_type_s_ptr TimeSeriesDictOutput_T<T_Key>::operator[](const key_type &item) {
         return get_or_create(item);
     }
 
     template <typename T_Key>
-    typename TimeSeriesDictOutput_T<T_Key>::ts_type_ptr TimeSeriesDictOutput_T<T_Key>::operator[](const key_type &item) const {
+    typename TimeSeriesDictOutput_T<T_Key>::ts_type_s_ptr TimeSeriesDictOutput_T<T_Key>::operator[](const key_type &item) const {
         return _ts_values.at(item);
     }
 
@@ -389,8 +389,7 @@ namespace hgraph
 
     template <typename T_Key>
     nb::object TimeSeriesDictOutput_T<T_Key>::py_get_ref(const nb::object &key, const nb::object &requester) {
-        //TODO: move this function out so we can have better access to the control block, this could be an expensive call!
-        return wrap_output(get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr())), owning_graph()->control_block());
+        return wrap_time_series(get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr())));
     }
 
     template <typename T_Key>
@@ -399,7 +398,7 @@ namespace hgraph
     }
 
     template <typename T_Key>
-    time_series_output_ptr TimeSeriesDictOutput_T<T_Key>::get_ref(const key_type &key, const void *requester) {
+    time_series_output_s_ptr& TimeSeriesDictOutput_T<T_Key>::get_ref(const key_type &key, const void *requester) {
         return _ref_ts_feature.create_or_increment(key, requester);
     }
 
@@ -409,21 +408,22 @@ namespace hgraph
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_dispose() {
         // Release all removed items first
-        for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value); }
+        for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value.get()); }
         _removed_items.clear();
 
         // Release all current values
-        for (auto &[_, value] : _ts_values) { _ts_builder->release_instance(value); }
+        for (auto &[_, value] : _ts_values) { _ts_builder->release_instance(value.get()); }
         _ts_values.clear();
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_clear_key_changes() {
         // Release removed instances before clearing
-        for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value); }
+        for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value.get()); }
         _removed_items.clear();
     }
 
-    template <typename T_Key> TimeSeriesOutput::ptr TimeSeriesDictOutput_T<T_Key>::get_or_create(const key_type &key) {
+    template <typename T_Key>
+    typename TimeSeriesDictOutput_T<T_Key>::value_type TimeSeriesDictOutput_T<T_Key>::get_or_create(const key_type &key) {
         if (_ts_values.find(key) == _ts_values.end()) { create(key); }
         return _ts_values[key];
     }
@@ -447,12 +447,12 @@ namespace hgraph
     }
 
     template <typename T_Key>
-    TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_ptr ts_builder)
+    TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_s_ptr ts_builder)
         : TimeSeriesDictInput(parent), _key_set{new typename TimeSeriesDictInput_T<T_Key>::key_set_type{this}},
           _ts_builder{ts_builder} {}
 
     template <typename T_Key>
-    TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const time_series_type_ptr &parent, input_builder_ptr ts_builder)
+    TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(time_series_input_ptr parent, input_builder_s_ptr ts_builder)
         : TimeSeriesDictInput(parent), _key_set{new typename TimeSeriesDictInput_T<T_Key>::key_set_type{this}},
           _ts_builder{ts_builder} {}
 
@@ -657,8 +657,8 @@ namespace hgraph
         return _removed_items.find(key) != _removed_items.end();
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(const time_series_output_ptr& value) {
-        auto *value_output{dynamic_cast<TimeSeriesDictOutput_T<T_Key> *>(const_cast<TimeSeriesOutput*>(value.get()))};
+    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(const_time_series_output_ptr value) {
+        auto *value_output{dynamic_cast<TimeSeriesDictOutput_T<T_Key> *>(const_cast<TimeSeriesOutput*>(value))};
 
         // Peer when types match AND neither has references (matching Python logic)
         bool  peer = (is_same_type(value_output) || !(value_output->has_reference() || this->has_reference()));
@@ -783,7 +783,7 @@ namespace hgraph
             auto builder  = _ts_builder;
             auto instance = value;
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification(
-                [builder, instance]() { builder->release_instance(instance); });
+                [builder, instance]() { builder->release_instance(instance.get()); });
             value->un_bind_output(true);
         }
 
@@ -914,7 +914,7 @@ namespace hgraph
 
         // If the key was removed in this cycle, clean up the removed tracking
         if (auto it = _removed_items.find(key); it != _removed_items.end()) {
-            _ts_builder->release_instance(it->second);
+            _ts_builder->release_instance(it->second.get());
             _removed_items.erase(it);
         }
 

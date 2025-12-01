@@ -11,13 +11,13 @@ namespace hgraph {
         : output_builder{std::move(output_builder)}, size{size} {
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(const node_ptr& owning_node) const {
-        auto v{new TimeSeriesListOutput(owning_node)};
+    time_series_output_s_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node) const {
+        auto v = std::make_shared<TimeSeriesListOutput>(owning_node);
         return make_and_set_outputs(v);
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_instance(const time_series_output_ptr& owning_output) const {
-        auto v{new TimeSeriesListOutput(dynamic_cast_ref<TimeSeriesType>(owning_output))};
+    time_series_output_s_ptr TimeSeriesListOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+        auto v = std::make_shared<TimeSeriesListOutput>(owning_output);
         return make_and_set_outputs(v);
     }
 
@@ -30,16 +30,17 @@ namespace hgraph {
 
     void TimeSeriesListOutputBuilder::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
-        auto list = dynamic_cast<TimeSeriesListOutput *>(const_cast<TimeSeriesOutput*>(item.get()));
-        if (list) {
-            for (auto &value: list->ts_values()) { output_builder->release_instance(value); }
+        auto list = dynamic_cast<TimeSeriesListOutput *>(item);
+        if (list == nullptr) {
+            throw std::runtime_error("TimeSeriesListOutputBuilder::release_instance: expected TimeSeriesListOutput but got different type");
         }
+        for (auto &value: list->ts_values()) { output_builder->release_instance(value.get()); }
     }
 
-    time_series_output_ptr TimeSeriesListOutputBuilder::make_and_set_outputs(TimeSeriesListOutput *output) const {
-        std::vector<time_series_output_ptr> outputs;
+    time_series_output_s_ptr TimeSeriesListOutputBuilder::make_and_set_outputs(time_series_list_output_s_ptr output) const {
+        std::vector<time_series_output_s_ptr> outputs;
         outputs.reserve(size);
-        for (size_t i = 0; i < size; ++i) { outputs.push_back(output_builder->make_instance(output)); }
+        for (size_t i = 0; i < size; ++i) { outputs.push_back(output_builder->make_instance(output.get())); }
         output->set_ts_values(outputs);
         return output;
     }

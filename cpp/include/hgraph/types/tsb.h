@@ -56,11 +56,11 @@ namespace hgraph {
         using key_iterator = key_collection_type::iterator;
         using key_const_iterator = key_collection_type::const_iterator;
 
-        using key_value_collection_type = std::vector<std::pair<c_string_ref, typename ts_type::ptr> >;
+        using key_value_collection_type = std::vector<std::pair<c_string_ref, typename ts_type::s_ptr> >;
 
         explicit TimeSeriesBundle(const node_ptr &parent, TimeSeriesSchema::ptr schema);
 
-        explicit TimeSeriesBundle(const TimeSeriesType::ptr &parent, TimeSeriesSchema::ptr schema);
+        explicit TimeSeriesBundle(typename ts_type::ptr parent, TimeSeriesSchema::ptr schema);
 
         TimeSeriesBundle(const TimeSeriesBundle &) = default;
 
@@ -83,9 +83,9 @@ namespace hgraph {
 
         using index_ts_type::operator[];
 
-        [[nodiscard]] typename ts_type::ptr &operator[](const std::string &key);
+        [[nodiscard]] typename ts_type::s_ptr &operator[](const std::string &key);
 
-        [[nodiscard]] const typename ts_type::ptr &operator[](const std::string &key) const;
+        [[nodiscard]] const typename ts_type::s_ptr &operator[](const std::string &key) const;
 
         [[nodiscard]] bool contains(const std::string &key) const;
 
@@ -118,7 +118,7 @@ namespace hgraph {
         [[nodiscard]] bool has_reference() const override;
 
         // Override to return string key instead of index
-        [[nodiscard]] const std::string& key_from_value(typename ts_type::ptr value) const;
+        [[nodiscard]] const std::string& key_from_value(typename ts_type::s_ptr value) const;
 
     protected:
         using T_TS::index_with_constraint;
@@ -169,6 +169,7 @@ namespace hgraph {
 
     struct TimeSeriesBundleInput : TimeSeriesBundle<IndexedTimeSeriesInput> {
         using ptr = nb::ref<TimeSeriesBundleInput>;
+        using s_ptr = std::shared_ptr<TimeSeriesBundleInput>;
         using bundle_type::TimeSeriesBundle;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
@@ -176,7 +177,7 @@ namespace hgraph {
         // This is used by the nested graph infra to rewrite the stub inputs when we build the nested graphs.
         // The general pattern in python was copy_with(node, ts=...)
         // To keep the code in sync for now, will keep this, but there is probably a better way to implement this going forward.
-        ptr copy_with(const node_ptr &parent, collection_type ts_values);
+        s_ptr copy_with(const node_ptr &parent, collection_type ts_values);
 
         // Simple double dispatch visitor support
         void accept(TimeSeriesInputVisitor& visitor) override {
