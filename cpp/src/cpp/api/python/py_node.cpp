@@ -118,7 +118,7 @@ namespace hgraph
         return PyGraph(ApiPtr<Graph>(graph, graph->control_block()));
     }
 
-    time_series_bundle_input_ptr PyNode::input() const { return _impl->input().get(); }
+    nb::object PyNode::input() const { return wrap_input(_impl->input().get(), _impl.control_block()); }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;
@@ -129,17 +129,17 @@ namespace hgraph
 
     nb::tuple PyNode::start_inputs() const { return nb::make_tuple(_impl->start_inputs()); }
 
-    time_series_output_ptr PyNode::output() { return _impl->output().get(); }
+    nb::object PyNode::output() { return wrap_output(_impl->output()); }
 
-    nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state().get(), _impl.control_block()); }
+    nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state()); }
 
     nb::bool_ PyNode::has_recordable_state() const { return nb::bool_(_impl->has_recordable_state()); }
 
-    nb::object PyNode::scheduler() const { return wrap_node_scheduler(_impl->scheduler().get(), _impl.control_block()); }
+    nb::object PyNode::scheduler() const { return wrap_node_scheduler(_impl->scheduler()); }
 
     nb::bool_ PyNode::has_scheduler() const { return nb::bool_(_impl->has_scheduler()); }
 
-    time_series_output_ptr PyNode::error_output() { return _impl->error_output().get(); }
+    nb::object PyNode::error_output() { return wrap_output(_impl->error_output()); }
 
     nb::bool_ PyNode::has_input() const { return nb::bool_(_impl->has_input()); }
 

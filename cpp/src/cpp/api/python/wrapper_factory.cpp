@@ -111,6 +111,11 @@ namespace hgraph
         return nb::cast(PyNodeScheduler(PyNodeScheduler::api_ptr(impl, control_block)));
     }
 
+    nb::object wrap_node_scheduler(const NodeScheduler::s_ptr &impl) {
+        if (!impl) { return nb::none(); }
+        return nb::cast(PyNodeScheduler(PyNodeScheduler::api_ptr(impl)));
+    }
+
     // Simple double dispatch visitor for wrapping TimeSeriesInput objects
     struct WrapInputVisitor : TimeSeriesInputVisitor
     {

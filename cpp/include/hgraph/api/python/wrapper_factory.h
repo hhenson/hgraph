@@ -12,6 +12,7 @@
 #include <hgraph/api/python/api_ptr.h>
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
+#include <hgraph/types/node.h>
 #include <memory>
 #include <type_traits>
 
@@ -20,7 +21,6 @@ namespace hgraph
     // Forward declarations
     struct Node;
     struct Graph;
-    struct NodeScheduler;
     struct TimeSeriesInput;
     struct TimeSeriesOutput;
 
@@ -53,6 +53,7 @@ namespace hgraph
      * Creates and caches new wrapper if not.
      */
     nb::object wrap_node_scheduler(const hgraph::NodeScheduler *impl, const control_block_ptr &control_block);
+    nb::object wrap_node_scheduler(const NodeScheduler::s_ptr &impl);
 
     /**
      * Wrap a TimeSeriesInput pointer in the appropriate PyTimeSeriesXxxInput wrapper.
