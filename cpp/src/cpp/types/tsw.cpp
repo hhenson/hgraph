@@ -62,7 +62,12 @@ namespace hgraph
         if (_length > _size) {
             _removed_value.reset();
             _removed_value = _buffer[_start];
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { _removed_value.reset(); });
+            auto weak_self = weak_from_this();
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesFixedWindowOutput *>(self.get())->_removed_value.reset();
+                }
+            });
             _start  = (_start + 1) % _size;
             _length = _size;
         }
@@ -132,8 +137,12 @@ namespace hgraph
                 _buffer.pop_front();
             }
             _removed_values = std::move(removed);
-            auto *self      = const_cast<TimeSeriesTimeWindowOutput<T> *>(this);
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self]() { self->_reset_removed_values(); });
+            auto weak_self  = std::const_pointer_cast<TimeSeriesOutput>(shared_from_this());
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self = std::weak_ptr(weak_self)]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesTimeWindowOutput<T> *>(self.get())->_reset_removed_values();
+                }
+            });
         }
     }
 

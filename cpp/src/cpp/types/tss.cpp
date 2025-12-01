@@ -300,7 +300,12 @@ namespace hgraph
             // Make sure we only do this once
             TimeSeriesSetOutput::mark_modified(modified_time);
             if (has_parent_or_node()) {
-                owning_node()->graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { this->_reset(); });
+                auto weak_self = weak_from_this();
+                owning_node()->graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                    if (auto self = weak_self.lock()) {
+                        static_cast<TimeSeriesSetOutput_T *>(self.get())->_reset();
+                    }
+                });
             }
         }
     }
@@ -681,11 +686,16 @@ namespace hgraph
     }
 
     void TimeSeriesSetInput::_add_reset_prev() const {
-        // A cheat but should be OK
+        // Capture weak_ptr to avoid preventing destruction, but skip callback if already destroyed
         if (_pending_reset_prev) { return; }
         _pending_reset_prev = true;
-        auto self           = const_cast<TimeSeriesSetInput *>(this);
-        owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self]() { self->reset_prev(); });
+        // Need non-const pointer since reset_prev() is not const
+        auto weak_self      = std::weak_ptr(std::const_pointer_cast<TimeSeriesInput>(shared_from_this()));
+        owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+            if (auto self = weak_self.lock()) {
+                static_cast<TimeSeriesSetInput *>(self.get())->reset_prev();
+            }
+        });
     }
 
     bool TimeSeriesSetInput::do_bind_output(const_time_series_output_ptr output) {

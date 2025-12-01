@@ -97,7 +97,12 @@ namespace hgraph
 
         if (_last_cleanup_time < et) {
             _last_cleanup_time = et;
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { _clear_key_changes(); });
+            auto weak_self = weak_from_this();
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesDictOutput_T *>(self.get())->_clear_key_changes();
+                }
+            });
         }
     }
 
@@ -669,7 +674,12 @@ namespace hgraph
             output_t().remove_key_observer(this);
             _prev_output = {&output_t()};
             // TODO: check this will not enter again
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { this->reset_prev(); });
+            auto weak_self = weak_from_this();
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesDictInput_T *>(self.get())->reset_prev();
+                }
+            });
         }
 
         auto active_{active()};
@@ -796,7 +806,12 @@ namespace hgraph
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::register_clear_key_changes() {
         if (!_clear_key_changes_registered) {
             _clear_key_changes_registered = true;
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { clear_key_changes(); });
+            auto weak_self = weak_from_this();
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesDictInput_T *>(self.get())->clear_key_changes();
+                }
+            });
         }
     }
 
@@ -922,7 +937,12 @@ namespace hgraph
         auto et{owning_graph()->evaluation_clock()->evaluation_time()};
         if (_last_cleanup_time < et) {
             _last_cleanup_time = et;
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { _clear_key_changes(); });
+            auto weak_self = weak_from_this();
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesDictOutput_T *>(self.get())->_clear_key_changes();
+                }
+            });
         }
     }
 
