@@ -118,7 +118,7 @@ namespace hgraph
         return PyGraph(ApiPtr<Graph>(graph, graph->control_block()));
     }
 
-    nb::object PyNode::input() const { return wrap_input(_impl->input().get(), _impl.control_block()); }
+    nb::object PyNode::input() const { return wrap_input(_impl->input()->shared_from_this()); }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;

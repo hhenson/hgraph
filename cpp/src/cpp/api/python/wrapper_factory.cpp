@@ -86,24 +86,14 @@ namespace hgraph
         return nb::cast(PyNode(std::move(impl)));
     }
 
-    // Overload for raw pointer + control block
-    nb::object wrap_node(const Node *impl, const control_block_ptr &control_block) {
-        return wrap_node(PyNode::api_ptr(impl, control_block));
-    }
-
-    // Overload for raw pointer only (gets control block from graph)
-    nb::object wrap_node(const Node *impl) {
-        return wrap_node(impl, impl->graph()->control_block());
-    }
-
     // Overload for shared_ptr
     nb::object wrap_node(const node_s_ptr &impl) {
         return wrap_node(PyNode::api_ptr(impl));
     }
 
-    nb::object wrap_graph(const Graph *impl, const control_block_ptr &control_block) {
+    nb::object wrap_graph(const Graph::s_ptr &impl) {
         if (!impl) { return nb::none(); }
-        return nb::cast(PyGraph(PyGraph::api_ptr(impl, control_block)));
+        return nb::cast(PyGraph(PyGraph::api_ptr(impl)));
     }
 
     nb::object wrap_node_scheduler(const NodeScheduler *impl, const control_block_ptr &control_block) {

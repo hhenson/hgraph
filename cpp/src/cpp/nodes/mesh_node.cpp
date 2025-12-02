@@ -87,8 +87,8 @@ namespace hgraph {
             auto reference = TimeSeriesReference::make(tsd_output_ptr);
             ref_output.set_value(reference);
 
-            // Store the ref output in GlobalState
-            GlobalState::set(full_context_path_, wrap_output(static_cast<TimeSeriesOutput*>(&ref_output), ref_output.owning_graph()->control_block()));
+            // Store the ref output in GlobalState using shared_ptr-based wrapping
+            GlobalState::set(full_context_path_, wrap_output(ref_output.shared_from_this()));
         } else {
             throw std::runtime_error("GlobalState instance required for MeshNode");
         }

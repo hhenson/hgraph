@@ -29,16 +29,16 @@ namespace hgraph
      * Creates appropriate specialized wrapper based on runtime type.
      */
     nb::object wrap_node(PyNode::api_ptr impl);
-    nb::object wrap_node(const hgraph::Node *impl, const control_block_ptr &control_block);
-    nb::object wrap_node(const Node *impl);
+    // Hard-ban raw pointer wrapping for Nodes: prefer shared_ptr
+    // nb::object wrap_node(const hgraph::Node *impl, const control_block_ptr &control_block);
+    // nb::object wrap_node(const Node *impl);
     nb::object wrap_node(const node_s_ptr &impl);
 
     /**
-     * Wrap a Graph pointer in a PyGraph.
-     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
-     * Creates and caches new wrapper if not.
+     * Wrap a Graph in a PyGraph.
+     * Hard-ban raw pointer wrapping for Graph: prefer shared_ptr
      */
-    nb::object wrap_graph(const hgraph::Graph *impl, const control_block_ptr &control_block);
+    nb::object wrap_graph(const graph_s_ptr &impl);
 
     /**
      * Wrap a Traits pointer in a PyTraits.
@@ -80,6 +80,9 @@ namespace hgraph
     nb::object wrap_time_series(ApiPtr<TimeSeriesOutput> impl);
 
     // Overloads for shared_ptr - the shared_ptr provides both the pointer and lifetime
+    inline nb::object wrap_input(const time_series_input_s_ptr &impl) {
+        return wrap_input(ApiPtr<TimeSeriesInput>(impl));
+    }
     inline nb::object wrap_time_series(const time_series_input_s_ptr &impl) {
         return wrap_time_series(ApiPtr<TimeSeriesInput>(impl));
     }
@@ -87,19 +90,7 @@ namespace hgraph
         return wrap_time_series(ApiPtr<TimeSeriesOutput>(impl));
     }
 
-    // Overloads for raw pointer + control_block (creates aliasing ApiPtr)
-    inline nb::object wrap_input(TimeSeriesInput *impl, const control_block_ptr &cb) {
-        return wrap_input(ApiPtr<TimeSeriesInput>(impl, cb));
-    }
-    inline nb::object wrap_output(TimeSeriesOutput *impl, const control_block_ptr &cb) {
-        return wrap_output(ApiPtr<TimeSeriesOutput>(impl, cb));
-    }
-    inline nb::object wrap_time_series(TimeSeriesInput *impl, const control_block_ptr &cb) {
-        return wrap_time_series(ApiPtr<TimeSeriesInput>(impl, cb));
-    }
-    inline nb::object wrap_time_series(TimeSeriesOutput *impl, const control_block_ptr &cb) {
-        return wrap_time_series(ApiPtr<TimeSeriesOutput>(impl, cb));
-    }
+    // Hard-ban raw pointer wrapping for time-series values (Inputs/Outputs): prefer shared_ptr
 
     // NOTE: Raw pointer-only overloads (deriving control block) are intentionally removed.
     // Callers must provide either shared_ptr or (T*, control_block_ptr).

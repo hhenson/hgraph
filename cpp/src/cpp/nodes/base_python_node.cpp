@@ -30,7 +30,7 @@ namespace hgraph
 
         nb::object node_wrapper{};
         auto       get_node_wrapper = [&]() -> nb::object {
-            if (!node_wrapper && g) { node_wrapper = wrap_node(this, cb); }
+            if (!node_wrapper && g) { node_wrapper = wrap_node(shared_from_this()); }
             return node_wrapper;
         };
         auto &signature_args = signature().args;
@@ -76,9 +76,9 @@ namespace hgraph
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
                         wrapped_value = g ? wrap_traits(&g->traits(), cb) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
-                        auto recordable_state = this->recordable_state().get();
+                        auto recordable_state = this->recordable_state();
                         if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }
-                        wrapped_value = wrap_time_series(recordable_state, cb);
+                        wrapped_value = wrap_time_series(recordable_state);
                     } else {
                         // Fallback: call injector with this node (same behaviour as python impl)
                         wrapped_value = value(get_node_wrapper());
@@ -115,7 +115,7 @@ namespace hgraph
              ++i) {
             auto key{input_->schema().keys()[i]};
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                auto wrapped = wrap_time_series(input_->operator[](i).get(), cb);
+                auto wrapped = wrap_time_series(input_->operator[](i));
                 if (wrapped.is_none()) {
                     throw std::runtime_error(
                         std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap time-series input '") +

@@ -49,7 +49,10 @@ namespace hgraph
         return nb::tuple(l);
     }
 
-    nb::object PyGraph::parent_node() const { return wrap_node(_impl->parent_node(), _impl.control_block()); }
+    nb::object PyGraph::parent_node() const {
+        auto *pn = _impl->parent_node();
+        return pn ? wrap_node(pn->shared_from_this()) : nb::none();
+    }
 
     nb::object PyGraph::label() const {
         auto lbl{_impl->label()};

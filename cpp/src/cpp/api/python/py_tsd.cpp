@@ -57,7 +57,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires is_py_tsd<T_TS, T_U>
     nb::object PyTimeSeriesDict<T_TS, T_U>::key_set() const {
-        return wrap_time_series(&impl()->key_set(), this->control_block());
+        return wrap_time_series(impl()->key_set().shared_from_this());
     }
 
     template <typename T_TS, typename T_U>
