@@ -21,7 +21,7 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override { return true; }
 
-        [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+        [[nodiscard]] TimeSeriesInput::s_ptr get_input(size_t index) override;
 
         // Override to aggregate from children like Python implementation
         [[nodiscard]] bool valid() const override;
@@ -48,7 +48,7 @@ namespace hgraph {
 
     private:
         friend TimeSeriesSignalInputBuilder;
-        mutable std::vector<ptr> _ts_values; // Lazily created child signals
+        mutable std::vector<TimeSeriesInput::s_ptr> _ts_values; // Lazily created child signals
     };
 }
 

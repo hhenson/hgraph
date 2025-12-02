@@ -96,12 +96,16 @@ namespace hgraph {
 
     void BaseTimeSeriesOutput::invalidate() { mark_invalid(); }
 
-    TimeSeriesOutput::ptr BaseTimeSeriesOutput::parent_output() const {
-        return _parent_output();
+    TimeSeriesOutput::s_ptr BaseTimeSeriesOutput::parent_output() const {
+        if (_has_parent_output()) {
+            auto p = std::get<time_series_output_ptr>(*_parent_ts_or_node);
+            return p ? p->shared_from_this() : time_series_output_s_ptr{};
+        }
+        return {};
     }
 
-    TimeSeriesOutput::ptr BaseTimeSeriesOutput::parent_output() {
-        return _parent_output();
+    TimeSeriesOutput::s_ptr BaseTimeSeriesOutput::parent_output() {
+        return const_cast<const BaseTimeSeriesOutput *>(this)->parent_output();
     }
 
     bool BaseTimeSeriesOutput::has_parent_output() const { return _has_parent_output(); }
@@ -269,8 +273,12 @@ namespace hgraph {
         }
     }
 
-    TimeSeriesInput* BaseTimeSeriesInput::parent_input() const {
-        return _parent_input();
+    TimeSeriesInput::s_ptr BaseTimeSeriesInput::parent_input() const {
+        if (_has_parent_input()) {
+            auto p = std::get<time_series_input_ptr>(*_parent_ts_or_node);
+            return p ? p->shared_from_this() : time_series_input_s_ptr{};
+        }
+        return {};
     }
 
     bool BaseTimeSeriesInput::has_parent_input() const { return _has_parent_input(); }
@@ -402,7 +410,7 @@ namespace hgraph {
             _notify_time = modified_time;
             if (has_parent_input()) {
                 // Cast to BaseTimeSeriesInput to access protected notify_parent
-                auto parent = static_cast<BaseTimeSeriesInput*>(parent_input());
+                auto parent = std::static_pointer_cast<BaseTimeSeriesInput>(parent_input());
                 parent->notify_parent(this, modified_time);
             } else {
                 owning_node()->notify(modified_time);
@@ -446,13 +454,7 @@ namespace hgraph {
 
     time_series_reference_output_s_ptr BaseTimeSeriesInput::reference_output() const { return _reference_output; }
 
-    const TimeSeriesInput *BaseTimeSeriesInput::get_input(size_t index) const {
-        return const_cast<BaseTimeSeriesInput *>(this)->get_input(index);
-    }
-
-    TimeSeriesInput *BaseTimeSeriesInput::get_input(size_t index) {
-        throw std::runtime_error("BaseTimeSeriesInput [] not supported");
-    }
+    TimeSeriesInput::s_ptr BaseTimeSeriesInput::get_input(size_t index) { throw std::runtime_error("BaseTimeSeriesInput [] not supported"); }
 
     void BaseTimeSeriesInput::reset_output() { _output = nullptr; }
 

@@ -5,12 +5,12 @@ namespace hgraph {
 
     nb::object TimeSeriesSignalInput::py_delta_value() const { return py_value(); }
 
-    TimeSeriesInput *TimeSeriesSignalInput::get_input(size_t index) {
+    TimeSeriesInput::s_ptr TimeSeriesSignalInput::get_input(size_t index) {
         // This signal has been bound to a free bundle or a TSL so will be bound item-wise
         // Create child signals on demand, similar to Python implementation
         while (index >= _ts_values.size()) {
             // Create child with this as parent - child will notify parent, parent notifies node
-            auto new_item = new TimeSeriesSignalInput(static_cast<TimeSeriesInput*>(this));
+            auto new_item = std::make_shared<TimeSeriesSignalInput>(static_cast<TimeSeriesInput*>(this));
             if (active()) { new_item->make_active(); }
             _ts_values.push_back(new_item);
         }

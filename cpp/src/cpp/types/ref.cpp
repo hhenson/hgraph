@@ -129,7 +129,7 @@ namespace hgraph
 
                     for (size_t i = 0; i < _storage.unbound.size(); ++i) {
                         // Get the child input (from REF, Indexed, or Signal input)
-                        TimeSeriesInput *item{ts_input.get_input(i)};
+                        auto item = ts_input.get_input(i);
                         _storage.unbound[i].bind_input(*item);
                     }
 
@@ -405,7 +405,10 @@ namespace hgraph
         }
     }
 
-    TimeSeriesInput *TimeSeriesReferenceInput::get_input(size_t index) { return get_ref_input(index); }
+    TimeSeriesInput::s_ptr TimeSeriesReferenceInput::get_input(size_t index) {
+        auto *ref = get_ref_input(index);
+        return ref ? ref->shared_from_this() : time_series_input_s_ptr{};
+    }
 
     TimeSeriesReferenceInput *TimeSeriesReferenceInput::get_ref_input(size_t index) {
         throw std::runtime_error("TimeSeriesReferenceInput::get_ref_input: Not implemented on this type");
@@ -483,9 +486,7 @@ namespace hgraph
                                                                size_t size)
         : TimeSeriesReferenceInput(parent_input), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesInput *TimeSeriesListReferenceInput::get_input(size_t index) {
-        return get_ref_input(index);
-    }
+    TimeSeriesInput::s_ptr TimeSeriesListReferenceInput::get_input(size_t index) { return get_ref_input(index)->shared_from_this(); }
 
     TimeSeriesReference TimeSeriesListReferenceInput::value() const {
         if (has_output()) { return output_t()->py_value_or_empty(); }

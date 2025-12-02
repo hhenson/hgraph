@@ -218,8 +218,8 @@ namespace hgraph
 
                     // Create a new empty reference input to replace the old one in the node's input bundle
                     // This ensures the per-key input is fully detached before the nested graph is torn down
-                    auto empty_ref =
-                        dynamic_cast<TimeSeriesReferenceInput *>(node->input()->get_input(0))->clone_blank_ref_instance();
+                    auto empty_ref_owner = std::dynamic_pointer_cast<TimeSeriesReferenceInput>(node->input()->get_input(0));
+                    auto empty_ref = empty_ref_owner->clone_blank_ref_instance();
                     node->reset_input(node->input()->copy_with(node.get(), {empty_ref}));
                     dynamic_cast<TimeSeriesReferenceInput *>(empty_ref.get())->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
 

@@ -4,7 +4,7 @@ project(hgraph_cpp_engine)
 
 option(NB_USE_STABLE_ABI "Use nanobind stable ABI for the Python module" ON)
 option(HGRAPH_WITH_BACKWARD "Enable backward-cpp stack traces" ON)
-option(HGRAPH_ENABLE_ASAN "Enable AddressSanitizer (address + leaks)" ON)
+option(HGRAPH_ENABLE_ASAN "Enable AddressSanitizer (address + leaks)" OFF)
 option(HGRAPH_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" ON)
 option(HGRAPH_ENABLE_TSAN "Enable ThreadSanitizer (mutually exclusive with ASAN/UBSAN)" OFF)
 

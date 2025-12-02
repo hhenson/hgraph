@@ -107,7 +107,7 @@ namespace hgraph {
         }
     }
 
-    TimeSeriesInput *IndexedTimeSeriesInput::get_input(size_t index) { return (*this)[index].get(); }
+    TimeSeriesInput::s_ptr IndexedTimeSeriesInput::get_input(size_t index) { return (*this)[index]; }
 
     bool IndexedTimeSeriesInput::do_bind_output(time_series_output_s_ptr value) {
         auto output_bundle = std::dynamic_pointer_cast<IndexedTimeSeriesOutput>(value);

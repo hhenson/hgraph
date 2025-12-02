@@ -35,10 +35,10 @@ namespace hgraph
         return output;
     }
 
-    time_series_input_ptr _extract_input(node_ptr node, const std::vector<int64_t> &path) {
+    time_series_input_s_ptr _extract_input(node_ptr node, const std::vector<int64_t> &path) {
         if (path.empty()) { throw std::runtime_error("No path to find an input for"); }
 
-        auto input = static_cast<TimeSeriesInput *>(node->input().get());
+        time_series_input_s_ptr input = std::static_pointer_cast<TimeSeriesInput>(node->input());
 
         for (const auto &ndx : path) { input = input->get_input(ndx); }
         return input;

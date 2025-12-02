@@ -165,7 +165,7 @@ namespace hgraph {
 
         void make_passive() override;
 
-        [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+        [[nodiscard]] TimeSeriesInput::s_ptr get_input(size_t index) override;
 
     protected:
         bool do_bind_output(time_series_output_s_ptr value) override;

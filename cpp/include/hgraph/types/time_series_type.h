@@ -112,8 +112,8 @@ namespace hgraph
         TimeSeriesOutput() = default;
 
         // Output-specific navigation of the graph structure.
-        [[nodiscard]] virtual ptr  parent_output() const     = 0;
-        [[nodiscard]] virtual ptr  parent_output()           = 0;
+        [[nodiscard]] virtual s_ptr parent_output() const     = 0;
+        [[nodiscard]] virtual s_ptr parent_output()           = 0;
         [[nodiscard]] virtual bool has_parent_output() const = 0;
 
         // This is the key characteristic of an output node, it creates a shared state that
@@ -162,7 +162,7 @@ namespace hgraph
         TimeSeriesInput() = default;
 
         // Graph navigation specific to the input
-        [[nodiscard]] virtual ptr  parent_input() const     = 0;
+        [[nodiscard]] virtual s_ptr parent_input() const     = 0;
         [[nodiscard]] virtual bool has_parent_input() const = 0;
 
         // This is used to indicate if the owner of this input is interested in being notified when
@@ -186,8 +186,7 @@ namespace hgraph
         [[nodiscard]] virtual time_series_reference_output_s_ptr reference_output() const = 0;
 
         // This is a hack to support REF time-series binding, this definitely needs to be revisited.
-        [[nodiscard]] virtual const TimeSeriesInput *get_input(size_t index) const = 0;
-        [[nodiscard]] virtual TimeSeriesInput       *get_input(size_t index)       = 0;
+        [[nodiscard]] virtual s_ptr get_input(size_t index) = 0;
     };
 }  // namespace hgraph
 

@@ -62,10 +62,7 @@ namespace hgraph
 
     control_block_ptr PyTimeSeriesType::control_block() const { return _impl.control_block(); }
 
-    nb::object PyTimeSeriesOutput::parent_output() const {
-        auto parent = impl()->parent_output();
-        return parent ? wrap_output(parent->shared_from_this()) : nb::none();
-    }
+    nb::object PyTimeSeriesOutput::parent_output() const { return wrap_output(impl()->parent_output()); }
 
     nb::bool_ PyTimeSeriesOutput::has_parent_output() const { return nb::bool_(impl()->has_parent_output()); }
 
@@ -105,7 +102,7 @@ namespace hgraph
 
     TimeSeriesOutput *PyTimeSeriesOutput::impl() const { return static_cast_impl<TimeSeriesOutput>(); }
 
-    nb::object PyTimeSeriesInput::parent_input() const { return wrap_input(impl()->parent_input()->shared_from_this()); }
+    nb::object PyTimeSeriesInput::parent_input() const { return wrap_input(impl()->parent_input()); }
 
     nb::bool_ PyTimeSeriesInput::has_parent_input() const { return nb::bool_(impl()->has_parent_input()); }
 
@@ -131,7 +128,7 @@ namespace hgraph
         return wrap_output(impl()->reference_output());
     }
 
-    nb::object PyTimeSeriesInput::get_input(size_t index) const { return wrap_input(impl()->get_input(index)->shared_from_this()); }
+    nb::object PyTimeSeriesInput::get_input(size_t index) const { return wrap_input(impl()->get_input(index)); }
 
     void PyTimeSeriesInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesInput, PyTimeSeriesType>(m, "TimeSeriesInput")

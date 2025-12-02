@@ -179,7 +179,7 @@ namespace hgraph
 
         void make_passive() override;
 
-        [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+        [[nodiscard]] TimeSeriesInput::s_ptr get_input(size_t index) override;
 
         [[nodiscard]] virtual TimeSeriesReferenceInput *get_ref_input(size_t index);
 
@@ -251,7 +251,7 @@ namespace hgraph
         TimeSeriesListReferenceInput(Node *owning_node, InputBuilder::ptr value_builder, size_t size);
         TimeSeriesListReferenceInput(TimeSeriesInput *parent_input, InputBuilder::ptr value_builder, size_t size);
 
-        TimeSeriesInput                  *get_input(size_t index) override;
+        TimeSeriesInput::s_ptr            get_input(size_t index) override;
         size_t                            size() const { return _size; }
         [[nodiscard]] TimeSeriesReference value() const override;
 

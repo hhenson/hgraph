@@ -56,8 +56,8 @@ namespace hgraph {
         void mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) override;
         [[nodiscard]] bool valid() const override;
         [[nodiscard]] bool all_valid() const override;
-        [[nodiscard]] TimeSeriesOutput::ptr parent_output() const override;
-        [[nodiscard]] TimeSeriesOutput::ptr parent_output() override;
+        [[nodiscard]] TimeSeriesOutput::s_ptr parent_output() const override;
+        [[nodiscard]] TimeSeriesOutput::s_ptr parent_output() override;
         [[nodiscard]] bool has_parent_output() const override;
 
         void subscribe(Notifiable *node) override;
@@ -116,7 +116,7 @@ namespace hgraph {
         void re_parent(const time_series_type_ptr parent) override;
 
         // Inherited interface implementations
-        [[nodiscard]] TimeSeriesInput::ptr parent_input() const override;
+        [[nodiscard]] TimeSeriesInput::s_ptr parent_input() const override;
         [[nodiscard]] bool has_parent_input() const override;
         [[nodiscard]] bool bound() const override;
         [[nodiscard]] bool has_peer() const override;
@@ -140,8 +140,7 @@ namespace hgraph {
         [[nodiscard]] engine_time_t last_modified_time() const override;
         [[nodiscard]] time_series_reference_output_s_ptr reference_output() const override;
 
-        [[nodiscard]] const TimeSeriesInput *get_input(size_t index) const override;
-        [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+        [[nodiscard]] TimeSeriesInput::s_ptr get_input(size_t index) override;
 
     protected:
         // State and helpers moved from TimeSeriesType
