@@ -60,20 +60,6 @@ namespace hgraph {
 
     NotifyGraphEvaluation::NotifyGraphEvaluation(EvaluationEngine::ptr evaluation_engine, graph_ptr graph)
         : _evaluation_engine{std::move(evaluation_engine)}, _graph{std::move(graph)} {
-        // DEBUG: Validate evaluation engine pointer before calling virtual method
-        if (_evaluation_engine == nullptr) {
-            fprintf(stderr, "ERROR: NotifyGraphEvaluation received null evaluation_engine pointer\n");
-            fflush(stderr);
-            std::abort();
-        }
-        // Check vtable pointer (first 8 bytes of object) - if 0, object is invalid
-        void** vtable_ptr = reinterpret_cast<void**>(_evaluation_engine);
-        if (*vtable_ptr == nullptr) {
-            fprintf(stderr, "ERROR: NotifyGraphEvaluation - evaluation_engine has null vtable at %p\n",
-                    static_cast<void*>(_evaluation_engine));
-            fflush(stderr);
-            std::abort();
-        }
         _evaluation_engine->notify_before_graph_evaluation(_graph);
     }
 
@@ -103,15 +89,6 @@ namespace hgraph {
     }
 
     EvaluationEngineDelegate::EvaluationEngineDelegate(s_ptr api) : _evaluation_engine{std::move(api)} {
-        // DEBUG: Log delegate creation and validate stored engine
-        if (!_evaluation_engine) {
-            fprintf(stderr, "ERROR: EvaluationEngineDelegate created with null engine!\n");
-            fflush(stderr);
-            std::abort();
-        }
-        fprintf(stderr, "DEBUG: EvaluationEngineDelegate created, _evaluation_engine=%p, use_count=%ld\n",
-                static_cast<void*>(_evaluation_engine.get()), _evaluation_engine.use_count());
-        fflush(stderr);
     }
 
     EvaluationMode EvaluationEngineDelegate::evaluation_mode() const { return _evaluation_engine->evaluation_mode(); }
