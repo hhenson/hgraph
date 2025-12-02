@@ -31,10 +31,12 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         run: |
-          set -euo pipefail
-          echo "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:strict_init_order=1" >> $GITHUB_ENV
-          echo "LD_PRELOAD=$(gcc -print-file-name=libasan.so)" >> $GITHUB_ENV
-          echo "Configured ASan env: ASAN_OPTIONS=$ASAN_OPTIONS; LD_PRELOAD=$(gcc -print-file-name=libasan.so)"
+          set -eo pipefail
+          ASAN_OPTS="detect_leaks=1:halt_on_error=1:strict_init_order=1"
+          ASAN_LIB="$(gcc -print-file-name=libasan.so)"
+          echo "ASAN_OPTIONS=${ASAN_OPTS}" >> $GITHUB_ENV
+          echo "LD_PRELOAD=${ASAN_LIB}" >> $GITHUB_ENV
+          echo "Configured ASan env: ASAN_OPTIONS=${ASAN_OPTS}; LD_PRELOAD=${ASAN_LIB}"
 
       # Install uv and Python 3.12 (aligns with hg_cpp approach)
       - uses: astral-sh/setup-uv@v4
