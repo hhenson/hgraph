@@ -26,18 +26,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-uvpip-
 
-      # Prepare AddressSanitizer environment on Linux (GCC)
-      - name: Enable ASan runtime preloading (Linux GCC)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -eo pipefail
-          ASAN_OPTS="detect_leaks=1:halt_on_error=1:strict_init_order=1"
-          ASAN_LIB="$(gcc -print-file-name=libasan.so)"
-          echo "ASAN_OPTIONS=${ASAN_OPTS}" >> $GITHUB_ENV
-          echo "LD_PRELOAD=${ASAN_LIB}" >> $GITHUB_ENV
-          echo "Configured ASan env: ASAN_OPTIONS=${ASAN_OPTS}; LD_PRELOAD=${ASAN_LIB}"
-
       # Install uv and Python 3.12 (aligns with hg_cpp approach)
       - uses: astral-sh/setup-uv@v4
         with:
@@ -87,8 +75,7 @@ jobs:
         if: runner.os == 'Linux'
         shell: bash
         env:
-          ASAN_OPTIONS: ${{ env.ASAN_OPTIONS }}
-          LD_PRELOAD: ${{ env.LD_PRELOAD }}
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_init_order=1
         run: |
           set -euo pipefail
           ctest --test-dir build-asan -V || true
@@ -194,8 +181,6 @@ jobs:
         env:
           HGRAPH_USE_CPP: 'false'
           PYTHONFAULTHANDLER: '1'
-          ASAN_OPTIONS: ${{ env.ASAN_OPTIONS }}
-          LD_PRELOAD: ${{ env.LD_PRELOAD }}
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
@@ -211,8 +196,7 @@ jobs:
         env:
           HGRAPH_USE_CPP: 'true'
           PYTHONFAULTHANDLER: '1'
-          ASAN_OPTIONS: ${{ env.ASAN_OPTIONS }}
-          LD_PRELOAD: ${{ env.LD_PRELOAD }}
+          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_init_order=1
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
