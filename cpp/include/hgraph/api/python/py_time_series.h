@@ -106,8 +106,7 @@ namespace hgraph
         using PyTimeSeriesType::PyTimeSeriesType;
 
       private:
-        friend TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_);
-        friend time_series_output_s_ptr unwrap_output_s_ptr(const PyTimeSeriesOutput &output_);
+        friend time_series_output_s_ptr unwrap_output(const PyTimeSeriesOutput &output_);
         [[nodiscard]] TimeSeriesOutput *impl() const;
     };
 
@@ -149,7 +148,7 @@ namespace hgraph
 
       private:
         [[nodiscard]] TimeSeriesInput *impl() const;
-        friend TimeSeriesInput        *unwrap_input(const PyTimeSeriesInput &input_);
+        friend time_series_input_s_ptr unwrap_input(const PyTimeSeriesInput &input_);
     };
 
 }  // namespace hgraph

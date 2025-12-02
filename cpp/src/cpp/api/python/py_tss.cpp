@@ -29,7 +29,7 @@ namespace hgraph
 
     template <typename T_U>
     nb::object PyTimeSeriesSetOutput_T<T_U>::get_contains_output(const nb::object &item, const nb::object &requester) const {
-        return wrap_output(this->impl()->get_contains_output(item, requester).get(), this->control_block());
+        return wrap_output(this->impl()->get_contains_output(item, requester));
     }
 
     template <typename T_U>
@@ -38,7 +38,7 @@ namespace hgraph
     }
 
     template <typename T_U> nb::object PyTimeSeriesSetOutput_T<T_U>::is_empty_output() const {
-        return wrap_output(this->impl()->is_empty_output().get(), this->control_block());
+        return wrap_output(this->impl()->is_empty_output());
     }
 
     template <typename T_U> nb::str PyTimeSeriesSetOutput_T<T_U>::py_str() const {

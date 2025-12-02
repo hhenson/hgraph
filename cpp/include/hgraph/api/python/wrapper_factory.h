@@ -62,6 +62,8 @@ namespace hgraph
      *
      * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
      */
+    // Internal implementation uses ApiPtr<T>, but public API only exposes
+    // shared_ptr and (T*, control_block_ptr) forms. Keep declaration private to cpp.
     nb::object wrap_input(ApiPtr<TimeSeriesInput> impl);
 
     /**
@@ -70,8 +72,10 @@ namespace hgraph
      *
      * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
      */
+    // See note above on public API forms
     nb::object wrap_output(ApiPtr<TimeSeriesOutput> impl);
 
+    // See note above on public API forms
     nb::object wrap_time_series(ApiPtr<TimeSeriesInput> impl);
     nb::object wrap_time_series(ApiPtr<TimeSeriesOutput> impl);
 
@@ -97,12 +101,8 @@ namespace hgraph
         return wrap_time_series(ApiPtr<TimeSeriesOutput>(impl, cb));
     }
 
-    // Overloads for raw pointer only - derives control_block from owning graph
-    // These require the pointer to have a valid owning_graph
-    nb::object wrap_input(TimeSeriesInput *impl);
-    nb::object wrap_output(TimeSeriesOutput *impl);
-    nb::object wrap_time_series(TimeSeriesInput *impl);
-    nb::object wrap_time_series(TimeSeriesOutput *impl);
+    // NOTE: Raw pointer-only overloads (deriving control block) are intentionally removed.
+    // Callers must provide either shared_ptr or (T*, control_block_ptr).
 
     // Overload for shared_ptr - avoids redundant shared_from_this() call
     nb::object wrap_output(const time_series_output_s_ptr &impl);
@@ -181,32 +181,32 @@ namespace hgraph
      * Extract raw Node pointer from PyNode wrapper.
      * Returns nullptr if obj is not a PyNode.
      */
-    Node *unwrap_node(const nb::handle &obj);
+    // Unwrap to shared_ptr only
+    node_s_ptr unwrap_node(const nb::handle &obj);
 
     /**
      * Extract raw TimeSeriesInput pointer from PyTimeSeriesInput wrapper.
      * Returns nullptr if obj is not a PyTimeSeriesInput.
      */
-    TimeSeriesInput *unwrap_input(const nb::handle &obj);
-
-    template <typename T> requires std::is_base_of_v<TimeSeriesInput, T> T *unwrap_input_as(const nb::handle &obj) { return dynamic_cast<T *>(unwrap_input(obj)); }
-
-    TimeSeriesInput *unwrap_input(const PyTimeSeriesInput &input_);
+    time_series_input_s_ptr unwrap_input(const nb::handle &obj);
+    time_series_input_s_ptr unwrap_input(const PyTimeSeriesInput &input_);
+    
+    template <typename T> requires std::is_base_of_v<TimeSeriesInput, T>
+    std::shared_ptr<T> unwrap_input_as(const nb::handle &obj) {
+        return std::dynamic_pointer_cast<T>(unwrap_input(obj));
+    }
 
     /**
      * Extract raw TimeSeriesOutput pointer from PyTimeSeriesOutput wrapper.
      * Returns nullptr if obj is not a PyTimeSeriesOutput.
      */
-    TimeSeriesOutput *unwrap_output(const nb::handle &obj);
+    time_series_output_s_ptr unwrap_output(const nb::handle &obj);
+    time_series_output_s_ptr unwrap_output(const PyTimeSeriesOutput &output_);
 
-    TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_);
-
-    // Return shared_ptr versions - avoids redundant shared_from_this() calls
-    time_series_output_s_ptr unwrap_output_s_ptr(const nb::handle &obj);
-
-    time_series_output_s_ptr unwrap_output_s_ptr(const PyTimeSeriesOutput &output_);
-
-    template <typename T> requires std::is_base_of_v<TimeSeriesOutput, T> T *unwrap_output_as(const nb::handle &obj) { return dynamic_cast<T *>(unwrap_output(obj)); }
+    template <typename T> requires std::is_base_of_v<TimeSeriesOutput, T>
+    std::shared_ptr<T> unwrap_output_as(const nb::handle &obj) {
+        return std::dynamic_pointer_cast<T>(unwrap_output(obj));
+    }
 
     /**
      * Wrap an EvaluationEngineApi shared_ptr in a PyEvaluationEngineApi.

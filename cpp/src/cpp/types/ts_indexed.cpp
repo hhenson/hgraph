@@ -109,17 +109,16 @@ namespace hgraph {
 
     TimeSeriesInput *IndexedTimeSeriesInput::get_input(size_t index) { return (*this)[index].get(); }
 
-    bool IndexedTimeSeriesInput::do_bind_output(const_time_series_output_ptr value) {
-        auto output_bundle = dynamic_cast<IndexedTimeSeriesOutput *>(const_cast<TimeSeriesOutput*>(value));
+    bool IndexedTimeSeriesInput::do_bind_output(time_series_output_s_ptr value) {
+        auto output_bundle = std::dynamic_pointer_cast<IndexedTimeSeriesOutput>(value);
         if (output_bundle == nullptr) {
             throw std::runtime_error("IndexedTimeSeriesInput::do_bind_output: Expected IndexedTimeSeriesOutput");
         }
 
         bool peer = true;
-        for (size_t i = 0; i < ts_values().size(); ++i) { peer &= ts_values()[i]->bind_output((*output_bundle)[i].get()); }
+        for (size_t i = 0; i < ts_values().size(); ++i) { peer &= ts_values()[i]->bind_output((*output_bundle)[i]); }
 
-        const_time_series_output_ptr none{nullptr};
-        BaseTimeSeriesInput::do_bind_output(peer ? value : none);
+        BaseTimeSeriesInput::do_bind_output(peer ? value : time_series_output_s_ptr{});
         return peer;
     }
 

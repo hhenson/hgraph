@@ -120,7 +120,7 @@ namespace hgraph {
                 // Subsequent nodes: LHS = previous node's output
                 auto prev_graph = get_node(ndx - 1);
                 auto lhs_out = prev_graph[output_node_id_]->output();
-                lhs_input->bind_output(lhs_out.get());
+                lhs_input->bind_output(lhs_out);
             }
 
             // Bind RHS input to TSD[ndx]

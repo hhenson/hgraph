@@ -120,9 +120,9 @@ namespace hgraph {
         [[nodiscard]] bool has_parent_input() const override;
         [[nodiscard]] bool bound() const override;
         [[nodiscard]] bool has_peer() const override;
-        [[nodiscard]] time_series_output_ptr output() const override;
+        [[nodiscard]] time_series_output_s_ptr output() const override;
 
-        bool bind_output(const_time_series_output_ptr output_) override;
+        bool bind_output(time_series_output_s_ptr output_) override;
         void un_bind_output(bool unbind_refs) override;
 
         [[nodiscard]] bool active() const override;
@@ -138,7 +138,7 @@ namespace hgraph {
         [[nodiscard]] bool valid() const override;
         [[nodiscard]] bool all_valid() const override;
         [[nodiscard]] engine_time_t last_modified_time() const override;
-        [[nodiscard]] time_series_reference_output_ptr reference_output() const override;
+        [[nodiscard]] time_series_reference_output_s_ptr reference_output() const override;
 
         [[nodiscard]] const TimeSeriesInput *get_input(size_t index) const override;
         [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
@@ -152,7 +152,7 @@ namespace hgraph {
         node_ptr _owning_node() const;
 
         // Protected virtual methods for derived classes to override
-        virtual bool do_bind_output(const_time_series_output_ptr output_);
+        virtual bool do_bind_output(time_series_output_s_ptr output_);
         virtual void do_un_bind_output(bool unbind_refs);
 
         void notify(engine_time_t modified_time) override;
@@ -170,7 +170,7 @@ namespace hgraph {
         using TsOrNode = std::variant<time_series_input_ptr, node_ptr>;
         std::optional<TsOrNode> _parent_ts_or_node{};
         time_series_output_s_ptr _output;  // Keep output alive while bound (was nb::ref<TimeSeriesOutput>)
-        time_series_reference_output_ptr _reference_output;
+        time_series_reference_output_s_ptr _reference_output;
         bool _active{false};
         engine_time_t _sample_time{MIN_DT};
         engine_time_t _notify_time{MIN_DT};

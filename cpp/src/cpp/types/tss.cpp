@@ -698,14 +698,13 @@ namespace hgraph
         });
     }
 
-    bool TimeSeriesSetInput::do_bind_output(const_time_series_output_ptr output) {
+    bool TimeSeriesSetInput::do_bind_output(time_series_output_s_ptr output) {
         if (has_output()) {
-            // Get shared_ptr via shared_from_this() since output() returns raw pointer
-            _prev_output = std::dynamic_pointer_cast<TimeSeriesSetOutput>(this->output()->shared_from_this());
+            _prev_output = std::dynamic_pointer_cast<TimeSeriesSetOutput>(this->output());
             // Clean up after the engine cycle is complete
             _add_reset_prev();
         }
-        return BaseTimeSeriesInput::do_bind_output(output);
+        return BaseTimeSeriesInput::do_bind_output(std::move(output));
     }
 
     void TimeSeriesSetInput::do_un_bind_output(bool unbind_refs) {

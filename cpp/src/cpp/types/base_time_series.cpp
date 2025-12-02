@@ -283,15 +283,15 @@ namespace hgraph {
         return _output != nullptr;
     }
 
-    TimeSeriesOutput* BaseTimeSeriesInput::output() const { return _output.get(); }
+    time_series_output_s_ptr BaseTimeSeriesInput::output() const { return _output; }
 
     bool BaseTimeSeriesInput::has_output() const { return _output != nullptr; }
 
-    bool BaseTimeSeriesInput::bind_output(const_time_series_output_ptr output_) {
+    bool BaseTimeSeriesInput::bind_output(time_series_output_s_ptr output_) {
         bool peer;
         bool was_bound = bound(); // Track if input was previously bound (matches Python behavior)
 
-        if (auto ref_output = dynamic_cast<TimeSeriesReferenceOutput *>(const_cast<TimeSeriesOutput*>(output_))) {
+        if (auto ref_output = std::dynamic_pointer_cast<TimeSeriesReferenceOutput>(output_)) {
             // Is a TimeseriesReferenceOutput
             // Match Python behavior: only check if value exists (truthy), bind if it does
             if (ref_output->valid() && ref_output->has_value()) { ref_output->value().bind_input(*this); }
@@ -299,7 +299,7 @@ namespace hgraph {
             _reference_output = ref_output;
             peer = false;
         } else {
-            if (output_ == _output.get()) { return has_peer(); }
+            if (output_.get() == _output.get()) { return has_peer(); }
             peer = do_bind_output(output_);
         }
 
@@ -384,15 +384,11 @@ namespace hgraph {
         }
     }
 
-    bool BaseTimeSeriesInput::do_bind_output(const_time_series_output_ptr output_) {
+    bool BaseTimeSeriesInput::do_bind_output(time_series_output_s_ptr output_) {
         auto active_{active()};
         make_passive(); // Ensure we are unsubscribed from the old output.
         // Get shared_ptr from output to keep it alive while bound (mirrors original nb::ref behavior)
-        if (output_ != nullptr) {
-            _output = const_cast<TimeSeriesOutput*>(output_)->shared_from_this();
-        } else {
-            _output.reset();
-        }
+        _output = std::move(output_);
         if (active_) {
             make_active(); // If we were active now subscribe to the new output,
             // this is important even if we were not bound previously as this will ensure the new output gets
@@ -448,7 +444,7 @@ namespace hgraph {
         return _sample_time != MIN_DT && _sample_time == *n->cached_evaluation_time_ptr();
     }
 
-    time_series_reference_output_ptr BaseTimeSeriesInput::reference_output() const { return _reference_output; }
+    time_series_reference_output_s_ptr BaseTimeSeriesInput::reference_output() const { return _reference_output; }
 
     const TimeSeriesInput *BaseTimeSeriesInput::get_input(size_t index) const {
         return const_cast<BaseTimeSeriesInput *>(this)->get_input(index);

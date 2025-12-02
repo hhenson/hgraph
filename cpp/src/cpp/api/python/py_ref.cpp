@@ -17,8 +17,8 @@ namespace hgraph
                 "bind_input",
                 [](TimeSeriesReference &self, PyTimeSeriesInput &ts_input) {
                     auto input_{unwrap_input(ts_input)};
-                    if (input_ != nullptr) {
-                        self.bind_input(*unwrap_input(ts_input));
+                    if (input_) {
+                        self.bind_input(*input_);
                     } else {
                         throw std::runtime_error("Cannot bind to null input");
                     }
@@ -37,15 +37,15 @@ namespace hgraph
                 [](nb::object ts, nb::object items) -> TimeSeriesReference {
                     if (!ts.is_none()) {
                         if (nb::isinstance<PyTimeSeriesOutput>(ts))
-                            return TimeSeriesReference::make(unwrap_output_s_ptr(ts));
+                            return TimeSeriesReference::make(unwrap_output(ts));
                         if (nb::isinstance<PyTimeSeriesReferenceInput>(ts))
                             return unwrap_input_as<TimeSeriesReferenceInput>(ts)->value();
                         if (nb::isinstance<PyTimeSeriesInput>(ts)) {
                             auto ts_input = unwrap_input(ts);
-                            if (ts_input->has_peer()) return TimeSeriesReference::make(ts_input->output()->shared_from_this());
+                            if (ts_input->has_peer()) return TimeSeriesReference::make(ts_input->output());
                             // Deal with list of inputs
                             std::vector<TimeSeriesReference> items_list;
-                            auto                             ts_ndx{dynamic_cast<IndexedTimeSeriesInput *>(ts_input)};
+                            auto                             ts_ndx{std::dynamic_pointer_cast<IndexedTimeSeriesInput>(ts_input)};
                             items_list.reserve(ts_ndx->size());
                             for (auto &ts_ptr : ts_ndx->values()) {
                                 auto ref_input{dynamic_cast<TimeSeriesReferenceInput *>(ts_ptr.get())};

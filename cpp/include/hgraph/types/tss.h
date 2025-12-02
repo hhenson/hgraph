@@ -105,7 +105,7 @@ namespace hgraph {
 
         TimeSeriesSetOutput &set_output() const;
 
-        bool do_bind_output(const_time_series_output_ptr output) override;
+        bool do_bind_output(time_series_output_s_ptr output) override;
 
         void do_un_bind_output(bool unbind_refs) override;
 

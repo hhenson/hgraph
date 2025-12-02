@@ -110,7 +110,7 @@ namespace hgraph
 
     nb::bool_ PyTimeSeriesInput::has_peer() const { return nb::bool_(impl()->has_peer()); }
 
-    nb::object PyTimeSeriesInput::output() const { return wrap_output(impl()->output(), control_block()); }
+    nb::object PyTimeSeriesInput::output() const { return wrap_output(impl()->output()); }
 
     nb::bool_ PyTimeSeriesInput::has_output() const { return nb::bool_(impl()->has_output()); }
 
@@ -119,7 +119,7 @@ namespace hgraph
     void PyTimeSeriesInput::un_bind_output(bool unbind_refs) { return impl()->un_bind_output(unbind_refs); }
 
     nb::object PyTimeSeriesInput::reference_output() const {
-        return wrap_output(impl()->reference_output(), control_block());
+        return wrap_output(impl()->reference_output());
     }
 
     nb::object PyTimeSeriesInput::get_input(size_t index) const { return wrap_input(impl()->get_input(index), control_block()); }

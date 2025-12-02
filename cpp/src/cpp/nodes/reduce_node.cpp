@@ -282,8 +282,8 @@ namespace hgraph {
             auto lhs_input = sub_graph[std::get < 0 > (input_node_ids_)];
             auto rhs_input = sub_graph[std::get < 1 > (input_node_ids_)];
 
-            dynamic_cast<TimeSeriesInput &>(*(*lhs_input->input())[0]).bind_output(left_parent.get());
-            dynamic_cast<TimeSeriesInput &>(*(*rhs_input->input())[0]).bind_output(right_parent.get());
+            dynamic_cast<TimeSeriesInput &>(*(*lhs_input->input())[0]).bind_output(left_parent);
+            dynamic_cast<TimeSeriesInput &>(*(*rhs_input->input())[0]).bind_output(right_parent);
 
             lhs_input->notify();
             rhs_input->notify();

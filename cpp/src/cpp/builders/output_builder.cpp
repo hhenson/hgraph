@@ -29,12 +29,12 @@ namespace hgraph {
                        nb::object owning_output) -> nb::object {
                         if (!owning_node.is_none()) {
                             auto node{unwrap_node(owning_node)};
-                            auto output_{self->make_instance(node)};
+                            auto output_{self->make_instance(node.get())};
                             return wrap_time_series(output_);
                         }
                         if (!owning_output.is_none()) {
                             auto object_{unwrap_output(owning_output)};
-                            auto result_{self->make_instance(object_)};
+                            auto result_{self->make_instance(object_.get())};
                             return wrap_time_series(result_);
                         }
                         // TODO: Here we need to create a standalone instance of the output

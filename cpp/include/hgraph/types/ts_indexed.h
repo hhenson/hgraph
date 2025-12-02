@@ -168,7 +168,7 @@ namespace hgraph {
         [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
 
     protected:
-        bool do_bind_output(const_time_series_output_ptr value) override;
+        bool do_bind_output(time_series_output_s_ptr value) override;
 
         void do_un_bind_output(bool unbind_refs) override;
     };

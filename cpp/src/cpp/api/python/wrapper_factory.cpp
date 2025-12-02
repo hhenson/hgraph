@@ -514,62 +514,31 @@ namespace hgraph
         return wrap_output(std::move(impl));
     }
 
-    // Overloads for raw pointer only - uses shared_from_this() to get proper shared_ptr
-    nb::object wrap_input(TimeSeriesInput *impl) {
-        if (!impl) { return nb::none(); }
-        return wrap_input(ApiPtr<TimeSeriesInput>(impl->shared_from_this()));
-    }
-
-    nb::object wrap_output(TimeSeriesOutput *impl) {
-        if (!impl) { return nb::none(); }
-        return wrap_output(ApiPtr<TimeSeriesOutput>(impl->shared_from_this()));
-    }
-
     nb::object wrap_output(const time_series_output_s_ptr &impl) {
         if (!impl) { return nb::none(); }
         return wrap_output(ApiPtr<TimeSeriesOutput>(impl));
     }
 
-    nb::object wrap_time_series(TimeSeriesInput *impl) {
-        if (!impl) { return nb::none(); }
-        return wrap_time_series(impl->shared_from_this());
+    node_s_ptr unwrap_node(const nb::handle &obj) {
+        if (auto *py_node = nb::inst_ptr<PyNode>(obj)) { return unwrap_node(*py_node); }
+        return {};
     }
 
-    nb::object wrap_time_series(TimeSeriesOutput *impl) {
-        if (!impl) { return nb::none(); }
-        return wrap_time_series(impl->shared_from_this());
-    }
+    node_s_ptr unwrap_node(const PyNode &node_) { return node_._impl.control_block_typed<Node>(); }
 
-    Node *unwrap_node(const nb::handle &obj) {
-        if (auto *py_node = nb::inst_ptr<PyNode>(obj)) { unwrap_node(*py_node); }
-        return nullptr;
-    }
-
-    Node *unwrap_node(const PyNode &node_) { return node_._impl.get(); }
-
-    TimeSeriesInput *unwrap_input(const nb::handle &obj) {
+    time_series_input_s_ptr unwrap_input(const nb::handle &obj) {
         if (auto *py_input = nb::inst_ptr<PyTimeSeriesInput>(obj)) { return unwrap_input(*py_input); }
-        return nullptr;
+        return {};
     }
 
-    TimeSeriesInput *unwrap_input(const PyTimeSeriesInput &input_) {
-        // return input_._impl.get();
-        return input_.impl();
-    }
+    time_series_input_s_ptr unwrap_input(const PyTimeSeriesInput &input_) { return input_.impl_s_ptr<TimeSeriesInput>(); }
 
-    TimeSeriesOutput *unwrap_output(const nb::handle &obj) {
+    time_series_output_s_ptr unwrap_output(const nb::handle &obj) {
         if (auto *py_output = nb::inst_ptr<PyTimeSeriesOutput>(obj)) { return unwrap_output(*py_output); }
-        return nullptr;
+        return {};
     }
 
-    TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_) { return output_.impl(); }
-
-    time_series_output_s_ptr unwrap_output_s_ptr(const nb::handle &obj) {
-        if (auto *py_output = nb::inst_ptr<PyTimeSeriesOutput>(obj)) { return unwrap_output_s_ptr(*py_output); }
-        return nullptr;
-    }
-
-    time_series_output_s_ptr unwrap_output_s_ptr(const PyTimeSeriesOutput &output_) { return output_.impl_s_ptr<TimeSeriesOutput>(); }
+    time_series_output_s_ptr unwrap_output(const PyTimeSeriesOutput &output_) { return output_.impl_s_ptr<TimeSeriesOutput>(); }
 
     nb::object wrap_evaluation_engine_api(EvaluationEngineApi::s_ptr impl) {
         if (!impl) { return nb::none(); }

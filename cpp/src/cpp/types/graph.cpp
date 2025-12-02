@@ -158,7 +158,7 @@ namespace hgraph
     }
 
     void Graph::clone_traits_from(const Graph &other) {
-        _traits = std::move(other._traits.copy());
+        _traits = other._traits.copy();
     }
 
     const Traits &Graph::traits() const { return _traits; }

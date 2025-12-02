@@ -626,7 +626,7 @@ namespace hgraph
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::on_key_added(const key_type &key) {
         auto value{get_or_create(key)};
-        value->bind_output(output_t()[key].get());
+        value->bind_output(output_t()[key]);
     }
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::on_key_removed(const key_type &key) {
@@ -661,12 +661,12 @@ namespace hgraph
         return _removed_items.find(key) != _removed_items.end();
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(const_time_series_output_ptr value) {
-        auto *value_output{dynamic_cast<TimeSeriesDictOutput_T<T_Key> *>(const_cast<TimeSeriesOutput*>(value))};
+    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(time_series_output_s_ptr value) {
+        auto value_output{std::dynamic_pointer_cast<TimeSeriesDictOutput_T<T_Key>>(value)};
 
         // Peer when types match AND neither has references (matching Python logic)
-        bool  peer = (is_same_type(value_output) || !(value_output->has_reference() || this->has_reference()));
-        auto *output_key_set{&value_output->key_set_t()};
+        bool  peer = (is_same_type(value_output.get()) || !(value_output->has_reference() || this->has_reference()));
+        auto  output_key_set = value_output->key_set_t().shared_from_this();
 
         key_set_t().bind_output(output_key_set);
 
@@ -684,7 +684,7 @@ namespace hgraph
 
         auto active_{active()};
         make_passive();  // Ensure we are unsubscribed from the old output while has_peer has the old value
-        set_output(value_output->shared_from_this());
+        set_output(value_output);
         _has_peer = peer;
 
         if (active_) { make_active(); }

@@ -171,7 +171,7 @@ namespace hgraph
 
         [[nodiscard]] engine_time_t last_modified_time() const override;
 
-        bool bind_output(const_time_series_output_ptr value) override;
+        bool bind_output(time_series_output_s_ptr value) override;
 
         void un_bind_output(bool unbind_refs) override;
 
@@ -201,7 +201,7 @@ namespace hgraph
 
       protected:
         friend struct PyTimeSeriesReferenceInput;
-        bool do_bind_output(const_time_series_output_ptr output_) override;
+        bool do_bind_output(time_series_output_s_ptr output_) override;
 
         void do_un_bind_output(bool unbind_refs) override;
 

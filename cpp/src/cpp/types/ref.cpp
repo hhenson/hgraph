@@ -115,7 +115,7 @@ namespace hgraph
                         reactivate = ts_input.active();
                         ts_input.un_bind_output(false);
                     }
-                    ts_input.bind_output(_storage.bound.get());  // Pass raw pointer to bind_output
+                    ts_input.bind_output(_storage.bound);
                     if (reactivate) { ts_input.make_active(); }
                     break;
                 }
@@ -360,7 +360,7 @@ namespace hgraph
         }
     }
 
-    bool TimeSeriesReferenceInput::bind_output(const_time_series_output_ptr output_) {
+    bool TimeSeriesReferenceInput::bind_output(time_series_output_s_ptr output_) {
         auto peer = do_bind_output(output_);
 
         if (owning_node()->is_started() && has_output() && output()->valid()) {
@@ -411,15 +411,15 @@ namespace hgraph
         throw std::runtime_error("TimeSeriesReferenceInput::get_ref_input: Not implemented on this type");
     }
 
-    bool TimeSeriesReferenceInput::do_bind_output(const_time_series_output_ptr output_) {
-        if (dynamic_cast<const TimeSeriesReferenceOutput *>(output_) != nullptr) {
+    bool TimeSeriesReferenceInput::do_bind_output(time_series_output_s_ptr output_) {
+        if (std::dynamic_pointer_cast<TimeSeriesReferenceOutput>(output_) != nullptr) {
             // Match Python behavior: bind to a TimeSeriesReferenceOutput as a normal peer
             reset_value();
             return BaseTimeSeriesInput::do_bind_output(output_);
         }
         // We are binding directly to a concrete output: wrap it as a reference value
         // Get shared_ptr to keep the output alive while this reference holds it
-        _value = TimeSeriesReference::make(const_cast<TimeSeriesOutput*>(output_)->shared_from_this());
+        _value = TimeSeriesReference::make(std::move(output_));
         if (owning_node()->is_started()) {
             set_sample_time(owning_graph()->evaluation_time());
             notify(sample_time());
@@ -444,7 +444,7 @@ namespace hgraph
 
     TimeSeriesReferenceOutput *TimeSeriesReferenceInput::output_t() {
         auto _output{output()};
-        auto _result{dynamic_cast<TimeSeriesReferenceOutput *>(_output)};
+        auto _result{dynamic_cast<TimeSeriesReferenceOutput *>(_output.get())};
         if (_result == nullptr) {
             throw std::runtime_error("TimeSeriesReferenceInput::output_t: Expected TimeSeriesReferenceOutput*");
         }

@@ -36,7 +36,7 @@ namespace hgraph {
                     if (val.is(remove) || val.is(remove_if_exist)) {
                         auto child_output = tsd_output.attr("get")(nb::cast<nb::object>(key), nb::none());
                         if (!child_output.is_none()) {
-                            auto* unwrapped = unwrap_output(child_output);
+                            auto unwrapped = unwrap_output(child_output);
                             if (unwrapped && unwrapped->modified()) {
                                 return false; // reject message because cannot remove when there is unprocessed data
                            }
@@ -46,7 +46,7 @@ namespace hgraph {
                 for (auto [key, val]: msg_dict) {
                     if (!val.is(remove) && !val.is(remove_if_exist)) {
                         auto child_output_obj = tsd_output.attr("get_or_create")(nb::cast<nb::object>(key));
-                        auto* child_output = unwrap_output(child_output_obj);
+                        auto child_output = unwrap_output(child_output_obj);
 
                         if (child_output->modified()) {
                             // Append to existing tuple

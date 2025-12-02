@@ -175,15 +175,15 @@ namespace hgraph
         // should not need to be exposed as a client facing API, but is used for internal state management.
         [[nodiscard]] virtual bool                   bound() const                               = 0;
         [[nodiscard]] virtual bool                   has_peer() const                            = 0;
-        [[nodiscard]] virtual time_series_output_ptr output() const                              = 0;
+        [[nodiscard]] virtual time_series_output_s_ptr output() const                            = 0;
         [[nodiscard]] virtual bool                   has_output() const                          = 0;
-        virtual bool                                 bind_output(const_time_series_output_ptr output_) = 0;
+        virtual bool                                 bind_output(time_series_output_s_ptr output_) = 0;
         virtual void                                 un_bind_output(bool unbind_refs)            = 0;
 
         // This is a feature used by the BackTrace tooling, this is not something that is generally
         // Useful, it could be handled through a visitor, or some other means of extraction.
         // This exposes internal implementation logic.
-        [[nodiscard]] virtual time_series_reference_output_ptr reference_output() const = 0;
+        [[nodiscard]] virtual time_series_reference_output_s_ptr reference_output() const = 0;
 
         // This is a hack to support REF time-series binding, this definitely needs to be revisited.
         [[nodiscard]] virtual const TimeSeriesInput *get_input(size_t index) const = 0;

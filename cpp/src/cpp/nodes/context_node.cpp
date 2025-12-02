@@ -82,7 +82,7 @@ namespace hgraph {
 
         // We will capture the reference value and subscribe to the producing output when available
         std::optional<TimeSeriesReference> value_ref;
-        time_series_reference_output_ptr output_ts = nullptr;
+        time_series_reference_output_s_ptr output_ts = nullptr;
 
         // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState
         // Use nb::isinstance to handle both base and specialized reference types
@@ -97,7 +97,7 @@ namespace hgraph {
             auto ref = unwrap_input_as<TimeSeriesReferenceInput>(shared);
             if (ref->has_peer()) {
                 // Use the bound peer output (stub remains a reference node)
-                output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ref->output());
+                output_ts = std::dynamic_pointer_cast<TimeSeriesReferenceOutput>(ref->output());
             }
             // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
             value_ref = ref->value();

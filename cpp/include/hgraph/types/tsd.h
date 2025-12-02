@@ -362,7 +362,7 @@ namespace hgraph
     protected:
         void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
 
-        bool do_bind_output(const_time_series_output_ptr value) override;
+        bool do_bind_output(time_series_output_s_ptr value) override;
 
         void do_un_bind_output(bool unbind_refs) override;
 
