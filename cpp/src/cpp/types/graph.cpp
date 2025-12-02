@@ -85,7 +85,20 @@ namespace hgraph
     std::vector<engine_time_t> &Graph::schedule() { return _schedule; }
 
     void Graph::evaluate_graph() {
-        NotifyGraphEvaluation nge{evaluation_engine().get(), graph_ptr{this}};
+        // DEBUG: Log evaluation engine state before creating NotifyGraphEvaluation
+        auto& engine_sptr = evaluation_engine();
+        if (!engine_sptr) {
+            fprintf(stderr, "ERROR: Graph::evaluate_graph - _evaluation_engine shared_ptr is null for graph %p\n",
+                    static_cast<void*>(this));
+            fflush(stderr);
+            std::abort();
+        }
+        auto* engine_ptr = engine_sptr.get();
+        fprintf(stderr, "DEBUG: Graph::evaluate_graph - engine_sptr.use_count()=%ld, engine_ptr=%p\n",
+                engine_sptr.use_count(), static_cast<void*>(engine_ptr));
+        fflush(stderr);
+
+        NotifyGraphEvaluation nge{engine_ptr, graph_ptr{this}};
 
         // Use cached pointers (set at initialization) for direct memory access
         auto          clock    = _cached_engine_clock;

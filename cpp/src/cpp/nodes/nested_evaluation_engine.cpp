@@ -51,6 +51,10 @@ namespace hgraph {
                                                    EngineEvaluationClock::s_ptr evaluation_clock)
         : EvaluationEngineDelegate(std::move(engine)), _engine_evaluation_clock(std::move(evaluation_clock)),
           _nested_start_time(_engine_evaluation_clock->evaluation_time()) {
+        // DEBUG: Log nested engine creation
+        fprintf(stderr, "DEBUG: NestedEvaluationEngine created at %p, this=%p\n",
+                static_cast<void*>(this), static_cast<void*>(this));
+        fflush(stderr);
     }
 
     engine_time_t NestedEvaluationEngine::start_time() const { return _nested_start_time; }
