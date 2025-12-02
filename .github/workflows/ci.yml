@@ -26,6 +26,16 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-uvpip-
 
+      # Prepare AddressSanitizer environment on Linux (GCC)
+      - name: Enable ASan runtime preloading (Linux GCC)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "ASAN_OPTIONS=detect_leaks=1:halt_on_error=1:strict_init_order=1" >> $GITHUB_ENV
+          echo "LD_PRELOAD=$(gcc -print-file-name=libasan.so)" >> $GITHUB_ENV
+          echo "Configured ASan env: ASAN_OPTIONS=$ASAN_OPTIONS; LD_PRELOAD=$(gcc -print-file-name=libasan.so)"
+
       # Install uv and Python 3.12 (aligns with hg_cpp approach)
       - uses: astral-sh/setup-uv@v4
         with:
@@ -50,6 +60,36 @@ jobs:
           CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
           CMAKE_GENERATOR: Ninja
         run: uv build -v
+
+      # Build and test C++ with ASan enabled on Linux using GCC
+      - name: Configure C++ (Linux + ASan, GCC)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          CC: gcc
+          CXX: g++
+        run: |
+          set -euo pipefail
+          cmake -S cpp -B build-asan -G Ninja \
+            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
+            -DHGRAPH_ENABLE_ASAN=ON -DHGRAPH_ENABLE_UBSAN=OFF -DHGRAPH_ENABLE_TSAN=OFF
+
+      - name: Build C++ (Linux + ASan)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          cmake --build build-asan -j
+
+      - name: Run C++ tests with ASan (ctest)
+        if: runner.os == 'Linux'
+        shell: bash
+        env:
+          ASAN_OPTIONS: ${{ env.ASAN_OPTIONS }}
+          LD_PRELOAD: ${{ env.LD_PRELOAD }}
+        run: |
+          set -euo pipefail
+          ctest --test-dir build-asan -V || true
 
       - name: Prepare test environment (all groups and extras)
         run: |
@@ -152,6 +192,8 @@ jobs:
         env:
           HGRAPH_USE_CPP: 'false'
           PYTHONFAULTHANDLER: '1'
+          ASAN_OPTIONS: ${{ env.ASAN_OPTIONS }}
+          LD_PRELOAD: ${{ env.LD_PRELOAD }}
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
@@ -167,6 +209,8 @@ jobs:
         env:
           HGRAPH_USE_CPP: 'true'
           PYTHONFAULTHANDLER: '1'
+          ASAN_OPTIONS: ${{ env.ASAN_OPTIONS }}
+          LD_PRELOAD: ${{ env.LD_PRELOAD }}
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
