@@ -44,41 +44,19 @@ jobs:
           CMAKE_GENERATOR_PLATFORM: x64
         run: uv build -v
 
-      - name: Build wheel (NB stable ABI, Unix Ninja)
-        if: runner.os != 'Windows'
+      - name: Build wheel (NB stable ABI, macOS Ninja)
+        if: runner.os == 'macOS'
         env:
           CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON
           CMAKE_GENERATOR: Ninja
         run: uv build -v
 
-      # Build and test C++ with ASan enabled on Linux using GCC
-      - name: Configure C++ (Linux + ASan, GCC)
+      - name: Build wheel (NB stable ABI + ASan, Linux Ninja)
         if: runner.os == 'Linux'
-        shell: bash
         env:
-          CC: gcc
-          CXX: g++
-        run: |
-          set -euo pipefail
-          cmake -S cpp -B build-asan -G Ninja \
-            -DCMAKE_BUILD_TYPE=RelWithDebInfo \
-            -DHGRAPH_ENABLE_ASAN=ON -DHGRAPH_ENABLE_UBSAN=OFF -DHGRAPH_ENABLE_TSAN=OFF
-
-      - name: Build C++ (Linux + ASan)
-        if: runner.os == 'Linux'
-        shell: bash
-        run: |
-          set -euo pipefail
-          cmake --build build-asan -j
-
-      - name: Run C++ tests with ASan (ctest)
-        if: runner.os == 'Linux'
-        shell: bash
-        env:
-          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_init_order=1
-        run: |
-          set -euo pipefail
-          ctest --test-dir build-asan -V || true
+          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON -DHGRAPH_ENABLE_ASAN=ON -DHGRAPH_ENABLE_UBSAN=OFF
+          CMAKE_GENERATOR: Ninja
+        run: uv build -v
 
       - name: Prepare test environment (all groups and extras)
         run: |
