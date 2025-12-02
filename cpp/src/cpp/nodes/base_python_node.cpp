@@ -50,7 +50,7 @@ namespace hgraph
                         wrapped_value = wrap_time_series(out);
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
-                        wrapped_value = wrap_node_scheduler(sched.get(), cb);
+                        wrapped_value = wrap_node_scheduler(sched);
                     } else if ((injectable & InjectableTypesEnum::ENGINE_API) != InjectableTypesEnum::NONE) {
                         if (g) {
                             auto engine_api = g->evaluation_engine_api();

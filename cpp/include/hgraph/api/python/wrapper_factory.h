@@ -45,14 +45,14 @@ namespace hgraph
      * Uses cached Python wrapper if available (via intrusive_base::self_py()).
      * Creates and caches new wrapper if not.
      */
-    nb::object wrap_traits(const hgraph::Traits *impl, const control_block_ptr &control_block);
+    nb::object wrap_traits(const Traits *impl, const control_block_ptr &control_block);
 
     /**
      * Wrap a NodeScheduler pointer in a PyNodeScheduler.
      * Uses cached Python wrapper if available (via intrusive_base::self_py()).
      * Creates and caches new wrapper if not.
      */
-    nb::object wrap_node_scheduler(const hgraph::NodeScheduler *impl, const control_block_ptr &control_block);
+   // nb::object wrap_node_scheduler(const hgraph::NodeScheduler *impl, const control_block_ptr &control_block);
     nb::object wrap_node_scheduler(const NodeScheduler::s_ptr &impl);
 
     /**
