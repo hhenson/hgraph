@@ -186,15 +186,28 @@ jobs:
         run: |
           set -eo pipefail
           echo "=== Checking if ASan is linked into the extension ==="
+          echo "Which hgraph is installed:"
+          uv pip show hgraph || echo "hgraph not found via pip show"
           ext_path=$(uv run python -c "import hgraph._hgraph as m; print(m.__file__)" 2>/dev/null || echo "")
           if [ -n "$ext_path" ] && [ -f "$ext_path" ]; then
             echo "Extension path: $ext_path"
+            echo "Extension file size: $(ls -la "$ext_path")"
+            echo ""
             echo "Checking for ASan symbols..."
             nm -D "$ext_path" 2>/dev/null | grep -i asan | head -20 || echo "No ASan symbols found via nm"
+            echo ""
+            echo "Checking ldd output..."
             ldd "$ext_path" 2>/dev/null | grep -i asan || echo "No ASan in ldd output"
-            readelf -d "$ext_path" 2>/dev/null | grep -i asan || echo "No ASan in readelf output"
+            echo ""
+            echo "Checking for sanitizer-related strings in binary..."
+            strings "$ext_path" 2>/dev/null | grep -i "sanitizer\|asan" | head -10 || echo "No sanitizer strings found"
+            echo ""
+            echo "Checking compile flags used (if available in binary)..."
+            strings "$ext_path" 2>/dev/null | grep -E "\-fsanitize|\-fno-omit-frame-pointer" | head -5 || echo "No compile flags found"
           else
             echo "Could not find extension at: $ext_path"
+            echo "Trying to list hgraph package contents:"
+            uv run python -c "import hgraph; import os; print(os.listdir(os.path.dirname(hgraph.__file__)))"
           fi
 
       - name: Run tests (Linux only) [C++ runtime]
