@@ -56,10 +56,6 @@ namespace hgraph
 
     PyTimeSeriesType::PyTimeSeriesType(api_ptr impl) : _impl{std::move(impl)} {}
 
-    PyTimeSeriesType::PyTimeSeriesType(TimeSeriesType *ts, control_block_ptr control_block) : _impl{ts, std::move(control_block)} {}
-
-    PyTimeSeriesType::PyTimeSeriesType(TimeSeriesType *ts) : PyTimeSeriesType(ts, ts->owning_graph()->control_block()) {}
-
     control_block_ptr PyTimeSeriesType::control_block() const { return _impl.control_block(); }
 
     nb::object PyTimeSeriesOutput::parent_output() const { return wrap_output(impl()->parent_output()); }

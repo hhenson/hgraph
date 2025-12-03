@@ -11,14 +11,6 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    PyTimeSeriesBundle<T_TS, T_U>::PyTimeSeriesBundle(underlying_type *impl, const control_block_ptr &cb) : T_TS(impl, cb) {}
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    PyTimeSeriesBundle<T_TS, T_U>::PyTimeSeriesBundle(underlying_type *impl) : T_TS(impl) {}
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::iter() const {
         return nb::iter(list_to_list(impl()->values()));
     }

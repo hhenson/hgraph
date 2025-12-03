@@ -51,8 +51,6 @@ namespace hgraph
     {
         using api_ptr = ApiPtr<T_U>;
         explicit PyTimeSeriesSetOutput_T(api_ptr impl);
-        explicit PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o, control_block_ptr cb);
-        explicit PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o);
 
         void remove(const nb::object &key) const;
 
@@ -77,8 +75,6 @@ namespace hgraph
     {
         using api_ptr = ApiPtr<T_U>;
         explicit PyTimeSeriesSetInput_T(api_ptr impl);
-        explicit PyTimeSeriesSetInput_T(TimeSeriesSetInput *o, control_block_ptr cb);
-        explicit PyTimeSeriesSetInput_T(TimeSeriesSetInput *o);
 
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;

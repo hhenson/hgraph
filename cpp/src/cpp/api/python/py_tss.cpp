@@ -9,14 +9,6 @@ namespace hgraph
     PyTimeSeriesSetOutput_T<T_U>::PyTimeSeriesSetOutput_T(api_ptr impl)
         : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>(std::move(impl)) {}
 
-    template <typename T_U>
-    PyTimeSeriesSetOutput_T<T_U>::PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o, control_block_ptr cb)
-        : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>(o, std::move(cb)) {}
-
-    template <typename T_U>
-    PyTimeSeriesSetOutput_T<
-        T_U>::PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o) : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>(o) {}
-
     template <typename T_U> void PyTimeSeriesSetOutput_T<T_U>::remove(const nb::object &key) const {
         if (key.is_none()) { return; }
         this->impl()->remove(nb::cast<typename T_U::element_type>(key));
@@ -53,13 +45,6 @@ namespace hgraph
     template <typename T_U>
     PyTimeSeriesSetInput_T<T_U>::PyTimeSeriesSetInput_T(api_ptr impl)
         : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>(std::move(impl)) {}
-
-    template <typename T_U>
-    PyTimeSeriesSetInput_T<T_U>::PyTimeSeriesSetInput_T(TimeSeriesSetInput *o, control_block_ptr cb)
-        : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>(o, std::move(cb)) {}
-
-    template <typename T_U>
-    PyTimeSeriesSetInput_T<T_U>::PyTimeSeriesSetInput_T(TimeSeriesSetInput *o) : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>(o) {}
 
     template <typename T_U> nb::str PyTimeSeriesSetInput_T<T_U>::py_str() const {
         auto self{this->impl()};

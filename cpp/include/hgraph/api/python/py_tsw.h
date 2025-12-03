@@ -21,8 +21,6 @@ namespace hgraph
         using api_ptr = ApiPtr<T_U>;
 
         explicit PyTimeSeriesWindowOutput(api_ptr impl);
-        explicit PyTimeSeriesWindowOutput(T_U *impl, const control_block_ptr &cb);
-        explicit PyTimeSeriesWindowOutput(T_U *impl);
 
         [[nodiscard]] nb::object value_times() const;
         [[nodiscard]] engine_time_t first_modified_time() const;
@@ -45,9 +43,7 @@ namespace hgraph
         using api_ptr = ApiPtr<TimeSeriesWindowInput<T>>;
 
         explicit PyTimeSeriesWindowInput(api_ptr impl);
-        explicit PyTimeSeriesWindowInput(TimeSeriesWindowInput<T> *impl, const control_block_ptr &cb);
-        explicit PyTimeSeriesWindowInput(TimeSeriesWindowInput<T> *impl);
-        
+
         [[nodiscard]] nb::object value_times() const;
 
         [[nodiscard]] engine_time_t first_modified_time() const;

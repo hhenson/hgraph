@@ -246,15 +246,6 @@ namespace hgraph
 
     template <typename T_U>
         requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    PyTimeSeriesDictOutput_T<T_U>::PyTimeSeriesDictOutput_T(T_U *o, control_block_ptr cb)
-        : PyTimeSeriesDict<PyTimeSeriesDictOutput, T_U>(o, std::move(cb)) {}
-
-    template <typename T_U>
-        requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
-    PyTimeSeriesDictOutput_T<T_U>::PyTimeSeriesDictOutput_T(T_U *o) : PyTimeSeriesDict<PyTimeSeriesDictOutput, T_U>(o) {}
-
-    template <typename T_U>
-        requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
     void PyTimeSeriesDictOutput_T<T_U>::set_item(const nb::object &key, const nb::object &value) {
         this->impl()->py_set_item(key, value);
     }
@@ -300,15 +291,6 @@ namespace hgraph
         requires std::is_base_of_v<TimeSeriesDictInput, T_U>
     PyTimeSeriesDictInput_T<T_U>::PyTimeSeriesDictInput_T(api_ptr impl)
         : PyTimeSeriesDict<PyTimeSeriesDictInput, T_U>(std::move(impl)) {}
-
-    template <typename T_U>
-        requires std::is_base_of_v<TimeSeriesDictInput, T_U>
-    PyTimeSeriesDictInput_T<T_U>::PyTimeSeriesDictInput_T(T_U *o, control_block_ptr cb)
-        : PyTimeSeriesDict<PyTimeSeriesDictInput, T_U>(o, std::move(cb)) {}
-
-    template <typename T_U>
-        requires std::is_base_of_v<TimeSeriesDictInput, T_U>
-    PyTimeSeriesDictInput_T<T_U>::PyTimeSeriesDictInput_T(T_U *o) : PyTimeSeriesDict<PyTimeSeriesDictInput, T_U>(o) {}
 
     // TODO: Make this a template
     template <typename T_Key> void _tsd_register_with_nanobind(nb::module_ &m, std::string name) {

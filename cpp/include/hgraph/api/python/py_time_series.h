@@ -53,8 +53,6 @@ namespace hgraph
 
       protected:
         explicit PyTimeSeriesType(api_ptr impl);
-        explicit PyTimeSeriesType(TimeSeriesType *ts, control_block_ptr control_block);
-        explicit PyTimeSeriesType(TimeSeriesType *ts);
 
         [[nodiscard]] control_block_ptr control_block() const;
 

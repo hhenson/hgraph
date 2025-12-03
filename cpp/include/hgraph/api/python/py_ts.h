@@ -8,8 +8,6 @@ namespace hgraph
     {
         using api_ptr = ApiPtr<TimeSeriesType>;
         explicit PyTimeSeriesValueOutput(api_ptr impl);
-        explicit PyTimeSeriesValueOutput(TimeSeriesType *ts, control_block_ptr control_block);
-        explicit PyTimeSeriesValueOutput(TimeSeriesType *ts);
 
         // Move constructor
         PyTimeSeriesValueOutput(PyTimeSeriesValueOutput&& other) noexcept
@@ -32,8 +30,6 @@ namespace hgraph
     {
         using api_ptr = ApiPtr<TimeSeriesType>;
         explicit PyTimeSeriesValueInput(api_ptr impl);
-        explicit PyTimeSeriesValueInput(TimeSeriesType *ts, control_block_ptr control_block);
-        explicit PyTimeSeriesValueInput(TimeSeriesType *ts);
 
         // Move constructor
         PyTimeSeriesValueInput(PyTimeSeriesValueInput&& other) noexcept

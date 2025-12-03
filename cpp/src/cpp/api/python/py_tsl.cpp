@@ -11,14 +11,6 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsl<T_TS, T_U>)
-    PyTimeSeriesList<T_TS, T_U>::PyTimeSeriesList(underlying_type *impl, const control_block_ptr &cb) : T_TS(impl, cb) {}
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    PyTimeSeriesList<T_TS, T_U>::PyTimeSeriesList(underlying_type *impl) : T_TS(impl) {}
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
     nb::object PyTimeSeriesList<T_TS, T_U>::iter() const {
         return nb::iter(list_to_list(impl()->values()));
     }
@@ -129,13 +121,7 @@ namespace hgraph
 
     // Explicit template instantiations for constructors
     template PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>::PyTimeSeriesList(ApiPtr<TimeSeriesListOutput>);
-    template PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>::PyTimeSeriesList(TimeSeriesListOutput *,
-                                                                                          const control_block_ptr &);
-    template PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>::PyTimeSeriesList(TimeSeriesListOutput *);
     template PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>::PyTimeSeriesList(ApiPtr<TimeSeriesListInput>);
-    template PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>::PyTimeSeriesList(TimeSeriesListInput *,
-                                                                                        const control_block_ptr &);
-    template PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>::PyTimeSeriesList(TimeSeriesListInput *);
 
     template <typename T_TS, typename T_U> void _register_tsl_with_nanobind(nb::module_ &m) {
         using PyTS_Type = PyTimeSeriesList<T_TS, T_U>;

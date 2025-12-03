@@ -90,8 +90,6 @@ namespace hgraph
     {
         using api_ptr = ApiPtr<T_U>;
         explicit PyTimeSeriesDictOutput_T(api_ptr impl);
-        explicit PyTimeSeriesDictOutput_T(T_U* o, control_block_ptr cb);
-        explicit PyTimeSeriesDictOutput_T(T_U* o);
 
         void set_item(const nb::object &key, const nb::object &value);
 
@@ -119,8 +117,6 @@ namespace hgraph
         void on_key_removed(const nb::object &key);
 
         explicit PyTimeSeriesDictInput_T(api_ptr impl);
-        explicit PyTimeSeriesDictInput_T(T_U* o, control_block_ptr cb);
-        explicit PyTimeSeriesDictInput_T(T_U* o);
     };
 
     void tsd_register_with_nanobind(nb::module_ & m);
