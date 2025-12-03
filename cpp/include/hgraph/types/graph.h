@@ -29,7 +29,7 @@ namespace hgraph
          * Get the control block for this graph.
          * Extracts the control block from shared_from_this() to be used as donor for child objects.
          */
-        [[nodiscard]] control_block_ptr control_block() const;
+        //[[nodiscard]] control_block_ptr control_block() const;
 
         [[nodiscard]] const std::vector<int64_t> &graph_id() const;
 

@@ -23,10 +23,6 @@ namespace hgraph
 
     Graph::~Graph() {}
 
-    control_block_ptr Graph::control_block() const {
-        return std::static_pointer_cast<void>(const_cast<Graph*>(this)->shared_from_this());
-    }
-
     const std::vector<int64_t> &Graph::graph_id() const { return _graph_id; }
 
     const Graph::node_list &Graph::nodes() const { return _nodes; }

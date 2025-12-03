@@ -22,15 +22,11 @@ namespace hgraph
 
         bool  has_injectables{signature().injectables != 0};
         auto *injectable_map = has_injectables ? &(*signature().injectable_inputs) : nullptr;
-
         auto g = graph();
-        if (g == nullptr) { throw std::runtime_error("BasePythonNode::_initialise_kwargs: missing owning graph"); }
-        const auto &cb = g->control_block();
-        if (cb == nullptr) { throw std::runtime_error("BasePythonNode::_initialise_kwargs: graph missing API control block"); }
 
         nb::object node_wrapper{};
         auto       get_node_wrapper = [&]() -> nb::object {
-            if (!node_wrapper && g) { node_wrapper = wrap_node(shared_from_this()); }
+            if (!node_wrapper) { node_wrapper = wrap_node(shared_from_this()); }
             return node_wrapper;
         };
         auto &signature_args = signature().args;
@@ -74,7 +70,7 @@ namespace hgraph
                             wrapped_value = nb::none();
                         }
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
-                        wrapped_value = g ? wrap_traits(&g->traits(), cb) : nb::none();
+                        wrapped_value = g ? wrap_traits(&g->traits(), g->shared_from_this()) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
                         auto recordable_state = this->recordable_state();
                         if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }
@@ -107,7 +103,6 @@ namespace hgraph
         // If is not a compute node or sink node, there are no inputs to map
         auto input_{input()};
         if (!input_) { return; }
-        const auto &cb{graph()->control_block()};
         auto &signature_args = signature().args;
         // Match main branch behavior: iterate over time_series_inputs
         for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0;
@@ -149,7 +144,7 @@ namespace hgraph
 
         // Get the fully qualified recordable ID
         nb::object  fq_recordable_id_fn = get_fq_recordable_id_fn();
-        nb::object  traits_obj       = wrap_traits(&graph()->traits(), graph()->control_block());
+        nb::object  traits_obj       = wrap_traits(&graph()->traits(), graph()->shared_from_this());
         std::string record_replay_id = signature().record_replay_id.value_or("");
         nb::object  recordable_id    = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
 
