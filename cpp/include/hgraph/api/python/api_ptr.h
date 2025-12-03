@@ -31,7 +31,7 @@ namespace hgraph {
         // This allows wrapping raw pointers that are owned elsewhere (e.g., by a parent shared_ptr)
         // Accepts const T* and removes const internally
         ApiPtr(const T* impl, control_block_ptr donor)
-            : _impl(donor, const_cast<T*>(impl)) {}  // aliasing constructor - shares donor's ref count
+            : _impl{donor, const_cast<T*>(impl)} {}  // aliasing constructor - shares donor's ref count
 
         // Move constructor and assignment
         ApiPtr(ApiPtr&& other) noexcept = default;
