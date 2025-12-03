@@ -51,6 +51,19 @@ jobs:
           CMAKE_GENERATOR: Ninja
         run: uv build -v
 
+      - name: Install GCC 13 (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          set -eo pipefail
+          echo "Adding Debian testing repository for GCC 13..."
+          echo "deb http://deb.debian.org/debian testing main" | sudo tee /etc/apt/sources.list.d/testing.list
+          sudo apt-get update
+          sudo apt-get install -y g++-13 gcc-13
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-13 100
+          sudo update-alternatives --install /usr/bin/g++ g++ /usr/bin/g++-13 100
+          gcc --version
+          g++ --version
+
       - name: Build wheel (NB stable ABI + ASan, Linux Ninja)
         if: runner.os == 'Linux'
         env:
@@ -67,6 +80,11 @@ jobs:
           grep -i "sanitizer\|asan\|fsanitize" build.log || echo "No sanitizer mentions found in build log"
           # Show what was built
           ls -la dist/
+          # Verify ASan symbols in the wheel
+          echo "=== Verifying ASan symbols in wheel ==="
+          wheel=$(ls dist/*.whl | head -1)
+          unzip -p "$wheel" "hgraph/_hgraph*.so" > /tmp/ext_from_wheel.so
+          nm -D /tmp/ext_from_wheel.so | grep -i asan | head -10 || echo "WARNING: No ASan symbols found in wheel!"
 
       - name: Prepare test environment (all groups and extras)
         run: |
@@ -130,8 +148,8 @@ jobs:
           uv pip install --upgrade pip
           uv pip install "$wheel"
 
-      - name: Install built wheel into env (Unix)
-        if: runner.os != 'Windows'
+      - name: Install built wheel into env (macOS)
+        if: runner.os == 'macOS'
         shell: bash
         run: |
           set -euo pipefail
@@ -145,6 +163,35 @@ jobs:
           # Force reinstall to override any version installed by uv sync
           uv pip install --force-reinstall --no-deps "${wheel}"
           echo "Installed wheel: ${wheel}"
+
+      - name: Install built wheel into env (Linux with ASan)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          wheel=$(ls dist/*.whl | head -n1 || true)
+          if [ -z "${wheel}" ]; then
+            echo "No wheel found in dist/"
+            ls -la dist || true
+            exit 1
+          fi
+          uv pip install --upgrade pip
+          # Uninstall editable install from uv sync
+          uv pip uninstall hgraph || true
+          # Install the ASan-enabled wheel
+          uv pip install --no-deps "${wheel}"
+          echo "Installed wheel: ${wheel}"
+
+          # CRITICAL: Manually copy the ASan-enabled extension from the wheel
+          # This prevents uv from rebuilding it without ASan when we run tests
+          echo "=== Copying ASan-enabled extension from wheel ==="
+          unzip -p "$wheel" "hgraph/_hgraph*.so" > /tmp/ext_asan.so
+          ext_install_path=$(.venv/bin/python -c "import sysconfig; print(sysconfig.get_path('purelib'))")/hgraph/_hgraph.cpython-312-x86_64-linux-gnu.so
+          echo "Extension install path: $ext_install_path"
+          cp /tmp/ext_asan.so "$ext_install_path"
+          echo "Verifying ASan symbols in installed extension..."
+          nm -D "$ext_install_path" | grep -i asan | head -5 || echo "WARNING: No ASan symbols in installed extension!"
+          ls -lh "$ext_install_path"
 
       - name: Run smoke tests (macOS/Windows) [Python runtime]
         if: runner.os != 'Linux'
@@ -176,9 +223,9 @@ jobs:
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           ulimit -c unlimited || true
           echo "Discovering extension paths..."
-          uv run python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
-          uv run python -c "import hgraph; print('hgraph:', hgraph.__file__)"
-          uv run pytest -ra -q --cov=hgraph --cov-report=xml
+          .venv/bin/python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
+          .venv/bin/pytest -ra -q --cov=hgraph --cov-report=xml
 
       - name: Verify ASan in installed extension (Linux only)
         if: runner.os == 'Linux'
@@ -188,52 +235,58 @@ jobs:
           echo "=== Checking if ASan is linked into the extension ==="
           echo "Which hgraph is installed:"
           uv pip show hgraph || echo "hgraph not found via pip show"
-          ext_path=$(uv run python -c "import hgraph._hgraph as m; print(m.__file__)" 2>/dev/null || echo "")
+          ext_path=$(.venv/bin/python -c "import hgraph._hgraph as m; print(m.__file__)" 2>/dev/null || echo "")
           if [ -n "$ext_path" ] && [ -f "$ext_path" ]; then
             echo "Extension path: $ext_path"
-            echo "Extension file size: $(ls -la "$ext_path")"
+            echo "Extension file size: $(ls -lh "$ext_path")"
             echo ""
             echo "Checking for ASan symbols..."
             nm -D "$ext_path" 2>/dev/null | grep -i asan | head -20 || echo "No ASan symbols found via nm"
             echo ""
-            echo "Checking ldd output..."
-            ldd "$ext_path" 2>/dev/null | grep -i asan || echo "No ASan in ldd output"
-            echo ""
-            echo "Checking for sanitizer-related strings in binary..."
-            strings "$ext_path" 2>/dev/null | grep -i "sanitizer\|asan" | head -10 || echo "No sanitizer strings found"
-            echo ""
-            echo "Checking compile flags used (if available in binary)..."
-            strings "$ext_path" 2>/dev/null | grep -E "\-fsanitize|\-fno-omit-frame-pointer" | head -5 || echo "No compile flags found"
+            echo "Checking md5sum to ensure it matches wheel..."
+            md5sum "$ext_path" /tmp/ext_asan.so || true
           else
-            echo "Could not find extension at: $ext_path"
+            echo "ERROR: Could not find extension at: $ext_path"
             echo "Trying to list hgraph package contents:"
-            uv run python -c "import hgraph; import os; print(os.listdir(os.path.dirname(hgraph.__file__)))"
+            .venv/bin/python -c "import hgraph; import os; print(os.listdir(os.path.dirname(hgraph.__file__)))"
+            exit 1
           fi
 
-      - name: Run tests (Linux only) [C++ runtime]
+      - name: Run tests (Linux only) [C++ runtime with ASan]
         if: runner.os == 'Linux'
         continue-on-error: true
         env:
           HGRAPH_USE_CPP: 'true'
           PYTHONFAULTHANDLER: '1'
-          ASAN_OPTIONS: detect_leaks=0:halt_on_error=0:print_stacktrace=1:abort_on_error=0:log_path=asan.log
+          # Note: print_stacktrace is not a valid option, removed
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=0:abort_on_error=0:log_path=asan.log
           ASAN_SYMBOLIZER_PATH: /usr/bin/llvm-symbolizer
           PYTHONMALLOC: malloc
+          # Preload ASan runtime since Python isn't compiled with ASan
+          LD_PRELOAD: /usr/lib/gcc/x86_64-linux-gnu/13/libasan.so
         run: |
           set -eo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           echo "ASAN_OPTIONS=$ASAN_OPTIONS"
+          echo "LD_PRELOAD=$LD_PRELOAD"
           # Check if llvm-symbolizer is available
           which llvm-symbolizer || sudo apt-get install -y llvm || true
+          # Verify ASan library exists
+          if [ ! -f "$LD_PRELOAD" ]; then
+            echo "ERROR: ASan library not found at $LD_PRELOAD"
+            find /usr/lib -name "libasan.so*" 2>/dev/null || true
+            exit 1
+          fi
           ulimit -c unlimited || true
           echo "Discovering extension paths..."
-          uv run python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
-          uv run python -c "import hgraph; print('hgraph:', hgraph.__file__)"
+          .venv/bin/python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
           # Run a simple import test first
-          echo "Testing basic import..."
-          uv run python -c "import hgraph; print('Import OK')" || echo "Import failed with code $?"
-          # Run pytest
-          uv run pytest -ra -q --cov=hgraph --cov-report=xml 2>&1 || echo "Tests exited with code $?"
+          echo "Testing basic import with ASan..."
+          .venv/bin/python -c "import hgraph; print('Import OK')" || echo "Import failed with code $?"
+          # Run pytest with ASan enabled
+          echo "Running pytest with ASan..."
+          .venv/bin/pytest -ra -q --cov=hgraph --cov-report=xml 2>&1 || echo "Tests exited with code $?"
           # Show ASan log if it exists
           echo "=== ASan log output ==="
           cat asan.log* 2>/dev/null || echo "No ASan log files found"
