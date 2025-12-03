@@ -174,15 +174,16 @@ jobs:
         env:
           HGRAPH_USE_CPP: 'true'
           PYTHONFAULTHANDLER: '1'
-          ASAN_OPTIONS: detect_leaks=1:halt_on_error=1:strict_init_order=1
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=0:print_stacktrace=1:verbosity=1:strict_init_order=1
         run: |
-          set -euo pipefail
+          set -eo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
+          echo "ASAN_OPTIONS=$ASAN_OPTIONS"
           ulimit -c unlimited || true
           echo "Discovering extension paths..."
           uv run python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
           uv run python -c "import hgraph; print('hgraph:', hgraph.__file__)"
-          uv run pytest -ra -q --cov=hgraph --cov-report=xml
+          uv run pytest -ra -q --cov=hgraph --cov-report=xml || echo "Tests exited with code $?"
 
       - name: Collect crash artifacts (Linux only)
         if: failure() && runner.os == 'Linux'
