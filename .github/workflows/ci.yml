@@ -55,17 +55,13 @@ jobs:
         if: runner.os == 'Linux'
         env:
           CMAKE_GENERATOR: Ninja
+          # scikit-build-core reads this environment variable for extra CMake args
+          SKBUILD_CMAKE_ARGS: "-DNB_USE_STABLE_ABI=ON;-DHGRAPH_ENABLE_ASAN=ON;-DHGRAPH_ENABLE_UBSAN=OFF;-DCMAKE_BUILD_TYPE=RelWithDebInfo"
         run: |
           set -eo pipefail
           echo "Building with ASan enabled..."
-          # Use uv pip wheel with config-settings
-          mkdir -p dist
-          uv pip wheel . -w dist -v \
-            --config-settings=cmake.define.NB_USE_STABLE_ABI=ON \
-            --config-settings=cmake.define.HGRAPH_ENABLE_ASAN=ON \
-            --config-settings=cmake.define.HGRAPH_ENABLE_UBSAN=OFF \
-            --config-settings=cmake.define.CMAKE_BUILD_TYPE=RelWithDebInfo \
-            2>&1 | tee build.log
+          echo "SKBUILD_CMAKE_ARGS=$SKBUILD_CMAKE_ARGS"
+          uv build -v 2>&1 | tee build.log
           # Verify ASan is in the build
           echo "=== Checking for ASan in build output ==="
           grep -i "sanitizer\|asan\|fsanitize" build.log || echo "No sanitizer mentions found in build log"
