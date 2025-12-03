@@ -146,6 +146,8 @@ namespace hgraph {
         void copy_from_input(const TimeSeriesInput &input) override;
 
         void clear() override;
+
+        VISITOR_SUPPORT()
     };
 
     struct IndexedTimeSeriesInput : IndexedTimeSeries<BaseTimeSeriesInput> {
@@ -166,6 +168,8 @@ namespace hgraph {
         void make_passive() override;
 
         [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+
+        VISITOR_SUPPORT()
 
     protected:
         bool do_bind_output(const time_series_output_ptr& value) override;

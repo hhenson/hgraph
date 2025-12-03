@@ -10,7 +10,6 @@
 #include <hgraph/builders/time_series_types/time_series_dict_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_dict_output_builder.h>
 #include <hgraph/types/base_time_series.h>
-#include <hgraph/types/time_series_visitor.h>
 #include <hgraph/types/tss.h>
 #include <ranges>
 
@@ -64,6 +63,8 @@ namespace hgraph
         // Returns a TimeSeriesSetOutput that tracks the keys in this dict
         [[nodiscard]] virtual TimeSeriesSetOutput       &key_set()       = 0;
         [[nodiscard]] virtual const TimeSeriesSetOutput &key_set() const = 0;
+
+        VISITOR_SUPPORT()
     };
 
     struct TimeSeriesDictInput : TimeSeriesDict<BaseTimeSeriesInput>
@@ -74,11 +75,13 @@ namespace hgraph
         // Returns a TimeSeriesSetInput that tracks the keys in this dict
         [[nodiscard]] virtual TimeSeriesSetInput       &key_set()       = 0;
         [[nodiscard]] virtual const TimeSeriesSetInput &key_set() const = 0;
+
+        VISITOR_SUPPORT()
     };
 
     template <typename T_Key> using TSDOutBuilder = struct TimeSeriesDictOutputBuilder_T<T_Key>;
 
-    template <typename T_Key> struct TimeSeriesDictOutput_T : TimeSeriesDictOutput
+    template <typename T_Key> struct TimeSeriesDictOutput_T final : TimeSeriesDictOutput
     {
         using ptr                 = nb::ref<TimeSeriesDictOutput_T>;
         using key_type            = T_Key;
@@ -199,19 +202,12 @@ namespace hgraph
 
         [[nodiscard]] bool has_reference() const override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor &visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesOutputVisitor &visitor) const override {
-            visitor.visit(*this);
-        }
-
         void create(const key_type &key);
 
-      const key_type &key_from_value(TimeSeriesOutput *value) const;
+        const key_type &key_from_value(TimeSeriesOutput *value) const;
         const key_type &key_from_value(const value_type& value) const;
+
+        VISITOR_SUPPORT()
 
     protected:
         friend TSDOutBuilder<T_Key>;
@@ -249,7 +245,7 @@ namespace hgraph
 
     template <typename T_Key> using TSD_Builder = struct TimeSeriesDictInputBuilder_T<T_Key>;
 
-    template <typename T_Key> struct TimeSeriesDictInput_T : TimeSeriesDictInput, TSDKeyObserver<T_Key>
+    template <typename T_Key> struct TimeSeriesDictInput_T final : TimeSeriesDictInput, TSDKeyObserver<T_Key>
     {
         using ptr                 = nb::ref<TimeSeriesDictInput_T>;
         using key_type            = T_Key;
@@ -347,17 +343,10 @@ namespace hgraph
 
         [[nodiscard]] const TimeSeriesDictOutput_T<key_type> &output_t() const;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor &visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesInputVisitor &visitor) const override {
-            visitor.visit(*this);
-        }
-
-      [[nodiscard]] const key_type &key_from_value(TimeSeriesInput *value) const;
+        [[nodiscard]] const key_type &key_from_value(TimeSeriesInput *value) const;
         [[nodiscard]] const key_type &key_from_value(value_type value) const;
+
+        VISITOR_SUPPORT()
 
     protected:
         void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;

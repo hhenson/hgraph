@@ -3,7 +3,6 @@
 
 #include <hgraph/types/schema_type.h>
 #include <hgraph/types/ts_indexed.h>
-#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     struct TimeSeriesBundleOutputBuilder;
@@ -139,7 +138,7 @@ namespace hgraph {
         TimeSeriesSchema::ptr _schema;
     };
 
-    struct TimeSeriesBundleOutput : TimeSeriesBundle<IndexedTimeSeriesOutput> {
+    struct TimeSeriesBundleOutput final : TimeSeriesBundle<IndexedTimeSeriesOutput> {
         using ptr = nb::ref<TimeSeriesBundleOutput>;
         using bundle_type::TimeSeriesBundle;
 
@@ -153,21 +152,14 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesOutputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
 
     protected:
         using bundle_type::set_ts_values;
         friend TimeSeriesBundleOutputBuilder;
     };
 
-    struct TimeSeriesBundleInput : TimeSeriesBundle<IndexedTimeSeriesInput> {
+    struct TimeSeriesBundleInput final : TimeSeriesBundle<IndexedTimeSeriesInput> {
         using ptr = nb::ref<TimeSeriesBundleInput>;
         using bundle_type::TimeSeriesBundle;
 
@@ -178,14 +170,7 @@ namespace hgraph {
         // To keep the code in sync for now, will keep this, but there is probably a better way to implement this going forward.
         ptr copy_with(const node_ptr &parent, collection_type ts_values);
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesInputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
 
     protected:
         using bundle_type::set_ts_values;

@@ -116,6 +116,28 @@ else ()
     message(STATUS "HGRAPH_WITH_BACKWARD=OFF: Skipping backward-cpp integration")
 endif ()
 
+# tpack via package or FetchContent
+find_package(tpack CONFIG QUIET)
+if (NOT tpack_FOUND)
+    message(STATUS "tpack not found via find_package, using FetchContent")
+    include(FetchContent)
+    FetchContent_Declare(tpack GIT_REPOSITORY https://github.com/uentity/tpack.git GIT_TAG v0.2.0)
+    FetchContent_MakeAvailable(tpack)
+else ()
+    message(STATUS "Found tpack via Conan/system: ${tpack_DIR}")
+endif ()
+
+# ddv via package or FetchContent
+find_package(ddvisitor CONFIG QUIET)
+if (NOT ddvisitor_FOUND)
+    message(STATUS "ddvisitor not found via find_package, using FetchContent")
+    include(FetchContent)
+    FetchContent_Declare(ddvisitor GIT_REPOSITORY https://github.com/uentity/ddvisitor.git GIT_TAG v0.9.0)
+    FetchContent_MakeAvailable(ddvisitor)
+else ()
+    message(STATUS "Found ddvisitor via Conan/system: ${ddvisitor_DIR}")
+endif ()
+
 # Git version info is optional here (no .git necessarily inside this repo)
 set(GIT_BRANCH "")
 set(GIT_COMMIT_HASH "")
