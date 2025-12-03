@@ -54,9 +54,15 @@ jobs:
       - name: Build wheel (NB stable ABI + ASan, Linux Ninja)
         if: runner.os == 'Linux'
         env:
-          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON -DHGRAPH_ENABLE_ASAN=ON -DHGRAPH_ENABLE_UBSAN=OFF
+          CMAKE_ARGS: -DNB_USE_STABLE_ABI=ON -DHGRAPH_ENABLE_ASAN=ON -DHGRAPH_ENABLE_UBSAN=OFF -DCMAKE_BUILD_TYPE=RelWithDebInfo
           CMAKE_GENERATOR: Ninja
-        run: uv build -v
+        run: |
+          set -eo pipefail
+          echo "CMAKE_ARGS=$CMAKE_ARGS"
+          uv build -v 2>&1 | tee build.log
+          # Verify ASan is in the build
+          echo "=== Checking for ASan in build output ==="
+          grep -i "sanitizer\|asan\|fsanitize" build.log || echo "No sanitizer mentions found in build log"
 
       - name: Prepare test environment (all groups and extras)
         run: |
@@ -167,6 +173,23 @@ jobs:
           uv run python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
           uv run python -c "import hgraph; print('hgraph:', hgraph.__file__)"
           uv run pytest -ra -q --cov=hgraph --cov-report=xml
+
+      - name: Verify ASan in installed extension (Linux only)
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -eo pipefail
+          echo "=== Checking if ASan is linked into the extension ==="
+          ext_path=$(uv run python -c "import hgraph._hgraph as m; print(m.__file__)" 2>/dev/null || echo "")
+          if [ -n "$ext_path" ] && [ -f "$ext_path" ]; then
+            echo "Extension path: $ext_path"
+            echo "Checking for ASan symbols..."
+            nm -D "$ext_path" 2>/dev/null | grep -i asan | head -20 || echo "No ASan symbols found via nm"
+            ldd "$ext_path" 2>/dev/null | grep -i asan || echo "No ASan in ldd output"
+            readelf -d "$ext_path" 2>/dev/null | grep -i asan || echo "No ASan in readelf output"
+          else
+            echo "Could not find extension at: $ext_path"
+          fi
 
       - name: Run tests (Linux only) [C++ runtime]
         if: runner.os == 'Linux'
