@@ -154,7 +154,7 @@ find_package(tpack CONFIG QUIET)
 if (NOT tpack_FOUND)
     message(STATUS "tpack not found via find_package, using FetchContent")
     include(FetchContent)
-    FetchContent_Declare(tpack GIT_REPOSITORY https://github.com/uentity/tpack.git GIT_TAG v0.3.1)
+    FetchContent_Declare(tpack GIT_REPOSITORY https://github.com/uentity/tpack.git GIT_TAG v0.3.2)
     FetchContent_MakeAvailable(tpack)
     # Export tpack to the package registry so ddvisitor can find it via find_package
     set(tpack_DIR "${CMAKE_BINARY_DIR}/_deps/tpack-build" CACHE PATH "tpack build dir" FORCE)
@@ -169,23 +169,8 @@ find_package(ddvisitor CONFIG QUIET)
 if (NOT ddvisitor_FOUND)
     message(STATUS "ddvisitor not found via find_package, using FetchContent")
     include(FetchContent)
-    FetchContent_Declare(ddvisitor
-        GIT_REPOSITORY https://github.com/uentity/ddvisitor.git
-        GIT_TAG v0.9.3
-    )
-    # Only populate, don't add_subdirectory (their CMakeLists.txt is broken)
-    FetchContent_GetProperties(ddvisitor)
-    if (NOT ddvisitor_POPULATED)
-        FetchContent_Populate(ddvisitor)
-    endif()
-    # Create the ddvisitor target manually since we can't use their CMakeLists.txt
-    add_library(ddvisitor INTERFACE)
-    add_library(ddv::ddvisitor ALIAS ddvisitor)
-    target_compile_features(ddvisitor INTERFACE cxx_std_20)
-    target_include_directories(ddvisitor INTERFACE
-        $<BUILD_INTERFACE:${ddvisitor_SOURCE_DIR}/include>
-    )
-    target_link_libraries(ddvisitor INTERFACE tp::tpack)
+    FetchContent_Declare(ddvisitor GIT_REPOSITORY https://github.com/uentity/ddvisitor.git GIT_TAG v0.9.4)
+    FetchContent_MakeAvailable(ddvisitor)
 else ()
     message(STATUS "Found ddvisitor via Conan/system: ${ddvisitor_DIR}")
 endif ()
