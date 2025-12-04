@@ -5,130 +5,167 @@
 #ifndef HGRAPH_FORWARD_DECLARATIONS_H
 #define HGRAPH_FORWARD_DECLARATIONS_H
 
-// Just in case this get's imported naked, ensure we have nanobind loaded to get the additional template behaviour from ref.
 #include <functional>
+#include <memory>
 #include <nanobind/intrusive/ref.h>
 #include <nanobind/nanobind.h>
 #include <string>
 
+namespace nb = nanobind;
+
 namespace hgraph {
+    // NodeSignature - keeps nb::ref
     struct NodeSignature;
-    using node_signature_ptr = nanobind::ref<NodeSignature>;
+    using node_signature_ptr = NodeSignature*;
+    using node_signature_s_ptr = nb::ref<NodeSignature>;
 
+    // Node - converted to shared_ptr
     struct Node;
-    using node_ptr = nanobind::ref<Node>;
+    using node_ptr = Node*;
+    using node_s_ptr = std::shared_ptr<Node>;
 
+    // Traits - converted to shared_ptr
     struct Traits;
-    using traits_ptr = nanobind::ref<Traits>;
+    using traits_ptr = Traits*;
+    using const_traits_ptr = const Traits*;
+    using traits_s_ptr = std::shared_ptr<Traits>;
 
+    // Graph - converted to shared_ptr
     struct Graph;
-    using graph_ptr = nanobind::ref<Graph>;
+    using graph_ptr = Graph*;
+    using graph_s_ptr = std::shared_ptr<Graph>;
 
+    // SenderReceiverState - raw pointer only
     struct SenderReceiverState;
-    using sender_receiver_state_ptr = SenderReceiverState *;
+    using sender_receiver_state_ptr = SenderReceiverState*;
 
+    // GraphBuilder - keeps nb::ref
     struct GraphBuilder;
-    using graph_builder_ptr = nanobind::ref<GraphBuilder>;
+    using graph_builder_ptr = GraphBuilder*;
+    using graph_builder_s_ptr = nb::ref<GraphBuilder>;
 
+    // NodeBuilder - keeps nb::ref
     struct NodeBuilder;
+    using node_builder_ptr = NodeBuilder*;
+    using node_builder_s_ptr = nb::ref<NodeBuilder>;
 
+    // EngineEvaluationClock - converted to shared_ptr
     struct EngineEvaluationClock;
-    using engine_evalaution_clock_ptr = nanobind::ref<EngineEvaluationClock>;
+    using engine_evaluation_clock_ptr = EngineEvaluationClock*;
+    using engine_evaluation_clock_s_ptr = std::shared_ptr<EngineEvaluationClock>;
 
+    // InputBuilder - keeps nb::ref
     struct InputBuilder;
-    using input_builder_ptr = nanobind::ref<InputBuilder>;
+    using input_builder_ptr = InputBuilder*;
+    using input_builder_s_ptr = nb::ref<InputBuilder>;
 
+    // OutputBuilder - keeps nb::ref
     struct OutputBuilder;
-    using output_builder_ptr = nanobind::ref<OutputBuilder>;
+    using output_builder_ptr = OutputBuilder*;
+    using output_builder_s_ptr = nb::ref<OutputBuilder>;
 
-    struct NodeBuilder;
-    using node_builder_ptr = nanobind::ref<NodeBuilder>;
-
+    // TimeSeriesType - converted to shared_ptr
     struct TimeSeriesType;
-    using time_series_type_ptr = nanobind::ref<TimeSeriesType>;
+    using time_series_type_ptr = TimeSeriesType*;
+    using time_series_type_s_ptr = std::shared_ptr<TimeSeriesType>;
 
+    // TimeSeriesInput - converted to shared_ptr
     struct TimeSeriesInput;
     struct BaseTimeSeriesInput;
-    struct TimeSeriesValueInputBase;
-    using time_series_input_ptr = nanobind::ref<TimeSeriesInput>;
+    using time_series_input_ptr = TimeSeriesInput*;
+    using time_series_input_s_ptr = std::shared_ptr<TimeSeriesInput>;
 
+    // TimeSeriesBundleInput - converted to shared_ptr
     struct TimeSeriesBundleInput;
-    using time_series_bundle_input_ptr = nanobind::ref<TimeSeriesBundleInput>;
+    using time_series_bundle_input_ptr = TimeSeriesBundleInput*;
+    using time_series_bundle_input_s_ptr = std::shared_ptr<TimeSeriesBundleInput>;
 
+    // TimeSeriesBundleOutput - converted to shared_ptr
     struct TimeSeriesBundleOutput;
-    using time_series_bundle_output_ptr = nanobind::ref<TimeSeriesBundleOutput>;
+    using time_series_bundle_output_ptr = TimeSeriesBundleOutput*;
+    using time_series_bundle_output_s_ptr = std::shared_ptr<TimeSeriesBundleOutput>;
 
+    // TimeSeriesOutput - converted to shared_ptr
     struct TimeSeriesOutput;
     struct BaseTimeSeriesOutput;
-    struct TimeSeriesValueOutputBase;
-    using time_series_output_ptr = nanobind::ref<TimeSeriesOutput>;
+    using time_series_output_ptr = TimeSeriesOutput*;
+    using const_time_series_output_ptr = const TimeSeriesOutput*;
+    using time_series_output_s_ptr = std::shared_ptr<TimeSeriesOutput>;
 
+    // TimeSeriesReference - converted to shared_ptr
     struct TimeSeriesReference;
-    using time_series_reference_ptr = nanobind::ref<TimeSeriesReference>;
+    using time_series_reference_ptr = TimeSeriesReference*;
+    using time_series_reference_s_ptr = std::shared_ptr<TimeSeriesReference>;
 
+    // TimeSeriesReferenceInput - converted to shared_ptr
     struct TimeSeriesReferenceInput;
-    using time_series_reference_input_ptr = nanobind::ref<TimeSeriesReferenceInput>;
+    using time_series_reference_input_ptr = TimeSeriesReferenceInput*;
+    using time_series_reference_input_s_ptr = std::shared_ptr<TimeSeriesReferenceInput>;
 
+    // TimeSeriesReferenceOutput - converted to shared_ptr
     struct TimeSeriesReferenceOutput;
-    using time_series_reference_output_ptr = nanobind::ref<TimeSeriesReferenceOutput>;
+    using time_series_reference_output_ptr = TimeSeriesReferenceOutput*;
+    using time_series_reference_output_s_ptr = std::shared_ptr<TimeSeriesReferenceOutput>;
 
+    // TimeSeriesListInput - converted to shared_ptr
     struct TimeSeriesListInput;
-    using time_series_list_input_ptr = nanobind::ref<TimeSeriesListInput>;
+    using time_series_list_input_ptr = TimeSeriesListInput*;
+    using time_series_list_input_s_ptr = std::shared_ptr<TimeSeriesListInput>;
 
+    // TimeSeriesListOutput - converted to shared_ptr
     struct TimeSeriesListOutput;
-    using time_series_list_output_ptr = nanobind::ref<TimeSeriesListOutput>;
+    using time_series_list_output_ptr = TimeSeriesListOutput*;
+    using time_series_list_output_s_ptr = std::shared_ptr<TimeSeriesListOutput>;
 
+    // TimeSeriesSetInput - converted to shared_ptr
     struct TimeSeriesSetInput;
-    using time_series_set_input_ptr = nanobind::ref<TimeSeriesSetInput>;
+    using time_series_set_input_ptr = TimeSeriesSetInput*;
+    using time_series_set_input_s_ptr = std::shared_ptr<TimeSeriesSetInput>;
 
+    // TimeSeriesSetOutput - converted to shared_ptr
     struct TimeSeriesSetOutput;
-    using time_series_set_output_ptr = nanobind::ref<TimeSeriesSetOutput>;
+    using time_series_set_output_ptr = TimeSeriesSetOutput*;
+    using time_series_set_output_s_ptr = std::shared_ptr<TimeSeriesSetOutput>;
 
-    struct TimeSeriesDictInput;
-    struct TimeSeriesSignalInput;
-    struct IndexedTimeSeriesInput;
-
-    struct TimeSeriesValueReferenceInput;
-    struct TimeSeriesListReferenceInput;
-    struct TimeSeriesSetReferenceInput;
-    struct TimeSeriesDictReferenceInput;
-    struct TimeSeriesBundleReferenceInput;
-    struct TimeSeriesWindowReferenceInput;
-
-    template<typename> struct TimeSeriesValueInput;
-    template<typename> struct TimeSeriesDictInput_T;
-    template<typename> struct TimeSeriesSetInput_T;
-    template<typename> struct TimeSeriesWindowInput;
-
-    struct TimeSeriesDictOutput;
-    struct IndexedTimeSeriesOutput;
-
-    struct TimeSeriesValueReferenceOutput;
-    struct TimeSeriesListReferenceOutput;
-    struct TimeSeriesSetReferenceOutput;
-    struct TimeSeriesDictReferenceOutput;
-    struct TimeSeriesBundleReferenceOutput;
-    struct TimeSeriesWindowReferenceOutput;
-
-    template<typename> struct TimeSeriesValueOutput;
-    template<typename> struct TimeSeriesDictOutput_T;
-    template<typename> struct TimeSeriesSetOutput_T;
-    template<typename> struct TimeSeriesFixedWindowOutput;
-    template<typename> struct TimeSeriesTimeWindowOutput;
-
+    // TimeSeriesSchema - keeps nb::ref
     struct TimeSeriesSchema;
-    using time_series_schema_ptr = nanobind::ref<TimeSeriesSchema>;
+    using time_series_schema_ptr = TimeSeriesSchema*;
+    using time_series_schema_s_ptr = nb::ref<TimeSeriesSchema>;
 
     using c_string_ref = std::reference_wrapper<const std::string>;
 
     template<typename T_TS>
     concept TimeSeriesT = std::is_base_of_v<TimeSeriesInput, T_TS> || std::is_base_of_v<TimeSeriesOutput, T_TS>;
 
-    struct OutputBuilder;
-    struct InputBuilder;
+    struct TimeSeriesValueInputBase;
+    struct TimeSeriesSignalInput;
+    struct IndexedTimeSeriesInput;
+    struct TimeSeriesDictInput;
+    struct TimeSeriesValueReferenceInput;
+    struct TimeSeriesWindowReferenceInput;
+    struct TimeSeriesListReferenceInput;
+    struct TimeSeriesSetReferenceInput;
+    struct TimeSeriesDictReferenceInput;
+    struct TimeSeriesBundleReferenceInput;
+    struct TimeSeriesValueOutputBase;
+    struct IndexedTimeSeriesOutput;
+    struct TimeSeriesDictOutput;
+    struct TimeSeriesValueReferenceOutput;
+    struct TimeSeriesWindowReferenceOutput;
+    struct TimeSeriesListReferenceOutput;
+    struct TimeSeriesSetReferenceOutput;
+    struct TimeSeriesDictReferenceOutput;
+    struct TimeSeriesBundleReferenceOutput;
 
-    using output_builder_ptr = nanobind::ref<OutputBuilder>;
-    using input_builder_ptr = nanobind::ref<InputBuilder>;
+    template<typename> struct TimeSeriesValueInput;
+    template<typename> struct TimeSeriesDictInput_T;
+    template<typename> struct TimeSeriesSetInput_T;
+    template<typename> struct TimeSeriesWindowInput;
+    template<typename> struct TimeSeriesValueOutput;
+    template<typename> struct TimeSeriesDictOutput_T;
+    template<typename> struct TimeSeriesSetOutput_T;
+    template<typename> struct TimeSeriesFixedWindowOutput;
+    template<typename> struct TimeSeriesTimeWindowOutput;
 } // namespace hgraph
 
 #endif  // HGRAPH_FORWARD_DECLARATIONS_H

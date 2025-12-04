@@ -21,7 +21,7 @@ namespace hgraph
         if (!clock) {
             throw std::runtime_error("EvaluationEngineApi::evaluation_clock() returned null");
         }
-        return PyEvaluationClock(ApiPtr<EvaluationClock>(clock.get(), _impl.control_block()));
+        return PyEvaluationClock(ApiPtr<EvaluationClock>(clock));
     }
 
     void PyEvaluationEngineApi::request_engine_stop() const { _impl->request_engine_stop(); }

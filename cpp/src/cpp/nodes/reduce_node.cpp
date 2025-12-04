@@ -26,8 +26,8 @@ namespace hgraph {
     inline bool keys_equal<nb::object>(const nb::object &a, const nb::object &b) { return a.equal(b); }
 
     template<typename K>
-    ReduceNode<K>::ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
-                              nb::dict scalars, graph_builder_ptr nested_graph_builder,
+    ReduceNode<K>::ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
+                              nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
                               const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id)
         : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
           nested_graph_builder_(std::move(nested_graph_builder)), input_node_ids_(input_node_ids),
@@ -35,14 +35,14 @@ namespace hgraph {
     }
 
     template<typename K>
-    std::unordered_map<int, graph_ptr> &ReduceNode<K>::nested_graphs() {
-        static std::unordered_map<int, graph_ptr> graphs;
+    std::unordered_map<int, graph_s_ptr> &ReduceNode<K>::nested_graphs() {
+        static std::unordered_map<int, graph_s_ptr> graphs;
         graphs[0] = nested_graph_;
         return graphs;
     }
 
     template<typename K>
-    void ReduceNode<K>::enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const {
+    void ReduceNode<K>::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const {
         if (nested_graph_) {
             callback(nested_graph_);
         }
@@ -63,9 +63,9 @@ namespace hgraph {
         //TODO: If this graph escapes into python we will need to look into providing
         //      an actual control block this may also need to be constructed from
         //      the builder.
-        nested_graph_ = new Graph(std::vector<int64_t>{node_ndx()}, std::vector<node_ptr>{}, this, "", new Traits());
-        nested_graph_->set_evaluation_engine(new NestedEvaluationEngine(
-            graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
+        nested_graph_ = std::make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_s_ptr>{}, this, "", &graph()->traits());
+        nested_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
+            graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), this)));
         initialise_component(*nested_graph_);
     }
 
@@ -128,7 +128,7 @@ namespace hgraph {
 
         // Propagate output if changed
         auto l = dynamic_cast<TimeSeriesReferenceOutput *>(last_output().get());
-        auto o = dynamic_cast<TimeSeriesReferenceOutput *>(output());
+        auto o = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
 
         // Since l is the last output and o is the main output, they are different TimeSeriesReferenceOutput objects
         // We need to compare their values (both are TimeSeriesReference values)
@@ -140,7 +140,7 @@ namespace hgraph {
     }
 
     template<typename K>
-    TimeSeriesOutput::ptr ReduceNode<K>::last_output() {
+    TimeSeriesOutput::s_ptr ReduceNode<K>::last_output() {
         auto root_ndx = node_count() - 1;
         auto sub_graph = get_node(root_ndx);
         auto out_node = sub_graph[output_node_id_];
@@ -210,13 +210,12 @@ namespace hgraph {
         auto dst_input = (*dst_node->input())[0];
 
         // Swap the inputs by creating new input bundles
-        src_node->reset_input(src_node->input()->copy_with(src_node.get(), {dst_input.get()}));
-        dst_node->reset_input(dst_node->input()->copy_with(dst_node.get(), {src_input.get()}));
+        src_node->reset_input(src_node->input()->copy_with(src_node.get(), {dst_input}));
+        dst_node->reset_input(dst_node->input()->copy_with(dst_node.get(), {src_input}));
 
         // Re-parent the inputs to their new parent bundles (CRITICAL FIX - Python lines 159-160)
-        // Cast to TimeSeriesType::ptr for re_parent
-        dst_input->re_parent(src_node->input());
-        src_input->re_parent(dst_node->input());
+        dst_input->re_parent(static_cast<time_series_input_ptr>(src_node->input().get()));
+        src_input->re_parent(static_cast<time_series_input_ptr>(dst_node->input().get()));
 
         src_node->notify();
         dst_node->notify();
@@ -258,8 +257,8 @@ namespace hgraph {
 
         // Wire the nodes that need wiring
         for (auto i: wiring_info) {
-            TimeSeriesOutput::ptr left_parent;
-            TimeSeriesOutput::ptr right_parent;
+            time_series_output_s_ptr left_parent;
+            time_series_output_s_ptr right_parent;
 
             if (i < last_node) {
                 auto left_idx = un_bound_outputs.front();
@@ -283,8 +282,8 @@ namespace hgraph {
             auto lhs_input = sub_graph[std::get < 0 > (input_node_ids_)];
             auto rhs_input = sub_graph[std::get < 1 > (input_node_ids_)];
 
-            dynamic_cast<TimeSeriesInput &>(*(*lhs_input->input())[0]).bind_output(left_parent.get());
-            dynamic_cast<TimeSeriesInput &>(*(*rhs_input->input())[0]).bind_output(right_parent.get());
+            dynamic_cast<TimeSeriesInput &>(*(*lhs_input->input())[0]).bind_output(left_parent);
+            dynamic_cast<TimeSeriesInput &>(*(*rhs_input->input())[0]).bind_output(right_parent);
 
             lhs_input->notify();
             rhs_input->notify();
@@ -350,10 +349,10 @@ namespace hgraph {
         }
 
         // Create new input bundle with the ts (Python line 198)
-        node->reset_input(node->input()->copy_with(node.get(), {ts_.get()}));
+        node->reset_input(node->input()->copy_with(node.get(), {ts_}));
 
         // Re-parent the ts to the node's input (CRITICAL FIX - Python line 200)
-        ts_->re_parent(node->input());
+        ts_->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
 
         // Make the time series active (CRITICAL FIX - Python line 201)
         ts_->make_active();
@@ -378,18 +377,21 @@ namespace hgraph {
         // If not in flags, it's just an unbound reference that we created, so we can reuse it
         if (bound_to_key_flags_.contains(inner_input.get())) {
             // This input was bound to a key, so we need to:
-            // 1. Remove it from our tracking set
-            // 2. Re-parent it back to the TSD for cleanup
-            // 3. Create a new unbound reference input for this node with the same specialized type as zero()
+            // 1. Make it passive to unsubscribe from the output (CRITICAL: must do this before re-parenting)
+            // 2. Remove it from our tracking set
+            // 3. Re-parent it back to the TSD for cleanup
+            // 4. Create a new unbound reference input for this node with the same specialized type as zero()
+            inner_input->make_passive();  // Unsubscribe from output to prevent dangling subscriber
             bound_to_key_flags_.erase(inner_input.get());
-            inner_input->re_parent(ts().get());
+            inner_input->re_parent(static_cast<time_series_input_ptr>(ts()));
 
             // Clone the specialized type from zero() instead of creating a base type
             auto zero_ref = zero();
             auto new_ref_input = zero_ref->clone_blank_ref_instance();
             node->reset_input(node->input()->copy_with(node.get(), {new_ref_input}));
-            new_ref_input->re_parent(node->input());
-            new_ref_input->clone_binding(zero_ref);
+            auto new_ref_input_ptr = dynamic_cast<TimeSeriesReferenceInput*>(new_ref_input.get());
+            new_ref_input_ptr->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
+            new_ref_input_ptr->clone_binding(zero_ref);
         } else {
             // This input is not bound to a key (it's an unbound reference we created),
             // so we can just clone the zero binding without creating a new input
@@ -407,7 +409,7 @@ namespace hgraph {
     int64_t ReduceNode<K>::node_count() const { return nested_graph_->nodes().size() / node_size(); }
 
     template<typename K>
-    std::vector<node_ptr> ReduceNode<K>::get_node(int64_t ndx) {
+    std::vector<node_s_ptr> ReduceNode<K>::get_node(int64_t ndx) {
         // This should be cleaned up to return a view over the existing nodes.
         auto &all_nodes = nested_graph_->nodes();
         int64_t ns = node_size();
@@ -417,7 +419,7 @@ namespace hgraph {
     }
 
     template<typename K>
-    const graph_ptr &ReduceNode<K>::nested_graph() const { return nested_graph_; }
+    const graph_s_ptr &ReduceNode<K>::nested_graph() const { return nested_graph_; }
 
     template<typename K>
     const std::tuple<int64_t, int64_t> &ReduceNode<K>::input_node_ids() const { return input_node_ids_; }
@@ -448,7 +450,7 @@ namespace hgraph {
     template<typename K>
     void register_reduce_node_type(nb::module_ &m, const char *class_name) {
         nb::class_<ReduceNode<K>, NestedNode>(m, class_name)
-                .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::ptr, nb::dict, graph_builder_ptr,
+                .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::s_ptr, nb::dict, graph_builder_s_ptr,
                          const std::tuple<int64_t, int64_t> &, int64_t>(),
                      "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a,
                      "input_node_ids"_a,

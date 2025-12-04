@@ -240,13 +240,13 @@ namespace hgraph {
                 }
             } else if (auto ts_ref{dynamic_cast<const TimeSeriesReferenceInput *>(&input)}; ts_ref != nullptr) {
                 // Traverse the referenced target without relying on py_value-casting to a TimeSeriesInput
-                if (auto ref_out = ts_ref->reference_output(); ref_out.get() != nullptr) {
+                if (auto ref_out = ts_ref->reference_output(); ref_out != nullptr) {
                     if (auto ref_ts = dynamic_cast<const TimeSeriesReferenceOutput *>(ref_out.get());
                         ref_ts != nullptr) {
                         if (ref_ts->valid() && ref_ts->has_value()) {
                             auto ref = ref_ts->value();
                             if (ref.is_bound()) {
-                                if (auto tgt = ref.output(); tgt.get() != nullptr) {
+                                if (auto tgt = ref.output(); tgt != nullptr) {
                                     active_inputs.emplace(
                                         input_name, BackTrace::capture_back_trace(
                                             tgt->owning_node(), capture_values, depth - 1));

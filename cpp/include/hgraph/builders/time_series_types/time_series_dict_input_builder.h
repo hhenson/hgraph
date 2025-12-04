@@ -10,9 +10,9 @@
 namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesDictInputBuilder : InputBuilder {
         using ptr = nb::ref<TimeSeriesDictInputBuilder>;
-        input_builder_ptr ts_builder;
+        input_builder_s_ptr ts_builder;
 
-        explicit TimeSeriesDictInputBuilder(input_builder_ptr ts_builder);
+        explicit TimeSeriesDictInputBuilder(input_builder_s_ptr ts_builder);
 
         bool has_reference() const override { return ts_builder->has_reference(); }
     };
@@ -21,9 +21,9 @@ namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesDictInputBuilder_T : TimeSeriesDictInputBuilder {
         using TimeSeriesDictInputBuilder::TimeSeriesDictInputBuilder;
 
-        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_input_s_ptr make_instance(node_ptr owning_node) const override;
 
-        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
+        time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
 
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
 

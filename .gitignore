@@ -49,3 +49,15 @@ docs/build/*
 /cmake-build-debug/
 /.tmp/
 /cmake-build-relwithdebinfo/
+/cmake-build-release-stable/CMakeFiles/4.2.0/CompilerIdC/apple-sdk.c
+/cmake-build-release-stable/CMakeFiles/4.2.0/CompilerIdC/CMakeCCompilerId.c
+/cmake-build-release-stable/CMakeFiles/4.2.0/CompilerIdCXX/apple-sdk.cpp
+/cmake-build-release-stable/CMakeFiles/4.2.0/CompilerIdCXX/CMakeCXXCompilerId.cpp
+/cmake-build-release-stable/CMakeFiles/4.2.0/CMakeCCompiler.cmake
+/cmake-build-release-stable/CMakeFiles/4.2.0/CMakeCXXCompiler.cmake
+/cmake-build-release-stable/CMakeFiles/4.2.0/CMakeDetermineCompilerABI_C.bin
+/cmake-build-release-stable/CMakeFiles/4.2.0/CMakeDetermineCompilerABI_CXX.bin
+/cmake-build-release-stable/CMakeFiles/4.2.0/CMakeSystem.cmake
+/cmake-build-release-stable/CMakeFiles/cmake.check_cache
+/cmake-build-release-stable/CMakeFiles/CMakeConfigureLog.yaml
+/cmake-build-release-stable/CMakeCache.txt

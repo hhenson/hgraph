@@ -26,11 +26,11 @@
 #include <utility>
 
 namespace hgraph {
-    NodeBuilder::NodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
-                             std::optional<input_builder_ptr> input_builder_,
-                             std::optional<output_builder_ptr> output_builder_,
-                             std::optional<output_builder_ptr> error_builder_,
-                             std::optional<output_builder_ptr> recordable_state_builder_)
+    NodeBuilder::NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
+                             std::optional<input_builder_s_ptr> input_builder_,
+                             std::optional<output_builder_s_ptr> output_builder_,
+                             std::optional<output_builder_s_ptr> error_builder_,
+                             std::optional<output_builder_s_ptr> recordable_state_builder_)
         : signature(std::move(signature_)), scalars(std::move(scalars_)), input_builder(std::move(input_builder_)),
           output_builder(std::move(output_builder_)), error_builder(std::move(error_builder_)),
           recordable_state_builder(std::move(recordable_state_builder_)) {
@@ -55,12 +55,12 @@ namespace hgraph {
         return *this;
     }
 
-    void NodeBuilder::release_instance(node_ptr &item) const {
-        if (input_builder) { (*input_builder)->release_instance(item->input()); }
-        if (output_builder) { (*output_builder)->release_instance(item->output()); }
+    void NodeBuilder::release_instance(const node_s_ptr &item) const {
+        if (input_builder) { (*input_builder)->release_instance(item->input().get()); }
+        if (output_builder) { (*output_builder)->release_instance(item->output().get()); }
         if (error_builder) { (*error_builder)->release_instance(item->error_output().get()); }
         if (recordable_state_builder) { (*recordable_state_builder)->release_instance(item->recordable_state().get()); }
-        dispose_component(*item.get());
+        dispose_component(*item);
     }
 
     size_t NodeBuilder::memory_size() const {
@@ -128,7 +128,8 @@ namespace hgraph {
     void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node) const {
         if (input_builder.has_value()) {
             auto ts_input = (*input_builder)->make_instance(node);
-            node->set_input(dynamic_cast_ref<TimeSeriesBundleInput>(ts_input));
+            // The input is always a TimeSeriesBundleInput at this level.
+            node->set_input(std::static_pointer_cast<TimeSeriesBundleInput>(ts_input));
         }
 
         if (output_builder.has_value()) {
@@ -143,7 +144,8 @@ namespace hgraph {
 
         if (recordable_state_builder.has_value()) {
             auto ts_recordable_state = (*recordable_state_builder)->make_instance(node);
-            node->set_recordable_state(dynamic_cast_ref<TimeSeriesBundleOutput>(ts_recordable_state));
+            // The recordable_state is always a TimeSeriesBundleOutput at this level.
+            node->set_recordable_state(std::static_pointer_cast<TimeSeriesBundleOutput>(ts_recordable_state));
         }
     }
 } // namespace hgraph

@@ -13,7 +13,7 @@ namespace hgraph {
         requires IndexedTimeSeriesT<T_TS>
     struct TimeSeriesList : T_TS {
         using list_type = TimeSeriesList<T_TS>;
-        using ptr = nb::ref<list_type>;
+        using ptr = list_type*;
         using typename T_TS::index_ts_type;
         using typename T_TS::ts_type;
 
@@ -57,6 +57,7 @@ namespace hgraph {
 
         [[nodiscard]] bool has_reference() const override;
 
+
     protected:
         using T_TS::index_with_constraint;
         using T_TS::ts_values;
@@ -64,7 +65,7 @@ namespace hgraph {
 
     struct TimeSeriesListOutputBuilder;
 
-    struct TimeSeriesListOutput : TimeSeriesList<IndexedTimeSeriesOutput> {
+    struct TimeSeriesListOutput final : TimeSeriesList<IndexedTimeSeriesOutput> {
         using list_type::TimeSeriesList;
 
         void apply_result(const nb::object& value) override;
@@ -73,7 +74,7 @@ namespace hgraph {
 
         void py_set_value(const nb::object& value) override;
 
-        VISITOR_SUPPORT()
+        VISITOR_SUPPORT(final)
 
     protected:
         friend TimeSeriesListOutputBuilder;
@@ -81,12 +82,12 @@ namespace hgraph {
 
     struct TimeSeriesListInputBuilder;
 
-    struct TimeSeriesListInput : TimeSeriesList<IndexedTimeSeriesInput> {
+    struct TimeSeriesListInput final: TimeSeriesList<IndexedTimeSeriesInput> {
         using list_type::TimeSeriesList;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        VISITOR_SUPPORT()
+        VISITOR_SUPPORT(final)
 
     protected:
         friend TimeSeriesListInputBuilder;

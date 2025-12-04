@@ -11,12 +11,12 @@
 
 namespace hgraph {
     struct PythonGeneratorNodeBuilder : BaseNodeBuilder {
-        PythonGeneratorNodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
-                                   std::optional<input_builder_ptr> input_builder_,
-                                   std::optional<output_builder_ptr> output_builder_,
-                                   std::optional<output_builder_ptr> error_builder_, nb::callable eval_fn);
+        PythonGeneratorNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
+                                   std::optional<input_builder_s_ptr> input_builder_,
+                                   std::optional<output_builder_s_ptr> output_builder_,
+                                   std::optional<output_builder_s_ptr> error_builder_, nb::callable eval_fn);
 
-        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
+        node_s_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
 
         nb::callable eval_fn;
     };

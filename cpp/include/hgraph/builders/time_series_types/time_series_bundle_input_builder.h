@@ -6,17 +6,18 @@
 #define TIME_SERIES_BUNDLE_INPUT_BUILDER_H
 
 #include <hgraph/builders/input_builder.h>
+#include <hgraph/types/tsb.h>
 #include <vector>
 
 namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesBundleInputBuilder : InputBuilder {
         using ptr = nb::ref<TimeSeriesBundleInputBuilder>;
 
-        TimeSeriesBundleInputBuilder(time_series_schema_ptr schema, std::vector<InputBuilder::ptr> input_builders);
+        TimeSeriesBundleInputBuilder(time_series_schema_s_ptr schema, std::vector<InputBuilder::ptr> input_builders);
 
-        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_input_s_ptr make_instance(node_ptr owning_node) const override;
 
-        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
+        time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
 
         bool has_reference() const override;
 
@@ -29,9 +30,9 @@ namespace hgraph {
         static void register_with_nanobind(nb::module_ &m);
 
     private:
-        time_series_input_ptr make_and_set_inputs(TimeSeriesBundleInput *input) const;
+        time_series_input_s_ptr make_and_set_inputs(time_series_bundle_input_s_ptr input) const;
 
-        time_series_schema_ptr schema;
+        time_series_schema_s_ptr schema;
         std::vector<InputBuilder::ptr> input_builders;
     };
 } // namespace hgraph

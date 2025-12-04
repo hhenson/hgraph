@@ -12,8 +12,8 @@
 
 namespace hgraph {
     TsdNonAssociativeReduceNode::TsdNonAssociativeReduceNode(
-        int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
-        nb::dict scalars, graph_builder_ptr nested_graph_builder,
+        int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
+        nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
         const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id)
         : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
           nested_graph_builder_(std::move(nested_graph_builder)),
@@ -24,9 +24,9 @@ namespace hgraph {
         // Create nested graph and set up evaluation engine (matches Python lines 319, 329-331)
         //TODO: Should this be constructed by the GraphBuilder, if it does not escape into Python then
         //      this is fine, otherwise not.
-        nested_graph_ = new Graph(std::vector<int64_t>{node_ndx()}, std::vector<node_ptr>{}, this, "", new Traits());
-        nested_graph_->set_evaluation_engine(new NestedEvaluationEngine(
-            graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
+        nested_graph_ = std::make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_s_ptr>{}, this, "", &graph()->traits());
+        nested_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
+            graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), this)));
         initialise_component(*nested_graph_);
     }
 
@@ -150,7 +150,7 @@ namespace hgraph {
 
     void TsdNonAssociativeReduceNode::bind_output() {
         // Bind the output to the last node's output value (matches Python lines 411-414)
-        auto out = dynamic_cast<TimeSeriesReferenceOutput *>(output());
+        auto out = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
 
         int64_t nc = node_count();
         if (nc == 0) {
@@ -165,7 +165,7 @@ namespace hgraph {
             auto sub_graph = get_node(nc - 1);
             auto last_out_node = sub_graph[output_node_id_];
             auto last_out = last_out_node->output();
-            auto last_ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(last_out);
+            auto last_ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(last_out.get());
 
             if (!out->valid() || !out->has_value() || !(out->value() == last_ref_out->value())) {
                 out->set_value(last_ref_out->value());
@@ -179,12 +179,12 @@ namespace hgraph {
         int64_t nc = node_count();
         if (nc == 0) {
             auto zero = (*input())["zero"];
-            return nb::cast(zero.get());
+            return nb::cast(zero);
         }
 
         auto sub_graph = get_node(nc - 1);
         auto out_node = sub_graph[output_node_id_];
-        auto ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(out_node->output());
+        auto ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(out_node->output().get());
         return nb::cast(ref_out->value());
     }
 
@@ -201,7 +201,7 @@ namespace hgraph {
         return nested_graph_->nodes().size() / node_size();
     }
 
-    std::vector<node_ptr> TsdNonAssociativeReduceNode::get_node(int64_t ndx) {
+    std::vector<node_s_ptr> TsdNonAssociativeReduceNode::get_node(int64_t ndx) {
         auto &all_nodes = nested_graph_->nodes();
         int64_t ns = node_size();
         int64_t start = ndx * ns;
@@ -209,13 +209,11 @@ namespace hgraph {
         return {all_nodes.begin() + start, all_nodes.begin() + end};
     }
 
-    std::unordered_map<int, graph_ptr> &TsdNonAssociativeReduceNode::nested_graphs() {
-        static std::unordered_map<int, graph_ptr> graphs;
-        graphs[0] = nested_graph_;
-        return graphs;
+    std::unordered_map<int, graph_s_ptr> TsdNonAssociativeReduceNode::nested_graphs() {
+        return {{0, nested_graph_}};
     }
 
-    void TsdNonAssociativeReduceNode::enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const {
+    void TsdNonAssociativeReduceNode::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const {
         if (nested_graph_) {
             callback(nested_graph_);
         }

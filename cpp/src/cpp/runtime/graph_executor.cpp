@@ -41,8 +41,8 @@ namespace hgraph
 
     void GraphExecutor::register_with_nanobind(nb::module_ &m) {
         nb::class_<GraphExecutor>(m, "GraphExecutor")
-            .def(nb::init<graph_builder_ptr, EvaluationMode, std::vector<EvaluationLifeCycleObserver::ptr>>(), "graph_builder"_a,
-                 "run_mode"_a, "observers"_a = std::vector<EvaluationLifeCycleObserver::ptr>{})
+            .def(nb::init<graph_builder_s_ptr, EvaluationMode, std::vector<EvaluationLifeCycleObserver::s_ptr>>(), "graph_builder"_a,
+                 "run_mode"_a, "observers"_a = std::vector<EvaluationLifeCycleObserver::s_ptr>{})
             .def_prop_ro("run_mode", &GraphExecutor::run_mode)
             .def("run", &GraphExecutor::run)
             .def("__str__",
@@ -75,8 +75,8 @@ namespace hgraph
             .def("on_after_stop_graph", &EvaluationLifeCycleObserver::on_after_stop_graph);
     }
 
-    GraphExecutor::GraphExecutor(graph_builder_ptr graph_builder, EvaluationMode run_mode,
-                                 std::vector<EvaluationLifeCycleObserver::ptr> observers)
+    GraphExecutor::GraphExecutor(graph_builder_s_ptr graph_builder, EvaluationMode run_mode,
+                                 std::vector<EvaluationLifeCycleObserver::s_ptr> observers)
         : _graph_builder(graph_builder), _run_mode(run_mode), _observers{std::move(observers)} {}
 
     EvaluationMode GraphExecutor::run_mode() const { return _run_mode; }
@@ -96,14 +96,14 @@ namespace hgraph
             }
         }
 
-        EngineEvaluationClock::ptr clock;
+        EngineEvaluationClock::s_ptr clock;
         switch (_run_mode) {
-            case EvaluationMode::REAL_TIME: clock = new RealTimeEvaluationClock(start_time); break;
-            case EvaluationMode::SIMULATION: clock = new SimulationEvaluationClock(start_time); break;
+            case EvaluationMode::REAL_TIME: clock = std::make_shared<RealTimeEvaluationClock>(start_time); break;
+            case EvaluationMode::SIMULATION: clock = std::make_shared<SimulationEvaluationClock>(start_time); break;
             default: throw std::runtime_error("Unknown run mode");
         }
 
-        nb::ref<EvaluationEngine> evaluationEngine = new EvaluationEngineImpl(clock, start_time, end_time, _run_mode);
+        auto evaluationEngine = std::make_shared<EvaluationEngineImpl>(clock, start_time, end_time, _run_mode);
         graph->set_evaluation_engine(evaluationEngine);
 
         for (const auto &observer : _observers) { evaluationEngine->add_life_cycle_observer(observer); }

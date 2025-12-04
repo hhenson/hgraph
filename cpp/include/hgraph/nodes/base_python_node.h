@@ -22,7 +22,7 @@ namespace hgraph {
      * - PythonGeneratorNode: Generator-based nodes
      */
     struct BasePythonNode : Node {
-        BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+        BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                        nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
 
         void _initialise_kwargs();
@@ -31,7 +31,7 @@ namespace hgraph {
 
         void _initialise_state();
 
-        void reset_input(time_series_bundle_input_ptr value) override;
+        void reset_input(const time_series_bundle_input_s_ptr& value) override;
 
     protected:
         void do_eval() override;

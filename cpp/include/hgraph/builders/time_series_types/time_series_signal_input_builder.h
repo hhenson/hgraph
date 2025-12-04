@@ -14,9 +14,9 @@ namespace hgraph {
         using ptr = nb::ref<TimeSeriesSignalInputBuilder>;
         using InputBuilder::InputBuilder;
 
-        time_series_input_ptr make_instance(const node_ptr& owning_node) const override;
+        time_series_input_s_ptr make_instance(node_ptr owning_node) const override;
 
-        time_series_input_ptr make_instance(const time_series_input_ptr& owning_input) const override;
+        time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
 
         void release_instance(time_series_input_ptr item) const override;
 

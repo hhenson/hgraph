@@ -445,7 +445,7 @@ namespace hgraph
         return d;
     }
 
-    NodeSignature::ptr NodeSignature::copy_with(const nb::kwargs& kwargs) const {
+    NodeSignature::s_ptr NodeSignature::copy_with(const nb::kwargs& kwargs) const {
         // Get override values from kwargs, otherwise use current values
         std::string  name_val      = kwargs.contains("name") ? nb::cast<std::string>(kwargs["name"]) : this->name;
         NodeTypeEnum node_type_val = kwargs.contains("node_type") ? nb::cast<NodeTypeEnum>(kwargs["node_type"]) : this->node_type;
@@ -605,7 +605,7 @@ namespace hgraph
         _node->graph()->schedule_node(_node->node_ndx(), when);
     }
 
-    Node::Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature, nb::dict scalars)
+    Node::Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars)
         : _node_ndx{node_ndx}, _owning_graph_id{std::move(owning_graph_id)}, _signature{std::move(signature)},
           _scalars{std::move(scalars)} {}
 
@@ -657,8 +657,8 @@ namespace hgraph
 
     const nb::dict &Node::scalars() const { return _scalars; }
 
-    Graph* Node::graph() { return _graph.get(); }
-    Graph* Node::graph() const { return const_cast<Graph*>(_graph.get()); }
+    graph_ptr Node::graph() { return _graph; }
+    graph_ptr Node::graph() const { return _graph; }
 
     void Node::set_graph(graph_ptr value) {
         _graph = std::move(value);
@@ -666,47 +666,47 @@ namespace hgraph
         _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
-    TimeSeriesBundleInput* Node::input() { return _input.get(); }
-    TimeSeriesBundleInput* Node::input() const { return const_cast<TimeSeriesBundleInput*>(_input.get()); }
+    time_series_bundle_input_s_ptr& Node::input() { return _input; }
+    const time_series_bundle_input_s_ptr& Node::input() const { return _input; }
 
-    void Node::set_input(time_series_bundle_input_ptr value) {
+    void Node::set_input(const time_series_bundle_input_s_ptr& value) {
         if (has_input()) { throw std::runtime_error("Input already set on node: " + _signature->signature()); }
-        reset_input(std::move(value));
+        reset_input(value);
     }
 
-    void Node::reset_input(time_series_bundle_input_ptr value) {
-        _input = std::move(value);
+    void Node::reset_input(const time_series_bundle_input_s_ptr& value) {
+        _input = value;
         _check_all_valid_inputs.clear();
         _check_valid_inputs.clear();
         _check_valid_inputs.reserve(signature().valid_inputs.has_value() ? signature().valid_inputs->size()
                                                                          : signature().time_series_inputs->size());
         if (signature().valid_inputs.has_value()) {
-            for (const auto &key : std::views::all(*signature().valid_inputs)) { _check_valid_inputs.push_back((*input())[key]); }
+            for (const auto &key : std::views::all(*signature().valid_inputs)) { _check_valid_inputs.push_back((*input())[key].get()); }
         } else {
             for (const auto &key : std::views::elements<0>(*signature().time_series_inputs)) {
                 // Do not treat context inputs as required by default
                 bool is_context = signature().context_inputs.has_value() && signature().context_inputs->contains(key);
-                if (!is_context) { _check_valid_inputs.push_back((*input())[key]); }
+                if (!is_context) { _check_valid_inputs.push_back((*input())[key].get()); }
             }
         }
         if (signature().all_valid_inputs.has_value()) {
             _check_all_valid_inputs.reserve(signature().all_valid_inputs->size());
-            for (const auto &key : *signature().all_valid_inputs) { _check_all_valid_inputs.push_back((*input())[key]); }
+            for (const auto &key : *signature().all_valid_inputs) { _check_all_valid_inputs.push_back((*input())[key].get()); }
         }
     }
 
-    TimeSeriesOutput* Node::output() { return _output.get(); }
+    time_series_output_s_ptr& Node::output() { return _output; }
 
-    void Node::set_output(time_series_output_ptr value) { _output = std::move(value); }
+    void Node::set_output(const time_series_output_s_ptr& value) { _output = value; }
 
-    time_series_bundle_output_ptr Node::recordable_state() { return _recordable_state; }
+    time_series_bundle_output_s_ptr& Node::recordable_state() { return _recordable_state; }
 
-    void Node::set_recordable_state(nb::ref<TimeSeriesBundleOutput> value) { _recordable_state = std::move(value); }
+    void Node::set_recordable_state(const time_series_bundle_output_s_ptr& value) { _recordable_state = value; }
 
-    bool Node::has_recordable_state() const { return _recordable_state.get() != nullptr; }
+    bool Node::has_recordable_state() const { return _recordable_state != nullptr; }
 
-    NodeScheduler::ptr Node::scheduler() {
-        if (_scheduler.get() == nullptr) { _scheduler = new NodeScheduler(this); }
+    NodeScheduler::s_ptr& Node::scheduler() {
+        if (_scheduler.get() == nullptr) { _scheduler = std::make_shared<NodeScheduler>(this); }
         return _scheduler;
     }
 
@@ -714,11 +714,11 @@ namespace hgraph
 
     void Node::unset_scheduler() { _scheduler.reset(); }
 
-    time_series_output_ptr Node::error_output() { return _error_output; }
+    time_series_output_s_ptr& Node::error_output() { return _error_output; }
 
-    void Node::set_error_output(time_series_output_ptr value) { _error_output = std::move(value); }
+    void Node::set_error_output(const time_series_output_s_ptr& value) { _error_output = value; }
 
-    void Node::add_start_input(nb::ref<TimeSeriesReferenceInput> input) { _start_inputs.push_back(std::move(input)); }
+    void Node::add_start_input(const time_series_reference_input_s_ptr& input) { _start_inputs.push_back(input); }
 
     bool Node::has_input() const { return _input.get() != nullptr; }
 

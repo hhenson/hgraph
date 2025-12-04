@@ -88,8 +88,8 @@ namespace hgraph
     requires std::is_base_of_v<TimeSeriesDictOutput, T_U>
     struct PyTimeSeriesDictOutput_T : PyTimeSeriesDict<PyTimeSeriesDictOutput, T_U>
     {
-        explicit PyTimeSeriesDictOutput_T(T_U* o, control_block_ptr cb);
-        explicit PyTimeSeriesDictOutput_T(T_U* o);
+        using api_ptr = ApiPtr<T_U>;
+        explicit PyTimeSeriesDictOutput_T(api_ptr impl);
 
         void set_item(const nb::object &key, const nb::object &value);
 
@@ -111,11 +111,12 @@ namespace hgraph
     requires std::is_base_of_v<TimeSeriesDictInput, T_U>
     struct PyTimeSeriesDictInput_T : PyTimeSeriesDict<PyTimeSeriesDictInput, T_U>
     {
+        using api_ptr = ApiPtr<T_U>;
+
         void on_key_added(const nb::object &key);
         void on_key_removed(const nb::object &key);
 
-        explicit PyTimeSeriesDictInput_T(T_U* o, control_block_ptr cb);
-        explicit PyTimeSeriesDictInput_T(T_U* o);
+        explicit PyTimeSeriesDictInput_T(api_ptr impl);
     };
 
     void tsd_register_with_nanobind(nb::module_ & m);

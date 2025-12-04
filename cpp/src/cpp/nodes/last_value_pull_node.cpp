@@ -34,7 +34,7 @@ namespace hgraph {
             return;
         }
 
-        auto output_obj = output();
+        auto output_obj = output().get();
 
         // Check the type of the output and set the appropriate combine function
         // TimeSeriesSet (TSS)

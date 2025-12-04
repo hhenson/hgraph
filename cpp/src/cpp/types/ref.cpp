@@ -23,8 +23,8 @@ namespace hgraph
         // _storage.empty is already initialized
     }
 
-    TimeSeriesReference::TimeSeriesReference(time_series_output_ptr output) : _kind(Kind::BOUND) {
-        new (&_storage.bound) TimeSeriesOutput::ptr(std::move(output));
+    TimeSeriesReference::TimeSeriesReference(time_series_output_s_ptr output) : _kind(Kind::BOUND) {
+        new (&_storage.bound) time_series_output_s_ptr(std::move(output));
     }
 
     TimeSeriesReference::TimeSeriesReference(std::vector<TimeSeriesReference> items) : _kind(Kind::UNBOUND) {
@@ -65,7 +65,7 @@ namespace hgraph
     void TimeSeriesReference::destroy() noexcept {
         switch (_kind) {
             case Kind::EMPTY: break;
-            case Kind::BOUND: _storage.bound.~ref(); break;
+            case Kind::BOUND: _storage.bound.~shared_ptr(); break;  // Call shared_ptr destructor
             case Kind::UNBOUND: _storage.unbound.~vector(); break;
         }
     }
@@ -73,7 +73,7 @@ namespace hgraph
     void TimeSeriesReference::copy_from(const TimeSeriesReference &other) {
         switch (other._kind) {
             case Kind::EMPTY: break;
-            case Kind::BOUND: new (&_storage.bound) TimeSeriesOutput::ptr(other._storage.bound); break;
+            case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(other._storage.bound); break;
             case Kind::UNBOUND: new (&_storage.unbound) std::vector<TimeSeriesReference>(other._storage.unbound); break;
         }
     }
@@ -81,13 +81,13 @@ namespace hgraph
     void TimeSeriesReference::move_from(TimeSeriesReference &&other) noexcept {
         switch (other._kind) {
             case Kind::EMPTY: break;
-            case Kind::BOUND: new (&_storage.bound) TimeSeriesOutput::ptr(std::move(other._storage.bound)); break;
+            case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(std::move(other._storage.bound)); break;
             case Kind::UNBOUND: new (&_storage.unbound) std::vector<TimeSeriesReference>(std::move(other._storage.unbound)); break;
         }
     }
 
     // Accessors with validation
-    const TimeSeriesOutput::ptr &TimeSeriesReference::output() const {
+    const time_series_output_s_ptr &TimeSeriesReference::output() const {
         if (_kind != Kind::BOUND) { throw std::runtime_error("TimeSeriesReference::output() called on non-bound reference"); }
         return _storage.bound;
     }
@@ -129,7 +129,7 @@ namespace hgraph
 
                     for (size_t i = 0; i < _storage.unbound.size(); ++i) {
                         // Get the child input (from REF, Indexed, or Signal input)
-                        TimeSeriesInput *item{ts_input.get_input(i)};
+                        auto item = ts_input.get_input(i);
                         _storage.unbound[i].bind_input(*item);
                     }
 
@@ -191,8 +191,8 @@ namespace hgraph
     // Factory methods
     TimeSeriesReference TimeSeriesReference::make() { return TimeSeriesReference(); }
 
-    TimeSeriesReference TimeSeriesReference::make(time_series_output_ptr output) {
-        if (output.get() == nullptr) {
+    TimeSeriesReference TimeSeriesReference::make(time_series_output_s_ptr output) {
+        if (output == nullptr) {
             return make();
         } else {
             return TimeSeriesReference(std::move(output));
@@ -204,12 +204,22 @@ namespace hgraph
         return TimeSeriesReference(std::move(items));
     }
 
-    TimeSeriesReference TimeSeriesReference::make(std::vector<nb::ref<TimeSeriesReferenceInput>> items) {
+
+    TimeSeriesReference TimeSeriesReference::make(const std::vector<TimeSeriesReferenceInput*>& items) {
         if (items.empty()) { return make(); }
         std::vector<TimeSeriesReference> refs;
         refs.reserve(items.size());
         for (auto item : items) {
-            // Call value() instead of accessing _value directly, so bound items return their output's value
+            refs.emplace_back(item->value());
+        }
+        return TimeSeriesReference(std::move(refs));
+    }
+
+    TimeSeriesReference TimeSeriesReference::make(const std::vector<std::shared_ptr<TimeSeriesReferenceInput>>& items) {
+        if (items.empty()) { return make(); }
+        std::vector<TimeSeriesReference> refs;
+        refs.reserve(items.size());
+        for (const auto& item : items) {
             refs.emplace_back(item->value());
         }
         return TimeSeriesReference(std::move(refs));
@@ -305,7 +315,7 @@ namespace hgraph
     // ============================================================
 
     void TimeSeriesReferenceInput::start() {
-        set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
+        set_sample_time(owning_graph()->evaluation_time());
         notify(sample_time());
     }
 
@@ -337,24 +347,24 @@ namespace hgraph
         return has_output() ? output()->last_modified_time() : sample_time();
     }
 
-    void TimeSeriesReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr &other) {
+    void TimeSeriesReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr other) {
         un_bind_output(false);
         if (other->has_output()) {
             bind_output(other->output());
         } else if (other->has_value()) {
             _value = other->_value;
             if (owning_node()->is_started()) {
-                set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
+                set_sample_time(owning_graph()->evaluation_time());
                 if (active()) { notify(sample_time()); }
             }
         }
     }
 
-    bool TimeSeriesReferenceInput::bind_output(const time_series_output_ptr& output_) {
+    bool TimeSeriesReferenceInput::bind_output(time_series_output_s_ptr output_) {
         auto peer = do_bind_output(output_);
 
         if (owning_node()->is_started() && has_output() && output()->valid()) {
-            set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
+            set_sample_time(owning_graph()->evaluation_time());
             if (active()) { notify(sample_time()); }
         }
 
@@ -366,7 +376,7 @@ namespace hgraph
         do_un_bind_output(unbind_refs);
 
         if (has_owning_node() && owning_node()->is_started() && was_valid) {
-            set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
+            set_sample_time(owning_graph()->evaluation_time());
             if (active()) {
                 // Notify as the state of the node has changed from bound to unbound
                 owning_node()->notify(sample_time());
@@ -382,7 +392,7 @@ namespace hgraph
         }
 
         if (valid()) {
-            set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
+            set_sample_time(owning_graph()->evaluation_time());
             notify(last_modified_time());
         }
     }
@@ -395,25 +405,29 @@ namespace hgraph
         }
     }
 
-    TimeSeriesInput *TimeSeriesReferenceInput::get_input(size_t index) { return get_ref_input(index); }
+    TimeSeriesInput::s_ptr TimeSeriesReferenceInput::get_input(size_t index) {
+        auto *ref = get_ref_input(index);
+        return ref ? ref->shared_from_this() : time_series_input_s_ptr{};
+    }
 
     TimeSeriesReferenceInput *TimeSeriesReferenceInput::get_ref_input(size_t index) {
         throw std::runtime_error("TimeSeriesReferenceInput::get_ref_input: Not implemented on this type");
     }
 
-    bool TimeSeriesReferenceInput::do_bind_output(const time_series_output_ptr& output_) {
-        if (dynamic_cast<const TimeSeriesReferenceOutput *>(output_.get()) != nullptr) {
+    bool TimeSeriesReferenceInput::do_bind_output(time_series_output_s_ptr output_) {
+        if (std::dynamic_pointer_cast<TimeSeriesReferenceOutput>(output_) != nullptr) {
             // Match Python behavior: bind to a TimeSeriesReferenceOutput as a normal peer
             reset_value();
             return BaseTimeSeriesInput::do_bind_output(output_);
         }
         // We are binding directly to a concrete output: wrap it as a reference value
+        // Get shared_ptr to keep the output alive while this reference holds it
         _value = TimeSeriesReference::make(std::move(output_));
         if (owning_node()->is_started()) {
-            set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
+            set_sample_time(owning_graph()->evaluation_time());
             notify(sample_time());
         } else {
-            owning_node()->add_start_input(this);
+            owning_node()->add_start_input(std::dynamic_pointer_cast<TimeSeriesReferenceInput>(shared_from_this()));
         }
         return false;
     }
@@ -423,7 +437,7 @@ namespace hgraph
         if (has_value()) {
             reset_value();
             // TODO: Do we need to notify here? Should we notify only if the input is active?
-            set_sample_time(owning_node()->is_started() ? owning_graph()->evaluation_clock()->evaluation_time() : MIN_ST);
+            set_sample_time(owning_node()->is_started() ? owning_graph()->evaluation_time() : MIN_ST);
         }
     }
 
@@ -433,7 +447,7 @@ namespace hgraph
 
     TimeSeriesReferenceOutput *TimeSeriesReferenceInput::output_t() {
         auto _output{output()};
-        auto _result{dynamic_cast<TimeSeriesReferenceOutput *>(_output)};
+        auto _result{dynamic_cast<TimeSeriesReferenceOutput *>(_output.get())};
         if (_result == nullptr) {
             throw std::runtime_error("TimeSeriesReferenceInput::output_t: Expected TimeSeriesReferenceOutput*");
         }
@@ -460,22 +474,19 @@ namespace hgraph
     // Specialized Reference Input Implementations
     // ============================================================
 
-    TimeSeriesReferenceInput *TimeSeriesValueReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesValueReferenceInput(owning_node());
+    time_series_input_s_ptr TimeSeriesValueReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesValueReferenceInput>(owning_node());
     }
 
     // TimeSeriesListReferenceInput - REF[TSL[...]]
     TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(Node *owning_node, InputBuilder::ptr value_builder, size_t size)
         : TimeSeriesReferenceInput(owning_node), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(TimeSeriesType *parent_input, InputBuilder::ptr value_builder,
+    TimeSeriesListReferenceInput::TimeSeriesListReferenceInput(TimeSeriesInput *parent_input, InputBuilder::ptr value_builder,
                                                                size_t size)
         : TimeSeriesReferenceInput(parent_input), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesInput *TimeSeriesListReferenceInput::get_input(size_t index) {
-        // Delegate to parent for now - batch creation can be added later
-        return TimeSeriesReferenceInput::get_input(index);
-    }
+    TimeSeriesInput::s_ptr TimeSeriesListReferenceInput::get_input(size_t index) { return get_ref_input(index)->shared_from_this(); }
 
     TimeSeriesReference TimeSeriesListReferenceInput::value() const {
         if (has_output()) { return output_t()->py_value_or_empty(); }
@@ -523,8 +534,8 @@ namespace hgraph
         return times.empty() ? sample_time() : *std::max_element(times.begin(), times.end());
     }
 
-    void TimeSeriesListReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr &other) {
-        auto other_{dynamic_cast<TimeSeriesListReferenceInput const *>(other.get())};
+    void TimeSeriesListReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr other) {
+        auto other_{dynamic_cast<TimeSeriesListReferenceInput const *>(other)};
         if (other_ == nullptr) {
             throw std::runtime_error(
                 "TimeSeriesBundleReferenceInput::clone_binding: Expected TimeSeriesBundleReferenceInput const*");
@@ -533,21 +544,21 @@ namespace hgraph
         if (other_->has_output()) {
             bind_output(other_->output());
         } else if (other_->_items.has_value()) {
-            for (size_t i = 0; i < other_->_items->size(); ++i) { this->get_ref_input(i)->clone_binding((*other_->_items)[i]); }
+            for (size_t i = 0; i < other_->_items->size(); ++i) { this->get_ref_input(i)->clone_binding((*other_->_items)[i].get()); }
         } else if (other_->has_value()) {
             _value = other_->_value;
             if (owning_node()->is_started()) {
-                set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
+                set_sample_time(owning_graph()->evaluation_time());
                 if (active()) { notify(sample_time()); }
             }
         }
     }
 
-    std::vector<TimeSeriesReferenceInput::ptr> &TimeSeriesListReferenceInput::items() {
+    std::vector<TimeSeriesReferenceInput::s_ptr> &TimeSeriesListReferenceInput::items() {
         return _items.has_value() ? *_items : empty_items;
     }
 
-    const std::vector<TimeSeriesReferenceInput::ptr> &TimeSeriesListReferenceInput::items() const {
+    const std::vector<TimeSeriesReferenceInput::s_ptr> &TimeSeriesListReferenceInput::items() const {
         return _items.has_value() ? *_items : empty_items;
     }
 
@@ -565,20 +576,18 @@ namespace hgraph
         }
     }
 
-    TimeSeriesReferenceInput *TimeSeriesListReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesListReferenceInput(owning_node(), _value_builder, _size);
+    time_series_input_s_ptr TimeSeriesListReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesListReferenceInput>(owning_node(), _value_builder, _size);
     }
 
     TimeSeriesReferenceInput *TimeSeriesListReferenceInput::get_ref_input(size_t index) {
         if (!_items.has_value()) {
-            _items = std::vector<TimeSeriesReferenceInput::ptr>{};
+            _items = std::vector<TimeSeriesReferenceInput::s_ptr>{};
             _items->reserve(_size);
-            if (_items->empty()) {
-                for (size_t i = 0; i < _size; ++i) {
-                    auto new_item = _value_builder->make_instance(this);
-                    if (active()) { new_item->make_active(); }
-                    _items->push_back({dynamic_cast<TimeSeriesReferenceInput *>(new_item.get())});
-                }
+            for (size_t i = 0; i < _size; ++i) {
+                auto new_item = _value_builder->make_instance(this);
+                if (active()) { new_item->make_active(); }
+                _items->push_back(std::dynamic_pointer_cast<TimeSeriesReferenceInput>(new_item));
             }
         }
         return (*_items)[index].get();
@@ -589,7 +598,7 @@ namespace hgraph
                                                                    size_t size)
         : TimeSeriesReferenceInput(owning_node), _value_builders(std::move(value_builders)), _size(size), _items{} {}
 
-    TimeSeriesBundleReferenceInput::TimeSeriesBundleReferenceInput(TimeSeriesType                *parent_input,
+    TimeSeriesBundleReferenceInput::TimeSeriesBundleReferenceInput(TimeSeriesInput                *parent_input,
                                                                    std::vector<InputBuilder::ptr> value_builders, size_t size)
         : TimeSeriesReferenceInput(parent_input), _value_builders(std::move(value_builders)), _size(size) {}
 
@@ -629,8 +638,8 @@ namespace hgraph
         return times.empty() ? sample_time() : *std::max_element(times.begin(), times.end());
     }
 
-    void TimeSeriesBundleReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr &other) {
-        auto other_{dynamic_cast<TimeSeriesBundleReferenceInput const *>(other.get())};
+    void TimeSeriesBundleReferenceInput::clone_binding(const TimeSeriesReferenceInput::ptr other) {
+        auto other_{dynamic_cast<TimeSeriesBundleReferenceInput const *>(other)};
         if (other_ == nullptr) {
             throw std::runtime_error(
                 "TimeSeriesBundleReferenceInput::clone_binding: Expected TimeSeriesBundleReferenceInput const*");
@@ -639,21 +648,21 @@ namespace hgraph
         if (other_->has_output()) {
             bind_output(other_->output());
         } else if (other_->_items.has_value()) {
-            for (size_t i = 0; i < other_->_items->size(); ++i) { this->get_ref_input(i)->clone_binding((*other_->_items)[i]); }
+            for (size_t i = 0; i < other_->_items->size(); ++i) { this->get_ref_input(i)->clone_binding((*other_->_items)[i].get()); }
         } else if (other_->has_value()) {
             _value = other_->_value;
             if (owning_node()->is_started()) {
-                set_sample_time(owning_graph()->evaluation_clock()->evaluation_time());
+                set_sample_time(owning_graph()->evaluation_time());
                 if (active()) { notify(sample_time()); }
             }
         }
     }
 
-    std::vector<TimeSeriesReferenceInput::ptr> &TimeSeriesBundleReferenceInput::items() {
+    std::vector<TimeSeriesReferenceInput::s_ptr> &TimeSeriesBundleReferenceInput::items() {
         return _items.has_value() ? *_items : empty_items;
     }
 
-    const std::vector<TimeSeriesReferenceInput::ptr> &TimeSeriesBundleReferenceInput::items() const {
+    const std::vector<TimeSeriesReferenceInput::s_ptr> &TimeSeriesBundleReferenceInput::items() const {
         return _items.has_value() ? *_items : empty_items;
     }
 
@@ -681,35 +690,33 @@ namespace hgraph
         }
     }
 
-    TimeSeriesReferenceInput *TimeSeriesBundleReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesBundleReferenceInput(owning_node(), _value_builders, _size);
+    time_series_input_s_ptr TimeSeriesBundleReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesBundleReferenceInput>(owning_node(), _value_builders, _size);
     }
 
     TimeSeriesReferenceInput *TimeSeriesBundleReferenceInput::get_ref_input(size_t index) {
         if (!_items.has_value()) {
-            _items = std::vector<TimeSeriesReferenceInput::ptr>{};
+            _items = std::vector<TimeSeriesReferenceInput::s_ptr>{};
             _items->reserve(_size);
-            if (_items->empty()) {
-                for (size_t i = 0; i < _size; ++i) {
-                    auto new_item = _value_builders[i]->make_instance(this);
-                    if (active()) { new_item->make_active(); }
-                    _items->push_back({dynamic_cast<TimeSeriesReferenceInput *>(new_item.get())});
-                }
+            for (size_t i = 0; i < _size; ++i) {
+                auto new_item = _value_builders[i]->make_instance(this);
+                if (active()) { new_item->make_active(); }
+                _items->push_back(std::dynamic_pointer_cast<TimeSeriesReferenceInput>(new_item));
             }
         }
         return (*_items)[index].get();
     }
 
-    TimeSeriesReferenceInput *TimeSeriesDictReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesDictReferenceInput(owning_node());
+    time_series_input_s_ptr TimeSeriesDictReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesDictReferenceInput>(owning_node());
     }
 
-    TimeSeriesReferenceInput *TimeSeriesSetReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesSetReferenceInput(owning_node());
+    time_series_input_s_ptr TimeSeriesSetReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesSetReferenceInput>(owning_node());
     }
 
-    TimeSeriesReferenceInput *TimeSeriesWindowReferenceInput::clone_blank_ref_instance() {
-        return new TimeSeriesWindowReferenceInput(owning_node());
+    time_series_input_s_ptr TimeSeriesWindowReferenceInput::clone_blank_ref_instance() {
+        return std::make_shared<TimeSeriesWindowReferenceInput>(owning_node());
     }
 
     // ============================================================
@@ -720,7 +727,7 @@ namespace hgraph
     TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(Node *owning_node, OutputBuilder::ptr value_builder, size_t size)
         : TimeSeriesReferenceOutput(owning_node), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(TimeSeriesType *parent_output, OutputBuilder::ptr value_builder,
+    TimeSeriesListReferenceOutput::TimeSeriesListReferenceOutput(TimeSeriesOutput *parent_output, OutputBuilder::ptr value_builder,
                                                                  size_t size)
         : TimeSeriesReferenceOutput(parent_output), _value_builder(std::move(value_builder)), _size(size) {}
 
@@ -729,7 +736,7 @@ namespace hgraph
                                                                      std::vector<OutputBuilder::ptr> value_builder, size_t size)
         : TimeSeriesReferenceOutput(owning_node), _value_builder(std::move(value_builder)), _size(size) {}
 
-    TimeSeriesBundleReferenceOutput::TimeSeriesBundleReferenceOutput(TimeSeriesType                 *parent_output,
+    TimeSeriesBundleReferenceOutput::TimeSeriesBundleReferenceOutput(TimeSeriesOutput                 *parent_output,
                                                                      std::vector<OutputBuilder::ptr> value_builder, size_t size)
         : TimeSeriesReferenceOutput(parent_output), _value_builder(std::move(value_builder)), _size(size) {}
 

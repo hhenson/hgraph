@@ -93,11 +93,16 @@ namespace hgraph
         _modified_items.erase(key);
 
         // Schedule cleanup notification only once per evaluation cycle
-        auto et = owning_graph()->evaluation_clock()->evaluation_time();
+        auto et = owning_graph()->evaluation_time();
 
         if (_last_cleanup_time < et) {
             _last_cleanup_time = et;
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { _clear_key_changes(); });
+            auto weak_self = weak_from_this();
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesDictOutput_T *>(self.get())->_clear_key_changes();
+                }
+            });
         }
     }
 
@@ -123,9 +128,9 @@ namespace hgraph
     }
 
     template <typename T_Key>
-    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_ptr ts_builder,
-                                                          output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(parent), _key_set{new TimeSeriesSetOutput_T<T_Key>(this)}, _ts_builder{std::move(ts_builder)},
+    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_s_ptr ts_builder,
+                                                          output_builder_s_ptr ts_ref_builder)
+        : TimeSeriesDictOutput(parent), _key_set{std::make_shared<TimeSeriesSetOutput_T<T_Key>>(this)}, _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{this,
                           _ts_ref_builder,
@@ -144,13 +149,12 @@ namespace hgraph
                               }
                           },
                           {}} {
-        _key_set->re_parent(this);
     }
 
     template <typename T_Key>
-    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const time_series_type_ptr &parent, output_builder_ptr ts_builder,
-                                                          output_builder_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(static_cast<const TimeSeriesType::ptr &>(parent)), _key_set{new TimeSeriesSetOutput_T<T_Key>(this)},
+    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(time_series_output_ptr parent, output_builder_s_ptr ts_builder,
+                                                          output_builder_s_ptr ts_ref_builder)
+        : TimeSeriesDictOutput(parent), _key_set{std::make_shared<TimeSeriesSetOutput_T<T_Key>>(this)},
           _ts_builder{std::move(ts_builder)}, _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{this,
                           _ts_ref_builder,
@@ -169,7 +173,6 @@ namespace hgraph
                               }
                           },
                           {}} {
-        _key_set->re_parent(this);
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_value(const nb::object& value) {
@@ -293,12 +296,12 @@ namespace hgraph
     }
 
     template <typename T_Key>
-    typename TimeSeriesDictOutput_T<T_Key>::ts_type_ptr TimeSeriesDictOutput_T<T_Key>::operator[](const key_type &item) {
+    typename TimeSeriesDictOutput_T<T_Key>::ts_type_s_ptr TimeSeriesDictOutput_T<T_Key>::operator[](const key_type &item) {
         return get_or_create(item);
     }
 
     template <typename T_Key>
-    typename TimeSeriesDictOutput_T<T_Key>::ts_type_ptr TimeSeriesDictOutput_T<T_Key>::operator[](const key_type &item) const {
+    typename TimeSeriesDictOutput_T<T_Key>::ts_type_s_ptr TimeSeriesDictOutput_T<T_Key>::operator[](const key_type &item) const {
         return _ts_values.at(item);
     }
 
@@ -389,8 +392,7 @@ namespace hgraph
 
     template <typename T_Key>
     nb::object TimeSeriesDictOutput_T<T_Key>::py_get_ref(const nb::object &key, const nb::object &requester) {
-        //TODO: move this function out so we can have better access to the control block, this could be an expensive call!
-        return wrap_output(get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr())), owning_graph()->control_block());
+        return wrap_time_series(get_ref(nb::cast<key_type>(key), static_cast<const void *>(requester.ptr())));
     }
 
     template <typename T_Key>
@@ -399,7 +401,7 @@ namespace hgraph
     }
 
     template <typename T_Key>
-    time_series_output_ptr TimeSeriesDictOutput_T<T_Key>::get_ref(const key_type &key, const void *requester) {
+    time_series_output_s_ptr& TimeSeriesDictOutput_T<T_Key>::get_ref(const key_type &key, const void *requester) {
         return _ref_ts_feature.create_or_increment(key, requester);
     }
 
@@ -409,21 +411,22 @@ namespace hgraph
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_dispose() {
         // Release all removed items first
-        for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value); }
+        for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value.get()); }
         _removed_items.clear();
 
         // Release all current values
-        for (auto &[_, value] : _ts_values) { _ts_builder->release_instance(value); }
+        for (auto &[_, value] : _ts_values) { _ts_builder->release_instance(value.get()); }
         _ts_values.clear();
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_clear_key_changes() {
         // Release removed instances before clearing
-        for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value); }
+        for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value.get()); }
         _removed_items.clear();
     }
 
-    template <typename T_Key> TimeSeriesOutput::ptr TimeSeriesDictOutput_T<T_Key>::get_or_create(const key_type &key) {
+    template <typename T_Key>
+    typename TimeSeriesDictOutput_T<T_Key>::value_type TimeSeriesDictOutput_T<T_Key>::get_or_create(const key_type &key) {
         if (_ts_values.find(key) == _ts_values.end()) { create(key); }
         return _ts_values[key];
     }
@@ -447,13 +450,13 @@ namespace hgraph
     }
 
     template <typename T_Key>
-    TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{new typename TimeSeriesDictInput_T<T_Key>::key_set_type{this}},
+    TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_s_ptr ts_builder)
+        : TimeSeriesDictInput(parent), _key_set{std::make_shared<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(this)},
           _ts_builder{ts_builder} {}
 
     template <typename T_Key>
-    TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const time_series_type_ptr &parent, input_builder_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{new typename TimeSeriesDictInput_T<T_Key>::key_set_type{this}},
+    TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(time_series_input_ptr parent, input_builder_s_ptr ts_builder)
+        : TimeSeriesDictInput(parent), _key_set{std::make_shared<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(this)},
           _ts_builder{ts_builder} {}
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_peer() const { return _has_peer; }
@@ -540,7 +543,7 @@ namespace hgraph
         } else if (active()) {
             // When active but not sampled or peered, only return cached modified items
             // during the current evaluation cycle
-            if (last_modified_time() == owning_graph()->evaluation_clock()->evaluation_time()) {
+            if (last_modified_time() == owning_graph()->evaluation_time()) {
                 return _modified_items;
             } else {
                 return empty_;  // Return empty set if not in current cycle
@@ -623,7 +626,7 @@ namespace hgraph
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::on_key_added(const key_type &key) {
         auto value{get_or_create(key)};
-        value->bind_output(output_t()[key].get());
+        value->bind_output(output_t()[key]);
     }
 
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::on_key_removed(const key_type &key) {
@@ -636,15 +639,16 @@ namespace hgraph
         _remove_key_value(key, value);
 
         register_clear_key_changes();
+        // Capture validity now while output is still valid, before any cleanup
         auto was_valid = value->valid();
 
-        if (value->parent_input() == this) {
+        if (value->parent_input().get() == this) {
             // This is our own input - deactivate and track for cleanup
             if (value->active()) { value->make_passive(); }
             _removed_items.insert({key, {value, was_valid}});
             auto it_{_modified_items.find(key)};
             if (it_ != _modified_items.end()) { _modified_items.erase(it_); }
-            // if (!has_peer()) { value->un_bind_output(false); }
+            if (!has_peer()) { value->un_bind_output(false); }
         } else {
             // This is a transplanted input - put it back and unbind it
             _ts_values.insert({key, value});
@@ -657,12 +661,12 @@ namespace hgraph
         return _removed_items.find(key) != _removed_items.end();
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(const time_series_output_ptr& value) {
-        auto *value_output{dynamic_cast<TimeSeriesDictOutput_T<T_Key> *>(const_cast<TimeSeriesOutput*>(value.get()))};
+    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(time_series_output_s_ptr value) {
+        auto value_output{std::dynamic_pointer_cast<TimeSeriesDictOutput_T<T_Key>>(value)};
 
         // Peer when types match AND neither has references (matching Python logic)
-        bool  peer = (is_same_type(value_output) || !(value_output->has_reference() || this->has_reference()));
-        auto *output_key_set{&value_output->key_set_t()};
+        bool  peer = (is_same_type(value_output.get()) || !(value_output->has_reference() || this->has_reference()));
+        auto  output_key_set = value_output->key_set_t().shared_from_this();
 
         key_set_t().bind_output(output_key_set);
 
@@ -670,7 +674,12 @@ namespace hgraph
             output_t().remove_key_observer(this);
             _prev_output = {&output_t()};
             // TODO: check this will not enter again
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { this->reset_prev(); });
+            auto weak_self = weak_from_this();
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesDictInput_T *>(self.get())->reset_prev();
+                }
+            });
         }
 
         auto active_{active()};
@@ -708,7 +717,7 @@ namespace hgraph
             removed_map_type to_keep{};
             for (auto &[key, v] : _removed_items) {
                 auto &[value, was_valid] = v;
-                if (value->parent_input() != this) {
+                if (value->parent_input().get() != this) {
                     // Check for transplanted items, these do not get removed, but can be un-bound
                     value->un_bind_output(unbind_refs);
                     _ts_values.insert({key, value});
@@ -775,16 +784,15 @@ namespace hgraph
         // Guard against cleared node (matches Python: if self.owning_node is None)
         if (!has_owning_node()) { return; }
 
-        // Release instances with deferred callback to ensure cleanup happens after all processing
-        // Could this fall foul of clean-up ordering? Since key-set-removed could have already been cleaned up.
+        // Release instances with deferred callback to ensure cleanup happens after all processing.
+        // Note: un_bind_output was already called in on_key_removed() while the output was still valid.
         for (auto &[key, value_pair] : _removed_items) {
             auto &[value, was_valid] = value_pair;
             // Capture by value to ensure the lambda has valid references
             auto builder  = _ts_builder;
             auto instance = value;
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification(
-                [builder, instance]() { builder->release_instance(instance); });
-            value->un_bind_output(true);
+                [builder, instance]() { builder->release_instance(instance.get()); });
         }
 
         _removed_items.clear();
@@ -798,7 +806,12 @@ namespace hgraph
     template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::register_clear_key_changes() {
         if (!_clear_key_changes_registered) {
             _clear_key_changes_registered = true;
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { clear_key_changes(); });
+            auto weak_self = weak_from_this();
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesDictInput_T *>(self.get())->clear_key_changes();
+                }
+            });
         }
     }
 
@@ -843,7 +856,7 @@ namespace hgraph
             // This is an approximate solution but at this point the information about active state is lost
             for (auto &[_, value] : _ts_values) {
                 // Check if this input was transplanted from another parent
-                if (value->parent_input() != this) { value->make_active(); }
+                if (value->parent_input().get() != this) { value->make_active(); }
             }
         } else {
             set_active(true);
@@ -865,7 +878,7 @@ namespace hgraph
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::modified() const {
         if (has_peer()) { return TimeSeriesDictInput::modified(); }
         if (active()) {
-            auto et{owning_graph()->evaluation_clock()->evaluation_time()};
+            auto et{owning_graph()->evaluation_time()};
             return _last_modified_time == et || key_set_t().modified() || sample_time() == et;
         }
         return key_set_t().modified() ||
@@ -914,17 +927,22 @@ namespace hgraph
 
         // If the key was removed in this cycle, clean up the removed tracking
         if (auto it = _removed_items.find(key); it != _removed_items.end()) {
-            _ts_builder->release_instance(it->second);
+            _ts_builder->release_instance(it->second.get());
             _removed_items.erase(it);
         }
 
         _ref_ts_feature.update(key);
         for (auto &observer : _key_observers) { observer->on_key_added(key); }
 
-        auto et{owning_graph()->evaluation_clock()->evaluation_time()};
+        auto et{owning_graph()->evaluation_time()};
         if (_last_cleanup_time < et) {
             _last_cleanup_time = et;
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { _clear_key_changes(); });
+            auto weak_self = weak_from_this();
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesDictOutput_T *>(self.get())->_clear_key_changes();
+                }
+            });
         }
     }
 

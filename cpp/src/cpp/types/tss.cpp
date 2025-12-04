@@ -149,14 +149,14 @@ namespace hgraph
     }
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const node_ptr &parent)
-        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{dynamic_cast_ref<TimeSeriesValueOutput<bool>>(
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
                                                            TimeSeriesValueOutputBuilder<bool>().make_instance(this))} {}
 
-    TimeSeriesSetOutput::TimeSeriesSetOutput(const TimeSeriesType::ptr &parent)
-        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{dynamic_cast_ref<TimeSeriesValueOutput<bool>>(
+    TimeSeriesSetOutput::TimeSeriesSetOutput(time_series_output_ptr parent)
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
                                                            TimeSeriesValueOutputBuilder<bool>().make_instance(this))} {}
 
-    TimeSeriesValueOutput<bool>::ptr &TimeSeriesSetOutput::is_empty_output() {
+    TimeSeriesValueOutput<bool>::s_ptr &TimeSeriesSetOutput::is_empty_output() {
         if (!_is_empty_ref_output->valid()) { _is_empty_ref_output->set_value(empty()); }
         return _is_empty_ref_output;
     }
@@ -172,6 +172,8 @@ namespace hgraph
     TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const node_ptr &parent)
         : TimeSeriesSetOutput(parent),
           _contains_ref_outputs{this,
+                                // Note: naked new is correct here - output_builder_s_ptr is nb::ref<OutputBuilder>
+                                // which uses intrusive reference counting and accepts raw pointers from new
                                 new TimeSeriesValueOutputBuilder<bool>(),
                                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
                                     reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
@@ -180,9 +182,11 @@ namespace hgraph
                                 {}} {}
 
     template <typename T_Key>
-    TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(const TimeSeriesType::ptr &parent)
+    TimeSeriesSetOutput_T<T_Key>::TimeSeriesSetOutput_T(time_series_output_ptr parent)
         : TimeSeriesSetOutput(parent),
           _contains_ref_outputs{this,
+                                // Note: naked new is correct here - output_builder_s_ptr is nb::ref<OutputBuilder>
+                                // which uses intrusive reference counting and accepts raw pointers from new
                                 new TimeSeriesValueOutputBuilder<bool>(),
                                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
                                     reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
@@ -296,7 +300,12 @@ namespace hgraph
             // Make sure we only do this once
             TimeSeriesSetOutput::mark_modified(modified_time);
             if (has_parent_or_node()) {
-                owning_node()->graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { this->_reset(); });
+                auto weak_self = weak_from_this();
+                owning_node()->graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                    if (auto self = weak_self.lock()) {
+                        static_cast<TimeSeriesSetOutput_T *>(self.get())->_reset();
+                    }
+                });
             }
         }
     }
@@ -328,7 +337,7 @@ namespace hgraph
 
         bool has_changes{_added.size() > 0 || _removed.size() > 0};
         bool needs_validation{!valid()};
-        bool is_current_cycle = (last_modified_time() < owning_graph()->evaluation_clock()->evaluation_time());
+        bool is_current_cycle = (last_modified_time() < owning_graph()->evaluation_time());
         if ((has_changes || needs_validation) && is_current_cycle) {
             mark_modified();
             if (_added.size() > 0 && is_empty_output()->valid() && is_empty_output()->value()) {
@@ -611,10 +620,10 @@ namespace hgraph
     template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::empty() const { return _value.empty(); }
 
     template <typename T_Key>
-    TimeSeriesValueOutput<bool>::ptr TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
+    TimeSeriesValueOutput<bool>::s_ptr TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
                                                                                        const nb::object &requester) {
-        return dynamic_cast<TimeSeriesValueOutput<bool> *>(
-            _contains_ref_outputs.create_or_increment(nb::cast<element_type>(item), static_cast<void *>(requester.ptr())).get());
+        return std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
+            _contains_ref_outputs.create_or_increment(nb::cast<element_type>(item), static_cast<void *>(requester.ptr())));
     }
 
     template <typename T_Key>
@@ -673,29 +682,35 @@ namespace hgraph
 
     void TimeSeriesSetInput::reset_prev() {
         _pending_reset_prev = false;
-        _prev_output        = nullptr;
+        _prev_output.reset();
     }
 
     void TimeSeriesSetInput::_add_reset_prev() const {
-        // A cheat but should be OK
+        // Capture weak_ptr to avoid preventing destruction, but skip callback if already destroyed
         if (_pending_reset_prev) { return; }
         _pending_reset_prev = true;
-        auto self           = const_cast<TimeSeriesSetInput *>(this);
-        owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self]() { self->reset_prev(); });
+        // Need non-const pointer since reset_prev() is not const
+        auto weak_self      = std::weak_ptr(std::const_pointer_cast<TimeSeriesInput>(shared_from_this()));
+        owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+            if (auto self = weak_self.lock()) {
+                static_cast<TimeSeriesSetInput *>(self.get())->reset_prev();
+            }
+        });
     }
 
-    bool TimeSeriesSetInput::do_bind_output(const TimeSeriesOutput::ptr& output) {
+    bool TimeSeriesSetInput::do_bind_output(time_series_output_s_ptr output) {
         if (has_output()) {
-            _prev_output = &set_output();
+            _prev_output = std::dynamic_pointer_cast<TimeSeriesSetOutput>(this->output());
             // Clean up after the engine cycle is complete
             _add_reset_prev();
         }
-        return BaseTimeSeriesInput::do_bind_output(output);
+        return BaseTimeSeriesInput::do_bind_output(std::move(output));
     }
 
     void TimeSeriesSetInput::do_un_bind_output(bool unbind_refs) {
         if (has_output()) {
-            _prev_output = &set_output();
+            // Get shared_ptr via shared_from_this() since output() returns raw pointer
+            _prev_output = std::dynamic_pointer_cast<TimeSeriesSetOutput>(this->output()->shared_from_this());
             _add_reset_prev();
         }
         BaseTimeSeriesInput::do_un_bind_output(unbind_refs);

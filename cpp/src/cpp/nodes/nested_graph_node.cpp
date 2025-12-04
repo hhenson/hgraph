@@ -12,8 +12,8 @@
 
 namespace hgraph {
     NestedGraphNode::NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id,
-                                     NodeSignature::ptr signature,
-                                     nb::dict scalars, graph_builder_ptr nested_graph_builder,
+                                     NodeSignature::s_ptr signature,
+                                     nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
                                      const std::unordered_map<std::string, int> &input_node_ids, int output_node_id)
         : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
           m_nested_graph_builder_(std::move(nested_graph_builder)), m_input_node_ids_(input_node_ids),
@@ -38,10 +38,10 @@ namespace hgraph {
                 auto ts = (*input())[arg];
 
                 // Replace the inner node's input with a copy that uses the outer ts and is owned by the inner node
-                node->reset_input(node->input()->copy_with(node.get(), {ts.get()}));
+                node->reset_input(node->input()->copy_with(node.get(), {ts->shared_from_this()}));
 
                 // Re-parent the provided ts so its parent container becomes the inner node's input bundle
-                ts->re_parent(node->input());
+                ts->re_parent(node->input().get());
             }
         }
     }
@@ -56,8 +56,8 @@ namespace hgraph {
 
     void NestedGraphNode::initialise() {
         m_active_graph_ = m_nested_graph_builder_->make_instance(node_id(), this, signature().name);
-        m_active_graph_->set_evaluation_engine(new NestedEvaluationEngine(
-            graph()->evaluation_engine(), new NestedEngineEvaluationClock(graph()->evaluation_engine_clock(), this)));
+        m_active_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
+            graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), this)));
         initialise_component(*m_active_graph_);
         wire_graph();
     }
@@ -84,13 +84,13 @@ namespace hgraph {
         }
     }
 
-    std::unordered_map<int, graph_ptr> NestedGraphNode::nested_graphs() const {
+    std::unordered_map<int, graph_s_ptr> NestedGraphNode::nested_graphs() const {
         return m_active_graph_
-                   ? std::unordered_map<int, graph_ptr>{{0, m_active_graph_}}
-                   : std::unordered_map<int, graph_ptr>();
+                   ? std::unordered_map<int, graph_s_ptr>{{0, m_active_graph_}}
+                   : std::unordered_map<int, graph_s_ptr>();
     }
 
-    void NestedGraphNode::enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const {
+    void NestedGraphNode::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const {
         if (m_active_graph_) {
             callback(m_active_graph_);
         }

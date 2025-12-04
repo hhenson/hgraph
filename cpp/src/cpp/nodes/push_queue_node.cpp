@@ -25,7 +25,7 @@ namespace hgraph {
             if (_is_tsd) {
                 // TODO: This allows us to operate on the python level, would prefer to
                 //       Handle this better with correct type-matched objects.
-                auto tsd_output = wrap_time_series(output_ptr, graph()->control_block());
+                auto tsd_output = wrap_time_series(output_ptr);
 
                 auto remove = get_remove();
                 auto remove_if_exist = get_remove_if_exists();
@@ -36,7 +36,7 @@ namespace hgraph {
                     if (val.is(remove) || val.is(remove_if_exist)) {
                         auto child_output = tsd_output.attr("get")(nb::cast<nb::object>(key), nb::none());
                         if (!child_output.is_none()) {
-                            auto* unwrapped = unwrap_output(child_output);
+                            auto unwrapped = unwrap_output(child_output);
                             if (unwrapped && unwrapped->modified()) {
                                 return false; // reject message because cannot remove when there is unprocessed data
                            }
@@ -46,7 +46,7 @@ namespace hgraph {
                 for (auto [key, val]: msg_dict) {
                     if (!val.is(remove) && !val.is(remove_if_exist)) {
                         auto child_output_obj = tsd_output.attr("get_or_create")(nb::cast<nb::object>(key));
-                        auto* child_output = unwrap_output(child_output_obj);
+                        auto child_output = unwrap_output(child_output_obj);
 
                         if (child_output->modified()) {
                             // Append to existing tuple
@@ -106,7 +106,7 @@ namespace hgraph {
         _receiver = &graph()->receiver();
         _elide = scalars().contains("elide") ? nb::cast<bool>(scalars()["elide"]) : false;
         _batch = scalars().contains("batch") ? nb::cast<bool>(scalars()["batch"]) : false;
-        _is_tsd = dynamic_cast<TimeSeriesDictOutput *>(output()) != nullptr;
+        _is_tsd = dynamic_cast<TimeSeriesDictOutput *>(output().get()) != nullptr;
 
         // If an eval function was provided (from push_queue decorator), call it with a sender and scalar kwargs
         if (_eval_fn.is_valid() && !_eval_fn.is_none()) {

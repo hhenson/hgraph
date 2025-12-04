@@ -17,8 +17,8 @@ namespace hgraph
                 "bind_input",
                 [](TimeSeriesReference &self, PyTimeSeriesInput &ts_input) {
                     auto input_{unwrap_input(ts_input)};
-                    if (input_ != nullptr) {
-                        self.bind_input(*unwrap_input(ts_input));
+                    if (input_) {
+                        self.bind_input(*input_);
                     } else {
                         throw std::runtime_error("Cannot bind to null input");
                     }
@@ -45,7 +45,7 @@ namespace hgraph
                             if (ts_input->has_peer()) return TimeSeriesReference::make(ts_input->output());
                             // Deal with list of inputs
                             std::vector<TimeSeriesReference> items_list;
-                            auto                             ts_ndx{dynamic_cast<IndexedTimeSeriesInput *>(ts_input)};
+                            auto                             ts_ndx{std::dynamic_pointer_cast<IndexedTimeSeriesInput>(ts_input)};
                             items_list.reserve(ts_ndx->size());
                             for (auto &ts_ptr : ts_ndx->values()) {
                                 auto ref_input{dynamic_cast<TimeSeriesReferenceInput *>(ts_ptr.get())};
@@ -134,23 +134,15 @@ namespace hgraph
 
     TimeSeriesReferenceInput *PyTimeSeriesReferenceInput::impl() const { return static_cast_impl<TimeSeriesReferenceInput>(); }
 
-    PyTimeSeriesValueReferenceInput::PyTimeSeriesValueReferenceInput(TimeSeriesValueReferenceInput *ref)
-        : PyTimeSeriesReferenceInput(ref) {}
-
-    PyTimeSeriesValueReferenceInput::PyTimeSeriesValueReferenceInput(TimeSeriesValueReferenceInput *ref,
-                                                                     control_block_ptr              control_block)
-        : PyTimeSeriesReferenceInput(ref, std::move(control_block)) {}
+    PyTimeSeriesValueReferenceInput::PyTimeSeriesValueReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
 
     void PyTimeSeriesValueReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesValueReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesValueReferenceInput");
     }
 
-    PyTimeSeriesListReferenceInput::PyTimeSeriesListReferenceInput(TimeSeriesListReferenceInput *ref)
-        : PyTimeSeriesReferenceInput(ref) {}
-
-    PyTimeSeriesListReferenceInput::PyTimeSeriesListReferenceInput(TimeSeriesListReferenceInput *ref,
-                                                                   control_block_ptr              control_block)
-        : PyTimeSeriesReferenceInput(ref, std::move(control_block)) {}
+    PyTimeSeriesListReferenceInput::PyTimeSeriesListReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
 
     size_t PyTimeSeriesListReferenceInput::size() const {
         return static_cast_impl<TimeSeriesListReferenceInput>()->size();
@@ -161,12 +153,9 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesListReferenceInput::size);
     }
 
-    PyTimeSeriesBundleReferenceInput::PyTimeSeriesBundleReferenceInput(TimeSeriesBundleReferenceInput *ref)
-        : PyTimeSeriesReferenceInput(ref) {}
+    PyTimeSeriesBundleReferenceInput::PyTimeSeriesBundleReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
 
-    PyTimeSeriesBundleReferenceInput::PyTimeSeriesBundleReferenceInput(TimeSeriesBundleReferenceInput *ref,
-                                                                       control_block_ptr                control_block)
-        : PyTimeSeriesReferenceInput(ref, std::move(control_block)) {}
 
     nb::int_ PyTimeSeriesBundleReferenceInput::size() const {
         return nb::int_(static_cast_impl<TimeSeriesBundleReferenceInput>()->size());
@@ -177,56 +166,41 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesBundleReferenceInput::size);
     }
 
-    PyTimeSeriesDictReferenceInput::PyTimeSeriesDictReferenceInput(TimeSeriesDictReferenceInput *ref)
-        : PyTimeSeriesReferenceInput(ref) {}
+    PyTimeSeriesDictReferenceInput::PyTimeSeriesDictReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
 
-    PyTimeSeriesDictReferenceInput::PyTimeSeriesDictReferenceInput(TimeSeriesDictReferenceInput *ref,
-                                                                   control_block_ptr              control_block)
-        : PyTimeSeriesReferenceInput(ref, std::move(control_block)) {}
 
     void PyTimeSeriesDictReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesDictReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesDictReferenceInput");
     }
 
-    PyTimeSeriesSetReferenceInput::PyTimeSeriesSetReferenceInput(TimeSeriesSetReferenceInput *ref)
-        : PyTimeSeriesReferenceInput(ref) {}
+    PyTimeSeriesSetReferenceInput::PyTimeSeriesSetReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
 
-    PyTimeSeriesSetReferenceInput::PyTimeSeriesSetReferenceInput(TimeSeriesSetReferenceInput *ref,
-                                                                 control_block_ptr            control_block)
-        : PyTimeSeriesReferenceInput(ref, std::move(control_block)) {}
 
     void PyTimeSeriesSetReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesSetReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesSetReferenceInput");
     }
 
-    PyTimeSeriesWindowReferenceInput::PyTimeSeriesWindowReferenceInput(TimeSeriesWindowReferenceInput *ref)
-        : PyTimeSeriesReferenceInput(ref) {}
+    PyTimeSeriesWindowReferenceInput::PyTimeSeriesWindowReferenceInput(api_ptr impl)
+        : PyTimeSeriesReferenceInput(std::move(impl)) {}
 
-    PyTimeSeriesWindowReferenceInput::PyTimeSeriesWindowReferenceInput(TimeSeriesWindowReferenceInput *ref,
-                                                                       control_block_ptr                control_block)
-        : PyTimeSeriesReferenceInput(ref, std::move(control_block)) {}
 
     void PyTimeSeriesWindowReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesWindowReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesWindowReferenceInput");
     }
 
-    PyTimeSeriesValueReferenceOutput::PyTimeSeriesValueReferenceOutput(TimeSeriesValueReferenceOutput *ref)
-        : PyTimeSeriesReferenceOutput(ref) {}
+    PyTimeSeriesValueReferenceOutput::PyTimeSeriesValueReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
 
-    PyTimeSeriesValueReferenceOutput::PyTimeSeriesValueReferenceOutput(TimeSeriesValueReferenceOutput *ref,
-                                                                       control_block_ptr                 control_block)
-        : PyTimeSeriesReferenceOutput(ref, std::move(control_block)) {}
 
     void PyTimeSeriesValueReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesValueReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesValueReferenceOutput");
     }
 
-    PyTimeSeriesListReferenceOutput::PyTimeSeriesListReferenceOutput(TimeSeriesListReferenceOutput *ref)
-        : PyTimeSeriesReferenceOutput(ref) {}
+    PyTimeSeriesListReferenceOutput::PyTimeSeriesListReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
 
-    PyTimeSeriesListReferenceOutput::PyTimeSeriesListReferenceOutput(TimeSeriesListReferenceOutput *ref,
-                                                                     control_block_ptr                control_block)
-        : PyTimeSeriesReferenceOutput(ref, std::move(control_block)) {}
 
     nb::int_ PyTimeSeriesListReferenceOutput::size() const {
         return nb::int_(static_cast_impl<TimeSeriesListReferenceOutput>()->size());
@@ -237,12 +211,9 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesListReferenceOutput::size);
     }
 
-    PyTimeSeriesBundleReferenceOutput::PyTimeSeriesBundleReferenceOutput(TimeSeriesBundleReferenceOutput *ref)
-        : PyTimeSeriesReferenceOutput(ref) {}
+    PyTimeSeriesBundleReferenceOutput::PyTimeSeriesBundleReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
 
-    PyTimeSeriesBundleReferenceOutput::PyTimeSeriesBundleReferenceOutput(TimeSeriesBundleReferenceOutput *ref,
-                                                                         control_block_ptr                  control_block)
-        : PyTimeSeriesReferenceOutput(ref, std::move(control_block)) {}
 
     nb::int_ PyTimeSeriesBundleReferenceOutput::size() const {
         return nb::int_(static_cast_impl<TimeSeriesBundleReferenceOutput>()->size());
@@ -253,34 +224,25 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesBundleReferenceOutput::size);
     }
 
-    PyTimeSeriesDictReferenceOutput::PyTimeSeriesDictReferenceOutput(TimeSeriesDictReferenceOutput *ref)
-        : PyTimeSeriesReferenceOutput(ref) {}
+    PyTimeSeriesDictReferenceOutput::PyTimeSeriesDictReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
 
-    PyTimeSeriesDictReferenceOutput::PyTimeSeriesDictReferenceOutput(TimeSeriesDictReferenceOutput *ref,
-                                                                     control_block_ptr                control_block)
-        : PyTimeSeriesReferenceOutput(ref, std::move(control_block)) {}
 
     void PyTimeSeriesDictReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesDictReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesDictReferenceOutput");
     }
 
-    PyTimeSeriesSetReferenceOutput::PyTimeSeriesSetReferenceOutput(TimeSeriesSetReferenceOutput *ref)
-        : PyTimeSeriesReferenceOutput(ref) {}
+    PyTimeSeriesSetReferenceOutput::PyTimeSeriesSetReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
 
-    PyTimeSeriesSetReferenceOutput::PyTimeSeriesSetReferenceOutput(TimeSeriesSetReferenceOutput *ref,
-                                                                   control_block_ptr              control_block)
-        : PyTimeSeriesReferenceOutput(ref, std::move(control_block)) {}
 
     void PyTimeSeriesSetReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesSetReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesSetReferenceOutput");
     }
 
-    PyTimeSeriesWindowReferenceOutput::PyTimeSeriesWindowReferenceOutput(TimeSeriesWindowReferenceOutput *ref)
-        : PyTimeSeriesReferenceOutput(ref) {}
+    PyTimeSeriesWindowReferenceOutput::PyTimeSeriesWindowReferenceOutput(api_ptr impl)
+        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
 
-    PyTimeSeriesWindowReferenceOutput::PyTimeSeriesWindowReferenceOutput(TimeSeriesWindowReferenceOutput *ref,
-                                                                         control_block_ptr                 control_block)
-        : PyTimeSeriesReferenceOutput(ref, std::move(control_block)) {}
 
     void PyTimeSeriesWindowReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesWindowReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesWindowReferenceOutput");

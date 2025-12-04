@@ -29,23 +29,24 @@ namespace hgraph {
      * Eventually, TimeSeriesOutput will become a pure virtual interface.
      */
     struct HGRAPH_EXPORT BaseTimeSeriesOutput : TimeSeriesOutput {
-        using ptr = nb::ref<BaseTimeSeriesOutput>;
+        using ptr = BaseTimeSeriesOutput*;
+        using s_ptr = std::shared_ptr<BaseTimeSeriesOutput>;
 
-        explicit BaseTimeSeriesOutput(const node_ptr &parent) : _parent_ts_or_node{parent} {}
-        explicit BaseTimeSeriesOutput(const TimeSeriesType::ptr &parent) : _parent_ts_or_node{parent} {}
+        explicit BaseTimeSeriesOutput(node_ptr parent) : _parent_ts_or_node{parent} {}
+        explicit BaseTimeSeriesOutput(time_series_output_ptr parent) : _parent_ts_or_node{parent} {}
 
         // Implement TimeSeriesType pure virtuals
-        [[nodiscard]] Node* owning_node() override;
-        [[nodiscard]] Node* owning_node() const override;
-        [[nodiscard]] Graph* owning_graph() override;
-        [[nodiscard]] Graph* owning_graph() const override;
+        [[nodiscard]] node_ptr owning_node() override;
+        [[nodiscard]] node_ptr owning_node() const override;
+        [[nodiscard]] graph_ptr owning_graph() override;
+        [[nodiscard]] graph_ptr owning_graph() const override;
         [[nodiscard]] bool is_reference() const override;
         [[nodiscard]] bool has_reference() const override;
         void reset_parent_or_node() override;
         [[nodiscard]] bool has_parent_or_node() const override;
         [[nodiscard]] bool has_owning_node() const override;
-        void re_parent(const node_ptr &parent) override;
-        void re_parent(const TimeSeriesType::ptr &parent) override;
+        void re_parent(node_ptr parent) override;
+        void re_parent(const time_series_type_ptr parent) override;
 
         // Inherited interface implementations
         [[nodiscard]] bool modified() const override;
@@ -55,8 +56,8 @@ namespace hgraph {
         void mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) override;
         [[nodiscard]] bool valid() const override;
         [[nodiscard]] bool all_valid() const override;
-        [[nodiscard]] TimeSeriesOutput::ptr parent_output() const override;
-        [[nodiscard]] TimeSeriesOutput::ptr parent_output() override;
+        [[nodiscard]] TimeSeriesOutput::s_ptr parent_output() const override;
+        [[nodiscard]] TimeSeriesOutput::s_ptr parent_output() override;
         [[nodiscard]] bool has_parent_output() const override;
 
         void subscribe(Notifiable *node) override;
@@ -72,18 +73,18 @@ namespace hgraph {
 
     protected:
         // State and helpers moved from TimeSeriesType
-        TimeSeriesType* _parent_time_series() const;
-        TimeSeriesType* _parent_time_series();
-        bool _has_parent_time_series() const;
-        void _set_parent_time_series(TimeSeriesType *ts);
-        Node* _owning_node() const;
+        time_series_output_ptr _parent_output() const;
+        time_series_output_ptr _parent_output();
+        bool _has_parent_output() const;
+        void _set_parent_output(time_series_output_ptr ts);
+        node_ptr _owning_node() const;
 
         void _notify(engine_time_t modified_time);
         void _reset_last_modified_time();
 
     private:
         friend OutputBuilder;
-        using TsOrNode = std::variant<TimeSeriesType::ptr, node_ptr>;
+        using TsOrNode = std::variant<time_series_output_ptr, node_ptr>;
         std::optional<TsOrNode> _parent_ts_or_node{};
         std::unordered_set<Notifiable *> _subscribers{};
         engine_time_t _last_modified_time{MIN_DT};
@@ -97,32 +98,33 @@ namespace hgraph {
      * Eventually, TimeSeriesInput will become a pure virtual interface.
      */
     struct HGRAPH_EXPORT BaseTimeSeriesInput : TimeSeriesInput {
-        using ptr = nb::ref<BaseTimeSeriesInput>;
+        using ptr = BaseTimeSeriesInput*;
+        using s_ptr = std::shared_ptr<BaseTimeSeriesInput>;
 
-        explicit BaseTimeSeriesInput(const node_ptr &parent) : _parent_ts_or_node{parent} {}
-        explicit BaseTimeSeriesInput(const TimeSeriesType::ptr &parent) : _parent_ts_or_node{parent} {}
+        explicit BaseTimeSeriesInput(node_ptr parent) : _parent_ts_or_node{parent} {}
+        explicit BaseTimeSeriesInput(time_series_input_ptr parent) : _parent_ts_or_node{parent} {}
 
         // Implement TimeSeriesType pure virtuals
-        [[nodiscard]] Node* owning_node() override;
-        [[nodiscard]] Node* owning_node() const override;
-        [[nodiscard]] Graph* owning_graph() override;
-        [[nodiscard]] Graph* owning_graph() const override;
+        [[nodiscard]] node_ptr owning_node() override;
+        [[nodiscard]] node_ptr owning_node() const override;
+        [[nodiscard]] graph_ptr owning_graph() override;
+        [[nodiscard]] graph_ptr owning_graph() const override;
         [[nodiscard]] bool is_reference() const override;
         [[nodiscard]] bool has_reference() const override;
         void reset_parent_or_node() override;
         [[nodiscard]] bool has_parent_or_node() const override;
         [[nodiscard]] bool has_owning_node() const override;
-        void re_parent(const node_ptr &parent) override;
-        void re_parent(const TimeSeriesType::ptr &parent) override;
+        void re_parent(node_ptr parent) override;
+        void re_parent(const time_series_type_ptr parent) override;
 
         // Inherited interface implementations
-        [[nodiscard]] TimeSeriesInput* parent_input() const override;
+        [[nodiscard]] TimeSeriesInput::s_ptr parent_input() const override;
         [[nodiscard]] bool has_parent_input() const override;
         [[nodiscard]] bool bound() const override;
         [[nodiscard]] bool has_peer() const override;
-        [[nodiscard]] TimeSeriesOutput* output() const override;
+        [[nodiscard]] time_series_output_s_ptr output() const override;
 
-        bool bind_output(const time_series_output_ptr& output_) override;
+        bool bind_output(time_series_output_s_ptr output_) override;
         void un_bind_output(bool unbind_refs) override;
 
         [[nodiscard]] bool active() const override;
@@ -138,23 +140,22 @@ namespace hgraph {
         [[nodiscard]] bool valid() const override;
         [[nodiscard]] bool all_valid() const override;
         [[nodiscard]] engine_time_t last_modified_time() const override;
-        [[nodiscard]] time_series_reference_output_ptr reference_output() const override;
+        [[nodiscard]] time_series_reference_output_s_ptr reference_output() const override;
 
-        [[nodiscard]] const TimeSeriesInput *get_input(size_t index) const override;
-        [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+        [[nodiscard]] TimeSeriesInput::s_ptr get_input(size_t index) override;
 
         VISITOR_SUPPORT()
 
     protected:
         // State and helpers moved from TimeSeriesType
-        TimeSeriesType* _parent_time_series() const;
-        TimeSeriesType* _parent_time_series();
-        bool _has_parent_time_series() const;
-        void _set_parent_time_series(TimeSeriesType *ts);
-        Node* _owning_node() const;
+        time_series_input_ptr _parent_input() const;
+        time_series_input_ptr _parent_input();
+        bool _has_parent_input() const;
+        void _set_parent_input(time_series_input_ptr ts);
+        node_ptr _owning_node() const;
 
         // Protected virtual methods for derived classes to override
-        virtual bool do_bind_output(const time_series_output_ptr& output_);
+        virtual bool do_bind_output(time_series_output_s_ptr output_);
         virtual void do_un_bind_output(bool unbind_refs);
 
         void notify(engine_time_t modified_time) override;
@@ -165,14 +166,14 @@ namespace hgraph {
         [[nodiscard]] bool sampled() const;
 
         void reset_output();
-        void set_output(time_series_output_ptr output);
+        void set_output(const time_series_output_s_ptr& output);
         void set_active(bool active);
 
     private:
-        using TsOrNode = std::variant<TimeSeriesType::ptr, node_ptr>;
+        using TsOrNode = std::variant<time_series_input_ptr, node_ptr>;
         std::optional<TsOrNode> _parent_ts_or_node{};
-        time_series_output_ptr _output;
-        time_series_reference_output_ptr _reference_output;
+        time_series_output_s_ptr _output;  // Keep output alive while bound (was nb::ref<TimeSeriesOutput>)
+        time_series_reference_output_s_ptr _reference_output;
         bool _active{false};
         engine_time_t _sample_time{MIN_DT};
         engine_time_t _notify_time{MIN_DT};

@@ -45,7 +45,7 @@ namespace hgraph {
 
     template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    TimeSeriesBundle<T_TS>::TimeSeriesBundle(const TimeSeriesType::ptr &parent, TimeSeriesSchema::ptr schema)
+    TimeSeriesBundle<T_TS>::TimeSeriesBundle(typename ts_type::ptr parent, TimeSeriesSchema::ptr schema)
         : T_TS(parent), _schema{std::move(schema)} {
     }
 
@@ -75,7 +75,7 @@ namespace hgraph {
 
     template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    typename TimeSeriesBundle<T_TS>::ts_type::ptr &TimeSeriesBundle<T_TS>::operator[](const std::string &key) {
+    typename TimeSeriesBundle<T_TS>::ts_type::s_ptr &TimeSeriesBundle<T_TS>::operator[](const std::string &key) {
         // Return the value of the ts_bundle for the schema key instance.
         auto it{std::ranges::find(_schema->keys(), key)};
         if (it != _schema->keys().end()) {
@@ -87,7 +87,7 @@ namespace hgraph {
 
     template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    const typename TimeSeriesBundle<T_TS>::ts_type::ptr &TimeSeriesBundle<T_TS>::operator[](
+    const typename TimeSeriesBundle<T_TS>::ts_type::s_ptr &TimeSeriesBundle<T_TS>::operator[](
         const std::string &key) const {
         return const_cast<bundle_type *>(this)->operator[](key);
     }
@@ -179,12 +179,12 @@ namespace hgraph {
         requires IndexedTimeSeriesT<T_TS>
     bool TimeSeriesBundle<T_TS>::has_reference() const {
         return std::any_of(ts_values().begin(), ts_values().end(),
-                           [](const ts_type::ptr &ts) { return ts->has_reference(); });
+                           [](const typename ts_type::s_ptr &ts) { return ts->has_reference(); });
     }
 
     template<typename T_TS>
         requires IndexedTimeSeriesT<T_TS>
-    const std::string& TimeSeriesBundle<T_TS>::key_from_value(typename ts_type::ptr value) const {
+    const std::string& TimeSeriesBundle<T_TS>::key_from_value(typename ts_type::s_ptr value) const {
         size_t index = index_ts_type::key_from_value(value);
         return _schema->keys()[index];
     }
@@ -320,7 +320,7 @@ const std::function < bool(const ts_type &) > &constraint)
         if (!other_b) { return false; }
         if (this->size() != other_b->size()) { return false; }
         for (size_t i = 0; i < this->size(); ++i) {
-            if (!(*this)[i]->is_same_type((*other_b)[i])) { return false; }
+            if (!(*this)[i]->is_same_type((*other_b)[i].get())) { return false; }
         }
         return true;
     }
@@ -336,13 +336,13 @@ const std::function < bool(const ts_type &) > &constraint)
         if (!other_b) { return false; }
         if (this->size() != other_b->size()) { return false; }
         for (size_t i = 0; i < this->size(); ++i) {
-            if (!(*this)[i]->is_same_type((*other_b)[i])) { return false; }
+            if (!(*this)[i]->is_same_type((*other_b)[i].get())) { return false; }
         }
         return true;
     }
 
-    TimeSeriesBundleInput::ptr TimeSeriesBundleInput::copy_with(const node_ptr &parent, collection_type ts_values) {
-        auto v{new TimeSeriesBundleInput(parent, TimeSeriesSchema::ptr{&schema()})};
+    TimeSeriesBundleInput::s_ptr TimeSeriesBundleInput::copy_with(const node_ptr &parent, collection_type ts_values) {
+        auto v{std::make_shared<TimeSeriesBundleInput>(parent, TimeSeriesSchema::ptr{&schema()})};
         v->set_ts_values(ts_values);
         // Not sure if this may be required, but doing this did not fix anything so leaving it out as the Python code does not
         // Currently use this.

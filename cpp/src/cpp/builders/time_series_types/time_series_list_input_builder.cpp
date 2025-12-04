@@ -11,13 +11,13 @@ namespace hgraph {
         : input_builder{std::move(input_builder)}, size{size} {
     }
 
-    time_series_input_ptr TimeSeriesListInputBuilder::make_instance(const node_ptr& owning_node) const {
-        auto v{new TimeSeriesListInput{owning_node}};
+    time_series_input_s_ptr TimeSeriesListInputBuilder::make_instance(node_ptr owning_node) const {
+        auto v = std::make_shared<TimeSeriesListInput>(owning_node);
         return make_and_set_inputs(v);
     }
 
-    time_series_input_ptr TimeSeriesListInputBuilder::make_instance(const time_series_input_ptr& owning_input) const {
-        auto v{new TimeSeriesListInput{dynamic_cast_ref<TimeSeriesType>(owning_input)}};
+    time_series_input_s_ptr TimeSeriesListInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+        auto v = std::make_shared<TimeSeriesListInput>(owning_input);
         return make_and_set_inputs(v);
     }
 
@@ -33,16 +33,20 @@ namespace hgraph {
 
     void TimeSeriesListInputBuilder::release_instance(time_series_input_ptr item) const {
         InputBuilder::release_instance(item);
-        auto list = dynamic_cast<TimeSeriesListInput *>(item.get());
-        if (list == nullptr) { return; }
-        for (auto &value: list->_ts_values) { input_builder->release_instance(value); }
+        auto list = dynamic_cast<TimeSeriesListInput *>(item);
+        if (list == nullptr) {
+            throw std::runtime_error("TimeSeriesListInputBuilder::release_instance: expected TimeSeriesListInput but got different type");
+        }
+        for (auto &value: list->_ts_values) { input_builder->release_instance(value.get()); }
     }
 
-    time_series_input_ptr TimeSeriesListInputBuilder::make_and_set_inputs(TimeSeriesListInput *input) const {
-        std::vector<time_series_input_ptr> inputs;
+    time_series_input_s_ptr TimeSeriesListInputBuilder::make_and_set_inputs(time_series_list_input_s_ptr input) const {
+        TimeSeriesListInput::collection_type inputs;
         inputs.reserve(size);
-        for (size_t i = 0; i < size; ++i) { inputs.push_back(input_builder->make_instance(input)); }
-        input->set_ts_values(inputs);
+        for (size_t i = 0; i < size; ++i) {
+            inputs.push_back(input_builder->make_instance(input.get()));
+        }
+        input->set_ts_values(std::move(inputs));
         return input;
     }
 

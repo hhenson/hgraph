@@ -103,7 +103,7 @@ namespace hgraph {
         // Be permissive during wiring: if either list has no elements yet, treat as same type
         if (this_size == 0 || other_size == 0) { return true; }
         // Otherwise, compare the element type recursively without enforcing equal sizes
-        return (*this)[0]->is_same_type((*other_list)[0]);
+        return (*this)[0]->is_same_type((*other_list)[0].get());
     }
 
     void TimeSeriesListOutput::py_set_value(const nb::object& value) {
@@ -133,7 +133,7 @@ namespace hgraph {
         // Be permissive during wiring: if either list has no elements yet, consider types compatible
         if (this_size == 0 || other_size == 0) { return true; }
         // Otherwise compare element type recursively without enforcing size equality
-        return (*this)[0]->is_same_type((*other_list)[0]);
+        return (*this)[0]->is_same_type((*other_list)[0].get());
     }
 
     template struct TimeSeriesList<IndexedTimeSeriesInput>;

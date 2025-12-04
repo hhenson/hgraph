@@ -56,12 +56,12 @@ namespace hgraph {
 
     void EvaluationTrace::_print_graph(graph_ptr graph, const std::string& msg) const {
         std::string parent_details = _graph_name(graph);
-        _print(graph->evaluation_clock()->evaluation_time(), fmt::format("{} {}", parent_details, msg));
+        _print(graph->evaluation_time(), fmt::format("{} {}", parent_details, msg));
     }
 
     void EvaluationTrace::_print_signature(node_ptr node) const {
         std::string node_signature = node->signature().signature();
-        _print(node->graph()->evaluation_clock()->evaluation_time(),
+        _print(node->graph()->evaluation_time(),
                fmt::format("{} Starting: {}", _graph_name(node->graph()), node_signature));
     }
 
@@ -103,7 +103,7 @@ namespace hgraph {
             // scheduled_msg = fmt::format(" SCHED[{}]", ...);
         }
         
-        _print(node->graph()->evaluation_clock()->evaluation_time(),
+        _print(node->graph()->evaluation_time(),
                fmt::format("{} {} {}{}",
                           _graph_name(node->graph()),
                           node_signature,
