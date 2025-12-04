@@ -154,7 +154,7 @@ find_package(tpack CONFIG QUIET)
 if (NOT tpack_FOUND)
     message(STATUS "tpack not found via find_package, using FetchContent")
     include(FetchContent)
-    FetchContent_Declare(tpack GIT_REPOSITORY https://github.com/uentity/tpack.git GIT_TAG v0.3.0)
+    FetchContent_Declare(tpack GIT_REPOSITORY https://github.com/uentity/tpack.git GIT_TAG v0.3.1)
     FetchContent_MakeAvailable(tpack)
     # Export tpack to the package registry so ddvisitor can find it via find_package
     set(tpack_DIR "${CMAKE_BINARY_DIR}/_deps/tpack-build" CACHE PATH "tpack build dir" FORCE)
@@ -171,7 +171,7 @@ if (NOT ddvisitor_FOUND)
     include(FetchContent)
     FetchContent_Declare(ddvisitor
         GIT_REPOSITORY https://github.com/uentity/ddvisitor.git
-        GIT_TAG v0.9.1
+        GIT_TAG v0.9.3
     )
     # Only populate, don't add_subdirectory (their CMakeLists.txt is broken)
     FetchContent_GetProperties(ddvisitor)
