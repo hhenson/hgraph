@@ -49,6 +49,7 @@ namespace hgraph {
 
     struct TimeSeriesInput;
     struct BaseTimeSeriesInput;
+    struct TimeSeriesValueInputBase;
     using time_series_input_ptr = nanobind::ref<TimeSeriesInput>;
 
     struct TimeSeriesBundleInput;
@@ -59,6 +60,7 @@ namespace hgraph {
 
     struct TimeSeriesOutput;
     struct BaseTimeSeriesOutput;
+    struct TimeSeriesValueOutputBase;
     using time_series_output_ptr = nanobind::ref<TimeSeriesOutput>;
 
     struct TimeSeriesReference;
@@ -81,6 +83,38 @@ namespace hgraph {
 
     struct TimeSeriesSetOutput;
     using time_series_set_output_ptr = nanobind::ref<TimeSeriesSetOutput>;
+
+    struct TimeSeriesDictInput;
+    struct TimeSeriesSignalInput;
+    struct IndexedTimeSeriesInput;
+
+    struct TimeSeriesValueReferenceInput;
+    struct TimeSeriesListReferenceInput;
+    struct TimeSeriesSetReferenceInput;
+    struct TimeSeriesDictReferenceInput;
+    struct TimeSeriesBundleReferenceInput;
+    struct TimeSeriesWindowReferenceInput;
+
+    template<typename> struct TimeSeriesValueInput;
+    template<typename> struct TimeSeriesDictInput_T;
+    template<typename> struct TimeSeriesSetInput_T;
+    template<typename> struct TimeSeriesWindowInput;
+
+    struct TimeSeriesDictOutput;
+    struct IndexedTimeSeriesOutput;
+
+    struct TimeSeriesValueReferenceOutput;
+    struct TimeSeriesListReferenceOutput;
+    struct TimeSeriesSetReferenceOutput;
+    struct TimeSeriesDictReferenceOutput;
+    struct TimeSeriesBundleReferenceOutput;
+    struct TimeSeriesWindowReferenceOutput;
+
+    template<typename> struct TimeSeriesValueOutput;
+    template<typename> struct TimeSeriesDictOutput_T;
+    template<typename> struct TimeSeriesSetOutput_T;
+    template<typename> struct TimeSeriesFixedWindowOutput;
+    template<typename> struct TimeSeriesTimeWindowOutput;
 
     struct TimeSeriesSchema;
     using time_series_schema_ptr = nanobind::ref<TimeSeriesSchema>;

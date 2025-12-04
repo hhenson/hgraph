@@ -7,7 +7,6 @@
 
 
 #include <hgraph/types/ts_indexed.h>
-#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     template<typename T_TS>
@@ -74,14 +73,7 @@ namespace hgraph {
 
         void py_set_value(const nb::object& value) override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesOutputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
 
     protected:
         friend TimeSeriesListOutputBuilder;
@@ -94,14 +86,7 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesInputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
 
     protected:
         friend TimeSeriesListInputBuilder;

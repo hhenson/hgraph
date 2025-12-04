@@ -7,7 +7,6 @@
 #define TSW_H
 
 #include <hgraph/types/base_time_series.h>
-#include <hgraph/types/time_series_visitor.h>
 #include <deque>
 
 namespace hgraph {
@@ -16,7 +15,7 @@ namespace hgraph {
     struct TimeSeriesTimeWindowOutput;
 
     template<typename T>
-    struct TimeSeriesFixedWindowOutput : BaseTimeSeriesOutput {
+    struct TimeSeriesFixedWindowOutput final : BaseTimeSeriesOutput {
         using value_type = T;
 
         using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
@@ -95,14 +94,7 @@ namespace hgraph {
             _removed_value.reset();
         }
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesOutputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
 
     private:
         std::vector<T> _buffer{};
@@ -116,7 +108,7 @@ namespace hgraph {
 
     // Unified window input that works with both fixed-size and timedelta outputs
     template<typename T>
-    struct TimeSeriesWindowInput : BaseTimeSeriesInput {
+    struct TimeSeriesWindowInput final : BaseTimeSeriesInput {
         using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         // Helpers to dynamically get the output as the correct type
@@ -175,14 +167,7 @@ namespace hgraph {
             return dynamic_cast<const TimeSeriesWindowInput<T> *>(other) != nullptr;
         }
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesInputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
     };
 
     template<typename T>
@@ -203,7 +188,7 @@ namespace hgraph {
 
     // TimeSeriesTimeWindowOutput - timedelta-based window
     template<typename T>
-    struct TimeSeriesTimeWindowOutput : BaseTimeSeriesOutput {
+    struct TimeSeriesTimeWindowOutput final : BaseTimeSeriesOutput {
         using value_type = T;
 
         using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
@@ -262,14 +247,7 @@ namespace hgraph {
 
         [[nodiscard]] size_t len() const;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesOutputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
 
     private:
         void _roll() const; // mutable operation to clean up old items
