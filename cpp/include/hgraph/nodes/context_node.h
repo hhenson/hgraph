@@ -5,10 +5,12 @@
 #include <hgraph/python/global_state.h>
 
 namespace hgraph {
-    struct ContextStubSourceNode : Node {
+    struct ContextStubSourceNode final : Node {
         using Node::Node;
 
         ~ContextStubSourceNode() override = default;
+
+        VISITOR_SUPPORT(final)
 
     protected:
         void initialise() override {

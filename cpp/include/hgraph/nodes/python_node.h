@@ -14,10 +14,12 @@ namespace hgraph {
      * Simple wrapper around BasePythonNode that provides access to the eval function.
      * Most functionality is inherited from BasePythonNode.
      */
-    struct PythonNode : BasePythonNode {
+    struct PythonNode final : BasePythonNode {
         using BasePythonNode::BasePythonNode;
 
         const nb::callable &eval_fn();
+
+        VISITOR_SUPPORT(final)
     };
 } // namespace hgraph
 

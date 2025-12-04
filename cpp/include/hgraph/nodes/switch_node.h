@@ -16,7 +16,7 @@ namespace hgraph {
     using switch_node_s_ptr = std::shared_ptr<SwitchNode<K>>;
 
     template<typename K>
-    struct SwitchNode : NestedNode {
+    struct SwitchNode final : NestedNode {
         SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                    nb::dict scalars,
                    const std::unordered_map<K, graph_builder_s_ptr> &nested_graph_builders,
@@ -39,6 +39,8 @@ namespace hgraph {
         std::unordered_map<int, graph_s_ptr> nested_graphs() const;
 
         void enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const override;
+
+        VISITOR_SUPPORT(final)
 
     protected:
         void do_eval() override {

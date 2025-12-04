@@ -8,10 +8,12 @@
 #include <hgraph/nodes/base_python_node.h>
 
 namespace hgraph {
-    struct PythonGeneratorNode : BasePythonNode {
+    struct PythonGeneratorNode final : BasePythonNode {
         using BasePythonNode::BasePythonNode;
         nb::iterator generator{};
         nb::object next_value{};
+
+        VISITOR_SUPPORT(final)
 
     protected:
         void do_eval() override;

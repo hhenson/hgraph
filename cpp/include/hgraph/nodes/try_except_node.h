@@ -8,10 +8,12 @@ namespace hgraph {
      * C++ implementation of PythonTryExceptNodeImpl.
      * Extends NestedGraphNode to wrap graph evaluation with exception handling.
      */
-    struct TryExceptNode : NestedGraphNode {
+    struct TryExceptNode final : NestedGraphNode {
         using NestedGraphNode::NestedGraphNode;
 
         void do_eval() override;
+
+        VISITOR_SUPPORT(final)
 
     protected:
         void wire_outputs() override;

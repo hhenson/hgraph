@@ -20,7 +20,7 @@ namespace hgraph {
      * This node type is used for pull source nodes that cache delta values
      * and combine them when multiple values are received before evaluation.
      */
-    struct HGRAPH_EXPORT LastValuePullNode : Node {
+    struct HGRAPH_EXPORT LastValuePullNode final : Node {
         using Node::Node;
 
         /**
@@ -40,6 +40,8 @@ namespace hgraph {
         // Lifecycle hooks required by the base class
         void initialise() override; // no-op
         void dispose() override; // no-op
+
+        VISITOR_SUPPORT(final)
 
     protected:
         void do_eval() override;

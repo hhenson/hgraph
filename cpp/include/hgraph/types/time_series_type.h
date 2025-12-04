@@ -11,9 +11,6 @@ namespace hgraph
 
     struct TimeSeriesVisitor;
 
-    using ts_payload_types = tp::tpack<bool, int64_t, double, engine_date_t, engine_time_t, engine_time_delta_t, nb::object>;
-    inline constexpr auto ts_payload_types_v = ts_payload_types{};
-
     using ts_input_types = tp::tpack<BaseTimeSeriesInput, TimeSeriesValueInputBase, TimeSeriesSignalInput, IndexedTimeSeriesInput,
                                      TimeSeriesListInput, TimeSeriesSetInput, TimeSeriesDictInput, TimeSeriesBundleInput>;
     inline constexpr auto ts_input_types_v = ts_input_types{};
