@@ -5,10 +5,9 @@ from socket import gethostname
 from typing import Callable, Tuple
 
 import pytest
-from ace.application.ac2_server_impl import http_client_adaptor_impl
 from hgraph import STATE, TS, TSB, EvaluationMode, GlobalState, GraphConfiguration, TimeSeriesSchema, combine, convert, count, debug_print, evaluate_graph, graph, compute_node, TSD, if_true, map_, push_queue, register_adaptor, schedule, sink_node, stop_engine, switch_, try_except
 from hgraph.adaptors.perspective import PerspectiveTablesManager, perspective_web
-from hgraph.adaptors.tornado import HttpGetRequest, HttpPostRequest, http_client_adaptor
+from hgraph.adaptors.tornado import HttpGetRequest, HttpPostRequest, http_client_adaptor, http_client_adaptor_impl
 from hgraph.debug import inspector
 from hgraph.debug._inspector_item_id import InspectorItemId, InspectorItemType, NodeValueType
 from hgraph.test import eval_node
