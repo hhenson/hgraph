@@ -6,16 +6,17 @@
 #define TS_H
 
 #include <hgraph/types/base_time_series.h>
-#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
 
     struct TimeSeriesValueOutputBase : BaseTimeSeriesOutput {
         using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
+
+        VISITOR_SUPPORT()
     };
 
     template<typename T>
-    struct TimeSeriesValueOutput : TimeSeriesValueOutputBase {
+    struct TimeSeriesValueOutput final : TimeSeriesValueOutputBase {
         using value_type = T;
         using ptr = nb::ref<TimeSeriesValueOutput<T> >;
 
@@ -45,14 +46,7 @@ namespace hgraph {
 
         void reset_value();
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesOutputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
 
     private:
         T _value{};
@@ -60,10 +54,12 @@ namespace hgraph {
 
     struct TimeSeriesValueInputBase : BaseTimeSeriesInput {
         using BaseTimeSeriesInput::BaseTimeSeriesInput;
+
+        VISITOR_SUPPORT()
     };
 
     template<typename T>
-    struct TimeSeriesValueInput : TimeSeriesValueInputBase {
+    struct TimeSeriesValueInput final : TimeSeriesValueInputBase {
         using value_type = T;
         using ptr = nb::ref<TimeSeriesValueInput<T> >;
 
@@ -77,14 +73,7 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesInputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
     };
 
     void register_ts_with_nanobind(nb::module_ & m);

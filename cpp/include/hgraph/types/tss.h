@@ -10,7 +10,6 @@
 #include <hgraph/types/feature_extension.h>
 #include <hgraph/types/base_time_series.h>
 #include <hgraph/types/ts.h>
-#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     template<typename T>
@@ -95,6 +94,8 @@ namespace hgraph {
 
         void invalidate() override;
 
+        VISITOR_SUPPORT()
+
     private:
         nb::ref<TimeSeriesValueOutput<bool> > _is_empty_ref_output;
     };
@@ -112,6 +113,8 @@ namespace hgraph {
 
         [[nodiscard]] bool has_prev_output() const;
 
+        VISITOR_SUPPORT()
+
     protected:
         virtual void reset_prev();
 
@@ -126,7 +129,7 @@ namespace hgraph {
 
 
     template<typename T_Key>
-    struct TimeSeriesSetOutput_T : TimeSeriesSetOutput {
+    struct TimeSeriesSetOutput_T final : TimeSeriesSetOutput {
         using element_type = T_Key;
         using collection_type = std::unordered_set<T_Key>;
         using set_delta = SetDelta_T<T_Key>;
@@ -198,14 +201,7 @@ namespace hgraph {
 
         void _reset_value();
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesOutputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
 
     protected:
         void _add(const element_type &item);
@@ -229,7 +225,7 @@ namespace hgraph {
     };
 
     template<typename T>
-    struct TimeSeriesSetInput_T : TimeSeriesSetInput {
+    struct TimeSeriesSetInput_T final : TimeSeriesSetInput {
         using TimeSeriesSetInput::TimeSeriesSetInput;
         using element_type = typename TimeSeriesSetOutput_T<T>::element_type;
         using collection_type = typename TimeSeriesSetOutput_T<T>::collection_type;
@@ -261,14 +257,7 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesInputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
 
     protected:
         const TimeSeriesSetOutput_T<element_type> &prev_output_t() const;
