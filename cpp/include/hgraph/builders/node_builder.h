@@ -9,11 +9,11 @@
 
 namespace hgraph {
     struct NodeBuilder : Builder {
-        NodeBuilder(node_signature_ptr signature_, nb::dict scalars_,
-                    std::optional<input_builder_ptr> input_builder_ = std::nullopt,
-                    std::optional<output_builder_ptr> output_builder_ = std::nullopt,
-                    std::optional<output_builder_ptr> error_builder_ = std::nullopt,
-                    std::optional<output_builder_ptr> recordable_state_builder_ = std::nullopt);
+        NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
+                    std::optional<input_builder_s_ptr> input_builder_ = std::nullopt,
+                    std::optional<output_builder_s_ptr> output_builder_ = std::nullopt,
+                    std::optional<output_builder_s_ptr> error_builder_ = std::nullopt,
+                    std::optional<output_builder_s_ptr> recordable_state_builder_ = std::nullopt);
 
         // Explicitly define move operations to avoid leaving Python-visible instances in a moved-from (null) state.
         NodeBuilder(NodeBuilder &&other) noexcept;
@@ -25,20 +25,20 @@ namespace hgraph {
 
         NodeBuilder &operator=(const NodeBuilder &) = default;
 
-        virtual node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const = 0;
+        virtual node_s_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const = 0;
 
-        virtual void release_instance(node_ptr &item) const;
+        virtual void release_instance(const node_s_ptr &item) const;
 
         [[nodiscard]] size_t memory_size() const override;
 
         static void register_with_nanobind(nb::module_ &m);
 
-        node_signature_ptr signature;
+        node_signature_s_ptr signature;
         nb::dict scalars;
-        std::optional<input_builder_ptr> input_builder;
-        std::optional<output_builder_ptr> output_builder;
-        std::optional<output_builder_ptr> error_builder;
-        std::optional<output_builder_ptr> recordable_state_builder;
+        std::optional<input_builder_s_ptr> input_builder;
+        std::optional<output_builder_s_ptr> output_builder;
+        std::optional<output_builder_s_ptr> error_builder;
+        std::optional<output_builder_s_ptr> recordable_state_builder;
     };
 
     struct BaseNodeBuilder : NodeBuilder {

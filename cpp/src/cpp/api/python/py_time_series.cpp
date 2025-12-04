@@ -7,9 +7,15 @@
 
 namespace hgraph
 {
-    nb::object PyTimeSeriesType::owning_node() const { return wrap_node(_impl->owning_node(), _impl.control_block()); }
+    nb::object PyTimeSeriesType::owning_node() const {
+        auto n = _impl->owning_node();
+        return n ? wrap_node(n->shared_from_this()) : nb::none();
+    }
 
-    nb::object PyTimeSeriesType::owning_graph() const { return wrap_graph(_impl->owning_graph(), _impl.control_block()); }
+    nb::object PyTimeSeriesType::owning_graph() const {
+        auto g = _impl->owning_graph();
+        return g ? wrap_graph(g->shared_from_this()) : nb::none();
+    }
 
     nb::bool_ PyTimeSeriesType::has_parent_or_node() const { return nb::bool_(_impl->has_parent_or_node()); }
 
@@ -48,9 +54,7 @@ namespace hgraph
         //.def("has_reference", &PyTimeSeriesType::has_reference)
     }
 
-    PyTimeSeriesType::PyTimeSeriesType(TimeSeriesType *ts, control_block_ptr control_block) : _impl{ts, std::move(control_block)} {}
-
-    PyTimeSeriesType::PyTimeSeriesType(TimeSeriesType *ts) : PyTimeSeriesType(ts, ts->owning_graph()->control_block()) {}
+    PyTimeSeriesType::PyTimeSeriesType(api_ptr impl) : _impl{std::move(impl)} {}
 
     control_block_ptr PyTimeSeriesType::control_block() const { return _impl.control_block(); }
 
@@ -108,7 +112,7 @@ namespace hgraph
 
     nb::bool_ PyTimeSeriesInput::has_peer() const { return nb::bool_(impl()->has_peer()); }
 
-    nb::object PyTimeSeriesInput::output() const { return wrap_output(impl()->output(), control_block()); }
+    nb::object PyTimeSeriesInput::output() const { return wrap_output(impl()->output()); }
 
     nb::bool_ PyTimeSeriesInput::has_output() const { return nb::bool_(impl()->has_output()); }
 
@@ -117,10 +121,10 @@ namespace hgraph
     void PyTimeSeriesInput::un_bind_output(bool unbind_refs) { return impl()->un_bind_output(unbind_refs); }
 
     nb::object PyTimeSeriesInput::reference_output() const {
-        return wrap_output(impl()->reference_output().get(), control_block());
+        return wrap_output(impl()->reference_output());
     }
 
-    nb::object PyTimeSeriesInput::get_input(size_t index) const { return wrap_input(impl()->get_input(index), control_block()); }
+    nb::object PyTimeSeriesInput::get_input(size_t index) const { return wrap_input(impl()->get_input(index)); }
 
     void PyTimeSeriesInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesInput, PyTimeSeriesType>(m, "TimeSeriesInput")

@@ -46,16 +46,16 @@ namespace hgraph
 
     struct PyTimeSeriesValueReferenceInput : PyTimeSeriesReferenceInput
     {
-        explicit PyTimeSeriesValueReferenceInput(TimeSeriesValueReferenceInput* ref);
-        explicit PyTimeSeriesValueReferenceInput(TimeSeriesValueReferenceInput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesValueReferenceInput>;
+        explicit PyTimeSeriesValueReferenceInput(api_ptr impl);
 
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesListReferenceInput : PyTimeSeriesReferenceInput
     {
-        explicit PyTimeSeriesListReferenceInput(TimeSeriesListReferenceInput* ref);
-        explicit PyTimeSeriesListReferenceInput(TimeSeriesListReferenceInput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesListReferenceInput>;
+        explicit PyTimeSeriesListReferenceInput(api_ptr impl);
 
         size_t size() const;
 
@@ -64,8 +64,8 @@ namespace hgraph
 
     struct PyTimeSeriesBundleReferenceInput : PyTimeSeriesReferenceInput
     {
-        explicit PyTimeSeriesBundleReferenceInput(TimeSeriesBundleReferenceInput* ref);
-        explicit PyTimeSeriesBundleReferenceInput(TimeSeriesBundleReferenceInput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesBundleReferenceInput>;
+        explicit PyTimeSeriesBundleReferenceInput(api_ptr impl);
 
         [[nodiscard]] nb::int_ size() const;
 
@@ -74,24 +74,24 @@ namespace hgraph
 
     struct PyTimeSeriesDictReferenceInput : PyTimeSeriesReferenceInput
     {
-        explicit PyTimeSeriesDictReferenceInput(TimeSeriesDictReferenceInput* ref);
-        explicit PyTimeSeriesDictReferenceInput(TimeSeriesDictReferenceInput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesDictReferenceInput>;
+        explicit PyTimeSeriesDictReferenceInput(api_ptr impl);
 
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesSetReferenceInput : PyTimeSeriesReferenceInput
     {
-        explicit PyTimeSeriesSetReferenceInput(TimeSeriesSetReferenceInput* ref);
-        explicit PyTimeSeriesSetReferenceInput(TimeSeriesSetReferenceInput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesSetReferenceInput>;
+        explicit PyTimeSeriesSetReferenceInput(api_ptr impl);
 
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesWindowReferenceInput : PyTimeSeriesReferenceInput
     {
-        explicit PyTimeSeriesWindowReferenceInput(TimeSeriesWindowReferenceInput* ref);
-        explicit PyTimeSeriesWindowReferenceInput(TimeSeriesWindowReferenceInput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesWindowReferenceInput>;
+        explicit PyTimeSeriesWindowReferenceInput(api_ptr impl);
 
         static void register_with_nanobind(nb::module_ &m);
     };
@@ -102,16 +102,16 @@ namespace hgraph
 
     struct PyTimeSeriesValueReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        explicit PyTimeSeriesValueReferenceOutput(TimeSeriesValueReferenceOutput* ref);
-        explicit PyTimeSeriesValueReferenceOutput(TimeSeriesValueReferenceOutput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesValueReferenceOutput>;
+        explicit PyTimeSeriesValueReferenceOutput(api_ptr impl);
 
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesListReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        explicit PyTimeSeriesListReferenceOutput(TimeSeriesListReferenceOutput* ref);
-        explicit PyTimeSeriesListReferenceOutput(TimeSeriesListReferenceOutput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesListReferenceOutput>;
+        explicit PyTimeSeriesListReferenceOutput(api_ptr impl);
 
         [[nodiscard]] nb::int_ size() const;
 
@@ -120,8 +120,8 @@ namespace hgraph
 
     struct PyTimeSeriesBundleReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        explicit PyTimeSeriesBundleReferenceOutput(TimeSeriesBundleReferenceOutput* ref);
-        explicit PyTimeSeriesBundleReferenceOutput(TimeSeriesBundleReferenceOutput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesBundleReferenceOutput>;
+        explicit PyTimeSeriesBundleReferenceOutput(api_ptr impl);
 
         [[nodiscard]] nb::int_ size() const;
 
@@ -130,24 +130,24 @@ namespace hgraph
 
     struct PyTimeSeriesDictReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        explicit PyTimeSeriesDictReferenceOutput(TimeSeriesDictReferenceOutput* ref);
-        explicit PyTimeSeriesDictReferenceOutput(TimeSeriesDictReferenceOutput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesDictReferenceOutput>;
+        explicit PyTimeSeriesDictReferenceOutput(api_ptr impl);
 
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesSetReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        explicit PyTimeSeriesSetReferenceOutput(TimeSeriesSetReferenceOutput* ref);
-        explicit PyTimeSeriesSetReferenceOutput(TimeSeriesSetReferenceOutput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesSetReferenceOutput>;
+        explicit PyTimeSeriesSetReferenceOutput(api_ptr impl);
 
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesWindowReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        explicit PyTimeSeriesWindowReferenceOutput(TimeSeriesWindowReferenceOutput* ref);
-        explicit PyTimeSeriesWindowReferenceOutput(TimeSeriesWindowReferenceOutput* ref, control_block_ptr control_block);
+        using api_ptr = ApiPtr<TimeSeriesWindowReferenceOutput>;
+        explicit PyTimeSeriesWindowReferenceOutput(api_ptr impl);
 
         static void register_with_nanobind(nb::module_ &m);
     };

@@ -22,14 +22,14 @@ namespace hgraph {
         EngineEvaluationClock::ptr engine_evaluation_clock, K key,
         mesh_node_ptr<K> nested_node)
         : NestedEngineEvaluationClock(std::move(engine_evaluation_clock),
-                                      nested_node_ptr(static_cast<NestedNode *>(nested_node.get()))),
+                                      static_cast<NestedNode*>(nested_node)),
           _key(key) {
     }
 
     template<typename K>
     void MeshNestedEngineEvaluationClock<K>::update_next_scheduled_evaluation_time(engine_time_t next_time) {
         // Cast nested_node_ptr to MeshNode<K> using dynamic_cast
-        auto node = dynamic_cast<MeshNode<K> *>(_nested_node.get());
+        auto node = dynamic_cast<MeshNode<K> *>(_nested_node);
         if (!node) {
             return; // Safety check - should not happen
         }
@@ -51,7 +51,7 @@ namespace hgraph {
         auto it = node->scheduled_keys_by_rank_[rank].find(_key);
         engine_time_t tm = (it != node->scheduled_keys_by_rank_[rank].end()) ? it->second : MIN_DT;
 
-        if (tm == MIN_DT || tm > next_time || tm < node->graph()->evaluation_clock()->evaluation_time()) {
+        if (tm == MIN_DT || tm > next_time || tm < node->graph()->evaluation_time()) {
             node->schedule_graph(_key, next_time);
         }
 
@@ -59,9 +59,9 @@ namespace hgraph {
     }
 
     template<typename K>
-    MeshNode<K>::MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+    MeshNode<K>::MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                           nb::dict scalars,
-                          graph_builder_ptr nested_graph_builder,
+                          graph_builder_s_ptr nested_graph_builder,
                           const std::unordered_map<std::string, int64_t> &input_node_ids,
                           int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args,
                           const std::string &key_arg, const std::string &context_path)
@@ -77,17 +77,18 @@ namespace hgraph {
 
         // Set up the reference output and register in GlobalState
         if (GlobalState::has_instance()) {
-            auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output());
+            auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
             // Get the "out" and "ref" outputs from the output bundle
-            auto &tsd_output = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*tsb_output)["out"]);
+            auto tsd_output_ptr = (*tsb_output)["out"];
             auto &ref_output = dynamic_cast<TimeSeriesReferenceOutput &>(*(*tsb_output)["ref"]);
 
             // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
-            auto reference = TimeSeriesReference::make(time_series_output_ptr(&tsd_output));
+            // Pass the shared_ptr directly to keep the output alive
+            auto reference = TimeSeriesReference::make(tsd_output_ptr);
             ref_output.set_value(reference);
 
-            // Store the ref output in GlobalState
-            GlobalState::set(full_context_path_, wrap_output(static_cast<TimeSeriesOutput*>(&ref_output), ref_output.owning_graph()->control_block()));
+            // Store the ref output in GlobalState using shared_ptr-based wrapping
+            GlobalState::set(full_context_path_, wrap_output(ref_output.shared_from_this()));
         } else {
             throw std::runtime_error("GlobalState instance required for MeshNode");
         }
@@ -203,7 +204,7 @@ namespace hgraph {
     template<typename K>
     TimeSeriesDictOutput_T<K> &MeshNode<K>::tsd_output() {
         // Access output bundle's "out" member - output() returns smart pointer to TimeSeriesBundleOutput
-        auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output());
+        auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
         return dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*output_bundle)["out"]);
     }
 
@@ -218,11 +219,9 @@ namespace hgraph {
         active_graphs_rank_[key] = (rank == -1) ? max_rank_ : rank;
 
         // Set up evaluation engine with MeshNestedEngineEvaluationClock
-        // Pattern from TsdMapNode: new NestedEvaluationEngine(&eval_engine, new Clock(&clock, key, this))
-        graph->set_evaluation_engine(new NestedEvaluationEngine(
+        graph->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
             this->graph()->evaluation_engine(),
-            new MeshNestedEngineEvaluationClock<K>(this->graph()->evaluation_engine()->engine_evaluation_clock(), key,
-                                                   this)));
+            std::make_shared<MeshNestedEngineEvaluationClock<K>>(this->graph()->evaluation_engine()->engine_evaluation_clock().get(), key, this)));
 
         initialise_component(*graph);
         this->wire_graph(key, graph);
@@ -240,7 +239,7 @@ namespace hgraph {
         // Update scheduled rank time
         auto rank_it = scheduled_ranks_.find(rank);
         engine_time_t current_rank_time = (rank_it != scheduled_ranks_.end()) ? rank_it->second : MAX_DT;
-        engine_time_t eval_time = this->graph()->evaluation_clock()->evaluation_time();
+        engine_time_t eval_time = this->graph()->evaluation_time();
         scheduled_ranks_[rank] = std::min(std::max(current_rank_time, eval_time), tm);
 
         this->graph()->schedule_node(this->node_ndx(), tm);

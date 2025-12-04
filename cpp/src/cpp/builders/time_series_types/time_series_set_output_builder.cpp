@@ -4,22 +4,23 @@
 
 namespace hgraph {
     template<typename T>
-    time_series_output_ptr TimeSeriesSetOutputBuilder_T<T>::make_instance(const node_ptr& owning_node) const {
-        auto v{new TimeSeriesSetOutput_T<T>(owning_node)};
-        return v;
+    time_series_output_s_ptr TimeSeriesSetOutputBuilder_T<T>::make_instance(node_ptr owning_node) const {
+        return std::make_shared<TimeSeriesSetOutput_T<T>>(owning_node);
     }
 
     template<typename T>
-    time_series_output_ptr TimeSeriesSetOutputBuilder_T<T>::make_instance(const time_series_output_ptr& owning_output) const {
-        auto v{new TimeSeriesSetOutput_T<T>{dynamic_cast_ref<TimeSeriesType>(owning_output)}};
-        return v;
+    time_series_output_s_ptr TimeSeriesSetOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output) const {
+        return std::make_shared<TimeSeriesSetOutput_T<T>>(owning_output);
     }
 
     template<typename T>
     void TimeSeriesSetOutputBuilder_T<T>::release_instance(time_series_output_ptr item) const {
         TimeSeriesSetOutputBuilder::release_instance(item);
-        auto set = dynamic_cast<TimeSeriesSetOutput_T<T> *>(item.get());
-        if (set) { set->_reset_value(); }
+        auto set = dynamic_cast<TimeSeriesSetOutput_T<T> *>(item);
+        if (set == nullptr) {
+            throw std::runtime_error("TimeSeriesSetOutputBuilder_T::release_instance: expected TimeSeriesSetOutput_T but got different type");
+        }
+        set->_reset_value();
     }
 
     template<typename T>

@@ -18,7 +18,7 @@ namespace hgraph {
 
         SenderReceiverState() = default;
 
-        void set_evaluation_clock(engine_evalaution_clock_ptr clock);
+        void set_evaluation_clock(engine_evaluation_clock_ptr clock);
 
         void operator()(value_type value);
 
@@ -43,7 +43,7 @@ namespace hgraph {
     private:
         mutable LockType lock;
         std::deque<value_type> queue;
-        engine_evalaution_clock_ptr evaluation_clock{};
+        engine_evaluation_clock_ptr evaluation_clock{};
         bool _stopped{false};
     };
 } // namespace hgraph

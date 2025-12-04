@@ -115,10 +115,10 @@ namespace hgraph
 
     PyGraph PyNode::graph() const {
         auto graph{_impl->graph()};
-        return PyGraph(ApiPtr<Graph>(graph, graph->control_block()));
+        return PyGraph(ApiPtr<Graph>(graph->shared_from_this()));
     }
 
-    time_series_bundle_input_ptr PyNode::input() const { return _impl->input(); }
+    nb::object PyNode::input() const { return wrap_input(_impl->input()); }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;
@@ -129,17 +129,17 @@ namespace hgraph
 
     nb::tuple PyNode::start_inputs() const { return nb::make_tuple(_impl->start_inputs()); }
 
-    time_series_output_ptr PyNode::output() { return _impl->output(); }
+    nb::object PyNode::output() { return wrap_output(_impl->output()); }
 
-    nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state().get(), _impl.control_block()); }
+    nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state()); }
 
     nb::bool_ PyNode::has_recordable_state() const { return nb::bool_(_impl->has_recordable_state()); }
 
-    nb::object PyNode::scheduler() const { return wrap_node_scheduler(_impl->scheduler(), _impl.control_block()); }
+    nb::object PyNode::scheduler() const { return wrap_node_scheduler(_impl->scheduler()); }
 
     nb::bool_ PyNode::has_scheduler() const { return nb::bool_(_impl->has_scheduler()); }
 
-    time_series_output_ptr PyNode::error_output() { return _impl->error_output(); }
+    nb::object PyNode::error_output() { return wrap_output(_impl->error_output()); }
 
     nb::bool_ PyNode::has_input() const { return nb::bool_(_impl->has_input()); }
 
@@ -167,7 +167,17 @@ namespace hgraph
             // .def("notify_next_cycle", &PyNode::notify_next_cycle)
             .def_prop_ro("error_output", &PyNode::error_output)
             .def("__repr__", &PyNode::repr)
-            .def("__str__", &PyNode::str);
+            .def("__str__", &PyNode::str)
+            .def("__eq__", [](const PyNode &self, const nb::object &other) {
+                // Compare the underlying C++ pointers to determine equality
+                if (!nb::isinstance<PyNode>(other)) return false;
+                const auto &other_node = nb::cast<const PyNode &>(other);
+                return self._impl.get() == other_node._impl.get();
+            })
+            .def("__hash__", [](const PyNode &self) {
+                // Hash based on the underlying C++ pointer
+                return std::hash<const void *>{}(self._impl.get());
+            });
     }
 
     control_block_ptr PyNode::control_block() const { return _impl.control_block(); }

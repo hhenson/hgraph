@@ -8,40 +8,48 @@
 #include <hgraph/api/python/api_ptr.h>
 
 #include <hgraph/runtime/evaluation_engine.h>
+#include <hgraph/types/traits.h>
 #include <hgraph/util/sender_receiver_state.h>
+#include <memory>
 
 namespace hgraph
 {
-    struct HGRAPH_EXPORT Graph : ComponentLifeCycle
+    struct HGRAPH_EXPORT Graph : ComponentLifeCycle, std::enable_shared_from_this<Graph>
     {
-        using ptr = nanobind::ref<Graph>;
+        using ptr = Graph*;
+        using s_ptr = std::shared_ptr<Graph>;
+        using node_list = std::vector<node_s_ptr>;
 
-        Graph(std::vector<int64_t> graph_id_, std::vector<node_ptr> nodes_,
-              std::optional<node_ptr> parent_node_, std::string label_, traits_ptr traits_);
+        Graph(std::vector<int64_t> graph_id_, node_list nodes_,
+              std::optional<node_ptr> parent_node_, std::string label_, const_traits_ptr parent_traits_);
 
         ~Graph() override;
 
-        [[nodiscard]] const control_block_ptr &control_block() const;
+        /**
+         * Get the control block for this graph.
+         * Extracts the control block from shared_from_this() to be used as donor for child objects.
+         */
+        //[[nodiscard]] control_block_ptr control_block() const;
 
         [[nodiscard]] const std::vector<int64_t> &graph_id() const;
 
-        [[nodiscard]] const std::vector<node_ptr> &nodes() const;
+        [[nodiscard]] const node_list &nodes() const;
 
-        [[nodiscard]] Node* parent_node() const;
+        [[nodiscard]] node_ptr parent_node() const;
 
         [[nodiscard]] std::optional<std::string> label() const;
 
-        [[nodiscard]] EvaluationEngineApi::ptr evaluation_engine_api();
+        [[nodiscard]] EvaluationEngineApi::s_ptr evaluation_engine_api();
 
-        [[nodiscard]] EvaluationClock::ptr evaluation_clock();
+        [[nodiscard]] EvaluationClock::s_ptr evaluation_clock();
 
-        [[nodiscard]] EvaluationClock::ptr evaluation_clock() const;
+        [[nodiscard]] EvaluationClock::s_ptr evaluation_clock() const;
 
-        [[nodiscard]] EngineEvaluationClock::ptr evaluation_engine_clock();
+        [[nodiscard]] const EngineEvaluationClock::s_ptr& evaluation_engine_clock();
 
-        [[nodiscard]] EvaluationEngine::ptr evaluation_engine();
+        [[nodiscard]] const EvaluationEngine::s_ptr& evaluation_engine() const;
 
-        void set_evaluation_engine(EvaluationEngine::ptr value);
+        void set_evaluation_engine(EvaluationEngine::s_ptr value);
 
         int64_t push_source_nodes_end() const;
 
@@ -55,9 +63,18 @@ namespace hgraph
 
         void evaluate_graph();
 
-        Graph::ptr copy_with(std::vector<node_ptr> nodes);
+        s_ptr copy_with(node_list nodes);
 
-        const nb::ref<Traits> &traits() const;
+        /**
+         * Clone traits from another graph (copies the traits data).
+         */
+        void clone_traits_from(const Graph &other);
+
+        /**
+         * Get traits as a const reference.
+         * Traits is stored as a value object inside Graph.
+         */
+        [[nodiscard]] const Traits &traits() const;
 
         [[nodiscard]] SenderReceiverState &receiver();
 
@@ -77,6 +94,9 @@ namespace hgraph
         [[nodiscard]] EngineEvaluationClock *cached_engine_clock() const { return _cached_engine_clock; }
         [[nodiscard]] const engine_time_t   *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
 
+        // Performance: Direct access to evaluation time without shared_ptr overhead
+        [[nodiscard]] engine_time_t evaluation_time() const { return *_cached_evaluation_time_ptr; }
+
       protected:
         void initialise() override;
 
@@ -86,15 +106,16 @@ namespace hgraph
 
         void dispose() override;
 
-      private:
-        control_block_ptr          _control_block;
-        EvaluationEngine::ptr      _evaluation_engine;
+        friend struct GraphBuilder;  // Allow GraphBuilder to access private members
+
+    private:
+        EvaluationEngine::s_ptr    _evaluation_engine;
         std::vector<int64_t>       _graph_id;
-        std::vector<node_ptr>      _nodes;
+        node_list                  _nodes;
         std::vector<engine_time_t> _schedule;
-        node_ptr                   _parent_node;
+        node_ptr                   _parent_node;  // back-pointer, not owned
         std::string                _label;
-        traits_ptr                 _traits;
+        Traits                     _traits;  // Stored as value object
         SenderReceiverState        _receiver;
         engine_time_t              _last_evaluation_time{MIN_DT};
         int64_t                    _push_source_nodes_end{-1};

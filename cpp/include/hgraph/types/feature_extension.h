@@ -7,9 +7,9 @@
 
 namespace hgraph {
     struct FeatureOutputRequestTracker {
-        explicit FeatureOutputRequestTracker(time_series_output_ptr output_);
+        explicit FeatureOutputRequestTracker(time_series_output_s_ptr output_);
 
-        time_series_output_ptr output;
+        time_series_output_s_ptr output;
         std::unordered_set<const void *> requesters;
     };
 
@@ -17,11 +17,11 @@ namespace hgraph {
     struct FeatureOutputExtension {
         using feature_fn = std::function<void(const TimeSeriesOutput &, TimeSeriesOutput &, const T &)>;
 
-        FeatureOutputExtension(time_series_output_ptr owning_output_, output_builder_ptr output_builder_,
+        FeatureOutputExtension(time_series_output_ptr owning_output_, output_builder_s_ptr output_builder_,
                                feature_fn value_getter_,
                                std::optional<feature_fn> initial_value_getter_);
 
-        time_series_output_ptr create_or_increment(const T &key, const void *requester);
+        time_series_output_s_ptr& create_or_increment(const T &key, const void *requester);
 
         void update(const T &key) {
             if (auto it{_outputs.find(key)}; it != _outputs.end()) {
@@ -44,7 +44,7 @@ namespace hgraph {
 
     private:
         time_series_output_ptr owning_output;
-        output_builder_ptr output_builder;
+        output_builder_s_ptr output_builder;
         feature_fn value_getter;
         std::optional<feature_fn> initial_value_getter;
 

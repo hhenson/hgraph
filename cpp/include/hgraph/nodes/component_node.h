@@ -6,9 +6,9 @@
 
 namespace hgraph {
     struct ComponentNode : NestedNode {
-        ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+        ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                       nb::dict scalars,
-                      graph_builder_ptr nested_graph_builder,
+                      graph_builder_s_ptr nested_graph_builder,
                       const std::unordered_map<std::string, int> &input_node_ids,
                       int output_node_id);
 
@@ -22,9 +22,9 @@ namespace hgraph {
 
         void do_eval() override;
 
-        std::unordered_map<int, graph_ptr> nested_graphs() const;
+        std::unordered_map<int, graph_s_ptr> nested_graphs() const;
 
-        void enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const override;
+        void enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const override;
 
         static void register_with_nanobind(nb::module_ &m);
 
@@ -37,10 +37,10 @@ namespace hgraph {
 
         std::pair<std::string, bool> recordable_id();
 
-        graph_builder_ptr m_nested_graph_builder_;
+        graph_builder_s_ptr m_nested_graph_builder_;
         std::unordered_map<std::string, int> m_input_node_ids_;
         int m_output_node_id_;
-        graph_ptr m_active_graph_;
+        graph_s_ptr m_active_graph_;
         std::optional<engine_time_t> m_last_evaluation_time_;
     };
 } // namespace hgraph

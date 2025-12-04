@@ -13,7 +13,7 @@
 
 namespace hgraph {
     struct NestedNode;
-    using nested_node_ptr = nb::ref<NestedNode>;
+    using nested_node_ptr = NestedNode*;
 
     struct NestedEngineEvaluationClock : EngineEvaluationClockDelegate {
         NestedEngineEvaluationClock(EngineEvaluationClock::ptr engine_evaluation_clock, nested_node_ptr nested_node);
@@ -34,16 +34,16 @@ namespace hgraph {
 
 
     struct NestedEvaluationEngine : EvaluationEngineDelegate {
-        NestedEvaluationEngine(EvaluationEngine::ptr engine, EngineEvaluationClock::ptr evaluation_clock);
+        NestedEvaluationEngine(EvaluationEngine::s_ptr engine, EngineEvaluationClock::s_ptr evaluation_clock);
 
         [[nodiscard]] engine_time_t start_time() const override;
 
-        [[nodiscard]] EvaluationClock::ptr evaluation_clock() override;
+        [[nodiscard]] EvaluationClock::s_ptr evaluation_clock() override;
 
-        [[nodiscard]] EngineEvaluationClock::ptr engine_evaluation_clock() override;
+        [[nodiscard]] const EngineEvaluationClock::s_ptr& engine_evaluation_clock() override;
 
     private:
-        NestedEngineEvaluationClock::ptr _engine_evaluation_clock;
+        EngineEvaluationClock::s_ptr _engine_evaluation_clock;
         engine_time_t _nested_start_time;
     };
 } // namespace hgraph

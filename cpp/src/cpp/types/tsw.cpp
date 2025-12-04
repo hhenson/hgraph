@@ -36,7 +36,7 @@ namespace hgraph
     template <typename T> std::optional<T> TimeSeriesFixedWindowOutput<T>::delta_value() const {
         if (_length == 0) return {};
         size_t pos = (_length < _size) ? (_length - 1) : ((_start + _length - 1) % _size);
-        if (_times[pos] == owning_graph()->evaluation_clock()->evaluation_time()) {
+        if (_times[pos] == owning_graph()->evaluation_time()) {
             if constexpr (std::is_same_v<T, bool>) {
                 bool v = static_cast<bool>(_buffer[pos]);
                 return {v};
@@ -62,13 +62,18 @@ namespace hgraph
         if (_length > _size) {
             _removed_value.reset();
             _removed_value = _buffer[_start];
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([this]() { _removed_value.reset(); });
+            auto weak_self = weak_from_this();
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesFixedWindowOutput *>(self.get())->_removed_value.reset();
+                }
+            });
             _start  = (_start + 1) % _size;
             _length = _size;
         }
         size_t pos   = (_start + _length - 1) % _size;
         _buffer[pos] = value;
-        _times[pos]  = owning_graph()->evaluation_clock()->evaluation_time();
+        _times[pos]  = owning_graph()->evaluation_time();
         mark_modified();
     }
 
@@ -115,7 +120,7 @@ namespace hgraph
         if (auto *t = as_time_output()) {
             // For time windows, check if enough time has passed
             auto elapsed =
-                owning_graph()->evaluation_clock()->evaluation_time() - owning_graph()->evaluation_engine_api()->start_time();
+                owning_graph()->evaluation_time() - owning_graph()->evaluation_engine_api()->start_time();
             return elapsed >= t->min_size();
         }
         return false;
@@ -123,7 +128,7 @@ namespace hgraph
 
     // TimeSeriesTimeWindowOutput implementation
     template <typename T> void TimeSeriesTimeWindowOutput<T>::_roll() const {
-        auto tm = owning_graph()->evaluation_clock()->evaluation_time() - _size;
+        auto tm = owning_graph()->evaluation_time() - _size;
         if (!_times.empty() && _times.front() < tm) {
             std::vector<T> removed;
             while (!_times.empty() && _times.front() < tm) {
@@ -132,8 +137,12 @@ namespace hgraph
                 _buffer.pop_front();
             }
             _removed_values = std::move(removed);
-            auto *self      = const_cast<TimeSeriesTimeWindowOutput<T> *>(this);
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([self]() { self->_reset_removed_values(); });
+            auto weak_self  = std::const_pointer_cast<TimeSeriesOutput>(shared_from_this());
+            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self = std::weak_ptr(weak_self)]() {
+                if (auto self = weak_self.lock()) {
+                    static_cast<TimeSeriesTimeWindowOutput<T> *>(self.get())->_reset_removed_values();
+                }
+            });
         }
     }
 
@@ -160,7 +169,7 @@ namespace hgraph
         if (!_ready) {
             // Check if enough time has passed
             auto elapsed =
-                owning_graph()->evaluation_clock()->evaluation_time() - owning_graph()->evaluation_engine_api()->start_time();
+                owning_graph()->evaluation_time() - owning_graph()->evaluation_engine_api()->start_time();
             if (elapsed >= _min_size) {
                 _ready = true;
             } else {
@@ -180,12 +189,12 @@ namespace hgraph
         // Check if enough time has passed to make the window ready
         if (!_ready) {
             auto elapsed =
-                owning_graph()->evaluation_clock()->evaluation_time() - owning_graph()->evaluation_engine_api()->start_time();
+                owning_graph()->evaluation_time() - owning_graph()->evaluation_engine_api()->start_time();
             if (elapsed >= _min_size) { _ready = true; }
         }
 
         if (_ready && !_times.empty()) {
-            auto current_time = owning_graph()->evaluation_clock()->evaluation_time();
+            auto current_time = owning_graph()->evaluation_time();
             if (_times.back() == current_time) {
                 if constexpr (std::is_same_v<T, bool>) {
                     bool v = static_cast<bool>(_buffer.back());
@@ -212,7 +221,7 @@ namespace hgraph
         try {
             T v = nb::cast<T>(value);
             _buffer.push_back(v);
-            _times.push_back(owning_graph()->evaluation_clock()->evaluation_time());
+            _times.push_back(owning_graph()->evaluation_time());
             mark_modified();
         } catch (const std::exception &e) { throw std::runtime_error(std::string("Cannot apply node output: ") + e.what()); }
     }

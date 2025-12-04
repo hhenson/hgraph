@@ -18,9 +18,9 @@ namespace hgraph {
             TimeSeriesOutput
         >;
         using index_ts_type = IndexedTimeSeries<T_TS>;
-        using ptr = nb::ref<IndexedTimeSeries<ts_type> >;
-        using collection_type = std::vector<typename ts_type::ptr>;
-        using enumerated_collection_type = std::vector<std::pair<size_t, typename ts_type::ptr> >;
+        using ptr = IndexedTimeSeries<ts_type>*;
+        using collection_type = std::vector<typename ts_type::s_ptr>;
+        using enumerated_collection_type = std::vector<std::pair<size_t, typename ts_type::s_ptr> >;
         using index_collection_type = std::vector<size_t>;
         using value_iterator = typename collection_type::iterator;
         using value_const_iterator = typename collection_type::const_iterator;
@@ -33,9 +33,9 @@ namespace hgraph {
             return valid() && std::ranges::all_of(_ts_values, [](const auto &ts) { return ts->valid(); });
         }
 
-        [[nodiscard]] typename ts_type::ptr &operator[](size_t ndx) { return _ts_values.at(ndx); }
+        [[nodiscard]] typename ts_type::s_ptr &operator[](size_t ndx) { return _ts_values.at(ndx); }
 
-        [[nodiscard]] const typename ts_type::ptr &operator[](size_t ndx) const {
+        [[nodiscard]] const typename ts_type::s_ptr &operator[](size_t ndx) const {
             return const_cast<index_ts_type *>(this)->operator[](ndx);
         }
 
@@ -85,7 +85,7 @@ namespace hgraph {
         }
 
         // Find the index for a given value pointer
-        [[nodiscard]] size_t key_from_value(typename ts_type::ptr value) const {
+        [[nodiscard]] size_t key_from_value(typename ts_type::s_ptr value) const {
             auto it = std::find(_ts_values.begin(), _ts_values.end(), value);
             if (it != _ts_values.end()) {
                 return std::distance(_ts_values.begin(), it);
@@ -167,12 +167,12 @@ namespace hgraph {
 
         void make_passive() override;
 
-        [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+        [[nodiscard]] TimeSeriesInput::s_ptr get_input(size_t index) override;
 
         VISITOR_SUPPORT()
 
     protected:
-        bool do_bind_output(const time_series_output_ptr& value) override;
+        bool do_bind_output(time_series_output_s_ptr value) override;
 
         void do_un_bind_output(bool unbind_refs) override;
     };

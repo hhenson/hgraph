@@ -1,39 +1,20 @@
 #pragma once
 
 //
-// API Smart Pointer - Manages lifetime-checked access to implementation objects
+// API Smart Pointer - Manages lifetime of implementation objects via shared_ptr
 // Part of arena allocation preparation - separates Python API from C++ implementation
 //
 
 #include <memory>
-#include <stdexcept>
-#include <atomic>
 
 namespace hgraph {
 
-    /**
-     * Control block for tracking graph lifetime.
-     * Shared across all API pointers within a graph's lifetime.
-     */
-    struct ApiControlBlock {
-        std::atomic<bool> graph_alive{true};
-
-        void mark_dead() {
-            graph_alive.store(false, std::memory_order_release);
-        }
-
-        [[nodiscard]] bool is_alive() const {
-            return graph_alive.load(std::memory_order_acquire);
-        }
-    };
-
-    using control_block_ptr = std::shared_ptr<ApiControlBlock>;
+    using control_block_ptr = std::shared_ptr<void>;
 
     /**
-     * Smart pointer for API wrappers that validates graph lifetime before dereferencing.
-     * - Move-only (not copyable)
-     * - Validates graph is alive before accessing implementation
-     * - Throws exception if graph has been destroyed
+     * Smart pointer for API wrappers using strong reference semantics.
+     * - Stores a shared_ptr to the implementation object
+     * - Object lifetime is guaranteed while ApiPtr exists
      *
      * @tparam T The implementation type being wrapped
      */
@@ -42,103 +23,68 @@ namespace hgraph {
     public:
         ApiPtr() = default;
 
-        // Constructor from raw pointer and control block
-        ApiPtr(T* impl, control_block_ptr control_block)
-            : _impl(impl)
-            , _control_block(std::move(control_block)) {}
+        // Constructor from shared_ptr (owns the object directly)
+        explicit ApiPtr(std::shared_ptr<T> impl)
+            : _impl(std::move(impl)) {}
 
-        // Move constructor
-        ApiPtr(ApiPtr&& other) noexcept
-            : _impl(other._impl)
-            , _control_block(std::move(other._control_block)) {
-            other._impl = nullptr;
-        }
+        // Constructor from raw pointer and donor shared_ptr (creates aliasing shared_ptr)
+        // This allows wrapping raw pointers that are owned elsewhere (e.g., by a parent shared_ptr)
+        // Accepts const T* and removes const internally
+        ApiPtr(const T* impl, control_block_ptr donor)
+            : _impl{donor, const_cast<T*>(impl)} {}  // aliasing constructor - shares donor's ref count
 
-        // Move assignment
-        ApiPtr& operator=(ApiPtr&& other) noexcept {
-            if (this != &other) {
-                _impl = other._impl;
-                _control_block = std::move(other._control_block);
-                other._impl = nullptr;
-            }
-            return *this;
-        }
+        // Move constructor and assignment
+        ApiPtr(ApiPtr&& other) noexcept = default;
+        ApiPtr& operator=(ApiPtr&& other) noexcept = default;
 
-        // Delete copy constructor and assignment
-        ApiPtr(const ApiPtr&) = delete;
-        ApiPtr& operator=(const ApiPtr&) = delete;
+        // Copy constructor and assignment
+        ApiPtr(const ApiPtr&) = default;
+        ApiPtr& operator=(const ApiPtr&) = default;
 
-        // Dereference operators - validate before access
-        T* operator->() const {
-            validate();
-            return _impl;
-        }
-
-        T& operator*() const {
-            validate();
-            return *_impl;
-        }
-
-        // Perform a static cast on the result.
+        // Converting constructor from ApiPtr<U> where U* is convertible to T*
         template<typename U>
-        U* static_cast_() const {
-            validate();
-            return static_cast<U*>(_impl);
-        }
+            requires std::convertible_to<U*, T*>
+        ApiPtr(ApiPtr<U> other)
+            : _impl(std::static_pointer_cast<T>(other.template control_block_typed<U>())) {}
 
-        // Perform a dynamic cast on the result.
+        // Get control block as typed shared_ptr (for conversion constructor)
         template<typename U>
-        U* dynamic_cast_() const {
-            validate();
-            return dynamic_cast<U*>(_impl);
+        [[nodiscard]] std::shared_ptr<U> control_block_typed() const noexcept {
+            return std::static_pointer_cast<U>(_impl);
         }
 
-        // Get raw pointer (for internal use - does not validate)
-        [[nodiscard]] T* get() const noexcept {
-            return _impl;
-        }
+        // Dereference operators
+        T* operator->() const { return _impl.get(); }
+        T& operator*() const { return *_impl; }
+
+        // Perform a static cast on the result
+        template<typename U>
+        U* static_cast_() const { return static_cast<U*>(_impl.get()); }
+
+        // Perform a dynamic cast on the result
+        template<typename U>
+        U* dynamic_cast_() const { return dynamic_cast<U*>(_impl.get()); }
+
+        // Get raw pointer
+        [[nodiscard]] T* get() const noexcept { return _impl.get(); }
 
         // Check if pointer is valid (non-null)
-        [[nodiscard]] bool has_value() const noexcept {
-            return _impl != nullptr;
-        }
+        [[nodiscard]] bool has_value() const noexcept { return _impl != nullptr; }
 
-        // Check if graph is still alive
-        [[nodiscard]] bool is_graph_alive() const noexcept {
-            return _control_block && _control_block->is_alive();
-        }
-
-        // Get control block (for passing to factory functions)
+        // Get control block as shared_ptr<void> for use as donor in aliasing constructors
         [[nodiscard]] control_block_ptr control_block() const noexcept {
-            return _control_block;
+            return std::static_pointer_cast<void>(_impl);
         }
 
         // Explicit bool conversion
-        explicit operator bool() const noexcept {
-            return has_value();
-        }
+        explicit operator bool() const noexcept { return has_value(); }
 
         // Reset the pointer
-        void reset() noexcept {
-            _impl = nullptr;
-            _control_block.reset();
-        }
+        void reset() noexcept { _impl.reset(); }
 
     private:
-        void validate() const {
-            if (!_impl) {
-                throw std::runtime_error("ApiPtr: Attempt to dereference null pointer");
-            }
-            if (!_control_block || !_control_block->is_alive()) {
-                throw std::runtime_error("ApiPtr: Attempt to access object after graph destruction");
-            }
-        }
-
-        T* _impl{nullptr};
-        control_block_ptr _control_block;
+        std::shared_ptr<T> _impl;
     };
-
-
 
 } // namespace hgraph::api
 

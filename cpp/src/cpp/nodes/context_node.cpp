@@ -16,9 +16,9 @@ namespace hgraph {
     }
 
     void ContextStubSourceNode::do_stop() {
-        if (_subscribed_output.get() != nullptr) {
+        if (_subscribed_output != nullptr) {
             _subscribed_output->un_subscribe(this);
-            _subscribed_output.reset();
+            _subscribed_output = nullptr;
         }
     }
 
@@ -82,7 +82,7 @@ namespace hgraph {
 
         // We will capture the reference value and subscribe to the producing output when available
         std::optional<TimeSeriesReference> value_ref;
-        time_series_reference_output_ptr output_ts = nullptr;
+        time_series_reference_output_s_ptr output_ts = nullptr;
 
         // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState
         // Use nb::isinstance to handle both base and specialized reference types
@@ -97,7 +97,7 @@ namespace hgraph {
             auto ref = unwrap_input_as<TimeSeriesReferenceInput>(shared);
             if (ref->has_peer()) {
                 // Use the bound peer output (stub remains a reference node)
-                output_ts = dynamic_cast<TimeSeriesReferenceOutput *>(ref->output());
+                output_ts = std::dynamic_pointer_cast<TimeSeriesReferenceOutput>(ref->output());
             }
             // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
             value_ref = ref->value();
@@ -108,8 +108,8 @@ namespace hgraph {
         }
 
         // Manage subscription if we have a producing output
-        if (output_ts.get() != nullptr) {
-            bool is_same{_subscribed_output.get() == output_ts.get()};
+        if (output_ts != nullptr) {
+            bool is_same{_subscribed_output == output_ts};
             if (!is_same) {
                 output_ts->subscribe(this);
                 if (_subscribed_output != nullptr) { _subscribed_output->un_subscribe(this); }
@@ -118,7 +118,7 @@ namespace hgraph {
         }
 
         // Finally, set this node's own REF output to the captured value (may be None)
-        auto my_output = dynamic_cast<TimeSeriesReferenceOutput *>(output());
+        auto my_output = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
         if (!my_output) {
             throw std::runtime_error("ContextStubSourceNode: output is not a TimeSeriesReferenceOutput");
         }

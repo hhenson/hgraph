@@ -10,16 +10,13 @@ namespace hgraph {
 
     // TSW output builder implementations
     template<typename T>
-    time_series_output_ptr TimeSeriesWindowOutputBuilder_T<T>::make_instance(const node_ptr& owning_node) const {
-        auto v{new TimeSeriesFixedWindowOutput<T>(owning_node, size, min_size)};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+    time_series_output_s_ptr TimeSeriesWindowOutputBuilder_T<T>::make_instance(node_ptr owning_node) const {
+        return std::make_shared<TimeSeriesFixedWindowOutput<T>>(owning_node, size, min_size);
     }
 
     template<typename T>
-    time_series_output_ptr TimeSeriesWindowOutputBuilder_T<
-        T>::make_instance(const time_series_output_ptr& owning_output) const {
-        auto v{new TimeSeriesFixedWindowOutput<T>(dynamic_cast_ref<TimeSeriesType>(owning_output), size, min_size)};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+    time_series_output_s_ptr TimeSeriesWindowOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output) const {
+        return std::make_shared<TimeSeriesFixedWindowOutput<T>>(owning_output, size, min_size);
     }
 
     template<typename T>
@@ -33,8 +30,11 @@ namespace hgraph {
     template<typename T>
     void TimeSeriesWindowOutputBuilder_T<T>::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
-        auto ts = dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(const_cast<TimeSeriesOutput*>(item.get()));
-        if (ts) { ts->reset_value(); }
+        auto ts = dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(item);
+        if (ts == nullptr) {
+            throw std::runtime_error("TimeSeriesWindowOutputBuilder_T::release_instance: expected TimeSeriesFixedWindowOutput but got different type");
+        }
+        ts->reset_value();
     }
 
     template<typename T>
@@ -50,16 +50,13 @@ namespace hgraph {
     }
 
     template<typename T>
-    time_series_output_ptr TimeSeriesTimeWindowOutputBuilder_T<T>::make_instance(const node_ptr& owning_node) const {
-        auto v{new TimeSeriesTimeWindowOutput<T>(owning_node, size, min_size)};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+    time_series_output_s_ptr TimeSeriesTimeWindowOutputBuilder_T<T>::make_instance(node_ptr owning_node) const {
+        return std::make_shared<TimeSeriesTimeWindowOutput<T>>(owning_node, size, min_size);
     }
 
     template<typename T>
-    time_series_output_ptr TimeSeriesTimeWindowOutputBuilder_T<T>::make_instance(
-        const time_series_output_ptr& owning_output) const {
-        auto v{new TimeSeriesTimeWindowOutput<T>(dynamic_cast_ref<TimeSeriesType>(owning_output), size, min_size)};
-        return time_series_output_ptr{static_cast<TimeSeriesOutput *>(v)};
+    time_series_output_s_ptr TimeSeriesTimeWindowOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output) const {
+        return std::make_shared<TimeSeriesTimeWindowOutput<T>>(owning_output, size, min_size);
     }
 
     template<typename T>

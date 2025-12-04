@@ -71,13 +71,13 @@ namespace hgraph
 
         [[nodiscard]] PyGraph graph() const;
 
-        [[nodiscard]] time_series_bundle_input_ptr input() const;
+        [[nodiscard]] nb::object input() const;
 
         [[nodiscard]] nb::dict inputs() const;
 
         [[nodiscard]] nb::tuple start_inputs() const;
 
-        time_series_output_ptr output();
+        [[nodiscard]] nb::object output();
 
         nb::object recordable_state();
 
@@ -87,7 +87,7 @@ namespace hgraph
 
         [[nodiscard]] nb::bool_ has_scheduler() const;
 
-        time_series_output_ptr error_output();
+        [[nodiscard]] nb::object error_output();
 
         [[nodiscard]] nb::bool_ has_input() const;
 
@@ -115,7 +115,7 @@ namespace hgraph
         }
 
       private:
-        friend Node *unwrap_node(const PyNode &obj);
+        friend node_s_ptr unwrap_node(const PyNode &obj);
         api_ptr      _impl;
     };
 

@@ -47,10 +47,10 @@ namespace hgraph
         using PyTimeSeriesOutput::PyTimeSeriesOutput;
     };
 
-    template <typename T_U> struct PyTimeSeriesSetOutput_T : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>
+    template <typename T_U> struct PyTimeSeriesSetOutput_T final : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>
     {
-        explicit PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o, control_block_ptr cb);
-        explicit PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o);
+        using api_ptr = ApiPtr<T_U>;
+        explicit PyTimeSeriesSetOutput_T(api_ptr impl);
 
         void remove(const nb::object &key) const;
 
@@ -71,10 +71,10 @@ namespace hgraph
         using PyTimeSeriesInput::PyTimeSeriesInput;
     };
 
-    template <typename T_U> struct PyTimeSeriesSetInput_T : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>
+    template <typename T_U> struct PyTimeSeriesSetInput_T final : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>
     {
-        explicit PyTimeSeriesSetInput_T(TimeSeriesSetInput *o, control_block_ptr cb);
-        explicit PyTimeSeriesSetInput_T(TimeSeriesSetInput *o);
+        using api_ptr = ApiPtr<T_U>;
+        explicit PyTimeSeriesSetInput_T(api_ptr impl);
 
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;

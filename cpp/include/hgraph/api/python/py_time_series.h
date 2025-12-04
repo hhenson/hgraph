@@ -52,14 +52,15 @@ namespace hgraph
         static void register_with_nanobind(nb::module_ &m);
 
       protected:
-        explicit PyTimeSeriesType(TimeSeriesType *ts, control_block_ptr control_block);
-        explicit PyTimeSeriesType(TimeSeriesType *ts);
+        explicit PyTimeSeriesType(api_ptr impl);
 
         [[nodiscard]] control_block_ptr control_block() const;
 
         template <typename U> U *static_cast_impl() const { return _impl.static_cast_<U>(); }
 
         template <typename U> U *dynamic_cast_impl() const { return _impl.dynamic_cast_<U>(); }
+
+        template <typename U> std::shared_ptr<U> impl_s_ptr() const { return _impl.control_block_typed<U>(); }
 
       private:
         api_ptr _impl;
@@ -69,6 +70,7 @@ namespace hgraph
 
     struct HGRAPH_EXPORT PyTimeSeriesOutput : PyTimeSeriesType
     {
+        using api_ptr = ApiPtr<TimeSeriesOutput>;
 
         // Output-specific navigation of the graph structure.
         [[nodiscard]] nb::object parent_output() const;
@@ -102,12 +104,14 @@ namespace hgraph
         using PyTimeSeriesType::PyTimeSeriesType;
 
       private:
-        friend TimeSeriesOutput *unwrap_output(const PyTimeSeriesOutput &output_);
+        friend time_series_output_s_ptr unwrap_output(const PyTimeSeriesOutput &output_);
         [[nodiscard]] TimeSeriesOutput *impl() const;
     };
 
     struct HGRAPH_EXPORT PyTimeSeriesInput : PyTimeSeriesType
     {
+        using api_ptr = ApiPtr<TimeSeriesInput>;
+
         // Graph navigation specific to the input
         [[nodiscard]] nb::object parent_input() const;
         [[nodiscard]] nb::bool_  has_parent_input() const;
@@ -142,7 +146,7 @@ namespace hgraph
 
       private:
         [[nodiscard]] TimeSeriesInput *impl() const;
-        friend TimeSeriesInput        *unwrap_input(const PyTimeSeriesInput &input_);
+        friend time_series_input_s_ptr unwrap_input(const PyTimeSeriesInput &input_);
     };
 
 }  // namespace hgraph

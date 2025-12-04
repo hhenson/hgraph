@@ -21,13 +21,13 @@ namespace hgraph {
         using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         // Construct with capacity and min size
-        TimeSeriesFixedWindowOutput(const node_ptr &parent, size_t size, size_t min_size)
+        TimeSeriesFixedWindowOutput(node_ptr parent, size_t size, size_t min_size)
             : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size) {
             _buffer.resize(_size);
             _times.resize(_size, engine_time_t{});
         }
 
-        TimeSeriesFixedWindowOutput(const TimeSeriesType::ptr &parent, size_t size, size_t min_size)
+        TimeSeriesFixedWindowOutput(time_series_output_ptr parent, size_t size, size_t min_size)
             : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size) {
             _buffer.resize(_size);
             _times.resize(_size, engine_time_t{});
@@ -94,7 +94,7 @@ namespace hgraph {
             _removed_value.reset();
         }
 
-        VISITOR_SUPPORT()
+        VISITOR_SUPPORT(final)
 
     private:
         std::vector<T> _buffer{};
@@ -113,11 +113,11 @@ namespace hgraph {
 
         // Helpers to dynamically get the output as the correct type
         [[nodiscard]] TimeSeriesFixedWindowOutput<T> *as_fixed_output() const {
-            return dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(output());
+            return dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(output().get());
         }
 
         [[nodiscard]] TimeSeriesTimeWindowOutput<T> *as_time_output() const {
-            return dynamic_cast<TimeSeriesTimeWindowOutput<T> *>(output());
+            return dynamic_cast<TimeSeriesTimeWindowOutput<T> *>(output().get());
         }
 
         [[nodiscard]] nb::object py_value() const override {
@@ -132,12 +132,14 @@ namespace hgraph {
             throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
         }
 
-        [[nodiscard]] bool modified() const override { return output()->modified(); }
-        [[nodiscard]] bool valid() const override { return output()->valid(); }
+        [[nodiscard]] bool modified() const override { return output() != nullptr && output()->modified(); }
+        [[nodiscard]] bool valid() const override { return output() != nullptr && output()->valid(); }
 
         [[nodiscard]] bool all_valid() const override;
 
-        [[nodiscard]] engine_time_t last_modified_time() const override { return output()->last_modified_time(); }
+        [[nodiscard]] engine_time_t last_modified_time() const override {
+            return output() != nullptr ? output()->last_modified_time() : MIN_DT;
+        }
 
         [[nodiscard]] nb::object py_value_times() const {
             if (auto *f = as_fixed_output()) return f->py_value_times();
@@ -168,6 +170,7 @@ namespace hgraph {
         }
 
         VISITOR_SUPPORT()
+
     };
 
     template<typename T>
@@ -194,11 +197,11 @@ namespace hgraph {
         using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         // Construct with time window and min time window
-        TimeSeriesTimeWindowOutput(const node_ptr &parent, engine_time_delta_t size, engine_time_delta_t min_size)
+        TimeSeriesTimeWindowOutput(node_ptr parent, engine_time_delta_t size, engine_time_delta_t min_size)
             : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size), _ready(false) {
         }
 
-        TimeSeriesTimeWindowOutput(const TimeSeriesType::ptr &parent, engine_time_delta_t size,
+        TimeSeriesTimeWindowOutput(time_series_output_ptr parent, engine_time_delta_t size,
                                    engine_time_delta_t min_size)
             : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size), _ready(false) {
         }
@@ -247,7 +250,7 @@ namespace hgraph {
 
         [[nodiscard]] size_t len() const;
 
-        VISITOR_SUPPORT()
+        VISITOR_SUPPORT(final)
 
     private:
         void _roll() const; // mutable operation to clean up old items

@@ -45,11 +45,14 @@ namespace hgraph
     nb::tuple PyGraph::nodes() const {
         // TODO: This really should be cached
         nb::list l{};
-        for (auto &node : _impl->nodes()) { l.append(wrap_node(node, _impl.control_block())); }
+        for (const auto &node : _impl->nodes()) { l.append(wrap_node(node)); }
         return nb::tuple(l);
     }
 
-    nb::object PyGraph::parent_node() const { return wrap_node(_impl->parent_node(), _impl.control_block()); }
+    nb::object PyGraph::parent_node() const {
+        auto *pn = _impl->parent_node();
+        return pn ? wrap_node(pn->shared_from_this()) : nb::none();
+    }
 
     nb::object PyGraph::label() const {
         auto lbl{_impl->label()};
@@ -58,14 +61,11 @@ namespace hgraph
 
     PyEvaluationEngineApi PyGraph::evaluation_engine_api()
     {
-        auto engine_api = _impl->evaluation_engine_api();
-        if (!engine_api) {
-            throw std::runtime_error("Graph::evaluation_engine_api() returned null");
+        const auto& engine = _impl->evaluation_engine();
+        if (!engine) {
+            throw std::runtime_error("Graph::evaluation_engine() returned null");
         }
-        // engine_api is EvaluationEngineApi::ptr (nb::ref), which wraps EvaluationEngine*
-        // We need to get the raw pointer and cast it to EvaluationEngineApi*
-        auto *raw_ptr = static_cast<EvaluationEngineApi *>(engine_api.get());
-        return PyEvaluationEngineApi(ApiPtr<EvaluationEngineApi>(raw_ptr, _impl.control_block()));
+        return PyEvaluationEngineApi(ApiPtr<EvaluationEngineApi>(engine));
     }
 
     PyEvaluationClock PyGraph::evaluation_clock() const
@@ -74,7 +74,7 @@ namespace hgraph
         if (!clock) {
             throw std::runtime_error("Graph::evaluation_clock() returned null");
         }
-        return PyEvaluationClock(ApiPtr<EvaluationClock>(clock.get(), _impl.control_block()));
+        return PyEvaluationClock(ApiPtr<EvaluationClock>(clock));
     }
 
     nb::int_ PyGraph::push_source_nodes_end() const { return nb::int_(_impl->push_source_nodes_end()); }
@@ -86,12 +86,12 @@ namespace hgraph
     nb::tuple PyGraph::schedule() { return nb::make_tuple(_impl->schedule()); }
 
     PyGraph PyGraph::copy_with(nb::object nodes) {
-        auto nodes_{nb::cast<std::vector<node_ptr>>(nodes)};
+        auto nodes_{nb::cast<std::vector<node_s_ptr>>(nodes)};
         auto g{_impl->copy_with(nodes_)};
-        return PyGraph(ApiPtr<Graph>(g.get(), g->control_block()));
+        return PyGraph(ApiPtr<Graph>(g));
     }
 
-    nb::object PyGraph::traits() const { return wrap_traits(_impl->traits().get(), _impl.control_block()); }
+    nb::object PyGraph::traits() const { return wrap_traits(&_impl->traits(), _impl.control_block()); }
 
     SenderReceiverState &PyGraph::receiver() { return _impl->receiver(); }
 

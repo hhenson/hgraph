@@ -2,18 +2,17 @@
 #define GRAPH_EXECUTOR_H
 
 #include <hgraph/hgraph_base.h>
+#include <memory>
 
 namespace hgraph {
     enum class EvaluationMode { REAL_TIME = 0, SIMULATION = 1 };
 
-    struct Graph;
-    struct Node;
-    struct EvaluationEngine;
-    using graph_ptr = nb::ref<Graph>;
-    using node_ptr = nb::ref<Node>;
+    struct EvaluationEngine;  // Forward declaration
 
+    // EvaluationLifeCycleObserver - externally managed observer, keeps nb::intrusive_base
     struct EvaluationLifeCycleObserver : nb::intrusive_base {
-        using ptr = nb::ref<EvaluationLifeCycleObserver>;
+        using ptr = EvaluationLifeCycleObserver*;
+        using s_ptr = nb::ref<EvaluationLifeCycleObserver>;
 
         virtual void on_before_start_graph(graph_ptr) {
         };
@@ -55,18 +54,9 @@ namespace hgraph {
         };
     };
 
-    // struct HGRAPH_EXPORT GraphExecutor {
-    //     // Abstract methods.
-    //     virtual EvaluationMode run_mode() const = 0;
-    //
-    //     virtual void run(const engine_time_t &start_time, const engine_time_t &end_time) = 0;
-    //
-    //     void static register_with_nanobind(nb::module_ &m);
-    // };
-
     struct HGRAPH_EXPORT GraphExecutor {
-        GraphExecutor(graph_builder_ptr graph_builder, EvaluationMode run_mode,
-                          std::vector<EvaluationLifeCycleObserver::ptr> observers = {});
+        GraphExecutor(graph_builder_s_ptr graph_builder, EvaluationMode run_mode,
+                          std::vector<EvaluationLifeCycleObserver::s_ptr> observers = {});
 
         EvaluationMode run_mode() const;
 
@@ -78,9 +68,9 @@ namespace hgraph {
         void _evaluate(EvaluationEngine &evaluationEngine, Graph& graph);
 
     private:
-        graph_builder_ptr _graph_builder;
+        graph_builder_s_ptr _graph_builder;
         EvaluationMode _run_mode;
-        std::vector<EvaluationLifeCycleObserver::ptr> _observers;
+        std::vector<EvaluationLifeCycleObserver::s_ptr> _observers;
     };
 } // namespace hgraph
 #endif  // GRAPH_EXECUTOR_H

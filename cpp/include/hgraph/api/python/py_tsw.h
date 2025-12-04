@@ -18,9 +18,9 @@ namespace hgraph
         requires is_tsw_output<T_U>
     struct PyTimeSeriesWindowOutput : PyTimeSeriesOutput
     {
+        using api_ptr = ApiPtr<T_U>;
 
-        explicit PyTimeSeriesWindowOutput(T_U *impl, const control_block_ptr &cb);
-        explicit PyTimeSeriesWindowOutput(T_U *impl);
+        explicit PyTimeSeriesWindowOutput(api_ptr impl);
 
         [[nodiscard]] nb::object value_times() const;
         [[nodiscard]] engine_time_t first_modified_time() const;
@@ -40,9 +40,10 @@ namespace hgraph
     // Unified window input that works with both fixed-size and timedelta outputs
     template <typename T> struct PyTimeSeriesWindowInput : PyTimeSeriesInput
     {
-        explicit PyTimeSeriesWindowInput(TimeSeriesWindowInput<T> *impl, const control_block_ptr &cb);
-        explicit PyTimeSeriesWindowInput(TimeSeriesWindowInput<T> *impl);
-        
+        using api_ptr = ApiPtr<TimeSeriesWindowInput<T>>;
+
+        explicit PyTimeSeriesWindowInput(api_ptr impl);
+
         [[nodiscard]] nb::object value_times() const;
 
         [[nodiscard]] engine_time_t first_modified_time() const;

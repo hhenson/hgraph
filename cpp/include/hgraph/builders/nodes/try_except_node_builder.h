@@ -11,7 +11,7 @@ namespace hgraph {
     struct TryExceptNodeBuilder : BaseNestedGraphNodeBuilder {
         using BaseNestedGraphNodeBuilder::BaseNestedGraphNodeBuilder;
 
-        node_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
+        node_s_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
     };
 
     void try_except_node_builder_register_with_nanobind(nb::module_ & m);

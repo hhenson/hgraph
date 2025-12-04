@@ -11,7 +11,7 @@
 
 namespace hgraph
 {
-    BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+    BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                                    nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn)
         : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)), _eval_fn{std::move(eval_fn)},
           _start_fn{std::move(start_fn)}, _stop_fn{std::move(stop_fn)} {}
@@ -22,15 +22,11 @@ namespace hgraph
 
         bool  has_injectables{signature().injectables != 0};
         auto *injectable_map = has_injectables ? &(*signature().injectable_inputs) : nullptr;
-
         auto g = graph();
-        if (g == nullptr) { throw std::runtime_error("BasePythonNode::_initialise_kwargs: missing owning graph"); }
-        const auto &cb = g->control_block();
-        if (cb == nullptr) { throw std::runtime_error("BasePythonNode::_initialise_kwargs: graph missing API control block"); }
 
         nb::object node_wrapper{};
         auto       get_node_wrapper = [&]() -> nb::object {
-            if (!node_wrapper && g) { node_wrapper = wrap_node(this, cb); }
+            if (!node_wrapper) { node_wrapper = wrap_node(shared_from_this()); }
             return node_wrapper;
         };
         auto &signature_args = signature().args;
@@ -47,16 +43,15 @@ namespace hgraph
                         wrapped_value = get_node_wrapper();
                     } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
                         auto out = output();
-                        // wrapped_value = wrap_output(out.get(), cb);
-                        wrapped_value = wrap_time_series(out, graph()->control_block());
+                        wrapped_value = wrap_time_series(out);
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
-                        wrapped_value = wrap_node_scheduler(sched.get(), cb);
+                        wrapped_value = wrap_node_scheduler(sched);
                     } else if ((injectable & InjectableTypesEnum::ENGINE_API) != InjectableTypesEnum::NONE) {
                         if (g) {
                             auto engine_api = g->evaluation_engine_api();
                             if (engine_api) {
-                                wrapped_value = wrap_evaluation_engine_api(engine_api.get(), cb);
+                                wrapped_value = wrap_evaluation_engine_api(engine_api);
                             } else {
                                 wrapped_value = nb::none();
                             }
@@ -67,7 +62,7 @@ namespace hgraph
                         if (g) {
                             auto clock = g->evaluation_clock();
                             if (clock) {
-                                wrapped_value = wrap_evaluation_clock(clock.get(), cb);
+                                wrapped_value = wrap_evaluation_clock(clock);
                             } else {
                                 wrapped_value = nb::none();
                             }
@@ -75,11 +70,11 @@ namespace hgraph
                             wrapped_value = nb::none();
                         }
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
-                        wrapped_value = g ? wrap_traits(g->traits().get(), cb) : nb::none();
+                        wrapped_value = g ? wrap_traits(&g->traits(), g->shared_from_this()) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
-                        auto recordable_state = this->recordable_state().get();
+                        auto recordable_state = this->recordable_state();
                         if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }
-                        wrapped_value = wrap_time_series(recordable_state, cb);
+                        wrapped_value = wrap_time_series(recordable_state);
                     } else {
                         // Fallback: call injector with this node (same behaviour as python impl)
                         wrapped_value = value(get_node_wrapper());
@@ -108,7 +103,6 @@ namespace hgraph
         // If is not a compute node or sink node, there are no inputs to map
         auto input_{input()};
         if (!input_) { return; }
-        const auto &cb{graph()->control_block()};
         auto &signature_args = signature().args;
         // Match main branch behavior: iterate over time_series_inputs
         for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0;
@@ -116,7 +110,7 @@ namespace hgraph
              ++i) {
             auto key{input_->schema().keys()[i]};
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                auto wrapped = wrap_time_series(input_->operator[](i).get(), cb);
+                auto wrapped = wrap_time_series(input_->operator[](i));
                 if (wrapped.is_none()) {
                     throw std::runtime_error(
                         std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap time-series input '") +
@@ -146,16 +140,16 @@ namespace hgraph
         if (!is_recover_mode) { return; }
 
         // Get the evaluation clock as a Python object
-        nb::object clock = wrap_evaluation_clock(graph()->evaluation_clock(), graph()->control_block());
+        nb::object clock = wrap_evaluation_clock(graph()->evaluation_clock());
 
         // Get the fully qualified recordable ID
         nb::object  fq_recordable_id_fn = get_fq_recordable_id_fn();
-        nb::object  traits_obj       = wrap_traits(graph()->traits(), graph()->control_block());  // nb::cast(&(graph()->traits()));
+        nb::object  traits_obj       = wrap_traits(&graph()->traits(), graph()->shared_from_this());
         std::string record_replay_id = signature().record_replay_id.value_or("");
         nb::object  recordable_id    = fq_recordable_id_fn(traits_obj, nb::str(record_replay_id.c_str()));
 
         // Get evaluation time minus MIN_TD
-        engine_time_t eval_time = graph()->evaluation_clock()->evaluation_time();
+        engine_time_t eval_time = graph()->evaluation_time();
         engine_time_t tm        = eval_time - MIN_TD;
 
         // Get as_of time
@@ -177,7 +171,7 @@ namespace hgraph
         recordable_state()->apply_result(restored_state.attr("value"));
     }
 
-    void BasePythonNode::reset_input(time_series_bundle_input_ptr value) {
+    void BasePythonNode::reset_input(const time_series_bundle_input_s_ptr& value) {
         Node::reset_input(value);
         _initialise_kwarg_inputs();
     }

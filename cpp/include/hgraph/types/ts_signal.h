@@ -10,8 +10,8 @@
 namespace hgraph {
     struct TimeSeriesSignalInputBuilder;
 
-    struct TimeSeriesSignalInput : BaseTimeSeriesInput {
-        using ptr = nb::ref<TimeSeriesSignalInput>;
+    struct TimeSeriesSignalInput final : BaseTimeSeriesInput {
+        using ptr = TimeSeriesSignalInput*;
         using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         [[nodiscard]] nb::object py_value() const override;
@@ -20,7 +20,7 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override { return true; }
 
-        [[nodiscard]] TimeSeriesInput *get_input(size_t index) override;
+        [[nodiscard]] TimeSeriesInput::s_ptr get_input(size_t index) override;
 
         // Override to aggregate from children like Python implementation
         [[nodiscard]] bool valid() const override;
@@ -36,11 +36,11 @@ namespace hgraph {
 
         void do_un_bind_output(bool unbind_refs) override;
 
-        VISITOR_SUPPORT()
+        VISITOR_SUPPORT(final)
 
     private:
         friend TimeSeriesSignalInputBuilder;
-        mutable std::vector<ptr> _ts_values; // Lazily created child signals
+        mutable std::vector<TimeSeriesInput::s_ptr> _ts_values; // Lazily created child signals
     };
 }
 

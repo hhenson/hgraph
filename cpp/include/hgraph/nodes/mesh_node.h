@@ -11,7 +11,8 @@ namespace hgraph
     void register_mesh_node_with_nanobind(nb::module_ &m);
 
     template <typename K> struct MeshNode;
-    template <typename K> using mesh_node_ptr = nb::ref<MeshNode<K>>;
+    template <typename K> using mesh_node_ptr = MeshNode<K>*;
+    template <typename K> using mesh_node_s_ptr = std::shared_ptr<MeshNode<K>>;
 
     template <typename K> struct MeshNestedEngineEvaluationClock : NestedEngineEvaluationClock
     {
@@ -33,8 +34,8 @@ namespace hgraph
      */
     template <typename K> struct MeshNode : TsdMapNode<K>
     {
-        MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature, nb::dict scalars,
-                 graph_builder_ptr nested_graph_builder, const std::unordered_map<std::string, int64_t> &input_node_ids,
+        MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature, nb::dict scalars,
+                 graph_builder_s_ptr nested_graph_builder, const std::unordered_map<std::string, int64_t> &input_node_ids,
                  int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg,
                  const std::string &context_path);
 

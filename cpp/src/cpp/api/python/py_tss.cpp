@@ -6,12 +6,8 @@ namespace hgraph
 {
 
     template <typename T_U>
-    PyTimeSeriesSetOutput_T<T_U>::PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o, control_block_ptr cb)
-        : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>(o, std::move(cb)) {}
-
-    template <typename T_U>
-    PyTimeSeriesSetOutput_T<
-        T_U>::PyTimeSeriesSetOutput_T(TimeSeriesSetOutput *o) : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>(o) {}
+    PyTimeSeriesSetOutput_T<T_U>::PyTimeSeriesSetOutput_T(api_ptr impl)
+        : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>(std::move(impl)) {}
 
     template <typename T_U> void PyTimeSeriesSetOutput_T<T_U>::remove(const nb::object &key) const {
         if (key.is_none()) { return; }
@@ -25,7 +21,7 @@ namespace hgraph
 
     template <typename T_U>
     nb::object PyTimeSeriesSetOutput_T<T_U>::get_contains_output(const nb::object &item, const nb::object &requester) const {
-        return wrap_output(this->impl()->get_contains_output(item, requester).get(), this->control_block());
+        return wrap_output(this->impl()->get_contains_output(item, requester));
     }
 
     template <typename T_U>
@@ -34,7 +30,7 @@ namespace hgraph
     }
 
     template <typename T_U> nb::object PyTimeSeriesSetOutput_T<T_U>::is_empty_output() const {
-        return wrap_output(this->impl()->is_empty_output().get(), this->control_block());
+        return wrap_output(this->impl()->is_empty_output());
     }
 
     template <typename T_U> nb::str PyTimeSeriesSetOutput_T<T_U>::py_str() const {
@@ -47,11 +43,8 @@ namespace hgraph
     template <typename T_U> nb::str PyTimeSeriesSetOutput_T<T_U>::py_repr() const { return py_str(); }
 
     template <typename T_U>
-    PyTimeSeriesSetInput_T<T_U>::PyTimeSeriesSetInput_T(TimeSeriesSetInput *o, control_block_ptr cb)
-        : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>(o, std::move(cb)) {}
-
-    template <typename T_U>
-    PyTimeSeriesSetInput_T<T_U>::PyTimeSeriesSetInput_T(TimeSeriesSetInput *o) : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>(o) {}
+    PyTimeSeriesSetInput_T<T_U>::PyTimeSeriesSetInput_T(api_ptr impl)
+        : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>(std::move(impl)) {}
 
     template <typename T_U> nb::str PyTimeSeriesSetInput_T<T_U>::py_str() const {
         auto self{this->impl()};

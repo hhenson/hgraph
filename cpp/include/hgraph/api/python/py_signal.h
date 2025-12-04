@@ -5,6 +5,8 @@ namespace hgraph
 {
     struct PyTimeSeriesSignalInput : PyTimeSeriesInput
     {
+        using api_ptr = ApiPtr<TimeSeriesType>;
+        explicit PyTimeSeriesSignalInput(api_ptr impl);
         explicit PyTimeSeriesSignalInput(TimeSeriesType *ts, control_block_ptr control_block);
         explicit PyTimeSeriesSignalInput(TimeSeriesType *ts);
     };

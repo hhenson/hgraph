@@ -15,7 +15,7 @@ namespace hgraph {
             // Python parity: set the outer REF 'out' to reference the inner node's existing output.
             // Do NOT replace the inner node's output pointer.
             // AB: why is this ^ ? I wrote a test taht fails because of this and made it set output to fix - see test_tsb_out_of_try_except
-            if (auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(output())) {
+            if (auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(output().get())) {
                 auto out_ts = (*bundle)["out"]; // TimeSeriesOutput::ptr (expected TimeSeriesReferenceOutput)
                 node->set_output(out_ts);
             } else {
@@ -43,7 +43,7 @@ namespace hgraph {
             // Create a heap-allocated copy managed by nanobind
             auto error_ptr = nb::ref<NodeError>(new NodeError(err));
 
-            if (auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(output())) {
+            if (auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(output().get())) {
                 // Write to the 'exception' field of the bundle
                 auto exception_ts = (*bundle)["exception"];
                 try {

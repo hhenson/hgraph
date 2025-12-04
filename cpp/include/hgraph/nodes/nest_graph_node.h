@@ -5,9 +5,9 @@
 
 namespace hgraph {
     struct NestedGraphNode : NestedNode {
-        NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::ptr signature,
+        NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                         nb::dict scalars,
-                        graph_builder_ptr nested_graph_builder,
+                        graph_builder_s_ptr nested_graph_builder,
                         const std::unordered_map<std::string, int> &input_node_ids,
                         int output_node_id);
 
@@ -21,9 +21,9 @@ namespace hgraph {
 
         void do_eval() override;
 
-        std::unordered_map<int, graph_ptr> nested_graphs() const;
+        std::unordered_map<int, graph_s_ptr> nested_graphs() const;
 
-        void enumerate_nested_graphs(const std::function<void(graph_ptr)>& callback) const override;
+        void enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const override;
 
     protected:
         void wire_graph();
@@ -32,10 +32,10 @@ namespace hgraph {
 
         virtual void wire_outputs();
 
-        graph_builder_ptr m_nested_graph_builder_;
+        graph_builder_s_ptr m_nested_graph_builder_;
         std::unordered_map<std::string, int> m_input_node_ids_;
         int m_output_node_id_;
-        graph_ptr m_active_graph_;
+        graph_s_ptr m_active_graph_;
     };
 } // namespace hgraph
 
