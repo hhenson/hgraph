@@ -22,6 +22,8 @@ namespace hgraph {
 
         virtual void enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const = 0;
 
+        VISITOR_SUPPORT()
+
     private:
         engine_time_t _last_evaluation_time{MIN_DT};
     };

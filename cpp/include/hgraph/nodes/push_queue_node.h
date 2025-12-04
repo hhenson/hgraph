@@ -22,7 +22,7 @@ namespace hgraph {
      * - Message queuing: tracks queued vs dequeued messages
      * - Custom eval function: optional callable that receives a sender
      */
-    struct PushQueueNode : Node {
+    struct PushQueueNode final : Node {
         using Node::Node;
 
         static void register_with_nanobind(nb::module_ &m);
@@ -36,6 +36,8 @@ namespace hgraph {
         int64_t messages_in_queue() const;
 
         void set_receiver(sender_receiver_state_ptr value);
+
+        VISITOR_SUPPORT(final)
 
     protected:
         void do_eval() override;

@@ -10,6 +10,8 @@
 #include <nanobind/intrusive/ref.h>
 #include <nanobind/nanobind.h>
 #include <string>
+#include <tp/tpack.h>
+#include <hgraph/util/date_time.h>
 
 namespace nb = nanobind;
 
@@ -166,6 +168,27 @@ namespace hgraph {
     template<typename> struct TimeSeriesSetOutput_T;
     template<typename> struct TimeSeriesFixedWindowOutput;
     template<typename> struct TimeSeriesTimeWindowOutput;
+
+    struct ContextStubSourceNode;
+    struct NestedNode;
+    struct PushQueueNode;
+    struct LastValuePullNode;
+    struct BasePythonNode;
+    struct TsdNonAssociativeReduceNode;
+    struct PythonGeneratorNode;
+    struct PythonNode;
+    template<typename> struct ReduceNode;
+    template<typename> struct SwitchNode;
+    struct NestedGraphNode;
+    template<typename> struct TsdMapNode;
+    struct ComponentNode;
+    struct TryExceptNode;
+    template <typename> struct MeshNode;
+
+    using ts_payload_types = tp::tpack<bool, int64_t, double, engine_date_t, engine_time_t, engine_time_delta_t, nb::object>;
+    inline constexpr auto ts_payload_types_v = ts_payload_types{};
+
+
 } // namespace hgraph
 
 #endif  // HGRAPH_FORWARD_DECLARATIONS_H
