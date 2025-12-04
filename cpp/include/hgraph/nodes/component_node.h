@@ -5,7 +5,7 @@
 #include <optional>
 
 namespace hgraph {
-    struct ComponentNode : NestedNode {
+    struct ComponentNode final : NestedNode {
         ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                       nb::dict scalars,
                       graph_builder_s_ptr nested_graph_builder,
@@ -26,7 +26,7 @@ namespace hgraph {
 
         void enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const override;
 
-        static void register_with_nanobind(nb::module_ &m);
+        VISITOR_SUPPORT(final)
 
     protected:
         void wire_graph();

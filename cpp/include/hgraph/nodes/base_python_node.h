@@ -33,6 +33,8 @@ namespace hgraph {
 
         void reset_input(const time_series_bundle_input_s_ptr& value) override;
 
+        VISITOR_SUPPORT()
+
     protected:
         void do_eval() override;
 

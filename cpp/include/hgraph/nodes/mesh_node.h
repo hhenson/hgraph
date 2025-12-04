@@ -32,8 +32,12 @@ namespace hgraph
      * C++ implementation of PythonMeshNodeImpl.
      * Extends TsdMapNode to implement mesh/dependency graph with rank-based scheduling.
      */
-    template <typename K> struct MeshNode : TsdMapNode<K>
+    template <typename K> struct MeshNode final : TsdMapNode<K>
     {
+        // Bring base class visitor types into scope for VISITOR_SUPPORT macro
+        using mux_type = typename TsdMapNode<K>::mux_type;
+        using const_mux_type = typename TsdMapNode<K>::const_mux_type;
+
         MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature, nb::dict scalars,
                  graph_builder_s_ptr nested_graph_builder, const std::unordered_map<std::string, int64_t> &input_node_ids,
                  int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg,
@@ -42,6 +46,8 @@ namespace hgraph
         // Public wrappers for Python to manage dependencies (mirror Python API)
         bool _add_graph_dependency(const K &key, const K &depends_on) { return add_graph_dependency(key, depends_on); }
         void _remove_graph_dependency(const K &key, const K &depends_on) { remove_graph_dependency(key, depends_on); }
+
+        VISITOR_SUPPORT(final)
 
       protected:
         void do_start() override;

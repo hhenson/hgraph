@@ -40,6 +40,8 @@ namespace hgraph
 
         void enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)> &callback) const override;
 
+        VISITOR_SUPPORT()
+
       protected:
         void initialise() override;
 

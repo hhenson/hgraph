@@ -1,9 +1,11 @@
 #ifndef NODE_H
 #define NODE_H
 
-#include <hgraph/util/lifecycle.h>
 #include <hgraph/types/notifiable.h>
+#include <hgraph/util/lifecycle.h>
 #include <memory>
+
+#include <ddv/visitable.h>
 
 namespace hgraph
 {
@@ -46,7 +48,7 @@ namespace hgraph
     // NodeSignature - external object created from Python, keeps nb::intrusive_base
     struct HGRAPH_EXPORT NodeSignature : nanobind::intrusive_base
     {
-        using ptr = NodeSignature*;
+        using ptr   = NodeSignature *;
         using s_ptr = nanobind::ref<NodeSignature>;
 
         NodeSignature(std::string name, NodeTypeEnum node_type, std::vector<std::string> args,
@@ -58,7 +60,8 @@ namespace hgraph
                       std::optional<std::unordered_set<std::string>>                      context_inputs,
                       std::optional<std::unordered_map<std::string, InjectableTypesEnum>> injectable_inputs, size_t injectables,
                       bool capture_exception, int64_t trace_back_depth, std::string wiring_path_name,
-                      std::optional<std::string> label, bool capture_values, std::optional<std::string> record_replay_id, bool has_nested_graphs);
+                      std::optional<std::string> label, bool capture_values, std::optional<std::string> record_replay_id,
+                      bool has_nested_graphs);
 
         std::string                                                         name;
         NodeTypeEnum                                                        node_type;
@@ -79,7 +82,7 @@ namespace hgraph
         std::optional<std::string>                                          label;
         bool                                                                capture_values;
         std::optional<std::string>                                          record_replay_id;
-        bool has_nested_graphs;
+        bool                                                                has_nested_graphs;
 
         [[nodiscard]] nb::object get_arg_type(const std::string &arg) const;
 
@@ -115,7 +118,7 @@ namespace hgraph
 
         [[nodiscard]] nb::dict to_dict() const;
 
-        [[nodiscard]] s_ptr copy_with(const nb::kwargs& kwargs) const;
+        [[nodiscard]] s_ptr copy_with(const nb::kwargs &kwargs) const;
 
         static void register_with_nanobind(nb::module_ &m);
     };
@@ -123,7 +126,7 @@ namespace hgraph
     // NodeScheduler - owned by Node, uses shared_ptr
     struct NodeScheduler : std::enable_shared_from_this<NodeScheduler>
     {
-        using ptr = NodeScheduler*;
+        using ptr   = NodeScheduler *;
         using s_ptr = std::shared_ptr<NodeScheduler>;
 
         explicit NodeScheduler(node_ptr node);
@@ -166,10 +169,26 @@ namespace hgraph
         engine_time_t                                   _last_scheduled_time{MIN_DT};
     };
 
+    using node_types =
+        tp::tpack<ContextStubSourceNode, NestedNode, PushQueueNode, LastValuePullNode, BasePythonNode, TsdNonAssociativeReduceNode,
+                  PythonGeneratorNode, PythonNode, NestedGraphNode, ComponentNode, TryExceptNode>;
+    inline constexpr auto node_types_v = node_types{};
+
+    using NodeVisitor = decltype(tp::make_v<ddv::mux>(
+        node_types_v +
+        // payload specialized outputs
+        tp::transform<tp::meta::apply<ReduceNode>::type>(ts_payload_types_v) +
+        tp::transform<tp::meta::apply<SwitchNode>::type>(ts_payload_types_v) +
+        tp::transform<tp::meta::apply<TsdMapNode>::type>(ts_payload_types_v) +
+        tp::transform<tp::meta::apply<MeshNode>::type>(ts_payload_types_v)))::type;
+
     // Node - runtime object, uses shared_ptr
-    struct HGRAPH_EXPORT Node : ComponentLifeCycle, Notifiable, std::enable_shared_from_this<Node>
+    struct HGRAPH_EXPORT Node : ComponentLifeCycle,
+                                Notifiable,
+                                std::enable_shared_from_this<Node>,
+                                ddv::visitable<Node, NodeVisitor>
     {
-        using ptr = Node*;
+        using ptr   = Node *;
         using s_ptr = std::shared_ptr<Node>;
 
         Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars);
@@ -198,35 +217,35 @@ namespace hgraph
 
         void set_graph(graph_ptr value);
 
-        time_series_bundle_input_s_ptr& input();
+        time_series_bundle_input_s_ptr &input();
 
-        const time_series_bundle_input_s_ptr& input() const;
+        const time_series_bundle_input_s_ptr &input() const;
 
         auto start_inputs() const { return _start_inputs; }
 
-        void set_input(const time_series_bundle_input_s_ptr& value);
+        void set_input(const time_series_bundle_input_s_ptr &value);
 
-        virtual void reset_input(const time_series_bundle_input_s_ptr& value);
+        virtual void reset_input(const time_series_bundle_input_s_ptr &value);
 
-        time_series_output_s_ptr& output();
+        time_series_output_s_ptr &output();
 
-        void set_output(const time_series_output_s_ptr& value);
+        void set_output(const time_series_output_s_ptr &value);
 
-        time_series_bundle_output_s_ptr& recordable_state();
+        time_series_bundle_output_s_ptr &recordable_state();
 
-        void set_recordable_state(const time_series_bundle_output_s_ptr& value);
+        void set_recordable_state(const time_series_bundle_output_s_ptr &value);
 
         bool has_recordable_state() const;
 
-        NodeScheduler::s_ptr& scheduler();
+        NodeScheduler::s_ptr &scheduler();
 
         bool has_scheduler() const;
 
         void unset_scheduler();
 
-        time_series_output_s_ptr& error_output();
+        time_series_output_s_ptr &error_output();
 
-        void set_error_output(const time_series_output_s_ptr& value);
+        void set_error_output(const time_series_output_s_ptr &value);
 
         // Performance optimization: provide access to cached evaluation time pointer
         [[nodiscard]] const engine_time_t *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
@@ -234,7 +253,7 @@ namespace hgraph
         friend struct Graph;
         friend struct NodeScheduler;
 
-        void add_start_input(const time_series_reference_input_s_ptr& input);
+        void add_start_input(const time_series_reference_input_s_ptr &input);
 
         bool has_input() const;
 
@@ -262,12 +281,12 @@ namespace hgraph
         std::vector<int64_t>            _owning_graph_id;
         node_signature_s_ptr            _signature;
         nb::dict                        _scalars;
-        graph_ptr                       _graph;               // back-pointer, not owned
-        time_series_bundle_input_s_ptr  _input;               // owned
-        time_series_output_s_ptr        _output;              // owned
-        time_series_output_s_ptr        _error_output;        // owned
-        time_series_bundle_output_s_ptr _recordable_state;    // owned
-        NodeScheduler::s_ptr            _scheduler;           // owned
+        graph_ptr                       _graph;             // back-pointer, not owned
+        time_series_bundle_input_s_ptr  _input;             // owned
+        time_series_output_s_ptr        _output;            // owned
+        time_series_output_s_ptr        _error_output;      // owned
+        time_series_bundle_output_s_ptr _recordable_state;  // owned
+        NodeScheduler::s_ptr            _scheduler;         // owned
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.
         std::vector<time_series_reference_input_s_ptr> _start_inputs;  // owned

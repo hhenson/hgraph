@@ -20,7 +20,7 @@ namespace hgraph {
      * and the result at the root. The inputs bound to the leaves can be moved as nodes come and go.
      */
     template<typename K>
-    struct ReduceNode : NestedNode {
+    struct ReduceNode final : NestedNode {
         ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                    nb::dict scalars,
                    graph_builder_s_ptr nested_graph_builder, const std::tuple<int64_t, int64_t> &input_node_ids,
@@ -45,6 +45,8 @@ namespace hgraph {
         const std::vector<std::tuple<int64_t, int64_t> > &free_node_indexes() const;
 
         void enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const override;
+
+        VISITOR_SUPPORT(final)
 
     protected:
         void initialise() override;
