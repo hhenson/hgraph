@@ -95,6 +95,8 @@ namespace hgraph {
 
         void invalidate() override;
 
+        VISITOR_SUPPORT()
+
     private:
         TimeSeriesValueOutput<bool>::s_ptr _is_empty_ref_output;
     };
@@ -111,6 +113,8 @@ namespace hgraph {
         [[nodiscard]] const TimeSeriesSetOutput &prev_output() const;
 
         [[nodiscard]] bool has_prev_output() const;
+
+        VISITOR_SUPPORT()
 
     protected:
         virtual void reset_prev();

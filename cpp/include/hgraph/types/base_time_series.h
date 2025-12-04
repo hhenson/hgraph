@@ -69,6 +69,8 @@ namespace hgraph {
         void invalidate() override;
         void mark_modified(engine_time_t modified_time) override;
 
+        VISITOR_SUPPORT()
+
     protected:
         // State and helpers moved from TimeSeriesType
         time_series_output_ptr _parent_output() const;
@@ -142,6 +144,8 @@ namespace hgraph {
 
         [[nodiscard]] TimeSeriesInput::s_ptr get_input(size_t index) override;
 
+        VISITOR_SUPPORT()
+
     protected:
         // State and helpers moved from TimeSeriesType
         time_series_input_ptr _parent_input() const;
@@ -174,9 +178,6 @@ namespace hgraph {
         engine_time_t _sample_time{MIN_DT};
         engine_time_t _notify_time{MIN_DT};
     };
-
-    // Note: Simple double dispatch visitor pattern is used.
-    // Concrete types override accept() to call visitor.visit(*this).
 
 } // namespace hgraph
 
