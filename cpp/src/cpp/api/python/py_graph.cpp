@@ -49,7 +49,15 @@ namespace hgraph
         return nb::tuple(l);
     }
 
-    nb::object PyGraph::parent_node() const { return wrap_node(_impl->parent_node(), _impl.control_block()); }
+    nb::tuple PyGraph::node_info(size_t idx) const {
+        if (idx >= _impl->nodes().size()) {
+            throw std::out_of_range("Node index out of range");
+        }
+        return nb::make_tuple(wrap_node(_impl->nodes()[idx], _impl.control_block()),
+                         nb::cast(_impl->schedule()[idx]));
+    }
+
+    nb::object PyGraph::parent_node() const { return _impl->parent_node() ? wrap_node(_impl->parent_node(), _impl.control_block()) : nb::none(); }
 
     nb::object PyGraph::label() const {
         auto lbl{_impl->label()};
@@ -99,6 +107,7 @@ namespace hgraph
         nb::class_<PyGraph>(m, "Graph")
             .def_prop_ro("graph_id", &PyGraph::graph_id)
             .def_prop_ro("nodes", &PyGraph::nodes)
+            .def("node_info", &PyGraph::node_info, "idx"_a)
             .def_prop_ro("parent_node", &PyGraph::parent_node)
             .def_prop_ro("label", &PyGraph::label)
             .def_prop_ro("evaluation_engine_api", &PyGraph::evaluation_engine_api)

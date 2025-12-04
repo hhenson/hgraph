@@ -15,43 +15,43 @@ namespace hgraph {
     struct EvaluationLifeCycleObserver : nb::intrusive_base {
         using ptr = nb::ref<EvaluationLifeCycleObserver>;
 
-        virtual void on_before_start_graph(graph_ptr) {
+        virtual void on_before_start_graph(Graph* graph) {
         };
 
-        virtual void on_after_start_graph(graph_ptr) {
+        virtual void on_after_start_graph(Graph* graph) {
         };
 
-        virtual void on_before_start_node(node_ptr) {
+        virtual void on_before_start_node(Node* node) {
         };
 
-        virtual void on_after_start_node(node_ptr) {
+        virtual void on_after_start_node(Node* node) {
         };
 
-        virtual void on_before_graph_evaluation(graph_ptr) {
+        virtual void on_before_graph_evaluation(Graph* graph) {
         };
 
-        virtual void on_after_graph_evaluation(graph_ptr) {
+        virtual void on_after_graph_evaluation(Graph* graph) {
         };
 
-        virtual void on_after_graph_push_nodes_evaluation(graph_ptr) {
+        virtual void on_after_graph_push_nodes_evaluation(Graph* graph) {
         };
 
-        virtual void on_before_node_evaluation(node_ptr) {
+        virtual void on_before_node_evaluation(Node* node) {
         };
 
-        virtual void on_after_node_evaluation(node_ptr) {
+        virtual void on_after_node_evaluation(Node* node) {
         };
 
-        virtual void on_before_stop_node(node_ptr) {
+        virtual void on_before_stop_node(Node* node) {
         };
 
-        virtual void on_after_stop_node(node_ptr) {
+        virtual void on_after_stop_node(Node* node) {
         };
 
-        virtual void on_before_stop_graph(graph_ptr) {
+        virtual void on_before_stop_graph(Graph* graph) {
         };
 
-        virtual void on_after_stop_graph(graph_ptr) {
+        virtual void on_after_stop_graph(Graph* graph) {
         };
     };
 

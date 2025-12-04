@@ -96,8 +96,8 @@ namespace hgraph {
      */
     class InspectionObserver : public EvaluationLifeCycleObserver {
     public:
-        using NodeCallback = std::function<void(node_ptr)>;
-        using GraphCallback = std::function<void(graph_ptr)>;
+        using NodeCallback = std::function<void(Node*)>;
+        using GraphCallback = std::function<void(Graph*)>;
         using ProgressCallback = std::function<void()>;
 
         /**
@@ -119,14 +119,14 @@ namespace hgraph {
                                    bool compute_sizes = false,
                                    bool track_recent_performance = false);
 
-        void on_before_start_graph(graph_ptr graph) override;
-        void on_after_start_graph(graph_ptr graph) override;
-        void on_before_graph_evaluation(graph_ptr graph) override;
-        void on_before_node_evaluation(node_ptr node) override;
-        void on_after_node_evaluation(node_ptr node) override;
-        void on_after_graph_push_nodes_evaluation(graph_ptr graph) override;
-        void on_after_graph_evaluation(graph_ptr graph) override;
-        void on_after_stop_graph(graph_ptr graph) override;
+        void on_before_start_graph(Graph* graph) override;
+        void on_after_start_graph(Graph* graph) override;
+        void on_before_graph_evaluation(Graph* graph) override;
+        void on_before_node_evaluation(Node* node) override;
+        void on_after_node_evaluation(Node* node) override;
+        void on_after_graph_push_nodes_evaluation(Graph* graph) override;
+        void on_after_graph_evaluation(Graph* graph) override;
+        void on_after_stop_graph(Graph* graph) override;
 
         // Subscription management
         void subscribe_graph(const std::vector<int64_t>& graph_id);
@@ -176,7 +176,7 @@ namespace hgraph {
         size_t _recent_performance_horizon;
 
         void _check_progress();
-        void _process_node_after_eval(node_ptr node);
+        void _process_node_after_eval(Node* node);
         size_t _estimate_size(node_ptr node) const;
         size_t _estimate_value_size(node_ptr node) const;
         int64_t _to_nanoseconds(std::chrono::nanoseconds ns) const;

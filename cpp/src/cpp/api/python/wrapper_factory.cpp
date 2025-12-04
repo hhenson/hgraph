@@ -525,11 +525,18 @@ namespace hgraph
     nb::object wrap_time_series(const TimeSeriesOutput *impl) { return wrap_output(impl, impl->owning_graph()->control_block()); }
 
     Node *unwrap_node(const nb::handle &obj) {
-        if (auto *py_node = nb::inst_ptr<PyNode>(obj)) { unwrap_node(*py_node); }
+        if (auto *py_node = nb::inst_ptr<PyNode>(obj)) { return unwrap_node(*py_node); }
         return nullptr;
     }
 
     Node *unwrap_node(const PyNode &node_) { return node_._impl.get(); }
+
+    Graph *unwrap_graph(const nb::handle &obj) {
+        if (auto *py_graph = nb::inst_ptr<PyGraph>(obj)) { return unwrap_graph(*py_graph); }
+        return nullptr;
+    }
+
+    Graph *unwrap_graph(const PyGraph &graph_) { return graph_._impl.get(); }
 
     TimeSeriesInput *unwrap_input(const nb::handle &obj) {
         if (auto *py_input = nb::inst_ptr<PyTimeSeriesInput>(obj)) { return unwrap_input(*py_input); }

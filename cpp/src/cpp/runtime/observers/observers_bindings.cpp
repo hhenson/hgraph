@@ -3,6 +3,8 @@
 #include <hgraph/runtime/observers/inspection_observer.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
+#include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/api/python/py_graph.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
@@ -132,82 +134,77 @@ namespace hgraph {
             .def_ro("size", &GraphInfo::size);
 
         // InspectionObserver
-        nb::class_<InspectionObserver, EvaluationLifeCycleObserver>(m, "InspectionObserver",
+        nb::class_<InspectionObserver, EvaluationLifeCycleObserver>(
+            m, "InspectionObserver",
             "Collects comprehensive statistics about graph execution.\n"
             "\n"
             "This observer tracks evaluation counts, timing, and optionally memory sizes\n"
             "for all nodes and graphs. It supports callbacks for node/graph events and\n"
             "maintains subscription system for selective monitoring.")
-            .def(nb::init<graph_ptr,
-                         InspectionObserver::NodeCallback,
-                         InspectionObserver::GraphCallback,
-                         InspectionObserver::ProgressCallback,
-                         double, bool, bool>(),
-                 "graph"_a = nullptr,
-                 "callback_node"_a = nullptr,
-                 "callback_graph"_a = nullptr,
-                 "callback_progress"_a = nullptr,
-                 "progress_interval"_a = 0.1,
-                 "compute_sizes"_a = false,
-                 "track_recent_performance"_a = false,
-                 "Construct a new InspectionObserver.\n"
-                 "\n"
-                 "Args:\n"
-                 "    graph: Optional graph to walk and initialize\n"
-                 "    callback_node: Callback for node events\n"
-                 "    callback_graph: Callback for graph events\n"
-                 "    callback_progress: Progress callback invoked periodically\n"
-                 "    progress_interval: Interval between progress callbacks (seconds)\n"
-                 "    compute_sizes: Whether to compute memory sizes (expensive)\n"
-                 "    track_recent_performance: Whether to track recent performance batches")
-            .def("on_before_start_graph", &InspectionObserver::on_before_start_graph)
-            .def("on_after_start_graph", &InspectionObserver::on_after_start_graph)
-            .def("on_before_graph_evaluation", &InspectionObserver::on_before_graph_evaluation)
-            .def("on_before_node_evaluation", &InspectionObserver::on_before_node_evaluation)
-            .def("on_after_node_evaluation", &InspectionObserver::on_after_node_evaluation)
-            .def("on_after_graph_push_nodes_evaluation", &InspectionObserver::on_after_graph_push_nodes_evaluation)
-            .def("on_after_graph_evaluation", &InspectionObserver::on_after_graph_evaluation)
-            .def("on_after_stop_graph", &InspectionObserver::on_after_stop_graph)
-            .def("subscribe_graph", &InspectionObserver::subscribe_graph,
-                 "graph_id"_a,
-                 "Subscribe to events for a specific graph")
-            .def("unsubscribe_graph", &InspectionObserver::unsubscribe_graph,
-                 "graph_id"_a,
+            .def(
+                "__init__",
+                [](InspectionObserver* self, nb::object graph, std::function<void(nb::object)> callback_node,
+                   std::function<void(nb::object)> callback_graph, InspectionObserver::ProgressCallback callback_progress,
+                   double progress_interval, bool compute_sizes, bool track_recent_performance) {
+                    return new(self) InspectionObserver(
+                         unwrap_graph(graph), 
+                         [callback_node](Node* node){ callback_node(wrap_node(node));}, 
+                         [callback_graph](Graph* graph){ callback_graph(wrap_graph(graph, graph->control_block()));}, 
+                         callback_progress, 
+                         progress_interval,
+                         compute_sizes,
+                         track_recent_performance
+                    );
+                },
+                "graph"_a = nullptr, "callback_node"_a = nullptr, "callback_graph"_a = nullptr, "callback_progress"_a = nullptr,
+                "progress_interval"_a = 0.1, "compute_sizes"_a = false, "track_recent_performance"_a = false,
+                "Construct a new InspectionObserver.\n"
+                "\n"
+                "Args:\n"
+                "    graph: Optional graph to walk and initialize\n"
+                "    callback_node: Callback for node events\n"
+                "    callback_graph: Callback for graph events\n"
+                "    callback_progress: Progress callback invoked periodically\n"
+                "    progress_interval: Interval between progress callbacks (seconds)\n"
+                "    compute_sizes: Whether to compute memory sizes (expensive)\n"
+                "    track_recent_performance: Whether to track recent performance batches"
+          )
+            .def("on_before_start_graph", [](InspectionObserver* self, const PyGraph& graph){ self->on_before_start_graph(unwrap_graph(graph)); }, "graph"_a)
+            .def("on_after_start_graph", [](InspectionObserver* self, const PyGraph& graph){ self->on_after_start_graph(unwrap_graph(graph)); }, "graph"_a)
+            .def("on_before_graph_evaluation", [](InspectionObserver* self, const PyGraph& graph){ self->on_before_graph_evaluation(unwrap_graph(graph)); }, "graph"_a)
+            .def("on_before_node_evaluation", [](InspectionObserver* self, const PyNode& node){ self->on_before_node_evaluation(unwrap_node(node)); }, "node"_a)
+            .def("on_after_node_evaluation", [](InspectionObserver* self, const PyNode& node){ self->on_after_node_evaluation(unwrap_node(node)); }, "node"_a)
+            .def("on_after_graph_push_nodes_evaluation", [](InspectionObserver* self, const PyGraph& graph){ self->on_after_graph_push_nodes_evaluation(unwrap_graph(graph)); }, "graph"_a)
+            .def("on_after_graph_evaluation", [](InspectionObserver* self, const PyGraph& graph){ self->on_after_graph_evaluation(unwrap_graph(graph)); }, "graph"_a)
+            .def("on_after_stop_graph", [](InspectionObserver* self, const PyGraph& graph){ self->on_after_stop_graph(unwrap_graph(graph)); }, "graph"_a)
+            .def("subscribe_graph", &InspectionObserver::subscribe_graph, "graph_id"_a, "Subscribe to events for a specific graph")
+            .def("unsubscribe_graph", &InspectionObserver::unsubscribe_graph, "graph_id"_a,
                  "Unsubscribe from events for a specific graph")
-            .def("subscribe_node", &InspectionObserver::subscribe_node,
-                 "node_id"_a,
-                 "Subscribe to events for a specific node")
-            .def("unsubscribe_node", &InspectionObserver::unsubscribe_node,
-                 "node_id"_a,
+            .def("subscribe_node", &InspectionObserver::subscribe_node, "node_id"_a, "Subscribe to events for a specific node")
+            .def("unsubscribe_node", &InspectionObserver::unsubscribe_node, "node_id"_a,
                  "Unsubscribe from events for a specific node")
-            .def("get_graph_info", &InspectionObserver::get_graph_info,
-                 "graph_id"_a,
-                 "Get information about a specific graph")
-            .def("walk", &InspectionObserver::walk,
-                 "graph"_a,
-                 "Walk a graph and initialize observation state")
-            .def("get_recent_node_performance",
-                 [](const InspectionObserver& self, const std::vector<int64_t>& node_id,
-                    const std::optional<std::chrono::system_clock::time_point>& after) {
-                     std::vector<std::pair<std::chrono::system_clock::time_point,
-                                 PerformanceMetrics>> result;
-                     self.get_recent_node_performance(node_id, result, after);
-                     return result;
-                 },
-                 "node_id"_a, "after"_a = std::nullopt,
-                 "Get recent performance data for a specific node")
-            .def("get_recent_graph_performance",
-                 [](const InspectionObserver& self, const std::vector<int64_t>& graph_id,
-                    const std::optional<std::chrono::system_clock::time_point>& after) {
-                     std::vector<std::pair<std::chrono::system_clock::time_point,
-                                 PerformanceMetrics>> result;
-                     self.get_recent_graph_performance(graph_id, result, after);
-                     return result;
-                 },
-                 "graph_id"_a, "after"_a = std::nullopt,
-                 "Get recent performance data for a specific graph")
+            .def("get_graph_info", &InspectionObserver::get_graph_info, "graph_id"_a, "Get information about a specific graph")
+            .def("walk", &InspectionObserver::walk, "graph"_a, "Walk a graph and initialize observation state")
+            .def(
+                "get_recent_node_performance",
+                [](const InspectionObserver &self, const std::vector<int64_t> &node_id,
+                   const std::optional<std::chrono::system_clock::time_point> &after) {
+                    std::vector<std::pair<std::chrono::system_clock::time_point, PerformanceMetrics>> result;
+                    self.get_recent_node_performance(node_id, result, after);
+                    return result;
+                },
+                "node_id"_a, "after"_a = std::nullopt, "Get recent performance data for a specific node")
+            .def(
+                "get_recent_graph_performance",
+                [](const InspectionObserver &self, const std::vector<int64_t> &graph_id,
+                   const std::optional<std::chrono::system_clock::time_point> &after) {
+                    std::vector<std::pair<std::chrono::system_clock::time_point, PerformanceMetrics>> result;
+                    self.get_recent_graph_performance(graph_id, result, after);
+                    return result;
+                },
+                "graph_id"_a, "after"_a = std::nullopt, "Get recent performance data for a specific graph")
             .def_prop_ro("recent_performance_batch", &InspectionObserver::recent_performance_batch,
-                        "Current performance batch timestamp");
+                         "Current performance batch timestamp");
     }
 
 } // namespace hgraph

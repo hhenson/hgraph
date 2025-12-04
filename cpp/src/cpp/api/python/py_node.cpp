@@ -107,7 +107,7 @@ namespace hgraph
         return nb::tuple(ids);
     }
 
-    nb::tuple PyNode::node_id() const { return nb::make_tuple(_impl->node_id()); }
+    nb::tuple PyNode::node_id() const { return nb::tuple(nb::cast(_impl->node_id())); }
 
     const NodeSignature &PyNode::signature() const { return _impl->signature(); }
 
@@ -118,18 +118,19 @@ namespace hgraph
         return PyGraph(ApiPtr<Graph>(graph, graph->control_block()));
     }
 
-    time_series_bundle_input_ptr PyNode::input() const { return _impl->input(); }
+    nb::object PyNode::input() const { return _impl->input() ? wrap_input(_impl->input()) : nb::none(); }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;
-        auto     inp_{*_impl->input()};
-        for (const auto &key : inp_.schema().keys()) { d[key.c_str()] = inp_[key]; }
+        auto inp_ = _impl->input();
+        if (!inp_) { return d; }
+        for (const auto &key : inp_->schema().keys()) { d[key.c_str()] = wrap_input((*inp_)[key]); }
         return d;
     }
 
-    nb::tuple PyNode::start_inputs() const { return nb::make_tuple(_impl->start_inputs()); }
+    nb::tuple PyNode::start_inputs() const { return nb::tuple(nb::cast(_impl->start_inputs())); }
 
-    time_series_output_ptr PyNode::output() { return _impl->output(); }
+    nb::object PyNode::output() { return _impl->output() ? wrap_output(_impl->output()) : nb::none(); }
 
     nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state().get(), _impl.control_block()); }
 
@@ -139,7 +140,7 @@ namespace hgraph
 
     nb::bool_ PyNode::has_scheduler() const { return nb::bool_(_impl->has_scheduler()); }
 
-    time_series_output_ptr PyNode::error_output() { return _impl->error_output(); }
+    nb::object PyNode::error_output() { return wrap_output(_impl->error_output()); }
 
     nb::bool_ PyNode::has_input() const { return nb::bool_(_impl->has_input()); }
 
@@ -185,8 +186,19 @@ namespace hgraph
         return this->static_cast_impl<NestedNode>()->last_evaluation_time();
     }
 
+    nb::dict PyNestedNode::nested_graphs() const {
+        nb::dict d;
+        static_cast_impl<NestedNode>()->enumerate_nested_graphs([&d](const graph_ptr &graph) {
+            d[graph->label()->c_str()] = wrap_graph(graph, graph->control_block());
+        });
+        return d;
+    }
+
     void PyNestedNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<PyNestedNode, PyNode>(m, "NestedNode").def_prop_ro("last_evaluation_time", &PyNestedNode::last_evaluation_time);
+        nb::class_<PyNestedNode, PyNode>(m, "NestedNode")
+            .def_prop_ro("last_evaluation_time", &PyNestedNode::last_evaluation_time)
+            .def_prop_ro("nested_graphs", &PyNestedNode::nested_graphs)
+            ;
     }
 
     void PyMapNestedNode::register_with_nanobind(nb::module_ &m) { nb::class_<PyMapNestedNode, PyNestedNode>(m, "MapNestedNode"); }

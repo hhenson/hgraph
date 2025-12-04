@@ -31,19 +31,19 @@ namespace hgraph {
                                 bool start = true, bool eval = true, bool stop = true,
                                 bool node = true, bool graph = true);
 
-        void on_before_start_graph(graph_ptr graph) override;
-        void on_after_start_graph(graph_ptr graph) override;
-        void on_before_start_node(node_ptr node) override;
-        void on_after_start_node(node_ptr node) override;
-        void on_before_graph_evaluation(graph_ptr graph) override;
-        void on_before_node_evaluation(node_ptr node) override;
-        void on_after_node_evaluation(node_ptr node) override;
-        void on_after_graph_push_nodes_evaluation(graph_ptr graph) override;
-        void on_after_graph_evaluation(graph_ptr graph) override;
-        void on_before_stop_node(node_ptr node) override;
-        void on_after_stop_node(node_ptr node) override;
-        void on_before_stop_graph(graph_ptr graph) override;
-        void on_after_stop_graph(graph_ptr graph) override;
+        void on_before_start_graph(Graph* graph) override;
+        void on_after_start_graph(Graph* graph) override;
+        void on_before_start_node(Node* node) override;
+        void on_after_start_node(Node* node) override;
+        void on_before_graph_evaluation(Graph* graph) override;
+        void on_before_node_evaluation(Node* node) override;
+        void on_after_node_evaluation(Node* node) override;
+        void on_after_graph_push_nodes_evaluation(Graph* graph) override;
+        void on_after_graph_evaluation(Graph* graph) override;
+        void on_before_stop_node(Node* node) override;
+        void on_after_stop_node(Node* node) override;
+        void on_before_stop_graph(Graph* graph) override;
+        void on_after_stop_graph(Graph* graph) override;
 
         // Static configuration
         static void set_print_all_values(bool value);

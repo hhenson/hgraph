@@ -58,8 +58,8 @@ namespace hgraph {
         return _engine_evalaution_clock->evaluation_time_ptr();
     }
 
-    NotifyGraphEvaluation::NotifyGraphEvaluation(EvaluationEngine::ptr evaluation_engine, graph_ptr graph)
-        : _evaluation_engine{std::move(evaluation_engine)}, _graph{std::move(graph)} {
+    NotifyGraphEvaluation::NotifyGraphEvaluation(EvaluationEngine::ptr evaluation_engine, Graph* graph)
+        : _evaluation_engine{std::move(evaluation_engine)}, _graph{graph} {
         _evaluation_engine->notify_before_graph_evaluation(_graph);
     }
 
@@ -73,8 +73,8 @@ namespace hgraph {
         }
     }
 
-    NotifyNodeEvaluation::NotifyNodeEvaluation(EvaluationEngine::ptr evaluation_engine, node_ptr node)
-        : _evaluation_engine{std::move(evaluation_engine)}, _node{std::move(node)} {
+    NotifyNodeEvaluation::NotifyNodeEvaluation(EvaluationEngine::ptr evaluation_engine, Node* node)
+        : _evaluation_engine{std::move(evaluation_engine)}, _node{node} {
         _evaluation_engine->notify_before_node_evaluation(_node);
     }
 
@@ -129,55 +129,55 @@ namespace hgraph {
 
     void EvaluationEngineDelegate::notify_after_evaluation() { _evaluation_engine->notify_after_evaluation(); }
 
-    void EvaluationEngineDelegate::notify_before_start_graph(graph_ptr graph) {
+    void EvaluationEngineDelegate::notify_before_start_graph(Graph* graph) {
         _evaluation_engine->notify_before_start_graph(graph);
     }
 
-    void EvaluationEngineDelegate::notify_after_start_graph(graph_ptr graph) {
+    void EvaluationEngineDelegate::notify_after_start_graph(Graph* graph) {
         _evaluation_engine->notify_after_start_graph(graph);
     }
 
-    void EvaluationEngineDelegate::notify_before_start_node(node_ptr node) {
+    void EvaluationEngineDelegate::notify_before_start_node(Node* node) {
         _evaluation_engine->notify_before_start_node(node);
     }
 
-    void EvaluationEngineDelegate::notify_after_start_node(node_ptr node) {
+    void EvaluationEngineDelegate::notify_after_start_node(Node* node) {
         _evaluation_engine->notify_after_start_node(node);
     }
 
-    void EvaluationEngineDelegate::notify_before_graph_evaluation(graph_ptr graph) {
+    void EvaluationEngineDelegate::notify_before_graph_evaluation(Graph* graph) {
         _evaluation_engine->notify_before_graph_evaluation(graph);
     }
 
-    void EvaluationEngineDelegate::notify_after_graph_evaluation(graph_ptr graph) {
+    void EvaluationEngineDelegate::notify_after_graph_evaluation(Graph* graph) {
         _evaluation_engine->notify_after_graph_evaluation(graph);
     }
 
-    void EvaluationEngineDelegate::notify_after_push_nodes_evaluation(graph_ptr graph) {
+    void EvaluationEngineDelegate::notify_after_push_nodes_evaluation(Graph* graph) {
         _evaluation_engine->notify_after_push_nodes_evaluation(graph);
     }
 
-    void EvaluationEngineDelegate::notify_before_node_evaluation(node_ptr node) {
+    void EvaluationEngineDelegate::notify_before_node_evaluation(Node* node) {
         _evaluation_engine->notify_before_node_evaluation(node);
     }
 
-    void EvaluationEngineDelegate::notify_after_node_evaluation(node_ptr node) {
+    void EvaluationEngineDelegate::notify_after_node_evaluation(Node* node) {
         _evaluation_engine->notify_after_node_evaluation(node);
     }
 
-    void EvaluationEngineDelegate::notify_before_stop_node(node_ptr node) {
+    void EvaluationEngineDelegate::notify_before_stop_node(Node* node) {
         _evaluation_engine->notify_before_stop_node(node);
     }
 
-    void EvaluationEngineDelegate::notify_after_stop_node(node_ptr node) {
+    void EvaluationEngineDelegate::notify_after_stop_node(Node* node) {
         _evaluation_engine->notify_after_stop_node(node);
     }
 
-    void EvaluationEngineDelegate::notify_before_stop_graph(graph_ptr graph) {
+    void EvaluationEngineDelegate::notify_before_stop_graph(Graph* graph) {
         _evaluation_engine->notify_before_stop_graph(graph);
     }
 
-    void EvaluationEngineDelegate::notify_after_stop_graph(graph_ptr graph) {
+    void EvaluationEngineDelegate::notify_after_stop_graph(Graph* graph) {
         _evaluation_engine->notify_after_stop_graph(graph);
     }
 
@@ -475,61 +475,61 @@ namespace hgraph {
         }
     }
 
-    void EvaluationEngineImpl::notify_before_start_graph(graph_ptr graph) {
+    void EvaluationEngineImpl::notify_before_start_graph(Graph* graph) {
         for (auto &life_cycle_observer: _life_cycle_observers) { life_cycle_observer->on_before_start_graph(graph); }
     }
 
-    void EvaluationEngineImpl::notify_after_start_graph(graph_ptr graph) {
+    void EvaluationEngineImpl::notify_after_start_graph(Graph* graph) {
         for (auto &life_cycle_observer: _life_cycle_observers) { life_cycle_observer->on_after_start_graph(graph); }
     }
 
-    void EvaluationEngineImpl::notify_before_start_node(node_ptr node) {
+    void EvaluationEngineImpl::notify_before_start_node(Node* node) {
         for (auto &life_cycle_observer: _life_cycle_observers) { life_cycle_observer->on_before_start_node(node); }
     }
 
-    void EvaluationEngineImpl::notify_after_start_node(node_ptr node) {
+    void EvaluationEngineImpl::notify_after_start_node(Node* node) {
         for (auto &life_cycle_observer: _life_cycle_observers) { life_cycle_observer->on_after_start_node(node); }
     }
 
-    void EvaluationEngineImpl::notify_before_graph_evaluation(graph_ptr graph) {
+    void EvaluationEngineImpl::notify_before_graph_evaluation(Graph* graph) {
         for (auto &life_cycle_observer: _life_cycle_observers) {
             life_cycle_observer->on_before_graph_evaluation(graph);
         }
     }
 
-    void EvaluationEngineImpl::notify_after_graph_evaluation(graph_ptr graph) {
+    void EvaluationEngineImpl::notify_after_graph_evaluation(Graph* graph) {
         for (auto &life_cycle_observer: _life_cycle_observers) {
             life_cycle_observer->on_after_graph_evaluation(graph);
         }
     }
 
-    void EvaluationEngineImpl::notify_after_push_nodes_evaluation(graph_ptr graph) {
+    void EvaluationEngineImpl::notify_after_push_nodes_evaluation(Graph* graph) {
         for (auto &life_cycle_observer: _life_cycle_observers) {
             life_cycle_observer->on_after_graph_push_nodes_evaluation(graph);
         }
     }
 
-    void EvaluationEngineImpl::notify_before_node_evaluation(node_ptr node) {
+    void EvaluationEngineImpl::notify_before_node_evaluation(Node* node) {
         for (auto &life_cycle_observer: _life_cycle_observers) { life_cycle_observer->on_before_node_evaluation(node); }
     }
 
-    void EvaluationEngineImpl::notify_after_node_evaluation(node_ptr node) {
+    void EvaluationEngineImpl::notify_after_node_evaluation(Node* node) {
         for (auto &life_cycle_observer: _life_cycle_observers) { life_cycle_observer->on_after_node_evaluation(node); }
     }
 
-    void EvaluationEngineImpl::notify_before_stop_node(node_ptr node) {
+    void EvaluationEngineImpl::notify_before_stop_node(Node* node) {
         for (auto &life_cycle_observer: _life_cycle_observers) { life_cycle_observer->on_before_stop_node(node); }
     }
 
-    void EvaluationEngineImpl::notify_after_stop_node(node_ptr node) {
+    void EvaluationEngineImpl::notify_after_stop_node(Node* node) {
         for (auto &life_cycle_observer: _life_cycle_observers) { life_cycle_observer->on_after_stop_node(node); }
     }
 
-    void EvaluationEngineImpl::notify_before_stop_graph(graph_ptr graph) {
+    void EvaluationEngineImpl::notify_before_stop_graph(Graph* graph) {
         for (auto &life_cycle_observer: _life_cycle_observers) { life_cycle_observer->on_before_stop_graph(graph); }
     }
 
-    void EvaluationEngineImpl::notify_after_stop_graph(graph_ptr graph) {
+    void EvaluationEngineImpl::notify_after_stop_graph(Graph* graph) {
         for (auto &life_cycle_observer: _life_cycle_observers) { life_cycle_observer->on_after_stop_graph(graph); }
     }
 

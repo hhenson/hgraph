@@ -14,29 +14,29 @@ namespace hgraph
     {
         NB_TRAMPOLINE(EvaluationLifeCycleObserver, 12);
 
-        void on_before_start_graph(graph_ptr graph) override { NB_OVERRIDE(on_before_start_graph, graph); }
+        void on_before_start_graph(Graph* graph) override { NB_OVERRIDE(on_before_start_graph, graph); }
 
-        void on_after_start_graph(graph_ptr graph) override { NB_OVERRIDE(on_after_start_graph, graph); }
+        void on_after_start_graph(Graph* graph) override { NB_OVERRIDE(on_after_start_graph, graph); }
 
-        void on_before_start_node(node_ptr node) override { NB_OVERRIDE(on_before_start_node, node); }
+        void on_before_start_node(Node* node) override { NB_OVERRIDE(on_before_start_node, node); }
 
-        void on_after_start_node(node_ptr node) override { NB_OVERRIDE(on_after_start_node, node); }
+        void on_after_start_node(Node* node) override { NB_OVERRIDE(on_after_start_node, node); }
 
-        void on_before_graph_evaluation(graph_ptr graph) override { NB_OVERRIDE(on_before_graph_evaluation, graph); }
+        void on_before_graph_evaluation(Graph* graph) override { NB_OVERRIDE(on_before_graph_evaluation, graph); }
 
-        void on_after_graph_evaluation(graph_ptr graph) override { NB_OVERRIDE(on_after_graph_evaluation, graph); }
+        void on_after_graph_evaluation(Graph* graph) override { NB_OVERRIDE(on_after_graph_evaluation, graph); }
 
-        void on_before_node_evaluation(node_ptr node) override { NB_OVERRIDE(on_before_node_evaluation, node); }
+        void on_before_node_evaluation(Node* node) override { NB_OVERRIDE(on_before_node_evaluation, node); }
 
-        void on_after_node_evaluation(node_ptr node) override { NB_OVERRIDE(on_after_node_evaluation, node); }
+        void on_after_node_evaluation(Node* node) override { NB_OVERRIDE(on_after_node_evaluation, node); }
 
-        void on_before_stop_node(node_ptr node) override { NB_OVERRIDE(on_before_stop_node, node); }
+        void on_before_stop_node(Node* node) override { NB_OVERRIDE(on_before_stop_node, node); }
 
-        void on_after_stop_node(node_ptr node) override { NB_OVERRIDE(on_after_stop_node, node); }
+        void on_after_stop_node(Node* node) override { NB_OVERRIDE(on_after_stop_node, node); }
 
-        void on_before_stop_graph(graph_ptr graph) override { NB_OVERRIDE(on_before_stop_graph, graph); }
+        void on_before_stop_graph(Graph* graph) override { NB_OVERRIDE(on_before_stop_graph, graph); }
 
-        void on_after_stop_graph(graph_ptr graph) override { NB_OVERRIDE(on_after_stop_graph, graph); }
+        void on_after_stop_graph(Graph* graph) override { NB_OVERRIDE(on_after_stop_graph, graph); }
     };
 
     void GraphExecutor::register_with_nanobind(nb::module_ &m) {

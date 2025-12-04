@@ -97,12 +97,12 @@ namespace hgraph {
 
         if (graph) {
             walk(graph);
-            on_before_graph_evaluation(graph);
+            on_before_graph_evaluation(const_cast<Graph*>(graph.get()));
         }
     }
 
     void InspectionObserver::walk(const graph_ptr& graph) {
-        on_before_start_graph(graph);
+        on_before_start_graph(const_cast<Graph*>(graph.get()));
         for (auto& node : graph->nodes()) {
             if (node->signature().has_nested_graphs) {
                 const auto nested = static_cast<const NestedNode*>(node.get());
@@ -111,7 +111,7 @@ namespace hgraph {
                 });
             }
         }
-        on_after_start_graph(graph);
+        on_after_start_graph(const_cast<Graph*>(graph.get()));
     }
 
     void InspectionObserver::subscribe_graph(const std::vector<int64_t>& graph_id) {
@@ -175,33 +175,33 @@ namespace hgraph {
         return ns.count();
     }
 
-    void InspectionObserver::on_before_start_graph(graph_ptr graph) {
+    void InspectionObserver::on_before_start_graph(Graph* graph) {
         auto gi = std::make_shared<GraphInfo>();
         gi->graph = graph;
         auto gid = graph->graph_id();
         gi->id = std::vector<int64_t>(gid.begin(), gid.end());
         gi->label = graph->label().has_value() ? graph->label().value() : "";
         gi->parent_graph = graph->parent_node() ? graph->parent_node()->graph() : nullptr;
-        
+
         size_t node_count = graph->nodes().size();
         gi->node_count = node_count;
         gi->total_node_count = node_count;
         gi->total_subgraph_count = 0;
-        
+
         // Initialize vectors
         gi->node_total_subgraph_counts.resize(node_count, 0);
         gi->node_total_node_counts.resize(node_count, 0);
         gi->node_eval_counts.resize(node_count, 0);
         gi->node_eval_begin_times.resize(node_count, 0);
         gi->node_eval_times.resize(node_count, 0);
-        
+
         size_t default_size = _compute_sizes ? 0 : 0;
         gi->node_value_sizes.resize(node_count, default_size);
         gi->node_total_value_sizes_begin.resize(node_count, default_size);
         gi->node_total_value_sizes.resize(node_count, default_size);
         gi->node_total_sizes_begin.resize(node_count, default_size);
         gi->node_total_sizes.resize(node_count, default_size);
-        
+
         if (_compute_sizes) {
             gi->size = _estimate_size(nullptr); // TODO: Estimate graph size
             gi->node_sizes.resize(node_count);
@@ -215,7 +215,7 @@ namespace hgraph {
         } else {
             gi->node_sizes.resize(node_count, 0);
         }
-        
+
         gi->eval_count = 0;
         gi->eval_begin_time = std::chrono::high_resolution_clock::now();
 
@@ -231,7 +231,7 @@ namespace hgraph {
             // TODO: Add assertion when safe
         }
 
-        _graphs[graph.get()] = gi;
+        _graphs[graph] = gi;
         _graphs_by_id[gi->id] = gi;
         _current_graph = gi;
 
@@ -251,7 +251,7 @@ namespace hgraph {
         }
     }
 
-    void InspectionObserver::on_after_start_graph(graph_ptr graph) {
+    void InspectionObserver::on_after_start_graph(Graph* graph) {
         if (_current_graph->parent_graph) {
             _current_graph = _graphs[_current_graph->parent_graph];
         } else {
@@ -259,10 +259,10 @@ namespace hgraph {
         }
     }
 
-    void InspectionObserver::on_before_graph_evaluation(graph_ptr graph) {
+    void InspectionObserver::on_before_graph_evaluation(Graph* graph) {
         auto observation_begin = std::chrono::high_resolution_clock::now();
 
-        _current_graph = _graphs[graph.get()];
+        _current_graph = _graphs[graph];
         if (!_current_graph) {
             on_before_start_graph(graph);
         }
@@ -337,7 +337,7 @@ namespace hgraph {
             std::chrono::duration_cast<std::chrono::nanoseconds>(observation_end - observation_begin));
     }
 
-    void InspectionObserver::on_before_node_evaluation(node_ptr node) {
+    void InspectionObserver::on_before_node_evaluation(Node* node) {
         auto now = std::chrono::high_resolution_clock::now();
         _current_graph->node_eval_begin_times[node->node_ndx()] = _to_nanoseconds(
             std::chrono::duration_cast<std::chrono::nanoseconds>(now.time_since_epoch()));
@@ -350,7 +350,7 @@ namespace hgraph {
         }
     }
 
-    void InspectionObserver::on_after_node_evaluation(node_ptr node) {
+    void InspectionObserver::on_after_node_evaluation(Node* node) {
         auto observation_begin = std::chrono::high_resolution_clock::now();
 
         auto now = std::chrono::high_resolution_clock::now();
@@ -378,7 +378,7 @@ namespace hgraph {
             std::chrono::duration_cast<std::chrono::nanoseconds>(observation_end - observation_begin));
     }
 
-    void InspectionObserver::on_after_graph_push_nodes_evaluation(graph_ptr graph) {
+    void InspectionObserver::on_after_graph_push_nodes_evaluation(Graph* graph) {
         auto observation_begin = std::chrono::high_resolution_clock::now();
         
         for (int64_t i = 0; i < graph->push_source_nodes_end(); ++i) {
@@ -393,7 +393,7 @@ namespace hgraph {
             std::chrono::duration_cast<std::chrono::nanoseconds>(observation_end - observation_begin));
     }
 
-    void InspectionObserver::_process_node_after_eval(node_ptr node) {
+    void InspectionObserver::_process_node_after_eval(Node* node) {
         size_t ndx = node->node_ndx();
         
         if (_compute_sizes) {
@@ -425,7 +425,7 @@ namespace hgraph {
         }
     }
 
-    void InspectionObserver::on_after_graph_evaluation(graph_ptr graph) {
+    void InspectionObserver::on_after_graph_evaluation(Graph* graph) {
         auto observation_begin = std::chrono::high_resolution_clock::now();
 
         _current_graph->eval_count += 1;
@@ -448,7 +448,7 @@ namespace hgraph {
         if (!graph->graph_id().empty()) {
             auto& parent_graph = _graphs[_current_graph->parent_graph];
             size_t parent_node_ndx = graph->parent_node()->node_ndx();
-            
+
             if (_compute_sizes) {
                 parent_graph->node_total_value_sizes[parent_node_ndx] +=
                     _current_graph->total_value_size - _current_graph->total_value_size_begin;
@@ -461,7 +461,7 @@ namespace hgraph {
             _current_graph->os_cycle_time = now_thread - _current_graph->os_eval_begin_thread_time;
             _current_graph->os_eval_time += _current_graph->os_cycle_time;
         }
-        
+
         auto observation_end = std::chrono::high_resolution_clock::now();
         _current_graph->observation_time += _to_nanoseconds(
             std::chrono::duration_cast<std::chrono::nanoseconds>(observation_end - observation_begin));
@@ -473,7 +473,7 @@ namespace hgraph {
         } else {
             _current_graph = nullptr;
         }
-        
+
         auto gid = graph->graph_id();
         std::vector<int64_t> graph_vec_id(gid.begin(), gid.end());
         if (_callback_graph && _graph_subscriptions.count(graph_vec_id)) {
@@ -483,16 +483,16 @@ namespace hgraph {
                 std::cerr << "Error in callback_graph: " << e.what() << std::endl;
             }
         }
-        
+
         _check_progress();
-        
+
         if (_current_graph) {
             _current_graph->observation_time += prev_observation_time;
         }
     }
 
-    void InspectionObserver::on_after_stop_graph(graph_ptr graph) {
-        auto it = _graphs.find(graph.get());
+    void InspectionObserver::on_after_stop_graph(Graph* graph) {
+        auto it = _graphs.find(graph);
         if (it != _graphs.end()) {
             auto gi = it->second;
             gi->stopped = true;

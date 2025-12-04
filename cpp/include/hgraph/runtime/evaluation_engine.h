@@ -129,55 +129,55 @@ namespace hgraph
 
         virtual void notify_after_evaluation() = 0;
 
-        virtual void notify_before_start_graph(graph_ptr graph) = 0;
+        virtual void notify_before_start_graph(Graph* graph) = 0;
 
-        virtual void notify_after_start_graph(graph_ptr graph) = 0;
+        virtual void notify_after_start_graph(Graph* graph) = 0;
 
-        virtual void notify_before_start_node(node_ptr node) = 0;
+        virtual void notify_before_start_node(Node* node) = 0;
 
-        virtual void notify_after_start_node(node_ptr node) = 0;
+        virtual void notify_after_start_node(Node* node) = 0;
 
-        virtual void notify_before_graph_evaluation(graph_ptr graph) = 0;
+        virtual void notify_before_graph_evaluation(Graph* graph) = 0;
 
-        virtual void notify_after_graph_evaluation(graph_ptr graph) = 0;
+        virtual void notify_after_graph_evaluation(Graph* graph) = 0;
 
-        virtual void notify_after_push_nodes_evaluation(graph_ptr graph) = 0;
+        virtual void notify_after_push_nodes_evaluation(Graph* graph) = 0;
 
-        virtual void notify_before_node_evaluation(node_ptr node) = 0;
+        virtual void notify_before_node_evaluation(Node* node) = 0;
 
-        virtual void notify_after_node_evaluation(node_ptr node) = 0;
+        virtual void notify_after_node_evaluation(Node* node) = 0;
 
-        virtual void notify_before_stop_node(node_ptr node) = 0;
+        virtual void notify_before_stop_node(Node* node) = 0;
 
-        virtual void notify_after_stop_node(node_ptr node) = 0;
+        virtual void notify_after_stop_node(Node* node) = 0;
 
-        virtual void notify_before_stop_graph(graph_ptr graph) = 0;
+        virtual void notify_before_stop_graph(Graph* graph) = 0;
 
-        virtual void notify_after_stop_graph(graph_ptr graph) = 0;
+        virtual void notify_after_stop_graph(Graph* graph) = 0;
 
         friend EvaluationEngineDelegate;
     };
 
     struct NotifyGraphEvaluation
     {
-        NotifyGraphEvaluation(EvaluationEngine::ptr evaluation_engine, graph_ptr graph);
+        NotifyGraphEvaluation(EvaluationEngine::ptr evaluation_engine, Graph* graph);
 
         ~NotifyGraphEvaluation() noexcept;
 
       private:
         EvaluationEngine::ptr _evaluation_engine;
-        graph_ptr             _graph;
+        Graph*                _graph;
     };
 
     struct NotifyNodeEvaluation
     {
-        NotifyNodeEvaluation(EvaluationEngine::ptr evaluation_engine, node_ptr node);
+        NotifyNodeEvaluation(EvaluationEngine::ptr evaluation_engine, Node* node);
 
         ~NotifyNodeEvaluation() noexcept;
 
       private:
         EvaluationEngine::ptr _evaluation_engine;
-        node_ptr              _node;
+        Node*                 _node;
     };
 
     struct HGRAPH_EXPORT EvaluationEngineDelegate : EvaluationEngine
@@ -212,31 +212,31 @@ namespace hgraph
 
         void notify_after_evaluation() override;
 
-        void notify_before_start_graph(graph_ptr graph) override;
+        void notify_before_start_graph(Graph* graph) override;
 
-        void notify_after_start_graph(graph_ptr graph) override;
+        void notify_after_start_graph(Graph* graph) override;
 
-        void notify_before_start_node(node_ptr node) override;
+        void notify_before_start_node(Node* node) override;
 
-        void notify_after_start_node(node_ptr node) override;
+        void notify_after_start_node(Node* node) override;
 
-        void notify_before_graph_evaluation(graph_ptr graph) override;
+        void notify_before_graph_evaluation(Graph* graph) override;
 
-        void notify_after_graph_evaluation(graph_ptr graph) override;
+        void notify_after_graph_evaluation(Graph* graph) override;
 
-        void notify_after_push_nodes_evaluation(graph_ptr graph) override;
+        void notify_after_push_nodes_evaluation(Graph* graph) override;
 
-        void notify_before_node_evaluation(node_ptr node) override;
+        void notify_before_node_evaluation(Node* node) override;
 
-        void notify_after_node_evaluation(node_ptr node) override;
+        void notify_after_node_evaluation(Node* node) override;
 
-        void notify_before_stop_node(node_ptr node) override;
+        void notify_before_stop_node(Node* node) override;
 
-        void notify_after_stop_node(node_ptr node) override;
+        void notify_after_stop_node(Node* node) override;
 
-        void notify_before_stop_graph(graph_ptr graph) override;
+        void notify_before_stop_graph(Graph* graph) override;
 
-        void notify_after_stop_graph(graph_ptr graph) override;
+        void notify_after_stop_graph(Graph* graph) override;
 
       protected:
         void initialise() override;
@@ -374,31 +374,31 @@ namespace hgraph
 
         void notify_after_evaluation() override;
 
-        void notify_before_start_graph(graph_ptr graph) override;
+        void notify_before_start_graph(Graph* graph) override;
 
-        void notify_after_start_graph(graph_ptr graph) override;
+        void notify_after_start_graph(Graph* graph) override;
 
-        void notify_before_start_node(node_ptr node) override;
+        void notify_before_start_node(Node* node) override;
 
-        void notify_after_start_node(node_ptr node) override;
+        void notify_after_start_node(Node* node) override;
 
-        void notify_before_graph_evaluation(graph_ptr graph) override;
+        void notify_before_graph_evaluation(Graph* graph) override;
 
-        void notify_after_graph_evaluation(graph_ptr graph) override;
+        void notify_after_graph_evaluation(Graph* graph) override;
 
-        void notify_after_push_nodes_evaluation(graph_ptr graph) override;
+        void notify_after_push_nodes_evaluation(Graph* graph) override;
 
-        void notify_before_node_evaluation(node_ptr node) override;
+        void notify_before_node_evaluation(Node* node) override;
 
-        void notify_after_node_evaluation(node_ptr node) override;
+        void notify_after_node_evaluation(Node* node) override;
 
-        void notify_before_stop_node(node_ptr node) override;
+        void notify_before_stop_node(Node* node) override;
 
-        void notify_after_stop_node(node_ptr node) override;
+        void notify_after_stop_node(Node* node) override;
 
-        void notify_before_stop_graph(graph_ptr graph) override;
+        void notify_before_stop_graph(Graph* graph) override;
 
-        void notify_after_stop_graph(graph_ptr graph) override;
+        void notify_after_stop_graph(Graph* graph) override;
 
       private:
         EngineEvaluationClock::ptr                    _clock;

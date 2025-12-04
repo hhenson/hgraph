@@ -120,7 +120,7 @@ namespace hgraph {
 #endif
     }
 
-    void EvaluationProfiler::on_before_start_graph(graph_ptr graph) {
+    void EvaluationProfiler::on_before_start_graph(Graph* graph) {
         if (_start && _graph) {
             std::string label = graph->label().has_value() ? graph->label().value() : "";
             _print_graph(graph, fmt::format(">> {} Starting Graph {} {}",
@@ -130,7 +130,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationProfiler::on_after_start_graph(graph_ptr graph) {
+    void EvaluationProfiler::on_after_start_graph(Graph* graph) {
         if (_start && _graph) {
             _print_graph(graph, fmt::format("<< {} Started Graph {}",
                                           std::string(15, '.'),
@@ -138,19 +138,19 @@ namespace hgraph {
         }
     }
 
-    void EvaluationProfiler::on_before_start_node(node_ptr node) {
+    void EvaluationProfiler::on_before_start_node(Node* node) {
         if (_start && _node) {
             _print_signature(node);
         }
     }
 
-    void EvaluationProfiler::on_after_start_node(node_ptr node) {
+    void EvaluationProfiler::on_after_start_node(Node* node) {
         if (_start && _node) {
             _print_node(node, "Started node");
         }
     }
 
-    void EvaluationProfiler::on_before_graph_evaluation(graph_ptr graph) {
+    void EvaluationProfiler::on_before_graph_evaluation(Graph* graph) {
         if (_eval && _graph) {
             std::string label = graph->label().has_value() ? graph->label().value() : "";
             _print_graph(graph, fmt::format("{} Eval Start {} {}",
@@ -160,13 +160,13 @@ namespace hgraph {
         }
     }
 
-    void EvaluationProfiler::on_before_node_evaluation(node_ptr node) {
+    void EvaluationProfiler::on_before_node_evaluation(Node* node) {
         if (_eval && _node && _has_process_info) {
             _mem = _get_memory_usage() / (1024 * 1024); // Convert to MB
         }
     }
 
-    void EvaluationProfiler::on_after_node_evaluation(node_ptr node) {
+    void EvaluationProfiler::on_after_node_evaluation(Node* node) {
         if (_eval && _node && _has_process_info) {
             size_t new_mem = _get_memory_usage() / (1024 * 1024); // MB
             if (new_mem - _mem > 0) {
@@ -175,7 +175,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationProfiler::on_after_graph_evaluation(graph_ptr graph) {
+    void EvaluationProfiler::on_after_graph_evaluation(Graph* graph) {
         if (_eval && _graph) {
             std::string next_scheduled = "";
             // TODO: Add next scheduled time logic when available
@@ -186,23 +186,23 @@ namespace hgraph {
         }
     }
 
-    void EvaluationProfiler::on_before_stop_node(node_ptr node) {
+    void EvaluationProfiler::on_before_stop_node(Node* node) {
         // No-op as in Python implementation
     }
 
-    void EvaluationProfiler::on_after_stop_node(node_ptr node) {
+    void EvaluationProfiler::on_after_stop_node(Node* node) {
         if (_stop && _node) {
             _print_node(node, "Stopped node");
         }
     }
 
-    void EvaluationProfiler::on_before_stop_graph(graph_ptr graph) {
+    void EvaluationProfiler::on_before_stop_graph(Graph* graph) {
         if (_stop && _graph) {
             _print_graph(graph, "vvvvvvv Graph stopping -------");
         }
     }
 
-    void EvaluationProfiler::on_after_stop_graph(graph_ptr graph) {
+    void EvaluationProfiler::on_after_stop_graph(Graph* graph) {
         if (_stop && _graph) {
             _print_graph(graph, "------- Graph stopped  vvvvvvv");
         }

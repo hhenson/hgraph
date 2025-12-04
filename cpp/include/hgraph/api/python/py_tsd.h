@@ -72,6 +72,8 @@ namespace hgraph
 
         [[nodiscard]] bool was_removed(const nb::object &key) const;
 
+        [[nodiscard]] nb::object key_from_value(const nb::object &value) const;
+
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();
       protected:

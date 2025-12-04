@@ -127,7 +127,7 @@ namespace hgraph {
         return name.find(_filter.value()) != std::string::npos;
     }
 
-    void EvaluationTrace::on_before_start_graph(graph_ptr graph) {
+    void EvaluationTrace::on_before_start_graph(Graph* graph) {
         if (_start && _graph && _should_log_graph(graph)) {
             std::string label = graph->label().has_value() ? graph->label().value() : "";
             _print_graph(graph, fmt::format(">> {} Starting Graph {} {}",
@@ -137,7 +137,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationTrace::on_after_start_graph(graph_ptr graph) {
+    void EvaluationTrace::on_after_start_graph(Graph* graph) {
         if (_start && _graph && _should_log_graph(graph)) {
             _print_graph(graph, fmt::format("<< {} Started Graph {}",
                                           std::string(15, '.'),
@@ -145,20 +145,20 @@ namespace hgraph {
         }
     }
 
-    void EvaluationTrace::on_before_start_node(node_ptr node) {
+    void EvaluationTrace::on_before_start_node(Node* node) {
         if (_start && _node && _should_log_node(node)) {
             _print_signature(node);
         }
     }
 
-    void EvaluationTrace::on_after_start_node(node_ptr node) {
+    void EvaluationTrace::on_after_start_node(Node* node) {
         if (_start && _node && _should_log_node(node)) {
             // TODO: Add input/scalar info when available
             _print_node(node, "Started node with ...", false, true);
         }
     }
 
-    void EvaluationTrace::on_before_graph_evaluation(graph_ptr graph) {
+    void EvaluationTrace::on_before_graph_evaluation(Graph* graph) {
         if (_eval && _graph && _should_log_graph(graph)) {
             std::string label = graph->label().has_value() ? graph->label().value() : "";
             _print_graph(graph, fmt::format("{} Eval Start {} {}",
@@ -168,7 +168,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationTrace::on_before_node_evaluation(node_ptr node) {
+    void EvaluationTrace::on_before_node_evaluation(Node* node) {
         if (node->signature().is_source_node()) {
             return;
         }
@@ -177,7 +177,7 @@ namespace hgraph {
         }
     }
 
-    void EvaluationTrace::on_after_node_evaluation(node_ptr node) {
+    void EvaluationTrace::on_after_node_evaluation(Node* node) {
         if (node->signature().is_sink_node()) {
             return;
         }
@@ -187,11 +187,11 @@ namespace hgraph {
         }
     }
 
-    void EvaluationTrace::on_after_graph_push_nodes_evaluation(graph_ptr graph) {
+    void EvaluationTrace::on_after_graph_push_nodes_evaluation(Graph* graph) {
         // No-op for now - this would log after push nodes complete
     }
 
-    void EvaluationTrace::on_after_graph_evaluation(graph_ptr graph) {
+    void EvaluationTrace::on_after_graph_evaluation(Graph* graph) {
         if (_eval && _graph && _should_log_graph(graph)) {
             std::string next_scheduled = "";
             // TODO: Add next scheduled time logic when available
@@ -202,23 +202,23 @@ namespace hgraph {
         }
     }
 
-    void EvaluationTrace::on_before_stop_node(node_ptr node) {
+    void EvaluationTrace::on_before_stop_node(Node* node) {
         // No-op as in Python implementation
     }
 
-    void EvaluationTrace::on_after_stop_node(node_ptr node) {
+    void EvaluationTrace::on_after_stop_node(Node* node) {
         if (_stop && _node && _should_log_node(node)) {
             _print_node(node, "Stopped node");
         }
     }
 
-    void EvaluationTrace::on_before_stop_graph(graph_ptr graph) {
+    void EvaluationTrace::on_before_stop_graph(Graph* graph) {
         if (_stop && _graph && _should_log_graph(graph)) {
             _print_graph(graph, "vvvvvvv Graph stopping -------");
         }
     }
 
-    void EvaluationTrace::on_after_stop_graph(graph_ptr graph) {
+    void EvaluationTrace::on_after_stop_graph(Graph* graph) {
         if (_stop && _graph && _should_log_graph(graph)) {
             _print_graph(graph, "------- Graph stopped  vvvvvvv");
         }

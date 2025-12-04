@@ -70,9 +70,8 @@ class PerspectiveTableUpdatesHandler:
 
     def on_update(self, x, y):
         if (x != 0) ^ self._allow_self_updates:
-            self._updates_table.replace(y)
             if self._queue:
-                self._queue(self._updates_table.view())  # NOTE: we expect the calle here to call .delete() on the view
+                self._queue(y)  # NOTE: we expect the calle here to call .delete() on the view
 
             # import pyarrow
             #
