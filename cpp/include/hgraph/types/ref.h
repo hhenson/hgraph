@@ -227,7 +227,7 @@ namespace hgraph
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
 
-        VISITOR_SUPPORT(final);
+        VISITOR_SUPPORT();
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
     };
@@ -256,7 +256,7 @@ namespace hgraph
         void make_active() override;
         void make_passive() override;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
 
@@ -291,7 +291,7 @@ namespace hgraph
         void make_active() override;
         void make_passive() override;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
 
@@ -307,7 +307,7 @@ namespace hgraph
     {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
     };
@@ -316,7 +316,7 @@ namespace hgraph
     {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
     };
@@ -325,7 +325,7 @@ namespace hgraph
     {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
     };
@@ -338,7 +338,7 @@ namespace hgraph
     {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
 
-        VISITOR_SUPPORT(final);
+        VISITOR_SUPPORT();
     };
 
     struct TimeSeriesListReferenceOutput final : TimeSeriesReferenceOutput
@@ -351,7 +351,7 @@ namespace hgraph
 
         size_t size() const { return _size; }
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
       private:
         OutputBuilder::ptr _value_builder;
@@ -380,21 +380,21 @@ namespace hgraph
     {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
     };
 
     struct TimeSeriesSetReferenceOutput final : TimeSeriesReferenceOutput
     {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
     };
 
     struct TimeSeriesWindowReferenceOutput final : TimeSeriesReferenceOutput
     {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
     };
 
 }  // namespace hgraph

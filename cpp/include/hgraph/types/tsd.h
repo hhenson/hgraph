@@ -204,7 +204,7 @@ namespace hgraph
 
         [[nodiscard]] bool has_reference() const override;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
         void create(const key_type &key);
 

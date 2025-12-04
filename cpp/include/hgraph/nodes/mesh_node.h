@@ -47,7 +47,7 @@ namespace hgraph
         bool _add_graph_dependency(const K &key, const K &depends_on) { return add_graph_dependency(key, depends_on); }
         void _remove_graph_dependency(const K &key, const K &depends_on) { remove_graph_dependency(key, depends_on); }
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
       protected:
         void do_start() override;

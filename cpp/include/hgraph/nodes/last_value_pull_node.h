@@ -41,7 +41,7 @@ namespace hgraph {
         void initialise() override; // no-op
         void dispose() override; // no-op
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         void do_eval() override;

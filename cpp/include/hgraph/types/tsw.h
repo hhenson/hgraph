@@ -94,7 +94,7 @@ namespace hgraph {
             _removed_value.reset();
         }
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     private:
         std::vector<T> _buffer{};
@@ -250,7 +250,7 @@ namespace hgraph {
 
         [[nodiscard]] size_t len() const;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     private:
         void _roll() const; // mutable operation to clean up old items

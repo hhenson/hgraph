@@ -13,7 +13,7 @@ namespace hgraph {
         nb::iterator generator{};
         nb::object next_value{};
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         void do_eval() override;
