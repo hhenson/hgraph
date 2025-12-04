@@ -5,7 +5,7 @@ project(hgraph_cpp_engine)
 option(NB_USE_STABLE_ABI "Use nanobind stable ABI for the Python module" ON)
 option(HGRAPH_WITH_BACKWARD "Enable backward-cpp stack traces" ON)
 option(HGRAPH_ENABLE_ASAN "Enable AddressSanitizer (address + leaks)" OFF)
-option(HGRAPH_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" ON)
+option(HGRAPH_ENABLE_UBSAN "Enable UndefinedBehaviorSanitizer" OFF)
 option(HGRAPH_ENABLE_TSAN "Enable ThreadSanitizer (mutually exclusive with ASAN/UBSAN)" OFF)
 
 set(CMAKE_CXX_STANDARD 23)
@@ -149,6 +149,47 @@ else ()
     message(STATUS "HGRAPH_WITH_BACKWARD=OFF: Skipping backward-cpp integration")
 endif ()
 
+# tpack via package or FetchContent
+find_package(tpack CONFIG QUIET)
+if (NOT tpack_FOUND)
+    message(STATUS "tpack not found via find_package, using FetchContent")
+    include(FetchContent)
+    FetchContent_Declare(tpack GIT_REPOSITORY https://github.com/uentity/tpack.git GIT_TAG v0.3.0)
+    FetchContent_MakeAvailable(tpack)
+    # Export tpack to the package registry so ddvisitor can find it via find_package
+    set(tpack_DIR "${CMAKE_BINARY_DIR}/_deps/tpack-build" CACHE PATH "tpack build dir" FORCE)
+else ()
+    message(STATUS "Found tpack via Conan/system: ${tpack_DIR}")
+endif ()
+
+# ddv via package or FetchContent
+# Note: ddvisitor v0.9.1 has a bug where it references cmake/ddvisitor-config.cmake.in
+# that doesn't exist. We work around this by manually including only what we need.
+find_package(ddvisitor CONFIG QUIET)
+if (NOT ddvisitor_FOUND)
+    message(STATUS "ddvisitor not found via find_package, using FetchContent")
+    include(FetchContent)
+    FetchContent_Declare(ddvisitor
+        GIT_REPOSITORY https://github.com/uentity/ddvisitor.git
+        GIT_TAG v0.9.1
+    )
+    # Only populate, don't add_subdirectory (their CMakeLists.txt is broken)
+    FetchContent_GetProperties(ddvisitor)
+    if (NOT ddvisitor_POPULATED)
+        FetchContent_Populate(ddvisitor)
+    endif()
+    # Create the ddvisitor target manually since we can't use their CMakeLists.txt
+    add_library(ddvisitor INTERFACE)
+    add_library(ddv::ddvisitor ALIAS ddvisitor)
+    target_compile_features(ddvisitor INTERFACE cxx_std_20)
+    target_include_directories(ddvisitor INTERFACE
+        $<BUILD_INTERFACE:${ddvisitor_SOURCE_DIR}/include>
+    )
+    target_link_libraries(ddvisitor INTERFACE tp::tpack)
+else ()
+    message(STATUS "Found ddvisitor via Conan/system: ${ddvisitor_DIR}")
+endif ()
+
 # Git version info is optional here (no .git necessarily inside this repo)
 set(GIT_BRANCH "")
 set(GIT_COMMIT_HASH "")
@@ -225,6 +266,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/feature_extension.h
         include/hgraph/types/graph.h
         include/hgraph/types/node.h
+        include/hgraph/types/notifiable.h
         include/hgraph/types/ref.h
         include/hgraph/types/scalar_types.h
         include/hgraph/types/schema_type.h
@@ -237,6 +279,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/ts_indexed.h
         include/hgraph/types/tsb.h
         include/hgraph/types/tsl.h
+        include/hgraph/types/tsw.h
         include/hgraph/python/chrono.h
         include/hgraph/python/format.h
         include/hgraph/python/global_state.h
@@ -246,7 +289,6 @@ set(HGRAPH_INCLUDES
         include/hgraph/python/reference_wrapper.h
         include/hgraph/util/date_time.h
         include/hgraph/util/lifecycle.h
-        include/hgraph/util/reference_count_subscriber.h
         include/hgraph/util/sender_receiver_state.h
         include/hgraph/util/stack_trace.h
         include/hgraph/util/string_utils.h

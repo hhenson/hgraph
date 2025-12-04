@@ -2,44 +2,60 @@
 #define TIME_SERIES_TYPE_H
 
 #include <hgraph/hgraph_base.h>
-#include <hgraph/util/reference_count_subscriber.h>
+#include <hgraph/types/notifiable.h>
+#include <ddv/visitable.h>
 #include <memory>
-#include <variant>
 
-// Forward declare visitor interfaces
 namespace hgraph
 {
+
     struct TimeSeriesVisitor;
 
-    // Forward declarations for visitable interfaces
-    // Forward declaration
-    struct TimeSeriesInputVisitor;
-    struct TimeSeriesOutputVisitor;
+    using ts_payload_types = tp::tpack<bool, int64_t, double, engine_date_t, engine_time_t, engine_time_delta_t, nb::object>;
+    inline constexpr auto ts_payload_types_v = ts_payload_types{};
 
-    struct HGRAPH_EXPORT TimeSeriesOutputVisitable
-    {
-        // Simple double dispatch visitor support
-        virtual void accept(TimeSeriesOutputVisitor &visitor)       = 0;
-        virtual void accept(TimeSeriesOutputVisitor &visitor) const = 0;
+    using ts_input_types = tp::tpack<BaseTimeSeriesInput, TimeSeriesValueInputBase, TimeSeriesSignalInput, IndexedTimeSeriesInput,
+                                     TimeSeriesListInput, TimeSeriesSetInput, TimeSeriesDictInput, TimeSeriesBundleInput>;
+    inline constexpr auto ts_input_types_v = ts_input_types{};
 
-        virtual ~TimeSeriesOutputVisitable() = default;
-    };
+    using ts_reference_input_types =
+        tp::tpack<TimeSeriesReferenceInput, TimeSeriesValueReferenceInput, TimeSeriesWindowReferenceInput,
+                  TimeSeriesListReferenceInput, TimeSeriesSetReferenceInput, TimeSeriesDictReferenceInput,
+                  TimeSeriesBundleReferenceInput>;
+    inline constexpr auto ts_reference_input_types_v = ts_reference_input_types{};
 
-    struct HGRAPH_EXPORT TimeSeriesInputVisitable
-    {
-        // Simple double dispatch visitor support
-        virtual void accept(TimeSeriesInputVisitor &visitor)       = 0;
-        virtual void accept(TimeSeriesInputVisitor &visitor) const = 0;
+    using ts_output_types                   = tp::tpack<BaseTimeSeriesOutput, TimeSeriesValueOutputBase, IndexedTimeSeriesOutput,
+                                                        TimeSeriesListOutput, TimeSeriesSetOutput, TimeSeriesDictOutput, TimeSeriesBundleOutput>;
+    inline constexpr auto ts_output_types_v = ts_output_types{};
 
-        virtual ~TimeSeriesInputVisitable() = default;
-    };
-}  // namespace hgraph
+    using ts_reference_output_types =
+        tp::tpack<TimeSeriesReferenceOutput, TimeSeriesValueReferenceOutput, TimeSeriesWindowReferenceOutput,
+                  TimeSeriesListReferenceOutput, TimeSeriesSetReferenceOutput, TimeSeriesDictReferenceOutput,
+                  TimeSeriesBundleReferenceOutput>;
+    inline constexpr auto ts_reference_output_types_v = ts_reference_output_types{};
 
-namespace hgraph
-{
+    using TimeSeriesInputVisitor =
+        decltype(tp::make_v<ddv::mux>(ts_input_types_v +
+                                      ts_reference_input_types_v
+                                      // payload specialized inputs
+                                      + tp::transform<tp::meta::apply<TimeSeriesValueInput>::type>(ts_payload_types_v) +
+                                      tp::transform<tp::meta::apply<TimeSeriesSetInput_T>::type>(ts_payload_types_v) +
+                                      tp::transform<tp::meta::apply<TimeSeriesDictInput_T>::type>(ts_payload_types_v) +
+                                      tp::transform<tp::meta::apply<TimeSeriesWindowInput>::type>(ts_payload_types_v)))::type;
+
+    using TimeSeriesOutputVisitor =
+        decltype(tp::make_v<ddv::mux>(ts_output_types_v +
+                                      ts_reference_output_types_v
+                                      // payload specialized outputs
+                                      + tp::transform<tp::meta::apply<TimeSeriesValueOutput>::type>(ts_payload_types_v) +
+                                      tp::transform<tp::meta::apply<TimeSeriesSetOutput_T>::type>(ts_payload_types_v) +
+                                      tp::transform<tp::meta::apply<TimeSeriesDictOutput_T>::type>(ts_payload_types_v) +
+                                      tp::transform<tp::meta::apply<TimeSeriesFixedWindowOutput>::type>(ts_payload_types_v) +
+                                      tp::transform<tp::meta::apply<TimeSeriesTimeWindowOutput>::type>(ts_payload_types_v)))::type;
+
     struct HGRAPH_EXPORT TimeSeriesType
     {
-        using ptr = TimeSeriesType*;
+        using ptr   = TimeSeriesType *;
         using s_ptr = std::shared_ptr<TimeSeriesType>;
 
         // Pure virtual interface - constructors in derived classes
@@ -81,9 +97,9 @@ namespace hgraph
         This is used when grafting a time-series input from one node / time-series container to another.
         For example, see use in map implementation.
         */
-        virtual void re_parent(node_ptr parent) = 0;
+        virtual void re_parent(node_ptr parent)                   = 0;
         virtual void re_parent(const time_series_type_ptr parent) = 0;
-        virtual void reset_parent_or_node()            = 0;
+        virtual void reset_parent_or_node()                       = 0;
         // Currently used by builders to reset the state of the output. This because the time-series
         // does not currently support the life-cycle methods, may be better to change to support
         // life-cycle management?
@@ -105,16 +121,18 @@ namespace hgraph
     struct TimeSeriesReferenceOutput;
     struct TimeSeriesReferenceInput;
 
-    struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType, TimeSeriesOutputVisitable, std::enable_shared_from_this<TimeSeriesOutput>
+    struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType,
+                                            ddv::visitable<TimeSeriesOutput, TimeSeriesOutputVisitor>,
+                                            std::enable_shared_from_this<TimeSeriesOutput>
     {
-        using ptr = TimeSeriesOutput*;
-        using s_ptr = std::shared_ptr<TimeSeriesOutput>;
+        using ptr          = TimeSeriesOutput *;
+        using s_ptr        = std::shared_ptr<TimeSeriesOutput>;
         TimeSeriesOutput() = default;
 
         // Output-specific navigation of the graph structure.
         [[nodiscard]] virtual s_ptr parent_output() const     = 0;
         [[nodiscard]] virtual s_ptr parent_output()           = 0;
-        [[nodiscard]] virtual bool has_parent_output() const = 0;
+        [[nodiscard]] virtual bool  has_parent_output() const = 0;
 
         // This is the key characteristic of an output node, it creates a shared state that
         // can be shared with other nodes/inputs. This allows for change notification.
@@ -124,9 +142,9 @@ namespace hgraph
         // Mutation operations
         // The apply_result is the core mechanism to apply a python value to the
         // output, this will call py_set_value - If this gets a None, it will just return
-        virtual void apply_result(const nb::object& value) = 0;
+        virtual void apply_result(const nb::object &value) = 0;
         // This os the method that does most of the work - if this gets a None, it will call invalidate
-        virtual void py_set_value(const nb::object& value) = 0;
+        virtual void py_set_value(const nb::object &value) = 0;
         // These methods were designed to allow C++ to perform a more optimal copy of values given its
         // knowledge of the internal state of the input/output passed. A copy visitor.
         virtual void copy_from_output(const TimeSeriesOutput &output) = 0;
@@ -152,18 +170,21 @@ namespace hgraph
         // This is used by the dequeing logic to work out how much we can de-queue from a push queue.
         // It could be moved into the queuing logic and implemented as a visitor, this would allow us to peek
         // The queue and perform the change, if the change is successful, we then pop the queue.
-        virtual bool can_apply_result(const nb::object& value) = 0;
+        virtual bool can_apply_result(const nb::object &value) = 0;
     };
 
-    struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType, Notifiable, TimeSeriesInputVisitable, std::enable_shared_from_this<TimeSeriesInput>
+    struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType,
+                                           Notifiable,
+                                           ddv::visitable<TimeSeriesInput, TimeSeriesInputVisitor>,
+                                           std::enable_shared_from_this<TimeSeriesInput>
     {
-        using ptr = TimeSeriesInput*;
-        using s_ptr = std::shared_ptr<TimeSeriesInput>;
+        using ptr         = TimeSeriesInput *;
+        using s_ptr       = std::shared_ptr<TimeSeriesInput>;
         TimeSeriesInput() = default;
 
         // Graph navigation specific to the input
         [[nodiscard]] virtual s_ptr parent_input() const     = 0;
-        [[nodiscard]] virtual bool has_parent_input() const = 0;
+        [[nodiscard]] virtual bool  has_parent_input() const = 0;
 
         // This is used to indicate if the owner of this input is interested in being notified when
         // modifications are made to the value represented by this input.
@@ -173,12 +194,12 @@ namespace hgraph
 
         // Dealing with the various states the time-series can be found in, for the most part this
         // should not need to be exposed as a client facing API, but is used for internal state management.
-        [[nodiscard]] virtual bool                   bound() const                               = 0;
-        [[nodiscard]] virtual bool                   has_peer() const                            = 0;
-        [[nodiscard]] virtual time_series_output_s_ptr output() const                            = 0;
-        [[nodiscard]] virtual bool                   has_output() const                          = 0;
-        virtual bool                                 bind_output(time_series_output_s_ptr output_) = 0;
-        virtual void                                 un_bind_output(bool unbind_refs)            = 0;
+        [[nodiscard]] virtual bool                     bound() const                                 = 0;
+        [[nodiscard]] virtual bool                     has_peer() const                              = 0;
+        [[nodiscard]] virtual time_series_output_s_ptr output() const                                = 0;
+        [[nodiscard]] virtual bool                     has_output() const                            = 0;
+        virtual bool                                   bind_output(time_series_output_s_ptr output_) = 0;
+        virtual void                                   un_bind_output(bool unbind_refs)              = 0;
 
         // This is a feature used by the BackTrace tooling, this is not something that is generally
         // Useful, it could be handled through a visitor, or some other means of extraction.

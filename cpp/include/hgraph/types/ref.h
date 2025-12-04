@@ -8,7 +8,6 @@
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/types/base_time_series.h>
-#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph
 {
@@ -119,10 +118,7 @@ namespace hgraph
 
         [[nodiscard]] bool has_reference() const override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesOutputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT()
 
         [[nodiscard]] bool has_value() const;
 
@@ -183,11 +179,7 @@ namespace hgraph
 
         [[nodiscard]] virtual TimeSeriesReferenceInput *get_ref_input(size_t index);
 
-        // Visitor support - Acyclic pattern (runtime dispatch)
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT()
 
         [[nodiscard]] bool is_reference() const override;
 
@@ -235,15 +227,12 @@ namespace hgraph
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
 
-        // Override accept() to call the specialized visit method
-        void accept(TimeSeriesInputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final);
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
     };
 
-    struct TimeSeriesListReferenceInput : TimeSeriesReferenceInput
+    struct TimeSeriesListReferenceInput final : TimeSeriesReferenceInput
     {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
 
@@ -267,10 +256,7 @@ namespace hgraph
         void make_active() override;
         void make_passive() override;
 
-        // Override accept() to call the specialized visit method
-        void accept(TimeSeriesInputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final)
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
 
@@ -282,7 +268,7 @@ namespace hgraph
         std::optional<std::vector<TimeSeriesReferenceInput::s_ptr>> _items;
     };
 
-    struct TimeSeriesBundleReferenceInput : TimeSeriesReferenceInput
+    struct TimeSeriesBundleReferenceInput final : TimeSeriesReferenceInput
     {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
 
@@ -305,10 +291,7 @@ namespace hgraph
         void make_active() override;
         void make_passive() override;
 
-        // Override accept() to call the specialized visit method
-        void accept(TimeSeriesInputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final)
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
 
@@ -320,38 +303,29 @@ namespace hgraph
         std::optional<std::vector<TimeSeriesReferenceInput::s_ptr>> _items;
     };
 
-    struct TimeSeriesDictReferenceInput : TimeSeriesReferenceInput
+    struct TimeSeriesDictReferenceInput final : TimeSeriesReferenceInput
     {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
 
-        // Override accept() to call the specialized visit method
-        void accept(TimeSeriesInputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final)
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
     };
 
-    struct TimeSeriesSetReferenceInput : TimeSeriesReferenceInput
+    struct TimeSeriesSetReferenceInput final : TimeSeriesReferenceInput
     {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
 
-        // Override accept() to call the specialized visit method
-        void accept(TimeSeriesInputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final)
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
     };
 
-    struct TimeSeriesWindowReferenceInput : TimeSeriesReferenceInput
+    struct TimeSeriesWindowReferenceInput final : TimeSeriesReferenceInput
     {
         using TimeSeriesReferenceInput::TimeSeriesReferenceInput;
 
-        // Override accept() to call the specialized visit method
-        void accept(TimeSeriesInputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesInputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final)
 
         time_series_input_s_ptr clone_blank_ref_instance() override;
     };
@@ -364,10 +338,7 @@ namespace hgraph
     {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesOutputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final);
     };
 
     struct TimeSeriesListReferenceOutput final : TimeSeriesReferenceOutput
@@ -380,10 +351,7 @@ namespace hgraph
 
         size_t size() const { return _size; }
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesOutputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final)
 
       private:
         OutputBuilder::ptr _value_builder;
@@ -400,10 +368,7 @@ namespace hgraph
 
         size_t size() const { return _size; }
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesOutputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT()
 
       private:
         // Fix this later, perhaps we can create a schema style object to ensure we don't have all this extra memory wasted.
@@ -415,30 +380,21 @@ namespace hgraph
     {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesOutputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final)
     };
 
     struct TimeSeriesSetReferenceOutput final : TimeSeriesReferenceOutput
     {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesOutputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final)
     };
 
     struct TimeSeriesWindowReferenceOutput final : TimeSeriesReferenceOutput
     {
         using TimeSeriesReferenceOutput::TimeSeriesReferenceOutput;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor &visitor) override { visitor.visit(*this); }
-
-        void accept(TimeSeriesOutputVisitor &visitor) const override { visitor.visit(*this); }
+        VISITOR_SUPPORT(final)
     };
 
 }  // namespace hgraph

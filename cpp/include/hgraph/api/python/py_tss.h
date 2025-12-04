@@ -47,7 +47,7 @@ namespace hgraph
         using PyTimeSeriesOutput::PyTimeSeriesOutput;
     };
 
-    template <typename T_U> struct PyTimeSeriesSetOutput_T : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>
+    template <typename T_U> struct PyTimeSeriesSetOutput_T final : PyTimeSeriesSet<PyTimeSeriesSetOutput, T_U>
     {
         using api_ptr = ApiPtr<T_U>;
         explicit PyTimeSeriesSetOutput_T(api_ptr impl);
@@ -71,7 +71,7 @@ namespace hgraph
         using PyTimeSeriesInput::PyTimeSeriesInput;
     };
 
-    template <typename T_U> struct PyTimeSeriesSetInput_T : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>
+    template <typename T_U> struct PyTimeSeriesSetInput_T final : PyTimeSeriesSet<PyTimeSeriesSetInput, T_U>
     {
         using api_ptr = ApiPtr<T_U>;
         explicit PyTimeSeriesSetInput_T(api_ptr impl);

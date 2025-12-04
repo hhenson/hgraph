@@ -6,12 +6,11 @@
 #define TS_SIGNAL_H
 
 #include <hgraph/types/base_time_series.h>
-#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     struct TimeSeriesSignalInputBuilder;
 
-    struct TimeSeriesSignalInput : BaseTimeSeriesInput {
+    struct TimeSeriesSignalInput final : BaseTimeSeriesInput {
         using ptr = TimeSeriesSignalInput*;
         using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
@@ -37,14 +36,7 @@ namespace hgraph {
 
         void do_un_bind_output(bool unbind_refs) override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesInputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT(final)
 
     private:
         friend TimeSeriesSignalInputBuilder;

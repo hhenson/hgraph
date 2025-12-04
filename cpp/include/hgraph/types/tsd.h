@@ -10,7 +10,6 @@
 #include <hgraph/builders/time_series_types/time_series_dict_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_dict_output_builder.h>
 #include <hgraph/types/base_time_series.h>
-#include <hgraph/types/time_series_visitor.h>
 #include <hgraph/types/tss.h>
 #include <ranges>
 
@@ -62,8 +61,11 @@ namespace hgraph
         virtual void py_release_ref(const nb::object &key, const nb::object &requester) = 0;
 
         // Returns a TimeSeriesSetOutput that tracks the keys in this dict
-        [[nodiscard]] virtual TimeSeriesSetOutput       &key_set()       = 0;
+        [[nodiscard]] virtual TimeSeriesSetOutput &key_set() = 0;
+
         [[nodiscard]] virtual const TimeSeriesSetOutput &key_set() const = 0;
+
+        VISITOR_SUPPORT()
     };
 
     struct TimeSeriesDictInput : TimeSeriesDict<BaseTimeSeriesInput>
@@ -72,13 +74,16 @@ namespace hgraph
         using TimeSeriesDict<BaseTimeSeriesInput>::TimeSeriesDict;
 
         // Returns a TimeSeriesSetInput that tracks the keys in this dict
-        [[nodiscard]] virtual TimeSeriesSetInput       &key_set()       = 0;
+        [[nodiscard]] virtual TimeSeriesSetInput &key_set() = 0;
+
         [[nodiscard]] virtual const TimeSeriesSetInput &key_set() const = 0;
+
+        VISITOR_SUPPORT()
     };
 
     template <typename T_Key> using TSDOutBuilder = struct TimeSeriesDictOutputBuilder_T<T_Key>;
 
-    template <typename T_Key> struct TimeSeriesDictOutput_T : TimeSeriesDictOutput
+    template <typename T_Key> struct TimeSeriesDictOutput_T final : TimeSeriesDictOutput
     {
         using ptr                 = TimeSeriesDictOutput_T*;
         using key_type            = T_Key;
@@ -199,14 +204,7 @@ namespace hgraph
 
         [[nodiscard]] bool has_reference() const override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor &visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesOutputVisitor &visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT(final)
 
         void create(const key_type &key);
 
@@ -223,20 +221,23 @@ namespace hgraph
         void remove_value(const key_type &key, bool raise_if_not_found);
 
         // Isolate the modified tracking logic here
-        void            _clear_key_tracking();
-        void            _add_key_value(const key_type &key, const value_type &value);
-        void            _key_updated(const key_type &key);
-        void            _remove_key_value(const key_type &key, const value_type &value);
+        void _clear_key_tracking();
 
-      private:
+        void _add_key_value(const key_type &key, const value_type &value);
+
+        void _key_updated(const key_type &key);
+
+        void _remove_key_value(const key_type &key, const value_type &value);
+
+    private:
         std::shared_ptr<key_set_type> _key_set;
-        map_type              _ts_values;
+        map_type     _ts_values;
 
         reverse_map _ts_values_to_keys;
         map_type    _modified_items;
         map_type    _removed_items;
         // This ensures we hold onto the values until we are sure no one needs to reference them.
-        mutable map_type _valid_items_cache;  // Cache for valid_items() to ensure iterator lifetime safety.
+        mutable map_type _valid_items_cache; // Cache for valid_items() to ensure iterator lifetime safety.
 
         output_builder_s_ptr _ts_builder;
         output_builder_s_ptr _ts_ref_builder;
@@ -256,7 +257,7 @@ namespace hgraph
         using k_set_type          = std::unordered_set<key_type>;
         using value_type          = time_series_input_s_ptr;
         using map_type            = std::unordered_map<key_type, value_type>;
-        using removed_map_type    = std::unordered_map<key_type, std::pair<value_type, bool>>;
+        using removed_map_type    = std::unordered_map<key_type, std::pair<value_type, bool> >;
         using added_map_type      = std::unordered_map<key_type, value_type>;
         using modified_map_type   = std::unordered_map<key_type, value_type>;
         using item_iterator       = typename map_type::iterator;
@@ -347,14 +348,7 @@ namespace hgraph
 
         [[nodiscard]] const TimeSeriesDictOutput_T<key_type> &output_t() const;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor &visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesInputVisitor &visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT()
 
       [[nodiscard]] const key_type &key_from_value(TimeSeriesInput *value) const;
       [[nodiscard]] const key_type &key_from_value(value_type value) const;
@@ -377,21 +371,24 @@ namespace hgraph
         void register_clear_key_changes();
 
         // Isolate modified tracking here.
-        void                          _clear_key_tracking();
-        void                          _add_key_value(const key_type &key, const value_type &value);
-        void                          _key_updated(const key_type &key);
-        void                          _remove_key_value(const key_type &key, const value_type &value);
+        void _clear_key_tracking();
 
-      private:
+        void _add_key_value(const key_type &key, const value_type &value);
+
+        void _key_updated(const key_type &key);
+
+        void _remove_key_value(const key_type &key, const value_type &value);
+
+    private:
         friend TSD_Builder<T_Key>;
 
         key_set_type_ptr _key_set;
-        map_type         _ts_values;
+        map_type     _ts_values;
 
         reverse_map      _ts_values_to_keys;
-        mutable map_type _valid_items_cache;     // Cache the valid items if called.
-        map_type         _modified_items;        // This is cached for performance reasons.
-        mutable map_type _modified_items_cache;  // This is cached for performance reasons.
+        mutable map_type _valid_items_cache;    // Cache the valid items if called.
+        map_type         _modified_items;       // This is cached for performance reasons.
+        mutable map_type _modified_items_cache; // This is cached for performance reasons.
         mutable map_type _added_items_cache;
         mutable map_type _removed_item_cache;
         removed_map_type _removed_items;
@@ -407,6 +404,6 @@ namespace hgraph
         mutable bool  _clear_key_changes_registered{false};
     };
 
-}  // namespace hgraph
+} // namespace hgraph
 
 #endif  // TSD_H

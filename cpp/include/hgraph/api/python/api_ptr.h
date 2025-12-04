@@ -50,7 +50,7 @@ namespace hgraph {
         // Get control block as typed shared_ptr (for conversion constructor)
         template<typename U>
         [[nodiscard]] std::shared_ptr<U> control_block_typed() const noexcept {
-            return std::reinterpret_pointer_cast<U>(_impl);
+            return std::static_pointer_cast<U>(_impl);
         }
 
         // Dereference operators

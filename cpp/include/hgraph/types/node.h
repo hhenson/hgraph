@@ -2,7 +2,7 @@
 #define NODE_H
 
 #include <hgraph/util/lifecycle.h>
-#include <hgraph/util/reference_count_subscriber.h>
+#include <hgraph/types/notifiable.h>
 #include <memory>
 
 namespace hgraph

@@ -7,7 +7,6 @@
 
 
 #include <hgraph/types/ts_indexed.h>
-#include <hgraph/types/time_series_visitor.h>
 
 namespace hgraph {
     template<typename T_TS>
@@ -58,6 +57,7 @@ namespace hgraph {
 
         [[nodiscard]] bool has_reference() const override;
 
+
     protected:
         using T_TS::index_with_constraint;
         using T_TS::ts_values;
@@ -65,7 +65,7 @@ namespace hgraph {
 
     struct TimeSeriesListOutputBuilder;
 
-    struct TimeSeriesListOutput : TimeSeriesList<IndexedTimeSeriesOutput> {
+    struct TimeSeriesListOutput final : TimeSeriesList<IndexedTimeSeriesOutput> {
         using list_type::TimeSeriesList;
 
         void apply_result(const nb::object& value) override;
@@ -74,14 +74,7 @@ namespace hgraph {
 
         void py_set_value(const nb::object& value) override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesOutputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesOutputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT(final)
 
     protected:
         friend TimeSeriesListOutputBuilder;
@@ -89,19 +82,12 @@ namespace hgraph {
 
     struct TimeSeriesListInputBuilder;
 
-    struct TimeSeriesListInput : TimeSeriesList<IndexedTimeSeriesInput> {
+    struct TimeSeriesListInput final: TimeSeriesList<IndexedTimeSeriesInput> {
         using list_type::TimeSeriesList;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        // Simple double dispatch visitor support
-        void accept(TimeSeriesInputVisitor& visitor) override {
-            visitor.visit(*this);
-        }
-
-        void accept(TimeSeriesInputVisitor& visitor) const override {
-            visitor.visit(*this);
-        }
+        VISITOR_SUPPORT(final)
 
     protected:
         friend TimeSeriesListInputBuilder;
