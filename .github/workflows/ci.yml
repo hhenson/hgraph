@@ -90,9 +90,9 @@ jobs:
           uv pip install --upgrade pip
           uv pip install auditwheel
           # Show before/after info for debugging
-          uv run python -m auditwheel show "${wheel}" || true
+          .venv/bin/python -m auditwheel show "${wheel}" || true
           mkdir -p wheelhouse
-          uv run python -m auditwheel repair -w wheelhouse "${wheel}"
+          .venv/bin/python -m auditwheel repair -w wheelhouse "${wheel}"
           ls -la wheelhouse || true
 
       - name: Upload repaired Linux wheels (manylinux)
@@ -127,25 +127,43 @@ jobs:
           uv pip install --upgrade pip
           uv pip install "${wheel}"
 
-      - name: Run smoke tests (macOS/Windows) [Python runtime]
-        if: runner.os != 'Linux'
+      - name: Run smoke tests (macOS) [Python runtime]
+        if: runner.os == 'macOS'
         shell: bash
         env:
           HGRAPH_USE_CPP: 'false'
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
-          uv run --no-sync pytest -q -m smoke
+          .venv/bin/pytest -q -m smoke
 
-      - name: Run smoke tests (macOS/Windows) [C++ runtime]
-        if: runner.os != 'Linux'
+      - name: Run smoke tests (macOS) [C++ runtime]
+        if: runner.os == 'macOS'
         shell: bash
         env:
           HGRAPH_USE_CPP: 'true'
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
-          uv run --no-sync pytest -q -m smoke
+          .venv/bin/pytest -q -m smoke
+
+      - name: Run smoke tests (Windows) [Python runtime]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HGRAPH_USE_CPP: 'false'
+        run: |
+          Write-Host "HGRAPH_USE_CPP=$env:HGRAPH_USE_CPP"
+          .venv\Scripts\pytest -q -m smoke
+
+      - name: Run smoke tests (Windows) [C++ runtime]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HGRAPH_USE_CPP: 'true'
+        run: |
+          Write-Host "HGRAPH_USE_CPP=$env:HGRAPH_USE_CPP"
+          .venv\Scripts\pytest -q -m smoke
 
       - name: Run tests (Linux only) [Python runtime]
         if: runner.os == 'Linux'
@@ -157,9 +175,9 @@ jobs:
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           ulimit -c unlimited || true
           echo "Discovering extension paths..."
-          uv run --no-sync python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
-          uv run --no-sync python -c "import hgraph; print('hgraph:', hgraph.__file__)"
-          uv run --no-sync pytest -ra -q --cov=hgraph --cov-report=xml
+          .venv/bin/python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
+          .venv/bin/pytest -ra -q --cov=hgraph --cov-report=xml
 
       - name: Run tests (Linux only) [C++ runtime]
         if: runner.os == 'Linux'
@@ -172,9 +190,9 @@ jobs:
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           ulimit -c unlimited || true
           echo "Discovering extension paths..."
-          uv run --no-sync python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
-          uv run --no-sync python -c "import hgraph; print('hgraph:', hgraph.__file__)"
-          uv run --no-sync pytest -ra -q --cov=hgraph --cov-report=xml
+          .venv/bin/python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
+          .venv/bin/pytest -ra -q --cov=hgraph --cov-report=xml
 
       - name: Collect crash artifacts (Linux only)
         if: failure() && runner.os == 'Linux'
