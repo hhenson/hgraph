@@ -51,10 +51,10 @@ jobs:
           CMAKE_GENERATOR: Ninja
         run: uv build -v
 
-      - name: Prepare test environment (all groups and extras)
+      - name: Prepare test environment (dependencies only, skip project build)
         run: |
           uv venv
-          uv sync --all-extras --all-groups
+          uv sync --all-extras --all-groups --no-install-project
 
       - name: List dist artifacts (Windows)
         if: runner.os == 'Windows'
@@ -90,9 +90,9 @@ jobs:
           uv pip install --upgrade pip
           uv pip install auditwheel
           # Show before/after info for debugging
-          uv run python -m auditwheel show "${wheel}" || true
+          .venv/bin/python -m auditwheel show "${wheel}" || true
           mkdir -p wheelhouse
-          uv run python -m auditwheel repair -w wheelhouse "${wheel}"
+          .venv/bin/python -m auditwheel repair -w wheelhouse "${wheel}"
           ls -la wheelhouse || true
 
       - name: Upload repaired Linux wheels (manylinux)
@@ -127,25 +127,63 @@ jobs:
           uv pip install --upgrade pip
           uv pip install "${wheel}"
 
-      - name: Run smoke tests (macOS/Windows) [Python runtime]
-        if: runner.os != 'Linux'
+      - name: Run smoke tests (macOS) [Python runtime]
+        if: runner.os == 'macOS'
         shell: bash
         env:
           HGRAPH_USE_CPP: 'false'
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
-          uv run pytest -q -m smoke
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          mv hgraph hgraph_src
+          .venv/bin/pytest hgraph_unit_tests -q -m smoke || status=$?
+          mv hgraph_src hgraph
+          exit ${status:-0}
 
-      - name: Run smoke tests (macOS/Windows) [C++ runtime]
-        if: runner.os != 'Linux'
+      - name: Run smoke tests (macOS) [C++ runtime]
+        if: runner.os == 'macOS'
         shell: bash
         env:
           HGRAPH_USE_CPP: 'true'
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
-          uv run pytest -q -m smoke
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          mv hgraph hgraph_src
+          .venv/bin/pytest hgraph_unit_tests -q -m smoke || status=$?
+          mv hgraph_src hgraph
+          exit ${status:-0}
+
+      - name: Run smoke tests (Windows) [Python runtime]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HGRAPH_USE_CPP: 'false'
+        run: |
+          Write-Host "HGRAPH_USE_CPP=$env:HGRAPH_USE_CPP"
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          Rename-Item hgraph hgraph_src
+          try {
+            .venv\Scripts\pytest hgraph_unit_tests -q -m smoke
+          } finally {
+            Rename-Item hgraph_src hgraph
+          }
+
+      - name: Run smoke tests (Windows) [C++ runtime]
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          HGRAPH_USE_CPP: 'true'
+        run: |
+          Write-Host "HGRAPH_USE_CPP=$env:HGRAPH_USE_CPP"
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          Rename-Item hgraph hgraph_src
+          try {
+            .venv\Scripts\pytest hgraph_unit_tests -q -m smoke
+          } finally {
+            Rename-Item hgraph_src hgraph
+          }
 
       - name: Run tests (Linux only) [Python runtime]
         if: runner.os == 'Linux'
@@ -156,10 +194,14 @@ jobs:
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           ulimit -c unlimited || true
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          mv hgraph hgraph_src
           echo "Discovering extension paths..."
-          uv run python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
-          uv run python -c "import hgraph; print('hgraph:', hgraph.__file__)"
-          uv run pytest -ra -q --cov=hgraph --cov-report=xml
+          .venv/bin/python -c "import importlib.util as u, sys; m=u.find_spec('hgraph._hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
+          .venv/bin/pytest hgraph_unit_tests docs -ra -q --cov=hgraph --cov-report=xml || status=$?
+          mv hgraph_src hgraph
+          exit ${status:-0}
 
       - name: Run tests (Linux only) [C++ runtime]
         if: runner.os == 'Linux'
@@ -171,10 +213,14 @@ jobs:
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           ulimit -c unlimited || true
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          mv hgraph hgraph_src
           echo "Discovering extension paths..."
-          uv run python -c "import importlib.util as u, sys; m=u.find_spec('_hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
-          uv run python -c "import hgraph; print('hgraph:', hgraph.__file__)"
-          uv run pytest -ra -q --cov=hgraph --cov-report=xml
+          .venv/bin/python -c "import importlib.util as u, sys; m=u.find_spec('hgraph._hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
+          .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
+          .venv/bin/pytest hgraph_unit_tests docs -ra -q --cov=hgraph --cov-report=xml || status=$?
+          mv hgraph_src hgraph
+          exit ${status:-0}
 
       - name: Collect crash artifacts (Linux only)
         if: failure() && runner.os == 'Linux'
