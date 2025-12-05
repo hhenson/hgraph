@@ -48,6 +48,28 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
+    nb::object PyTimeSeriesBundle<T_TS, T_U>::key_from_value(const nb::handle &value) const {
+        constexpr auto is_input = std::is_same_v<T_U, TimeSeriesBundleInput>;
+        typedef std::conditional_t<is_input, time_series_input_s_ptr, time_series_output_s_ptr> TS_SPtr;
+        TS_SPtr p;
+        if constexpr (is_input) {
+            p = unwrap_input(value);
+        } else {
+            p = unwrap_output(value);
+        }
+        if (!p) {
+            throw std::runtime_error("Value is not a valid TimeSeries");
+        }
+        try {
+            auto key = impl()->key_from_value(p);
+            return nb::str(key.c_str());
+        } catch (const std::exception &e) {
+            return nb::none();
+        }
+    }
+
+    template <typename T_TS, typename T_U>
+        requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::keys() const {
         return set_to_list(impl()->keys());
     }
@@ -162,6 +184,7 @@ namespace hgraph
             .def("modified_keys", &PyTS_Type::modified_keys)
             .def("modified_values", &PyTS_Type::modified_values)
             .def("modified_items", &PyTS_Type::modified_items)
+            .def("key_from_value", &PyTS_Type::key_from_value)
             .def_prop_ro("empty", &PyTS_Type::empty)
             .def_prop_ro("__schema__", &PyTS_Type::schema)
             .def_prop_ro("as_schema", [](nb::handle self) { return self; })

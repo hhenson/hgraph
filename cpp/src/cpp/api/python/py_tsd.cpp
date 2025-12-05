@@ -206,6 +206,28 @@ namespace hgraph
         return impl()->was_removed(nb::cast<typename T_U::key_type>(key));
     }
 
+    template <typename T_TS, typename T_U>
+        requires is_py_tsd<T_TS, T_U>
+    nb::object PyTimeSeriesDict<T_TS, T_U>::key_from_value(const nb::object &value) const {
+        constexpr auto is_input = std::is_base_of_v<TimeSeriesDictInput, T_U>;
+        typedef std::conditional_t<is_input, TimeSeriesInput*, TimeSeriesOutput*> TS_Ptr;
+        TS_Ptr p;
+        if constexpr (is_input) {
+            p = unwrap_input(value).get();
+        } else {
+            p = unwrap_output(value).get();
+        }
+        if (p == nullptr) {
+            throw std::runtime_error("Value is not a valid TimeSeries");
+        }
+        try {
+            auto key = impl()->key_from_value(p);
+            return nb::cast(key);
+        } catch (const std::exception &e) {
+            return nb::none();
+        }
+    }
+
     namespace
     {
         template <typename T_TS> constexpr const char *get_tsd_type_name() {
@@ -329,6 +351,7 @@ namespace hgraph
             .def("removed_values", &TSD_OUT::removed_values)
             .def("removed_items", &TSD_OUT::removed_items)
             .def("was_removed", &TSD_OUT::was_removed, "key"_a)
+            .def("key_from_value", &TSD_OUT::key_from_value, "value"_a)
             .def_prop_ro("has_removed", &TSD_OUT::has_removed)
             .def(
                 "get_ref",
@@ -362,7 +385,7 @@ namespace hgraph
                 },
                 "key"_a, "default"_a = nb::none())
             .def("__len__", &TSD_IN::size)
-            .def("__iter__", &TSD_IN::keys)
+            .def("__iter__", &TSD_IN::iter)
             .def("get", &TSD_IN::get, "key"_a, "default"_a = nb::none())
             .def("get_or_create", &TSD_IN::get_or_create, "key"_a)
             .def("create", &TSD_IN::create, "key"_a)
@@ -387,6 +410,7 @@ namespace hgraph
             .def("was_removed", &TSD_IN::was_removed, "key"_a)
             .def("on_key_added", &TSD_IN::on_key_added, "key"_a)
             .def("on_key_removed", &TSD_IN::on_key_removed, "key"_a)
+            .def("key_from_value", &TSD_IN::key_from_value, "value"_a)
             .def_prop_ro("has_removed", &TSD_IN::has_removed)
             .def_prop_ro("key_set", &TSD_IN::key_set)
             .def("__str__",

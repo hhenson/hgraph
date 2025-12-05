@@ -35,6 +35,7 @@ namespace hgraph {
     // Graph - converted to shared_ptr
     struct Graph;
     using graph_ptr = Graph*;
+    using const_graph_ptr = const Graph*;
     using graph_s_ptr = std::shared_ptr<Graph>;
 
     // SenderReceiverState - raw pointer only

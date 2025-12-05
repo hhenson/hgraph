@@ -101,7 +101,7 @@ namespace hgraph {
         }
     }
 
-    void InspectionObserver::walk(const graph_ptr& graph) {
+    void InspectionObserver::walk(graph_ptr graph) {
         on_before_start_graph(graph);
         for (auto& node : graph->nodes()) {
             if (node->signature().has_nested_graphs) {
@@ -182,26 +182,26 @@ namespace hgraph {
         gi->id = std::vector<int64_t>(gid.begin(), gid.end());
         gi->label = graph->label().has_value() ? graph->label().value() : "";
         gi->parent_graph = graph->parent_node() ? graph->parent_node()->graph() : nullptr;
-        
+
         size_t node_count = graph->nodes().size();
         gi->node_count = node_count;
         gi->total_node_count = node_count;
         gi->total_subgraph_count = 0;
-        
+
         // Initialize vectors
         gi->node_total_subgraph_counts.resize(node_count, 0);
         gi->node_total_node_counts.resize(node_count, 0);
         gi->node_eval_counts.resize(node_count, 0);
         gi->node_eval_begin_times.resize(node_count, 0);
         gi->node_eval_times.resize(node_count, 0);
-        
+
         size_t default_size = _compute_sizes ? 0 : 0;
         gi->node_value_sizes.resize(node_count, default_size);
         gi->node_total_value_sizes_begin.resize(node_count, default_size);
         gi->node_total_value_sizes.resize(node_count, default_size);
         gi->node_total_sizes_begin.resize(node_count, default_size);
         gi->node_total_sizes.resize(node_count, default_size);
-        
+
         if (_compute_sizes) {
             gi->size = _estimate_size(nullptr); // TODO: Estimate graph size
             gi->node_sizes.resize(node_count);
@@ -215,7 +215,7 @@ namespace hgraph {
         } else {
             gi->node_sizes.resize(node_count, 0);
         }
-        
+
         gi->eval_count = 0;
         gi->eval_begin_time = std::chrono::high_resolution_clock::now();
 
@@ -448,7 +448,7 @@ namespace hgraph {
         if (!graph->graph_id().empty()) {
             auto& parent_graph = _graphs[_current_graph->parent_graph];
             size_t parent_node_ndx = graph->parent_node()->node_ndx();
-            
+
             if (_compute_sizes) {
                 parent_graph->node_total_value_sizes[parent_node_ndx] +=
                     _current_graph->total_value_size - _current_graph->total_value_size_begin;
@@ -461,7 +461,7 @@ namespace hgraph {
             _current_graph->os_cycle_time = now_thread - _current_graph->os_eval_begin_thread_time;
             _current_graph->os_eval_time += _current_graph->os_cycle_time;
         }
-        
+
         auto observation_end = std::chrono::high_resolution_clock::now();
         _current_graph->observation_time += _to_nanoseconds(
             std::chrono::duration_cast<std::chrono::nanoseconds>(observation_end - observation_begin));
@@ -473,7 +473,7 @@ namespace hgraph {
         } else {
             _current_graph = nullptr;
         }
-        
+
         auto gid = graph->graph_id();
         std::vector<int64_t> graph_vec_id(gid.begin(), gid.end());
         if (_callback_graph && _graph_subscriptions.count(graph_vec_id)) {
@@ -483,9 +483,9 @@ namespace hgraph {
                 std::cerr << "Error in callback_graph: " << e.what() << std::endl;
             }
         }
-        
+
         _check_progress();
-        
+
         if (_current_graph) {
             _current_graph->observation_time += prev_observation_time;
         }

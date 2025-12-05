@@ -107,7 +107,7 @@ namespace hgraph
         return nb::tuple(ids);
     }
 
-    nb::tuple PyNode::node_id() const { return nb::make_tuple(_impl->node_id()); }
+    nb::tuple PyNode::node_id() const { return nb::tuple(nb::cast(_impl->node_id())); }
 
     const NodeSignature &PyNode::signature() const { return _impl->signature(); }
 
@@ -118,18 +118,25 @@ namespace hgraph
         return PyGraph(ApiPtr<Graph>(graph->shared_from_this()));
     }
 
-    nb::object PyNode::input() const { return wrap_input(_impl->input()); }
+    nb::object PyNode::input() const {
+        auto inp = _impl->input();
+        return inp ? wrap_input(inp) : nb::none();
+    }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;
-        auto     inp_{*_impl->input()};
-        for (const auto &key : inp_.schema().keys()) { d[key.c_str()] = inp_[key]; }
+        auto inp_ = _impl->input();
+        if (!inp_) { return d; }
+        for (const auto &key : inp_->schema().keys()) { d[key.c_str()] = wrap_input((*inp_)[key]); }
         return d;
     }
 
-    nb::tuple PyNode::start_inputs() const { return nb::make_tuple(_impl->start_inputs()); }
+    nb::tuple PyNode::start_inputs() const { return nb::tuple(nb::cast(_impl->start_inputs())); }
 
-    nb::object PyNode::output() { return wrap_output(_impl->output()); }
+    nb::object PyNode::output() {
+        auto out = _impl->output();
+        return out ? wrap_output(out) : nb::none();
+    }
 
     nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state()); }
 
@@ -195,8 +202,19 @@ namespace hgraph
         return this->static_cast_impl<NestedNode>()->last_evaluation_time();
     }
 
+    nb::dict PyNestedNode::nested_graphs() const {
+        nb::dict d;
+        static_cast_impl<NestedNode>()->enumerate_nested_graphs([&d](const graph_s_ptr &graph) {
+            d[graph->label()->c_str()] = wrap_graph(graph);
+        });
+        return d;
+    }
+
     void PyNestedNode::register_with_nanobind(nb::module_ &m) {
-        nb::class_<PyNestedNode, PyNode>(m, "NestedNode").def_prop_ro("last_evaluation_time", &PyNestedNode::last_evaluation_time);
+        nb::class_<PyNestedNode, PyNode>(m, "NestedNode")
+            .def_prop_ro("last_evaluation_time", &PyNestedNode::last_evaluation_time)
+            .def_prop_ro("nested_graphs", &PyNestedNode::nested_graphs)
+            ;
     }
 
     void PyMapNestedNode::register_with_nanobind(nb::module_ &m) { nb::class_<PyMapNestedNode, PyNestedNode>(m, "MapNestedNode"); }

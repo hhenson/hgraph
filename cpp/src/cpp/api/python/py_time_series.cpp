@@ -58,7 +58,7 @@ namespace hgraph
 
     control_block_ptr PyTimeSeriesType::control_block() const { return _impl.control_block(); }
 
-    nb::object PyTimeSeriesOutput::parent_output() const { return wrap_output(impl()->parent_output()); }
+    nb::object PyTimeSeriesOutput::parent_output() const { return impl()->parent_output() ? wrap_output(impl()->parent_output()) : nb::none(); }
 
     nb::bool_ PyTimeSeriesOutput::has_parent_output() const { return nb::bool_(impl()->has_parent_output()); }
 
@@ -98,7 +98,7 @@ namespace hgraph
 
     TimeSeriesOutput *PyTimeSeriesOutput::impl() const { return static_cast_impl<TimeSeriesOutput>(); }
 
-    nb::object PyTimeSeriesInput::parent_input() const { return wrap_input(impl()->parent_input()); }
+    nb::object PyTimeSeriesInput::parent_input() const { return impl()->parent_input() ? wrap_input(impl()->parent_input()) : nb::none(); }
 
     nb::bool_ PyTimeSeriesInput::has_parent_input() const { return nb::bool_(impl()->has_parent_input()); }
 
