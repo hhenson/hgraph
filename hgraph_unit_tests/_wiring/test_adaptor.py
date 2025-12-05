@@ -41,6 +41,9 @@ from hgraph import (
     convert,
     REMOVE,
     feedback,
+    stop_engine,
+    compute_node,
+    EvaluationEngineApi,
 )
 from hgraph._wiring._decorators import GRAPH_SIGNATURE
 from hgraph.nodes._service_utils import write_adaptor_request, adaptor_request, capture_output_node_to_global_state
@@ -66,10 +69,17 @@ def test_adaptor():
         bottom(path, ts)
         return top(path)
 
+    @sink_node
+    def stop_when_done(ts: TS[int], expected_last: int, _engine: EvaluationEngineApi = None):
+        if ts.value == expected_last:
+            _engine.request_engine_stop()
+
     @graph
     def g() -> TS[int]:
         register_adaptor("test_adaptor", my_adaptor_impl)
-        return my_adaptor("test_adaptor", count(schedule(timedelta(milliseconds=10), max_ticks=10)))
+        result = my_adaptor("test_adaptor", count(schedule(timedelta(milliseconds=10), max_ticks=10)))
+        stop_when_done(result, 10)
+        return result
 
     result = evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=1000)))
 
@@ -96,12 +106,26 @@ def test_adaptor_with_parameters():
         bottom(path, ts if b else ts + 1)
         return top(path)
 
+    @sink_node
+    def stop_when_done(ts: TSL[TS[int], Size[2]], expected0: int, expected1: int, _engine: EvaluationEngineApi = None, _state: STATE = None):
+        if not hasattr(_state, 'done0'):
+            _state.done0 = False
+            _state.done1 = False
+        if ts[0].modified and ts[0].value == expected0:
+            _state.done0 = True
+        if ts[1].modified and ts[1].value == expected1:
+            _state.done1 = True
+        if _state.done0 and _state.done1:
+            _engine.request_engine_stop()
+
     @graph
     def g() -> TSL[TS[int], Size[2]]:
         register_adaptor("test_adaptor", my_adaptor_impl)
         a1 = my_adaptor("test_adaptor", False, count(schedule(timedelta(milliseconds=10), max_ticks=10)))
         a2 = my_adaptor("test_adaptor", True, count(schedule(timedelta(milliseconds=11), max_ticks=10)))
-        return combine(a1, a2)
+        result = combine(a1, a2)
+        stop_when_done(result, 11, 10)  # False adds +1, so 10+1=11; True keeps as-is so 10
+        return result
 
     result = evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250)))
 
@@ -128,12 +152,26 @@ def test_adaptor_with_impl_parameters():
         bottom(path, ts if b else map_(lambda x: x + 1, ts))
         return top(path)
 
+    @sink_node
+    def stop_when_done(ts: TSL[TS[int], Size[2]], expected0: int, expected1: int, _engine: EvaluationEngineApi = None, _state: STATE = None):
+        if not hasattr(_state, 'done0'):
+            _state.done0 = False
+            _state.done1 = False
+        if ts[0].modified and ts[0].value == expected0:
+            _state.done0 = True
+        if ts[1].modified and ts[1].value == expected1:
+            _state.done1 = True
+        if _state.done0 and _state.done1:
+            _engine.request_engine_stop()
+
     @graph
     def g() -> TSL[TS[int], Size[2]]:
         register_adaptor(None, my_adaptor_impl, b=False)
         a1 = my_adaptor("test_adaptor", ts=count(schedule(timedelta(milliseconds=10), max_ticks=10)))
         a2 = my_adaptor("test_adaptor", ts=count(schedule(timedelta(milliseconds=11), max_ticks=10)))
-        return combine(a1, a2)
+        result = combine(a1, a2)
+        stop_when_done(result, 11, 11)  # Both add +1, so 10+1=11 for both
+        return result
 
     result = evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250)))
 
@@ -171,6 +209,19 @@ def test_multi_client_adaptor_w_parameters():
         bottom(path, map_(lambda t: t if b else t + 1, ts))
         return top(path)
 
+    @compute_node
+    def check_count(ts: TSL[TS[int], Size[3]], expected: int, _state: STATE = None) -> TS[bool]:
+        if not hasattr(_state, 'count'):
+            _state.count = 0
+        _state.count += 1
+        return _state.count >= expected
+
+    @graph
+    def stop_at_count(ts: TSL[TS[int], Size[3]], expected: int) -> TSL[TS[int], Size[3]]:
+        done = check_count(ts, expected)
+        stop_engine(done, "Reached expected count")
+        return ts
+
     # TODO: Find a way to make this test more reliable when under load.
     @graph
     def g() -> TSL[TS[int], Size[3]]:
@@ -182,7 +233,7 @@ def test_multi_client_adaptor_w_parameters():
             __keys__=const(frozenset({100, 110}), TSS[int]),
         )
         a3 = my_adaptor("test_adaptor", True, count(schedule(timedelta(milliseconds=120), max_ticks=5)))
-        return combine(a[100], a[110], a3)
+        return stop_at_count(combine(a[100], a[110], a3), 15)
 
     config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
     result = evaluate_graph(g, config)
@@ -255,13 +306,21 @@ def test_adaptor_and_service():
     def my_service_impl(path: str, ts: TSS[int]) -> TSD[int, TS[int]]:
         return my_adaptor(path, ts)
 
+    @sink_node
+    def stop_when_done(ts: TSD[int, TS[int]], expected_key: int, expected_value: int, _engine: EvaluationEngineApi = None):
+        # Check if the expected key has the expected value
+        if expected_key in ts.delta_value and ts.delta_value[expected_key] == expected_value:
+            _engine.request_engine_stop()
+
     @graph
     def g() -> TSD[int, TS[int]]:
         register_adaptor("test", my_adaptor_impl)
         register_service("test", my_service_impl)
 
         requests = collect[TSS](count(schedule(timedelta(milliseconds=10), max_ticks=10)))
-        return map_(lambda key: my_service("test", key), __keys__=requests)
+        result = map_(lambda key: my_service("test", key), __keys__=requests)
+        stop_when_done(result, 10, 10)  # Stop when key 10 has value 10
+        return result
 
     result = evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(milliseconds=250)))
 

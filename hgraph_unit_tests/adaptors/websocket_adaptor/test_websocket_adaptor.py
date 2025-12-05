@@ -189,6 +189,8 @@ try:
 
     @pytest.mark.serial
     def test_single_request_graph_client():
+        from hgraph import EvaluationEngineApi
+
         @websocket_server_handler(url="/test/(.*)")
         def x(request: TSB[WebSocketServerRequest[bytes]]) -> TSB[WebSocketResponse[bytes]]:
             return combine[TSB[WebSocketResponse[bytes]]](
@@ -201,6 +203,14 @@ try:
                     )
                 ),
             )
+
+        @sink_node
+        def stop_when_done(ts: TSD[str, TS[bytes]], expected_total: int, _engine: EvaluationEngineApi = None, _state: STATE = None):
+            if not hasattr(_state, 'count'):
+                _state.count = 0
+            _state.count += len(ts.delta_value)
+            if _state.count >= expected_total:
+                _engine.request_engine_stop()
 
         @graph
         def g():
@@ -221,16 +231,16 @@ try:
                 connected(resp.connect_response)
                 return resp.message
 
-            record(
-                map_(
-                    ws_client,
-                    i=const(
-                        queries,
-                        tp=TSD[str, TS[tuple[WebSocketConnectRequest, tuple[bytes, ...]]]],
-                        delay=timedelta(milliseconds=10),
-                    ),
+            result = map_(
+                ws_client,
+                i=const(
+                    queries,
+                    tp=TSD[str, TS[tuple[WebSocketConnectRequest, tuple[bytes, ...]]]],
+                    delay=timedelta(milliseconds=10),
                 ),
             )
+            record(result)
+            stop_when_done(result, 4)  # 2 messages for "one" + 2 messages for "two" = 4
 
         with GlobalState():
             evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1)))

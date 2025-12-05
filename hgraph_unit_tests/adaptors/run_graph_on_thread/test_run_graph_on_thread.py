@@ -10,6 +10,7 @@ from hgraph import (
     graph,
     record,
     register_adaptor,
+    stop_engine,
 )
 from hgraph.adaptors.run_graph_on_thread import publish_output, run_graph_on_thread, run_graph_on_thread_impl
 
@@ -28,18 +29,18 @@ def test_run_graph_on_thread():
     def main():
         register_adaptor(None, run_graph_on_thread_impl)
 
-        record(
-            run_graph_on_thread[TS[int]](
-                fn=simulation,
-                global_state={"eh": 0},
-                params=dict(
-                    a=1,
-                    b=2,
-                    start_time=MIN_ST,
-                    end_time=MIN_ST + timedelta(seconds=10),
-                ),
-            )
+        result = run_graph_on_thread[TS[int]](
+            fn=simulation,
+            global_state={"eh": 0},
+            params=dict(
+                a=1,
+                b=2,
+                start_time=MIN_ST,
+                end_time=MIN_ST + timedelta(seconds=10),
+            ),
         )
+        record(result)
+        stop_engine(result.finished, "Graph finished")
 
     with GlobalState():
         evaluate_graph(

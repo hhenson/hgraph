@@ -186,8 +186,11 @@ def test_single_rest_request_graph(port):
         time.sleep(0.1)
 
         response1 = requests.request("DELETE", f"http://localhost:{port}/test_rest/abc", timeout=1)
-        time.sleep(0.5)
-        requests.request("GET", f"http://localhost:{port}/stop_rest", timeout=1)
+        time.sleep(0.05)
+        try:
+            requests.request("GET", f"http://localhost:{port}/stop_rest", timeout=1)
+        except requests.exceptions.ReadTimeout:
+            pass  # Server may shutdown before responding
 
     evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME,
                                          end_time=datetime.utcnow() + timedelta(seconds=3)))
@@ -244,10 +247,13 @@ def test_multiple_request_graph(port):
         time.sleep(0.1)
 
         response1 = requests.request("DELETE", f"http://localhost:{port}/test_multi/1", timeout=1)
-        time.sleep(0.1)
+        time.sleep(0.05)
         response2 = requests.request("DELETE", f"http://localhost:{port}/test_multi/1", timeout=1)
-        time.sleep(0.1)
-        requests.request("GET", f"http://localhost:{port}/stop_multi", timeout=1)
+        time.sleep(0.05)
+        try:
+            requests.request("GET", f"http://localhost:{port}/stop_multi", timeout=1)
+        except requests.exceptions.ReadTimeout:
+            pass  # Server may shutdown before responding
 
     evaluate_graph(g, GraphConfiguration(run_mode=EvaluationMode.REAL_TIME,
                                          end_time=datetime.utcnow() + timedelta(seconds=3)))

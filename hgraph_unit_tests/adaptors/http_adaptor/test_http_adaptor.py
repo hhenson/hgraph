@@ -199,9 +199,21 @@ try:
 
     @pytest.mark.serial
     def test_single_request_graph_client(port):
+        from hgraph import EvaluationEngineApi
+
         @http_server_handler(url="/test/(.*)")
         def x(request: TS[HttpRequest]) -> TS[HttpResponse]:
             return combine[TS[HttpResponse]](status_code=200, body=convert[TS[bytes]](request.url_parsed_args[0]))
+
+        @sink_node
+        def stop_when_all_done(ts: TSD[str, TS[bool]], expected_count: int, _engine: EvaluationEngineApi = None, _state: STATE = None):
+            if not hasattr(_state, 'done_count'):
+                _state.done_count = 0
+            for k, v in ts.delta_value.items():
+                if v:
+                    _state.done_count += 1
+            if _state.done_count >= expected_count:
+                _engine.request_engine_stop()
 
         @graph
         def g():
@@ -216,12 +228,12 @@ try:
                 log_("Response: {}", out)
                 return key == convert[TS[str]](out.body)
 
-            record(
-                map_(
-                    _send_query,
-                    q=const(queries, tp=TSD[str, TS[HttpRequest]], delay=timedelta(milliseconds=2)),
-                )
+            result = map_(
+                _send_query,
+                q=const(queries, tp=TSD[str, TS[HttpRequest]], delay=timedelta(milliseconds=2)),
             )
+            record(result)
+            stop_when_all_done(result, 10)
 
         with GlobalState():
             config = GraphConfiguration(run_mode=EvaluationMode.REAL_TIME, end_time=timedelta(seconds=1))
