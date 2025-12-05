@@ -104,6 +104,10 @@ set(HGRAPH_SOURCES
         types/tsl.cpp
         types/tsw.cpp
 
+        types/v2/ts_event.cpp
+        types/v2/ts_value.cpp
+        types/v2/ts_value_impl.cpp
+
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
         util/stack_trace.cpp

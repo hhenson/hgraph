@@ -1,7 +1,7 @@
 #ifndef NODE_H
 #define NODE_H
 
-#include <hgraph/types/notifiable.h>
+#include <hgraph/types/ts_traits.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <memory>
@@ -188,7 +188,7 @@ namespace hgraph
 
     // Node - runtime object, uses shared_ptr
     struct HGRAPH_EXPORT Node : ComponentLifeCycle,
-                                Notifiable,
+                                NotifiableContext,
                                 arena_enable_shared_from_this<Node>,
                                 ddv::visitable<Node, NodeVisitor>
     {
@@ -266,6 +266,11 @@ namespace hgraph
         std::string repr() const;
 
         std::string str() const;
+
+        // NotifiableContext interface implementations
+        [[nodiscard]] engine_time_t current_engine_time() const override;
+        void add_before_evaluation_notification(std::function<void()> &&fn) override;
+        void add_after_evaluation_notification(std::function<void()> &&fn) override;
 
       protected:
         void start() override;
