@@ -134,6 +134,8 @@ namespace hgraph
 
         engine_time_t last_evaluation_time() const;
 
+        nb::dict nested_graphs() const;
+
         static void register_with_nanobind(nb::module_ &m);
     };
 

@@ -241,6 +241,13 @@ namespace
 
     node_s_ptr unwrap_node(const PyNode &node_) { return node_._impl.control_block_typed<Node>(); }
 
+    graph_s_ptr unwrap_graph(const nb::handle &obj) {
+        if (auto *py_graph = nb::inst_ptr<PyGraph>(obj)) { return unwrap_graph(*py_graph); }
+        return nullptr;
+    }
+
+    graph_s_ptr unwrap_graph(const PyGraph &graph_) { return graph_._impl.control_block_typed<Graph>(); }
+
     time_series_input_s_ptr unwrap_input(const nb::handle &obj) {
         if (auto *py_input = nb::inst_ptr<PyTimeSeriesInput>(obj)) { return unwrap_input(*py_input); }
         return {};

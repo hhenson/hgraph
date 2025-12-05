@@ -67,6 +67,7 @@ export async function ensureTablesForConfig(config, progress_callback) {
 
 async function initViewSettings() {
     if (viewSettings.cache !== undefined) return;
+    if (!getWorkspaceTables()["view_settings"]) return;
 
     const view_settings_raw = getWorkspaceTables()["view_settings"] ? await (await getWorkspaceTables()["view_settings"].table.view()).to_json() : [];
     const view_settings = view_settings_raw
@@ -79,11 +80,13 @@ async function initViewSettings() {
 
 export function viewSettings(view, setting) {
     const view_settings = viewSettings.cache;
+    if (!view_settings) return null;
     return view_settings[view]?.[setting] ?? view_settings['all']?.[setting];
 }
 
 async function initColumnSettings() {
     if (columnSettings.cache !== undefined) return;
+    if (!getWorkspaceTables()["column_settings"]) return;
 
     const view = await getWorkspaceTables()["column_settings"].table.view();
     const column_settings_raw = getWorkspaceTables()["column_settings"] ? await (view).to_json() : [];
@@ -98,6 +101,7 @@ async function initColumnSettings() {
 
 export function columnSettings(view, column, setting) {
     const col_settings = columnSettings.cache;
+    if (!col_settings) return null;
     return col_settings[view]?.[column]?.[setting] ?? col_settings['all']?.[column]?.[setting];
 }
 

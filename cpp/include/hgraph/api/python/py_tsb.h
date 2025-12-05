@@ -49,6 +49,8 @@ namespace hgraph
 
         [[nodiscard]] const TimeSeriesSchema &schema() const;
 
+        [[nodiscard]] nb::object key_from_value(const nb::handle &value) const;
+
         // Retrieves valid keys
         [[nodiscard]] nb::object keys() const;
 

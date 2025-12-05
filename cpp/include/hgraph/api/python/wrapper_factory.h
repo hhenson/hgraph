@@ -176,6 +176,12 @@ namespace hgraph
     node_s_ptr unwrap_node(const nb::handle &obj);
 
     /**
+     * Extract raw Node pointer from PyNode wrapper.
+     * Returns nullptr if obj is not a PyNode.
+     */
+    graph_s_ptr unwrap_graph(const nb::handle &obj);
+
+    /**
      * Extract raw TimeSeriesInput pointer from PyTimeSeriesInput wrapper.
      * Returns nullptr if obj is not a PyTimeSeriesInput.
      */

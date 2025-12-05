@@ -42,7 +42,7 @@ if not is_feature_enabled("use_cpp"):
     from hgraph._impl._runtime._component_node import PythonComponentNodeImpl
     from hgraph._impl._runtime._mesh_node import PythonMeshNodeImpl
     
-else:    
+else:
     from hgraph._hgraph import (
         Node,
         Graph,
@@ -228,7 +228,7 @@ def format_timestamp_node(value: NestedNode):
 
 @format_modified.register
 def format_timestamp_graph(value: Graph):
-    return value.last_evaluation_time
+    return None if value.parent_node is None else value.parent_node.last_evaluation_time
 
 
 @format_modified.register
@@ -330,6 +330,11 @@ def format_type(value):
 
 
 @format_type.register
+def format_type_node(value: Graph):
+    return "GRAPH"
+
+
+@format_type.register
 def format_type_node(value: Node):
     return value.signature.node_type.name.replace("_NODE", "")
 
@@ -352,7 +357,7 @@ def format_type_python_nested_node_impl(value: NestedNode):
         'SwitchNode': "SWITCH",
         'TryExceptNode': "TRY_EXCEPT",
         'ComponentNode': "COMPONENT",
-    }.get(type(value).__name__.split('_')[0], "?")
+    }.get(type(value).__name__.split('_')[0], value.signature.name.upper())
 
 
 @format_type.register

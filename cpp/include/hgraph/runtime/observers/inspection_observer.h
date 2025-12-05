@@ -136,7 +136,7 @@ namespace hgraph {
 
         // Query methods
         GraphInfoPtr get_graph_info(const std::vector<int64_t>& graph_id) const;
-        void walk(const graph_ptr& graph);
+        void walk(graph_ptr graph);
 
         // Recent performance tracking methods
         void get_recent_node_performance(const std::vector<int64_t>& node_id,

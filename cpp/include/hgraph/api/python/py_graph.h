@@ -39,6 +39,8 @@ namespace hgraph {
 
         [[nodiscard]] nb::tuple nodes() const;
 
+        [[nodiscard]] nb::tuple node_info(size_t idx) const;
+
         [[nodiscard]] nb::object parent_node() const;
 
         [[nodiscard]] nb::object label() const;
@@ -62,6 +64,7 @@ namespace hgraph {
          static void register_with_nanobind(nb::module_ &m);
 
     private:
+        friend graph_s_ptr unwrap_graph(const PyGraph &obj);
         api_ptr _impl;
     };
 } // namespace hgraph

@@ -301,8 +301,6 @@ def inspector_follow_refs(state, item_id):
 
     while True:
         item_id = find_ref_output(item_id, value)
-        if value.value is None:
-            break
         if item_id.value_type != NodeValueType.Output:
             break
 
@@ -311,9 +309,9 @@ def inspector_follow_refs(state, item_id):
         if not isinstance(node, Node):
             break
 
-        _, value = graph_object_from_id(state, item_id)
-        if isinstance(value, (TimeSeriesOutput, TimeSeriesOutput)) and value.valid and value.value is not None:
-            value = value.value
+        _, ref = graph_object_from_id(state, item_id)
+        if isinstance(ref, (TimeSeriesOutput, TimeSeriesOutput)) and ref.valid and ref.value is not None:
+            ref = ref.value
         
         for k, v in node.inputs.items():
             in_id = InspectorItemId(graph=item_id.graph, node=item_id.node, value_type=NodeValueType.Inputs, value_path=(k,) + item_id.value_path)
@@ -321,11 +319,11 @@ def inspector_follow_refs(state, item_id):
                 
             if isinstance(inp, (TimeSeriesInput)) and inp.value is not None:
                 in_value = inp.value
-                if in_value is value:
+                if in_value is ref:
                     value = inp
                     break
             else:
-                if inp is value:
+                if inp is ref:
                     while inp is not None and not isinstance(inp, TimeSeriesInput):
                         in_id = InspectorItemId(graph=in_id.graph, node=in_id.node, value_type=NodeValueType.Inputs, value_path=in_id.value_path[:-1])
                         try:

@@ -3,8 +3,12 @@ import tempfile
 from datetime import datetime
 
 from _socket import gethostname
+from typing import Callable
 import tornado.web
 
+from hgraph import graph
+from hgraph._wiring._decorators import push_queue
+from hgraph._runtime._global_state import GlobalState
 from hgraph._wiring._decorators import sink_node
 from hgraph._types import TS, STATE
 
@@ -14,14 +18,24 @@ from hgraph.debug._inspector_publish import process_tick, process_graph, check_r
 from hgraph.debug._inspector_state import InspectorState
 
 
+@push_queue(TS[tuple[object, ...]])
+def inspector_requests_queue(sender: Callable) -> TS[tuple[object, ...]]:
+    GlobalState.instance().inspector_requests_queue = sender
+    
+
 @sink_node
-def inspector(
-    port: int = 8080, publish_interval: float = 2.5, start: TS[bool] = True, _state: STATE[InspectorState] = None
+def inspector_node(
+    port: int = 8080, publish_interval: float = 2.5, requests: TS[tuple[object, ...]] = None, _state: STATE[InspectorState] = None
 ): ...
 
+@graph
+def inspector(port: int = 8080, publish_interval: float = 2.5):
+    requests = inspector_requests_queue()
+    start_inspector(port, publish_interval, requests)
+    
 
-@inspector.start
-def start_inspector(port: int, publish_interval: float, start: TS[bool], _state: STATE[InspectorState]):
+@inspector_node.start
+def start_inspector(port: int, publish_interval: float, requests: TS[tuple[tuple[object, object]]], _state: STATE[InspectorState]):
     from perspective import Table
 
     from hgraph.adaptors.tornado._tornado_web import TornadoWeb
@@ -29,10 +43,12 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
     from hgraph.adaptors.perspective import PerspectiveTablesManager
     from hgraph.debug._inspector_observer import InspectionObserver
 
-    _state.requests.evaluation_clock = start.owning_graph.evaluation_clock
+    graph = requests.owning_graph
+    _state.requests_queue = GlobalState.instance().inspector_requests_queue
+    _state.requests.notify = lambda: _state.requests_queue((1,))
 
     _state.observer = InspectionObserver(
-        start.owning_graph,
+        graph,
         callback_node=lambda n: process_tick(_state._value, n),
         callback_graph=lambda n: process_graph(_state._value, n, publish_interval),
         callback_progress=lambda: check_requests_and_publish(_state._value, None, 5.0),
@@ -40,8 +56,8 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
         compute_sizes=False,
         track_recent_performance=_state.track_detailed_performance
     )
-    _state.observer.on_before_node_evaluation(start.owning_node)
-    start.owning_graph.evaluation_engine.add_life_cycle_observer(_state.observer)
+    _state.observer.on_before_node_evaluation(requests.owning_node)
+    graph.evaluation_engine_api.add_life_cycle_observer(_state.observer)
     _state.observer.subscribe_graph(())
 
     _state.manager = PerspectiveTablesManager.current()
@@ -110,7 +126,7 @@ def start_inspector(port: int, publish_interval: float, start: TS[bool], _state:
 
     _state.total_data_prev = dict(
         time=datetime.utcnow(),
-        evaluation_time=start.owning_graph.evaluation_clock.evaluation_time,
+        evaluation_time=graph.evaluation_clock.evaluation_time,
         cycles=0,
         graph_time=0.0,
     )

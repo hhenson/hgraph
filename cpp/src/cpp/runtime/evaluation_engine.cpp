@@ -59,7 +59,7 @@ namespace hgraph {
     }
 
     NotifyGraphEvaluation::NotifyGraphEvaluation(EvaluationEngine::ptr evaluation_engine, graph_ptr graph)
-        : _evaluation_engine{std::move(evaluation_engine)}, _graph{std::move(graph)} {
+        : _evaluation_engine{std::move(evaluation_engine)}, _graph{graph} {
         _evaluation_engine->notify_before_graph_evaluation(_graph);
     }
 
@@ -74,7 +74,7 @@ namespace hgraph {
     }
 
     NotifyNodeEvaluation::NotifyNodeEvaluation(EvaluationEngine::ptr evaluation_engine, node_ptr node)
-        : _evaluation_engine{std::move(evaluation_engine)}, _node{std::move(node)} {
+        : _evaluation_engine{std::move(evaluation_engine)}, _node{node} {
         _evaluation_engine->notify_before_node_evaluation(_node);
     }
 
