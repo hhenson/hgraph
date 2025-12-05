@@ -135,8 +135,11 @@ jobs:
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
-          # Run from repo root but override pythonpath to use installed package
-          .venv/bin/pytest -q -m smoke -o "pythonpath="
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          mv hgraph hgraph_src
+          .venv/bin/pytest hgraph_unit_tests -q -m smoke || status=$?
+          mv hgraph_src hgraph
+          exit ${status:-0}
 
       - name: Run smoke tests (macOS) [C++ runtime]
         if: runner.os == 'macOS'
@@ -146,7 +149,11 @@ jobs:
         run: |
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
-          .venv/bin/pytest -q -m smoke -o "pythonpath="
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          mv hgraph hgraph_src
+          .venv/bin/pytest hgraph_unit_tests -q -m smoke || status=$?
+          mv hgraph_src hgraph
+          exit ${status:-0}
 
       - name: Run smoke tests (Windows) [Python runtime]
         if: runner.os == 'Windows'
@@ -155,7 +162,13 @@ jobs:
           HGRAPH_USE_CPP: 'false'
         run: |
           Write-Host "HGRAPH_USE_CPP=$env:HGRAPH_USE_CPP"
-          .venv\Scripts\pytest -q -m smoke -o "pythonpath="
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          Rename-Item hgraph hgraph_src
+          try {
+            .venv\Scripts\pytest hgraph_unit_tests -q -m smoke
+          } finally {
+            Rename-Item hgraph_src hgraph
+          }
 
       - name: Run smoke tests (Windows) [C++ runtime]
         if: runner.os == 'Windows'
@@ -164,7 +177,13 @@ jobs:
           HGRAPH_USE_CPP: 'true'
         run: |
           Write-Host "HGRAPH_USE_CPP=$env:HGRAPH_USE_CPP"
-          .venv\Scripts\pytest -q -m smoke -o "pythonpath="
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          Rename-Item hgraph hgraph_src
+          try {
+            .venv\Scripts\pytest hgraph_unit_tests -q -m smoke
+          } finally {
+            Rename-Item hgraph_src hgraph
+          }
 
       - name: Run tests (Linux only) [Python runtime]
         if: runner.os == 'Linux'
@@ -175,11 +194,14 @@ jobs:
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           ulimit -c unlimited || true
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          mv hgraph hgraph_src
           echo "Discovering extension paths..."
-          # Use -o pythonpath= to override pyproject.toml and use installed wheel
           .venv/bin/python -c "import importlib.util as u, sys; m=u.find_spec('hgraph._hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
           .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
-          .venv/bin/pytest -ra -q --cov=hgraph --cov-report=xml -o "pythonpath="
+          .venv/bin/pytest hgraph_unit_tests docs -ra -q --cov=hgraph --cov-report=xml || status=$?
+          mv hgraph_src hgraph
+          exit ${status:-0}
 
       - name: Run tests (Linux only) [C++ runtime]
         if: runner.os == 'Linux'
@@ -191,11 +213,14 @@ jobs:
           set -euo pipefail
           echo "HGRAPH_USE_CPP=$HGRAPH_USE_CPP"
           ulimit -c unlimited || true
+          # Temporarily hide local hgraph/ to force use of installed wheel
+          mv hgraph hgraph_src
           echo "Discovering extension paths..."
-          # Use -o pythonpath= to override pyproject.toml and use installed wheel
           .venv/bin/python -c "import importlib.util as u, sys; m=u.find_spec('hgraph._hgraph'); print('_hgraph:', getattr(m,'origin',None) or 'not installed')"
           .venv/bin/python -c "import hgraph; print('hgraph:', hgraph.__file__)"
-          .venv/bin/pytest -ra -q --cov=hgraph --cov-report=xml -o "pythonpath="
+          .venv/bin/pytest hgraph_unit_tests docs -ra -q --cov=hgraph --cov-report=xml || status=$?
+          mv hgraph_src hgraph
+          exit ${status:-0}
 
       - name: Collect crash artifacts (Linux only)
         if: failure() && runner.os == 'Linux'
