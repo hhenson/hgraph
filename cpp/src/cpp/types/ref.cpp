@@ -421,9 +421,10 @@ namespace hgraph
             reset_value();
             return BaseTimeSeriesInput::do_bind_output(output_);
         }
-        // We are binding directly to a concrete output: wrap it as a reference value
-        // Get shared_ptr to keep the output alive while this reference holds it
-        _value = TimeSeriesReference::make(std::move(output_));
+        // We are binding directly to a concrete output (not via a TimeSeriesReferenceOutput):
+        // Match Python behavior - set _output = None (don't call BaseTimeSeriesInput::do_bind_output)
+        // and store the reference value directly
+        _value = TimeSeriesReference::make(output_);
         if (owning_node()->is_started()) {
             set_sample_time(owning_graph()->evaluation_time());
             notify(sample_time());

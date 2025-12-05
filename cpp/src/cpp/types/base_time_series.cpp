@@ -2,6 +2,8 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
+#include <iostream>
+#include <execinfo.h>
 
 namespace hgraph {
 
@@ -179,7 +181,9 @@ namespace hgraph {
 
     void BaseTimeSeriesOutput::subscribe(Notifiable *notifiable) { _subscribers.insert(notifiable); }
 
-    void BaseTimeSeriesOutput::un_subscribe(Notifiable *notifiable) { _subscribers.erase(notifiable); }
+    void BaseTimeSeriesOutput::un_subscribe(Notifiable *notifiable) {
+        _subscribers.erase(notifiable);
+    }
 
     void BaseTimeSeriesOutput::_notify(engine_time_t modified_time) {
         for (auto *subscriber: _subscribers) { subscriber->notify(modified_time); }
