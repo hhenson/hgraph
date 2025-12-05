@@ -2,6 +2,7 @@
 #define NODE_H
 
 #include <hgraph/types/notifiable.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <memory>
 
@@ -188,7 +189,7 @@ namespace hgraph
     // Node - runtime object, uses shared_ptr
     struct HGRAPH_EXPORT Node : ComponentLifeCycle,
                                 Notifiable,
-                                std::enable_shared_from_this<Node>,
+                                arena_enable_shared_from_this<Node>,
                                 ddv::visitable<Node, NodeVisitor>
     {
         using ptr   = Node *;

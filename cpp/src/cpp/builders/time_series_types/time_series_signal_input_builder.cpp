@@ -1,14 +1,15 @@
 #include <hgraph/builders/time_series_types/time_series_signal_input_builder.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ts_signal.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
     time_series_input_s_ptr TimeSeriesSignalInputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesSignalInput>(owning_node);
+        return arena_make_shared_as<TimeSeriesSignalInput, TimeSeriesInput>(owning_node);
     }
 
     time_series_input_s_ptr TimeSeriesSignalInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return std::make_shared<TimeSeriesSignalInput>(owning_input);
+        return arena_make_shared_as<TimeSeriesSignalInput, TimeSeriesInput>(owning_input);
     }
 
     void TimeSeriesSignalInputBuilder::release_instance(time_series_input_ptr item) const {

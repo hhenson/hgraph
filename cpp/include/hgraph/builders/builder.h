@@ -6,6 +6,7 @@
 #define BUILDER_H
 
 #include<hgraph/hgraph_base.h>
+#include<hgraph/util/arena_enable_shared_from_this.h>
 
 #include <typeinfo>
 #include <cstddef>
@@ -144,14 +145,33 @@ namespace hgraph {
             verify_canary(obj_ptr_raw, sizeof(ConcreteType), type_name);
             *offset += add_canary_size(sizeof(ConcreteType));
 
-            // Create shared_ptr with no-op deleter (arena manages lifetime)
-            // This will initialize enable_shared_from_this's weak_ptr if the type inherits from it
-            return std::static_pointer_cast<BaseType>(
-                std::shared_ptr<ConcreteType>(buffer, obj_ptr_raw));
+            // Create shared_ptr with aliasing constructor (arena manages lifetime)
+            auto sp = std::shared_ptr<ConcreteType>(buffer, obj_ptr_raw);
+
+            // Initialize arena_enable_shared_from_this - handle inheritance chains
+            // ConcreteType may inherit from arena_enable_shared_from_this<BaseType> (not ConcreteType)
+            if constexpr (std::is_base_of_v<arena_enable_shared_from_this<BaseType>, ConcreteType>) {
+                auto base_sp = std::static_pointer_cast<BaseType>(sp);
+                _arena_init_weak_this(static_cast<arena_enable_shared_from_this<BaseType> *>(obj_ptr_raw), base_sp);
+            } else if constexpr (std::is_base_of_v<arena_enable_shared_from_this<ConcreteType>, ConcreteType>) {
+                _arena_init_weak_this(static_cast<arena_enable_shared_from_this<ConcreteType> *>(obj_ptr_raw), sp);
+            }
+
+            return std::static_pointer_cast<BaseType>(sp);
         } else {
-            // Heap allocation - use make_shared for proper memory management
-            // This automatically initializes enable_shared_from_this
-            return std::static_pointer_cast<BaseType>(std::make_shared<ConcreteType>(std::forward<Args>(args)...));
+            // Heap allocation - use std::make_shared then manually initialize arena_enable_shared_from_this
+            auto sp = std::make_shared<ConcreteType>(std::forward<Args>(args)...);
+
+            // Initialize arena_enable_shared_from_this - handle inheritance chains
+            // ConcreteType may inherit from arena_enable_shared_from_this<BaseType> (not ConcreteType)
+            if constexpr (std::is_base_of_v<arena_enable_shared_from_this<BaseType>, ConcreteType>) {
+                auto base_sp = std::static_pointer_cast<BaseType>(sp);
+                _arena_init_weak_this(static_cast<arena_enable_shared_from_this<BaseType> *>(sp.get()), base_sp);
+            } else if constexpr (std::is_base_of_v<arena_enable_shared_from_this<ConcreteType>, ConcreteType>) {
+                _arena_init_weak_this(static_cast<arena_enable_shared_from_this<ConcreteType> *>(sp.get()), sp);
+            }
+
+            return std::static_pointer_cast<BaseType>(sp);
         }
     }
 

@@ -3,6 +3,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 #include <ranges>
 #include <utility>
@@ -14,12 +15,12 @@ namespace hgraph {
     }
 
     time_series_input_s_ptr TimeSeriesBundleInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v = std::make_shared<TimeSeriesBundleInput>(owning_node, schema);
+        auto v = arena_make_shared_as<TimeSeriesBundleInput, TimeSeriesInput>(owning_node, schema);
         return make_and_set_inputs(v);
     }
 
     time_series_input_s_ptr TimeSeriesBundleInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        auto v = std::make_shared<TimeSeriesBundleInput>(owning_input, schema);
+        auto v = arena_make_shared_as<TimeSeriesBundleInput, TimeSeriesInput>(owning_input, schema);
         return make_and_set_inputs(v);
     }
 

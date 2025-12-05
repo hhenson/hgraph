@@ -4,11 +4,12 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/nodes/last_value_pull_node.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
     node_s_ptr LastValuePullNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id,
                                                      int64_t node_ndx) const {
-        auto node = std::make_shared<LastValuePullNode>(node_ndx, owning_graph_id, signature, scalars);
+        auto node = arena_make_shared_as<LastValuePullNode, Node>(node_ndx, owning_graph_id, signature, scalars);
         _build_inputs_and_outputs(node.get());
         return node;
     }

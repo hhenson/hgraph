@@ -4,6 +4,7 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>  // For TimeSeriesSchema definition
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph
 {
@@ -13,11 +14,11 @@ namespace hgraph
 
     // TimeSeriesValueRefInputBuilder - REF[TS[...]]
     time_series_input_s_ptr TimeSeriesValueRefInputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesValueReferenceInput>(owning_node);
+        return arena_make_shared_as<TimeSeriesValueReferenceInput, TimeSeriesInput>(owning_node);
     }
 
     time_series_input_s_ptr TimeSeriesValueRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return std::make_shared<TimeSeriesValueReferenceInput>(owning_input);
+        return arena_make_shared_as<TimeSeriesValueReferenceInput, TimeSeriesInput>(owning_input);
     }
 
     size_t TimeSeriesValueRefInputBuilder::memory_size() const {
@@ -33,11 +34,11 @@ namespace hgraph
         : value_builder(std::move(value_builder)), size(size) {}
 
     time_series_input_s_ptr TimeSeriesListRefInputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesListReferenceInput>(owning_node, value_builder, size);
+        return arena_make_shared_as<TimeSeriesListReferenceInput, TimeSeriesInput>(owning_node, value_builder, size);
     }
 
     time_series_input_s_ptr TimeSeriesListRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return std::make_shared<TimeSeriesListReferenceInput>(owning_input, value_builder, size);
+        return arena_make_shared_as<TimeSeriesListReferenceInput, TimeSeriesInput>(owning_input, value_builder, size);
     }
 
     bool TimeSeriesListRefInputBuilder::is_same_type(const Builder &other) const {
@@ -68,11 +69,11 @@ namespace hgraph
         : schema(std::move(schema)), field_builders(std::move(field_builders)) {}
 
     time_series_input_s_ptr TimeSeriesBundleRefInputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesBundleReferenceInput>(owning_node, field_builders, field_builders.size());
+        return arena_make_shared_as<TimeSeriesBundleReferenceInput, TimeSeriesInput>(owning_node, field_builders, field_builders.size());
     }
 
     time_series_input_s_ptr TimeSeriesBundleRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return std::make_shared<TimeSeriesBundleReferenceInput>(owning_input, field_builders,
+        return arena_make_shared_as<TimeSeriesBundleReferenceInput, TimeSeriesInput>(owning_input, field_builders,
                                                   field_builders.size());
     }
 
@@ -104,11 +105,11 @@ namespace hgraph
 
     // TimeSeriesDictRefInputBuilder - REF[TSD[...]]
     time_series_input_s_ptr TimeSeriesDictRefInputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesDictReferenceInput>(owning_node);
+        return arena_make_shared_as<TimeSeriesDictReferenceInput, TimeSeriesInput>(owning_node);
     }
 
     time_series_input_s_ptr TimeSeriesDictRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return std::make_shared<TimeSeriesDictReferenceInput>(owning_input);
+        return arena_make_shared_as<TimeSeriesDictReferenceInput, TimeSeriesInput>(owning_input);
     }
 
     size_t TimeSeriesDictRefInputBuilder::memory_size() const {
@@ -121,11 +122,11 @@ namespace hgraph
 
     // TimeSeriesSetRefInputBuilder - REF[TSS[...]]
     time_series_input_s_ptr TimeSeriesSetRefInputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesSetReferenceInput>(owning_node);
+        return arena_make_shared_as<TimeSeriesSetReferenceInput, TimeSeriesInput>(owning_node);
     }
 
     time_series_input_s_ptr TimeSeriesSetRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return std::make_shared<TimeSeriesSetReferenceInput>(owning_input);
+        return arena_make_shared_as<TimeSeriesSetReferenceInput, TimeSeriesInput>(owning_input);
     }
 
     size_t TimeSeriesSetRefInputBuilder::memory_size() const {
@@ -138,11 +139,11 @@ namespace hgraph
 
     // TimeSeriesWindowRefInputBuilder - REF[TSW[...]]
     time_series_input_s_ptr TimeSeriesWindowRefInputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesWindowReferenceInput>(owning_node);
+        return arena_make_shared_as<TimeSeriesWindowReferenceInput, TimeSeriesInput>(owning_node);
     }
 
     time_series_input_s_ptr TimeSeriesWindowRefInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return std::make_shared<TimeSeriesWindowReferenceInput>(owning_input);
+        return arena_make_shared_as<TimeSeriesWindowReferenceInput, TimeSeriesInput>(owning_input);
     }
 
     size_t TimeSeriesWindowRefInputBuilder::memory_size() const {
@@ -159,11 +160,11 @@ namespace hgraph
 
     // TimeSeriesValueRefOutputBuilder - REF[TS[...]]
     time_series_output_s_ptr TimeSeriesValueRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesValueReferenceOutput>(owning_node);
+        return arena_make_shared_as<TimeSeriesValueReferenceOutput, TimeSeriesOutput>(owning_node);
     }
 
     time_series_output_s_ptr TimeSeriesValueRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        return std::make_shared<TimeSeriesValueReferenceOutput>(owning_output);
+        return arena_make_shared_as<TimeSeriesValueReferenceOutput, TimeSeriesOutput>(owning_output);
     }
 
     size_t TimeSeriesValueRefOutputBuilder::memory_size() const {
@@ -179,11 +180,11 @@ namespace hgraph
         : value_builder(std::move(value_builder)), size(size) {}
 
     time_series_output_s_ptr TimeSeriesListRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesListReferenceOutput>(owning_node, value_builder, size);
+        return arena_make_shared_as<TimeSeriesListReferenceOutput, TimeSeriesOutput>(owning_node, value_builder, size);
     }
 
     time_series_output_s_ptr TimeSeriesListRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        return std::make_shared<TimeSeriesListReferenceOutput>(owning_output, value_builder, size);
+        return arena_make_shared_as<TimeSeriesListReferenceOutput, TimeSeriesOutput>(owning_output, value_builder, size);
     }
 
     bool TimeSeriesListRefOutputBuilder::is_same_type(const Builder &other) const {
@@ -214,11 +215,11 @@ namespace hgraph
         : schema(std::move(schema)), field_builders(std::move(field_builders)) {}
 
     time_series_output_s_ptr TimeSeriesBundleRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesBundleReferenceOutput>(owning_node, field_builders, field_builders.size());
+        return arena_make_shared_as<TimeSeriesBundleReferenceOutput, TimeSeriesOutput>(owning_node, field_builders, field_builders.size());
     }
 
     time_series_output_s_ptr TimeSeriesBundleRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        return std::make_shared<TimeSeriesBundleReferenceOutput>(owning_output, field_builders,
+        return arena_make_shared_as<TimeSeriesBundleReferenceOutput, TimeSeriesOutput>(owning_output, field_builders,
                                                    field_builders.size());
     }
 
@@ -250,11 +251,11 @@ namespace hgraph
 
     // TimeSeriesDictRefOutputBuilder - REF[TSD[...]]
     time_series_output_s_ptr TimeSeriesDictRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesDictReferenceOutput>(owning_node);
+        return arena_make_shared_as<TimeSeriesDictReferenceOutput, TimeSeriesOutput>(owning_node);
     }
 
     time_series_output_s_ptr TimeSeriesDictRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        return std::make_shared<TimeSeriesDictReferenceOutput>(owning_output);
+        return arena_make_shared_as<TimeSeriesDictReferenceOutput, TimeSeriesOutput>(owning_output);
     }
 
     size_t TimeSeriesDictRefOutputBuilder::memory_size() const {
@@ -267,11 +268,11 @@ namespace hgraph
 
     // TimeSeriesSetRefOutputBuilder - REF[TSS[...]]
     time_series_output_s_ptr TimeSeriesSetRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesSetReferenceOutput>(owning_node);
+        return arena_make_shared_as<TimeSeriesSetReferenceOutput, TimeSeriesOutput>(owning_node);
     }
 
     time_series_output_s_ptr TimeSeriesSetRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        return std::make_shared<TimeSeriesSetReferenceOutput>(owning_output);
+        return arena_make_shared_as<TimeSeriesSetReferenceOutput, TimeSeriesOutput>(owning_output);
     }
 
     size_t TimeSeriesSetRefOutputBuilder::memory_size() const {
@@ -284,11 +285,11 @@ namespace hgraph
 
     // TimeSeriesWindowRefOutputBuilder - REF[TSW[...]]
     time_series_output_s_ptr TimeSeriesWindowRefOutputBuilder::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesWindowReferenceOutput>(owning_node);
+        return arena_make_shared_as<TimeSeriesWindowReferenceOutput, TimeSeriesOutput>(owning_node);
     }
 
     time_series_output_s_ptr TimeSeriesWindowRefOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        return std::make_shared<TimeSeriesWindowReferenceOutput>(owning_output);
+        return arena_make_shared_as<TimeSeriesWindowReferenceOutput, TimeSeriesOutput>(owning_output);
     }
 
     size_t TimeSeriesWindowRefOutputBuilder::memory_size() const {

@@ -5,6 +5,7 @@
 #include <hgraph/types/tsb.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/nodes/switch_node.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
     // Helper to check if a Python object is the DEFAULT class or an instance of it
@@ -127,7 +128,7 @@ namespace hgraph {
 
     template<typename K>
     node_s_ptr SwitchNodeBuilder<K>::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
-        auto node = std::make_shared<SwitchNode<K>>(node_ndx, owning_graph_id, signature, scalars, nested_graph_builders, input_node_ids,
+        auto node = arena_make_shared_as<SwitchNode<K>, Node>(node_ndx, owning_graph_id, signature, scalars, nested_graph_builders, input_node_ids,
                               output_node_ids, reload_on_ticked, default_graph_builder,
                               default_input_node_ids, default_output_node_id);
         _build_inputs_and_outputs(node.get());
