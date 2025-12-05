@@ -205,7 +205,11 @@ namespace hgraph
     nb::dict PyNestedNode::nested_graphs() const {
         nb::dict d;
         static_cast_impl<NestedNode>()->enumerate_nested_graphs([&d](const graph_s_ptr &graph) {
-            d[graph->label()->c_str()] = wrap_graph(graph);
+            if (graph && graph->label() && !graph->label()->empty()) {
+                d[graph->label()->c_str()] = wrap_graph(graph);
+            } else {
+                d["default"] = wrap_graph(graph);
+            }
         });
         return d;
     }
