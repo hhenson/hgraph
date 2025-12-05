@@ -39,6 +39,139 @@
 
 namespace hgraph
 {
+namespace
+{
+    template<typename T, typename U>
+    nb::object create_wrapper_from_api(auto api_ptr) {
+        auto sp{api_ptr.template control_block_typed<U>()};
+        auto ptr{ApiPtr<U>(std::move(sp))};
+        return nb::cast(T{std::move(ptr)});
+    }
+
+    static constexpr auto ts_opaque_input_types_v =
+        tp::tpack_v<TimeSeriesSignalInput, TimeSeriesListInput,
+                    TimeSeriesBundleInput  //, IndexedTimeSeriesInput (not implemented yet?)
+                    > +
+        ts_reference_input_types_v;
+    // [NOTE] order must match `ts_opaque_input_types`
+    using py_ts_opaque_input_types =
+        tp::tpack<PyTimeSeriesSignalInput, PyTimeSeriesListInput, PyTimeSeriesBundleInput,  //, PyIndexedTimeSeriesInput
+                  PyTimeSeriesReferenceInput, PyTimeSeriesValueReferenceInput, PyTimeSeriesWindowReferenceInput,
+                  PyTimeSeriesListReferenceInput, PyTimeSeriesSetReferenceInput, PyTimeSeriesDictReferenceInput,
+                  PyTimeSeriesBundleReferenceInput>;
+
+    static constexpr auto input_v = ddv::serial{
+        // typed inputs
+        []<typename T>(TimeSeriesDictInput_T<T>*, ApiPtr<TimeSeriesInput> impl) {
+            using U = TimeSeriesDictInput_T<T>;
+            return create_wrapper_from_api<PyTimeSeriesDictInput_T<U>, U>(std::move(impl));
+        },
+        []<typename T>(TimeSeriesSetInput_T<T>*, ApiPtr<TimeSeriesInput> impl) {
+            using U = TimeSeriesSetInput_T<T>;
+            return create_wrapper_from_api<PyTimeSeriesSetInput_T<U>, U>(std::move(impl));
+        },
+        []<typename T>(TimeSeriesWindowInput<T>*, ApiPtr<TimeSeriesInput> impl) {
+            using U = TimeSeriesWindowInput<T>;
+            return create_wrapper_from_api<PyTimeSeriesWindowInput<T>, U>(std::move(impl));
+        },
+        // value inputs
+        [](TimeSeriesValueInputBase*, ApiPtr<TimeSeriesInput> impl) {
+            return nb::cast(PyTimeSeriesValueInput(std::move(impl)));
+        },
+        // opaque inputs
+        []<typename TS>(TS*, ApiPtr<TimeSeriesInput> impl)
+            requires(tp::contains<TS>(ts_opaque_input_types_v))
+        {
+            if constexpr (std::is_same_v<TS, TimeSeriesReferenceInput>) {
+                // BUG: Encountered a base TimeSeriesReferenceInput that doesn't match any specialized type.
+                // There should not be naked instances of TimeSeriesReferenceInput - they should always be
+                // one of the specialized types. This indicates a bug where a base TimeSeriesReferenceInput
+                // was created instead of a specialized type.
+                throw std::runtime_error(
+                    "Python wrap input TS: Encountered a base TimeSeriesReferenceInput "
+                    "that doesn't match any specialized type. This is a bug - there should not be naked instances of "
+                    "TimeSeriesReferenceInput. Check where this input was created (likely in reduce_node.cpp::zero_node).");
+            } else {
+                using py_type = tp::get_t<tp::find<TS>(ts_opaque_input_types_v), py_ts_opaque_input_types>;
+                return create_wrapper_from_api<py_type, TS>(std::move(impl));
+            }
+        },
+        [] { return nb::none(); }};
+
+
+    static constexpr auto ts_opaque_output_types_v =
+        tp::tpack_v<TimeSeriesListOutput, TimeSeriesBundleOutput  // IndexedTimeSeriesOutput
+                    > +
+        ts_reference_output_types_v;
+    // [NOTE] order must match `ts_opaque_output_types_v`
+    using py_ts_opaque_output_types =
+        tp::tpack<PyTimeSeriesListOutput, PyTimeSeriesBundleOutput,  // PyIndexedTimeSeriesOutput
+                  PyTimeSeriesReferenceOutput, PyTimeSeriesValueReferenceOutput, PyTimeSeriesWindowReferenceOutput,
+                  PyTimeSeriesListReferenceOutput, PyTimeSeriesSetReferenceOutput, PyTimeSeriesDictReferenceOutput,
+                  PyTimeSeriesBundleReferenceOutput>;
+
+    static constexpr auto output_v = ddv::serial{
+        // typed outputs
+        []<typename T>(TimeSeriesDictOutput_T<T>*, ApiPtr<TimeSeriesOutput> impl) {
+            using U = TimeSeriesDictOutput_T<T>;
+            return create_wrapper_from_api<PyTimeSeriesDictOutput_T<U>, U>(std::move(impl));
+        },
+        []<typename T>(TimeSeriesSetOutput_T<T>*, ApiPtr<TimeSeriesOutput> impl) {
+            using U = TimeSeriesSetOutput_T<T>;
+            return create_wrapper_from_api<PyTimeSeriesSetOutput_T<U>, U>(std::move(impl));
+        },
+        []<typename T>(TimeSeriesFixedWindowOutput<T>*, ApiPtr<TimeSeriesOutput> impl) {
+            using U = TimeSeriesFixedWindowOutput<T>;
+            return create_wrapper_from_api<PyTimeSeriesWindowOutput<U>, U>(std::move(impl));
+        },
+        []<typename T>(TimeSeriesTimeWindowOutput<T>*, ApiPtr<TimeSeriesOutput> impl) {
+            using U = TimeSeriesTimeWindowOutput<T>;
+            return create_wrapper_from_api<PyTimeSeriesWindowOutput<U>, U>(std::move(impl));
+        },
+        // value outputs
+        [](TimeSeriesValueOutputBase*, ApiPtr<TimeSeriesOutput> impl) {
+            return nb::cast(PyTimeSeriesValueOutput(std::move(impl)));
+        },
+        // opaque outputs
+        []<typename TS>(TS*, ApiPtr<TimeSeriesOutput> impl)
+            requires(tp::contains<TS>(ts_opaque_output_types_v))
+        {
+            if constexpr (std::is_same_v<TS, TimeSeriesReferenceOutput>) {
+                throw std::runtime_error(
+                    "Python wrap output TS: Encountered a base TimeSeriesReferenceOutput "
+                    "that doesn't match any specialized type. This is a bug - there should not be naked instances of "
+                    "TimeSeriesReferenceOutput. Check where this output was created (likely in reduce_node.cpp::zero_node).");
+            } else {
+                using py_type = tp::get_t<tp::find<TS>(ts_opaque_output_types_v), py_ts_opaque_output_types>;
+                return create_wrapper_from_api<py_type, TS>(std::move(impl));
+            }
+        },
+        [] { return nb::none(); }};
+
+
+    static auto node_v = ddv::serial{
+        [](LastValuePullNode*, ApiPtr<Node> ptr) {
+            return create_wrapper_from_api<PyLastValuePullNode, LastValuePullNode>(std::move(ptr));
+        },
+        [](PushQueueNode*, ApiPtr<Node> ptr) {
+            return create_wrapper_from_api<PyPushQueueNode, PushQueueNode>(std::move(ptr));
+        },
+        // Mesh nodes
+        []<typename T>(MeshNode<T>*, ApiPtr<Node> ptr) {
+            return nb::cast(PyMeshNestedNode::make_mesh_node<T>(std::move(ptr)));
+        },
+        // Other nested nodes
+        [](NestedNode*, ApiPtr<Node> ptr) {
+            return create_wrapper_from_api<PyNestedNode, NestedNode>(std::move(ptr));
+        },
+        // Default to base PyNode
+        // [NOTE] first arg must be `auto`, not `Node*`: in latter case compiler needs complete nodes definitions
+        [](auto, ApiPtr<Node> ptr) { return nb::cast(PyNode(std::move(ptr))); }
+    };
+
+    using node_vt = decltype(node_v);
+
+} // hidden namespace
 
     /**
      * Try to create a wrapper of PyType if the api_ptr can be cast to UnderlyerType.
@@ -61,22 +194,7 @@ namespace hgraph
     // Main implementation - takes ApiPtr<Node>
     nb::object wrap_node(PyNode::api_ptr impl) {
         if (!impl) { return nb::none(); }
-
-        // Try specialized node types in order
-        if (auto r = try_create<PyLastValuePullNode, LastValuePullNode>(impl)) { return *r; }
-        if (auto r = try_create<PyPushQueueNode, PushQueueNode>(impl)) { return *r; }
-        // Mesh nodes
-        if (auto r = try_create_mesh_node<bool>(impl)) { return *r; }
-        if (auto r = try_create_mesh_node<int64_t>(impl)) { return *r; }
-        if (auto r = try_create_mesh_node<double>(impl)) { return *r; }
-        if (auto r = try_create_mesh_node<engine_date_t>(impl)) { return *r; }
-        if (auto r = try_create_mesh_node<engine_time_t>(impl)) { return *r; }
-        if (auto r = try_create_mesh_node<engine_time_delta_t>(impl)) { return *r; }
-        if (auto r = try_create_mesh_node<nb::object>(impl)) { return *r; }
-        // Other nested nodes
-        if (auto r = try_create<PyNestedNode, NestedNode>(impl)) { return *r; }
-        // Default to base PyNode
-        return nb::cast(PyNode(std::move(impl)));
+        return *impl->visit(node_v, impl);
     }
 
     // Overload for shared_ptr
@@ -96,114 +214,6 @@ namespace hgraph
         if (!impl) { return nb::none(); }
         return nb::cast(PyNodeScheduler(PyNodeScheduler::api_ptr(impl)));
     }
-
-    static constexpr auto ts_opaque_input_types_v =
-        tp::tpack_v<TimeSeriesSignalInput, TimeSeriesListInput,
-                    TimeSeriesBundleInput  //, IndexedTimeSeriesInput (not implemented yet?)
-                    > +
-        ts_reference_input_types_v;
-    // [NOTE] order must match `ts_opaque_input_types`
-    using py_ts_opaque_input_types =
-        tp::tpack<PyTimeSeriesSignalInput, PyTimeSeriesListInput, PyTimeSeriesBundleInput,  //, PyIndexedTimeSeriesInput
-                  PyTimeSeriesReferenceInput, PyTimeSeriesValueReferenceInput, PyTimeSeriesWindowReferenceInput,
-                  PyTimeSeriesListReferenceInput, PyTimeSeriesSetReferenceInput, PyTimeSeriesDictReferenceInput,
-                  PyTimeSeriesBundleReferenceInput>;
-
-    template<typename T, typename U, typename V>
-    nb::object create_wrapper_from_api(ApiPtr<V> api_ptr) {
-        auto sp{api_ptr.template control_block_typed<U>()};
-        auto ptr{ApiPtr<U>(sp)};
-        auto out{T{ptr}};
-        return nb::cast(std::move(out));
-    }
-
-    static constexpr auto input_v = ddv::serial{
-        // typed inputs
-        []<typename T>(TimeSeriesDictInput_T<T> *input, ApiPtr<TimeSeriesInput> impl) {
-            using U = TimeSeriesDictInput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesDictInput_T<U>, U>(std::move(impl));
-        },
-        []<typename T>(TimeSeriesSetInput_T<T> *input, ApiPtr<TimeSeriesInput> impl) {
-            using U = TimeSeriesSetInput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesSetInput_T<U>, U>(std::move(impl));
-        },
-        []<typename T>(TimeSeriesWindowInput<T> *input, ApiPtr<TimeSeriesInput> impl) {
-            using U = TimeSeriesWindowInput<T>;
-            return create_wrapper_from_api<PyTimeSeriesWindowInput<T>, U>(std::move(impl));
-        },
-        // value inputs
-        [](TimeSeriesValueInputBase *input, ApiPtr<TimeSeriesInput> impl) {
-            return nb::cast(PyTimeSeriesValueInput(std::move(impl)));
-        },
-        // opaque inputs
-        []<typename TS>(TS *input, ApiPtr<TimeSeriesInput> impl)
-            requires(tp::contains<TS>(ts_opaque_input_types_v))
-        {
-            if constexpr (std::is_same_v<TS, TimeSeriesReferenceInput>) {
-                // BUG: Encountered a base TimeSeriesReferenceInput that doesn't match any specialized type.
-                // There should not be naked instances of TimeSeriesReferenceInput - they should always be
-                // one of the specialized types. This indicates a bug where a base TimeSeriesReferenceInput
-                // was created instead of a specialized type.
-                throw std::runtime_error(
-                    "Python wrap input TS: Encountered a base TimeSeriesReferenceInput "
-                    "that doesn't match any specialized type. This is a bug - there should not be naked instances of "
-                    "TimeSeriesReferenceInput. Check where this input was created (likely in reduce_node.cpp::zero_node).");
-            } else {
-                using py_type = tp::get_t<tp::find<TS>(ts_opaque_input_types_v), py_ts_opaque_input_types>;
-                return create_wrapper_from_api<py_type, TS>(std::move(impl));
-            }
-        },
-        [] { return nb::none(); }};
-
-    static constexpr auto ts_opaque_output_types_v =
-        tp::tpack_v<TimeSeriesListOutput, TimeSeriesBundleOutput  // IndexedTimeSeriesOutput
-                    > +
-        ts_reference_output_types_v;
-    // [NOTE] order must match `ts_opaque_output_types_v`
-    using py_ts_opaque_output_types =
-        tp::tpack<PyTimeSeriesListOutput, PyTimeSeriesBundleOutput,  // PyIndexedTimeSeriesOutput
-                  PyTimeSeriesReferenceOutput, PyTimeSeriesValueReferenceOutput, PyTimeSeriesWindowReferenceOutput,
-                  PyTimeSeriesListReferenceOutput, PyTimeSeriesSetReferenceOutput, PyTimeSeriesDictReferenceOutput,
-                  PyTimeSeriesBundleReferenceOutput>;
-
-
-    static constexpr auto output_v = ddv::serial{
-        // typed outputs
-        []<typename T>(TimeSeriesDictOutput_T<T> *output, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesDictOutput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesDictOutput_T<U>, U>(std::move(impl));
-        },
-        []<typename T>(TimeSeriesSetOutput_T<T> *output, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesSetOutput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesSetOutput_T<U>, U>(std::move(impl));
-        },
-        []<typename T>(TimeSeriesFixedWindowOutput<T> *output, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesFixedWindowOutput<T>;
-            return create_wrapper_from_api<PyTimeSeriesWindowOutput<U>, U>(std::move(impl));
-        },
-        []<typename T>(TimeSeriesTimeWindowOutput<T> *output, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesTimeWindowOutput<T>;
-            return create_wrapper_from_api<PyTimeSeriesWindowOutput<U>, U>(std::move(impl));
-        },
-        // value outputs
-        [](TimeSeriesValueOutputBase *output, ApiPtr<TimeSeriesOutput> impl) {
-            return nb::cast(PyTimeSeriesValueOutput(std::move(impl)));
-        },
-        // opaque outputs
-        []<typename TS>(TS *output, ApiPtr<TimeSeriesOutput> impl)
-            requires(tp::contains<TS>(ts_opaque_output_types_v))
-        {
-            if constexpr (std::is_same_v<TS, TimeSeriesReferenceOutput>) {
-                throw std::runtime_error(
-                    "Python wrap output TS: Encountered a base TimeSeriesReferenceOutput "
-                    "that doesn't match any specialized type. This is a bug - there should not be naked instances of "
-                    "TimeSeriesReferenceOutput. Check where this output was created (likely in reduce_node.cpp::zero_node).");
-            } else {
-                using py_type = tp::get_t<tp::find<TS>(ts_opaque_output_types_v), py_ts_opaque_output_types>;
-                return create_wrapper_from_api<py_type, TS>(std::move(impl));
-            }
-        },
-        [] { return nb::none(); }};
 
     nb::object wrap_input(ApiPtr<TimeSeriesInput> impl) {
         if (!impl) { return nb::none(); }
