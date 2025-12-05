@@ -3,6 +3,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsl.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 #include <utility>
 
@@ -12,12 +13,12 @@ namespace hgraph {
     }
 
     time_series_output_s_ptr TimeSeriesListOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v = std::make_shared<TimeSeriesListOutput>(owning_node);
+        auto v = arena_make_shared_as<TimeSeriesListOutput, TimeSeriesOutput>(owning_node);
         return make_and_set_outputs(v);
     }
 
     time_series_output_s_ptr TimeSeriesListOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        auto v = std::make_shared<TimeSeriesListOutput>(owning_output);
+        auto v = arena_make_shared_as<TimeSeriesListOutput, TimeSeriesOutput>(owning_output);
         return make_and_set_outputs(v);
     }
 

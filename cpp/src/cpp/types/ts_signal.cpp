@@ -1,4 +1,5 @@
 #include <hgraph/types/ts_signal.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
     nb::object TimeSeriesSignalInput::py_value() const { return nb::cast(modified()); }
@@ -10,7 +11,7 @@ namespace hgraph {
         // Create child signals on demand, similar to Python implementation
         while (index >= _ts_values.size()) {
             // Create child with this as parent - child will notify parent, parent notifies node
-            auto new_item = std::make_shared<TimeSeriesSignalInput>(static_cast<TimeSeriesInput*>(this));
+            auto new_item = arena_make_shared_as<TimeSeriesSignalInput, TimeSeriesInput>(static_cast<TimeSeriesInput*>(this));
             if (active()) { new_item->make_active(); }
             _ts_values.push_back(new_item);
         }

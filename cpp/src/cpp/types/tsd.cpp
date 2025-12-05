@@ -7,6 +7,7 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsd.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/string_utils.h>
 
 #include <fmt/format.h>
@@ -130,7 +131,7 @@ namespace hgraph
     template <typename T_Key>
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_s_ptr ts_builder,
                                                           output_builder_s_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(parent), _key_set{std::make_shared<TimeSeriesSetOutput_T<T_Key>>(this)}, _ts_builder{std::move(ts_builder)},
+        : TimeSeriesDictOutput(parent), _key_set{arena_make_shared_as<TimeSeriesSetOutput_T<T_Key>, TimeSeriesOutput>(this)}, _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{this,
                           _ts_ref_builder,
@@ -154,7 +155,7 @@ namespace hgraph
     template <typename T_Key>
     TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(time_series_output_ptr parent, output_builder_s_ptr ts_builder,
                                                           output_builder_s_ptr ts_ref_builder)
-        : TimeSeriesDictOutput(parent), _key_set{std::make_shared<TimeSeriesSetOutput_T<T_Key>>(this)},
+        : TimeSeriesDictOutput(parent), _key_set{arena_make_shared_as<TimeSeriesSetOutput_T<T_Key>, TimeSeriesOutput>(this)},
           _ts_builder{std::move(ts_builder)}, _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{this,
                           _ts_ref_builder,
@@ -451,12 +452,12 @@ namespace hgraph
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_s_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{std::make_shared<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(this)},
+        : TimeSeriesDictInput(parent), _key_set{arena_make_shared_as<typename TimeSeriesDictInput_T<T_Key>::key_set_type, TimeSeriesInput>(this)},
           _ts_builder{ts_builder} {}
 
     template <typename T_Key>
     TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(time_series_input_ptr parent, input_builder_s_ptr ts_builder)
-        : TimeSeriesDictInput(parent), _key_set{std::make_shared<typename TimeSeriesDictInput_T<T_Key>::key_set_type>(this)},
+        : TimeSeriesDictInput(parent), _key_set{arena_make_shared_as<typename TimeSeriesDictInput_T<T_Key>::key_set_type, TimeSeriesInput>(this)},
           _ts_builder{ts_builder} {}
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_peer() const { return _has_peer; }

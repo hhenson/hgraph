@@ -5,6 +5,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/traits.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 #include <utility>
 
@@ -148,7 +149,7 @@ namespace hgraph
     Graph::s_ptr Graph::copy_with(node_list nodes) {
         // This is a copy, need to make sure we copy the graph contents
         // TODO: This REALLY should be constructed using a builder, for now we will just allow to continue
-        auto new_graph = std::make_shared<Graph>(_graph_id, std::move(nodes), _parent_node, _label, nullptr);
+        auto new_graph = arena_make_shared<Graph>(_graph_id, std::move(nodes), _parent_node, _label, nullptr);
         new_graph->clone_traits_from(*this);
         return new_graph;
     }

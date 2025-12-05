@@ -3,6 +3,7 @@
 #include <hgraph/types/tsb.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/nodes/push_queue_node.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
     PythonNodeBuilder::PythonNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
@@ -35,14 +36,14 @@ namespace hgraph {
 
         // If this is a push-queue node, build a PushQueueNode so the runtime can receive external messages
         if (signature->is_push_source_node()) {
-            auto node = std::make_shared<PushQueueNode>(node_ndx, owning_graph_id, signature, scalars);
+            auto node = arena_make_shared_as<PushQueueNode, Node>(node_ndx, owning_graph_id, signature, scalars);
             _build_inputs_and_outputs(node.get());
             // Provide the eval function so the node can expose a sender in start()
             node->set_eval_fn(eval_fn_to_use);
             return node;
         }
 
-        auto node = std::make_shared<PythonNode>(node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn);
+        auto node = arena_make_shared_as<PythonNode, Node>(node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn);
 
         _build_inputs_and_outputs(node.get());
         return node;

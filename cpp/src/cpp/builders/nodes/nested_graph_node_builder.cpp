@@ -2,11 +2,12 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/nodes/nest_graph_node.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
     node_s_ptr NestedGraphNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id,
                                                    int64_t node_ndx) const {
-        auto node = std::make_shared<NestedGraphNode>(node_ndx, owning_graph_id, signature, scalars, nested_graph_builder, input_node_ids,
+        auto node = arena_make_shared_as<NestedGraphNode, Node>(node_ndx, owning_graph_id, signature, scalars, nested_graph_builder, input_node_ids,
                                 output_node_id);
         _build_inputs_and_outputs(node.get());
         return node;

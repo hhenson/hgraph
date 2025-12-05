@@ -3,6 +3,7 @@
 
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/notifiable.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 #include <ddv/visitable.h>
 #include <memory>
 
@@ -120,7 +121,7 @@ namespace hgraph
 
     struct HGRAPH_EXPORT TimeSeriesOutput : TimeSeriesType,
                                             ddv::visitable<TimeSeriesOutput, TimeSeriesOutputVisitor>,
-                                            std::enable_shared_from_this<TimeSeriesOutput>
+                                            arena_enable_shared_from_this<TimeSeriesOutput>
     {
         using ptr          = TimeSeriesOutput *;
         using s_ptr        = std::shared_ptr<TimeSeriesOutput>;
@@ -173,7 +174,7 @@ namespace hgraph
     struct HGRAPH_EXPORT TimeSeriesInput : TimeSeriesType,
                                            Notifiable,
                                            ddv::visitable<TimeSeriesInput, TimeSeriesInputVisitor>,
-                                           std::enable_shared_from_this<TimeSeriesInput>
+                                           arena_enable_shared_from_this<TimeSeriesInput>
     {
         using ptr         = TimeSeriesInput *;
         using s_ptr       = std::shared_ptr<TimeSeriesInput>;
