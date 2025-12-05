@@ -893,4 +893,27 @@ namespace hgraph
             graph()->schedule_node(node_ndx(), _scheduler->next_scheduled_time());
         }
     }
+
+    // NotifiableContext interface implementations
+    engine_time_t Node::current_engine_time() const {
+        if (_cached_evaluation_time_ptr) {
+            return *_cached_evaluation_time_ptr;
+        }
+        if (_graph) {
+            return _graph->evaluation_clock()->evaluation_time();
+        }
+        return MIN_DT;
+    }
+
+    void Node::add_before_evaluation_notification(std::function<void()> &&fn) {
+        if (_graph) {
+            _graph->evaluation_engine_api()->add_before_evaluation_notification(std::move(fn));
+        }
+    }
+
+    void Node::add_after_evaluation_notification(std::function<void()> &&fn) {
+        if (_graph) {
+            _graph->evaluation_engine_api()->add_after_evaluation_notification(std::move(fn));
+        }
+    }
 }  // namespace hgraph
