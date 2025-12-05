@@ -22,21 +22,24 @@ namespace hgraph {
         auto t{current_time()};
         auto event = TsEventAny::modify(t, v);
         _impl->apply_event(event);
-        notify_parent(t);
+        // Note: We do NOT call notify_parent() here because:
+        // 1. For regular node outputs, the node producing the output shouldn't be scheduled
+        // 2. Subscriber notification is handled by TimeSeriesValueOutput::mark_modified()
+        // 3. Parent output notification is handled by BaseTimeSeriesOutput::mark_modified()
     }
 
     void TSOutput::set_value(AnyValue<> &&v) {
         auto t{current_time()};
         auto event = TsEventAny::modify(t, std::move(v));
         _impl->apply_event(event);
-        notify_parent(t);
+        // See comment in set_value(const AnyValue<>&) above
     }
 
     void TSOutput::invalidate() {
         if (!valid()) { return; }
         auto t{current_time()};
         _impl->mark_invalid(t);
-        notify_parent(t);
+        // See comment in set_value(const AnyValue<>&) above
     }
 
     void TSOutput::reset() {
@@ -132,15 +135,13 @@ namespace hgraph {
     }
 
     void TSInput::bind(impl_ptr &other) {
-        // If the other is a reference and we are not ...
+        // Type checking is delegated to the higher-level wrapper (e.g., TimeSeriesValueInput::bind_output)
+        // which already validates type compatibility before calling this method.
+        // The v2 layer is purely for value storage and binding mechanism.
+
+        // Check if we're binding to a reference type (for special handling)
         auto is_ts_bound_to_ref{other->is_value_instanceof(typeid(ref_value_tp)) &&
                                 !_impl->is_value_instanceof(typeid(ref_value_tp))};
-        // Treat compatibility symmetrically: accept if either side considers the other a compatible instance
-        auto is_compatible{_impl->is_value_instanceof(other) || other->is_value_instanceof(_impl)};
-        if (!(is_ts_bound_to_ref || is_compatible)) {
-            throw std::runtime_error(std::string("Type mismatch in bind_output: input expects ") + _impl->value_type().name() +
-                                     " but output provides " + other->value_type().name());
-        }
 
         // Get active-state from current impl before switching
         bool                             was_active{active()};

@@ -105,10 +105,8 @@ namespace hgraph
     const std::set<Notifiable *> &DelegateTSValue::delegate_subscribers() const { return _subscribers; }
 
     // BaseTSValue implementations
-    static bool allow_pyobject_wildcard() {
-        const char* env = std::getenv("HGRAPH_PYOBJECT_WILDCARD");
-        return env && (env[0] == '1' || env[0] == 'T' || env[0] == 't' || env[0] == 'Y' || env[0] == 'y');
-    }
+    // nb::object is always a wildcard type - it represents Python's "any" type
+    static constexpr bool allow_pyobject_wildcard() { return true; }
 
     void BaseTSValue::apply_event(const TsEventAny &event) {
         // We need to support the possibility of multiple updates, this happens in cases such as TSD updates to KeySet as we process
