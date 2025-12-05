@@ -45,7 +45,7 @@ def start_inspector(port: int, publish_interval: float, requests: TS[tuple[tuple
 
     graph = requests.owning_graph
     _state.requests_queue = GlobalState.instance().inspector_requests_queue
-    _state.requests.notify = lambda: _state.requests_queue(1)
+    _state.requests.notify = lambda: _state.requests_queue((1,))
 
     _state.observer = InspectionObserver(
         graph,
