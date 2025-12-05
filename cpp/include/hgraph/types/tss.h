@@ -202,7 +202,7 @@ namespace hgraph {
 
         void _reset_value();
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         void _add(const element_type &item);
@@ -258,7 +258,7 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         const TimeSeriesSetOutput_T<element_type> &prev_output_t() const;

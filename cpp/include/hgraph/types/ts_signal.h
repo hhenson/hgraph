@@ -36,7 +36,7 @@ namespace hgraph {
 
         void do_un_bind_output(bool unbind_refs) override;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     private:
         friend TimeSeriesSignalInputBuilder;

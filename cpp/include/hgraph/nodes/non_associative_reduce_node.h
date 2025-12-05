@@ -24,7 +24,7 @@ namespace hgraph {
 
         std::unordered_map<int, graph_s_ptr> nested_graphs();
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         void initialise() override;

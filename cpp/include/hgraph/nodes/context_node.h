@@ -10,7 +10,7 @@ namespace hgraph {
 
         ~ContextStubSourceNode() override = default;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         void initialise() override {

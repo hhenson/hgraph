@@ -152,7 +152,7 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         using bundle_type::set_ts_values;
@@ -171,7 +171,7 @@ namespace hgraph {
         // To keep the code in sync for now, will keep this, but there is probably a better way to implement this going forward.
         s_ptr copy_with(const node_ptr &parent, collection_type ts_values);
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         using bundle_type::set_ts_values;

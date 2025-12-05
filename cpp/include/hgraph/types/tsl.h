@@ -74,7 +74,7 @@ namespace hgraph {
 
         void py_set_value(const nb::object& value) override;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         friend TimeSeriesListOutputBuilder;
@@ -87,7 +87,7 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         friend TimeSeriesListInputBuilder;

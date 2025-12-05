@@ -37,7 +37,7 @@ namespace hgraph {
 
         void set_receiver(sender_receiver_state_ptr value);
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         void do_eval() override;

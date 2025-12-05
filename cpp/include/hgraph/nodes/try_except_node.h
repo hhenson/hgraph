@@ -13,7 +13,7 @@ namespace hgraph {
 
         void do_eval() override;
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
 
     protected:
         void wire_outputs() override;

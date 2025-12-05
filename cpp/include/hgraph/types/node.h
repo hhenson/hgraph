@@ -170,8 +170,11 @@ namespace hgraph
     };
 
     using node_types =
-        tp::tpack<ContextStubSourceNode, NestedNode, PushQueueNode, LastValuePullNode, BasePythonNode, TsdNonAssociativeReduceNode,
-                  PythonGeneratorNode, PythonNode, NestedGraphNode, ComponentNode, TryExceptNode>;
+        tp::tpack<PushQueueNode, ContextStubSourceNode, LastValuePullNode, BasePythonNode, NestedNode,
+            // BasePythonNode descendands
+            PythonGeneratorNode, PythonNode,
+            // NestedNode descendands
+            ComponentNode, TsdNonAssociativeReduceNode, NestedGraphNode, TryExceptNode>;
     inline constexpr auto node_types_v = node_types{};
 
     using NodeVisitor = decltype(tp::make_v<ddv::mux>(

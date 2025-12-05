@@ -19,7 +19,7 @@ namespace hgraph {
 
         const nb::callable &eval_fn();
 
-        VISITOR_SUPPORT(final)
+        VISITOR_SUPPORT()
     };
 } // namespace hgraph
 
