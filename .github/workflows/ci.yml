@@ -51,10 +51,10 @@ jobs:
           CMAKE_GENERATOR: Ninja
         run: uv build -v
 
-      - name: Prepare test environment (all groups and extras)
+      - name: Prepare test environment (dependencies only, skip project build)
         run: |
           uv venv
-          uv sync --all-extras --all-groups
+          uv sync --all-extras --all-groups --no-install-project
 
       - name: List dist artifacts (Windows)
         if: runner.os == 'Windows'
