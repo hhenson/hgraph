@@ -140,7 +140,6 @@ namespace hgraph {
     template<typename T_TS>
     concept TimeSeriesT = std::is_base_of_v<TimeSeriesInput, T_TS> || std::is_base_of_v<TimeSeriesOutput, T_TS>;
 
-    struct TimeSeriesValueInputBase;
     struct TimeSeriesSignalInput;
     struct IndexedTimeSeriesInput;
     struct TimeSeriesDictInput;
@@ -150,7 +149,6 @@ namespace hgraph {
     struct TimeSeriesSetReferenceInput;
     struct TimeSeriesDictReferenceInput;
     struct TimeSeriesBundleReferenceInput;
-    struct TimeSeriesValueOutputBase;
     struct IndexedTimeSeriesOutput;
     struct TimeSeriesDictOutput;
     struct TimeSeriesValueReferenceOutput;
@@ -160,11 +158,17 @@ namespace hgraph {
     struct TimeSeriesDictReferenceOutput;
     struct TimeSeriesBundleReferenceOutput;
 
-    template<typename> struct TimeSeriesValueInput;
+    // Non-templated time-series value types (use AnyValue internally)
+    struct TimeSeriesValueInput;
+    struct TimeSeriesValueOutput;
+
+    // Backward compatibility aliases
+    using TimeSeriesValueInputBase = TimeSeriesValueInput;
+    using TimeSeriesValueOutputBase = TimeSeriesValueOutput;
+
     template<typename> struct TimeSeriesDictInput_T;
     template<typename> struct TimeSeriesSetInput_T;
     template<typename> struct TimeSeriesWindowInput;
-    template<typename> struct TimeSeriesValueOutput;
     template<typename> struct TimeSeriesDictOutput_T;
     template<typename> struct TimeSeriesSetOutput_T;
     template<typename> struct TimeSeriesFixedWindowOutput;

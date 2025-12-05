@@ -4,55 +4,61 @@
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
-    template<typename T>
-    time_series_output_s_ptr TimeSeriesValueOutputBuilder<T>::make_instance(node_ptr owning_node) const {
-        return arena_make_shared_as<TimeSeriesValueOutput<T>, TimeSeriesOutput>(owning_node);
+    TimeSeriesValueOutputBuilder::TimeSeriesValueOutputBuilder(const std::type_info& value_type)
+        : _value_type(value_type) {}
+
+    time_series_output_s_ptr TimeSeriesValueOutputBuilder::make_instance(node_ptr owning_node) const {
+        return arena_make_shared_as<TimeSeriesValueOutput, TimeSeriesOutput>(owning_node, _value_type);
     }
 
-    template<typename T>
-    time_series_output_s_ptr TimeSeriesValueOutputBuilder<T>::make_instance(time_series_output_ptr owning_output) const {
-        return arena_make_shared_as<TimeSeriesValueOutput<T>, TimeSeriesOutput>(owning_output);
+    time_series_output_s_ptr TimeSeriesValueOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+        return arena_make_shared_as<TimeSeriesValueOutput, TimeSeriesOutput>(owning_output, _value_type);
     }
 
-    template<typename T>
-    void TimeSeriesValueOutputBuilder<T>::release_instance(time_series_output_ptr item) const {
+    void TimeSeriesValueOutputBuilder::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
-        auto ts = dynamic_cast<TimeSeriesValueOutput<T> *>(item);
+        auto ts = dynamic_cast<TimeSeriesValueOutput *>(item);
         if (ts == nullptr) {
             throw std::runtime_error("TimeSeriesValueOutputBuilder::release_instance: expected TimeSeriesValueOutput but got different type");
         }
-        ts->reset_value();
+        // No need to reset value - it's handled by AnyValue destructor
     }
 
-    template<typename T>
-    size_t TimeSeriesValueOutputBuilder<T>::memory_size() const {
-        return add_canary_size(sizeof(TimeSeriesValueOutput<T>));
+    size_t TimeSeriesValueOutputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesValueOutput));
     }
+
+    // Helper classes for backward compatibility with Python bindings
+    struct OutputBuilder_TS_Bool : TimeSeriesValueOutputBuilder {
+        OutputBuilder_TS_Bool() : TimeSeriesValueOutputBuilder(typeid(bool)) {}
+    };
+    struct OutputBuilder_TS_Int : TimeSeriesValueOutputBuilder {
+        OutputBuilder_TS_Int() : TimeSeriesValueOutputBuilder(typeid(int64_t)) {}
+    };
+    struct OutputBuilder_TS_Float : TimeSeriesValueOutputBuilder {
+        OutputBuilder_TS_Float() : TimeSeriesValueOutputBuilder(typeid(double)) {}
+    };
+    struct OutputBuilder_TS_Date : TimeSeriesValueOutputBuilder {
+        OutputBuilder_TS_Date() : TimeSeriesValueOutputBuilder(typeid(engine_date_t)) {}
+    };
+    struct OutputBuilder_TS_DateTime : TimeSeriesValueOutputBuilder {
+        OutputBuilder_TS_DateTime() : TimeSeriesValueOutputBuilder(typeid(engine_time_t)) {}
+    };
+    struct OutputBuilder_TS_TimeDelta : TimeSeriesValueOutputBuilder {
+        OutputBuilder_TS_TimeDelta() : TimeSeriesValueOutputBuilder(typeid(engine_time_delta_t)) {}
+    };
+    struct OutputBuilder_TS_Object : TimeSeriesValueOutputBuilder {
+        OutputBuilder_TS_Object() : TimeSeriesValueOutputBuilder(typeid(nb::object)) {}
+    };
 
     void time_series_value_output_builder_register_with_nanobind(nb::module_ &m) {
-        using OutputBuilder_TS_Bool = TimeSeriesValueOutputBuilder<bool>;
-        using OutputBuilder_TS_Int = TimeSeriesValueOutputBuilder<int64_t>;
-        using OutputBuilder_TS_Float = TimeSeriesValueOutputBuilder<double>;
-        using OutputBuilder_TS_Date = TimeSeriesValueOutputBuilder<engine_date_t>;
-        using OutputBuilder_TS_DateTime = TimeSeriesValueOutputBuilder<engine_time_t>;
-        using OutputBuilder_TS_TimeDelta = TimeSeriesValueOutputBuilder<engine_time_delta_t>;
-        using OutputBuilder_TS_Object = TimeSeriesValueOutputBuilder<nb::object>;
-
-        nb::class_<OutputBuilder_TS_Bool, OutputBuilder>(m, "OutputBuilder_TS_Bool").def(nb::init<>());
-        nb::class_<OutputBuilder_TS_Int, OutputBuilder>(m, "OutputBuilder_TS_Int").def(nb::init<>());
-        nb::class_<OutputBuilder_TS_Float, OutputBuilder>(m, "OutputBuilder_TS_Float").def(nb::init<>());
-        nb::class_<OutputBuilder_TS_Date, OutputBuilder>(m, "OutputBuilder_TS_Date").def(nb::init<>());
-        nb::class_<OutputBuilder_TS_DateTime, OutputBuilder>(m, "OutputBuilder_TS_DateTime").def(nb::init<>());
-        nb::class_<OutputBuilder_TS_TimeDelta, OutputBuilder>(m, "OutputBuilder_TS_TimeDelta").def(nb::init<>());
-        nb::class_<OutputBuilder_TS_Object, OutputBuilder>(m, "OutputBuilder_TS_Object").def(nb::init<>());
+        nb::class_<TimeSeriesValueOutputBuilder, OutputBuilder>(m, "TimeSeriesValueOutputBuilder");
+        nb::class_<OutputBuilder_TS_Bool, TimeSeriesValueOutputBuilder>(m, "OutputBuilder_TS_Bool").def(nb::init<>());
+        nb::class_<OutputBuilder_TS_Int, TimeSeriesValueOutputBuilder>(m, "OutputBuilder_TS_Int").def(nb::init<>());
+        nb::class_<OutputBuilder_TS_Float, TimeSeriesValueOutputBuilder>(m, "OutputBuilder_TS_Float").def(nb::init<>());
+        nb::class_<OutputBuilder_TS_Date, TimeSeriesValueOutputBuilder>(m, "OutputBuilder_TS_Date").def(nb::init<>());
+        nb::class_<OutputBuilder_TS_DateTime, TimeSeriesValueOutputBuilder>(m, "OutputBuilder_TS_DateTime").def(nb::init<>());
+        nb::class_<OutputBuilder_TS_TimeDelta, TimeSeriesValueOutputBuilder>(m, "OutputBuilder_TS_TimeDelta").def(nb::init<>());
+        nb::class_<OutputBuilder_TS_Object, TimeSeriesValueOutputBuilder>(m, "OutputBuilder_TS_Object").def(nb::init<>());
     }
-
-    // Template instantiations
-    template struct TimeSeriesValueOutputBuilder<bool>;
-    template struct TimeSeriesValueOutputBuilder<int64_t>;
-    template struct TimeSeriesValueOutputBuilder<double>;
-    template struct TimeSeriesValueOutputBuilder<engine_date_t>;
-    template struct TimeSeriesValueOutputBuilder<engine_time_t>;
-    template struct TimeSeriesValueOutputBuilder<engine_time_delta_t>;
-    template struct TimeSeriesValueOutputBuilder<nb::object>;
 } // namespace hgraph
