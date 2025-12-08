@@ -265,6 +265,7 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/tsb.h
         include/hgraph/types/tsl.h
         include/hgraph/types/tsw.h
+        include/hgraph/types/v2_adaptor.h
         include/hgraph/python/chrono.h
         include/hgraph/python/format.h
         include/hgraph/python/global_state.h
