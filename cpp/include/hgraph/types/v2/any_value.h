@@ -203,8 +203,17 @@ namespace hgraph
             std::size_t (*hash)(const AnyValue &) noexcept;
             bool (*       equals)(const AnyValue &, const AnyValue &) noexcept;
             bool (*       less)(const AnyValue &, const AnyValue &); // may throw when < not supported
+            nb::object (*to_py)(const AnyValue &);                   // convert to Python object via nb::cast
             bool          is_reference;                              // indicates borrowed reference storage vs owned
         };
+
+    public:
+        /// Convert the contained value to a Python object using nb::cast.
+        /// Returns None if the container is empty.
+        [[nodiscard]] nb::object as_python() const {
+            if (!vtable_) return nb::none();
+            return vtable_->to_py(*this);
+        }
 
     public:
         // Equality: type + value. Empty equals empty. Different types -> false.
@@ -325,6 +334,13 @@ namespace hgraph
                         return *ap < *bp;
                     } else { throw std::runtime_error("AnyValue: operator< not supported for contained type"); }
                 },
+                // to_py => convert to Python object via nb::cast
+                [](const AnyValue &self) -> nb::object {
+                    const T *p = self.using_heap_
+                                     ? *reinterpret_cast<T * const*>(self.storage_)
+                                     : reinterpret_cast<const T *>(self.storage_ptr());
+                    return nb::cast(*p);
+                },
                 /* is_reference */ false
             };
             return vt;
@@ -381,6 +397,11 @@ namespace hgraph
                     if constexpr (requires(const T &x, const T &y) { { x < y } -> std::convertible_to<bool>; }) {
                         return *ap < *bp;
                     } else { throw std::runtime_error("AnyValue: operator< not supported for contained type"); }
+                },
+                // to_py => convert to Python object via nb::cast
+                [](const AnyValue &self) -> nb::object {
+                    const T *p = *reinterpret_cast<T * const*>(self.storage_);
+                    return nb::cast(*p);
                 },
                 /* is_reference */ true
             };
