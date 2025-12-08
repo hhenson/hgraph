@@ -42,12 +42,12 @@ namespace hgraph {
         }
 
         template<typename T>
-        const type_t<T>::typename const_placement_type get() const {
+        const type_t<T>::typename const_interface_type get() const {
             return type_t<T>::get(vtbl, placeholder);
         }
 
         template<typename T>
-        type_t<T>::typename const_placement_type get() {
+        type_t<T>::typename const_interface_type get() {
             return type_t<T>::get(vtbl, placeholder);
         }
 
