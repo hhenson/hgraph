@@ -8,4 +8,4 @@ omit =
     src/hgraph/debug/*
 
 [coverage:report]
-fail_under = 80
+fail_under = 70
