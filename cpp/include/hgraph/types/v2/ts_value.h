@@ -87,7 +87,7 @@ namespace hgraph
         using impl_ptr = TSValue::s_ptr;
 
         // Non-template constructor (implementation in .cpp)
-        explicit TSOutput(NotifiableContext *parent, const std::type_info &value_type);
+        explicit TSOutput(NotifiableContext *owner, const std::type_info &value_type);
 
         // Move semantics
         TSOutput(TSOutput &&)            = default;
@@ -128,8 +128,8 @@ namespace hgraph
         // a collection output. For the case of output, the outer nodes notify are a nop in the sense that it does not need to be
         // scheduled. However, the wrapper collection may be tracking observers at their level and also update their last updated
         // state.
-        [[nodiscard]] Notifiable *parent() const;
-        void                      set_parent(NotifiableContext *parent);
+        [[nodiscard]] Notifiable *owner() const;
+        void                      set_owner(NotifiableContext *owner);
 
         void subscribe(Notifiable *notifier);
         void unsubscribe(Notifiable *notifier);
@@ -143,7 +143,7 @@ namespace hgraph
         friend TSInput;
         friend ReferencedTSValue;
         impl_ptr           _impl;    // Shared with bound inputs
-        NotifiableContext *_parent;  // Owning node (implements both Notifiable and CurrentTimeProvider)
+        NotifiableContext *_owner;  // Owning node (implements both Notifiable and CurrentTimeProvider)
     };
 
     /**
@@ -211,16 +211,17 @@ namespace hgraph
         // Current time accessor (delegates to parent)
         [[nodiscard]] engine_time_t current_time() const;
 
-        // The parent can also be considered as the interested observer of this output. In the case of the output, this can be
+        // The owner can also be considered as the interested observer of this output. In the case of the output, this can be
         // a collection output. For the case of output, the outer nodes notify are a nop in the sense that it does not need to be
         // scheduled. However, the wrapper collection may be tracking observers at their level and also update their last updated
         // state.
-        [[nodiscard]] NotifiableContext *parent() const;
-        void                             set_parent(NotifiableContext *parent);
+        [[nodiscard]] NotifiableContext *owner() const;
+        void                             set_owner(NotifiableContext *owner);
 
         // The input is associated with a model not owned by this input.
         // This mirrors the concept of having the _output set on the old view of TS
         [[nodiscard]] bool bound() const;
+
         // Bind to output (shares impl) - implementation in .cpp
         void bind_output(TSOutput &output);
         void copy_from_input(TSInput &input);
@@ -241,16 +242,16 @@ namespace hgraph
 
       private:
         impl_ptr                _impl;                  // Shared impl
-        NotifiableContext      *_parent;                // Owning node (implements both Notifiable and CurrentTimeProvider)
+        NotifiableContext      *_owner;                // Owning node (implements both Notifiable and CurrentTimeProvider)
     };
 
     // Factory functions for template convenience
-    template <typename T> TSOutput make_ts_output(NotifiableContext *parent, const std::type_info &value_type = typeid(T)) {
-        return TSOutput(parent, value_type);
+    template <typename T> TSOutput make_ts_output(NotifiableContext *owner, const std::type_info &value_type = typeid(T)) {
+        return TSOutput(owner, value_type);
     }
 
-    template <typename T> TSInput make_ts_input(NotifiableContext *parent, const std::type_info &value_type = typeid(T)) {
-        return TSInput(parent, value_type);
+    template <typename T> TSInput make_ts_input(NotifiableContext *owner, const std::type_info &value_type = typeid(T)) {
+        return TSInput(owner, value_type);
     }
 
 }  // namespace hgraph

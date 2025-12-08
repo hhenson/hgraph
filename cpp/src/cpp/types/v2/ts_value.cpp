@@ -11,9 +11,9 @@ namespace hgraph {
     using ref_value_tp = ref_value_tp_placeholder;
 
     // TSOutput constructor
-    TSOutput::TSOutput(NotifiableContext *parent, const std::type_info &value_type)
-        : _impl(std::make_shared<PeeredTSValue>(value_type)), _parent(parent) {
-        if (!_parent) { throw std::runtime_error("Parent cannot be null"); }
+    TSOutput::TSOutput(NotifiableContext *owner, const std::type_info &value_type)
+        : _impl(std::make_shared<PeeredTSValue>(value_type)), _owner(owner) {
+        if (!_owner) { throw std::runtime_error("Parent cannot be null"); }
     }
 
     const AnyValue<> &TSOutput::value() const { return _impl->value(); }
@@ -56,14 +56,14 @@ namespace hgraph {
     TsEventAny TSOutput::delta_value() const { return _impl->query_event(current_time()); }
 
     engine_time_t TSOutput::current_time() const {
-        auto *provider = dynamic_cast<CurrentTimeProvider *>(_parent);
+        auto *provider = dynamic_cast<CurrentTimeProvider *>(_owner);
         if (!provider) { throw std::runtime_error("Parent does not implement CurrentTimeProvider"); }
         return provider->current_engine_time();
     }
 
-    Notifiable *TSOutput::parent() const { return _parent; }
+    Notifiable *TSOutput::owner() const { return _owner; }
 
-    void TSOutput::set_parent(NotifiableContext *parent) { _parent = parent; }
+    void TSOutput::set_owner(NotifiableContext *owner) { _owner = owner; }
 
     void TSOutput::subscribe(Notifiable *notifier) { _impl->add_subscriber(notifier); }
 
@@ -72,12 +72,12 @@ namespace hgraph {
     const std::type_info &TSOutput::value_type() const { return _impl->value_type(); }
 
     void TSOutput::notify_parent(engine_time_t t) const {
-        if (_parent) { _parent->notify(t); }
+        if (_owner) { _owner->notify(t); }
     }
 
     // TSInput constructor
     TSInput::TSInput(NotifiableContext *parent, const std::type_info &value_type)
-        : _impl(std::make_shared<NonBoundTSValue>(value_type)), _parent(parent) {}
+        : _impl(std::make_shared<NonBoundTSValue>(value_type)), _owner(parent) {}
 
     // TSInput::bind_output implementation
     void TSInput::bind_output(TSOutput &output) { bind(output._impl); }
@@ -127,11 +127,11 @@ namespace hgraph {
     const std::type_info &TSInput::value_type() const { return _impl->value_type(); }
 
     void TSInput::add_before_evaluation_notification(std::function<void()> &&fn) const {
-        dynamic_cast<EvaluationScheduler *>(_parent)->add_before_evaluation_notification(std::move(fn));
+        dynamic_cast<EvaluationScheduler *>(_owner)->add_before_evaluation_notification(std::move(fn));
     }
 
     void TSInput::add_after_evaluation_notification(std::function<void()> &&fn) const {
-        dynamic_cast<EvaluationScheduler *>(_parent)->add_after_evaluation_notification(std::move(fn));
+        dynamic_cast<EvaluationScheduler *>(_owner)->add_after_evaluation_notification(std::move(fn));
     }
 
     void TSInput::bind(impl_ptr &other) {
@@ -158,7 +158,7 @@ namespace hgraph {
 
         // Bind to new impl
         if (is_ts_bound_to_ref) {
-            _impl = std::make_shared<ReferencedTSValue>(other, value_type(), this->parent());
+            _impl = std::make_shared<ReferencedTSValue>(other, value_type(), this->owner());
         } else {
             // If we have subscribers and the other is not a delegate, make it a delegate first!
             if (!subscriptions.empty()) {
@@ -224,7 +224,7 @@ namespace hgraph {
             // change).
             auto sampled{std::make_shared<SampledTSValue>(_impl, tm)};
             // Register a cleanup handler, as we don't want to keep this indefinitely
-            _parent->add_after_evaluation_notification([&]() {
+            _owner->add_after_evaluation_notification([&]() {
                 // Make sure the current delegate is in fact a sampled delegate, if not...
                 auto *impl = dynamic_cast<SampledTSValue *>(_impl.get());
                 if (impl != nullptr) {
@@ -236,23 +236,23 @@ namespace hgraph {
         }
 
         // We will force the notification
-        _parent->notify(tm);
+        _owner->notify(tm);
     }
 
     void TSInput::notify(engine_time_t t) {
         // Notify parent to schedule owning node
-        if (_parent) { _parent->notify(t); }
+        if (_owner) { _owner->notify(t); }
     }
 
     engine_time_t TSInput::current_time() const {
-        auto *provider = dynamic_cast<CurrentTimeProvider *>(_parent);
+        auto *provider = dynamic_cast<CurrentTimeProvider *>(_owner);
         if (!provider) { throw std::runtime_error("Parent does not implement CurrentTimeProvider"); }
         return provider->current_engine_time();
     }
 
-    NotifiableContext *TSInput::parent() const { return _parent; }
+    NotifiableContext *TSInput::owner() const { return _owner; }
 
-    void TSInput::set_parent(NotifiableContext *parent) { _parent = parent; }
+    void TSInput::set_owner(NotifiableContext *owner) { _owner = owner; }
 
     bool TSInput::bound() const {
         if (is_sampled(_impl)) { return !is_non_bound(static_cast<const SampledTSValue *>(_impl.get())->delegate()); }
