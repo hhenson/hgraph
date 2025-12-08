@@ -7,3 +7,7 @@ sources:
     "1.6":
       url: "https://github.com/bombela/backward-cpp/archive/refs/tags/v1.6.tar.gz"
       sha256: ""
+  robin_map:
+    "1.4.0":
+      url: "https://github.com/Tessil/robin-map/archive/refs/tags/v1.4.0.tar.gz"
+      sha256: ""

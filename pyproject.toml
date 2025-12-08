@@ -82,7 +82,7 @@ test = [
 ]
 dev = [
     # This is needed for CLion / other dev env to find the nanobind libs.
-    "nanobind>=2.9",
+    "nanobind>=2.9.2",
 ]
 
 [build-system]

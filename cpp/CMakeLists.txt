@@ -111,6 +111,8 @@ message(STATUS "Nanobind DIR: ${NB_DIR}/include")
 
 find_package(Threads)
 
+find_package(tsl-robin-map)
+
 # fmt via package or FetchContent
 message(STATUS "CMAKE_PREFIX_PATH: ${CMAKE_PREFIX_PATH}")
 find_package(fmt CONFIG QUIET)
