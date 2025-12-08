@@ -182,6 +182,8 @@ namespace hgraph
         [[nodiscard]] virtual s_ptr parent_input() const     = 0;
         [[nodiscard]] virtual bool  has_parent_input() const = 0;
 
+        virtual void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) = 0;
+
         // This is used to indicate if the owner of this input is interested in being notified when
         // modifications are made to the value represented by this input.
         [[nodiscard]] virtual bool active() const = 0;
