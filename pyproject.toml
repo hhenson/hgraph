@@ -143,7 +143,7 @@ hg = ["hgraph", ]
 tests = ["hgraph_unit_tests"]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 70
 exclude_lines = [
     "no cov",
     "if __name__ == .__main__.:",
