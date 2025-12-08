@@ -159,7 +159,7 @@ namespace hgraph {
         virtual void do_un_bind_output(bool unbind_refs);
 
         void notify(engine_time_t modified_time) override;
-        virtual void notify_parent(TimeSeriesInput *child, engine_time_t modified_time);
+        void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
 
         void set_sample_time(engine_time_t sample_time);
         [[nodiscard]] engine_time_t sample_time() const;
