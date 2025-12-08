@@ -1,6 +1,7 @@
 #include <hgraph/builders/time_series_types/time_series_dict_output_builder.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsd.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 #include <utility>
 
@@ -12,12 +13,12 @@ namespace hgraph {
 
     template<typename T>
     time_series_output_s_ptr TimeSeriesDictOutputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesDictOutput_T<T>>(owning_node, ts_builder, ts_ref_builder);
+        return arena_make_shared_as<TimeSeriesDictOutput_T<T>, TimeSeriesOutput>(owning_node, ts_builder, ts_ref_builder);
     }
 
     template<typename T>
     time_series_output_s_ptr TimeSeriesDictOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output) const {
-        return std::make_shared<TimeSeriesDictOutput_T<T>>(owning_output, ts_builder, ts_ref_builder);
+        return arena_make_shared_as<TimeSeriesDictOutput_T<T>, TimeSeriesOutput>(owning_output, ts_builder, ts_ref_builder);
     }
 
     template<typename T>

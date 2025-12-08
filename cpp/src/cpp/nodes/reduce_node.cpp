@@ -9,6 +9,7 @@
 #include <hgraph/types/traits.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/types/tsd.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/util/string_utils.h>
 
@@ -63,7 +64,7 @@ namespace hgraph {
         //TODO: If this graph escapes into python we will need to look into providing
         //      an actual control block this may also need to be constructed from
         //      the builder.
-        nested_graph_ = std::make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_s_ptr>{}, this, "", &graph()->traits());
+        nested_graph_ = arena_make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_s_ptr>{}, this, "", &graph()->traits());
         nested_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
             graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), this)));
         initialise_component(*nested_graph_);

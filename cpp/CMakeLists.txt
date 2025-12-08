@@ -109,6 +109,17 @@ find_package(nanobind CONFIG REQUIRED)
 include_directories(${NB_DIR}/include)
 message(STATUS "Nanobind DIR: ${NB_DIR}/include")
 
+# Provide tsl::robin_map target from nanobind's bundled headers if not already available.
+# This prevents nanobind_add_module from calling find_dependency(tsl-robin-map) and failing.
+if (NOT TARGET tsl::robin_map)
+    if (IS_DIRECTORY "${NB_DIR}/ext/robin_map/include")
+        add_library(tsl::robin_map INTERFACE IMPORTED)
+        set_target_properties(tsl::robin_map PROPERTIES
+            INTERFACE_INCLUDE_DIRECTORIES "${NB_DIR}/ext/robin_map/include")
+        message(STATUS "Using nanobind's bundled tsl::robin_map from ${NB_DIR}/ext/robin_map/include")
+    endif()
+endif()
+
 find_package(Threads)
 
 # fmt via package or FetchContent

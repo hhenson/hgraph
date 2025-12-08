@@ -9,12 +9,13 @@
 
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/traits.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/sender_receiver_state.h>
 #include <memory>
 
 namespace hgraph
 {
-    struct HGRAPH_EXPORT Graph : ComponentLifeCycle, std::enable_shared_from_this<Graph>
+    struct HGRAPH_EXPORT Graph : ComponentLifeCycle, arena_enable_shared_from_this<Graph>
     {
         using ptr = Graph*;
         using s_ptr = std::shared_ptr<Graph>;

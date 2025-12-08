@@ -1,16 +1,17 @@
 #include <hgraph/builders/time_series_types/time_series_value_output_builder.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ts.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
     template<typename T>
     time_series_output_s_ptr TimeSeriesValueOutputBuilder<T>::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesValueOutput<T>>(owning_node);
+        return arena_make_shared_as<TimeSeriesValueOutput<T>, TimeSeriesOutput>(owning_node);
     }
 
     template<typename T>
     time_series_output_s_ptr TimeSeriesValueOutputBuilder<T>::make_instance(time_series_output_ptr owning_output) const {
-        return std::make_shared<TimeSeriesValueOutput<T>>(owning_output);
+        return arena_make_shared_as<TimeSeriesValueOutput<T>, TimeSeriesOutput>(owning_output);
     }
 
     template<typename T>

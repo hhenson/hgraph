@@ -1,5 +1,6 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 #include <algorithm>
 #include <numeric>
@@ -342,7 +343,7 @@ const std::function < bool(const ts_type &) > &constraint)
     }
 
     TimeSeriesBundleInput::s_ptr TimeSeriesBundleInput::copy_with(const node_ptr &parent, collection_type ts_values) {
-        auto v{std::make_shared<TimeSeriesBundleInput>(parent, TimeSeriesSchema::ptr{&schema()})};
+        auto v{arena_make_shared_as<TimeSeriesBundleInput, TimeSeriesInput>(parent, TimeSeriesSchema::ptr{&schema()})};
         v->set_ts_values(ts_values);
         // Not sure if this may be required, but doing this did not fix anything so leaving it out as the Python code does not
         // Currently use this.

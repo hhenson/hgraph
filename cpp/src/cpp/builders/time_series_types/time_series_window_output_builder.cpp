@@ -1,6 +1,7 @@
 #include <hgraph/builders/time_series_types/time_series_window_output_builder.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsw.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
     template<typename T>
@@ -11,12 +12,12 @@ namespace hgraph {
     // TSW output builder implementations
     template<typename T>
     time_series_output_s_ptr TimeSeriesWindowOutputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesFixedWindowOutput<T>>(owning_node, size, min_size);
+        return arena_make_shared_as<TimeSeriesFixedWindowOutput<T>, TimeSeriesOutput>(owning_node, size, min_size);
     }
 
     template<typename T>
     time_series_output_s_ptr TimeSeriesWindowOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output) const {
-        return std::make_shared<TimeSeriesFixedWindowOutput<T>>(owning_output, size, min_size);
+        return arena_make_shared_as<TimeSeriesFixedWindowOutput<T>, TimeSeriesOutput>(owning_output, size, min_size);
     }
 
     template<typename T>
@@ -51,12 +52,12 @@ namespace hgraph {
 
     template<typename T>
     time_series_output_s_ptr TimeSeriesTimeWindowOutputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesTimeWindowOutput<T>>(owning_node, size, min_size);
+        return arena_make_shared_as<TimeSeriesTimeWindowOutput<T>, TimeSeriesOutput>(owning_node, size, min_size);
     }
 
     template<typename T>
     time_series_output_s_ptr TimeSeriesTimeWindowOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output) const {
-        return std::make_shared<TimeSeriesTimeWindowOutput<T>>(owning_output, size, min_size);
+        return arena_make_shared_as<TimeSeriesTimeWindowOutput<T>, TimeSeriesOutput>(owning_output, size, min_size);
     }
 
     template<typename T>

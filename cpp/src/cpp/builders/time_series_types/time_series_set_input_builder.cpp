@@ -1,16 +1,17 @@
 #include <hgraph/builders/time_series_types/time_series_set_input_builder.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/tss.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
     template<typename T>
     time_series_input_s_ptr TimeSeriesSetInputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        return std::make_shared<TimeSeriesSetInput_T<T>>(owning_node);
+        return arena_make_shared_as<TimeSeriesSetInput_T<T>, TimeSeriesInput>(owning_node);
     }
 
     template<typename T>
     time_series_input_s_ptr TimeSeriesSetInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input) const {
-        return std::make_shared<TimeSeriesSetInput_T<T>>(owning_input);
+        return arena_make_shared_as<TimeSeriesSetInput_T<T>, TimeSeriesInput>(owning_input);
     }
 
     template<typename T>
