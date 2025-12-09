@@ -194,7 +194,7 @@ namespace hgraph {
         return other_in != nullptr && other_in->_ts_input.value_type() == _ts_input.value_type();
     }
 
-    bool TimeSeriesValueInput::bind_output(time_series_output_s_ptr output_) {
+    bool TimeSeriesValueInput::bind_output(const time_series_output_s_ptr& output_) {
         // First do the base binding to set up parent tracking
         if (!BaseTimeSeriesInput::bind_output(output_)) {
             return false;
