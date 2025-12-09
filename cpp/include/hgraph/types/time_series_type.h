@@ -12,7 +12,7 @@ namespace hgraph
 
     struct TimeSeriesVisitor;
 
-    using ts_input_types = tp::tpack<BaseTimeSeriesInput, TimeSeriesValueInputBase, TimeSeriesSignalInput, IndexedTimeSeriesInput,
+    using ts_input_types = tp::tpack<TimeSeriesValueInputBase, TimeSeriesSignalInput, IndexedTimeSeriesInput,
                                      TimeSeriesListInput, TimeSeriesSetInput, TimeSeriesDictInput, TimeSeriesBundleInput>;
     inline constexpr auto ts_input_types_v = ts_input_types{};
 
@@ -54,13 +54,6 @@ namespace hgraph
         using ptr   = TimeSeriesType *;
         using s_ptr = std::shared_ptr<TimeSeriesType>;
 
-        // Pure virtual interface - constructors in derived classes
-        TimeSeriesType()                       = default;
-        TimeSeriesType(const TimeSeriesType &) = default;
-        TimeSeriesType(TimeSeriesType &&)      = default;
-
-        TimeSeriesType &operator=(const TimeSeriesType &) = default;
-        TimeSeriesType &operator=(TimeSeriesType &&)      = default;
         virtual ~TimeSeriesType()                         = default;
 
         // Pure virtual methods to be implemented in derived classes
@@ -123,7 +116,6 @@ namespace hgraph
     {
         using ptr          = TimeSeriesOutput *;
         using s_ptr        = std::shared_ptr<TimeSeriesOutput>;
-        TimeSeriesOutput() = default;
 
         // Output-specific navigation of the graph structure.
         [[nodiscard]] virtual s_ptr parent_output() const     = 0;
@@ -176,7 +168,6 @@ namespace hgraph
     {
         using ptr         = TimeSeriesInput *;
         using s_ptr       = std::shared_ptr<TimeSeriesInput>;
-        TimeSeriesInput() = default;
 
         // Graph navigation specific to the input
         [[nodiscard]] virtual s_ptr parent_input() const     = 0;
@@ -196,7 +187,7 @@ namespace hgraph
         [[nodiscard]] virtual bool                     has_peer() const                              = 0;
         [[nodiscard]] virtual time_series_output_s_ptr output() const                                = 0;
         [[nodiscard]] virtual bool                     has_output() const                            = 0;
-        virtual bool                                   bind_output(time_series_output_s_ptr output_) = 0;
+        virtual bool                                   bind_output(const time_series_output_s_ptr &output_) = 0;
         virtual void                                   un_bind_output(bool unbind_refs)              = 0;
 
         // This is a feature used by the BackTrace tooling, this is not something that is generally
