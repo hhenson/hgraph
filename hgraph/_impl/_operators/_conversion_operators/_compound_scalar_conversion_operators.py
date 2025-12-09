@@ -65,13 +65,13 @@ def convert_cs_from_tsb_typed(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSB,
-    resolvers={TS_SCHEMA: lambda m, s: TimeSeriesSchema.from_scalar_schema(m[COMPOUND_SCALAR].py_type)},
+    requires=lambda m: m[OUT].py_type is TSB,
+    resolvers={TS_SCHEMA: lambda m: TimeSeriesSchema.from_scalar_schema(m[COMPOUND_SCALAR].py_type)},
 )
 def convert_tsb_from_cs(
     ts: TS[COMPOUND_SCALAR],
     to: type[OUT] = DEFAULT[OUT],
-    tp_: type[TS_SCHEMA] = AUTO_RESOLVE
+    tp_: type[TS_SCHEMA] = AUTO_RESOLVE,
 ) -> TSB[TS_SCHEMA]:
     as_dict = ts.value.to_dict()
     return {
