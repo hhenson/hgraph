@@ -74,6 +74,8 @@ namespace hgraph {
 
     // TimeSeriesInput - converted to shared_ptr
     struct TimeSeriesInput;
+    template<typename T>
+    requires std::is_base_of_v<TimeSeriesInput, T>
     struct BaseTimeSeriesInput;
     using time_series_input_ptr = TimeSeriesInput*;
     using time_series_input_s_ptr = std::shared_ptr<TimeSeriesInput>;
@@ -100,8 +102,10 @@ namespace hgraph {
     using time_series_reference_ptr = TimeSeriesReference*;
     using time_series_reference_s_ptr = std::shared_ptr<TimeSeriesReference>;
 
-    // TimeSeriesReferenceInput - converted to shared_ptr
+    // TimeSeriesReferenceInput - marker class
     struct TimeSeriesReferenceInput;
+    // BaseTimeSeriesReferenceInput - actual implementation with state
+    struct BaseTimeSeriesReferenceInput;
     using time_series_reference_input_ptr = TimeSeriesReferenceInput*;
     using time_series_reference_input_s_ptr = std::shared_ptr<TimeSeriesReferenceInput>;
 
