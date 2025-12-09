@@ -5,7 +5,7 @@ from hgraph import compute_node, COMPOUND_SCALAR, TS, SCALAR, CompoundScalar, ty
 __all__ = tuple()
 
 
-@compute_node(overloads=type_, requires=lambda m, s: COMPOUND_SCALAR not in m)
+@compute_node(overloads=type_, requires=lambda m: COMPOUND_SCALAR not in m)
 def type_cs_schema(ts: TS[COMPOUND_SCALAR_1]) -> TS[Type[CompoundScalar]]:
     return ts.value.__class__
 

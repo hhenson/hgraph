@@ -39,7 +39,7 @@ __all__ = []
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSD
+    requires=lambda m: m[OUT].py_type is TSD
     or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[TIME_SERIES_TYPE].py_type]),
 )
 def convert_ts_to_tsd(
@@ -54,7 +54,7 @@ def convert_ts_to_tsd(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSD or m[OUT].matches_type(TSD[int, TS[m[SCALAR].py_type]]),
+    requires=lambda m: m[OUT].py_type is TSD or m[OUT].matches_type(TSD[int, TS[m[SCALAR].py_type]]),
 )
 def convert_tuple_to_enumerated_tsd(
     ts: TS[Tuple[SCALAR, ...]], _output: TSD_OUT[int, TS[SCALAR]] = None
@@ -73,7 +73,7 @@ def convert_tuple_to_enumerated_tsd(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSD
+    requires=lambda m: m[OUT].py_type is TSD
     or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[TIME_SERIES_TYPE].py_type]),
 )
 def convert_set_to_tsd(
@@ -92,7 +92,7 @@ def convert_set_to_tsd(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSD
+    requires=lambda m: m[OUT].py_type is TSD
     or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[TIME_SERIES_TYPE].py_type]),
 )
 def convert_tss_to_tsd(
@@ -109,7 +109,7 @@ def convert_tss_to_tsd(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSD or m[OUT].matches_type(TSD[int, m[TIME_SERIES_TYPE].py_type]),
+    requires=lambda m: m[OUT].py_type is TSD or m[OUT].matches_type(TSD[int, m[TIME_SERIES_TYPE].py_type]),
 )
 def convert_tsl_to_tsd(
     ts: TSL[REF[TIME_SERIES_TYPE], SIZE], to: Type[OUT] = DEFAULT[OUT]
@@ -119,9 +119,9 @@ def convert_tsl_to_tsd(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSD
+    requires=lambda m: m[OUT].py_type is TSD
                           or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, TS[m[SCALAR].py_type]]),
-    resolvers={TIME_SERIES_TYPE: lambda m, s: TS[m[SCALAR]] if m[OUT].py_type is TSD else m[OUT].value_tp},
+    resolvers={TIME_SERIES_TYPE: lambda m: TS[m[SCALAR]] if m[OUT].py_type is TSD else m[OUT].value_tp},
 )
 def convert_mapping_to_tsd(
     ts: TS[Mapping[KEYABLE_SCALAR, SCALAR]],
@@ -134,14 +134,14 @@ def convert_mapping_to_tsd(
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: (
+    requires=lambda m, keys: (
         (m[OUT].py_type == TSD or m[OUT].matches_type(TSD[m[SCALAR], m[TIME_SERIES_TYPE]]))
         and (
-            len(s["keys"]) == m[SIZE].py_type.SIZE
-            or f"Length of keys ({len(s['keys'])}) and values ({m[SIZE].py_type.SIZE}) does not match"
+            len(keys) == m[SIZE].py_type.SIZE
+            or f"Length of keys ({len(keys)}) and values ({m[SIZE].py_type.SIZE}) does not match"
         )
     ),
-    all_valid=lambda m, s: ("tsl",) if s["__strict__"] else None,
+    all_valid=lambda m, __strict__: ("tsl",) if __strict__ else None,
 )
 def combine_tsd_from_tuple_and_tsl(
     keys: Tuple[SCALAR, ...], *tsl: TSL[REF[TIME_SERIES_TYPE], SIZE], __strict__: bool = True
@@ -152,13 +152,13 @@ def combine_tsd_from_tuple_and_tsl(
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: m[OUT].py_type == TSD or m[OUT].matches_type(TSD[m[SCALAR], m[TIME_SERIES_TYPE]]),
-    all_valid=lambda m, s: (
+    requires=lambda m: m[OUT].py_type == TSD or m[OUT].matches_type(TSD[m[SCALAR], m[TIME_SERIES_TYPE]]),
+    all_valid=lambda m, __strict__: (
         (
             "keys",
             "tsl",
         )
-        if s["__strict__"]
+        if __strict__
         else None
     ),
 )
@@ -176,7 +176,7 @@ def combine_tsd_from_tsl_and_tsl(
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: m[OUT].py_type == TSD or m[OUT].matches_type(TSD[m[SCALAR], TS[m[SCALAR_1]]]),
+    requires=lambda m: m[OUT].py_type == TSD or m[OUT].matches_type(TSD[m[SCALAR], TS[m[SCALAR_1]]]),
 )
 def combine_tsd_from_tuple_and_tuple(
     keys: TS[tuple[SCALAR, ...]],
@@ -194,7 +194,7 @@ def combine_tsd_from_tuple_and_tuple(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type is TSD
+    requires=lambda m: m[OUT].py_type is TSD
     or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[TIME_SERIES_TYPE].py_type]),
     valid=("key", "ts"),
 )
@@ -213,9 +213,9 @@ def collect_tsd(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type is TSD
+    requires=lambda m: m[OUT].py_type is TSD
     or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]),
-    resolvers={TIME_SERIES_TYPE: lambda m, s: TS[m[SCALAR]] if m[OUT].py_type is TSD else m[OUT].value_tp},
+    resolvers={TIME_SERIES_TYPE: lambda m: TS[m[SCALAR]] if m[OUT].py_type is TSD else m[OUT].value_tp},
     valid=("keys", "ts"),
 )
 def collect_tsd_from_tuples(
@@ -233,7 +233,7 @@ def collect_tsd_from_tuples(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type is TSD
+    requires=lambda m: m[OUT].py_type is TSD
     or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[TIME_SERIES_TYPE].py_type]),
     valid=("tsd",),
 )
@@ -256,9 +256,9 @@ def collect_tsd_from_tsd(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type is TSD
+    requires=lambda m: m[OUT].py_type is TSD
     or m[OUT].matches_type(TSD[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]),
-    resolvers={TIME_SERIES_TYPE: lambda m, s: TS[m[SCALAR]] if m[OUT].py_type is TSD else m[OUT].value_tp},
+    resolvers={TIME_SERIES_TYPE: lambda m: TS[m[SCALAR]] if m[OUT].py_type is TSD else m[OUT].value_tp},
     valid=("ts",),
 )
 def collect_tsd_from_mappings(
@@ -273,7 +273,7 @@ def collect_tsd_from_mappings(
     return remove | new
 
 
-@compute_node(overloads=emit, resolvers={OUT: lambda m, s: TS[m[TIME_SERIES_TYPE].scalar_type()]})
+@compute_node(overloads=emit, resolvers={OUT: lambda m: TS[m[TIME_SERIES_TYPE].scalar_type()]})
 def emit_tsd(
     ts: TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE],
     v_: Type[V] = DEFAULT[OUT],

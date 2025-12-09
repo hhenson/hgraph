@@ -380,12 +380,12 @@ def window_timedelta_start(_state: STATE):
 @compute_node(
     overloads=to_window,
     resolvers={
-        WINDOW_SIZE: lambda m, s: WindowSize[s["period"]],
-        WINDOW_SIZE_MIN: lambda m, s: WindowSize[
-            s["min_window_period"] if s["min_window_period"] is not None else s["period"]
+        WINDOW_SIZE: lambda m, period: WindowSize[period],
+        WINDOW_SIZE_MIN: lambda m, period, min_window_period: WindowSize[
+            min_window_period if min_window_period is not None else period
         ],
     },
-    requires=lambda m, s: (
+    requires=lambda m: (
         True
         if (s := m[WINDOW_SIZE].py_type.SIZE) >= (m_s := m[WINDOW_SIZE_MIN].py_type.SIZE)
         else f"Window size ({s}) must be greater than min window size ({m_s})"

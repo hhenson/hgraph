@@ -162,8 +162,9 @@ Also notice the resolves is a dictionary of types that are requiring resolution,
 that requires resolution it just needs to appear in the resolvers dict and the function to resolve
 it provided.
 
-If the resolution is simple, then just use a ``lamda``, you will notice that a lot of the code
-in the core libraries follow the convention: ``lambda m, s: ...``.
+If the resolution is simple, then just use a ``lambda``, where ``m`` is the mapping of resolved types.
+For resolvers and requires functions that need scalar values, extract the specific scalars as
+parameters: ``lambda m, scalar_name: ...``.
 
 ### requires
 
@@ -178,17 +179,17 @@ Here is an example:
 ```python
 from hgraph import TS, generator, SCALAR, MIN_ST
 
-def _check_int_convertable(m, s) -> bool:
+def _check_int_convertable(m, v) -> bool:
     """
-    As with resolvers m and s represent the resolved types and the scalar values.
+    m represents the resolved types mapping, and v is the scalar value parameter.
     True implies the requires is successful. False fails the resolution.
     """
     try:
-        int(s['v'])
+        int(v)
         return True
     finally:
         return False
-        
+
 
 @generator(requires=_check_int_convertable)
 def int_const(v: SCALAR) -> TS[int]:
@@ -200,7 +201,7 @@ Here is another example using the ``GlobalState`` instead:
 ```python
 from hgraph import GlobalState, graph, TS, record
 
-@graph(overloads=record, requires=lambda m, s: GlobalState.instance().get("record_to_memory", False))
+@graph(overloads=record, requires=lambda m: GlobalState.instance().get("record_to_memory", False))
 def record_to_memory(ts: TS[float], key: str, record_delta_values: bool = True, suffix: str = None):
     ...
 ```

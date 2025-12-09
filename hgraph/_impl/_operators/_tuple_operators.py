@@ -40,7 +40,7 @@ def _item_type(tuple_tp: Type[TUPLE], index: int) -> Type:
 
 
 @compute_node(
-    overloads=getitem_, resolvers={SCALAR: lambda mapping, scalars: _item_type(mapping[TUPLE], scalars["key"])}
+    overloads=getitem_, resolvers={SCALAR: lambda mapping, key: _item_type(mapping[TUPLE], key)}
 )
 def getitem_tuple_fixed(ts: TS[TUPLE], key: int) -> TS[SCALAR]:
     return ts.value[key]

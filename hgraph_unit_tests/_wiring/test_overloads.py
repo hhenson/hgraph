@@ -99,7 +99,7 @@ def test_contains():
 
 
 def test_requires():
-    @compute_node(requires=lambda m, kw: m[SCALAR] != m[SCALAR_1])
+    @compute_node(requires=lambda m: m[SCALAR] != m[SCALAR_1])
     def add(lhs: TS[SCALAR], rhs: TS[SCALAR_1]) -> TS[SCALAR]:
         return lhs.value + type(lhs.value)(rhs.value)
 
@@ -107,3 +107,23 @@ def test_requires():
     with pytest.raises(RequirementsNotMetWiringError):
         assert eval_node(add[SCALAR:int, SCALAR_1:int], 1, 2) == [3]
     assert eval_node(add[SCALAR:float, SCALAR_1:int], 1.0, 2) == [3.0]
+
+
+def test_requires_with_scalars():
+    # Test using named scalar parameters in requires lambda
+    @compute_node(requires=lambda m, __strict__: __strict__ == True)
+    def add_strict(lhs: TS[int], rhs: TS[int], __strict__: bool = False) -> TS[int]:
+        return lhs.value + rhs.value
+
+    assert eval_node(add_strict, 1, 2, __strict__=True) == [3]
+    with pytest.raises(RequirementsNotMetWiringError):
+        eval_node(add_strict, 1, 2, __strict__=False)
+
+    # Test with multiple scalar parameters
+    @compute_node(requires=lambda m, min_value, max_value: min_value < max_value)
+    def clamp(value: TS[int], min_value: int, max_value: int) -> TS[int]:
+        return max(min_value, min(max_value, value.value))
+
+    assert eval_node(clamp, [5, 15, 25], min_value=10, max_value=20) == [10, 15, 20]
+    with pytest.raises(RequirementsNotMetWiringError):
+        eval_node(clamp, [5, 15, 25], min_value=20, max_value=10)

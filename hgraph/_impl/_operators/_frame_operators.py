@@ -14,7 +14,7 @@ __all__ = tuple()
 
 @compute_node(
     overloads=getitem_,
-    resolvers={SCALAR: lambda mapping, scalars: Series[mapping[SCHEMA].meta_data_schema[scalars["key"]].py_type]},
+    resolvers={SCALAR: lambda mapping, key: Series[mapping[SCHEMA].meta_data_schema[key].py_type]},
 )
 def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
     return ts.value[key]
@@ -22,7 +22,7 @@ def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
 
 @compute_node(
     overloads=getattr_,
-    resolvers={SCALAR: lambda mapping, scalars: Series[mapping[SCHEMA].meta_data_schema[scalars["key"]].py_type]},
+    resolvers={SCALAR: lambda mapping, key: Series[mapping[SCHEMA].meta_data_schema[key].py_type]},
 )
 def get_frame_col(ts: TS[Frame[SCHEMA]], key: str) -> TS[SCALAR]:
     return ts.value[key]

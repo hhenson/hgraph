@@ -18,7 +18,7 @@ _all__ = tuple()
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    requires=lambda m: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
 )
 def convert_ts_to_tss(
     ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT], _output: TSS_OUT[SCALAR] = None, _tp: type[SCALAR] = AUTO_RESOLVE
@@ -28,7 +28,7 @@ def convert_ts_to_tss(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    requires=lambda m: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
 )
 def convert_tuple_to_tss(
     ts: TS[Tuple[SCALAR, ...]],
@@ -43,7 +43,7 @@ def convert_tuple_to_tss(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    requires=lambda m: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
 )
 def convert_set_to_tss(
     ts: TS[Set[SCALAR]], to: Type[OUT] = DEFAULT[OUT], _output: TSS_OUT[SCALAR] = None, _tp: type[SCALAR] = AUTO_RESOLVE
@@ -55,8 +55,8 @@ def convert_set_to_tss(
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
-    resolvers={SCALAR: lambda m, s: m[TIME_SERIES_TYPE].scalar_type()},
+    requires=lambda m: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    resolvers={SCALAR: lambda m: m[TIME_SERIES_TYPE].scalar_type()},
 )
 def combine_tss(
     *tsl: TSL[TIME_SERIES_TYPE, SIZE],
@@ -71,7 +71,7 @@ def combine_tss(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    requires=lambda m: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
     valid=("ts",),
 )
 def collect_tss_from_ts(
@@ -89,7 +89,7 @@ def collect_tss_from_ts(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    requires=lambda m: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
     valid=("ts",),
 )
 def collect_tss_from_tuples(
@@ -107,7 +107,7 @@ def collect_tss_from_tuples(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    requires=lambda m: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
     valid=("ts",),
 )
 def collect_tss_from_sets(
@@ -125,7 +125,7 @@ def collect_tss_from_sets(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    requires=lambda m: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
     valid=("tss",),
 )
 def collect_tss_from_tss(
