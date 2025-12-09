@@ -114,6 +114,7 @@ namespace hgraph
                     // Treat inputs previously bound via a reference as bound, so we unbind to generate correct deltas
                     if (ts_input.bound() && !ts_input.has_peer()) {
                         reactivate = ts_input.active();
+                        if (reactivate) ts_input.make_passive();
                         ts_input.un_bind_output(false);
                     }
                     ts_input.bind_output(_storage.bound);
@@ -125,6 +126,7 @@ namespace hgraph
                     bool reactivate = false;
                     if (ts_input.bound() && ts_input.has_peer()) {
                         reactivate = ts_input.active();
+                        if (reactivate) ts_input.make_passive();
                         ts_input.un_bind_output(false);
                     }
 

@@ -13,6 +13,7 @@ from hgraph import (
     Size,
     feedback,
     REMOVE_IF_EXISTS,
+    pass_through,
 )
 from hgraph.test import eval_node
 
@@ -120,3 +121,28 @@ def test_tsd_add_clear_in_same_cycle():
         return r
 
     assert eval_node(main, [True]) == [None, {}]
+
+
+def test_tsd_in_bundle_ref():
+    from hgraph import switch_, const, combine, pass_through
+    
+    class AB(TimeSeriesSchema):
+        a: TS[int]
+        b: TSD[int, TSD[int, TS[int]]]
+        
+    @graph
+    def source(i: TSS[int], v: TS[int]) -> TSB[AB]:
+        m = map_(lambda key, x: map_(lambda y: y, key, __keys__=x), pass_through(i), __keys__=i)
+        return switch_(
+                v,
+                {
+                    0: lambda i, m: combine[TSB[AB]](a=0, b=m),
+                    1: lambda i, m: combine[TSB[AB]](a=1, b=m),
+                }, 
+                i, m
+            )
+        
+    assert eval_node(source, [{0}], [0, 1]) == [
+        {'a': 0, 'b': {0: {0: 0}}},
+        {'a': 1, 'b': {0: {0: 0}}},
+        ]
