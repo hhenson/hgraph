@@ -82,7 +82,7 @@ namespace hgraph {
      * Inherits from BaseTimeSeriesInput for compatibility with the existing parent/notification
      * infrastructure, but delegates binding and value access to TSInput.
      */
-    struct HGRAPH_EXPORT TimeSeriesValueInput final : BaseTimeSeriesInput {
+    struct HGRAPH_EXPORT TimeSeriesValueInput final : BaseTimeSeriesInput <TimeSeriesInput>{
         using ptr = TimeSeriesValueInput*;
         using s_ptr = std::shared_ptr<TimeSeriesValueInput>;
 
@@ -107,7 +107,7 @@ namespace hgraph {
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
         // Override binding to use TSInput for value sharing
-        bool bind_output(time_series_output_s_ptr output_) override;
+        bool bind_output(const time_series_output_s_ptr & output_) override;
         void un_bind_output(bool unbind_refs) override;
 
         // NOTE: modified/valid/last_modified_time/active/make_active/make_passive
