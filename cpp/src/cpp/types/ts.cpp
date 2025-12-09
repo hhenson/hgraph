@@ -218,7 +218,7 @@ namespace hgraph {
     // are inherited from BaseTimeSeriesInput - no need to override.
 
     void register_ts_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesValueOutput, BaseTimeSeriesOutput>(m, "TimeSeriesValueOutput");
-        nb::class_<TimeSeriesValueInput, BaseTimeSeriesInput>(m, "TimeSeriesValueInput");
+        nb::class_<TimeSeriesValueOutput, TimeSeriesOutput>(m, "TimeSeriesValueOutput");
+        nb::class_<TimeSeriesValueInput, TimeSeriesInput>(m, "TimeSeriesValueInput");
     }
 } // namespace hgraph
