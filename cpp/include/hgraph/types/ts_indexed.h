@@ -150,7 +150,7 @@ namespace hgraph {
         VISITOR_SUPPORT()
     };
 
-    struct IndexedTimeSeriesInput : IndexedTimeSeries<BaseTimeSeriesInput> {
+    struct IndexedTimeSeriesInput : IndexedTimeSeries<BaseTimeSeriesInput<TimeSeriesInput>> {
         using index_ts_type::IndexedTimeSeries;
 
         [[nodiscard]] bool modified() const override;

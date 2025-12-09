@@ -68,7 +68,7 @@ namespace hgraph
         VISITOR_SUPPORT()
     };
 
-    struct TimeSeriesDictInput : TimeSeriesDict<BaseTimeSeriesInput>
+    struct TimeSeriesDictInput : TimeSeriesDict<BaseTimeSeriesInput<TimeSeriesInput>>
     {
         using ptr = TimeSeriesDictInput*;
         using TimeSeriesDict<BaseTimeSeriesInput>::TimeSeriesDict;

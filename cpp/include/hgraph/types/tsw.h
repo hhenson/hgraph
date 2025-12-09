@@ -108,7 +108,7 @@ namespace hgraph {
 
     // Unified window input that works with both fixed-size and timedelta outputs
     template<typename T>
-    struct TimeSeriesWindowInput final : BaseTimeSeriesInput {
+    struct TimeSeriesWindowInput final : BaseTimeSeriesInput<TimeSeriesInput> {
         using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         // Helpers to dynamically get the output as the correct type

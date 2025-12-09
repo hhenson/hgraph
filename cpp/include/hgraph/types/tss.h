@@ -101,7 +101,7 @@ namespace hgraph {
         TimeSeriesValueOutput::s_ptr _is_empty_ref_output;
     };
 
-    struct TimeSeriesSetInput : TimeSeriesSet<BaseTimeSeriesInput> {
+    struct TimeSeriesSetInput : TimeSeriesSet<BaseTimeSeriesInput<TimeSeriesInput>> {
         using TimeSeriesSet<BaseTimeSeriesInput>::TimeSeriesSet;
 
         TimeSeriesSetOutput &set_output() const;

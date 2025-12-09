@@ -10,9 +10,9 @@
 namespace hgraph {
     struct TimeSeriesSignalInputBuilder;
 
-    struct TimeSeriesSignalInput final : BaseTimeSeriesInput {
+    struct TimeSeriesSignalInput final : BaseTimeSeriesInput<TimeSeriesInput> {
         using ptr = TimeSeriesSignalInput*;
-        using BaseTimeSeriesInput::BaseTimeSeriesInput;
+        using BaseTimeSeriesInput<TimeSeriesInput>::BaseTimeSeriesInput;
 
         [[nodiscard]] nb::object py_value() const override;
 
