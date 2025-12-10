@@ -29,7 +29,10 @@ namespace hgraph
             .def_prop_ro("is_bound", &TimeSeriesReference::is_bound)
             .def_prop_ro("is_unbound", &TimeSeriesReference::is_unbound)
             .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
-            .def_prop_ro("output", [](TimeSeriesReference &self) { return wrap_output(self.output()); })
+            .def_prop_ro("output", [](TimeSeriesReference &self) {
+                // Return None for non-bound references (empty or unbound) to match Python behavior
+                return self.is_bound() ? wrap_output(self.output()) : nb::none();
+            })
             .def_prop_ro("items", &TimeSeriesReference::items)
             .def("__getitem__", &TimeSeriesReference::operator[])
             .def_static(
@@ -43,13 +46,21 @@ namespace hgraph
                         if (nb::isinstance<PyTimeSeriesInput>(ts)) {
                             auto ts_input = unwrap_input(ts);
                             if (ts_input->has_peer()) return TimeSeriesReference::make(ts_input->output());
-                            // Deal with list of inputs
+                            // Deal with list of inputs - recursively create references
                             std::vector<TimeSeriesReference> items_list;
                             auto                             ts_ndx{std::dynamic_pointer_cast<IndexedTimeSeriesInput>(ts_input)};
                             items_list.reserve(ts_ndx->size());
                             for (auto &ts_ptr : ts_ndx->values()) {
                                 auto ref_input{dynamic_cast<TimeSeriesReferenceInput *>(ts_ptr.get())};
-                                items_list.emplace_back(ref_input ? ref_input->value() : TimeSeriesReference::make());
+                                if (ref_input) {
+                                    items_list.emplace_back(ref_input->value());
+                                } else if (ts_ptr->has_peer()) {
+                                    // Child has a peer output - create bound reference to it
+                                    items_list.emplace_back(TimeSeriesReference::make(ts_ptr->output()));
+                                } else {
+                                    // Child has no output - create empty reference
+                                    items_list.emplace_back(TimeSeriesReference::make());
+                                }
                             }
                             return TimeSeriesReference::make(items_list);
                         }
