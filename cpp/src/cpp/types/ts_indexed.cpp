@@ -116,7 +116,10 @@ namespace hgraph {
         }
 
         bool peer = true;
-        for (size_t i = 0; i < ts_values().size(); ++i) { peer &= ts_values()[i]->bind_output((*output_bundle)[i]); }
+        for (size_t i = 0; i < ts_values().size(); ++i) {
+            bool child_peer = ts_values()[i]->bind_output((*output_bundle)[i]);
+            peer &= child_peer;
+        }
 
         BaseTimeSeriesInput::do_bind_output(peer ? value : time_series_output_s_ptr{});
         return peer;
