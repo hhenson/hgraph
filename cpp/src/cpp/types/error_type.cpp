@@ -225,12 +225,10 @@ namespace hgraph {
         if (input.modified()) {
             if (input.bound()) {
                 if (input.has_peer()) {
-                    active_inputs.emplace(input_name,
-                                          BackTrace::capture_back_trace(input.output()->owning_node(), capture_values,
-                                                                        depth - 1));
                     auto out = input.output();
                     if (out && out->has_owning_node()) {
                         active_inputs.emplace(input_name,
+                                              BackTrace::capture_back_trace(out->owning_node(), capture_values,
                                                                             depth - 1));
                     }
                 } else {
