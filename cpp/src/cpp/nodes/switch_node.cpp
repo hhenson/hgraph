@@ -86,7 +86,7 @@ namespace hgraph {
                 recordable_id_ = get_fq_recordable_id(graph()->traits(), record_replay_id.value());
             }
         }
-        _initialise_inputs();
+        // Note: _initialise_inputs() is now called in Node::start() before do_start()
     }
 
     template<typename K>
