@@ -79,9 +79,14 @@ namespace hgraph
         }
 
         bool was_added = key_set_t().was_added(key);
-        key_set_t().remove(key);
 
+        // CRITICAL: Notify key observers BEFORE modifying the key set
+        // This allows downstream inputs to clean up their subscriptions before
+        // the key set modification triggers mark_modified -> _notify, which
+        // would crash if subscribers have dangling pointers to removed inputs
         for (auto &observer : _key_observers) { observer->on_key_removed(key); }
+
+        key_set_t().remove(key);
 
         auto item{it->second};
         _ts_values.erase(it);
@@ -671,7 +676,7 @@ namespace hgraph
 
         key_set_t().bind_output(output_key_set);
 
-        if (owning_node()->is_started() && has_output()) {
+        if (has_owning_node() && owning_node()->is_started() && has_output()) {
             output_t().remove_key_observer(this);
             _prev_output = {&output_t()};
             // TODO: check this will not enter again
@@ -874,6 +879,20 @@ namespace hgraph
             key_set().make_passive();
             for (auto &[_, value] : _ts_values) { value->make_passive(); }
         }
+    }
+
+    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::builder_release_cleanup() {
+        // CRITICAL: Clean up key_set and child inputs BEFORE calling base cleanup
+        // The key_set is subscribed to the output's key_set and must be deactivated
+        // before we're destroyed, otherwise the output may notify a dangling pointer.
+        _key_set->builder_release_cleanup();
+        for (auto &[_, value] : _ts_values) { value->builder_release_cleanup(); }
+        // Remove ourselves as a key observer if we're still registered
+        if (has_output()) {
+            output_t().remove_key_observer(this);
+        }
+        // Now call base class cleanup
+        TimeSeriesDictInput::builder_release_cleanup();
     }
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::modified() const {

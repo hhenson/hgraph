@@ -333,6 +333,8 @@ namespace hgraph
 
         void make_passive() override;
 
+        void builder_release_cleanup() override;
+
         [[nodiscard]] bool modified() const override;
 
         [[nodiscard]] engine_time_t last_modified_time() const override;
