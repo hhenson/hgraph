@@ -162,6 +162,9 @@ namespace hgraph
         // Non-template constructor (implementation in .cpp)
         explicit TSInput(NotifiableContext *parent, const std::type_info &value_type);
 
+        // Destructor - unsubscribe from impl if active
+        ~TSInput();
+
         // Move semantics
         TSInput(TSInput &&)            = default;
         TSInput &operator=(TSInput &&) = default;

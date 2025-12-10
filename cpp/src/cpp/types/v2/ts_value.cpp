@@ -79,6 +79,13 @@ namespace hgraph {
     TSInput::TSInput(NotifiableContext *parent, const std::type_info &value_type)
         : _impl(std::make_shared<NonBoundTSValue>(value_type)), _owner(parent) {}
 
+    // TSInput destructor - unsubscribe from impl to avoid dangling subscriber pointers
+    TSInput::~TSInput() {
+        if (_impl && active()) {
+            make_passive();
+        }
+    }
+
     // TSInput::bind_output implementation
     void TSInput::bind_output(TSOutput &output) { bind(output._impl); }
 
@@ -223,8 +230,9 @@ namespace hgraph {
             // We need to indicate that the value has changed (in this case due to a binding
             // change).
             auto sampled{std::make_shared<SampledTSValue>(_impl, tm)};
+            _impl = sampled;  // Actually assign the sampled wrapper to _impl
             // Register a cleanup handler, as we don't want to keep this indefinitely
-            _owner->add_after_evaluation_notification([&]() {
+            _owner->add_after_evaluation_notification([this]() {
                 // Make sure the current delegate is in fact a sampled delegate, if not...
                 auto *impl = dynamic_cast<SampledTSValue *>(_impl.get());
                 if (impl != nullptr) {
