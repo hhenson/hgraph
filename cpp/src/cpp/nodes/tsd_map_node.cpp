@@ -232,6 +232,32 @@ namespace hgraph
             }
         }
 
+        // CRITICAL: Release all nested graph node inputs BEFORE erasing from output
+        // This ensures that any subscriptions from nested graph nodes to this TSD's output
+        // (particularly to the key_set) are cleaned up before the erase triggers notifications.
+        // Otherwise, the notification would hit dangling subscriber pointers.
+        //
+        // This must be recursive to handle cases where nodes contain their own nested graphs
+        // (e.g., ReduceNode inside a TsdMapNode's nested graph). Those inner nested graphs
+        // have inputs that may be subscribed to the outer TsdMapNode's outputs.
+        std::function<void(Graph &)> cleanup_graph_inputs = [&cleanup_graph_inputs](Graph &g) {
+            for (auto &node : g.nodes()) {
+                if (node->input()) {
+                    node->input()->builder_release_cleanup();
+                }
+                // Recursively clean up any nested graphs this node owns
+                auto nested_node = dynamic_cast<NestedNode *>(node.get());
+                if (nested_node) {
+                    nested_node->enumerate_nested_graphs([&cleanup_graph_inputs](const graph_s_ptr &nested_graph) {
+                        if (nested_graph) {
+                            cleanup_graph_inputs(*nested_graph);
+                        }
+                    });
+                }
+            }
+        };
+        cleanup_graph_inputs(*graph);
+
         if (output_node_id_ >= 0) { tsd_output().erase(key); }
     }
 
