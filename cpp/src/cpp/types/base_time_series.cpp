@@ -124,10 +124,9 @@ namespace hgraph {
     }
 
     bool BaseTimeSeriesOutput::modified() const {
-        auto n = owning_node();
-        if (n == nullptr) { return false; }
+        if (!has_owning_node()) { return false; }
         // Use cached evaluation time pointer from node for performance
-        return *n->cached_evaluation_time_ptr() == _last_modified_time;
+        return *owning_node()->cached_evaluation_time_ptr() == _last_modified_time;
     }
 
     bool BaseTimeSeriesOutput::valid() const { return _last_modified_time > MIN_DT; }
