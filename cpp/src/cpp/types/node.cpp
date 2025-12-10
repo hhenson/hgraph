@@ -769,6 +769,7 @@ namespace hgraph
     }
 
     void Node::start() {
+        _initialise_inputs();
         do_start();
         if (has_scheduler()) {
             auto pop_result = scheduler()->pop_tag("start");
