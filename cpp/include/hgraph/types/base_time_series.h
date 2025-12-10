@@ -13,6 +13,7 @@
 #define BASE_TIME_SERIES_H
 
 #include <hgraph/types/time_series_type.h>
+#include <fmt/format.h>
 #include <hgraph/types/node.h>
 #include <unordered_set>
 #include <type_traits>
@@ -21,6 +22,7 @@ namespace hgraph {
     // Forward declare to avoid circular dependency
     struct TimeSeriesVisitor;
     struct OutputBuilder;
+    struct TimeSeriesValueReferenceOutput;
 
     /**
      * @brief Base class for TimeSeriesOutput implementations
@@ -107,6 +109,15 @@ namespace hgraph {
         explicit BaseTimeSeriesInput(node_ptr parent) : _parent_ts_or_node{parent} {}
         explicit BaseTimeSeriesInput(time_series_input_ptr parent) : _parent_ts_or_node{parent} {}
 
+        // Virtual destructor ensures proper cleanup - unsubscribe from any output we're subscribed to
+        virtual ~BaseTimeSeriesInput() {
+            // Unsubscribe from the output if we're active and bound
+            // Use 'this' directly since that's what was used in subscribe()
+            if (_active && _output != nullptr) {
+                _output->un_subscribe(this);
+            }
+        }
+
         // Implement TimeSeriesType pure virtuals
         [[nodiscard]] node_ptr owning_node() override { return _owning_node(); }
         [[nodiscard]] node_ptr owning_node() const override { return _owning_node(); }
@@ -149,7 +160,13 @@ namespace hgraph {
         void make_passive() override;
         [[nodiscard]] bool has_output() const override { return _output != nullptr; }
 
-        void builder_release_cleanup() override { _output = nullptr; }
+        void builder_release_cleanup() override {
+            // Unsubscribe before clearing _output to avoid dangling subscriber pointers
+            if (_active && _output != nullptr) {
+                _output->un_subscribe(this);
+            }
+            _output = nullptr;
+        }
 
         [[nodiscard]] nb::object py_value() const override {
             return _output != nullptr ? _output->py_value() : nb::none();
@@ -205,7 +222,7 @@ namespace hgraph {
                     },
                     _parent_ts_or_node.value());
             } else {
-                throw std::runtime_error("No node is accessible");
+                throw std::runtime_error(fmt::format("No node is accessible (type: {})", typeid(*this).name()));
             }
         }
 
@@ -221,6 +238,7 @@ namespace hgraph {
         void set_sample_time(engine_time_t sample_time) { _sample_time = sample_time; }
         [[nodiscard]] engine_time_t sample_time() const { return _sample_time; }
         [[nodiscard]] bool sampled() const {
+            if (!has_owning_node()) { return false; }
             auto n = owning_node();
             if (n == nullptr) { return false; }
             return _sample_time != MIN_DT && _sample_time == *n->cached_evaluation_time_ptr();
