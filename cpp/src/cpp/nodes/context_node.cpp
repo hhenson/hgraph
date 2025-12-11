@@ -118,14 +118,20 @@ namespace hgraph {
         }
 
         // Finally, set this node's own REF output to the captured value (may be None)
-        auto my_output = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
-        if (!my_output) {
-            throw std::runtime_error("ContextStubSourceNode: output is not a TimeSeriesReferenceOutput");
+        // Try old-style TimeSeriesReferenceOutput first
+        if (auto my_output = dynamic_cast<TimeSeriesReferenceOutput *>(output().get())) {
+            if (value_ref.has_value()) {
+                my_output->set_value(*value_ref);
+            } else {
+                my_output->set_value(TimeSeriesReference::make());
+            }
         }
-        if (value_ref.has_value()) {
-            my_output->set_value(*value_ref);
+        // Try v2-style TimeSeriesValueReferenceOutput
+        else if (auto my_v2_output = dynamic_cast<TimeSeriesValueReferenceOutput *>(output().get())) {
+            TimeSeriesReference ref_value = value_ref.has_value() ? *value_ref : TimeSeriesReference::make();
+            my_v2_output->py_set_value(nb::cast(ref_value));
         } else {
-            my_output->set_value(TimeSeriesReference::make());
+            throw std::runtime_error("ContextStubSourceNode: output is not a TimeSeriesReferenceOutput or TimeSeriesValueReferenceOutput");
         }
     }
 

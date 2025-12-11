@@ -25,16 +25,29 @@ namespace hgraph {
             ref_output->observe_reference(this);
             _reference_output = ref_output;
             peer = false;
+        } else if (auto v2_ref_output = std::dynamic_pointer_cast<TimeSeriesValueReferenceOutput>(output_)) {
+            // v2 style reference output - get the TimeSeriesReference and bind through it
+            auto ref_opt = v2_ref_output->reference_value();
+            if (ref_opt && ref_opt->has_output()) {
+                // Bind directly to the underlying output that the reference points to
+                do_bind_output(ref_opt->output());
+            }
+            // Register as observer to be notified when the reference value changes
+            v2_ref_output->observe_reference(this);
+            _v2_reference_output = v2_ref_output;  // Store to clean up later
+            peer = false;
         } else {
             if (output_.get() == _output.get()) { return has_peer(); }
             peer = do_bind_output(output_);
         }
 
-        auto n = owning_node();
-        if ((n->is_started() || n->is_starting()) && _output && (was_bound || _output->valid())) {
-            _sample_time = *n->cached_evaluation_time_ptr();
-            if (active()) {
-                notify(_sample_time);
+        if (has_owning_node()) {
+            auto n = owning_node();
+            if ((n->is_started() || n->is_starting()) && _output && (was_bound || _output->valid())) {
+                _sample_time = *n->cached_evaluation_time_ptr();
+                if (active()) {
+                    notify(_sample_time);
+                }
             }
         }
 
@@ -51,14 +64,21 @@ namespace hgraph {
             _reference_output = nullptr;
         }
 
+        if (unbind_refs && _v2_reference_output != nullptr) {
+            _v2_reference_output->stop_observing_reference(this);
+            _v2_reference_output = nullptr;
+        }
+
         if (bound()) {
             do_un_bind_output(unbind_refs);
 
-            auto n = owning_node();
-            if (n->is_started() && was_valid) {
-                _sample_time = *n->cached_evaluation_time_ptr();
-                if (active()) {
-                    n->notify(_sample_time);
+            if (has_owning_node()) {
+                auto n = owning_node();
+                if (n->is_started() && was_valid) {
+                    _sample_time = *n->cached_evaluation_time_ptr();
+                    if (active()) {
+                        n->notify(_sample_time);
+                    }
                 }
             }
         }
@@ -119,9 +139,10 @@ namespace hgraph {
         _notify_time = modified_time;
         if (_has_parent_input()) {
             _parent_input()->notify_parent(this, modified_time);
-        } else {
+        } else if (has_owning_node()) {
             owning_node()->notify(modified_time);
         }
+        // If no parent input and no owning node, silently ignore - input is not yet wired
     }
 
 } // namespace hgraph

@@ -131,6 +131,24 @@ namespace hgraph {
         auto l = dynamic_cast<TimeSeriesReferenceOutput *>(last_output().get());
         auto o = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
 
+        // If o or l are not TimeSeriesReferenceOutput (e.g. they are TimeSeriesValueReferenceOutput),
+        // fall back to copying via the base class method
+        if (o == nullptr || l == nullptr) {
+            auto out = output();
+            auto last = last_output();
+            // Python reference: if (not o.valid and l.valid) or (l.valid and o.value != l.value): o.value = l.value
+            // We need to compare values, not just check the modified flag, because the value can change
+            // without the output being marked modified (e.g., when all keys are removed and the tree
+            // propagates a different output reference).
+            if (last && last->valid()) {
+                bool values_differ = !out->valid() || (out->py_value().not_equal(last->py_value()));
+                if (values_differ) {
+                    out->copy_from_output(*last);
+                }
+            }
+            return;
+        }
+
         // Since l is the last output and o is the main output, they are different TimeSeriesReferenceOutput objects
         // We need to compare their values (both are TimeSeriesReference values)
         bool values_equal = o->valid() && l->valid() && o->has_value() && l->has_value() && (o->value() == l->value());

@@ -13,6 +13,10 @@ namespace hgraph {
     }
 
     void PushQueueNode::enqueue_message(nb::object message) {
+        if (_receiver == nullptr) {
+            // Node has been stopped or not yet started, ignore message
+            return;
+        }
         ++_messages_queued;
         _receiver->enqueue({node_ndx(), std::move(message)});
     }

@@ -178,14 +178,18 @@ namespace hgraph {
         mark_modified(modified_time);
     } // NOLINT(*-no-recursion)
 
-    void BaseTimeSeriesOutput::subscribe(Notifiable *notifiable) { _subscribers.insert(notifiable); }
+    void BaseTimeSeriesOutput::subscribe(Notifiable *notifiable) {
+        _subscribers.insert(notifiable);
+    }
 
     void BaseTimeSeriesOutput::un_subscribe(Notifiable *notifiable) {
         _subscribers.erase(notifiable);
     }
 
     void BaseTimeSeriesOutput::_notify(engine_time_t modified_time) {
-        for (auto *subscriber: _subscribers) { subscriber->notify(modified_time); }
+        for (auto *subscriber: _subscribers) {
+            subscriber->notify(modified_time);
+        }
     }
 
     void BaseTimeSeriesOutput::_reset_last_modified_time() { _last_modified_time = MIN_DT; }

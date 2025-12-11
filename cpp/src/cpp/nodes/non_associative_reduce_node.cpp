@@ -153,12 +153,44 @@ namespace hgraph {
         // Bind the output to the last node's output value (matches Python lines 411-414)
         auto out = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
 
+        // If output is not a TimeSeriesReferenceOutput (e.g. TimeSeriesValueOutput), use py_set_value
+        if (out == nullptr) {
+            int64_t nc = node_count();
+            nb::object lv;  // Last value to set
+
+            if (nc == 0) {
+                // No nodes: output should be the zero value
+                auto zero = (*input())["zero"];
+                if (!zero || !zero->valid()) {
+                    return;
+                }
+                lv = zero->py_value();
+            } else {
+                // Has nodes: output should be the last node's output value
+                auto sub_graph = get_node(nc - 1);
+                auto last_out_node = sub_graph[output_node_id_];
+                auto last_out = last_out_node->output();
+                if (!last_out || !last_out->valid()) {
+                    return;
+                }
+                lv = last_out->py_value();
+            }
+
+            // Python reference: if (not self.output.valid) or self.output.value != lv: self.output.value = lv
+            auto raw_out = output();
+            bool values_differ = !raw_out->valid() || (raw_out->py_value().not_equal(lv));
+            if (values_differ) {
+                raw_out->py_set_value(lv);
+            }
+            return;
+        }
+
         int64_t nc = node_count();
         if (nc == 0) {
             // No nodes: output should reference the zero input
             auto zero = (*input())["zero"];
             auto zero_ref = dynamic_cast<TimeSeriesReferenceInput *>(zero.get());
-            if (!out->valid() || !out->has_value() || !(out->value() == zero_ref->value())) {
+            if (zero_ref && (!out->valid() || !out->has_value() || !(out->value() == zero_ref->value()))) {
                 out->set_value(zero_ref->value());
             }
         } else {
@@ -168,7 +200,7 @@ namespace hgraph {
             auto last_out = last_out_node->output();
             auto last_ref_out = dynamic_cast<TimeSeriesReferenceOutput *>(last_out.get());
 
-            if (!out->valid() || !out->has_value() || !(out->value() == last_ref_out->value())) {
+            if (last_ref_out && (!out->valid() || !out->has_value() || !(out->value() == last_ref_out->value()))) {
                 out->set_value(last_ref_out->value());
             }
         }

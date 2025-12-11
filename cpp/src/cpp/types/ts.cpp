@@ -168,19 +168,30 @@ namespace hgraph {
     nb::object TimeSeriesValueInput::py_value() const {
         if (!valid()) return nb::none();
 
-        const auto& av = _ts_input.value();
-        if (!av.has_value()) return nb::none();
+        // If _ts_input is bound and has a value, use it
+        if (_ts_input.bound()) {
+            const auto& av = _ts_input.value();
+            if (av.has_value()) {
+                // Check if stored as nb::object first
+                if (auto *obj = av.get_if<nb::object>()) return *obj;
 
-        // Check if stored as nb::object first
-        if (auto *obj = av.get_if<nb::object>()) return *obj;
+                // Cast specific types
+                if (auto *b = av.get_if<bool>()) return nb::cast(*b);
+                if (auto *i = av.get_if<int64_t>()) return nb::cast(*i);
+                if (auto *d = av.get_if<double>()) return nb::cast(*d);
+                if (auto *dt = av.get_if<engine_date_t>()) return nb::cast(*dt);
+                if (auto *t = av.get_if<engine_time_t>()) return nb::cast(*t);
+                if (auto *td = av.get_if<engine_time_delta_t>()) return nb::cast(*td);
 
-        // Cast specific types
-        if (auto *b = av.get_if<bool>()) return nb::cast(*b);
-        if (auto *i = av.get_if<int64_t>()) return nb::cast(*i);
-        if (auto *d = av.get_if<double>()) return nb::cast(*d);
-        if (auto *dt = av.get_if<engine_date_t>()) return nb::cast(*dt);
-        if (auto *t = av.get_if<engine_time_t>()) return nb::cast(*t);
-        if (auto *td = av.get_if<engine_time_delta_t>()) return nb::cast(*td);
+                return nb::none();
+            }
+        }
+
+        // Fall back to the bound output's py_value() for non-TimeSeriesValueOutput cases
+        // (e.g., when bound through a reference)
+        if (bound() && output()) {
+            return output()->py_value();
+        }
 
         return nb::none();
     }
@@ -196,17 +207,19 @@ namespace hgraph {
 
     bool TimeSeriesValueInput::bind_output(const time_series_output_s_ptr& output_) {
         // First do the base binding to set up parent tracking
-        if (!BaseTimeSeriesInput::bind_output(output_)) {
-            return false;
+        bool peer = BaseTimeSeriesInput::bind_output(output_);
+
+        // Then bind the TSInput to the TSOutput for value sharing
+        // We need to bind to the actual output we're connected to (which may differ from output_
+        // if we went through a reference)
+        if (bound()) {
+            auto* ts_value_output = dynamic_cast<TimeSeriesValueOutput*>(output().get());
+            if (ts_value_output) {
+                _ts_input.bind_output(ts_value_output->ts_output());
+            }
         }
 
-        // Then bind the TSInput to the TSOutput
-        auto* ts_value_output = dynamic_cast<TimeSeriesValueOutput*>(output_.get());
-        if (ts_value_output) {
-            _ts_input.bind_output(ts_value_output->ts_output());
-        }
-
-        return true;
+        return peer;
     }
 
     void TimeSeriesValueInput::un_bind_output(bool unbind_refs) {

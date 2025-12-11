@@ -736,11 +736,8 @@ namespace hgraph
         }
         // If we are un-binding then the output must exist by definition.
         output_t().remove_key_observer(this);
-        if (has_peer()) {
-            BaseTimeSeriesInput::do_un_bind_output(unbind_refs);
-        } else {
-            reset_output();
-        }
+        // Always use base class to properly unsubscribe from output
+        BaseTimeSeriesInput::do_un_bind_output(unbind_refs);
     }
 
     template <typename T_Key>
@@ -923,7 +920,19 @@ namespace hgraph
 
         if (child != &key_set_t()) {
             // Child is not the key-set instance
-            auto key{key_from_value(child)};
+            // Match Python: get key from reverse map, then check if in _ts_values
+            auto it = _ts_values_to_keys.find(child);
+            if (it == _ts_values_to_keys.end()) {
+                // Key not found in reverse map, just return (matching Python behavior)
+                BaseTimeSeriesInput::notify_parent(this, modified_time);
+                return;
+            }
+            auto key = it->second;
+            if (_ts_values.find(key) == _ts_values.end()) {
+                // Key not in _ts_values, just return (matching Python behavior)
+                BaseTimeSeriesInput::notify_parent(this, modified_time);
+                return;
+            }
             _key_updated(key);
         }
 

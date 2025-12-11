@@ -253,6 +253,7 @@ namespace hgraph {
         std::optional<TsOrNode> _parent_ts_or_node{};
         time_series_output_s_ptr _output;  // Keep output alive while bound (was nb::ref<TimeSeriesOutput>)
         time_series_reference_output_s_ptr _reference_output;
+        std::shared_ptr<TimeSeriesValueReferenceOutput> _v2_reference_output;  // v2 style reference output
         bool _active{false};
         engine_time_t _sample_time{MIN_DT};
         engine_time_t _notify_time{MIN_DT};
