@@ -4,64 +4,94 @@
 
 namespace hgraph {
 
-    // Helper to get NotifiableContext from node_ptr
-    static NotifiableContext* get_context(node_ptr node) {
-        auto* ctx = dynamic_cast<NotifiableContext*>(node);
-        if (!ctx) {
-            throw std::runtime_error("Node does not implement NotifiableContext");
-        }
-        return ctx;
-    }
-
-    // Helper to get NotifiableContext from time_series_output_ptr by traversing to owning node
-    static NotifiableContext* get_context(time_series_output_ptr ts_output) {
-        auto* node = ts_output->owning_node();
-        if (!node) {
-            throw std::runtime_error("TimeSeriesOutput has no owning node");
-        }
-        return get_context(node);
-    }
-
-    // Helper to get NotifiableContext from time_series_input_ptr by traversing to owning node
-    static NotifiableContext* get_context(time_series_input_ptr ts_input) {
-        auto* node = ts_input->owning_node();
-        if (!node) {
-            throw std::runtime_error("TimeSeriesInput has no owning node");
-        }
-        return get_context(node);
-    }
-
     // TimeSeriesValueOutput implementation
 
     TimeSeriesValueOutput::TimeSeriesValueOutput(node_ptr parent, const std::type_info &tp)
-        : BaseTimeSeriesOutput(parent), _ts_output(get_context(parent), tp) {}
+        : _parent_adapter{parent}, _ts_output{this, tp} {}
 
     TimeSeriesValueOutput::TimeSeriesValueOutput(time_series_output_ptr parent, const std::type_info &tp)
-        : BaseTimeSeriesOutput(parent), _ts_output(get_context(parent), tp) {}
+        : _parent_adapter{parent}, _ts_output{this, tp} {}
 
-    nb::object TimeSeriesValueOutput::py_value() const {
-        if (!valid()) return nb::none();
-
-        const auto& av = _ts_output.value();
-        if (!av.has_value()) return nb::none();
-
-        // Check if stored as nb::object first
-        if (auto *obj = av.get_if<nb::object>()) return *obj;
-
-        // Cast specific types
-        if (auto *b = av.get_if<bool>()) return nb::cast(*b);
-        if (auto *i = av.get_if<int64_t>()) return nb::cast(*i);
-        if (auto *d = av.get_if<double>()) return nb::cast(*d);
-        if (auto *dt = av.get_if<engine_date_t>()) return nb::cast(*dt);
-        if (auto *t = av.get_if<engine_time_t>()) return nb::cast(*t);
-        if (auto *td = av.get_if<engine_time_delta_t>()) return nb::cast(*td);
-
-        return nb::none();
+    void TimeSeriesValueOutput::notify(engine_time_t et) {
+        // Outputs notify their parent (which may be a collection output or node)
+        if (_parent_adapter.has_parent_output()) {
+            _parent_adapter.parent_output()->mark_child_modified(*this, et);
+        }
+        // Note: Unlike inputs, outputs don't typically notify the node directly
+        // The node is notified through the subscription mechanism
     }
+
+    engine_time_t TimeSeriesValueOutput::current_engine_time() const { return owning_node()->current_engine_time(); }
+
+    void TimeSeriesValueOutput::add_before_evaluation_notification(std::function<void()> &&fn) {
+        owning_node()->add_before_evaluation_notification(std::move(fn));
+    }
+
+    void TimeSeriesValueOutput::add_after_evaluation_notification(std::function<void()> &&fn) {
+        owning_node()->add_after_evaluation_notification(std::move(fn));
+    }
+
+    node_ptr TimeSeriesValueOutput::owning_node() { return _parent_adapter.owning_node(); }
+
+    node_ptr TimeSeriesValueOutput::owning_node() const { return _parent_adapter.owning_node(); }
+
+    graph_ptr TimeSeriesValueOutput::owning_graph() { return _parent_adapter.owning_graph(); }
+
+    graph_ptr TimeSeriesValueOutput::owning_graph() const { return _parent_adapter.owning_graph(); }
+
+    bool TimeSeriesValueOutput::has_parent_or_node() const { return _parent_adapter.has_parent_or_node(); }
+
+    bool TimeSeriesValueOutput::has_owning_node() const { return _parent_adapter.has_owning_node(); }
+
+    nb::object TimeSeriesValueOutput::py_value() const { return _ts_output.value().as_python(); }
 
     nb::object TimeSeriesValueOutput::py_delta_value() const {
-        return py_value();
+        auto event = _ts_output.delta_value();
+        return event.value.as_python();
     }
+
+    engine_time_t TimeSeriesValueOutput::last_modified_time() const { return _ts_output.last_modified_time(); }
+
+    bool TimeSeriesValueOutput::modified() const { return _ts_output.modified(); }
+
+    bool TimeSeriesValueOutput::valid() const { return _ts_output.valid(); }
+
+    bool TimeSeriesValueOutput::all_valid() const { return _ts_output.valid(); }
+
+    void TimeSeriesValueOutput::re_parent(node_ptr parent) { _parent_adapter.re_parent(parent); }
+
+    void TimeSeriesValueOutput::re_parent(const time_series_type_ptr parent) { _parent_adapter.re_parent(parent); }
+
+    void TimeSeriesValueOutput::reset_parent_or_node() { _parent_adapter.reset_parent_or_node(); }
+
+    void TimeSeriesValueOutput::builder_release_cleanup() {
+        // Think about what may be required to be done here
+    }
+
+    bool TimeSeriesValueOutput::is_same_type(const TimeSeriesType *other) const {
+        auto *other_out = dynamic_cast<const TimeSeriesValueOutput *>(other);
+        return other_out != nullptr && other_out->_ts_output.value_type() == _ts_output.value_type();
+    }
+
+    bool TimeSeriesValueOutput::is_reference() const { return false; }
+
+    bool TimeSeriesValueOutput::has_reference() const { return false; }
+
+    TimeSeriesOutput::s_ptr TimeSeriesValueOutput::parent_output() const {
+        auto p{_parent_adapter.parent_output()};
+        return p != nullptr ? p->shared_from_this() : s_ptr{};
+    }
+
+    TimeSeriesOutput::s_ptr TimeSeriesValueOutput::parent_output() {
+        auto p{_parent_adapter.parent_output()};
+        return p != nullptr ? p->shared_from_this() : s_ptr{};
+    }
+
+    bool TimeSeriesValueOutput::has_parent_output() const { return _parent_adapter.has_parent_output(); }
+
+    void TimeSeriesValueOutput::subscribe(Notifiable *node) { _ts_output.subscribe(node); }
+
+    void TimeSeriesValueOutput::un_subscribe(Notifiable *node) { _ts_output.unsubscribe(node); }
 
     void TimeSeriesValueOutput::py_set_value(const nb::object& value) {
         if (value.is_none()) {
@@ -90,14 +120,9 @@ namespace hgraph {
         }
 
         _ts_output.set_value(std::move(av));
-        // TSOutput::set_value already notifies via its parent mechanism,
-        // but we still need to trigger BaseTimeSeriesOutput notification
-        mark_modified();
     }
 
-    bool TimeSeriesValueOutput::can_apply_result(const nb::object &value) {
-        return !modified();
-    }
+    bool TimeSeriesValueOutput::can_apply_result(const nb::object &value) { return !modified(); }
 
     void TimeSeriesValueOutput::apply_result(const nb::object& value) {
         if (!value.is_valid() || value.is_none()) return;
@@ -110,52 +135,88 @@ namespace hgraph {
         }
     }
 
-    void TimeSeriesValueOutput::mark_invalid() {
-        _ts_output.invalidate();
-        BaseTimeSeriesOutput::mark_invalid();
-    }
-
-    void TimeSeriesValueOutput::invalidate() {
-        _ts_output.invalidate();
-        BaseTimeSeriesOutput::invalidate();
-    }
-
-    // Use BaseTimeSeriesOutput's modified/valid/last_modified_time which integrate with the existing
-    // notification infrastructure. The _ts_output is just for value storage.
-    // Note: These are inherited from BaseTimeSeriesOutput, no need to override.
-
     void TimeSeriesValueOutput::copy_from_output(const TimeSeriesOutput &output) {
-        auto &output_t = dynamic_cast<const TimeSeriesValueOutput &>(output);
-        if (output_t.valid()) {
-            _ts_output.set_value(output_t._ts_output.value());
-            mark_modified();
+        auto output_t = dynamic_cast<const TimeSeriesValueOutput *>(&output);
+        if (output_t) {
+            if (output_t->valid()) {
+                _ts_output.set_value(output_t->_ts_output.value());
+            }
         } else {
-            mark_invalid();
+            throw std::runtime_error("TimeSeriesValueOutput::copy_from_output: Expected TimeSeriesValueOutput");
         }
     }
 
     void TimeSeriesValueOutput::copy_from_input(const TimeSeriesInput &input) {
-        const auto &input_t = dynamic_cast<const TimeSeriesValueInput &>(input);
-        if (input_t.valid()) {
-            _ts_output.set_value(input_t._ts_input.value());
-            mark_modified();
+        auto input_t = dynamic_cast<const TimeSeriesValueInput *>(&input);
+        if (input_t) {
+            if (input_t->valid()) {
+                _ts_output.set_value(input_t->_ts_input.value());
+            }
         } else {
-            mark_invalid();
+            throw std::runtime_error("TimeSeriesValueOutput::copy_from_input: Expected TimeSeriesValueInput");
         }
     }
 
-    bool TimeSeriesValueOutput::is_same_type(const TimeSeriesType *other) const {
-        auto *other_out = dynamic_cast<const TimeSeriesValueOutput *>(other);
-        return other_out != nullptr && other_out->_ts_output.value_type() == _ts_output.value_type();
+    void TimeSeriesValueOutput::clear() { _ts_output.invalidate(); }
+
+    void TimeSeriesValueOutput::invalidate() { _ts_output.invalidate(); }
+
+    void TimeSeriesValueOutput::mark_invalid() { _ts_output.invalidate(); }
+
+    void TimeSeriesValueOutput::mark_modified() {
+        // Trigger notification by setting the current value again
+        // This will update the last_modified_time and notify subscribers
+        if (valid()) {
+            auto current = _ts_output.value();
+            _ts_output.set_value(current);
+        }
+    }
+
+    void TimeSeriesValueOutput::mark_modified(engine_time_t modified_time) {
+        // The TSOutput handles modified time internally based on events
+        mark_modified();
+    }
+
+    void TimeSeriesValueOutput::mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) {
+        // For a value output, we don't have children in the traditional sense
+        // But we propagate the modification notification upward
+        notify(modified_time);
     }
 
     // TimeSeriesValueInput implementation
 
     TimeSeriesValueInput::TimeSeriesValueInput(node_ptr parent, const std::type_info &tp)
-        : BaseTimeSeriesInput(parent), _ts_input(get_context(parent), tp) {}
+        : _parent_adapter{parent}, _ts_input{this, tp} {}
 
     TimeSeriesValueInput::TimeSeriesValueInput(time_series_input_ptr parent, const std::type_info &tp)
-        : BaseTimeSeriesInput(parent), _ts_input(get_context(parent), tp) {}
+        : _parent_adapter{parent}, _ts_input{this, tp} {}
+
+    void TimeSeriesValueInput::notify(engine_time_t et) {
+        // Notify through the parent adapter
+        _parent_adapter.notify_modified(this, et);
+    }
+
+    engine_time_t TimeSeriesValueInput::current_engine_time() const { return owning_node()->current_engine_time(); }
+
+    void TimeSeriesValueInput::add_before_evaluation_notification(std::function<void()> &&fn) {
+        owning_node()->add_before_evaluation_notification(std::move(fn));
+    }
+
+    void TimeSeriesValueInput::add_after_evaluation_notification(std::function<void()> &&fn) {
+        owning_node()->add_after_evaluation_notification(std::move(fn));
+    }
+
+    node_ptr TimeSeriesValueInput::owning_node() { return _parent_adapter.owning_node(); }
+
+    node_ptr TimeSeriesValueInput::owning_node() const { return _parent_adapter.owning_node(); }
+
+    graph_ptr TimeSeriesValueInput::owning_graph() { return _parent_adapter.owning_graph(); }
+
+    graph_ptr TimeSeriesValueInput::owning_graph() const { return _parent_adapter.owning_graph(); }
+
+    bool TimeSeriesValueInput::has_parent_or_node() const { return _parent_adapter.has_parent_or_node(); }
+
+    bool TimeSeriesValueInput::has_owning_node() const { return _parent_adapter.has_owning_node(); }
 
     TimeSeriesValueOutput& TimeSeriesValueInput::value_output() {
         return dynamic_cast<TimeSeriesValueOutput &>(*output());
@@ -165,39 +226,26 @@ namespace hgraph {
         return dynamic_cast<const TimeSeriesValueOutput &>(*output());
     }
 
-    nb::object TimeSeriesValueInput::py_value() const {
-        if (!valid()) return nb::none();
+    nb::object TimeSeriesValueInput::py_value() const { return _ts_input.value().as_python(); }
 
-        // If _ts_input is bound and has a value, use it
-        if (_ts_input.bound()) {
-            const auto& av = _ts_input.value();
-            if (av.has_value()) {
-                // Check if stored as nb::object first
-                if (auto *obj = av.get_if<nb::object>()) return *obj;
+    nb::object TimeSeriesValueInput::py_delta_value() const { return py_value(); }
 
-                // Cast specific types
-                if (auto *b = av.get_if<bool>()) return nb::cast(*b);
-                if (auto *i = av.get_if<int64_t>()) return nb::cast(*i);
-                if (auto *d = av.get_if<double>()) return nb::cast(*d);
-                if (auto *dt = av.get_if<engine_date_t>()) return nb::cast(*dt);
-                if (auto *t = av.get_if<engine_time_t>()) return nb::cast(*t);
-                if (auto *td = av.get_if<engine_time_delta_t>()) return nb::cast(*td);
+    engine_time_t TimeSeriesValueInput::last_modified_time() const { return _ts_input.last_modified_time(); }
 
-                return nb::none();
-            }
-        }
+    bool TimeSeriesValueInput::modified() const { return _ts_input.modified(); }
 
-        // Fall back to the bound output's py_value() for non-TimeSeriesValueOutput cases
-        // (e.g., when bound through a reference)
-        if (bound() && output()) {
-            return output()->py_value();
-        }
+    bool TimeSeriesValueInput::valid() const { return _ts_input.valid(); }
 
-        return nb::none();
-    }
+    bool TimeSeriesValueInput::all_valid() const { return _ts_input.valid(); }
 
-    nb::object TimeSeriesValueInput::py_delta_value() const {
-        return py_value();
+    void TimeSeriesValueInput::re_parent(node_ptr parent) { _parent_adapter.re_parent(parent); }
+
+    void TimeSeriesValueInput::re_parent(const time_series_type_ptr parent) { _parent_adapter.re_parent(parent); }
+
+    void TimeSeriesValueInput::reset_parent_or_node() { _parent_adapter.reset_parent_or_node(); }
+
+    void TimeSeriesValueInput::builder_release_cleanup() {
+        // Think about what may be required to be done here
     }
 
     bool TimeSeriesValueInput::is_same_type(const TimeSeriesType *other) const {
@@ -205,30 +253,58 @@ namespace hgraph {
         return other_in != nullptr && other_in->_ts_input.value_type() == _ts_input.value_type();
     }
 
+    bool TimeSeriesValueInput::is_reference() const { return false; }
+
+    bool TimeSeriesValueInput::has_reference() const { return false; }
+
+    TimeSeriesInput::s_ptr TimeSeriesValueInput::parent_input() const {
+        auto p{_parent_adapter.parent_input()};
+        return p != nullptr ? p->shared_from_this() : TimeSeriesInput::s_ptr{};
+    }
+
+    bool TimeSeriesValueInput::has_parent_input() const { return _parent_adapter.has_parent_input(); }
+
+    bool TimeSeriesValueInput::active() const { return _ts_input.active(); }
+
+    void TimeSeriesValueInput::make_active() { _ts_input.make_active(); }
+
+    void TimeSeriesValueInput::make_passive() { _ts_input.make_passive(); }
+
+    bool TimeSeriesValueInput::bound() const { return _ts_input.bound(); }
+
+    bool TimeSeriesValueInput::has_peer() const { return _ts_input.bound(); }
+
+    time_series_output_s_ptr TimeSeriesValueInput::output() const { return _bound_output; }
+
+    bool TimeSeriesValueInput::has_output() const { return _bound_output != nullptr; }
+
+    time_series_reference_output_s_ptr TimeSeriesValueInput::reference_output() const {
+        throw std::runtime_error("TimeSeriesValueInput does not support reference_output");
+    }
+
+    TimeSeriesInput::s_ptr TimeSeriesValueInput::get_input(size_t index) {
+        throw std::runtime_error("TimeSeriesValueInput does not support get_input");
+    }
+
+    void TimeSeriesValueInput::notify_parent(TimeSeriesInput *child, engine_time_t modified_time) {
+        // Since this is a leaf we should not have this method called.
+        throw std::runtime_error("TimeSeriesValueInput does not support notify_parent");
+    }
+
     bool TimeSeriesValueInput::bind_output(const time_series_output_s_ptr& output_) {
-        // First do the base binding to set up parent tracking
-        bool peer = BaseTimeSeriesInput::bind_output(output_);
-
-        // Then bind the TSInput to the TSOutput for value sharing
-        // We need to bind to the actual output we're connected to (which may differ from output_
-        // if we went through a reference)
-        if (bound()) {
-            auto* ts_value_output = dynamic_cast<TimeSeriesValueOutput*>(output().get());
-            if (ts_value_output) {
-                _ts_input.bind_output(ts_value_output->ts_output());
-            }
+        auto* ts_value_output = dynamic_cast<TimeSeriesValueOutput*>(output_.get());
+        if (ts_value_output) {
+            _bound_output = output_;
+            _ts_input.bind_output(ts_value_output->ts_output());
+            return true;
         }
-
-        return peer;
+        return false;
     }
 
     void TimeSeriesValueInput::un_bind_output(bool unbind_refs) {
+        _bound_output = nullptr;
         _ts_input.un_bind();
-        BaseTimeSeriesInput::un_bind_output(unbind_refs);
     }
-
-    // NOTE: modified/valid/last_modified_time/active/make_active/make_passive
-    // are inherited from BaseTimeSeriesInput - no need to override.
 
     void register_ts_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesValueOutput, TimeSeriesOutput>(m, "TimeSeriesValueOutput");
