@@ -159,7 +159,8 @@ namespace hgraph {
             make_passive();  // First, remove ourselves as we only want to see if there are external subscriptions to track
             // If we are pointing to an instance of delegate, we need to capture the subscribers.
             if (auto delegate{dynamic_cast<DelegateTSValue *>(_impl.get())}; delegate != nullptr) {
-                subscriptions.insert_range(delegate->delegate_subscribers());
+                const auto& subs = delegate->delegate_subscribers();
+                subscriptions.insert(subs.begin(), subs.end());
             }
         }
 
