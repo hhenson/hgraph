@@ -572,8 +572,22 @@ namespace hgraph
     }
 
     void TimeSeriesValueReferenceInput::un_bind_output(bool unbind_refs) {
+        // Capture validity BEFORE unbinding
+        bool was_valid = valid();
+
         _bound_reference_output = nullptr;  // Clear reference output tracking
         _ts_input.un_bind();
+
+        // Notify owning node that this input is now invalid
+        // This is critical for transplanted inputs in TSD map operations
+        // Match Python: call owning_node.notify() directly, not through _parent_adapter
+        if (has_owning_node()) {
+            auto n = owning_node();
+            if (n->is_started() && was_valid && active()) {
+                auto et = owning_graph()->evaluation_time();
+                n->notify(et);
+            }
+        }
     }
 
     void TimeSeriesValueReferenceInput::clone_binding(TimeSeriesReferenceInput::ptr other) {
