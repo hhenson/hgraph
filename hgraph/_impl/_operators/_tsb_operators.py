@@ -282,7 +282,7 @@ def abs_tsb(tsb: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
 
 @compute_node(
     resolvers={
-        TS_SCHEMA_1: lambda mapping, scalars: ts_schema(
+        TS_SCHEMA_1: lambda mapping: ts_schema(
             **{k: REF[v] for k, v in mapping[TS_SCHEMA].meta_data_schema.items()}
         )
     },
@@ -304,7 +304,7 @@ def dereference(tsb: REF[TSB[TS_SCHEMA]], _schema: Type[TS_SCHEMA] = AUTO_RESOLV
         return {k: TimeSeriesReference.make() for k in _schema.__meta_data_schema__}
 
 
-@graph(overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]})
+@graph(overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, key: mapping[TS_SCHEMA][key]})
 def tsb_get_item_by_name(
     tsb: REF[TSB[TS_SCHEMA]], key: str, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE
 ) -> REF[TIME_SERIES_TYPE]:
@@ -315,7 +315,7 @@ def tsb_get_item_by_name(
 
 
 @compute_node(
-    overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, scalars: mapping[TS_SCHEMA][scalars["key"]]}
+    overloads=getitem_, resolvers={TIME_SERIES_TYPE: lambda mapping, key: mapping[TS_SCHEMA][key]}
 )
 def tsb_get_item_by_index(
     tsb: REF[TSB[TS_SCHEMA]], key: int, _schema: Type[TS_SCHEMA] = AUTO_RESOLVE

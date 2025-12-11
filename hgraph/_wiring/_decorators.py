@@ -4,6 +4,7 @@ from typing import TypeVar, Callable, Type, Sequence, TYPE_CHECKING, Mapping, An
 
 from frozendict import frozendict
 
+from hgraph._types import with_signature
 from hgraph._types._time_series_types import TIME_SERIES_TYPE
 from hgraph._wiring._wiring_errors import CustomMessageWiringError
 from hgraph._wiring._wiring_node_signature import extract_injectables
@@ -511,11 +512,12 @@ def push_queue(
         nonlocal requires
         if "batch" in annotations:
 
-            def check_batching_type(mapping, scalars, requires=requires):
-                if requires is not None and (r := requires(mapping, scalars)) is not True:
+            @with_signature(kwargs={k: v.annotation for k, v in signature(requires).parameters.items()} if requires else {})
+            def check_batching_type(mapping, batch, requires=requires, **kwargs):
+                if requires is not None and (r := requires(mapping, **kwargs)) is not True:
                     return r
 
-                if scalars["batch"] is True:
+                if batch is True:
                     t = HgTypeMetaData.parse_type(tp)
                     from hgraph import HgTSDTypeMetaData
 

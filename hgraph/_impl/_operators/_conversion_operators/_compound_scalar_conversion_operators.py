@@ -25,8 +25,8 @@ def _check_schema(scalar, bundle):
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: _check_schema(m[COMPOUND_SCALAR], m[TS_SCHEMA]),
-    all_valid=lambda m, s: ("bundle",) if s["__strict__"] else None,
+    requires=lambda m: _check_schema(m[COMPOUND_SCALAR], m[TS_SCHEMA]),
+    all_valid=lambda m, __strict__: ("bundle",) if __strict__ else None,
 )
 def combine_cs(
     tp_out_: Type[TS[COMPOUND_SCALAR]] = DEFAULT[OUT],
@@ -39,9 +39,9 @@ def combine_cs(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type == TS[CompoundScalar],
-    resolvers={COMPOUND_SCALAR: lambda m, s: m[TS_SCHEMA].py_type.scalar_type()},
-    all_valid=lambda m, s: ("bundle",) if s["__strict__"] else None,
+    requires=lambda m: m[OUT].py_type == TS[CompoundScalar],
+    resolvers={COMPOUND_SCALAR: lambda m: m[TS_SCHEMA].py_type.scalar_type()},
+    all_valid=lambda m, __strict__: ("bundle",) if __strict__ else None,
 )
 def convert_cs_from_tsb(bundle: TSB[TS_SCHEMA], __strict__: bool = True) -> TS[COMPOUND_SCALAR]:
     return bundle.value
@@ -49,8 +49,8 @@ def convert_cs_from_tsb(bundle: TSB[TS_SCHEMA], __strict__: bool = True) -> TS[C
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type != TS[CompoundScalar],
-    all_valid=lambda m, s: ("bundle",) if s["__strict__"] else None,
+    requires=lambda m: m[OUT].py_type != TS[CompoundScalar],
+    all_valid=lambda m, __strict__: ("bundle",) if __strict__ else None,
 )
 def convert_cs_from_tsb_typed(
     bundle: TSB[TS_SCHEMA],
@@ -65,13 +65,13 @@ def convert_cs_from_tsb_typed(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSB,
-    resolvers={TS_SCHEMA: lambda m, s: TimeSeriesSchema.from_scalar_schema(m[COMPOUND_SCALAR].py_type)},
+    requires=lambda m: m[OUT].py_type is TSB,
+    resolvers={TS_SCHEMA: lambda m: TimeSeriesSchema.from_scalar_schema(m[COMPOUND_SCALAR].py_type)},
 )
 def convert_tsb_from_cs(
     ts: TS[COMPOUND_SCALAR],
     to: type[OUT] = DEFAULT[OUT],
-    tp_: type[TS_SCHEMA] = AUTO_RESOLVE
+    tp_: type[TS_SCHEMA] = AUTO_RESOLVE,
 ) -> TSB[TS_SCHEMA]:
     as_dict = ts.value.to_dict()
     return {

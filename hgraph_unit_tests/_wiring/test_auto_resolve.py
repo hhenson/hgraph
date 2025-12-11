@@ -18,7 +18,7 @@ def test_func_resolve():
     def x(x) -> str:
         return str(x)
 
-    @compute_node(resolvers={SCALAR_1: lambda mapping, scalars: scalars["f"].__annotations__["return"]})
+    @compute_node(resolvers={SCALAR_1: lambda mapping, f: f.__annotations__["return"]})
     def call(ts: TS[SCALAR], f: type(x)) -> TS[SCALAR_1]:
         return f(ts.value)
 

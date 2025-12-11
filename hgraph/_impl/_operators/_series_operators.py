@@ -125,7 +125,7 @@ def contains_series(series: TS[Series[SCALAR]], value: TS[SCALAR]) -> TS[bool]:
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
+    requires=lambda m: m[OUT].py_type is TSS or m[OUT].matches_type(TSS[m[SCALAR].py_type]),
     )
 def convert_series_to_tss(ts: TS[Series[SCALAR]], to: Type[OUT] = DEFAULT[OUT],
         _output: TSS_OUT[SCALAR] = None, _tp: type[SCALAR] = AUTO_RESOLVE

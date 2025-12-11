@@ -24,11 +24,9 @@ __all__ = ("join", "filter_frame", "filter_cs", "filter_exp", "filter_exp_seq", 
 ON_TYPE = TypeVar("ON_TYPE", str, tuple[str, ...], pl.Expr)
 
 
-def _compute_fields(mapping, scalars):
+def _compute_fields(mapping, suffix, on):
     lhs: CompoundScalar = mapping[COMPOUND_SCALAR].py_type
     rhs = mapping[COMPOUND_SCALAR_1].py_type
-    suffix = scalars["suffix"]
-    on = scalars["on"]
     if type(on) is str:
         on = [on]
 
@@ -116,7 +114,7 @@ def filter_exp_seq(ts: TS[Frame[COMPOUND_SCALAR]], predicate: tuple[pl.Expr, ...
     return ts.value.filter(predicate)
 
 
-@compute_node(resolvers={KEYABLE_SCALAR: lambda m, s: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[s["by"]]})
+@compute_node(resolvers={KEYABLE_SCALAR: lambda m, by: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[by]})
 def group_by(ts: TS[Frame[COMPOUND_SCALAR]], by: str) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
     return {k: v for (k,), v in ts.value.group_by(by)}
 

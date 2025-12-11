@@ -119,6 +119,7 @@ class WiringNodeSignature:
     record_and_replay_id: str | None = None
     deprecated: str | bool = False
     requires: Callable[[...], bool] | None = None
+    required_scalars: frozenset[str] | None = None  # Scalar parameter names used in requires lambda
     kw_only_args: tuple[str, ...] = None
     var_arg: str = None
     var_kwarg: str = None
@@ -404,10 +405,27 @@ class WiringNodeSignature:
                 delayed_resolution = []
 
             if resolvers_dict:
+                # Build scalars dict including both provided kwargs and defaults
                 scalars = {k: v for k, v in kwargs.items() if (kwt := kwarg_types.get(k)) and kwt.is_scalar}
+                # Add defaults for scalar parameters not in kwargs
+                for k, v in self.defaults.items():
+                    if k not in scalars and k in self.args and (kwt := kwarg_types.get(k)) and kwt.is_scalar:
+                        scalars[k] = v
                 for k, v in resolvers_dict.items():
                     if k not in out_dict:
-                        resolved = v(resolution_dict, scalars)
+                        # Check how many parameters the resolver expects
+                        resolver_params = signature(v).parameters
+                        resolver_param_names = list(resolver_params.keys())
+                        is_lambda = v.__name__ == '<lambda>'
+
+                        if len(resolver_param_names) == 1:
+                            # Resolver only takes mapping: lambda m: ... or def foo(m): ...
+                            resolved = v(resolution_dict)
+                        else:
+                            # New-style resolver with named parameters: lambda m, param1, param2: ...
+                            resolver_scalars = {name: scalars.get(name, self.defaults.get(name))
+                                              for name in resolver_param_names[1:] if name in scalars or name in self.defaults}
+                            resolved = v(resolution_dict, **resolver_scalars)
                         if isinstance(resolved, (type, GenericAlias, _GenericAlias, TypeVar)):
                             resolved = HgTypeMetaData.parse_type(resolved)
                         elif isinstance(resolved, Size):
@@ -459,9 +477,20 @@ class WiringNodeSignature:
         return out_type
 
     def resolve_valid_inputs(self, resolution_dict, **kwargs) -> tuple[frozenset[str], bool]:
-        valid_inputs = (
-            self.valid_inputs(resolution_dict, kwargs) if isfunction(self.valid_inputs) else self.valid_inputs
-        )
+        if isfunction(self.valid_inputs):
+            # Get the actual parameters this specific function needs
+            func_params = list(signature(self.valid_inputs).parameters.keys())[1:]  # Skip first param
+
+            # Extract only the scalar values this function actually needs
+            scalar_kwargs = {}
+            for scalar_name in func_params:
+                if scalar_name in kwargs:
+                    scalar_kwargs[scalar_name] = kwargs[scalar_name]
+                elif scalar_name in self.defaults:
+                    scalar_kwargs[scalar_name] = self.defaults[scalar_name]
+            valid_inputs = self.valid_inputs(resolution_dict, **scalar_kwargs)
+        else:
+            valid_inputs = self.valid_inputs
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
             if valid_inputs is not None:
@@ -472,11 +501,20 @@ class WiringNodeSignature:
             return frozenset(valid_inputs) if valid_inputs is not None else None, valid_inputs != self.valid_inputs
 
     def resolve_all_valid_inputs(self, resolution_dict, **kwargs) -> tuple[frozenset[str] | None, bool]:
-        all_valid_inputs = (
-            self.all_valid_inputs(resolution_dict, kwargs)
-            if isfunction(self.all_valid_inputs)
-            else self.all_valid_inputs
-        )
+        if isfunction(self.all_valid_inputs):
+            # Get the actual parameters this specific function needs
+            func_params = list(signature(self.all_valid_inputs).parameters.keys())[1:]  # Skip first param
+
+            # Extract only the scalar values this function actually needs
+            scalar_kwargs = {}
+            for scalar_name in func_params:
+                if scalar_name in kwargs:
+                    scalar_kwargs[scalar_name] = kwargs[scalar_name]
+                elif scalar_name in self.defaults:
+                    scalar_kwargs[scalar_name] = self.defaults[scalar_name]
+            all_valid_inputs = self.all_valid_inputs(resolution_dict, **scalar_kwargs)
+        else:
+            all_valid_inputs = self.all_valid_inputs
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
             if all_valid_inputs:
@@ -492,9 +530,20 @@ class WiringNodeSignature:
             ), all_valid_inputs != self.all_valid_inputs
 
     def resolve_active_inputs(self, resolution_dict, **kwargs) -> tuple[frozenset[str], bool]:
-        active_inputs = (
-            self.active_inputs(resolution_dict, kwargs) if isfunction(self.active_inputs) else self.active_inputs
-        )
+        if isfunction(self.active_inputs):
+            # Get the actual parameters this specific function needs
+            func_params = list(signature(self.active_inputs).parameters.keys())[1:]  # Skip first param
+
+            # Extract only the scalar values this function actually needs
+            scalar_kwargs = {}
+            for scalar_name in func_params:
+                if scalar_name in kwargs:
+                    scalar_kwargs[scalar_name] = kwargs[scalar_name]
+                elif scalar_name in self.defaults:
+                    scalar_kwargs[scalar_name] = self.defaults[scalar_name]
+            active_inputs = self.active_inputs(resolution_dict, **scalar_kwargs)
+        else:
+            active_inputs = self.active_inputs
         optional_inputs = set(k for k in self.time_series_args if kwargs[k] is None)
         if optional_inputs:
             if active_inputs:
@@ -598,7 +647,19 @@ class WiringNodeSignature:
 
     def validate_requirements(self, resolution_dict: dict[TypeVar, HgTypeMetaData], kwargs):
         if self.requires:
-            if (err := self.requires(resolution_dict, kwargs)) is not True:
+            # Get the actual parameters this specific function needs
+            func_params = list(signature(self.requires).parameters.keys())[1:]  # Skip first param (resolution_dict)
+
+            # Extract only the scalar values this function actually needs
+            scalar_kwargs = {}
+            for scalar_name in func_params:
+                if scalar_name in kwargs:
+                    scalar_kwargs[scalar_name] = kwargs[scalar_name]
+                elif scalar_name in self.defaults:
+                    scalar_kwargs[scalar_name] = self.defaults[scalar_name]
+
+            # Call lambda with resolution_dict and named scalar arguments
+            if (err := self.requires(resolution_dict, **scalar_kwargs)) is not True:
                 error = f": {err}," if err is not False else ""
                 raise RequirementsNotMetWiringError(
                     f"Failed requirements check{error} with resolution dict {resolution_dict}"
@@ -739,6 +800,47 @@ def extract_signature(
         scalars = [f"{{{k}}}" for k in args if k not in time_series_inputs]
         record_and_replay_id = f"{name}{'::' if scalars else ''}{'_'.join(scalars)}"
 
+    # Parse required scalars from requires, valid_inputs, and all_valid_inputs lambda signatures
+    required_scalars = set()
+    scalar_inputs = frozenset(a for a in args if a not in time_series_inputs)
+
+    # Parse scalars from requires
+    if requires is not None and isfunction(requires):
+        req_params = signature(requires).parameters
+        req_param_names = list(req_params.keys())
+        if len(req_param_names) < 1:
+            raise ParseError(f"requires lambda for '{name}' must have at least one parameter (resolution_dict)")
+        # First parameter is resolution_dict, rest are scalar names
+        scalar_param_names = req_param_names[1:]
+        required_scalars.update(scalar_param_names)
+
+    # Parse scalars from valid_inputs
+    if valid_inputs is not None and isfunction(valid_inputs):
+        valid_params = signature(valid_inputs).parameters
+        valid_param_names = list(valid_params.keys())
+        if len(valid_param_names) >= 1:
+            # First parameter is resolution_dict, rest are scalar names
+            required_scalars.update(valid_param_names[1:])
+
+    # Parse scalars from all_valid_inputs
+    if all_valid_inputs is not None and isfunction(all_valid_inputs):
+        all_valid_params = signature(all_valid_inputs).parameters
+        all_valid_param_names = list(all_valid_params.keys())
+        if len(all_valid_param_names) >= 1:
+            # First parameter is resolution_dict, rest are scalar names
+            required_scalars.update(all_valid_param_names[1:])
+
+    # Validate that all required parameters exist in the node's arguments
+    required_scalars = frozenset(required_scalars) if required_scalars else None
+    if required_scalars:
+        all_args = frozenset(args)
+        invalid_params = required_scalars - all_args
+        if invalid_params:
+            raise ParseError(
+                f"Lambda functions for '{name}' reference parameters {invalid_params} "
+                f"which are not in the node's function signature: {all_args}"
+            )
+
     return WiringNodeSignature(
         node_type=wiring_node_type,
         name=name,
@@ -758,6 +860,7 @@ def extract_signature(
         record_and_replay_id=record_and_replay_id,
         deprecated=deprecated,
         requires=requires,
+        required_scalars=required_scalars,
         kw_only_args=kw_only_args,
         var_arg=var_arg,
         var_kwarg=var_kwarg,

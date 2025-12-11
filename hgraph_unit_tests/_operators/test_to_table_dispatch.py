@@ -7,7 +7,7 @@ from hgraph._impl._operators._to_table_dispatch_impl import extract_table_schema
 from hgraph.test import eval_node
 
 
-@compute_node(resolvers={TABLE: lambda m, s: tuple[*s["schema"].types]})
+@compute_node(resolvers={TABLE: lambda m, schema: tuple[*schema.types]})
 def to_table_test_fn(ts: DEFAULT[TIME_SERIES_TYPE], schema: PartialSchema) -> TS[TABLE]:
     return schema.to_table(ts)
 

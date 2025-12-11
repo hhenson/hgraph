@@ -35,7 +35,7 @@ def table_schema_generic(tp: type[TIME_SERIES_TYPE]) -> TS[TableSchema]:
     )
 
 
-@compute_node(overloads=to_table, resolvers={TABLE: lambda m, s: table_shape(m[TIME_SERIES_TYPE].py_type)})
+@compute_node(overloads=to_table, resolvers={TABLE: lambda m: table_shape(m[TIME_SERIES_TYPE].py_type)})
 def to_table_generic(
     ts: TIME_SERIES_TYPE,
     mode: TS[ToTableMode] = ToTableMode.Tick,

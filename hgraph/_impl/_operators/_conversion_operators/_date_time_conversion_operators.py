@@ -3,36 +3,39 @@ from datetime import date, timedelta, datetime
 from hgraph import compute_node, TS, OUT, WiringPort, combine, convert
 
 
-@compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[date])
+@compute_node(overloads=convert, requires=lambda m: m[OUT].py_type == TS[date])
 def convert_str_to_date(ts: TS[str]) -> TS[date]:
     return date.fromisoformat(ts.value)
 
 
-@compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[datetime])
+@compute_node(overloads=convert, requires=lambda m: m[OUT].py_type == TS[datetime])
 def convert_str_to_datetime(ts: TS[str]) -> TS[datetime]:
     return datetime.fromisoformat(ts.value)
 
 
-@compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[datetime])
+@compute_node(overloads=convert, requires=lambda m: m[OUT].py_type == TS[datetime])
 def convert_date_to_datetime(ts: TS[date]) -> TS[datetime]:
     return datetime(ts.value.year, ts.value.month, ts.value.day)
 
 
-@compute_node(overloads=convert, requires=lambda m, s: m[OUT].py_type == TS[date])
+@compute_node(overloads=convert, requires=lambda m: m[OUT].py_type == TS[date])
 def convert_datetime_to_date(ts: TS[datetime]) -> TS[date]:
     v: datetime = ts.value
     return v.date()
 
 
-@compute_node(overloads=combine, requires=lambda m, s: m[OUT].py_type == TS[date])
+@compute_node(overloads=combine, requires=lambda m: m[OUT].py_type == TS[date])
 def combine_date(year: TS[int], month: TS[int], day: TS[int]) -> TS[date]:
     return date(year.value, month.value, day.value)
 
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: m[OUT].py_type == TS[timedelta],
-    valid=lambda m, s: (k for k, v in s.items() if isinstance(v, WiringPort)) if s["__strict__"] else (),
+    requires=lambda m: m[OUT].py_type == TS[timedelta],
+    valid=lambda m, __strict__, days, seconds, microseconds, milliseconds, minutes, hours, weeks: (
+        k for k, v in {"days": days, "seconds": seconds, "microseconds": microseconds, "milliseconds": milliseconds,
+                       "minutes": minutes, "hours": hours, "weeks": weeks}.items() if isinstance(v, WiringPort)
+    ) if __strict__ else (),
 )
 def combine_timedelta(
     *,

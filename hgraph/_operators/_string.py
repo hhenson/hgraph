@@ -1,3 +1,4 @@
+import sys
 from typing import Tuple, Type
 
 from hgraph._types._time_series_types import TIME_SERIES_TYPE, OUT
@@ -50,7 +51,7 @@ def substr(s: TS[str], start: TS[int], end: TS[int] = None) -> TS[str]:
 
 
 @operator
-def split(s: TS[str], separator: str, maxsplits: int = -1, to: Type[OUT] = TS[Tuple[str, ...]]) -> DEFAULT[OUT]:
+def split(s: TS[str], separator: str, maxsplits: int = sys.maxsize, to: Type[OUT] = TS[Tuple[str, ...]]) -> DEFAULT[OUT]:
     """
     Splits the string over the separator into one of the given types:
      - TS[Tuple[str, ...]],

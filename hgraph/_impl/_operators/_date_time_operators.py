@@ -52,12 +52,12 @@ _datetime_custom = {
 }
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: _datetime_properties[s["attribute"]]})
+@compute_node(resolvers={SCALAR: lambda m, attribute: _datetime_properties[attribute]})
 def datetime_properties(ts: TS[datetime], attribute: str) -> TS[SCALAR]:
     return getattr(ts.value, attribute)
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: _datetime_methods[s["attribute"]]})
+@compute_node(resolvers={SCALAR: lambda m, attribute: _datetime_methods[attribute]})
 def datetime_methods(ts: TS[datetime], attribute: str) -> TS[SCALAR]:
     return getattr(ts.value, attribute)()
 
@@ -87,12 +87,12 @@ _date_methods = {
 }
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: _date_properties[s["attribute"]]})
+@compute_node(resolvers={SCALAR: lambda m, attribute: _date_properties[attribute]})
 def date_properties(ts: TS[date], attribute: str) -> TS[SCALAR]:
     return getattr(ts.value, attribute)
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: _date_methods[s["attribute"]]})
+@compute_node(resolvers={SCALAR: lambda m, attribute: _date_methods[attribute]})
 def date_methods(ts: TS[date], attribute: str) -> TS[SCALAR]:
     return getattr(ts.value, attribute)()
 
@@ -119,12 +119,12 @@ _time_methods = {
 }
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: _time_properties[s["attribute"]]})
+@compute_node(resolvers={SCALAR: lambda m, attribute: _time_properties[attribute]})
 def time_properties(ts: TS[time], attribute: str) -> TS[SCALAR]:
     return getattr(ts.value, attribute)
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: _time_methods[s["attribute"]]})
+@compute_node(resolvers={SCALAR: lambda m, attribute: _time_methods[attribute]})
 def time_methods(ts: TS[time], attribute: str) -> TS[SCALAR]:
     # Note: tzname() and tzinfo are no longer supported for C++ engine compatibility
     return getattr(ts.value, attribute)()
@@ -151,12 +151,12 @@ _timedelta_methods = {
 }
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: _timedelta_properties[s["attribute"]]})
+@compute_node(resolvers={SCALAR: lambda m, attribute: _timedelta_properties[attribute]})
 def timedelta_properties(ts: TS[timedelta], attribute: str) -> TS[SCALAR]:
     return getattr(ts.value, attribute)
 
 
-@compute_node(resolvers={SCALAR: lambda m, s: _timedelta_methods[s["attribute"]]})
+@compute_node(resolvers={SCALAR: lambda m, attribute: _timedelta_methods[attribute]})
 def timedelta_methods(ts: TS[timedelta], attribute: str) -> TS[SCALAR]:
     return getattr(ts.value, attribute)()
 

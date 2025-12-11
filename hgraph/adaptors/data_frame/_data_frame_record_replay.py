@@ -183,7 +183,7 @@ def _get_df(key, recordable_id: str, traits: Traits) -> pl.DataFrame:
     return DataFrameStorage.instance().read_frame(f"{recordable_id}.{key}")
 
 
-def _replay_from_data_frame_output_shape(m, s):
+def _replay_from_data_frame_output_shape(m):
     tp = m[TIME_SERIES_TYPE].py_type
     schema: TableSchema = table_schema(tp).value
     if schema.partition_keys:

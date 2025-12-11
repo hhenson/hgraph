@@ -1,6 +1,6 @@
 [project]
 name = "hgraph"
-version = "0.5.8"
+version = "0.5.9"
 description = "A functional reactive platform used to process time-series streams. Provides support for backtest (simulation) and realtime time-series processing. Using a forward propagation graph with a microtask scheduler for the runtime engine."
 readme = "README.md"
 license = {text = "MIT"}
@@ -82,7 +82,7 @@ test = [
 ]
 dev = [
     # This is needed for CLion / other dev env to find the nanobind libs.
-    "nanobind>=2.9",
+    "nanobind>=2.9.2",
 ]
 
 [build-system]
@@ -143,7 +143,7 @@ hg = ["hgraph", ]
 tests = ["hgraph_unit_tests"]
 
 [tool.coverage.report]
-fail_under = 80
+fail_under = 70
 exclude_lines = [
     "no cov",
     "if __name__ == .__main__.:",

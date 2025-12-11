@@ -24,7 +24,7 @@ __all__ = ()
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
+    requires=lambda m: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
     or m[OUT].matches_type(TS[Set[m[SCALAR].py_type]]),
 )
 def convert_ts_to_set(ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> TS[Set[SCALAR]]:
@@ -33,7 +33,7 @@ def convert_ts_to_set(ts: TS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> TS[Set[SC
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
+    requires=lambda m: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
     or m[OUT].matches_type(TS[Set[m[SCALAR].py_type]]),
 )
 def convert_tuple_to_set(ts: TS[Tuple[SCALAR, ...]], to: Type[OUT] = DEFAULT[OUT]) -> TS[Set[SCALAR]]:
@@ -42,7 +42,7 @@ def convert_tuple_to_set(ts: TS[Tuple[SCALAR, ...]], to: Type[OUT] = DEFAULT[OUT
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
+    requires=lambda m: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
     or m[OUT].matches_type(TS[Set[m[SCALAR].py_type]]),
 )
 def convert_tss_to_set(ts: TSS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> TS[Set[SCALAR]]:
@@ -51,7 +51,7 @@ def convert_tss_to_set(ts: TSS[SCALAR], to: Type[OUT] = DEFAULT[OUT]) -> TS[Set[
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
+    requires=lambda m: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
     or m[OUT].matches_type(TS[Set[m[SCALAR].py_type]]),
     valid=("ts",),
 )
@@ -65,7 +65,7 @@ def collect_set(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
+    requires=lambda m: m[OUT].py_type in (TS[Set], TS[set], TS[frozenset])
     or m[OUT].matches_type(TS[Set[m[SCALAR].py_type]]),
     valid=("ts",),
 )

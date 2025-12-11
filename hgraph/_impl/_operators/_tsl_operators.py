@@ -52,7 +52,7 @@ def len_tsl(ts: TSL[TIME_SERIES_TYPE, SIZE], _sz: type[SIZE] = AUTO_RESOLVE) -> 
     return const(_sz.SIZE)
 
 
-@compute_node(overloads=getitem_, requires=lambda m, s: 0 <= s["index"] < m[SIZE])
+@compute_node(overloads=getitem_, requires=lambda m, key: 0 <= key < m[SIZE])
 def getitem_tsl_scalar(ts: REF[TSL[TIME_SERIES_TYPE, SIZE]], key: int) -> REF[TIME_SERIES_TYPE]:
     """
     Return a reference to an item in the TSL referenced

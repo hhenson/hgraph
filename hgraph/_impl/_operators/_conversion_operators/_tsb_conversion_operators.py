@@ -20,21 +20,21 @@ from hgraph import (
 __all__ = ("convert_tsb_to_bool", "convert_tsb_to_tsd")
 
 
-@graph(overloads=combine, requires=lambda m, s: (OUT not in m or m[OUT].py_type is TSB) and not s["__strict__"])
+@graph(overloads=combine, requires=lambda m, __strict__: (OUT not in m or m[OUT].py_type is TSB) and not __strict__)
 def combine_unnamed_tsb(__strict__: bool = False, **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
     return bundle
 
 
 @compute_node(
     overloads=combine,
-    requires=lambda m, s: (OUT not in m or m[OUT].py_type is TSB) and s["__strict__"],
+    requires=lambda m, __strict__: (OUT not in m or m[OUT].py_type is TSB) and __strict__,
     all_valid=("bundle",),
 )
 def combine_unnamed_tsb_strict(*, __strict__: bool, _output: OUT = None, **bundle: TSB[TS_SCHEMA]) -> TSB[TS_SCHEMA]:
     return bundle.value if not _output.valid else bundle.delta_value
 
 
-@graph(overloads=combine, requires=lambda m, s: not s["__strict__"])
+@graph(overloads=combine, requires=lambda m, __strict__: not __strict__)
 def combine_named_tsb(
     __strict__: bool = False,
     tp_: Type[TSB[TS_SCHEMA]] = DEFAULT[OUT],
@@ -43,7 +43,7 @@ def combine_named_tsb(
     return bundle
 
 
-@compute_node(overloads=combine, requires=lambda m, s: s["__strict__"], all_valid=("bundle",))
+@compute_node(overloads=combine, requires=lambda m, __strict__: __strict__, all_valid=("bundle",))
 def combine_named_tsb_strict(
     *,
     __strict__: bool = False,
@@ -54,7 +54,7 @@ def combine_named_tsb_strict(
     return bundle.value if not _output.valid else bundle.delta_value
 
 
-def _combine_tsb_partial_requirements(mapping, scalars):
+def _combine_tsb_partial_requirements(mapping):
     in_schema = mapping[TS_SCHEMA_1].meta_data_schema
     out_schema = mapping[TS_SCHEMA].meta_data_schema
     return set(in_schema.keys()).issubset(out_schema.keys()) and all(
@@ -87,9 +87,8 @@ def convert_tsb_to_bool(ts: TSB[TS_SCHEMA], to: type[TS[bool]]) -> TS[bool]:
     return ts.valid  # AB: There is a 'valid' node for that, I would not see this as conversion
 
 
-def _convert_tsb_to_tsd_requirements(mapping, scalars):
+def _convert_tsb_to_tsd_requirements(mapping, keys):
     schema = mapping[TS_SCHEMA].py_type.__meta_data_schema__
-    keys = scalars["keys"]
     if keys is None:
         keys = schema.keys()
     value_types = set(schema[k] for k in keys)

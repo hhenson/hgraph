@@ -28,7 +28,7 @@ def min_enum_unary(ts: TS[ENUM], _output: TS_OUT[ENUM] = None) -> TS[ENUM]:
         return ts.value
 
 
-@compute_node(valid=lambda m, s: ("lhs", "rhs") if s["__strict__"] else ())
+@compute_node(valid=lambda m, __strict__: ("lhs", "rhs") if __strict__ else ())
 def min_enum_binary(lhs: TS[ENUM], rhs: TS[ENUM], __strict__: bool = True) -> TS[ENUM]:
     l = lhs.value
     r = rhs.value
@@ -40,7 +40,7 @@ def min_enum_binary(lhs: TS[ENUM], rhs: TS[ENUM], __strict__: bool = True) -> TS
         return l if l.value <= r.value else r
 
 
-@compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)
+@compute_node(all_valid=lambda m, __strict__: ("ts",) if __strict__ else None)
 def min_enum_multi(*ts: TSL[TS[ENUM], SIZE], default_value: TS[ENUM] = None, __strict__: bool = True) -> TS[ENUM]:
     """
     Multi-arg enum value min()
@@ -69,7 +69,7 @@ def max_enum_unary(ts: TS[ENUM], _output: TS_OUT[ENUM] = None) -> TS[ENUM]:
         return ts.value
 
 
-@compute_node(valid=lambda m, s: ("lhs", "rhs") if s["__strict__"] else ())
+@compute_node(valid=lambda m, __strict__: ("lhs", "rhs") if __strict__ else ())
 def max_enum_binary(lhs: TS[ENUM], rhs: TS[ENUM], __strict__: bool = True) -> TS[ENUM]:
     l = lhs.value
     r = rhs.value
@@ -81,7 +81,7 @@ def max_enum_binary(lhs: TS[ENUM], rhs: TS[ENUM], __strict__: bool = True) -> TS
         return l if l.value >= r.value else r
 
 
-@compute_node(all_valid=lambda m, s: ("ts",) if s["__strict__"] else None)
+@compute_node(all_valid=lambda m, __strict__: ("ts",) if __strict__ else None)
 def max_enum_multi(*ts: TSL[TS[ENUM], SIZE], default_value: TS[ENUM] = None, __strict__: bool = True) -> TS[ENUM]:
     """
     Multi-arg enum value max()

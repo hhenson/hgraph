@@ -31,7 +31,7 @@ __all__ = ()
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
+    requires=lambda m: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
     or m[OUT].matches_type(TS[Mapping[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]]),
 )
 def convert_ts_to_mapping(
@@ -42,7 +42,7 @@ def convert_ts_to_mapping(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
+    requires=lambda m: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
     or m[OUT].matches_type(TS[Mapping[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]]),
 )
 def convert_tuples_to_mapping(
@@ -56,9 +56,9 @@ def convert_tuples_to_mapping(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
+    requires=lambda m: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
     or m[OUT].matches_type(TS[Mapping[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]]),
-    resolvers={KEYABLE_SCALAR: lambda m, s: int, SCALAR: lambda m, s: m[TIME_SERIES_TYPE].scalar_type()},
+    resolvers={KEYABLE_SCALAR: lambda m: int, SCALAR: lambda m: m[TIME_SERIES_TYPE].scalar_type()},
 )
 def convert_tsl_to_mapping(
     ts: TSL[TIME_SERIES_TYPE, SIZE], to: Type[OUT] = DEFAULT[OUT]
@@ -68,9 +68,9 @@ def convert_tsl_to_mapping(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
+    requires=lambda m: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
     or m[OUT].matches_type(TS[Mapping[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]]),
-    resolvers={SCALAR: lambda m, s: m[TIME_SERIES_TYPE].scalar_type()},
+    resolvers={SCALAR: lambda m: m[TIME_SERIES_TYPE].scalar_type()},
 )
 def convert_tsd_to_mapping(
     ts: TSD[KEYABLE_SCALAR, TIME_SERIES_TYPE], to: Type[OUT] = DEFAULT[OUT]
@@ -80,10 +80,10 @@ def convert_tsd_to_mapping(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].matches_type(TS[Mapping[str, m[SCALAR].py_type]])
+    requires=lambda m: m[OUT].matches_type(TS[Mapping[str, m[SCALAR].py_type]])
     and all(m[SCALAR].matches(v.scalar_type()) for v in m[TS_SCHEMA].meta_data_schema.values()),
-    resolvers={SCALAR: lambda m, s: m[OUT].value_scalar_tp.value_type},
-    all_valid=lambda m, s: ("ts",) if s["__strict__"] else None,
+    resolvers={SCALAR: lambda m: m[OUT].value_scalar_tp.value_type},
+    all_valid=lambda m, __strict__: ("ts",) if __strict__ else None,
 )
 def convert_tsb_to_mapping(
     ts: TSB[TS_SCHEMA], to: Type[OUT] = DEFAULT[OUT], __strict__: bool = False
@@ -95,10 +95,10 @@ def convert_tsb_to_mapping(
 
 @compute_node(
     overloads=convert,
-    requires=lambda m, s: m[OUT].matches_type(TS[Mapping[str, m[SCALAR].py_type]])
+    requires=lambda m: m[OUT].matches_type(TS[Mapping[str, m[SCALAR].py_type]])
     and all(m[SCALAR].matches(v.scalar_type()) for v in m[TS_SCHEMA].meta_data_schema.values()),
-    resolvers={SCALAR: lambda m, s: m[OUT].value_scalar_tp.value_type},
-    all_valid=lambda m, s: ("ts",) if s["__strict__"] else None,
+    resolvers={SCALAR: lambda m: m[OUT].value_scalar_tp.value_type},
+    all_valid=lambda m, __strict__: ("ts",) if __strict__ else None,
 )
 def convert_tsb_to_mapping(
     to: Type[OUT] = DEFAULT[OUT], __strict__: bool = False, **ts: TSB[TS_SCHEMA]
@@ -108,7 +108,7 @@ def convert_tsb_to_mapping(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
+    requires=lambda m: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
     or m[OUT].matches_type(TS[Mapping[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]]),
     valid=("key", "ts"),
 )
@@ -127,7 +127,7 @@ def collect_mapping(
 
 @compute_node(
     overloads=collect,
-    requires=lambda m, s: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
+    requires=lambda m: m[OUT].py_type in (TS[Mapping], TS[dict], TS[frozendict])
     or m[OUT].matches_type(TS[Mapping[m[KEYABLE_SCALAR].py_type, m[SCALAR].py_type]]),
     valid=("key", "ts"),
 )
@@ -144,7 +144,7 @@ def collect_mapping_from_tuples(
     return prev | new
 
 
-@compute_node(overloads=emit, resolvers={OUT: lambda m, s: TS[m[SCALAR].py_type]})
+@compute_node(overloads=emit, resolvers={OUT: lambda m: TS[m[SCALAR].py_type]})
 def emit_mapping(
     ts: TS[Mapping[KEYABLE_SCALAR, SCALAR]],
     v_: Type[V] = DEFAULT[OUT],

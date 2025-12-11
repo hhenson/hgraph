@@ -40,37 +40,31 @@ def schema_from_frame(frame: pl.DataFrame) -> COMPOUND_SCALAR:
 
 
 def _schema_and_dt_col(
-        mapping, scalars
+        mapping, df, dt_col
 ) -> tuple[OrderedDict[str, HgScalarTypeMetaData], tuple[str, HgScalarTypeMetaData]]:
-    df: pl.DataFrame = scalars["df"]
     schema = df.schema
-    dt_col = scalars["dt_col"]
     return {k: _convert_type(v) for k, v in schema.items() if k != dt_col}, (dt_col, _convert_type(schema[dt_col]))
 
 
-def _cs_from_frame(mapping, scalar) -> COMPOUND_SCALAR:
-    df: pl.DataFrame = scalar["df"]
+def _cs_from_frame(mapping, df: pl.DataFrame) -> COMPOUND_SCALAR:
     schema = df.schema
     return compound_scalar(**{k: _convert_type(v) for k, v in schema.items()})
 
 
-def _extract_schema(mapping, scalars) -> TS_SCHEMA:
+def _extract_schema(mapping, df, dt_col) -> TS_SCHEMA:
     """Extract the schema from the mapping"""
-    schema, _ = _schema_and_dt_col(mapping, scalars)
+    schema, _ = _schema_and_dt_col(mapping, df, dt_col)
     return ts_schema(**{k: HgTSTypeMetaData(v) for k, v in schema.items()})
 
 
-def _extract_scalar(mapping, scalars) -> SCALAR:
-    df: pl.DataFrame = scalars["df"]
+def _extract_scalar(mapping, df, value_col) -> SCALAR:
     schema = df.schema
-    k = scalars["value_col"]
+    k = value_col
     return _convert_type(schema[k])
 
 
-def _validate_ts_schema(mapping, scalars) -> str:
+def _validate_ts_schema(mapping, dt_col, value_col) -> str:
     cs = mapping[COMPOUND_SCALAR]
-    dt_col = scalars["dt_col"]
-    value_col = scalars["value_col"]
     if dt_col not in cs.meta_data_schema:
         return f"dt_col '{dt_col}' not found in schema: {cs.meta_data_schema}"
     if value_col not in cs.meta_data_schema:
@@ -103,12 +97,11 @@ def from_data_frame_ts(
             yield dt + offset, value
 
 
-def _validate_tsb_schema(mapping, scalars) -> str:
+def _validate_tsb_schema(mapping, dt_col) -> str:
     out = mapping[OUT]
     if type(out) is not HgTSBTypeMetaData:
         return f"Expected OUT to be TSB, got: {out}"
     cs = mapping[COMPOUND_SCALAR]
-    dt_col = scalars["dt_col"]
     if dt_col not in cs.meta_data_schema:
         return f"dt_col '{dt_col}' not found in schema: {cs.meta_data_schema}"
     return True
@@ -137,31 +130,29 @@ def from_data_frame_tsb(
         yield dt + offset, value
 
 
-def _extract_tsd_key_scalar(mapping, scalars) -> SCALAR:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    return schema[scalars["key_col"]].py_type
+def _extract_tsd_key_scalar(mapping, df, dt_col, key_col) -> SCALAR:
+    schema, _ = _schema_and_dt_col(mapping, df, dt_col)
+    return schema[key_col].py_type
 
 
-def _extract_tsd_key_value_scalar(mapping, scalars) -> SCALAR_1:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    schema.pop(scalars["key_col"])
+def _extract_tsd_key_value_scalar(mapping, df, dt_col, key_col) -> SCALAR_1:
+    schema, _ = _schema_and_dt_col(mapping, df, dt_col)
+    schema.pop(key_col)
     assert len(schema) == 1
     return next(iter(schema.values())).py_type
 
 
-def _validate_tsd_k_v_schema(mapping, scalars) -> str:
+def _validate_tsd_k_v_schema(mapping, dt_col, key_col) -> str:
     out = mapping[OUT]
     if type(out) is not HgTSDTypeMetaData:
         return f"Expected OUT to be TSD, got: {out}"
     if type(out.value_tp) is not HgTSTypeMetaData:
         return f"Expected OUT value type to be TS, got: {out.value_tp}"
     cs = mapping[COMPOUND_SCALAR]
-    dt_col = scalars["dt_col"]
     if dt_col not in cs.meta_data_schema:
         return f"dt_col '{dt_col}' not found in schema: {cs.meta_data_schema}"
-    k_col = scalars["key_col"]
-    if k_col not in cs.meta_data_schema:
-        return f"key_col '{k_col}' not found in schema: {cs.meta_data_schema}"
+    if key_col not in cs.meta_data_schema:
+        return f"key_col '{key_col}' not found in schema: {cs.meta_data_schema}"
     if len(cs.meta_data_schema) != 3:
         return f"Expected 3 columns, got: {cs.meta_data_schema}"
     return True
@@ -204,25 +195,23 @@ def from_data_frame_tsd_k_v(
         yield dt + offset, {k: v for k, v in df_.select(key_col, value_col).iter_rows()}
 
 
-def _extract_tsd_key_value_bundle(mapping, scalars) -> TS_SCHEMA:
-    schema, _ = _schema_and_dt_col(mapping, scalars)
-    schema.pop(scalars["key_col"])
+def _extract_tsd_key_value_bundle(mapping, df, dt_col, key_col) -> TS_SCHEMA:
+    schema, _ = _schema_and_dt_col(mapping, df, dt_col)
+    schema.pop(key_col)
     return ts_schema(**{k: HgTSTypeMetaData(v) for k, v in schema.items()})
 
 
-def _validate_tsd_k_tsb(mapping, scalars) -> str | bool:
+def _validate_tsd_k_tsb(mapping, dt_col, key_col) -> str | bool:
     out = mapping[OUT]
     if type(out) is not HgTSDTypeMetaData:
         return f"Expected OUT to be TSD, got: {out}"
     if type(out.value_tp) is not HgTSBTypeMetaData:
         return f"Expected OUT value to be TSB, got: {out.value_tp}"
     cs = mapping[COMPOUND_SCALAR]
-    dt_col = scalars["dt_col"]
     if dt_col not in cs.meta_data_schema:
         return f"dt_col '{dt_col}' not found in schema: {cs.meta_data_schema}"
-    k_col = scalars["key_col"]
-    if k_col not in cs.meta_data_schema:
-        return f"key_col '{k_col}' not found in schema: {cs.meta_data_schema}"
+    if key_col not in cs.meta_data_schema:
+        return f"key_col '{key_col}' not found in schema: {cs.meta_data_schema}"
     if len(cs.meta_data_schema) < 3:
         return f"Expected at least 3 columns, got: {cs.meta_data_schema}"
     ts_schema = mapping[TS_SCHEMA]
@@ -408,7 +397,7 @@ def from_data_frame_tsd_k_tsb(
 # SIZE_1 = clone_type_var(SIZE, "SIZE_1")
 #
 #
-# @generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size, SIZE_1: lambda m, s: Size[-1]})
+# @generator(resolvers={SCALAR: _extract_array_value, SIZE: _extract_array_size, SIZE_1: lambda m: Size[-1]})
 # def ts_of_matrix_from_data_source(
 #     dfs: type[DATA_FRAME_SOURCE], dt_col: str, offset: timedelta = timedelta(), _api: EvaluationEngineApi = None
 # ) -> TS[Array[SCALAR, SIZE, SIZE_1]]:
@@ -506,19 +495,19 @@ def _dt_converter(dt_tp: pl.DataType) -> Callable[[date | datetime], datetime]:
     raise RuntimeError(f"Attempting to convert: {dt_tp} to a datetime but it is neither a date or a datime as requried")
 
 
-def _base_schema(m, s):
-    include_date = s["include_date"]
+def _base_schema(m, include_date, dt_col, as_date):
+    include_date = include_date
     schema = {}
     if include_date:
-        dt_col = s["dt_col"]
-        as_date = s["as_date"]
+        dt_col = dt_col
+        as_date = as_date
         schema[dt_col] = date if as_date else datetime
     return schema
 
 
-def _resolve_ts(m, s):
-    schema = _base_schema(m, s)
-    value_col = s["value_col"]
+def _resolve_ts(m, include_date, dt_col, as_date, value_col):
+    schema = _base_schema(m, include_date, dt_col, as_date)
+    value_col = value_col
     scalar_tp = m[SCALAR].py_type
     schema[value_col] = scalar_tp
     return compound_scalar(**schema)
@@ -546,13 +535,13 @@ def to_data_frame_tsd_k_tsb_start(_cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE, 
 SUPPORTED_TYPES = {int, float, bool, str, date, datetime, time, timedelta}
 
 
-def _resolve_tsb(m, s):
-    schema = _base_schema(m, s)
+def _resolve_tsb(m, include_date, dt_col, as_date):
+    schema = _base_schema(m, include_date, dt_col, as_date)
     schema.update({k: v.scalar_type().py_type for k, v in m[TS_SCHEMA].py_type.__meta_data_schema__.items()})
     return compound_scalar(**schema)
 
 
-def _requires_tsb(mapping, scalars) -> str | bool:
+def _requires_tsb(mapping) -> str | bool:
     cs_tp = mapping[COMPOUND_SCALAR]
     if any(i.py_type not in SUPPORTED_TYPES for i in cs_tp.py_type.__meta_data_schema__.values()):
         return f"Schema constraints non-convertable types: {cs_tp.__meta_data_schema__}"
@@ -579,11 +568,11 @@ def to_data_frame_tsb_start(_cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE, _state
     _state.schema = {k: v.py_type for k, v in _cs_tp.__meta_data_schema__.items()}
 
 
-def _resolve_tsd_k_v(m, s):
-    schema = _base_schema(m, s)
-    key_col = s["key_col"]
+def _resolve_tsd_k_v(m, include_date, dt_col, as_date, key_col, value_col):
+    schema = _base_schema(m, include_date, dt_col, as_date)
+    key_col = key_col
     schema[key_col] = m[SCALAR].py_type
-    value_col = s["value_col"]
+    value_col = value_col
     scalar_tp = m[SCALAR_1].py_type
     schema[value_col] = scalar_tp
     return compound_scalar(**schema)
@@ -623,9 +612,9 @@ def to_data_frame_tsd_k_tsb_start(_cs_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE, 
     _state.schema = {k: v.py_type for k, v in _cs_tp.__meta_data_schema__.items()}
 
 
-def _resolve_tsd_k_tsb(m, s):
-    schema = _base_schema(m, s)
-    key_col = s["key_col"]
+def _resolve_tsd_k_tsb(m, include_date, dt_col, as_date, key_col):
+    schema = _base_schema(m, include_date, dt_col, as_date)
+    key_col = key_col
     schema[key_col] = m[SCALAR].py_type
     schema.update({k: v.scalar_type().py_type for k, v in m[TS_SCHEMA].py_type.__meta_data_schema__.items()})
     return compound_scalar(**schema)
