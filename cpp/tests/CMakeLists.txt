@@ -27,7 +27,7 @@ if (NOT fmt_FOUND)
     FetchContent_MakeAvailable(fmt)
 endif()
 
-# Create test executable
+# Create test executable for visitor tests
 add_executable(hgraph_visitor_tests
     test_visitor_standalone.cpp
 )
@@ -40,6 +40,22 @@ target_link_libraries(hgraph_visitor_tests PRIVATE
 # Set C++ standard
 target_compile_features(hgraph_visitor_tests PRIVATE cxx_std_23)
 
+# Create test executable for value type system tests
+add_executable(hgraph_value_tests
+    test_value.cpp
+    value_examples.cpp
+)
+
+target_include_directories(hgraph_value_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+)
+
+target_link_libraries(hgraph_value_tests PRIVATE
+    Catch2::Catch2WithMain
+)
+
+target_compile_features(hgraph_value_tests PRIVATE cxx_std_23)
+
 # Enable testing
 enable_testing()
 
@@ -47,6 +63,7 @@ enable_testing()
 include(CTest)
 include(Catch)
 catch_discover_tests(hgraph_visitor_tests)
+catch_discover_tests(hgraph_value_tests)
 
 # Optional: Add custom target to run tests
 add_custom_target(run_visitor_tests
@@ -54,4 +71,11 @@ add_custom_target(run_visitor_tests
     DEPENDS hgraph_visitor_tests
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Running visitor pattern tests"
+)
+
+add_custom_target(run_value_tests
+    COMMAND hgraph_value_tests
+    DEPENDS hgraph_value_tests
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Running value type system tests"
 )
