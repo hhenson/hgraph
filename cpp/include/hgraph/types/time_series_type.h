@@ -35,17 +35,15 @@ namespace hgraph
     using TimeSeriesInputVisitor =
         decltype(tp::make_v<ddv::mux>(ts_input_types_v +
                                       ts_reference_input_types_v
-                                      // payload specialized inputs (TimeSeriesValueInput is now non-templated)
-                                      + tp::transform<tp::meta::apply<TimeSeriesSetInput_T>::type>(ts_payload_types_v) +
-                                      tp::transform<tp::meta::apply<TimeSeriesDictInput_T>::type>(ts_payload_types_v) +
+                                      // payload specialized inputs (TimeSeriesValueInput and TimeSeriesSetInput are now non-templated)
+                                      + tp::transform<tp::meta::apply<TimeSeriesDictInput_T>::type>(ts_payload_types_v) +
                                       tp::transform<tp::meta::apply<TimeSeriesWindowInput>::type>(ts_payload_types_v)))::type;
 
     using TimeSeriesOutputVisitor =
         decltype(tp::make_v<ddv::mux>(ts_output_types_v +
                                       ts_reference_output_types_v
-                                      // payload specialized outputs (TimeSeriesValueOutput is now non-templated)
-                                      + tp::transform<tp::meta::apply<TimeSeriesSetOutput_T>::type>(ts_payload_types_v) +
-                                      tp::transform<tp::meta::apply<TimeSeriesDictOutput_T>::type>(ts_payload_types_v) +
+                                      // payload specialized outputs (TimeSeriesValueOutput and TimeSeriesSetOutput are now non-templated)
+                                      + tp::transform<tp::meta::apply<TimeSeriesDictOutput_T>::type>(ts_payload_types_v) +
                                       tp::transform<tp::meta::apply<TimeSeriesFixedWindowOutput>::type>(ts_payload_types_v) +
                                       tp::transform<tp::meta::apply<TimeSeriesTimeWindowOutput>::type>(ts_payload_types_v)))::type;
 

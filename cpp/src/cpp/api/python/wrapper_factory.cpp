@@ -50,12 +50,12 @@ namespace
 
     static constexpr auto ts_opaque_input_types_v =
         tp::tpack_v<TimeSeriesSignalInput, TimeSeriesListInput,
-                    TimeSeriesBundleInput  //, IndexedTimeSeriesInput (not implemented yet?)
+                    TimeSeriesBundleInput, TimeSeriesSetInput  //, IndexedTimeSeriesInput (not implemented yet?)
                     > +
         ts_reference_input_types_v;
     // [NOTE] order must match `ts_opaque_input_types`
     using py_ts_opaque_input_types =
-        tp::tpack<PyTimeSeriesSignalInput, PyTimeSeriesListInput, PyTimeSeriesBundleInput,  //, PyIndexedTimeSeriesInput
+        tp::tpack<PyTimeSeriesSignalInput, PyTimeSeriesListInput, PyTimeSeriesBundleInput, PyTimeSeriesSetInput,  //, PyIndexedTimeSeriesInput
                   PyTimeSeriesReferenceInput, PyTimeSeriesValueReferenceInput, PyTimeSeriesWindowReferenceInput,
                   PyTimeSeriesListReferenceInput, PyTimeSeriesSetReferenceInput, PyTimeSeriesDictReferenceInput,
                   PyTimeSeriesBundleReferenceInput>;
@@ -65,10 +65,6 @@ namespace
         []<typename T>(TimeSeriesDictInput_T<T>*, ApiPtr<TimeSeriesInput> impl) {
             using U = TimeSeriesDictInput_T<T>;
             return create_wrapper_from_api<PyTimeSeriesDictInput_T<U>, U>(std::move(impl));
-        },
-        []<typename T>(TimeSeriesSetInput_T<T>*, ApiPtr<TimeSeriesInput> impl) {
-            using U = TimeSeriesSetInput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesSetInput_T<U>, U>(std::move(impl));
         },
         []<typename T>(TimeSeriesWindowInput<T>*, ApiPtr<TimeSeriesInput> impl) {
             using U = TimeSeriesWindowInput<T>;
@@ -100,12 +96,12 @@ namespace
 
 
     static constexpr auto ts_opaque_output_types_v =
-        tp::tpack_v<TimeSeriesListOutput, TimeSeriesBundleOutput  // IndexedTimeSeriesOutput
+        tp::tpack_v<TimeSeriesListOutput, TimeSeriesBundleOutput, TimeSeriesSetOutput  // IndexedTimeSeriesOutput
                     > +
         ts_reference_output_types_v;
     // [NOTE] order must match `ts_opaque_output_types_v`
     using py_ts_opaque_output_types =
-        tp::tpack<PyTimeSeriesListOutput, PyTimeSeriesBundleOutput,  // PyIndexedTimeSeriesOutput
+        tp::tpack<PyTimeSeriesListOutput, PyTimeSeriesBundleOutput, PyTimeSeriesSetOutput,  // PyIndexedTimeSeriesOutput
                   PyTimeSeriesReferenceOutput, PyTimeSeriesValueReferenceOutput, PyTimeSeriesWindowReferenceOutput,
                   PyTimeSeriesListReferenceOutput, PyTimeSeriesSetReferenceOutput, PyTimeSeriesDictReferenceOutput,
                   PyTimeSeriesBundleReferenceOutput>;
@@ -115,10 +111,6 @@ namespace
         []<typename T>(TimeSeriesDictOutput_T<T>*, ApiPtr<TimeSeriesOutput> impl) {
             using U = TimeSeriesDictOutput_T<T>;
             return create_wrapper_from_api<PyTimeSeriesDictOutput_T<U>, U>(std::move(impl));
-        },
-        []<typename T>(TimeSeriesSetOutput_T<T>*, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesSetOutput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesSetOutput_T<U>, U>(std::move(impl));
         },
         []<typename T>(TimeSeriesFixedWindowOutput<T>*, ApiPtr<TimeSeriesOutput> impl) {
             using U = TimeSeriesFixedWindowOutput<T>;

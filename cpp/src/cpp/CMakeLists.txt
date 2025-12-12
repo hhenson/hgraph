@@ -107,6 +107,9 @@ set(HGRAPH_SOURCES
         types/v2/ts_event.cpp
         types/v2/ts_value.cpp
         types/v2/ts_value_impl.cpp
+        types/v2/tss_event.cpp
+        types/v2/tss_value.cpp
+        types/v2/tss_value_impl.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp

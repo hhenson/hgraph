@@ -171,10 +171,10 @@ namespace hgraph {
     using TimeSeriesValueOutputBase = TimeSeriesValueOutput;
 
     template<typename> struct TimeSeriesDictInput_T;
-    template<typename> struct TimeSeriesSetInput_T;
+    struct TimeSeriesSetInput;  // Non-templated
     template<typename> struct TimeSeriesWindowInput;
     template<typename> struct TimeSeriesDictOutput_T;
-    template<typename> struct TimeSeriesSetOutput_T;
+    struct TimeSeriesSetOutput;  // Non-templated
     template<typename> struct TimeSeriesFixedWindowOutput;
     template<typename> struct TimeSeriesTimeWindowOutput;
 

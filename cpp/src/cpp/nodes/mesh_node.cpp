@@ -108,9 +108,9 @@ namespace hgraph {
 
         // 1. Process keys input (additions/removals)
         auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
-        auto &keys = dynamic_cast<TimeSeriesSetInput_T<K> &>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
+        auto &keys = dynamic_cast<TimeSeriesSetInput &>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
         if (keys.modified()) {
-            for (const auto &k: keys.added()) {
+            for (const auto &k: keys.template added<K>()) {
                 if (this->active_graphs_.find(k) == this->active_graphs_.end()) {
                     create_new_graph(k);
 
@@ -123,7 +123,7 @@ namespace hgraph {
                     }
                 }
             }
-            for (const auto &k: keys.removed()) {
+            for (const auto &k: keys.template removed<K>()) {
                 // Only remove if no dependencies
                 if (active_graphs_dependencies_[k].empty()) {
                     scheduled_keys_by_rank_[active_graphs_rank_[k]].erase(k);
@@ -146,7 +146,7 @@ namespace hgraph {
         // 3. Process graphs to remove
         if (!graphs_to_remove_.empty()) {
             for (const auto &k: graphs_to_remove_) {
-                if (active_graphs_dependencies_[k].empty() && !keys.contains(k)) { remove_graph(k); }
+                if (active_graphs_dependencies_[k].empty() && !keys.template contains<K>(k)) { remove_graph(k); }
             }
             graphs_to_remove_.clear();
         }
@@ -314,8 +314,8 @@ namespace hgraph {
         // Check if we should remove the dependency graph
         if (active_graphs_dependencies_[depends_on].empty()) {
             auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
-            auto &keys = dynamic_cast<TimeSeriesSetInput_T<K> &>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
-            if (!keys.contains(depends_on)) { graphs_to_remove_.insert(depends_on); }
+            auto &keys = dynamic_cast<TimeSeriesSetInput &>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
+            if (!keys.template contains<K>(depends_on)) { graphs_to_remove_.insert(depends_on); }
         }
     }
 

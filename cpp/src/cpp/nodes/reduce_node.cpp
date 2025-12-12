@@ -78,8 +78,8 @@ namespace hgraph {
             // This matches Python: keys = key_set.valid - key_set.added
             std::unordered_set<K> keys;
             const auto &key_set{tsd->key_set_t()};
-            for (const auto &key: key_set.value()) {
-                if (!key_set.was_added(key)) { keys.insert(key); }
+            for (const auto &key: key_set.template value<K>()) {
+                if (!key_set.template was_added<K>(key)) { keys.insert(key); }
             }
 
             if (!keys.empty()) {
@@ -110,8 +110,8 @@ namespace hgraph {
         auto &key_set = ts()->key_set_t();
 
         // Process removals first, then additions
-        remove_nodes(key_set.removed());
-        add_nodes(key_set.added());
+        remove_nodes(key_set.template removed<K>());
+        add_nodes(key_set.template added<K>());
 
         // Re-balance the tree if required
         re_balance_nodes();

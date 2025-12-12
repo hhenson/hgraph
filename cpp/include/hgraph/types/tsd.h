@@ -92,7 +92,7 @@ namespace hgraph
         using map_type            = std::unordered_map<key_type, value_type>;
         using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
-        using key_set_type        = TimeSeriesSetOutput_T<key_type>;
+        using key_set_type        = TimeSeriesSetOutput;  // Non-templated
         // TODO: Currently we are only exposing simple types and nb::object, so this simple strategy is not overly expensive,
         //  If we start using more complicated native types, we may wish to use a pointer so something to that effect to
         //  Track keys. The values have a light weight reference counting cost to store as value_type so leave for the moment as
@@ -156,7 +156,7 @@ namespace hgraph
         }
 
         [[nodiscard]] auto added_items() const {
-            return key_set_t().added() |
+            return key_set_t().template added<key_type>() |
                    std::views::transform([this](const auto &key) { return std::make_pair(key, _ts_values.at(key)); });
         }
 
@@ -172,9 +172,9 @@ namespace hgraph
 
         [[nodiscard]] const TimeSeriesSetOutput &key_set() const override;
 
-        [[nodiscard]] TimeSeriesSetOutput_T<key_type> &key_set_t();
+        [[nodiscard]] TimeSeriesSetOutput &key_set_t();
 
-        [[nodiscard]] const TimeSeriesSetOutput_T<key_type> &key_set_t() const;
+        [[nodiscard]] const TimeSeriesSetOutput &key_set_t() const;
 
         void py_set_item(const nb::object &key, const nb::object &value) override;
 
@@ -238,6 +238,7 @@ namespace hgraph
         map_type    _removed_items;
         // This ensures we hold onto the values until we are sure no one needs to reference them.
         mutable map_type _valid_items_cache; // Cache for valid_items() to ensure iterator lifetime safety.
+        mutable k_set_type _added_keys_cache;  // Cache for added_keys() since non-templated TSS returns by value
 
         output_builder_s_ptr _ts_builder;
         output_builder_s_ptr _ts_ref_builder;
@@ -262,7 +263,7 @@ namespace hgraph
         using modified_map_type   = std::unordered_map<key_type, value_type>;
         using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
-        using key_set_type        = TimeSeriesSetInput_T<key_type>;
+        using key_set_type        = TimeSeriesSetInput;  // Non-templated
         using key_set_type_ptr    = std::shared_ptr<key_set_type>;
         // Use raw pointers for reverse lookup to enable efficient lookup from notify_parent
         using reverse_map = std::unordered_map<TimeSeriesInput *, key_type>;
@@ -342,9 +343,9 @@ namespace hgraph
         // Expose this as this is currently used in at least one Python service test.
         void create(const key_type &key);
 
-        [[nodiscard]] TimeSeriesSetInput_T<key_type> &key_set_t();
+        [[nodiscard]] TimeSeriesSetInput &key_set_t();
 
-        [[nodiscard]] const TimeSeriesSetInput_T<key_type> &key_set_t() const;
+        [[nodiscard]] const TimeSeriesSetInput &key_set_t() const;
 
         [[nodiscard]] TimeSeriesDictOutput_T<key_type> &output_t();
 
@@ -393,6 +394,7 @@ namespace hgraph
         mutable map_type _modified_items_cache; // This is cached for performance reasons.
         mutable map_type _added_items_cache;
         mutable map_type _removed_item_cache;
+        mutable k_set_type _added_keys_cache;  // Cache for added_keys() since non-templated TSS returns by value
         removed_map_type _removed_items;
         // This ensures we hold onto the values until we are sure no one needs to reference them.
         static inline map_type empty_{};

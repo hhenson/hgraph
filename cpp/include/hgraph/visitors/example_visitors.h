@@ -66,10 +66,9 @@ namespace visitors {
         }
 
         // Visit set output
-        template<typename T>
-        void visit(TimeSeriesSetOutput_T<T>& output) {
+        void visit(TimeSeriesSetOutput& output) {
             std::ostringstream oss;
-            oss << "TSS[" << typeid(T).name() << "]";
+            oss << "TSS[" << output.element_type().name() << "]";
             type_names.push_back(oss.str());
         }
 
