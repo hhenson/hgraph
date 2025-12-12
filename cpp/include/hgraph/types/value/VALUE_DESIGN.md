@@ -483,6 +483,155 @@ tracker.structurally_modified_at(time);        // Was a key added/removed?
 tracker.dict_entry_modified_at(0, time);       // Was entry 0's value changed?
 ```
 
+## Time-Series Value
+
+The `TimeSeriesValue` combines `Value` (data storage) and `ModificationTrackerStorage` (modification tracking) into a unified time-series container. This provides the foundation for implementing TS, TSB, TSL, TSS, TSD using the type-erased value system.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      TimeSeriesValue                             │
+│  ┌─────────────────┐  ┌──────────────────────────────────────┐  │
+│  │     Value       │  │   ModificationTrackerStorage         │  │
+│  │  (owns data)    │  │   (owns tracking)                    │  │
+│  └─────────────────┘  └──────────────────────────────────────┘  │
+│                                                                  │
+│  Methods: value(), set_value(), modified_at(), mark_invalid()    │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                    TimeSeriesValueView                           │
+│  (Non-owning view into TimeSeriesValue)                          │
+│  - Provides field()/element() navigation with auto-tracking      │
+│  - Automatically marks modifications when values are set         │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### TimeSeriesValue (Owner)
+
+The owning container that manages both value storage and modification tracking:
+
+```cpp
+class TimeSeriesValue {
+public:
+    explicit TimeSeriesValue(const TypeMeta* schema);
+
+    // Schema access
+    [[nodiscard]] const TypeMeta* schema() const;
+    [[nodiscard]] TypeKind kind() const;
+    [[nodiscard]] bool valid() const;
+
+    // Value access (read-only)
+    [[nodiscard]] ConstValueView value() const;
+
+    // Modification state
+    [[nodiscard]] bool modified_at(engine_time_t time) const;
+    [[nodiscard]] engine_time_t last_modified_time() const;
+    [[nodiscard]] bool has_value() const;
+    void mark_invalid();
+
+    // Mutable access with tracking
+    [[nodiscard]] TimeSeriesValueView view(engine_time_t current_time);
+
+    // Direct scalar access (convenience)
+    template<typename T> void set_value(const T& val, engine_time_t time);
+    template<typename T> [[nodiscard]] const T& as() const;
+};
+```
+
+### TimeSeriesValueView (Auto-Tracking View)
+
+Unlike raw `ValueView`, this view automatically marks modifications when values are changed:
+
+```cpp
+class TimeSeriesValueView {
+public:
+    // Navigation (returns sub-views that track to parent)
+    [[nodiscard]] TimeSeriesValueView field(size_t index);
+    [[nodiscard]] TimeSeriesValueView field(const std::string& name);
+    [[nodiscard]] TimeSeriesValueView element(size_t index);
+
+    // Value access - auto-marks modified on set
+    template<typename T> [[nodiscard]] T& as();
+    template<typename T> void set(const T& val);
+
+    // Modification queries
+    [[nodiscard]] bool field_modified_at(size_t index, engine_time_t time) const;
+    [[nodiscard]] bool element_modified_at(size_t index, engine_time_t time) const;
+
+    // Set operations - atomic tracking
+    template<typename T> bool add(const T& element);
+    template<typename T> bool remove(const T& element);
+    template<typename T> [[nodiscard]] bool contains(const T& element) const;
+
+    // Dict operations - structural + entry tracking
+    template<typename K, typename V> void insert(const K& key, const V& value);
+    template<typename K> [[nodiscard]] bool dict_contains(const K& key) const;
+    template<typename K> [[nodiscard]] ConstValueView dict_get(const K& key) const;
+    template<typename K> bool dict_remove(const K& key);
+};
+```
+
+### Type-Specific Behavior
+
+| Type | Tracking Granularity | Auto-Propagation |
+|------|---------------------|------------------|
+| **Scalar** | Single value, single timestamp | N/A |
+| **Bundle** | Per-field timestamps | Field → Bundle |
+| **List** | Per-element timestamps | Element → List |
+| **Set** | Atomic timestamp | N/A |
+| **Dict** | Structural + per-entry | Entry → Dict |
+
+### Usage Example
+
+```cpp
+#include <hgraph/types/value/time_series_value.h>
+using namespace hgraph::value;
+
+// Create a time-series bundle
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Point");
+
+TimeSeriesValue ts_point(point_meta.get());
+
+// Initial state
+assert(!ts_point.modified_at(t1));
+assert(!ts_point.has_value());
+
+// Modify via view (auto-tracking)
+auto view = ts_point.view(t1);
+view.field("x").set(10);  // Marks field "x" AND bundle modified at t1
+view.field("y").set(20);
+
+// Check state
+assert(ts_point.modified_at(t1));
+assert(ts_point.value().field("x").as<int>() == 10);
+assert(view.field_modified_at(0, t1));  // field "x" by index
+
+// Next cycle - not modified at t2
+assert(!ts_point.modified_at(t2));
+
+// Invalidate value
+ts_point.mark_invalid();
+assert(!ts_point.has_value());
+```
+
+### Key Design Decisions
+
+1. **View holds current_time**: The view needs the current evaluation time to mark modifications correctly. This is passed when creating the view via `view(current_time)`.
+
+2. **Auto-tracking on set()**: Unlike raw `ValueView`, `TimeSeriesValueView` automatically marks modifications when values are changed through `set()` or container operations.
+
+3. **Hierarchical propagation**: Child modifications (field, element) automatically propagate to parent containers.
+
+4. **Move-only ownership**: `TimeSeriesValue` owns both storages and uses move-only semantics.
+
+5. **Const safety**: Read-only operations (`value()`, `modified_at()`, etc.) are const-correct.
+
 ## Future Extensions
 
 1. **Python Bindings**: Implement `to_python`/`from_python` ops
@@ -490,7 +639,7 @@ tracker.dict_entry_modified_at(0, time);       // Was entry 0's value changed?
 3. **Variant Type**: Union-like discriminated types
 4. **String Type**: Type-erased string with SSO
 5. **Serialization**: Binary and JSON serialization
-6. **Time-Series Value**: Wrapper combining Value + ModificationTracker for full time-series support
+6. **Delta Tracking**: Track added/removed elements for TSS/TSD delta_value support
 
 ## File Structure
 
@@ -513,6 +662,7 @@ cpp/include/
         ├── type_registry.h          # TypeRegistry
         ├── value.h                  # Value, ValueView, ConstValueView
         ├── modification_tracker.h   # ModificationTrackerStorage, ModificationTracker
+        ├── time_series_value.h      # TimeSeriesValue, TimeSeriesValueView
         ├── VALUE_DESIGN.md          # This document
         └── VALUE_USER_GUIDE.md      # User guide
 ```
@@ -520,7 +670,7 @@ cpp/include/
 ## Testing
 
 Tests are in `cpp/tests/`:
-- `test_value.cpp`: Unit tests (102 test cases, 6,960 assertions)
+- `test_value.cpp`: Unit tests (127 test cases, 7,094 assertions)
 - `value_examples.cpp`: Comprehensive examples
 
 Test categories include:
@@ -530,3 +680,4 @@ Test categories include:
 - Copy/move semantics
 - Edge cases and stress tests
 - **Modification tracking** (12 test cases)
+- **Time-series values** (25 test cases)

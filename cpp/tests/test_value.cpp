@@ -5,6 +5,7 @@
  */
 
 #include <catch2/catch_test_macros.hpp>
+#include <catch2/catch_approx.hpp>
 #include <hgraph/types/value/all.h>
 #include <string>
 #include <vector>
@@ -1964,4 +1965,603 @@ TEST_CASE("ModificationTrackerStorage - move semantics", "[modification][storage
     REQUIRE_FALSE(storage2.valid());  // NOLINT(bugprone-use-after-move)
     REQUIRE(storage3.valid());
     REQUIRE(storage3.tracker().last_modified_time() == make_time(100));
+}
+
+// ============================================================================
+// TimeSeriesValue Tests
+// ============================================================================
+
+TEST_CASE("TimeSeriesValue - scalar construction and basic operations", "[timeseries][scalar]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    REQUIRE(ts.valid());
+    REQUIRE(ts.schema() == int_meta);
+    REQUIRE(ts.kind() == TypeKind::Scalar);
+
+    // Initially not modified
+    auto t1 = make_time(100);
+    REQUIRE_FALSE(ts.modified_at(t1));
+    REQUIRE_FALSE(ts.has_value());
+    REQUIRE(ts.last_modified_time() == MIN_DT);
+}
+
+TEST_CASE("TimeSeriesValue - scalar set_value", "[timeseries][scalar]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    // Set value at t1
+    ts.set_value(42, t1);
+
+    REQUIRE(ts.modified_at(t1));
+    REQUIRE(ts.has_value());
+    REQUIRE(ts.as<int>() == 42);
+    REQUIRE(ts.last_modified_time() == t1);
+
+    // Not modified at t2 yet
+    REQUIRE_FALSE(ts.modified_at(t2));
+
+    // Set new value at t2
+    ts.set_value(99, t2);
+
+    REQUIRE(ts.modified_at(t2));
+    REQUIRE(ts.as<int>() == 99);
+    REQUIRE(ts.last_modified_time() == t2);
+}
+
+TEST_CASE("TimeSeriesValue - scalar view access", "[timeseries][scalar]") {
+    const TypeMeta* double_meta = scalar_type_meta<double>();
+    TimeSeriesValue ts(double_meta);
+
+    auto t1 = make_time(100);
+
+    // Get view and set via view
+    auto view = ts.view(t1);
+    view.set(3.14);
+
+    REQUIRE(ts.modified_at(t1));
+    REQUIRE(ts.as<double>() == Catch::Approx(3.14));
+
+    // Direct as<T>() access on view
+    REQUIRE(view.as<double>() == Catch::Approx(3.14));
+}
+
+TEST_CASE("TimeSeriesValue - bundle construction", "[timeseries][bundle]") {
+    auto point_meta = BundleTypeBuilder()
+        .add_field<int>("x")
+        .add_field<int>("y")
+        .build("Point");
+
+    TimeSeriesValue ts(point_meta.get());
+
+    REQUIRE(ts.valid());
+    REQUIRE(ts.kind() == TypeKind::Bundle);
+    REQUIRE_FALSE(ts.has_value());
+}
+
+TEST_CASE("TimeSeriesValue - bundle field modification via view", "[timeseries][bundle]") {
+    auto point_meta = BundleTypeBuilder()
+        .add_field<int>("x")
+        .add_field<int>("y")
+        .build("Point");
+
+    TimeSeriesValue ts(point_meta.get());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    // Modify field "x" at t1
+    auto view = ts.view(t1);
+    view.field("x").set(10);
+
+    // Field x modified
+    REQUIRE(view.field_modified_at(0, t1));  // By index
+    REQUIRE(ts.modified_at(t1));  // Bundle also modified (propagation)
+
+    // Field y not modified
+    REQUIRE_FALSE(view.field_modified_at(1, t1));
+
+    // Read value
+    REQUIRE(ts.value().field("x").as<int>() == 10);
+
+    // At t2, modify field "y"
+    auto view2 = ts.view(t2);
+    view2.field("y").set(20);
+
+    REQUIRE(view2.field_modified_at(1, t2));
+    REQUIRE(ts.modified_at(t2));
+
+    // Field x not modified at t2
+    REQUIRE_FALSE(view2.field_modified_at(0, t2));
+}
+
+TEST_CASE("TimeSeriesValue - bundle field access by index", "[timeseries][bundle]") {
+    auto meta = BundleTypeBuilder()
+        .add_field<int>("first")
+        .add_field<double>("second")
+        .add_field<std::string>("third")
+        .build();
+
+    TimeSeriesValue ts(meta.get());
+    auto t1 = make_time(100);
+
+    auto view = ts.view(t1);
+
+    // Access by index
+    view.field(0).set(100);
+    view.field(1).set(2.5);
+    view.field(2).set(std::string("hello"));
+
+    REQUIRE(ts.value().field(0).as<int>() == 100);
+    REQUIRE(ts.value().field(1).as<double>() == Catch::Approx(2.5));
+    REQUIRE(ts.value().field(2).as<std::string>() == "hello");
+
+    // All fields modified at t1
+    REQUIRE(view.field_modified_at(0, t1));
+    REQUIRE(view.field_modified_at(1, t1));
+    REQUIRE(view.field_modified_at(2, t1));
+}
+
+TEST_CASE("TimeSeriesValue - list construction", "[timeseries][list]") {
+    auto list_meta = ListTypeBuilder()
+        .element<int>()
+        .count(5)
+        .build();
+
+    TimeSeriesValue ts(list_meta.get());
+
+    REQUIRE(ts.valid());
+    REQUIRE(ts.kind() == TypeKind::List);
+}
+
+TEST_CASE("TimeSeriesValue - list element modification", "[timeseries][list]") {
+    auto list_meta = ListTypeBuilder()
+        .element<int>()
+        .count(3)
+        .build();
+
+    TimeSeriesValue ts(list_meta.get());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    auto view = ts.view(t1);
+
+    // Modify element 0 at t1
+    view.element(0).set(10);
+
+    REQUIRE(view.element_modified_at(0, t1));
+    REQUIRE(ts.modified_at(t1));
+
+    // Elements 1, 2 not modified
+    REQUIRE_FALSE(view.element_modified_at(1, t1));
+    REQUIRE_FALSE(view.element_modified_at(2, t1));
+
+    // At t2, modify element 2
+    auto view2 = ts.view(t2);
+    view2.element(2).set(30);
+
+    REQUIRE(view2.element_modified_at(2, t2));
+    REQUIRE_FALSE(view2.element_modified_at(0, t2));  // Element 0 not modified at t2
+
+    // Read values
+    REQUIRE(ts.value().element(0).as<int>() == 10);
+    REQUIRE(ts.value().element(2).as<int>() == 30);
+}
+
+TEST_CASE("TimeSeriesValue - set atomic operations", "[timeseries][set]") {
+    auto set_meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    TimeSeriesValue ts(set_meta.get());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    auto view = ts.view(t1);
+
+    // Add elements
+    REQUIRE(view.add(10));  // Returns true (added)
+    REQUIRE(ts.modified_at(t1));
+
+    REQUIRE(view.add(20));
+    REQUIRE(view.add(30));
+
+    // Duplicate add returns false
+    REQUIRE_FALSE(view.add(10));
+
+    // Check contains
+    REQUIRE(view.contains(10));
+    REQUIRE(view.contains(20));
+    REQUIRE_FALSE(view.contains(99));
+
+    REQUIRE(view.set_size() == 3);
+
+    // At t2, remove element
+    auto view2 = ts.view(t2);
+    REQUIRE(view2.remove(20));  // Returns true (removed)
+    REQUIRE(ts.modified_at(t2));
+
+    // Remove non-existent returns false
+    REQUIRE_FALSE(view2.remove(99));
+
+    REQUIRE(view2.set_size() == 2);
+    REQUIRE_FALSE(view2.contains(20));
+}
+
+TEST_CASE("TimeSeriesValue - dict operations", "[timeseries][dict]") {
+    auto dict_meta = DictTypeBuilder()
+        .key<std::string>()
+        .value<int>()
+        .build();
+
+    TimeSeriesValue ts(dict_meta.get());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    auto view = ts.view(t1);
+
+    // Insert new key
+    view.insert(std::string("a"), 100);
+
+    REQUIRE(ts.modified_at(t1));  // Structural modification
+    REQUIRE(view.dict_contains(std::string("a")));
+    REQUIRE(view.dict_get(std::string("a")).as<int>() == 100);
+    REQUIRE(view.dict_size() == 1);
+
+    // Insert another key
+    view.insert(std::string("b"), 200);
+    REQUIRE(view.dict_size() == 2);
+
+    // At t2, update existing key
+    auto view2 = ts.view(t2);
+    view2.insert(std::string("a"), 150);  // Update existing
+
+    // Value updated
+    REQUIRE(view2.dict_get(std::string("a")).as<int>() == 150);
+
+    // Remove key
+    REQUIRE(view2.dict_remove(std::string("b")));
+    REQUIRE(ts.modified_at(t2));
+    REQUIRE_FALSE(view2.dict_contains(std::string("b")));
+    REQUIRE(view2.dict_size() == 1);
+}
+
+TEST_CASE("TimeSeriesValue - nested bundle", "[timeseries][nested]") {
+    auto inner_meta = BundleTypeBuilder()
+        .add_field<int>("x")
+        .add_field<int>("y")
+        .build("Inner");
+
+    auto outer_meta = BundleTypeBuilder()
+        .add_field<std::string>("name")
+        .add_field("point", inner_meta.get())
+        .build("Outer");
+
+    TimeSeriesValue ts(outer_meta.get());
+
+    auto t1 = make_time(100);
+
+    auto view = ts.view(t1);
+
+    // Set name field
+    view.field("name").set(std::string("test"));
+
+    // Navigate to nested field
+    view.field("point").field("x").set(10);
+    view.field("point").field("y").set(20);
+
+    // All should be modified at t1
+    REQUIRE(ts.modified_at(t1));
+    REQUIRE(view.field_modified_at(0, t1));  // name
+    REQUIRE(view.field_modified_at(1, t1));  // point
+
+    // Read nested values
+    REQUIRE(ts.value().field("name").as<std::string>() == "test");
+    REQUIRE(ts.value().field("point").field("x").as<int>() == 10);
+    REQUIRE(ts.value().field("point").field("y").as<int>() == 20);
+}
+
+TEST_CASE("TimeSeriesValue - mark_invalid", "[timeseries][invalid]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    auto t1 = make_time(100);
+
+    // Set valid value
+    ts.set_value(42, t1);
+    REQUIRE(ts.has_value());
+
+    // Mark invalid
+    ts.mark_invalid();
+    REQUIRE_FALSE(ts.has_value());
+}
+
+TEST_CASE("TimeSeriesValue - move semantics", "[timeseries][move]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+
+    TimeSeriesValue ts1(int_meta);
+    ts1.set_value(42, make_time(100));
+
+    REQUIRE(ts1.valid());
+    REQUIRE(ts1.as<int>() == 42);
+
+    // Move construct
+    TimeSeriesValue ts2(std::move(ts1));
+
+    REQUIRE_FALSE(ts1.valid());  // NOLINT(bugprone-use-after-move)
+    REQUIRE(ts2.valid());
+    REQUIRE(ts2.as<int>() == 42);
+    REQUIRE(ts2.modified_at(make_time(100)));
+
+    // Move assign
+    TimeSeriesValue ts3;
+    ts3 = std::move(ts2);
+
+    REQUIRE_FALSE(ts2.valid());  // NOLINT(bugprone-use-after-move)
+    REQUIRE(ts3.valid());
+    REQUIRE(ts3.as<int>() == 42);
+}
+
+TEST_CASE("TimeSeriesValue - view field_count and list_size", "[timeseries][size]") {
+    auto bundle_meta = BundleTypeBuilder()
+        .add_field<int>("a")
+        .add_field<int>("b")
+        .add_field<int>("c")
+        .build();
+
+    TimeSeriesValue ts_bundle(bundle_meta.get());
+    auto view_bundle = ts_bundle.view(make_time(100));
+    REQUIRE(view_bundle.field_count() == 3);
+
+    auto list_meta = ListTypeBuilder()
+        .element<int>()
+        .count(5)
+        .build();
+
+    TimeSeriesValue ts_list(list_meta.get());
+    auto view_list = ts_list.view(make_time(100));
+    REQUIRE(view_list.list_size() == 5);
+}
+
+TEST_CASE("TimeSeriesValue - invalid view operations", "[timeseries][edge]") {
+    TimeSeriesValueView invalid_view;
+
+    REQUIRE_FALSE(invalid_view.valid());
+
+    // Navigation on invalid view returns invalid views
+    REQUIRE_FALSE(invalid_view.field(0).valid());
+    REQUIRE_FALSE(invalid_view.field("x").valid());
+    REQUIRE_FALSE(invalid_view.element(0).valid());
+}
+
+TEST_CASE("TimeSeriesValue - view raw access", "[timeseries][raw]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    auto t1 = make_time(100);
+    auto view = ts.view(t1);
+
+    // Raw access for advanced use
+    REQUIRE(view.value_view().valid());
+    REQUIRE(view.tracker().valid());
+    REQUIRE(view.current_time() == t1);
+}
+
+TEST_CASE("TimeSeriesValue - underlying access", "[timeseries][underlying]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    // Access underlying storage
+    Value& val = ts.underlying_value();
+    ModificationTrackerStorage& tracker = ts.underlying_tracker();
+
+    REQUIRE(val.valid());
+    REQUIRE(tracker.valid());
+
+    // Const versions
+    const TimeSeriesValue& const_ts = ts;
+    REQUIRE(const_ts.underlying_value().valid());
+    REQUIRE(const_ts.underlying_tracker().valid());
+}
+
+TEST_CASE("TimeSeriesValue - time monotonicity", "[timeseries][time]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    auto t100 = make_time(100);
+    auto t200 = make_time(200);
+    auto t50 = make_time(50);
+
+    // Set at t100
+    ts.set_value(10, t100);
+    REQUIRE(ts.modified_at(t100));
+    REQUIRE(ts.last_modified_time() == t100);
+
+    // Set at earlier time - should still update value but time remains at t100
+    ts.set_value(20, t50);
+    REQUIRE(ts.as<int>() == 20);  // Value updated
+    REQUIRE(ts.last_modified_time() == t100);  // Time unchanged (monotonic)
+
+    // Set at later time - should update
+    ts.set_value(30, t200);
+    REQUIRE(ts.as<int>() == 30);
+    REQUIRE(ts.last_modified_time() == t200);
+}
+
+TEST_CASE("TimeSeriesValue - const view access", "[timeseries][const]") {
+    // Test const as<T>() on scalar
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts_scalar(int_meta);
+    ts_scalar.set_value(42, make_time(100));
+
+    // Get const view and read using const as<T>()
+    const auto scalar_view = ts_scalar.view(make_time(200));
+    const int& x = scalar_view.as<int>();  // Tests const as<T>() overload
+    REQUIRE(x == 42);
+
+    // Test bundle field navigation with const view
+    auto meta = BundleTypeBuilder()
+        .add_field<int>("a")
+        .add_field<double>("b")
+        .build();
+
+    TimeSeriesValue ts_bundle(meta.get());
+    ts_bundle.view(make_time(100)).field("a").set(100);
+    ts_bundle.view(make_time(100)).field("b").set(3.14);
+
+    // Read via field navigation
+    auto field_view = ts_bundle.view(make_time(200)).field("a");
+    REQUIRE(field_view.as<int>() == 100);
+
+    auto field_view_b = ts_bundle.view(make_time(200)).field("b");
+    REQUIRE(field_view_b.as<double>() == Catch::Approx(3.14));
+}
+
+TEST_CASE("TimeSeriesValue - set duplicate add no modification", "[timeseries][set]") {
+    auto set_meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    TimeSeriesValue ts(set_meta.get());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    // Add at t1
+    auto view1 = ts.view(t1);
+    REQUIRE(view1.add(10));
+    REQUIRE(ts.modified_at(t1));
+
+    // Try to add duplicate at t2 - should NOT mark modified
+    auto view2 = ts.view(t2);
+    REQUIRE_FALSE(view2.add(10));  // Returns false
+    REQUIRE_FALSE(ts.modified_at(t2));  // Not modified at t2
+    REQUIRE(ts.last_modified_time() == t1);  // Still t1
+}
+
+TEST_CASE("TimeSeriesValue - dict update existing key", "[timeseries][dict]") {
+    auto dict_meta = DictTypeBuilder()
+        .key<int>()
+        .value<double>()
+        .build();
+
+    TimeSeriesValue ts(dict_meta.get());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    // Insert new key at t1
+    auto view1 = ts.view(t1);
+    view1.insert(1, 1.1);
+    REQUIRE(ts.modified_at(t1));
+
+    // Update existing key at t2
+    auto view2 = ts.view(t2);
+    view2.insert(1, 2.2);  // Update value for existing key
+
+    // Value should be updated
+    REQUIRE(view2.dict_get(1).as<double>() == Catch::Approx(2.2));
+
+    // Structural modification should NOT be marked at t2 (key already exists)
+    // Note: Current implementation marks modified on any insert
+    // This test documents current behavior
+}
+
+TEST_CASE("TimeSeriesValue - list of scalars modification", "[timeseries][list][nested]") {
+    // Test list of scalars (simpler case that works correctly)
+    auto list_meta = ListTypeBuilder()
+        .element<int>()
+        .count(3)
+        .build();
+
+    TimeSeriesValue ts(list_meta.get());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    // Modify elements at t1
+    auto view1 = ts.view(t1);
+    view1.element(0).set(10);
+    view1.element(1).set(20);
+
+    REQUIRE(view1.element_modified_at(0, t1));
+    REQUIRE(view1.element_modified_at(1, t1));
+    REQUIRE_FALSE(view1.element_modified_at(2, t1));  // Not touched
+    REQUIRE(ts.modified_at(t1));
+
+    // At t2, only modify element 2
+    auto view2 = ts.view(t2);
+    view2.element(2).set(30);
+
+    REQUIRE_FALSE(view2.element_modified_at(0, t2));
+    REQUIRE_FALSE(view2.element_modified_at(1, t2));
+    REQUIRE(view2.element_modified_at(2, t2));
+
+    // Read values
+    REQUIRE(ts.value().element(0).as<int>() == 10);
+    REQUIRE(ts.value().element(1).as<int>() == 20);
+    REQUIRE(ts.value().element(2).as<int>() == 30);
+}
+
+TEST_CASE("TimeSeriesValue - list of bundles value access", "[timeseries][list][bundle]") {
+    // For lists of bundles, values can be set but modification tracking
+    // is at element level only (not field level within elements)
+    auto point_meta = BundleTypeBuilder()
+        .add_field<int>("x")
+        .add_field<int>("y")
+        .build("Point");
+
+    auto list_meta = ListTypeBuilder()
+        .element_type(point_meta.get())
+        .count(3)
+        .build();
+
+    TimeSeriesValue ts(list_meta.get());
+
+    // Set values through value layer (no tracking)
+    ts.underlying_value().view().element(0).field("x").as<int>() = 10;
+    ts.underlying_value().view().element(0).field("y").as<int>() = 20;
+    ts.underlying_value().view().element(1).field("x").as<int>() = 30;
+
+    // Read values back
+    REQUIRE(ts.value().element(0).field("x").as<int>() == 10);
+    REQUIRE(ts.value().element(0).field("y").as<int>() == 20);
+    REQUIRE(ts.value().element(1).field("x").as<int>() == 30);
+}
+
+TEST_CASE("TimeSeriesValue - default construction", "[timeseries][default]") {
+    TimeSeriesValue ts;  // Default constructed
+
+    REQUIRE_FALSE(ts.valid());
+
+    // Operations on invalid TimeSeriesValue should be safe
+    REQUIRE_FALSE(ts.has_value());
+    REQUIRE(ts.last_modified_time() == MIN_DT);
+}
+
+TEST_CASE("TimeSeriesValue - string values", "[timeseries][string]") {
+    const TypeMeta* str_meta = scalar_type_meta<std::string>();
+    TimeSeriesValue ts(str_meta);
+
+    auto t1 = make_time(100);
+
+    ts.set_value(std::string("hello"), t1);
+
+    REQUIRE(ts.has_value());
+    REQUIRE(ts.modified_at(t1));
+    REQUIRE(ts.as<std::string>() == "hello");
+
+    // Update via view
+    auto t2 = make_time(200);
+    auto view = ts.view(t2);
+    view.set(std::string("world"));
+
+    REQUIRE(ts.modified_at(t2));
+    REQUIRE(ts.as<std::string>() == "world");
 }

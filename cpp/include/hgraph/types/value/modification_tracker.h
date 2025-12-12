@@ -139,6 +139,7 @@ namespace hgraph::value {
         [[nodiscard]] bool valid() const { return _value_meta && _storage; }
 
         ModificationTracker tracker();
+        [[nodiscard]] ModificationTracker tracker() const;
 
     private:
         void allocate_storage();
@@ -441,6 +442,12 @@ namespace hgraph::value {
 
     inline ModificationTracker ModificationTrackerStorage::tracker() {
         return {_storage, _value_meta};
+    }
+
+    inline ModificationTracker ModificationTrackerStorage::tracker() const {
+        // const_cast is safe here because the returned ModificationTracker
+        // will only be used for const operations (modified_at, last_modified_time, etc.)
+        return {const_cast<void*>(_storage), _value_meta};
     }
 
 } // namespace hgraph::value

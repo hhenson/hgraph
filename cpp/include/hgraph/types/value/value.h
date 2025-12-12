@@ -333,6 +333,9 @@ namespace hgraph::value {
             return val ? ValueView{val, dict_meta->value_type} : ValueView{};
         }
 
+        // Bring in ConstValueView::dict_get for const access
+        using ConstValueView::dict_get;
+
         void dict_clear() {
             if (is_dict()) {
                 static_cast<DictStorage*>(_mutable_data)->clear();

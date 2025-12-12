@@ -766,3 +766,342 @@ ModificationTrackerStorage storage2 = std::move(storage1);
 // storage1 is now invalid
 // storage2 has the tracked modification
 ```
+
+## Time-Series Values
+
+The `TimeSeriesValue` combines value storage and modification tracking into a unified container with automatic modification propagation. This is the foundation for implementing TS, TSB, TSL, TSS, TSD.
+
+### Basic Usage
+
+```cpp
+#include <hgraph/types/value/time_series_value.h>
+using namespace hgraph;
+using namespace hgraph::value;
+
+// Create a time-series scalar
+const TypeMeta* int_meta = scalar_type_meta<int>();
+TimeSeriesValue ts(int_meta);
+
+// Initial state - no value, never modified
+assert(!ts.has_value());
+assert(!ts.modified_at(current_time));
+
+// Set value at current time
+ts.set_value(42, current_time);
+
+// Now has value and is modified
+assert(ts.has_value());
+assert(ts.modified_at(current_time));
+assert(ts.as<int>() == 42);
+
+// Read-only access
+ConstValueView val = ts.value();
+int x = val.as<int>();  // 42
+```
+
+### Using TimeSeriesValueView
+
+The `TimeSeriesValueView` provides auto-tracking - modifications are automatically recorded:
+
+```cpp
+TimeSeriesValue ts(int_meta);
+auto t1 = make_time(100);
+
+// Get view with current time
+auto view = ts.view(t1);
+
+// set() automatically marks modified at t1
+view.set(42);
+
+assert(ts.modified_at(t1));
+assert(ts.as<int>() == 42);
+```
+
+### Bundle Time-Series (TSB Pattern)
+
+Track modifications at field granularity:
+
+```cpp
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Point");
+
+TimeSeriesValue ts_point(point_meta.get());
+
+auto t1 = make_time(100);
+auto t2 = make_time(200);
+
+// At t1, modify field "x"
+auto view1 = ts_point.view(t1);
+view1.field("x").set(10);
+
+// Field "x" is modified, bundle is modified (propagation)
+assert(view1.field_modified_at(0, t1));  // by index
+assert(ts_point.modified_at(t1));
+
+// Field "y" is NOT modified at t1
+assert(!view1.field_modified_at(1, t1));
+
+// At t2, modify field "y"
+auto view2 = ts_point.view(t2);
+view2.field("y").set(20);
+
+// Only field "y" modified at t2
+assert(!view2.field_modified_at(0, t2));  // x not modified at t2
+assert(view2.field_modified_at(1, t2));    // y modified at t2
+
+// Read values
+assert(ts_point.value().field("x").as<int>() == 10);
+assert(ts_point.value().field("y").as<int>() == 20);
+```
+
+### Access by Index and Name
+
+Bundle fields support access by both index and name. **Field indices match schema creation order**:
+
+```cpp
+auto meta = BundleTypeBuilder()
+    .add_field<int>("first")     // index 0
+    .add_field<double>("second") // index 1
+    .add_field<std::string>("third") // index 2
+    .build();
+
+TimeSeriesValue ts(meta.get());
+auto view = ts.view(current_time);
+
+// By name
+view.field("first").set(100);
+
+// By index (equivalent)
+view.field(0).set(100);
+
+// Mix and match
+view.field(1).set(2.5);        // index
+view.field("third").set(std::string("hello")); // name
+```
+
+### List Time-Series (TSL Pattern)
+
+Track modifications at element granularity:
+
+```cpp
+auto list_meta = ListTypeBuilder()
+    .element<int>()
+    .count(5)
+    .build();
+
+TimeSeriesValue ts_list(list_meta.get());
+
+auto t1 = make_time(100);
+auto view = ts_list.view(t1);
+
+// Modify element 2
+view.element(2).set(42);
+
+// Element 2 modified, list modified
+assert(view.element_modified_at(2, t1));
+assert(ts_list.modified_at(t1));
+
+// Other elements NOT modified
+assert(!view.element_modified_at(0, t1));
+assert(!view.element_modified_at(1, t1));
+```
+
+### Set Time-Series (TSS Pattern)
+
+Sets use atomic tracking - one timestamp for the entire set:
+
+```cpp
+auto set_meta = SetTypeBuilder()
+    .element<int>()
+    .build();
+
+TimeSeriesValue ts_set(set_meta.get());
+auto view = ts_set.view(current_time);
+
+// add() returns true if element was added
+bool added = view.add(10);  // true
+assert(ts_set.modified_at(current_time));
+
+view.add(20);
+view.add(30);
+
+// Duplicate returns false, set NOT modified again
+added = view.add(10);  // false (already exists)
+
+// Check contents
+assert(view.contains(10));
+assert(view.contains(20));
+assert(!view.contains(99));
+assert(view.set_size() == 3);
+
+// remove() returns true if element was removed
+bool removed = view.remove(20);  // true
+assert(view.set_size() == 2);
+```
+
+### Dict Time-Series (TSD Pattern)
+
+Dicts track structural changes and per-entry modifications:
+
+```cpp
+auto dict_meta = DictTypeBuilder()
+    .key<std::string>()
+    .value<int>()
+    .build();
+
+TimeSeriesValue ts_dict(dict_meta.get());
+auto view = ts_dict.view(current_time);
+
+// Insert new key - structural modification
+view.insert(std::string("a"), 100);
+
+assert(ts_dict.modified_at(current_time));
+assert(view.dict_contains(std::string("a")));
+assert(view.dict_get(std::string("a")).as<int>() == 100);
+
+// Insert more
+view.insert(std::string("b"), 200);
+view.insert(std::string("c"), 300);
+
+// Update existing key
+view.insert(std::string("a"), 150);  // Updates value
+
+// Read
+assert(view.dict_get(std::string("a")).as<int>() == 150);
+assert(view.dict_size() == 3);
+
+// Remove key
+bool removed = view.dict_remove(std::string("b"));  // true
+assert(view.dict_size() == 2);
+assert(!view.dict_contains(std::string("b")));
+```
+
+### Nested Bundles
+
+Navigation works hierarchically with propagation:
+
+```cpp
+auto inner_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Inner");
+
+auto outer_meta = BundleTypeBuilder()
+    .add_field<std::string>("name")
+    .add_field("point", inner_meta.get())
+    .build("Outer");
+
+TimeSeriesValue ts(outer_meta.get());
+auto view = ts.view(current_time);
+
+// Set outer field
+view.field("name").set(std::string("test"));
+
+// Navigate to nested field
+view.field("point").field("x").set(10);
+view.field("point").field("y").set(20);
+
+// All are modified
+assert(ts.modified_at(current_time));
+assert(view.field_modified_at(0, current_time));  // name
+assert(view.field_modified_at(1, current_time));  // point (propagated)
+
+// Read nested values
+assert(ts.value().field("name").as<std::string>() == "test");
+assert(ts.value().field("point").field("x").as<int>() == 10);
+```
+
+### Invalidating Values
+
+Mark a value as invalid (no longer has a valid value):
+
+```cpp
+TimeSeriesValue ts(int_meta);
+ts.set_value(42, current_time);
+assert(ts.has_value());
+
+ts.mark_invalid();
+assert(!ts.has_value());
+```
+
+### Move Semantics
+
+`TimeSeriesValue` is move-only:
+
+```cpp
+TimeSeriesValue ts1(int_meta);
+ts1.set_value(42, current_time);
+
+// Move construct
+TimeSeriesValue ts2 = std::move(ts1);
+// ts1 is now invalid
+// ts2 has the value and modification history
+
+assert(!ts1.valid());
+assert(ts2.valid());
+assert(ts2.as<int>() == 42);
+```
+
+### Raw Access
+
+For advanced use cases, access underlying components:
+
+```cpp
+TimeSeriesValue ts(point_meta.get());
+auto view = ts.view(current_time);
+
+// View internals
+ValueView raw_value = view.value_view();
+ModificationTracker raw_tracker = view.tracker();
+engine_time_t time = view.current_time();
+
+// TimeSeriesValue internals
+Value& underlying_val = ts.underlying_value();
+ModificationTrackerStorage& underlying_tracker = ts.underlying_tracker();
+```
+
+### Best Practices
+
+1. **Always pass current time to view()**: The view needs the evaluation time for correct modification tracking.
+
+```cpp
+// GOOD
+auto view = ts.view(current_time);
+view.set(42);
+
+// BAD - no time context
+// (TimeSeriesValue::set_value() exists for convenience)
+ts.set_value(42, current_time);
+```
+
+2. **Check has_value() before reading**: A time-series may not have been set yet.
+
+```cpp
+if (ts.has_value()) {
+    int x = ts.as<int>();
+}
+```
+
+3. **Use appropriate granularity**:
+   - Scalar: Single value tracking
+   - Bundle: Per-field when you need to know which fields changed
+   - List: Per-element when you need to know which indices changed
+   - Set: Atomic when you track structural changes only
+   - Dict: Structural + entry when you need both
+
+4. **Views are non-owning**: Ensure the `TimeSeriesValue` outlives any views:
+
+```cpp
+// GOOD
+TimeSeriesValue ts(meta);
+auto view = ts.view(current_time);
+process(view);  // ts still alive
+
+// BAD - dangling view
+auto get_view() {
+    TimeSeriesValue temp(meta);
+    return temp.view(current_time);  // temp destroyed!
+}
+```
