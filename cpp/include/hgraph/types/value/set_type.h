@@ -7,7 +7,7 @@
 
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/scalar_type.h>
-#include <unordered_set>
+#include <ankerl/unordered_dense.h>
 #include <memory>
 #include <cassert>
 #include <vector>
@@ -24,19 +24,67 @@ namespace hgraph::value {
         const TypeMeta* element_type;
     };
 
+    // Forward declaration
+    class SetStorage;
+
+    /**
+     * IndexHash - Transparent hash functor for SetStorage
+     *
+     * Supports heterogeneous lookup: can hash both indices (existing elements)
+     * and raw pointers (lookup keys).
+     */
+    struct SetIndexHash {
+        using is_transparent = void;
+        using is_avalanching = void;
+
+        const SetStorage* storage{nullptr};
+
+        SetIndexHash() = default;
+        SetIndexHash(const SetStorage* s) : storage(s) {}
+
+        [[nodiscard]] auto operator()(size_t idx) const -> uint64_t;
+        [[nodiscard]] auto operator()(const void* ptr) const -> uint64_t;
+    };
+
+    /**
+     * IndexEqual - Transparent equality functor for SetStorage
+     *
+     * Supports heterogeneous lookup: can compare indices with indices,
+     * indices with pointers, and pointers with indices.
+     */
+    struct SetIndexEqual {
+        using is_transparent = void;
+
+        const SetStorage* storage{nullptr};
+
+        SetIndexEqual() = default;
+        SetIndexEqual(const SetStorage* s) : storage(s) {}
+
+        [[nodiscard]] bool operator()(size_t a, size_t b) const;
+        [[nodiscard]] bool operator()(size_t idx, const void* ptr) const;
+        [[nodiscard]] bool operator()(const void* ptr, size_t idx) const;
+    };
+
     /**
      * SetStorage - Internal storage for a type-erased set
      *
-     * Uses a vector of element storage + hash set of indices.
-     * This allows type-erased element storage while maintaining
-     * set semantics.
+     * Uses ankerl::unordered_dense for O(1) operations with robin-hood hashing.
+     * Elements are stored contiguously in a vector for cache efficiency.
+     * The set stores indices into the element vector.
      */
     class SetStorage {
     public:
+        friend struct SetIndexHash;
+        friend struct SetIndexEqual;
+
+        using IndexSet = ankerl::unordered_dense::set<size_t, SetIndexHash, SetIndexEqual>;
+
         SetStorage() = default;
 
         explicit SetStorage(const TypeMeta* elem_type)
-            : _element_type(elem_type) {}
+            : _element_type(elem_type)
+            , _index_set(0, SetIndexHash(this), SetIndexEqual(this)) {
+        }
 
         ~SetStorage() {
             clear();
@@ -45,8 +93,15 @@ namespace hgraph::value {
         SetStorage(SetStorage&& other) noexcept
             : _element_type(other._element_type)
             , _elements(std::move(other._elements))
-            , _index_set(std::move(other._index_set)) {
+            , _element_count(other._element_count)
+            , _index_set(0, SetIndexHash(this), SetIndexEqual(this)) {
+            // Rebuild index set with our own functors pointing to this
+            for (size_t idx : other._index_set) {
+                _index_set.insert(idx);
+            }
             other._element_type = nullptr;
+            other._element_count = 0;
+            other._index_set.clear();
         }
 
         SetStorage& operator=(SetStorage&& other) noexcept {
@@ -54,8 +109,15 @@ namespace hgraph::value {
                 clear();
                 _element_type = other._element_type;
                 _elements = std::move(other._elements);
-                _index_set = std::move(other._index_set);
+                _element_count = other._element_count;
+                // Rebuild index set with our own functors
+                _index_set = IndexSet(0, SetIndexHash(this), SetIndexEqual(this));
+                for (size_t idx : other._index_set) {
+                    _index_set.insert(idx);
+                }
                 other._element_type = nullptr;
+                other._element_count = 0;
+                other._index_set.clear();
             }
             return *this;
         }
@@ -71,46 +133,42 @@ namespace hgraph::value {
         bool add(const void* value) {
             if (!_element_type) return false;
 
-            // Check if already present
-            for (size_t idx : _index_set) {
-                if (_element_type->equals_at(element_ptr(idx), value)) {
-                    return false;  // Already exists
-                }
+            // Check if already present using heterogeneous lookup
+            if (_index_set.find(value) != _index_set.end()) {
+                return false;
             }
 
-            // Add new element - index is element count, not byte offset
-            size_t new_idx = _elements.size() / _element_type->size;
+            // Add new element
+            size_t new_idx = _element_count;
             _elements.resize(_elements.size() + _element_type->size);
             void* dest = element_ptr(new_idx);
             _element_type->copy_construct_at(dest, value);
+            ++_element_count;
+
+            // Insert index into set
             _index_set.insert(new_idx);
             return true;
         }
 
         // Remove element
         bool remove(const void* value) {
-            if (!_element_type) return false;
+            if (!_element_type || _index_set.empty()) return false;
 
-            for (auto it = _index_set.begin(); it != _index_set.end(); ++it) {
-                if (_element_type->equals_at(element_ptr(*it), value)) {
-                    _element_type->destruct_at(element_ptr(*it));
-                    _index_set.erase(it);
-                    return true;
-                }
+            auto it = _index_set.find(value);
+            if (it == _index_set.end()) {
+                return false;
             }
-            return false;
+
+            size_t idx = *it;
+            _element_type->destruct_at(element_ptr(idx));
+            _index_set.erase(it);
+            return true;
         }
 
-        // Check if element exists
+        // Check if element exists - O(1) average
         [[nodiscard]] bool contains(const void* value) const {
-            if (!_element_type) return false;
-
-            for (size_t idx : _index_set) {
-                if (_element_type->equals_at(element_ptr(idx), value)) {
-                    return true;
-                }
-            }
-            return false;
+            if (!_element_type || _index_set.empty()) return false;
+            return _index_set.find(value) != _index_set.end();
         }
 
         // Clear all elements
@@ -122,14 +180,13 @@ namespace hgraph::value {
             }
             _elements.clear();
             _index_set.clear();
+            _element_count = 0;
         }
 
-        // Iteration support
+        // Iteration support - iterates over active elements via the index set
         class Iterator {
         public:
-            using SetIter = std::unordered_set<size_t>::const_iterator;
-
-            Iterator(const SetStorage* storage, SetIter it)
+            Iterator(const SetStorage* storage, typename IndexSet::const_iterator it)
                 : _storage(storage), _it(it) {}
 
             ConstTypedPtr operator*() const {
@@ -145,9 +202,13 @@ namespace hgraph::value {
                 return _it != other._it;
             }
 
+            bool operator==(const Iterator& other) const {
+                return _it == other._it;
+            }
+
         private:
             const SetStorage* _storage;
-            SetIter _it;
+            typename IndexSet::const_iterator _it;
         };
 
         [[nodiscard]] Iterator begin() const {
@@ -168,9 +229,35 @@ namespace hgraph::value {
         }
 
         const TypeMeta* _element_type{nullptr};
-        std::vector<char> _elements;  // Raw storage for elements
-        std::unordered_set<size_t> _index_set;  // Indices of active elements
+        std::vector<char> _elements;       // Raw storage for elements
+        size_t _element_count{0};          // Total elements allocated
+        IndexSet _index_set;               // Robin-hood hash set of indices
     };
+
+    // Implementation of SetIndexHash
+    inline auto SetIndexHash::operator()(size_t idx) const -> uint64_t {
+        return storage->_element_type->hash_at(storage->element_ptr(idx));
+    }
+
+    inline auto SetIndexHash::operator()(const void* ptr) const -> uint64_t {
+        return storage->_element_type->hash_at(ptr);
+    }
+
+    // Implementation of SetIndexEqual
+    inline bool SetIndexEqual::operator()(size_t a, size_t b) const {
+        return storage->_element_type->equals_at(
+            storage->element_ptr(a),
+            storage->element_ptr(b)
+        );
+    }
+
+    inline bool SetIndexEqual::operator()(size_t idx, const void* ptr) const {
+        return storage->_element_type->equals_at(storage->element_ptr(idx), ptr);
+    }
+
+    inline bool SetIndexEqual::operator()(const void* ptr, size_t idx) const {
+        return storage->_element_type->equals_at(ptr, storage->element_ptr(idx));
+    }
 
     /**
      * SetTypeOps - Operations for set types

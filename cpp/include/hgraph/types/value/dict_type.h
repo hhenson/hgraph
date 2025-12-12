@@ -7,6 +7,7 @@
 
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/scalar_type.h>
+#include <ankerl/unordered_dense.h>
 #include <memory>
 #include <cassert>
 #include <vector>
@@ -24,17 +25,68 @@ namespace hgraph::value {
         const TypeMeta* value_type;
     };
 
+    // Forward declaration
+    class DictStorage;
+
+    /**
+     * DictIndexHash - Transparent hash functor for DictStorage
+     *
+     * Supports heterogeneous lookup: can hash both indices (existing keys)
+     * and raw pointers (lookup keys).
+     */
+    struct DictIndexHash {
+        using is_transparent = void;
+        using is_avalanching = void;
+
+        const DictStorage* storage{nullptr};
+
+        DictIndexHash() = default;
+        DictIndexHash(const DictStorage* s) : storage(s) {}
+
+        [[nodiscard]] auto operator()(size_t idx) const -> uint64_t;
+        [[nodiscard]] auto operator()(const void* ptr) const -> uint64_t;
+    };
+
+    /**
+     * DictIndexEqual - Transparent equality functor for DictStorage
+     *
+     * Supports heterogeneous lookup: can compare indices with indices,
+     * indices with pointers, and pointers with indices.
+     */
+    struct DictIndexEqual {
+        using is_transparent = void;
+
+        const DictStorage* storage{nullptr};
+
+        DictIndexEqual() = default;
+        DictIndexEqual(const DictStorage* s) : storage(s) {}
+
+        [[nodiscard]] bool operator()(size_t a, size_t b) const;
+        [[nodiscard]] bool operator()(size_t idx, const void* ptr) const;
+        [[nodiscard]] bool operator()(const void* ptr, size_t idx) const;
+    };
+
     /**
      * DictStorage - Internal storage for a type-erased dictionary
      *
-     * Uses parallel vectors for keys and values with an index set for lookup.
+     * Uses ankerl::unordered_dense for O(1) operations with robin-hood hashing.
+     * Keys and values are stored in parallel contiguous vectors.
+     * The set stores indices into the key/value vectors.
      */
     class DictStorage {
     public:
+        friend struct DictIndexHash;
+        friend struct DictIndexEqual;
+
+        using IndexSet = ankerl::unordered_dense::set<size_t, DictIndexHash, DictIndexEqual>;
+
         DictStorage() = default;
 
         DictStorage(const TypeMeta* key_type, const TypeMeta* value_type)
-            : _key_type(key_type), _value_type(value_type) {}
+            : _key_type(key_type)
+            , _value_type(value_type)
+            , _index_set(0, DictIndexHash(this), DictIndexEqual(this)) {
+        }
 
         ~DictStorage() {
             clear();
@@ -45,9 +97,16 @@ namespace hgraph::value {
             , _value_type(other._value_type)
             , _keys(std::move(other._keys))
             , _values(std::move(other._values))
-            , _active_indices(std::move(other._active_indices)) {
+            , _entry_count(other._entry_count)
+            , _index_set(0, DictIndexHash(this), DictIndexEqual(this)) {
+            // Rebuild index set with our own functors pointing to this
+            for (size_t idx : other._index_set) {
+                _index_set.insert(idx);
+            }
             other._key_type = nullptr;
             other._value_type = nullptr;
+            other._entry_count = 0;
+            other._index_set.clear();
         }
 
         DictStorage& operator=(DictStorage&& other) noexcept {
@@ -57,9 +116,16 @@ namespace hgraph::value {
                 _value_type = other._value_type;
                 _keys = std::move(other._keys);
                 _values = std::move(other._values);
-                _active_indices = std::move(other._active_indices);
+                _entry_count = other._entry_count;
+                // Rebuild index set with our own functors
+                _index_set = IndexSet(0, DictIndexHash(this), DictIndexEqual(this));
+                for (size_t idx : other._index_set) {
+                    _index_set.insert(idx);
+                }
                 other._key_type = nullptr;
                 other._value_type = nullptr;
+                other._entry_count = 0;
+                other._index_set.clear();
             }
             return *this;
         }
@@ -69,80 +135,74 @@ namespace hgraph::value {
 
         [[nodiscard]] const TypeMeta* key_type() const { return _key_type; }
         [[nodiscard]] const TypeMeta* value_type() const { return _value_type; }
-        [[nodiscard]] size_t size() const { return _active_indices.size(); }
-        [[nodiscard]] bool empty() const { return _active_indices.empty(); }
+        [[nodiscard]] size_t size() const { return _index_set.size(); }
+        [[nodiscard]] bool empty() const { return _index_set.empty(); }
 
-        // Insert or update a key-value pair
+        // Insert or update a key-value pair - O(1) average
         void insert(const void* key, const void* value) {
             if (!_key_type || !_value_type) return;
 
-            // Check if key exists
-            for (size_t idx : _active_indices) {
-                if (_key_type->equals_at(key_ptr(idx), key)) {
-                    // Update existing value
-                    _value_type->copy_assign_at(value_ptr(idx), value);
-                    return;
-                }
+            // Check if key already exists using heterogeneous lookup
+            auto it = _index_set.find(key);
+            if (it != _index_set.end()) {
+                // Update existing value
+                _value_type->copy_assign_at(value_ptr(*it), value);
+                return;
             }
 
             // Add new entry
-            size_t new_idx = _keys.size() / _key_type->size;
+            size_t new_idx = _entry_count;
             _keys.resize(_keys.size() + _key_type->size);
             _values.resize(_values.size() + _value_type->size);
-
             _key_type->copy_construct_at(key_ptr(new_idx), key);
             _value_type->copy_construct_at(value_ptr(new_idx), value);
-            _active_indices.push_back(new_idx);
+            ++_entry_count;
+
+            // Insert index into set
+            _index_set.insert(new_idx);
         }
 
-        // Remove by key
+        // Remove by key - O(1) average
         bool remove(const void* key) {
-            if (!_key_type) return false;
+            if (!_key_type || _index_set.empty()) return false;
 
-            for (auto it = _active_indices.begin(); it != _active_indices.end(); ++it) {
-                if (_key_type->equals_at(key_ptr(*it), key)) {
-                    _key_type->destruct_at(key_ptr(*it));
-                    _value_type->destruct_at(value_ptr(*it));
-                    _active_indices.erase(it);
-                    return true;
-                }
+            auto it = _index_set.find(key);
+            if (it == _index_set.end()) {
+                return false;
             }
-            return false;
+
+            size_t idx = *it;
+            _key_type->destruct_at(key_ptr(idx));
+            _value_type->destruct_at(value_ptr(idx));
+            _index_set.erase(it);
+            return true;
         }
 
-        // Check if key exists
+        // Check if key exists - O(1) average
         [[nodiscard]] bool contains(const void* key) const {
-            if (!_key_type) return false;
-
-            for (size_t idx : _active_indices) {
-                if (_key_type->equals_at(key_ptr(idx), key)) {
-                    return true;
-                }
-            }
-            return false;
+            if (!_key_type || _index_set.empty()) return false;
+            return _index_set.find(key) != _index_set.end();
         }
 
-        // Get value by key (returns nullptr if not found)
+        // Get value by key - O(1) average (returns nullptr if not found)
         [[nodiscard]] void* get(const void* key) {
-            if (!_key_type) return nullptr;
+            if (!_key_type || _index_set.empty()) return nullptr;
 
-            for (size_t idx : _active_indices) {
-                if (_key_type->equals_at(key_ptr(idx), key)) {
-                    return value_ptr(idx);
-                }
+            auto it = _index_set.find(key);
+            if (it == _index_set.end()) {
+                return nullptr;
             }
-            return nullptr;
+            return value_ptr(*it);
         }
 
         [[nodiscard]] const void* get(const void* key) const {
-            if (!_key_type) return nullptr;
+            if (!_key_type || _index_set.empty()) return nullptr;
 
-            for (size_t idx : _active_indices) {
-                if (_key_type->equals_at(key_ptr(idx), key)) {
-                    return value_ptr(idx);
-                }
+            auto it = _index_set.find(key);
+            if (it == _index_set.end()) {
+                return nullptr;
             }
-            return nullptr;
+            return value_ptr(*it);
         }
 
         // Get typed pointer to value
@@ -159,14 +219,15 @@ namespace hgraph::value {
         // Clear all entries
         void clear() {
             if (_key_type && _value_type) {
-                for (size_t idx : _active_indices) {
+                for (size_t idx : _index_set) {
                     _key_type->destruct_at(key_ptr(idx));
                     _value_type->destruct_at(value_ptr(idx));
                 }
             }
             _keys.clear();
             _values.clear();
-            _active_indices.clear();
+            _index_set.clear();
+            _entry_count = 0;
         }
 
         // Iteration support
@@ -182,9 +243,7 @@ namespace hgraph::value {
 
         class Iterator {
         public:
-            using IndexIter = std::vector<size_t>::const_iterator;
-
-            Iterator(DictStorage* storage, IndexIter it)
+            Iterator(DictStorage* storage, typename IndexSet::iterator it)
                 : _storage(storage), _it(it) {}
 
             KeyValuePair operator*() const {
@@ -203,16 +262,18 @@ namespace hgraph::value {
                 return _it != other._it;
             }
 
+            bool operator==(const Iterator& other) const {
+                return _it == other._it;
+            }
+
         private:
             DictStorage* _storage;
-            IndexIter _it;
+            typename IndexSet::iterator _it;
         };
 
         class ConstIterator {
         public:
-            using IndexIter = std::vector<size_t>::const_iterator;
-
-            ConstIterator(const DictStorage* storage, IndexIter it)
+            ConstIterator(const DictStorage* storage, typename IndexSet::const_iterator it)
                 : _storage(storage), _it(it) {}
 
             ConstKeyValuePair operator*() const {
@@ -231,25 +292,29 @@ namespace hgraph::value {
                 return _it != other._it;
             }
 
+            bool operator==(const ConstIterator& other) const {
+                return _it == other._it;
+            }
+
         private:
             const DictStorage* _storage;
-            IndexIter _it;
+            typename IndexSet::const_iterator _it;
         };
 
         [[nodiscard]] Iterator begin() {
-            return Iterator(this, _active_indices.begin());
+            return Iterator(this, _index_set.begin());
         }
 
         [[nodiscard]] Iterator end() {
-            return Iterator(this, _active_indices.end());
+            return Iterator(this, _index_set.end());
         }
 
         [[nodiscard]] ConstIterator begin() const {
-            return ConstIterator(this, _active_indices.begin());
+            return ConstIterator(this, _index_set.begin());
         }
 
         [[nodiscard]] ConstIterator end() const {
-            return ConstIterator(this, _active_indices.end());
+            return ConstIterator(this, _index_set.end());
         }
 
     private:
@@ -271,10 +336,36 @@ namespace hgraph::value {
 
         const TypeMeta* _key_type{nullptr};
         const TypeMeta* _value_type{nullptr};
-        std::vector<char> _keys;
-        std::vector<char> _values;
-        std::vector<size_t> _active_indices;
+        std::vector<char> _keys;           // Raw storage for keys
+        std::vector<char> _values;         // Raw storage for values
+        size_t _entry_count{0};            // Total entries allocated
+        IndexSet _index_set;               // Robin-hood hash set of indices
     };
+
+    // Implementation of DictIndexHash
+    inline auto DictIndexHash::operator()(size_t idx) const -> uint64_t {
+        return storage->_key_type->hash_at(storage->key_ptr(idx));
+    }
+
+    inline auto DictIndexHash::operator()(const void* ptr) const -> uint64_t {
+        return storage->_key_type->hash_at(ptr);
+    }
+
+    // Implementation of DictIndexEqual
+    inline bool DictIndexEqual::operator()(size_t a, size_t b) const {
+        return storage->_key_type->equals_at(
+            storage->key_ptr(a),
+            storage->key_ptr(b)
+        );
+    }
+
+    inline bool DictIndexEqual::operator()(size_t idx, const void* ptr) const {
+        return storage->_key_type->equals_at(storage->key_ptr(idx), ptr);
+    }
+
+    inline bool DictIndexEqual::operator()(const void* ptr, size_t idx) const {
+        return storage->_key_type->equals_at(ptr, storage->key_ptr(idx));
+    }
 
     /**
      * DictTypeOps - Operations for dict types

@@ -250,11 +250,123 @@ struct Example {
 
 Sets and dicts use dynamic storage classes (`SetStorage`, `DictStorage`) that manage their own memory.
 
+#### Hash Table Implementation
+
+`SetStorage` and `DictStorage` use `ankerl::unordered_dense` (robin-hood hashing with backward shift deletion) for O(1) operations. The implementation stores:
+
+- **Element data**: Contiguous `std::vector<char>` for cache-efficient storage
+- **Index set**: `ankerl::unordered_dense::set<size_t>` mapping to element indices
+- **Transparent functors**: Custom hash/equal functors enabling heterogeneous lookup by `const void*`
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  SetStorage                                             │
+├─────────────────────────────────────────────────────────┤
+│  _elements: [elem0|elem1|elem2|elem3|...]  (contiguous) │
+│  _index_set: {0, 2, 3, ...}  (robin-hood hash set)      │
+│                                                         │
+│  Lookup: hash(key) → find in _index_set → _elements[idx]│
+└─────────────────────────────────────────────────────────┘
+```
+
+#### Iteration Order
+
+**Current behavior**: Iteration order is NOT guaranteed to be insertion order. The `ankerl::unordered_dense` library uses backward shift deletion, which swaps the deleted element with the last element to avoid shifting. This breaks insertion order after any deletion.
+
+**If insertion order is needed**, the implementation can be modified:
+
+1. Add an `_active` bitmap: `std::vector<bool> _active`
+2. Set `_active[idx] = true` on insert, `_active[idx] = false` on remove
+3. Change iteration to walk indices 0 → `_entry_count` sequentially, skipping where `!_active[idx]`
+
+```cpp
+// Insertion-order iterator (not currently implemented)
+class InsertionOrderIterator {
+    void advance_to_active() {
+        while (_idx < _storage->_entry_count && !_storage->_active[_idx]) {
+            ++_idx;
+        }
+    }
+    // ...
+};
+```
+
+**Tradeoffs**:
+- Pro: Guaranteed insertion order iteration
+- Con: Slightly slower iteration (must skip tombstones)
+- Con: Additional memory for bitmap (~1 bit per element)
+- Con: Memory fragmentation over time (tombstones accumulate)
+
+A compaction strategy could be added to periodically rebuild the storage and reclaim tombstone space when fragmentation exceeds a threshold.
+
 ## Thread Safety
 
 - Type metadata is immutable after construction (thread-safe to read)
 - Values are not thread-safe (caller must synchronize)
 - Registry registration is not thread-safe (register during init)
+
+## Type Composability
+
+The type system is fully composable - any type can be used as elements/keys/values with appropriate constraints:
+
+| Container | Element/Key/Value Requirements |
+|-----------|-------------------------------|
+| **List** | Any type (no restrictions) |
+| **Set** | Element must be Hashable + Equatable |
+| **Dict Key** | Must be Hashable + Equatable |
+| **Dict Value** | Any type (no restrictions) |
+
+### Flag Propagation
+
+Flags propagate correctly through composition:
+
+- **Bundle**: Hashable if all fields are Hashable; Equatable if all fields are Equatable
+- **List**: Inherits flags from element type
+- **Set**: Always Hashable (uses XOR of element hashes for order-independence)
+- **Dict**: Hashable only if both key AND value types are Hashable
+
+### Composability Examples
+
+```cpp
+// 1. Set of Bundles
+//    Bundles are hashable/equatable if all their fields are
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Point");
+
+auto point_set_meta = SetTypeBuilder()
+    .element_type(point_meta.get())  // Bundle as set element
+    .build("PointSet");
+
+// 2. Dict with Bundle Keys and List Values
+auto int_list_meta = ListTypeBuilder()
+    .element<int>()
+    .count(5)
+    .build("IntList5");
+
+auto point_to_list_meta = DictTypeBuilder()
+    .key_type(point_meta.get())      // Bundle as dict key
+    .value_type(int_list_meta.get()) // List as dict value
+    .build("PointToListMap");
+
+// 3. List of Sets
+auto set_list_meta = ListTypeBuilder()
+    .element_type(point_set_meta.get())  // Set as list element
+    .count(10)
+    .build("PointSetList10");
+
+// 4. Deeply Nested: Dict of String -> List of Set of Points
+auto point_set_list_meta = ListTypeBuilder()
+    .element_type(point_set_meta.get())
+    .count(5)
+    .build();
+
+auto string_to_nested_meta = DictTypeBuilder()
+    .key<int>()  // Using int as key (string not yet implemented)
+    .value_type(point_set_list_meta.get())
+    .build("NestedContainer");
+```
 
 ## Future Extensions
 
@@ -267,18 +379,22 @@ Sets and dicts use dynamic storage classes (`SetStorage`, `DictStorage`) that ma
 ## File Structure
 
 ```
-cpp/include/hgraph/types/value/
-├── all.h              # Convenience header (includes all)
-├── type_meta.h        # Core TypeMeta, TypeOps, TypeFlags
-├── scalar_type.h      # ScalarTypeMeta<T>, TypedValue
-├── bundle_type.h      # BundleTypeMeta, BundleTypeBuilder
-├── list_type.h        # ListTypeMeta, ListTypeBuilder
-├── set_type.h         # SetTypeMeta, SetTypeBuilder, SetStorage
-├── dict_type.h        # DictTypeMeta, DictTypeBuilder, DictStorage
-├── type_registry.h    # TypeRegistry
-├── value.h            # Value, ValueView, ConstValueView
-├── VALUE_DESIGN.md    # This document
-└── VALUE_USER_GUIDE.md # User guide
+cpp/include/
+├── ankerl/
+│   ├── unordered_dense.h  # Robin-hood hash map/set (v4.8.1, MIT license)
+│   └── stl.h              # STL includes for unordered_dense
+└── hgraph/types/value/
+    ├── all.h              # Convenience header (includes all)
+    ├── type_meta.h        # Core TypeMeta, TypeOps, TypeFlags
+    ├── scalar_type.h      # ScalarTypeMeta<T>, TypedValue
+    ├── bundle_type.h      # BundleTypeMeta, BundleTypeBuilder
+    ├── list_type.h        # ListTypeMeta, ListTypeBuilder
+    ├── set_type.h         # SetTypeMeta, SetTypeBuilder, SetStorage
+    ├── dict_type.h        # DictTypeMeta, DictTypeBuilder, DictStorage
+    ├── type_registry.h    # TypeRegistry
+    ├── value.h            # Value, ValueView, ConstValueView
+    ├── VALUE_DESIGN.md    # This document
+    └── VALUE_USER_GUIDE.md # User guide
 ```
 
 ## Testing

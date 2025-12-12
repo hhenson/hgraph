@@ -404,6 +404,121 @@ auto complex = BundleTypeBuilder()
     .build("Complex");
 ```
 
+## Type Composability
+
+The type system is fully composable. Any type can be used as container elements, keys, or values:
+
+| Container | Element/Key/Value Requirements |
+|-----------|-------------------------------|
+| **List** | Any type (no restrictions) |
+| **Set** | Element must be Hashable + Equatable |
+| **Dict Key** | Must be Hashable + Equatable |
+| **Dict Value** | Any type (no restrictions) |
+
+### Flag Propagation
+
+Flags propagate through composition:
+
+- **Bundle**: Hashable/Equatable if all fields are
+- **List**: Inherits flags from element type
+- **Set**: Always Hashable (XOR of element hashes)
+- **Dict**: Hashable only if both key AND value are Hashable
+
+### Set of Bundles
+
+```cpp
+// Bundles are hashable/equatable if all their fields are
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Point");
+
+auto point_set_meta = SetTypeBuilder()
+    .element_type(point_meta.get())  // Bundle as set element
+    .build("PointSet");
+
+// Use it
+Value point_set(point_set_meta.get());
+ValueView psv = point_set.view();
+
+// Add points to the set
+Value p1(point_meta.get());
+p1.view().field("x").as<int>() = 10;
+p1.view().field("y").as<int>() = 20;
+psv.set_add(p1.data());  // Add via raw pointer
+
+// Or use SetView directly for typed access
+SetView sv(static_cast<const SetTypeMeta*>(point_set_meta.get()));
+// ... populate ...
+```
+
+### Dict with Bundle Keys and List Values
+
+```cpp
+auto int_list_meta = ListTypeBuilder()
+    .element<int>()
+    .count(5)
+    .build("IntList5");
+
+auto point_to_list_meta = DictTypeBuilder()
+    .key_type(point_meta.get())      // Bundle as dict key
+    .value_type(int_list_meta.get()) // List as dict value
+    .build("PointToListMap");
+
+Value map(point_to_list_meta.get());
+ValueView mv = map.view();
+
+// Insert: point -> list of ints
+// (Use DictStorage directly for complex key types)
+```
+
+### List of Sets
+
+```cpp
+auto point_set_meta = SetTypeBuilder()
+    .element_type(point_meta.get())
+    .build("PointSet");
+
+auto set_list_meta = ListTypeBuilder()
+    .element_type(point_set_meta.get())  // Set as list element
+    .count(10)
+    .build("PointSetList10");
+
+Value set_list(set_list_meta.get());
+ValueView slv = set_list.view();
+
+// Access individual sets
+ValueView first_set = slv.element(0);
+// first_set is now a view of a SetStorage
+```
+
+### Deeply Nested Types
+
+```cpp
+// Dict mapping int -> List of Set of Points
+auto point_set_list_meta = ListTypeBuilder()
+    .element_type(point_set_meta.get())
+    .count(5)
+    .build();
+
+auto nested_meta = DictTypeBuilder()
+    .key<int>()
+    .value_type(point_set_list_meta.get())
+    .build("NestedContainer");
+
+Value nested(nested_meta.get());
+ValueView nv = nested.view();
+
+// Insert entry: int key -> list of point sets
+nv.dict_insert(1, /* list value */);
+
+// Navigate deeply
+ConstValueView cv = nested.const_view();
+ConstValueView list_val = cv.dict_get(1);        // Get list
+ConstValueView set_val = list_val.element(0);    // Get first set
+size_t set_size = set_val.set_size();            // Query set
+```
+
 ## Common Patterns
 
 ### Factory Pattern
