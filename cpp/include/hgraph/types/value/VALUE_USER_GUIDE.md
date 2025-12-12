@@ -566,3 +566,203 @@ void copy_if_same_type(ValueView dest, ConstValueView src) {
     }
 }
 ```
+
+## Modification Tracking
+
+The `ModificationTracker` provides a parallel data structure for tracking when value elements were last modified. This is essential for implementing time-series values.
+
+### Basic Usage
+
+```cpp
+#include <hgraph/types/value/modification_tracker.h>
+using namespace hgraph;
+using namespace hgraph::value;
+
+// Create tracker for a type
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Point");
+
+ModificationTrackerStorage storage(point_meta.get());
+ModificationTracker tracker = storage.tracker();
+
+// Get current time from evaluation clock
+engine_time_t current_time = /* from evaluation clock */;
+
+// Mark as modified
+tracker.mark_modified(current_time);
+
+// Query modification state
+if (tracker.modified_at(current_time)) {
+    // Value was modified at this time
+}
+
+if (tracker.valid_value()) {
+    // Value has been modified at least once
+}
+
+// Reset to unmodified
+tracker.mark_invalid();
+```
+
+### Bundle Field Tracking
+
+Fields are accessible by both index and name. **Field indices correspond to schema creation order**:
+
+```cpp
+// Schema defines field order:
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")    // index 0
+    .add_field<int>("y")    // index 1
+    .build();
+
+ModificationTrackerStorage storage(point_meta.get());
+ModificationTracker tracker = storage.tracker();
+
+// Access by name
+tracker.field("x").mark_modified(current_time);
+
+// Access by index (equivalent to above)
+tracker.field(0).mark_modified(current_time);
+
+// Query by index
+if (tracker.field_modified_at(0, current_time)) {
+    // Field "x" (index 0) was modified
+}
+
+// Bundle is also marked modified (hierarchical propagation)
+if (tracker.modified_at(current_time)) {
+    // Bundle was modified (because field was modified)
+}
+```
+
+### List Element Tracking
+
+```cpp
+auto list_meta = ListTypeBuilder()
+    .element<int>()
+    .count(5)
+    .build();
+
+ModificationTrackerStorage storage(list_meta.get());
+ModificationTracker tracker = storage.tracker();
+
+// Mark element modified
+tracker.element(2).mark_modified(current_time);
+
+// Query element modification
+if (tracker.element_modified_at(2, current_time)) {
+    // Element 2 was modified
+}
+
+// List itself is marked modified
+if (tracker.modified_at(current_time)) {
+    // List was modified
+}
+```
+
+### Set Tracking (Atomic)
+
+Sets are tracked atomically - one timestamp for the entire set:
+
+```cpp
+auto set_meta = SetTypeBuilder()
+    .element<int>()
+    .build();
+
+ModificationTrackerStorage storage(set_meta.get());
+ModificationTracker tracker = storage.tracker();
+
+// Mark set as modified (add/remove occurred)
+tracker.mark_modified(current_time);
+
+if (tracker.modified_at(current_time)) {
+    // Set was modified at this time
+}
+```
+
+### Dict Tracking (Structural + Entry)
+
+Dicts track both structural changes (key add/remove) and per-entry modifications:
+
+```cpp
+auto dict_meta = DictTypeBuilder()
+    .key<int>()
+    .value<double>()
+    .build();
+
+ModificationTrackerStorage storage(dict_meta.get());
+ModificationTracker tracker = storage.tracker();
+
+// Structural modification (key added)
+tracker.mark_modified(current_time);
+
+// Entry value modification (key already exists)
+tracker.mark_dict_entry_modified(0, current_time);  // Entry at index 0
+
+// Query structural vs entry modification
+if (tracker.structurally_modified_at(current_time)) {
+    // A key was added or removed
+}
+
+if (tracker.dict_entry_modified_at(0, current_time)) {
+    // Entry 0's value was modified
+}
+
+// Get entry's last modification time
+engine_time_t entry_time = tracker.dict_entry_last_modified(0);
+
+// Remove tracking for deleted entry
+tracker.remove_dict_entry_tracking(0);
+```
+
+### Hierarchical Propagation
+
+When a child element is modified, the parent is automatically marked modified:
+
+```cpp
+// Nested bundle: Outer { id: int, point: Inner { x: int, y: int } }
+auto inner_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Inner");
+
+auto outer_meta = BundleTypeBuilder()
+    .add_field<int>("id")
+    .add_field("point", inner_meta.get())
+    .build("Outer");
+
+ModificationTrackerStorage storage(outer_meta.get());
+ModificationTracker tracker = storage.tracker();
+
+// Modify inner field
+tracker.field("point").mark_modified(current_time);
+
+// Outer bundle is also marked modified
+assert(tracker.modified_at(current_time));
+```
+
+### Time Monotonicity
+
+Modification times only advance forward:
+
+```cpp
+tracker.mark_modified(make_time(200));  // Sets to 200
+tracker.mark_modified(make_time(100));  // Ignored (earlier time)
+tracker.mark_modified(make_time(300));  // Updates to 300
+
+assert(tracker.last_modified_time() == make_time(300));
+```
+
+### Move Semantics
+
+```cpp
+// Storage is move-only
+ModificationTrackerStorage storage1(point_meta.get());
+storage1.tracker().mark_modified(current_time);
+
+ModificationTrackerStorage storage2 = std::move(storage1);
+// storage1 is now invalid
+// storage2 has the tracked modification
+```

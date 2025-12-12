@@ -1634,3 +1634,334 @@ TEST_CASE("Value - copy dict", "[value][dict][copy]") {
     REQUIRE(original.const_view().dict_get(1).as<double>() == 99.9);
     REQUIRE(copy.const_view().dict_get(1).as<double>() == 1.1);  // Copy unchanged
 }
+
+// ============================================================================
+// Modification Tracker Tests
+// ============================================================================
+
+using namespace hgraph;
+
+// Helper to create engine_time_t values for testing
+inline engine_time_t make_time(int64_t micros) {
+    return engine_time_t{std::chrono::microseconds{micros}};
+}
+
+TEST_CASE("ModificationTracker - scalar tracking", "[modification][scalar]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    ModificationTrackerStorage storage(int_meta);
+    ModificationTracker tracker = storage.tracker();
+
+    REQUIRE(tracker.valid());
+    REQUIRE(tracker.last_modified_time() == MIN_DT);
+    REQUIRE_FALSE(tracker.valid_value());
+
+    auto t1 = make_time(1000);
+    tracker.mark_modified(t1);
+
+    REQUIRE(tracker.last_modified_time() == t1);
+    REQUIRE(tracker.modified_at(t1));
+    REQUIRE_FALSE(tracker.modified_at(make_time(2000)));
+    REQUIRE(tracker.valid_value());
+
+    tracker.mark_invalid();
+    REQUIRE(tracker.last_modified_time() == MIN_DT);
+    REQUIRE_FALSE(tracker.valid_value());
+}
+
+TEST_CASE("ModificationTracker - bundle field tracking", "[modification][bundle]") {
+    auto point_meta = BundleTypeBuilder()
+        .add_field<int>("x")
+        .add_field<int>("y")
+        .build("Point");
+
+    ModificationTrackerStorage storage(point_meta.get());
+    ModificationTracker tracker = storage.tracker();
+
+    REQUIRE(tracker.valid());
+
+    // All fields initially unmodified
+    REQUIRE(tracker.last_modified_time() == MIN_DT);
+    REQUIRE_FALSE(tracker.field_modified_at(0, make_time(100)));
+    REQUIRE_FALSE(tracker.field_modified_at(1, make_time(100)));
+
+    // Mark field "x" modified
+    auto t1 = make_time(100);
+    tracker.field("x").mark_modified(t1);
+
+    // Field "x" should be modified
+    REQUIRE(tracker.field_modified_at(0, t1));
+    REQUIRE_FALSE(tracker.field_modified_at(1, t1));
+
+    // Bundle itself should also be modified (hierarchical propagation)
+    REQUIRE(tracker.modified_at(t1));
+
+    // Mark field "y" modified at different time
+    auto t2 = make_time(200);
+    tracker.field("y").mark_modified(t2);
+
+    REQUIRE(tracker.field_modified_at(1, t2));
+    REQUIRE(tracker.modified_at(t2));  // Bundle updated to latest time
+}
+
+TEST_CASE("ModificationTracker - bundle by index", "[modification][bundle]") {
+    auto meta = BundleTypeBuilder()
+        .add_field<int>("a")
+        .add_field<double>("b")
+        .add_field<int>("c")
+        .build();
+
+    ModificationTrackerStorage storage(meta.get());
+    ModificationTracker tracker = storage.tracker();
+
+    auto t1 = make_time(500);
+
+    // Mark field by index
+    tracker.field(1).mark_modified(t1);
+
+    REQUIRE_FALSE(tracker.field_modified_at(0, t1));
+    REQUIRE(tracker.field_modified_at(1, t1));
+    REQUIRE_FALSE(tracker.field_modified_at(2, t1));
+    REQUIRE(tracker.modified_at(t1));
+}
+
+TEST_CASE("ModificationTracker - list element tracking", "[modification][list]") {
+    auto list_meta = ListTypeBuilder()
+        .element<int>()
+        .count(5)
+        .build();
+
+    ModificationTrackerStorage storage(list_meta.get());
+    ModificationTracker tracker = storage.tracker();
+
+    REQUIRE(tracker.valid());
+    REQUIRE(tracker.last_modified_time() == MIN_DT);
+
+    // Mark element 2 modified
+    auto t1 = make_time(100);
+    tracker.element(2).mark_modified(t1);
+
+    REQUIRE(tracker.element_modified_at(2, t1));
+    REQUIRE_FALSE(tracker.element_modified_at(0, t1));
+    REQUIRE_FALSE(tracker.element_modified_at(4, t1));
+
+    // List itself should be modified (hierarchical propagation)
+    REQUIRE(tracker.modified_at(t1));
+
+    // Mark another element at later time
+    auto t2 = make_time(200);
+    tracker.element(4).mark_modified(t2);
+
+    REQUIRE(tracker.element_modified_at(4, t2));
+    REQUIRE(tracker.modified_at(t2));  // List updated to latest time
+}
+
+TEST_CASE("ModificationTracker - set atomic tracking", "[modification][set]") {
+    auto set_meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    ModificationTrackerStorage storage(set_meta.get());
+    ModificationTracker tracker = storage.tracker();
+
+    REQUIRE(tracker.valid());
+    REQUIRE(tracker.last_modified_time() == MIN_DT);
+
+    // Set is tracked atomically - just mark_modified
+    auto t1 = make_time(100);
+    tracker.mark_modified(t1);
+
+    REQUIRE(tracker.modified_at(t1));
+    REQUIRE(tracker.last_modified_time() == t1);
+
+    // Later modification
+    auto t2 = make_time(200);
+    tracker.mark_modified(t2);
+
+    REQUIRE(tracker.modified_at(t2));
+    REQUIRE_FALSE(tracker.modified_at(t1));
+
+    tracker.mark_invalid();
+    REQUIRE(tracker.last_modified_time() == MIN_DT);
+}
+
+TEST_CASE("ModificationTracker - dict structural and entry tracking", "[modification][dict]") {
+    auto dict_meta = DictTypeBuilder()
+        .key<int>()
+        .value<double>()
+        .build();
+
+    ModificationTrackerStorage storage(dict_meta.get());
+    ModificationTracker tracker = storage.tracker();
+
+    REQUIRE(tracker.valid());
+    REQUIRE(tracker.last_modified_time() == MIN_DT);
+
+    // Mark structural modification (key added)
+    auto t1 = make_time(100);
+    tracker.mark_modified(t1);
+
+    REQUIRE(tracker.structurally_modified_at(t1));
+    REQUIRE(tracker.modified_at(t1));
+
+    // Mark entry 0 modified (value changed)
+    auto t2 = make_time(200);
+    tracker.mark_dict_entry_modified(0, t2);
+
+    REQUIRE(tracker.dict_entry_modified_at(0, t2));
+    REQUIRE_FALSE(tracker.dict_entry_modified_at(1, t2));
+    REQUIRE(tracker.dict_entry_last_modified(0) == t2);
+
+    // Overall modification time is the latest
+    REQUIRE(tracker.last_modified_time() == t2);
+
+    // Mark another entry
+    auto t3 = make_time(300);
+    tracker.mark_dict_entry_modified(1, t3);
+
+    REQUIRE(tracker.dict_entry_modified_at(1, t3));
+    REQUIRE(tracker.last_modified_time() == t3);
+
+    // Remove entry tracking
+    tracker.remove_dict_entry_tracking(0);
+    REQUIRE_FALSE(tracker.dict_entry_modified_at(0, t2));
+    REQUIRE(tracker.dict_entry_last_modified(0) == MIN_DT);
+}
+
+TEST_CASE("ModificationTracker - nested bundle tracking", "[modification][nested]") {
+    // Inner bundle
+    auto inner_meta = BundleTypeBuilder()
+        .add_field<int>("x")
+        .add_field<int>("y")
+        .build("Inner");
+
+    // Outer bundle containing inner
+    auto outer_meta = BundleTypeBuilder()
+        .add_field<int>("id")
+        .add_field("point", inner_meta.get())
+        .build("Outer");
+
+    ModificationTrackerStorage storage(outer_meta.get());
+    ModificationTracker tracker = storage.tracker();
+
+    auto t1 = make_time(100);
+
+    // Mark inner field "x" modified
+    // tracker.field("point") returns tracker for inner bundle
+    // then .field("x") returns tracker for x field
+    // mark_modified should propagate: x -> inner -> outer
+    tracker.field("point").mark_modified(t1);
+
+    // Inner bundle field should be modified
+    REQUIRE(tracker.field_modified_at(1, t1));
+
+    // Outer bundle should be modified
+    REQUIRE(tracker.modified_at(t1));
+}
+
+TEST_CASE("ModificationTracker - hierarchical propagation", "[modification][hierarchy]") {
+    auto meta = BundleTypeBuilder()
+        .add_field<int>("a")
+        .add_field<int>("b")
+        .add_field<int>("c")
+        .build();
+
+    ModificationTrackerStorage storage(meta.get());
+    ModificationTracker tracker = storage.tracker();
+
+    // Mark field using sub-tracker
+    auto t1 = make_time(100);
+    ModificationTracker field_tracker = tracker.field(0);
+    field_tracker.mark_modified(t1);
+
+    // Field 0 modified
+    REQUIRE(tracker.field_modified_at(0, t1));
+
+    // Parent (bundle) also modified via propagation
+    REQUIRE(tracker.modified_at(t1));
+}
+
+TEST_CASE("ModificationTracker - time monotonicity", "[modification][time]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    ModificationTrackerStorage storage(int_meta);
+    ModificationTracker tracker = storage.tracker();
+
+    // Mark with time 200
+    tracker.mark_modified(make_time(200));
+    REQUIRE(tracker.last_modified_time() == make_time(200));
+
+    // Try to mark with earlier time - should be ignored
+    tracker.mark_modified(make_time(100));
+    REQUIRE(tracker.last_modified_time() == make_time(200));  // Unchanged
+
+    // Mark with later time - should update
+    tracker.mark_modified(make_time(300));
+    REQUIRE(tracker.last_modified_time() == make_time(300));
+}
+
+TEST_CASE("ModificationTracker - invalid tracker operations", "[modification][edge]") {
+    ModificationTracker invalid_tracker;
+
+    REQUIRE_FALSE(invalid_tracker.valid());
+    REQUIRE(invalid_tracker.last_modified_time() == MIN_DT);
+    REQUIRE_FALSE(invalid_tracker.modified_at(make_time(100)));
+    REQUIRE_FALSE(invalid_tracker.valid_value());
+
+    // Should not crash
+    invalid_tracker.mark_modified(make_time(100));
+    invalid_tracker.mark_invalid();
+
+    // Field/element access on invalid tracker
+    REQUIRE_FALSE(invalid_tracker.field(0).valid());
+    REQUIRE_FALSE(invalid_tracker.element(0).valid());
+}
+
+TEST_CASE("ModificationTracker - out of bounds access", "[modification][edge]") {
+    auto bundle_meta = BundleTypeBuilder()
+        .add_field<int>("x")
+        .build();
+
+    ModificationTrackerStorage storage(bundle_meta.get());
+    ModificationTracker tracker = storage.tracker();
+
+    // Out of bounds field access
+    REQUIRE_FALSE(tracker.field(10).valid());
+    REQUIRE_FALSE(tracker.field("nonexistent").valid());
+    REQUIRE_FALSE(tracker.field_modified_at(10, make_time(100)));
+
+    // List out of bounds
+    auto list_meta = ListTypeBuilder()
+        .element<int>()
+        .count(3)
+        .build();
+
+    ModificationTrackerStorage list_storage(list_meta.get());
+    ModificationTracker list_tracker = list_storage.tracker();
+
+    REQUIRE_FALSE(list_tracker.element(10).valid());
+    REQUIRE_FALSE(list_tracker.element_modified_at(10, make_time(100)));
+}
+
+TEST_CASE("ModificationTrackerStorage - move semantics", "[modification][storage]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+
+    ModificationTrackerStorage storage1(int_meta);
+    storage1.tracker().mark_modified(make_time(100));
+
+    REQUIRE(storage1.valid());
+    REQUIRE(storage1.tracker().last_modified_time() == make_time(100));
+
+    // Move construct
+    ModificationTrackerStorage storage2(std::move(storage1));
+
+    REQUIRE_FALSE(storage1.valid());  // NOLINT(bugprone-use-after-move)
+    REQUIRE(storage2.valid());
+    REQUIRE(storage2.tracker().last_modified_time() == make_time(100));
+
+    // Move assign
+    ModificationTrackerStorage storage3;
+    storage3 = std::move(storage2);
+
+    REQUIRE_FALSE(storage2.valid());  // NOLINT(bugprone-use-after-move)
+    REQUIRE(storage3.valid());
+    REQUIRE(storage3.tracker().last_modified_time() == make_time(100));
+}

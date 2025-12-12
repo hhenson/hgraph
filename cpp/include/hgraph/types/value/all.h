@@ -15,5 +15,6 @@
 #include <hgraph/types/value/dict_type.h>
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/value/modification_tracker.h>
 
 #endif // HGRAPH_VALUE_ALL_H

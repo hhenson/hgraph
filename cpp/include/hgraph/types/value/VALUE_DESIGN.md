@@ -368,6 +368,121 @@ auto string_to_nested_meta = DictTypeBuilder()
     .build("NestedContainer");
 ```
 
+## Modification Tracking
+
+The `ModificationTracker` provides a parallel data structure for tracking when value elements were last modified. This is essential for implementing time-series values where you need to know "was this modified at the current evaluation time?"
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                 ModificationTrackerStorage                       │
+│  (Owns tracking storage, allocates based on TypeKind)            │
+└─────────────────┬───────────────────────────────────────────────┘
+                  │
+                  ▼
+┌─────────────────────────────────────────────────────────────────┐
+│                   ModificationTracker                            │
+│  (Non-owning view, enables hierarchical propagation)             │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Storage Layout by Type
+
+| Type | Storage | Notes |
+|------|---------|-------|
+| **Scalar** | Single `engine_time_t` | 8 bytes |
+| **Bundle** | `[bundle_time][field0_time][field1_time]...` | Per-field tracking, accessible by index or name |
+| **List** | `[list_time][elem0_time][elem1_time]...` | Per-element tracking with propagation |
+| **Set** | Single `engine_time_t` | Atomic tracking (no per-element) |
+| **Dict** | `DictModificationStorage` | Structural + per-entry timestamps |
+
+**Bundle Field Order**: Field indices correspond to schema creation order in `BundleTypeBuilder`. Fields are accessible by both index and name:
+
+```cpp
+auto meta = BundleTypeBuilder()
+    .add_field<int>("x")      // index 0
+    .add_field<int>("y")      // index 1
+    .add_field<double>("z")   // index 2
+    .build();
+
+// Both equivalent:
+tracker.field(0).mark_modified(time);    // by index
+tracker.field("x").mark_modified(time);  // by name
+```
+
+### Hierarchical Propagation
+
+When a child element is marked modified, the modification propagates to the parent:
+
+```cpp
+// Bundle { x: int, y: int }
+tracker.field("x").mark_modified(current_time);
+// Result: field "x" is modified AND bundle is modified
+
+// Nested bundles work recursively
+// Outer { id: int, point: Inner { x: int, y: int } }
+tracker.field("point").mark_modified(current_time);
+// Result: point field modified → outer bundle modified
+```
+
+### Time Monotonicity
+
+Modification times only move forward:
+
+```cpp
+tracker.mark_modified(make_time(200));  // Sets to 200
+tracker.mark_modified(make_time(100));  // Ignored (earlier)
+tracker.mark_modified(make_time(300));  // Updates to 300
+```
+
+### Usage Example
+
+```cpp
+#include <hgraph/types/value/modification_tracker.h>
+using namespace hgraph::value;
+
+// Create tracker for a bundle type
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Point");
+
+ModificationTrackerStorage storage(point_meta.get());
+ModificationTracker tracker = storage.tracker();
+
+engine_time_t current_time = /* from evaluation clock */;
+
+// Mark field modified (propagates to bundle)
+tracker.field("x").mark_modified(current_time);
+
+// Query modification state
+if (tracker.modified_at(current_time)) {
+    // Bundle was modified at this time
+}
+
+if (tracker.field_modified_at(0, current_time)) {
+    // Field "x" was modified
+}
+
+// Reset to unmodified
+tracker.mark_invalid();
+```
+
+### Set vs Dict Tracking
+
+- **Set**: Tracked atomically - single timestamp for structural changes (add/remove). Per-element tracking is not needed because sets will track added/removed elements separately for delta management.
+
+- **Dict**: Tracks both structural changes (key add/remove) AND per-entry modifications (value changes on existing keys). This is needed because TSD (Time-Series Dict) must distinguish between "key was added" vs "existing key's value changed".
+
+```cpp
+// Dict tracking
+tracker.mark_modified(current_time);           // Structural change (key added)
+tracker.mark_dict_entry_modified(0, time);     // Entry 0 value changed
+tracker.structurally_modified_at(time);        // Was a key added/removed?
+tracker.dict_entry_modified_at(0, time);       // Was entry 0's value changed?
+```
+
 ## Future Extensions
 
 1. **Python Bindings**: Implement `to_python`/`from_python` ops
@@ -375,6 +490,7 @@ auto string_to_nested_meta = DictTypeBuilder()
 3. **Variant Type**: Union-like discriminated types
 4. **String Type**: Type-erased string with SSO
 5. **Serialization**: Binary and JSON serialization
+6. **Time-Series Value**: Wrapper combining Value + ModificationTracker for full time-series support
 
 ## File Structure
 
@@ -383,22 +499,34 @@ cpp/include/
 ├── ankerl/
 │   ├── unordered_dense.h  # Robin-hood hash map/set (v4.8.1, MIT license)
 │   └── stl.h              # STL includes for unordered_dense
-└── hgraph/types/value/
-    ├── all.h              # Convenience header (includes all)
-    ├── type_meta.h        # Core TypeMeta, TypeOps, TypeFlags
-    ├── scalar_type.h      # ScalarTypeMeta<T>, TypedValue
-    ├── bundle_type.h      # BundleTypeMeta, BundleTypeBuilder
-    ├── list_type.h        # ListTypeMeta, ListTypeBuilder
-    ├── set_type.h         # SetTypeMeta, SetTypeBuilder, SetStorage
-    ├── dict_type.h        # DictTypeMeta, DictTypeBuilder, DictStorage
-    ├── type_registry.h    # TypeRegistry
-    ├── value.h            # Value, ValueView, ConstValueView
-    ├── VALUE_DESIGN.md    # This document
-    └── VALUE_USER_GUIDE.md # User guide
+└── hgraph/
+    ├── util/
+    │   └── date_time.h    # engine_time_t, MIN_DT, MAX_DT
+    └── types/value/
+        ├── all.h                    # Convenience header (includes all)
+        ├── type_meta.h              # Core TypeMeta, TypeOps, TypeFlags
+        ├── scalar_type.h            # ScalarTypeMeta<T>, TypedValue
+        ├── bundle_type.h            # BundleTypeMeta, BundleTypeBuilder
+        ├── list_type.h              # ListTypeMeta, ListTypeBuilder
+        ├── set_type.h               # SetTypeMeta, SetTypeBuilder, SetStorage
+        ├── dict_type.h              # DictTypeMeta, DictTypeBuilder, DictStorage
+        ├── type_registry.h          # TypeRegistry
+        ├── value.h                  # Value, ValueView, ConstValueView
+        ├── modification_tracker.h   # ModificationTrackerStorage, ModificationTracker
+        ├── VALUE_DESIGN.md          # This document
+        └── VALUE_USER_GUIDE.md      # User guide
 ```
 
 ## Testing
 
 Tests are in `cpp/tests/`:
-- `test_value.cpp`: Unit tests (54 test cases, 262 assertions)
+- `test_value.cpp`: Unit tests (102 test cases, 6,960 assertions)
 - `value_examples.cpp`: Comprehensive examples
+
+Test categories include:
+- Scalar, Bundle, List, Set, Dict type operations
+- Value/View creation and navigation
+- Type composability (nested types)
+- Copy/move semantics
+- Edge cases and stress tests
+- **Modification tracking** (12 test cases)
