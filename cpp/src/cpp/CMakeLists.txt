@@ -103,6 +103,7 @@ set(HGRAPH_SOURCES
         types/tsb.cpp
         types/tsl.cpp
         types/tsw.cpp
+        types/value_python_conversion.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
