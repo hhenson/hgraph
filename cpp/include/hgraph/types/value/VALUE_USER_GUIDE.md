@@ -1390,3 +1390,179 @@ void process(TimeSeriesValue& ts) {
 ```
 
 4. **Avoid re-entrancy**: Don't modify the same `TimeSeriesValue` from within a `notify()` callback, as this may cause recursive notifications.
+
+---
+
+## Window Types (TSW)
+
+Windows store a history of values with associated timestamps. There are two types:
+
+- **Fixed-length window**: Cyclic buffer that stores the N most recent values
+- **Variable-length window**: Time-based queue that stores values within a time duration
+
+### Creating Window Types
+
+```cpp
+using namespace hgraph::value;
+
+// Fixed-length window: stores last 5 values
+auto fixed_window_meta = WindowTypeBuilder()
+    .element_type(double_meta)    // Element type
+    .max_count(5)                 // Keep last 5 values
+    .build();
+
+// Variable-length window: stores values from last 60 seconds
+auto variable_window_meta = WindowTypeBuilder()
+    .element_type(double_meta)
+    .window_duration(std::chrono::seconds(60))
+    .build();
+```
+
+### Using Windows with Value
+
+```cpp
+// Create a fixed-length window value
+Value window_val(fixed_window_meta.get());
+auto view = window_val.view();
+
+// Push values with timestamps
+engine_time_t t1 = /* some time */;
+view.window_push(1.0, t1);
+view.window_push(2.0, t1 + std::chrono::seconds(1));
+view.window_push(3.0, t1 + std::chrono::seconds(2));
+
+// Read values (index 0 = oldest, size-1 = newest)
+assert(view.window_size() == 3);
+assert(view.window_get(0).as<double>() == 1.0);  // Oldest
+assert(view.window_get(2).as<double>() == 3.0);  // Newest
+
+// Get timestamps
+auto oldest_ts = view.window_oldest_timestamp();
+auto newest_ts = view.window_newest_timestamp();
+```
+
+### Fixed-Length Window (Cyclic Buffer)
+
+When a fixed-length window reaches capacity, new values overwrite the oldest:
+
+```cpp
+auto meta = WindowTypeBuilder()
+    .element_type(int_meta)
+    .max_count(3)
+    .build();
+
+Value val(meta.get());
+auto view = val.view();
+
+// Fill the window
+view.window_push(1, t1);
+view.window_push(2, t2);
+view.window_push(3, t3);
+assert(view.window_size() == 3);
+assert(view.window_full());
+
+// Push more - oldest is overwritten
+view.window_push(4, t4);
+assert(view.window_size() == 3);  // Still 3
+assert(view.window_get(0).as<int>() == 2);  // 1 was evicted
+assert(view.window_get(2).as<int>() == 4);  // Newest
+```
+
+### Variable-Length Window (Time-Based)
+
+Variable-length windows automatically evict values older than the window duration:
+
+```cpp
+auto meta = WindowTypeBuilder()
+    .element_type(int_meta)
+    .window_duration(std::chrono::seconds(10))  // 10-second window
+    .build();
+
+Value val(meta.get());
+auto view = val.view();
+
+engine_time_t base = /* start time */;
+view.window_push(1, base);
+view.window_push(2, base + std::chrono::seconds(5));
+view.window_push(3, base + std::chrono::seconds(12));  // Evicts value at 'base'
+
+assert(view.window_size() == 2);  // Only values within 10s of newest
+assert(view.window_get(0).as<int>() == 2);  // base+5s is within range
+```
+
+### Window Compaction
+
+For optimal read performance, use `compact()` to reorganize internal storage:
+
+```cpp
+// After many push operations on a fixed-length window,
+// internal indices may wrap around
+view.window_compact(current_time);  // Reorganizes to linear layout
+
+// For variable windows, compact also removes expired entries
+view.window_evict_expired(current_time);  // Explicit expiration
+```
+
+### Window with TimeSeriesValue
+
+Windows integrate with the time-series system for modification tracking and observers:
+
+```cpp
+TimeSeriesValue ts(fixed_window_meta.get());
+
+// Subscribe to changes
+MyObserver observer;
+ts.subscribe(&observer);
+
+auto view = ts.view(current_time);
+
+// Push triggers modification tracking and notification
+view.window_push(42.0, timestamp);
+assert(ts.modified_at(current_time));
+assert(observer.notification_count == 1);
+
+// Access window state
+assert(view.window_size() == 1);
+assert(view.window_get(0).as<double>() == 42.0);
+
+// Clear the window
+view.window_clear();
+assert(view.window_empty());
+assert(observer.notification_count == 2);
+```
+
+### Window Operations Summary
+
+| Operation | Description |
+|-----------|-------------|
+| `window_push(val, ts)` | Add value with timestamp |
+| `window_get(index)` | Get value at index (0 = oldest) |
+| `window_timestamp(index)` | Get timestamp at index |
+| `window_size()` | Current number of entries |
+| `window_empty()` | True if no entries |
+| `window_full()` | True if at capacity (fixed only) |
+| `window_oldest_timestamp()` | Timestamp of oldest entry |
+| `window_newest_timestamp()` | Timestamp of newest entry |
+| `window_compact(time)` | Optimize for reading |
+| `window_evict_expired(time)` | Remove expired entries (variable) |
+| `window_clear()` | Remove all entries |
+| `window_is_fixed_length()` | True if fixed-length type |
+| `window_is_variable_length()` | True if variable-length type |
+
+### Window Type Queries
+
+```cpp
+const auto* meta = value.schema();
+if (meta->kind == TypeKind::Window) {
+    const auto* window_meta = static_cast<const WindowTypeMeta*>(meta);
+
+    if (window_meta->is_fixed_length()) {
+        std::cout << "Fixed window, max " << window_meta->max_count << " entries\n";
+    } else {
+        std::cout << "Variable window, duration "
+                  << window_meta->window_duration.count() << "ns\n";
+    }
+
+    std::cout << "Element type: " << window_meta->element_type->name << "\n";
+}
+```

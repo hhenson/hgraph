@@ -245,6 +245,86 @@ namespace hgraph::value {
             return _value_view.dict_size();
         }
 
+        // Window operations - atomic tracking (like Set)
+        template<typename T>
+        void window_push(const T& value, engine_time_t timestamp) {
+            if (!valid() || kind() != TypeKind::Window) return;
+            _value_view.window_push(value, timestamp);
+            _tracker.mark_modified(_current_time);
+            if (_observer) {
+                _observer->notify(_current_time);
+            }
+        }
+
+        void window_push(const void* value, engine_time_t timestamp) {
+            if (!valid() || kind() != TypeKind::Window) return;
+            _value_view.window_push(value, timestamp);
+            _tracker.mark_modified(_current_time);
+            if (_observer) {
+                _observer->notify(_current_time);
+            }
+        }
+
+        [[nodiscard]] ConstValueView window_get(size_t index) const {
+            if (!valid() || kind() != TypeKind::Window) return {};
+            return _value_view.window_get(index);
+        }
+
+        [[nodiscard]] size_t window_size() const {
+            return _value_view.window_size();
+        }
+
+        [[nodiscard]] bool window_empty() const {
+            return _value_view.window_empty();
+        }
+
+        [[nodiscard]] bool window_full() const {
+            return _value_view.window_full();
+        }
+
+        [[nodiscard]] engine_time_t window_timestamp(size_t index) const {
+            return _value_view.window_timestamp(index);
+        }
+
+        [[nodiscard]] engine_time_t window_oldest_timestamp() const {
+            return _value_view.window_oldest_timestamp();
+        }
+
+        [[nodiscard]] engine_time_t window_newest_timestamp() const {
+            return _value_view.window_newest_timestamp();
+        }
+
+        [[nodiscard]] const TypeMeta* window_element_type() const {
+            return _value_view.window_element_type();
+        }
+
+        [[nodiscard]] bool window_is_fixed_length() const {
+            return _value_view.window_is_fixed_length();
+        }
+
+        [[nodiscard]] bool window_is_variable_length() const {
+            return _value_view.window_is_variable_length();
+        }
+
+        void window_compact() {
+            if (!valid() || kind() != TypeKind::Window) return;
+            _value_view.window_compact(_current_time);
+        }
+
+        void window_evict_expired() {
+            if (!valid() || kind() != TypeKind::Window) return;
+            _value_view.window_evict_expired(_current_time);
+        }
+
+        void window_clear() {
+            if (!valid() || kind() != TypeKind::Window) return;
+            _value_view.window_clear();
+            _tracker.mark_modified(_current_time);
+            if (_observer) {
+                _observer->notify(_current_time);
+            }
+        }
+
         // Observer access
         [[nodiscard]] ObserverStorage* observer() { return _observer; }
         [[nodiscard]] const ObserverStorage* observer() const { return _observer; }

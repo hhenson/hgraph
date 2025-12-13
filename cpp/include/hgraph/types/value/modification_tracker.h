@@ -186,6 +186,7 @@ namespace hgraph::value {
                 case TypeKind::Bundle:
                 case TypeKind::List:
                 case TypeKind::Set:
+                case TypeKind::Window:  // Window is atomic like Set
                     // First element is always the container's own timestamp
                     return *static_cast<engine_time_t*>(_storage);
 
@@ -209,7 +210,8 @@ namespace hgraph::value {
                 case TypeKind::Scalar:
                 case TypeKind::Bundle:
                 case TypeKind::List:
-                case TypeKind::Set: {
+                case TypeKind::Set:
+                case TypeKind::Window: {  // Window is atomic like Set
                     auto* ts = static_cast<engine_time_t*>(_storage);
                     if (time > *ts) {
                         *ts = time;
@@ -236,6 +238,7 @@ namespace hgraph::value {
                 case TypeKind::Bundle:
                 case TypeKind::List:
                 case TypeKind::Set:
+                case TypeKind::Window:  // Window is atomic like Set
                     *static_cast<engine_time_t*>(_storage) = MIN_DT;
                     break;
 
@@ -380,7 +383,8 @@ namespace hgraph::value {
         switch (_value_meta->kind) {
             case TypeKind::Scalar:
             case TypeKind::Set:
-                // Single timestamp (set is atomic)
+            case TypeKind::Window:  // Window is atomic like Set
+                // Single timestamp (set/window is atomic)
                 _storage = new engine_time_t{MIN_DT};
                 break;
 
@@ -421,6 +425,7 @@ namespace hgraph::value {
         switch (_value_meta->kind) {
             case TypeKind::Scalar:
             case TypeKind::Set:
+            case TypeKind::Window:  // Window is atomic like Set
                 delete static_cast<engine_time_t*>(_storage);
                 break;
 

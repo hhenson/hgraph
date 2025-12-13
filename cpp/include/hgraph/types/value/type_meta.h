@@ -95,6 +95,7 @@ namespace hgraph::value {
         Dict,       // Hash map
         Bundle,     // Struct-like composite
         Ref,        // Reference to another value
+        Window,     // Time-series history (fixed or variable length)
     };
 
     /**

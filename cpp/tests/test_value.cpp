@@ -2883,3 +2883,464 @@ TEST_CASE("Observer - no notification when no observers", "[observer][performanc
     // Still no observers allocated (lazy)
     REQUIRE(ts.underlying_observers() == nullptr);
 }
+
+// =============================================================================
+// Window Type Tests
+// =============================================================================
+
+TEST_CASE("WindowTypeBuilder - fixed length window", "[value][window]") {
+    auto meta = WindowTypeBuilder()
+        .element<int>()
+        .fixed_count(5)
+        .build("IntWindow5");
+
+    REQUIRE(meta);
+    REQUIRE(meta->kind == TypeKind::Window);
+    REQUIRE(meta->element_type == scalar_type_meta<int>());
+    REQUIRE(meta->max_count == 5);
+    REQUIRE(meta->window_duration.count() == 0);
+    REQUIRE(meta->is_fixed_length());
+    REQUIRE_FALSE(meta->is_variable_length());
+}
+
+TEST_CASE("WindowTypeBuilder - variable length window", "[value][window]") {
+    using namespace std::chrono;
+    auto meta = WindowTypeBuilder()
+        .element<double>()
+        .time_duration(minutes(5))
+        .build("DoubleWindow5min");
+
+    REQUIRE(meta);
+    REQUIRE(meta->kind == TypeKind::Window);
+    REQUIRE(meta->element_type == scalar_type_meta<double>());
+    REQUIRE(meta->max_count == 0);
+    REQUIRE(meta->window_duration == duration_cast<engine_time_delta_t>(minutes(5)));
+    REQUIRE_FALSE(meta->is_fixed_length());
+    REQUIRE(meta->is_variable_length());
+}
+
+TEST_CASE("WindowStorage - fixed length basic operations", "[value][window]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    WindowStorage storage(int_meta, 3);
+
+    REQUIRE(storage.size() == 0);
+    REQUIRE(storage.empty());
+    REQUIRE_FALSE(storage.full());
+    REQUIRE(storage.is_fixed_length());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+    auto t3 = make_time(300);
+
+    int v1 = 10, v2 = 20, v3 = 30;
+
+    // Push first value
+    storage.push(&v1, t1);
+    REQUIRE(storage.size() == 1);
+    REQUIRE(*static_cast<const int*>(storage.get(0)) == 10);
+    REQUIRE(storage.timestamp(0) == t1);
+
+    // Push second
+    storage.push(&v2, t2);
+    REQUIRE(storage.size() == 2);
+    REQUIRE(*static_cast<const int*>(storage.get(0)) == 10);
+    REQUIRE(*static_cast<const int*>(storage.get(1)) == 20);
+
+    // Push third (now full)
+    storage.push(&v3, t3);
+    REQUIRE(storage.size() == 3);
+    REQUIRE(storage.full());
+    REQUIRE(*static_cast<const int*>(storage.get(2)) == 30);
+}
+
+TEST_CASE("WindowStorage - fixed length cyclic overflow", "[value][window]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    WindowStorage storage(int_meta, 3);
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+    auto t3 = make_time(300);
+    auto t4 = make_time(400);
+    auto t5 = make_time(500);
+
+    int v1 = 10, v2 = 20, v3 = 30, v4 = 40, v5 = 50;
+
+    // Fill buffer
+    storage.push(&v1, t1);
+    storage.push(&v2, t2);
+    storage.push(&v3, t3);
+
+    // Push 4th - should overwrite oldest (10)
+    storage.push(&v4, t4);
+    REQUIRE(storage.size() == 3);
+    REQUIRE(*static_cast<const int*>(storage.get(0)) == 20);  // was v2
+    REQUIRE(*static_cast<const int*>(storage.get(1)) == 30);  // was v3
+    REQUIRE(*static_cast<const int*>(storage.get(2)) == 40);  // was v4
+    REQUIRE(storage.oldest_timestamp() == t2);
+    REQUIRE(storage.newest_timestamp() == t4);
+
+    // Push 5th - should overwrite oldest (20)
+    storage.push(&v5, t5);
+    REQUIRE(*static_cast<const int*>(storage.get(0)) == 30);
+    REQUIRE(*static_cast<const int*>(storage.get(1)) == 40);
+    REQUIRE(*static_cast<const int*>(storage.get(2)) == 50);
+    REQUIRE(storage.oldest_timestamp() == t3);
+    REQUIRE(storage.newest_timestamp() == t5);
+}
+
+TEST_CASE("WindowStorage - fixed length compact", "[value][window]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    WindowStorage storage(int_meta, 3);
+
+    int v1 = 10, v2 = 20, v3 = 30, v4 = 40;
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+    auto t3 = make_time(300);
+    auto t4 = make_time(400);
+
+    // Push 4 items to create a cyclic wrap
+    storage.push(&v1, t1);
+    storage.push(&v2, t2);
+    storage.push(&v3, t3);
+    storage.push(&v4, t4);  // Overwrites v1
+
+    // Compact - should reorganize so logical index 0 is at physical index 0
+    storage.compact(t4);
+
+    // Values should still be accessible in same logical order
+    REQUIRE(*static_cast<const int*>(storage.get(0)) == 20);
+    REQUIRE(*static_cast<const int*>(storage.get(1)) == 30);
+    REQUIRE(*static_cast<const int*>(storage.get(2)) == 40);
+    REQUIRE(storage.timestamp(0) == t2);
+    REQUIRE(storage.timestamp(1) == t3);
+    REQUIRE(storage.timestamp(2) == t4);
+}
+
+TEST_CASE("WindowStorage - variable length basic operations", "[value][window]") {
+    using namespace std::chrono;
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    WindowStorage storage(int_meta, minutes(5));
+
+    REQUIRE(storage.size() == 0);
+    REQUIRE(storage.empty());
+    REQUIRE(storage.is_variable_length());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    int v1 = 10, v2 = 20;
+
+    storage.push(&v1, t1);
+    REQUIRE(storage.size() == 1);
+
+    storage.push(&v2, t2);
+    REQUIRE(storage.size() == 2);
+    REQUIRE(*static_cast<const int*>(storage.get(0)) == 10);
+    REQUIRE(*static_cast<const int*>(storage.get(1)) == 20);
+}
+
+TEST_CASE("WindowStorage - variable length eviction", "[value][window]") {
+    using namespace std::chrono;
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    // 5 minute window
+    WindowStorage storage(int_meta, duration_cast<engine_time_delta_t>(minutes(5)));
+
+    // Start time
+    auto base_time = engine_time_t{} + hours(1);
+    auto t1 = base_time;
+    auto t2 = base_time + minutes(2);
+    auto t3 = base_time + minutes(4);
+    auto t4 = base_time + minutes(6);  // This will cause t1 to be evicted
+
+    int v1 = 10, v2 = 20, v3 = 30, v4 = 40;
+
+    storage.push(&v1, t1);
+    storage.push(&v2, t2);
+    storage.push(&v3, t3);
+    REQUIRE(storage.size() == 3);
+
+    // Push t4 - t1 should be evicted (older than t4 - 5min = t4 - 5min)
+    storage.push(&v4, t4);
+
+    // t1 is at base_time, cutoff is t4 - 5min = base_time + 1min
+    // So t1 (at base_time) is older than cutoff and should be evicted
+    REQUIRE(storage.size() == 3);  // v2, v3, v4
+    REQUIRE(*static_cast<const int*>(storage.get(0)) == 20);
+    REQUIRE(*static_cast<const int*>(storage.get(1)) == 30);
+    REQUIRE(*static_cast<const int*>(storage.get(2)) == 40);
+}
+
+TEST_CASE("CyclicWindowStorage - iteration", "[value][window][iteration]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    CyclicWindowStorage storage(int_meta, 5);
+
+    int values[] = {10, 20, 30};
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+    auto t3 = make_time(300);
+
+    storage.push(&values[0], t1);
+    storage.push(&values[1], t2);
+    storage.push(&values[2], t3);
+
+    std::vector<int> collected_values;
+    std::vector<engine_time_t> collected_times;
+
+    for (auto it = storage.begin(); it != storage.end(); ++it) {
+        collected_values.push_back(it.value().as<int>());
+        collected_times.push_back(it.timestamp());
+    }
+
+    REQUIRE(collected_values.size() == 3);
+    REQUIRE(collected_values[0] == 10);
+    REQUIRE(collected_values[1] == 20);
+    REQUIRE(collected_values[2] == 30);
+    REQUIRE(collected_times[0] == t1);
+    REQUIRE(collected_times[1] == t2);
+    REQUIRE(collected_times[2] == t3);
+}
+
+TEST_CASE("QueueWindowStorage - iteration", "[value][window][iteration]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    QueueWindowStorage storage(int_meta, std::chrono::seconds(100));
+
+    int values[] = {10, 20, 30};
+    auto t1 = make_time(100);
+    auto t2 = make_time(150);
+    auto t3 = make_time(180);
+
+    storage.push(&values[0], t1);
+    storage.push(&values[1], t2);
+    storage.push(&values[2], t3);
+
+    std::vector<int> collected_values;
+    std::vector<engine_time_t> collected_times;
+
+    for (auto it = storage.begin(); it != storage.end(); ++it) {
+        collected_values.push_back(it.value().as<int>());
+        collected_times.push_back(it.timestamp());
+    }
+
+    REQUIRE(collected_values.size() == 3);
+    REQUIRE(collected_values[0] == 10);
+    REQUIRE(collected_values[1] == 20);
+    REQUIRE(collected_values[2] == 30);
+    REQUIRE(collected_times[0] == t1);
+    REQUIRE(collected_times[1] == t2);
+    REQUIRE(collected_times[2] == t3);
+}
+
+TEST_CASE("WindowStorage - clear", "[value][window]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    WindowStorage storage(int_meta, 5);
+
+    int v = 42;
+    storage.push(&v, make_time(100));
+    storage.push(&v, make_time(200));
+    REQUIRE(storage.size() == 2);
+
+    storage.clear();
+    REQUIRE(storage.size() == 0);
+    REQUIRE(storage.empty());
+}
+
+TEST_CASE("Window via Value and ValueView", "[value][window]") {
+    auto meta = WindowTypeBuilder()
+        .element<int>()
+        .fixed_count(3)
+        .build();
+
+    Value window(meta.get());
+    REQUIRE(window.valid());
+
+    auto view = window.view();
+    REQUIRE(view.is_window());
+    REQUIRE(view.window_size() == 0);
+    REQUIRE(view.window_empty());
+    REQUIRE_FALSE(view.window_full());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    view.window_push(10, t1);
+    REQUIRE(view.window_size() == 1);
+    REQUIRE(view.window_get(0).as<int>() == 10);
+    REQUIRE(view.window_timestamp(0) == t1);
+
+    view.window_push(20, t2);
+    REQUIRE(view.window_size() == 2);
+    REQUIRE(view.window_get(1).as<int>() == 20);
+}
+
+TEST_CASE("TimeSeriesValue - window basic operations", "[ts][window]") {
+    auto meta = WindowTypeBuilder()
+        .element<int>()
+        .fixed_count(3)
+        .build();
+
+    TimeSeriesValue ts(meta.get());
+    REQUIRE(ts.valid());
+
+    auto current_time = make_time(1000);
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    auto view = ts.view(current_time);
+    REQUIRE(view.window_empty());
+
+    view.window_push(10, t1);
+    REQUIRE(view.window_size() == 1);
+    REQUIRE(ts.modified_at(current_time));
+
+    view.window_push(20, t2);
+    REQUIRE(view.window_size() == 2);
+    REQUIRE(view.window_get(0).as<int>() == 10);
+    REQUIRE(view.window_get(1).as<int>() == 20);
+}
+
+TEST_CASE("TimeSeriesValue - window with observer", "[ts][window][observer]") {
+    auto meta = WindowTypeBuilder()
+        .element<int>()
+        .fixed_count(5)
+        .build();
+
+    TimeSeriesValue ts(meta.get());
+    TestObserver observer;
+    ts.subscribe(&observer);
+
+    auto current_time = make_time(1000);
+    auto view = ts.view(current_time);
+
+    view.window_push(10, make_time(100));
+    REQUIRE(observer.count() == 1);
+
+    view.window_push(20, make_time(200));
+    REQUIRE(observer.count() == 2);
+
+    view.window_clear();
+    REQUIRE(observer.count() == 3);
+    REQUIRE(view.window_empty());
+}
+
+TEST_CASE("TimeSeriesValue - window compact on read", "[ts][window]") {
+    auto meta = WindowTypeBuilder()
+        .element<int>()
+        .fixed_count(3)
+        .build();
+
+    TimeSeriesValue ts(meta.get());
+    auto current_time = make_time(1000);
+    auto view = ts.view(current_time);
+
+    // Fill and overflow to create cyclic wrap
+    view.window_push(10, make_time(100));
+    view.window_push(20, make_time(200));
+    view.window_push(30, make_time(300));
+    view.window_push(40, make_time(400));  // Overwrites 10
+
+    // Before compact - values accessible in logical order
+    REQUIRE(view.window_get(0).as<int>() == 20);
+    REQUIRE(view.window_get(1).as<int>() == 30);
+    REQUIRE(view.window_get(2).as<int>() == 40);
+
+    // Compact for optimized reading
+    view.window_compact();
+
+    // After compact - same logical order
+    REQUIRE(view.window_get(0).as<int>() == 20);
+    REQUIRE(view.window_get(1).as<int>() == 30);
+    REQUIRE(view.window_get(2).as<int>() == 40);
+}
+
+TEST_CASE("TimeSeriesValue - variable window evict", "[ts][window]") {
+    using namespace std::chrono;
+    auto meta = WindowTypeBuilder()
+        .element<int>()
+        .time_duration(minutes(5))
+        .build();
+
+    TimeSeriesValue ts(meta.get());
+    auto base_time = engine_time_t{} + hours(1);
+
+    // Push values at different times
+    auto view1 = ts.view(base_time);
+    view1.window_push(10, base_time);
+    view1.window_push(20, base_time + minutes(2));
+    view1.window_push(30, base_time + minutes(4));
+
+    REQUIRE(view1.window_size() == 3);
+
+    // Later, evict expired entries
+    // later_time - 5min = base_time + 7min - 5min = base_time + 2min (cutoff)
+    auto later_time = base_time + minutes(7);
+    auto view2 = ts.view(later_time);
+    view2.window_evict_expired();
+
+    // Entry at base_time should be evicted (older than cutoff: base_time < base_time + 2min)
+    // Entry at base_time + 2min NOT evicted (equal to cutoff, cutoff check is <, not <=)
+    // Entry at base_time + 4min NOT evicted (newer than cutoff)
+    REQUIRE(view2.window_size() == 2);
+    REQUIRE(view2.window_get(0).as<int>() == 20);
+    REQUIRE(view2.window_get(1).as<int>() == 30);
+}
+
+TEST_CASE("WindowStorage - equality", "[value][window][equality]") {
+    auto meta = WindowTypeBuilder()
+        .element<int>()
+        .fixed_count(5)
+        .build();
+
+    Value w1(meta.get());
+    Value w2(meta.get());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    w1.view().window_push(10, t1);
+    w1.view().window_push(20, t2);
+
+    w2.view().window_push(10, t1);
+    w2.view().window_push(20, t2);
+
+    REQUIRE(w1.equals(w2));
+
+    // Different value
+    Value w3(meta.get());
+    w3.view().window_push(10, t1);
+    w3.view().window_push(99, t2);  // Different
+    REQUIRE_FALSE(w1.equals(w3));
+
+    // Different timestamp
+    Value w4(meta.get());
+    w4.view().window_push(10, t1);
+    w4.view().window_push(20, make_time(999));  // Different timestamp
+    REQUIRE_FALSE(w1.equals(w4));
+}
+
+TEST_CASE("Window modification tracking - atomic", "[ts][window][tracker]") {
+    auto meta = WindowTypeBuilder()
+        .element<int>()
+        .fixed_count(5)
+        .build();
+
+    TimeSeriesValue ts(meta.get());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    REQUIRE_FALSE(ts.has_value());
+    REQUIRE_FALSE(ts.modified_at(t1));
+
+    auto view1 = ts.view(t1);
+    view1.window_push(10, make_time(50));
+
+    REQUIRE(ts.has_value());
+    REQUIRE(ts.modified_at(t1));
+    REQUIRE_FALSE(ts.modified_at(t2));
+
+    auto view2 = ts.view(t2);
+    view2.window_push(20, make_time(60));
+
+    REQUIRE(ts.modified_at(t2));
+    REQUIRE_FALSE(ts.modified_at(t1));  // t1 is no longer the last modified
+}

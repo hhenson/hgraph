@@ -10,6 +10,7 @@
 #include <hgraph/types/value/list_type.h>
 #include <hgraph/types/value/set_type.h>
 #include <hgraph/types/value/dict_type.h>
+#include <hgraph/types/value/window_type.h>
 #include <memory>
 #include <stdexcept>
 #include <cassert>
@@ -58,6 +59,7 @@ namespace hgraph::value {
         [[nodiscard]] bool is_list() const { return valid() && _schema->kind == TypeKind::List; }
         [[nodiscard]] bool is_set() const { return valid() && _schema->kind == TypeKind::Set; }
         [[nodiscard]] bool is_dict() const { return valid() && _schema->kind == TypeKind::Dict; }
+        [[nodiscard]] bool is_window() const { return valid() && _schema->kind == TypeKind::Window; }
 
         // Raw data access
         [[nodiscard]] const void* data() const { return _data; }
@@ -190,6 +192,59 @@ namespace hgraph::value {
         [[nodiscard]] const TypeMeta* value_type() const {
             if (!is_dict()) return nullptr;
             return static_cast<const DictTypeMeta*>(_schema)->value_type;
+        }
+
+        // Window operations (read-only)
+        [[nodiscard]] size_t window_size() const {
+            if (!is_window()) return 0;
+            return static_cast<const WindowStorage*>(_data)->size();
+        }
+
+        [[nodiscard]] bool window_empty() const {
+            if (!is_window()) return true;
+            return static_cast<const WindowStorage*>(_data)->empty();
+        }
+
+        [[nodiscard]] bool window_full() const {
+            if (!is_window()) return false;
+            return static_cast<const WindowStorage*>(_data)->full();
+        }
+
+        [[nodiscard]] ConstValueView window_get(size_t index) const {
+            if (!is_window()) return {};
+            auto* window_meta = static_cast<const WindowTypeMeta*>(_schema);
+            const void* val = static_cast<const WindowStorage*>(_data)->get(index);
+            return val ? ConstValueView{val, window_meta->element_type} : ConstValueView{};
+        }
+
+        [[nodiscard]] engine_time_t window_timestamp(size_t index) const {
+            if (!is_window()) return MIN_DT;
+            return static_cast<const WindowStorage*>(_data)->timestamp(index);
+        }
+
+        [[nodiscard]] engine_time_t window_oldest_timestamp() const {
+            if (!is_window()) return MIN_DT;
+            return static_cast<const WindowStorage*>(_data)->oldest_timestamp();
+        }
+
+        [[nodiscard]] engine_time_t window_newest_timestamp() const {
+            if (!is_window()) return MIN_DT;
+            return static_cast<const WindowStorage*>(_data)->newest_timestamp();
+        }
+
+        [[nodiscard]] const TypeMeta* window_element_type() const {
+            if (!is_window()) return nullptr;
+            return static_cast<const WindowTypeMeta*>(_schema)->element_type;
+        }
+
+        [[nodiscard]] bool window_is_fixed_length() const {
+            if (!is_window()) return false;
+            return static_cast<const WindowTypeMeta*>(_schema)->is_fixed_length();
+        }
+
+        [[nodiscard]] bool window_is_variable_length() const {
+            if (!is_window()) return false;
+            return static_cast<const WindowTypeMeta*>(_schema)->is_variable_length();
         }
 
         // Comparison operations (uses schema's ops)
@@ -339,6 +394,48 @@ namespace hgraph::value {
         void dict_clear() {
             if (is_dict()) {
                 static_cast<DictStorage*>(_mutable_data)->clear();
+            }
+        }
+
+        // Window operations (mutable)
+        template<typename T>
+        void window_push(const T& value, engine_time_t timestamp) {
+            if (is_window()) {
+                static_cast<WindowStorage*>(_mutable_data)->push(&value, timestamp);
+            }
+        }
+
+        void window_push(const void* value, engine_time_t timestamp) {
+            if (is_window()) {
+                static_cast<WindowStorage*>(_mutable_data)->push(value, timestamp);
+            }
+        }
+
+        [[nodiscard]] ValueView window_get(size_t index) {
+            if (!is_window()) return {};
+            auto* window_meta = static_cast<const WindowTypeMeta*>(_schema);
+            void* val = static_cast<WindowStorage*>(_mutable_data)->get(index);
+            return val ? ValueView{val, window_meta->element_type} : ValueView{};
+        }
+
+        // Bring in ConstValueView::window_get for const access
+        using ConstValueView::window_get;
+
+        void window_compact(engine_time_t current_time) {
+            if (is_window()) {
+                static_cast<WindowStorage*>(_mutable_data)->compact(current_time);
+            }
+        }
+
+        void window_evict_expired(engine_time_t current_time) {
+            if (is_window()) {
+                static_cast<WindowStorage*>(_mutable_data)->evict_expired(current_time);
+            }
+        }
+
+        void window_clear() {
+            if (is_window()) {
+                static_cast<WindowStorage*>(_mutable_data)->clear();
             }
         }
 

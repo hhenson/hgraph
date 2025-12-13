@@ -142,6 +142,38 @@ auto dict_meta = DictTypeBuilder()
 
 Uses `DictStorage` class internally (parallel vectors + index list).
 
+### Window Types (Time-Series History)
+
+Time-windowed collections of timestamped values. Two modes:
+
+**Fixed-length (cyclic buffer):**
+```cpp
+auto window_meta = WindowTypeBuilder()
+    .element<double>()
+    .fixed_count(100)
+    .build("DoubleWindow100");
+```
+
+Stores up to N entries in a cyclic buffer. Oldest entry overwritten when full.
+
+**Variable-length (time-based queue):**
+```cpp
+auto window_meta = WindowTypeBuilder()
+    .element<double>()
+    .time_duration(std::chrono::minutes(5))
+    .build("DoubleWindow5min");
+```
+
+Stores entries within a time window. Entries older than `current_time - duration` are expired.
+
+Two specialized storage implementations:
+- `CyclicWindowStorage`: Fixed-length cyclic buffer with `_head` and `_count`
+- `QueueWindowStorage`: Variable-length queue with automatic eviction on push
+- `WindowStorage`: Union wrapper that delegates to the appropriate implementation
+- Values stored separately from timestamps
+- `compact()` optimizes for reading (resets cyclic buffer to start at 0, removes expired entries)
+- Atomic modification tracking (single timestamp, like Set)
+
 ## Value Access Pattern
 
 Three-tier access pattern for safety and flexibility:
@@ -396,6 +428,7 @@ The `ModificationTracker` provides a parallel data structure for tracking when v
 | **List** | `[list_time][elem0_time][elem1_time]...` | Per-element tracking with propagation |
 | **Set** | Single `engine_time_t` | Atomic tracking (no per-element) |
 | **Dict** | `DictModificationStorage` | Structural + per-entry timestamps |
+| **Window** | Single `engine_time_t` | Atomic tracking (like Set) |
 
 **Bundle Field Order**: Field indices correspond to schema creation order in `BundleTypeBuilder`. Fields are accessible by both index and name:
 
@@ -583,6 +616,7 @@ public:
 | **List** | Per-element timestamps | Element → List |
 | **Set** | Atomic timestamp | N/A |
 | **Dict** | Structural + per-entry | Entry → Dict |
+| **Window** | Atomic timestamp | N/A |
 
 ### Usage Example
 
@@ -860,6 +894,7 @@ cpp/include/
         ├── list_type.h              # ListTypeMeta, ListTypeBuilder
         ├── set_type.h               # SetTypeMeta, SetTypeBuilder, SetStorage
         ├── dict_type.h              # DictTypeMeta, DictTypeBuilder, DictStorage
+        ├── window_type.h            # WindowTypeMeta, WindowTypeBuilder, CyclicWindowStorage, QueueWindowStorage
         ├── type_registry.h          # TypeRegistry
         ├── value.h                  # Value, ValueView, ConstValueView
         ├── modification_tracker.h   # ModificationTrackerStorage, ModificationTracker
@@ -872,11 +907,11 @@ cpp/include/
 ## Testing
 
 Tests are in `cpp/tests/`:
-- `test_value.cpp`: Unit tests (139 test cases, 7,146 assertions)
+- `test_value.cpp`: Unit tests (156 test cases, 7,260 assertions)
 - `value_examples.cpp`: Comprehensive examples
 
 Test categories include:
-- Scalar, Bundle, List, Set, Dict type operations
+- Scalar, Bundle, List, Set, Dict, Window type operations
 - Value/View creation and navigation
 - Type composability (nested types)
 - Copy/move semantics
@@ -884,3 +919,4 @@ Test categories include:
 - **Modification tracking** (12 test cases)
 - **Time-series values** (25 test cases)
 - **Observer/notification** (12 test cases)
+- **Window types** (17 test cases)
