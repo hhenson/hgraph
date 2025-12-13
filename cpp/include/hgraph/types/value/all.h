@@ -20,5 +20,8 @@
 #include <hgraph/types/value/modification_tracker.h>
 #include <hgraph/types/value/observer_storage.h>
 #include <hgraph/types/value/time_series_value.h>
+#include <hgraph/types/value/deref_time_series_value.h>
+#include <hgraph/types/value/bound_value.h>
+#include <hgraph/types/value/bind.h>
 
 #endif // HGRAPH_VALUE_ALL_H
