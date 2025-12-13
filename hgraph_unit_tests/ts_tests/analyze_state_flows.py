@@ -83,10 +83,9 @@ def analyze_state_changes(transitions: list[dict]) -> dict[str, StateModel]:
 def generate_state_diagram(model: StateModel) -> str:
     """Generate a Mermaid state diagram for a type."""
     lines = [
-        f"```mermaid",
-        f"stateDiagram-v2",
-        f"    direction LR",
-        f"",
+        "```mermaid",
+        "stateDiagram-v2",
+        "    direction LR",
     ]
 
     # Group transitions by property
@@ -95,13 +94,26 @@ def generate_state_diagram(model: StateModel) -> str:
         prop = from_s.split('=')[0]
         prop_transitions[prop].add((from_s, to_s, trigger))
 
+    def clean_state(s: str) -> str:
+        """Clean state name for valid Mermaid identifier."""
+        # Replace = with _ and handle None/True/False
+        s = s.replace('=', '_').replace('<', '').replace('>', '')
+        # Wrap in quotes if contains special values
+        if 'None' in s or s.endswith('_True') or s.endswith('_False'):
+            return f'"{s}"'
+        return s
+
     for prop, trans in sorted(prop_transitions.items()):
-        lines.append(f"    note left of {prop}: {prop} states")
+        lines.append(f"")
+        lines.append(f"    %% {prop} states")
+        seen_transitions = set()
         for from_s, to_s, trigger in sorted(trans):
-            # Clean up state names for mermaid
-            from_clean = from_s.replace('=', '_')
-            to_clean = to_s.replace('=', '_')
-            lines.append(f"    {from_clean} --> {to_clean}: {trigger}")
+            from_clean = clean_state(from_s)
+            to_clean = clean_state(to_s)
+            key = (from_clean, to_clean, trigger)
+            if key not in seen_transitions:
+                seen_transitions.add(key)
+                lines.append(f"    {from_clean} --> {to_clean}: {trigger}")
 
     lines.append("```")
     return "\n".join(lines)

@@ -29,8 +29,8 @@ Total transitions analyzed: 9873
 stateDiagram-v2
     direction LR
 
-    note left of active: active states
-    active_False --> active_True: make_active
+    %% active states
+    "active_False" --> "active_True": make_active
 ```
 
 ### Transition Table
@@ -57,18 +57,22 @@ stateDiagram-v2
 stateDiagram-v2
     direction LR
 
-    note left of active: active states
-    active_False --> active_True: make_active
-    note left of bound: bound states
-    bound_False --> bound_True: bind_output
-    bound_True --> bound_False: un_bind_output
-    note left of has_peer: has_peer states
-    has_peer_False --> has_peer_True: bind_output
-    has_peer_True --> has_peer_False: un_bind_output
-    note left of modified: modified states
-    modified_False --> modified_None: bind_output
-    note left of valid: valid states
-    valid_True --> valid_False: un_bind_output
+    %% active states
+    "active_False" --> "active_True": make_active
+
+    %% bound states
+    "bound_False" --> "bound_True": bind_output
+    "bound_True" --> "bound_False": un_bind_output
+
+    %% has_peer states
+    "has_peer_False" --> "has_peer_True": bind_output
+    "has_peer_True" --> "has_peer_False": un_bind_output
+
+    %% modified states
+    "modified_False" --> "modified_None": bind_output
+
+    %% valid states
+    "valid_True" --> "valid_False": un_bind_output
 ```
 
 ### Transition Table
@@ -104,26 +108,30 @@ stateDiagram-v2
 stateDiagram-v2
     direction LR
 
-    note left of active: active states
-    active_False --> active_True: make_active
-    active_True --> active_False: make_passive
-    note left of bound: bound states
-    bound_False --> bound_True: bind_output
-    bound_True --> bound_False: un_bind_output
-    note left of has_peer: has_peer states
-    has_peer_False --> has_peer_True: bind_output
-    has_peer_True --> has_peer_False: un_bind_output
-    note left of modified: modified states
-    modified_False --> modified_None: bind_output
-    modified_False --> modified_True: bind_output
-    modified_False --> modified_True: mark_modified
-    modified_False --> modified_True: value.setter
-    modified_None --> modified_False: un_bind_output
-    note left of valid: valid states
-    valid_False --> valid_True: bind_output
-    valid_False --> valid_True: mark_modified
-    valid_False --> valid_True: value.setter
-    valid_True --> valid_False: un_bind_output
+    %% active states
+    "active_False" --> "active_True": make_active
+    "active_True" --> "active_False": make_passive
+
+    %% bound states
+    "bound_False" --> "bound_True": bind_output
+    "bound_True" --> "bound_False": un_bind_output
+
+    %% has_peer states
+    "has_peer_False" --> "has_peer_True": bind_output
+    "has_peer_True" --> "has_peer_False": un_bind_output
+
+    %% modified states
+    "modified_False" --> "modified_None": bind_output
+    "modified_False" --> "modified_True": bind_output
+    "modified_False" --> "modified_True": mark_modified
+    "modified_False" --> "modified_True": value.setter
+    "modified_None" --> "modified_False": un_bind_output
+
+    %% valid states
+    "valid_False" --> "valid_True": bind_output
+    "valid_False" --> "valid_True": mark_modified
+    "valid_False" --> "valid_True": value.setter
+    "valid_True" --> "valid_False": un_bind_output
 ```
 
 ### Transition Table
@@ -166,20 +174,24 @@ stateDiagram-v2
 stateDiagram-v2
     direction LR
 
-    note left of active: active states
-    active_False --> active_True: make_active
-    note left of bound: bound states
-    bound_False --> bound_True: bind_output
-    bound_True --> bound_False: un_bind_output
-    note left of has_peer: has_peer states
-    has_peer_False --> has_peer_True: bind_output
-    has_peer_True --> has_peer_False: un_bind_output
-    note left of modified: modified states
-    modified_False --> modified_None: bind_output
-    modified_False --> modified_True: mark_modified
-    note left of valid: valid states
-    valid_False --> valid_True: mark_modified
-    valid_True --> valid_False: un_bind_output
+    %% active states
+    "active_False" --> "active_True": make_active
+
+    %% bound states
+    "bound_False" --> "bound_True": bind_output
+    "bound_True" --> "bound_False": un_bind_output
+
+    %% has_peer states
+    "has_peer_False" --> "has_peer_True": bind_output
+    "has_peer_True" --> "has_peer_False": un_bind_output
+
+    %% modified states
+    "modified_False" --> "modified_None": bind_output
+    "modified_False" --> "modified_True": mark_modified
+
+    %% valid states
+    "valid_False" --> "valid_True": mark_modified
+    "valid_True" --> "valid_False": un_bind_output
 ```
 
 ### Transition Table
@@ -217,22 +229,26 @@ stateDiagram-v2
 stateDiagram-v2
     direction LR
 
-    note left of active: active states
-    active_False --> active_True: make_active
-    active_True --> active_False: make_passive
-    note left of bound: bound states
-    bound_False --> bound_True: bind_output
-    bound_True --> bound_False: un_bind_output
-    note left of has_peer: has_peer states
-    has_peer_False --> has_peer_True: bind_output
-    note left of modified: modified states
-    modified_False --> modified_None: bind_output
-    modified_False --> modified_True: bind_output
-    modified_False --> modified_True: mark_modified
-    note left of valid: valid states
-    valid_False --> valid_True: bind_output
-    valid_False --> valid_True: mark_modified
-    valid_True --> valid_False: un_bind_output
+    %% active states
+    "active_False" --> "active_True": make_active
+    "active_True" --> "active_False": make_passive
+
+    %% bound states
+    "bound_False" --> "bound_True": bind_output
+    "bound_True" --> "bound_False": un_bind_output
+
+    %% has_peer states
+    "has_peer_False" --> "has_peer_True": bind_output
+
+    %% modified states
+    "modified_False" --> "modified_None": bind_output
+    "modified_False" --> "modified_True": bind_output
+    "modified_False" --> "modified_True": mark_modified
+
+    %% valid states
+    "valid_False" --> "valid_True": bind_output
+    "valid_False" --> "valid_True": mark_modified
+    "valid_True" --> "valid_False": un_bind_output
 ```
 
 ### Transition Table
@@ -271,25 +287,29 @@ stateDiagram-v2
 stateDiagram-v2
     direction LR
 
-    note left of active: active states
-    active_False --> active_True: bind_output
-    active_False --> active_True: make_active
-    active_True --> active_False: make_passive
-    note left of bound: bound states
-    bound_False --> bound_True: bind_output
-    bound_True --> bound_False: un_bind_output
-    note left of has_peer: has_peer states
-    has_peer_False --> has_peer_True: bind_output
-    has_peer_True --> has_peer_False: un_bind_output
-    note left of modified: modified states
-    modified_False --> modified_None: bind_output
-    modified_False --> modified_True: bind_output
-    modified_False --> modified_True: mark_modified
-    modified_False --> modified_True: un_bind_output
-    note left of valid: valid states
-    valid_False --> valid_True: bind_output
-    valid_False --> valid_True: mark_modified
-    valid_True --> valid_False: un_bind_output
+    %% active states
+    "active_False" --> "active_True": bind_output
+    "active_False" --> "active_True": make_active
+    "active_True" --> "active_False": make_passive
+
+    %% bound states
+    "bound_False" --> "bound_True": bind_output
+    "bound_True" --> "bound_False": un_bind_output
+
+    %% has_peer states
+    "has_peer_False" --> "has_peer_True": bind_output
+    "has_peer_True" --> "has_peer_False": un_bind_output
+
+    %% modified states
+    "modified_False" --> "modified_None": bind_output
+    "modified_False" --> "modified_True": bind_output
+    "modified_False" --> "modified_True": mark_modified
+    "modified_False" --> "modified_True": un_bind_output
+
+    %% valid states
+    "valid_False" --> "valid_True": bind_output
+    "valid_False" --> "valid_True": mark_modified
+    "valid_True" --> "valid_False": un_bind_output
 ```
 
 ### Transition Table
@@ -332,24 +352,28 @@ stateDiagram-v2
 stateDiagram-v2
     direction LR
 
-    note left of active: active states
-    active_False --> active_True: make_active
-    active_True --> active_False: make_passive
-    note left of bound: bound states
-    bound_False --> bound_True: bind_output
-    bound_True --> bound_False: un_bind_output
-    note left of has_peer: has_peer states
-    has_peer_False --> has_peer_True: bind_output
-    has_peer_True --> has_peer_False: un_bind_output
-    note left of modified: modified states
-    modified_False --> modified_None: bind_output
-    modified_False --> modified_True: bind_output
-    modified_False --> modified_True: mark_modified
-    modified_False --> modified_True: un_bind_output
-    note left of valid: valid states
-    valid_False --> valid_True: bind_output
-    valid_False --> valid_True: mark_modified
-    valid_True --> valid_False: un_bind_output
+    %% active states
+    "active_False" --> "active_True": make_active
+    "active_True" --> "active_False": make_passive
+
+    %% bound states
+    "bound_False" --> "bound_True": bind_output
+    "bound_True" --> "bound_False": un_bind_output
+
+    %% has_peer states
+    "has_peer_False" --> "has_peer_True": bind_output
+    "has_peer_True" --> "has_peer_False": un_bind_output
+
+    %% modified states
+    "modified_False" --> "modified_None": bind_output
+    "modified_False" --> "modified_True": bind_output
+    "modified_False" --> "modified_True": mark_modified
+    "modified_False" --> "modified_True": un_bind_output
+
+    %% valid states
+    "valid_False" --> "valid_True": bind_output
+    "valid_False" --> "valid_True": mark_modified
+    "valid_True" --> "valid_False": un_bind_output
 ```
 
 ### Transition Table
@@ -391,20 +415,24 @@ stateDiagram-v2
 stateDiagram-v2
     direction LR
 
-    note left of active: active states
-    active_False --> active_True: make_active
-    note left of bound: bound states
-    bound_False --> bound_True: bind_output
-    bound_True --> bound_False: un_bind_output
-    note left of has_peer: has_peer states
-    has_peer_False --> has_peer_True: bind_output
-    has_peer_True --> has_peer_False: un_bind_output
-    note left of modified: modified states
-    modified_False --> modified_None: bind_output
-    modified_False --> modified_True: mark_modified
-    note left of valid: valid states
-    valid_False --> valid_True: mark_modified
-    valid_True --> valid_False: un_bind_output
+    %% active states
+    "active_False" --> "active_True": make_active
+
+    %% bound states
+    "bound_False" --> "bound_True": bind_output
+    "bound_True" --> "bound_False": un_bind_output
+
+    %% has_peer states
+    "has_peer_False" --> "has_peer_True": bind_output
+    "has_peer_True" --> "has_peer_False": un_bind_output
+
+    %% modified states
+    "modified_False" --> "modified_None": bind_output
+    "modified_False" --> "modified_True": mark_modified
+
+    %% valid states
+    "valid_False" --> "valid_True": mark_modified
+    "valid_True" --> "valid_False": un_bind_output
 ```
 
 ### Transition Table
