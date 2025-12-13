@@ -2565,3 +2565,321 @@ TEST_CASE("TimeSeriesValue - string values", "[timeseries][string]") {
     REQUIRE(ts.modified_at(t2));
     REQUIRE(ts.as<std::string>() == "world");
 }
+
+// =============================================================================
+// Observer Tests
+// =============================================================================
+
+// Test observer class that records notifications
+class TestObserver : public hgraph::value::Notifiable {
+public:
+    void notify(engine_time_t time) override {
+        notifications.push_back(time);
+    }
+
+    void clear() { notifications.clear(); }
+    [[nodiscard]] size_t count() const { return notifications.size(); }
+    [[nodiscard]] bool notified_at(engine_time_t time) const {
+        return std::find(notifications.begin(), notifications.end(), time) != notifications.end();
+    }
+
+    std::vector<engine_time_t> notifications;
+};
+
+TEST_CASE("Observer - lazy allocation", "[observer][lazy]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    // No observers allocated initially
+    REQUIRE(ts.underlying_observers() == nullptr);
+    REQUIRE_FALSE(ts.has_observers());
+
+    // Subscribing allocates observers
+    TestObserver observer;
+    ts.subscribe(&observer);
+
+    REQUIRE(ts.underlying_observers() != nullptr);
+    REQUIRE(ts.has_observers());
+
+    // Unsubscribing leaves storage but no subscribers
+    ts.unsubscribe(&observer);
+    REQUIRE(ts.underlying_observers() != nullptr);  // Storage still exists
+    REQUIRE_FALSE(ts.has_observers());  // But no subscribers
+}
+
+TEST_CASE("Observer - basic notification", "[observer][basic]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    TestObserver observer;
+    ts.subscribe(&observer);
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    // set_value triggers notification
+    ts.set_value(42, t1);
+    REQUIRE(observer.count() == 1);
+    REQUIRE(observer.notified_at(t1));
+
+    // Another modification
+    ts.set_value(100, t2);
+    REQUIRE(observer.count() == 2);
+    REQUIRE(observer.notified_at(t2));
+}
+
+TEST_CASE("Observer - view set notification", "[observer][view]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    TestObserver observer;
+    ts.subscribe(&observer);
+
+    auto t1 = make_time(100);
+
+    // set via view triggers notification
+    auto view = ts.view(t1);
+    view.set(42);
+
+    REQUIRE(observer.count() == 1);
+    REQUIRE(observer.notified_at(t1));
+}
+
+TEST_CASE("Observer - multiple subscribers", "[observer][multiple]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    TestObserver obs1, obs2, obs3;
+    ts.subscribe(&obs1);
+    ts.subscribe(&obs2);
+    ts.subscribe(&obs3);
+
+    auto t1 = make_time(100);
+    ts.set_value(42, t1);
+
+    // All subscribers notified
+    REQUIRE(obs1.count() == 1);
+    REQUIRE(obs2.count() == 1);
+    REQUIRE(obs3.count() == 1);
+
+    // Unsubscribe one
+    ts.unsubscribe(&obs2);
+
+    auto t2 = make_time(200);
+    ts.set_value(100, t2);
+
+    REQUIRE(obs1.count() == 2);
+    REQUIRE(obs2.count() == 1);  // Not notified
+    REQUIRE(obs3.count() == 2);
+}
+
+TEST_CASE("Observer - bundle field notification with propagation", "[observer][bundle]") {
+    auto bundle_meta = BundleTypeBuilder()
+        .add_field<int>("x")
+        .add_field<int>("y")
+        .build();
+
+    TimeSeriesValue ts(bundle_meta.get());
+
+    TestObserver root_observer;
+    ts.subscribe(&root_observer);
+
+    auto t1 = make_time(100);
+
+    // Modify a field - should notify root
+    ts.view(t1).field("x").set(10);
+
+    REQUIRE(root_observer.count() == 1);
+    REQUIRE(root_observer.notified_at(t1));
+
+    // Modify another field
+    auto t2 = make_time(200);
+    ts.view(t2).field("y").set(20);
+
+    REQUIRE(root_observer.count() == 2);
+    REQUIRE(root_observer.notified_at(t2));
+}
+
+TEST_CASE("Observer - list element notification with propagation", "[observer][list]") {
+    auto list_meta = ListTypeBuilder()
+        .element_type(scalar_type_meta<int>())
+        .count(3)
+        .build();
+
+    TimeSeriesValue ts(list_meta.get());
+
+    TestObserver root_observer;
+    ts.subscribe(&root_observer);
+
+    auto t1 = make_time(100);
+
+    // Modify an element - should notify root
+    ts.view(t1).element(0).set(100);
+
+    REQUIRE(root_observer.count() == 1);
+    REQUIRE(root_observer.notified_at(t1));
+
+    // Modify another element
+    auto t2 = make_time(200);
+    ts.view(t2).element(2).set(300);
+
+    REQUIRE(root_observer.count() == 2);
+}
+
+TEST_CASE("Observer - set add/remove notification", "[observer][set]") {
+    auto set_meta = SetTypeBuilder()
+        .element_type(scalar_type_meta<int>())
+        .build();
+
+    TimeSeriesValue ts(set_meta.get());
+
+    TestObserver observer;
+    ts.subscribe(&observer);
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    // Add triggers notification
+    ts.view(t1).add(42);
+    REQUIRE(observer.count() == 1);
+
+    // Add same element - no notification (already exists)
+    ts.view(t1).add(42);
+    REQUIRE(observer.count() == 1);
+
+    // Add new element
+    ts.view(t1).add(100);
+    REQUIRE(observer.count() == 2);
+
+    // Remove triggers notification
+    ts.view(t2).remove(42);
+    REQUIRE(observer.count() == 3);
+
+    // Remove non-existent - no notification
+    ts.view(t2).remove(999);
+    REQUIRE(observer.count() == 3);
+}
+
+TEST_CASE("Observer - dict insert/remove notification", "[observer][dict]") {
+    auto dict_meta = DictTypeBuilder()
+        .key<std::string>()
+        .value<int>()
+        .build();
+
+    TimeSeriesValue ts(dict_meta.get());
+
+    TestObserver observer;
+    ts.subscribe(&observer);
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    // Insert new key - triggers notification
+    ts.view(t1).insert(std::string("a"), 100);
+    REQUIRE(observer.count() == 1);
+
+    // Insert another key
+    ts.view(t1).insert(std::string("b"), 200);
+    REQUIRE(observer.count() == 2);
+
+    // Update existing key - triggers notification
+    ts.view(t2).insert(std::string("a"), 150);
+    REQUIRE(observer.count() == 3);
+
+    // Remove key - triggers notification
+    ts.view(t2).dict_remove(std::string("b"));
+    REQUIRE(observer.count() == 4);
+}
+
+TEST_CASE("ObserverStorage - hierarchical child allocation", "[observer][hierarchical]") {
+    ObserverStorage root(nullptr);
+
+    // No children initially
+    REQUIRE(root.children_count() == 0);
+
+    // Accessing non-existent child returns nullptr
+    REQUIRE(root.child(5) == nullptr);
+
+    // Ensure child creates it
+    auto* child5 = root.ensure_child(5);
+    REQUIRE(child5 != nullptr);
+    REQUIRE(root.children_capacity() >= 6);
+    REQUIRE(root.children_count() == 1);
+
+    // Ensure same child returns same pointer
+    REQUIRE(root.ensure_child(5) == child5);
+
+    // Child has parent set
+    REQUIRE(child5->parent() == &root);
+
+    // Create another child
+    auto* child2 = root.ensure_child(2);
+    REQUIRE(child2 != nullptr);
+    REQUIRE(root.children_count() == 2);
+}
+
+TEST_CASE("ObserverStorage - notification propagation", "[observer][propagation]") {
+    ObserverStorage root(nullptr);
+    auto* child = root.ensure_child(0);
+
+    TestObserver root_obs, child_obs;
+    root.subscribe(&root_obs);
+    child->subscribe(&child_obs);
+
+    auto t1 = make_time(100);
+
+    // Notify child - should propagate to root
+    child->notify(t1);
+
+    REQUIRE(child_obs.count() == 1);
+    REQUIRE(root_obs.count() == 1);  // Propagated!
+    REQUIRE(child_obs.notified_at(t1));
+    REQUIRE(root_obs.notified_at(t1));
+}
+
+TEST_CASE("Observer - nested bundle propagation", "[observer][nested]") {
+    auto inner_meta = BundleTypeBuilder()
+        .add_field<int>("x")
+        .add_field<int>("y")
+        .build("Inner");
+
+    auto outer_meta = BundleTypeBuilder()
+        .add_field<std::string>("name")
+        .add_field("point", inner_meta.get())
+        .build("Outer");
+
+    TimeSeriesValue ts(outer_meta.get());
+
+    TestObserver root_observer;
+    ts.subscribe(&root_observer);
+
+    auto t1 = make_time(100);
+
+    // Modify deeply nested field - should propagate to root
+    ts.view(t1).field("point").field("x").set(10);
+
+    REQUIRE(root_observer.count() == 1);
+    REQUIRE(root_observer.notified_at(t1));
+
+    // Modify another nested field
+    auto t2 = make_time(200);
+    ts.view(t2).field("point").field("y").set(20);
+
+    REQUIRE(root_observer.count() == 2);
+}
+
+TEST_CASE("Observer - no notification when no observers", "[observer][performance]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    TimeSeriesValue ts(int_meta);
+
+    // No observers
+    REQUIRE(ts.underlying_observers() == nullptr);
+
+    auto t1 = make_time(100);
+
+    // This should not crash and should be efficient (no observer allocation)
+    ts.set_value(42, t1);
+
+    // Still no observers allocated (lazy)
+    REQUIRE(ts.underlying_observers() == nullptr);
+}

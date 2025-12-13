@@ -10,6 +10,7 @@
 #include <ankerl/unordered_dense.h>
 #include <memory>
 #include <cassert>
+#include <optional>
 #include <vector>
 
 namespace hgraph::value {
@@ -182,6 +183,15 @@ namespace hgraph::value {
         [[nodiscard]] bool contains(const void* key) const {
             if (!_key_type || _index_set.empty()) return false;
             return _index_set.find(key) != _index_set.end();
+        }
+
+        // Find the entry index for a key - O(1) average
+        // Returns the stable index for observer storage lookup
+        [[nodiscard]] std::optional<size_t> find_index(const void* key) const {
+            if (!_key_type || _index_set.empty()) return std::nullopt;
+            auto it = _index_set.find(key);
+            if (it == _index_set.end()) return std::nullopt;
+            return *it;
         }
 
         // Get value by key - O(1) average (returns nullptr if not found)
@@ -606,6 +616,11 @@ namespace hgraph::value {
         template<typename K>
         [[nodiscard]] ConstTypedPtr get_typed(const K& key) const {
             return _storage ? _storage->get_typed(&key) : ConstTypedPtr{};
+        }
+
+        template<typename K>
+        [[nodiscard]] std::optional<size_t> find_index(const K& key) const {
+            return _storage ? _storage->find_index(&key) : std::nullopt;
         }
 
         void clear() {

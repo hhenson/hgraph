@@ -16,6 +16,7 @@
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/modification_tracker.h>
+#include <hgraph/types/value/observer_storage.h>
 #include <hgraph/types/value/time_series_value.h>
 
 #endif // HGRAPH_VALUE_ALL_H

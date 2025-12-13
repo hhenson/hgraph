@@ -632,6 +632,207 @@ assert(!ts_point.has_value());
 
 5. **Const safety**: Read-only operations (`value()`, `modified_at()`, etc.) are const-correct.
 
+## Observer/Notification System
+
+The `TimeSeriesValue` includes an observer pattern for change notification. Observers can subscribe to any level of the value hierarchy and receive notifications when values are modified.
+
+### Architecture
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      TimeSeriesValue                             │
+│  ┌─────────────────┐  ┌──────────────────────────────────────┐  │
+│  │     Value       │  │   ModificationTrackerStorage         │  │
+│  │  (owns data)    │  │   (owns tracking)                    │  │
+│  └─────────────────┘  └──────────────────────────────────────┘  │
+│  ┌──────────────────────────────────────────────────────────────┐│
+│  │  std::unique_ptr<ObserverStorage> (lazy, nullptr until use)  ││
+│  └──────────────────────────────────────────────────────────────┘│
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### Design Goals
+
+1. **Per-Level Subscription**: Subscribe at root, field, element, or dict entry level
+2. **Lazy Allocation**: Zero overhead when observers not used (nullptr until first subscribe)
+3. **Upward Propagation**: Child modifications notify all ancestor observers
+4. **Unified Index-Based Children**: All container types use same index-based observer lookup
+
+### ObserverStorage Class
+
+```cpp
+class ObserverStorage {
+public:
+    explicit ObserverStorage(const TypeMeta* meta);
+
+    // Subscription at this level
+    void subscribe(Notifiable* notifiable);
+    void unsubscribe(Notifiable* notifiable);
+    bool has_subscribers() const;
+
+    // Child observer storage (unified for bundle/list/dict)
+    ObserverStorage* child(size_t index);
+    ObserverStorage* ensure_child(size_t index, const TypeMeta* child_meta = nullptr);
+
+    // Notification with upward propagation
+    void notify(engine_time_t time);
+    void set_parent(ObserverStorage* parent);
+
+private:
+    const TypeMeta* _meta{nullptr};
+    ObserverStorage* _parent{nullptr};
+    std::unordered_set<Notifiable*> _subscribers;
+    std::vector<std::unique_ptr<ObserverStorage>> _children;
+};
+```
+
+### Notifiable Interface
+
+```cpp
+namespace hgraph::value {
+    struct Notifiable {
+        virtual ~Notifiable() = default;
+        virtual void notify(engine_time_t time) = 0;
+    };
+}
+```
+
+### Parallel Structure Example
+
+The observer storage mirrors the type structure. For a nested bundle:
+
+```
+Schema: Trade { symbol: string, orders: List<Order> }
+        Order { price: double, qty: int }
+
+Data Structure (Value)          Observer Structure (ObserverStorage)
+═══════════════════════         ════════════════════════════════════
+
+Trade                           ObserverStorage (for Trade)
+├─ symbol: "AAPL"               ├─ subscribers: {nodeA}  ← subscribes to whole Trade
+├─ orders: [...]                └─ children[1]: ObserverStorage (for orders)
+                                    ├─ subscribers: {nodeB}  ← subscribes to orders list
+                                    └─ children[0]: ObserverStorage (for orders[0])
+                                        └─ subscribers: {nodeC}  ← subscribes to first order
+```
+
+### Notification Propagation
+
+When a nested value changes, notifications propagate upward:
+
+```
+User modifies: orders[0].price = 99.5
+
+Step 1: Notify orders[0] subscribers → nodeC.notify(time)
+Step 2: Propagate to orders list    → nodeB.notify(time)
+Step 3: Propagate to Trade root     → nodeA.notify(time)
+```
+
+### Dict Observer Storage
+
+Dictionaries use entry indices from `DictStorage` for observer lookup:
+
+```
+Dict<string, Setting>
+DictStorage internal: "theme"→idx:0, "font"→idx:1, "size"→idx:2
+
+Dict                             ObserverStorage (for Dict)
+├─ "theme" → Setting (idx:0)    ├─ subscribers: {structWatcher}  ← structural changes
+├─ "font"  → Setting (idx:1)    └─ _children: vector<ObserverStorage*>
+└─ "size"  → Setting (idx:2)        ├─ [0] → ObserverStorage { subscribers: {themeWatcher} }
+                                    └─ [1] → ObserverStorage { subscribers: {fontWatcher} }
+```
+
+**Key → Observer Mapping**:
+1. Look up key in DictStorage → get entry index via `find_index()`
+2. Use that index in observer storage's `_children` vector
+3. If entry is removed, its observer slot becomes orphaned
+
+### Lazy Allocation Flow
+
+```
+Initial state:
+  TimeSeriesValue
+  └─ _observers: nullptr  ← no heap allocation
+
+After trade.subscribe(nodeA):
+  TimeSeriesValue
+  └─ _observers ──→ ObserverStorage
+                    ├─ subscribers: {nodeA}
+                    └─ children: []  ← still lazy
+
+After subscribing to a field:
+  TimeSeriesValue
+  └─ _observers ──→ ObserverStorage
+                    ├─ subscribers: {nodeA}
+                    └─ children: [nullptr, ptr ──→ ObserverStorage
+                                                   └─ subscribers: {nodeB}]
+```
+
+### TimeSeriesValue Observer API
+
+```cpp
+class TimeSeriesValue {
+public:
+    // Observer/subscription API (lazy allocation)
+    void subscribe(Notifiable* notifiable);
+    void unsubscribe(Notifiable* notifiable);
+    [[nodiscard]] bool has_observers() const;
+};
+```
+
+### Usage Example
+
+```cpp
+#include <hgraph/types/value/time_series_value.h>
+using namespace hgraph::value;
+
+// Custom observer
+struct MyObserver : Notifiable {
+    int count = 0;
+    engine_time_t last_time{MIN_DT};
+
+    void notify(engine_time_t time) override {
+        ++count;
+        last_time = time;
+    }
+};
+
+// Create a time-series bundle
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Point");
+
+TimeSeriesValue ts_point(point_meta.get());
+MyObserver observer;
+
+// Subscribe at root level
+ts_point.subscribe(&observer);
+
+// Modifications trigger notification
+engine_time_t t1 = make_time(100);
+ts_point.view(t1).field("x").set(42);
+
+assert(observer.count == 1);
+assert(observer.last_time == t1);
+
+// Unsubscribe
+ts_point.unsubscribe(&observer);
+```
+
+### Key Design Decisions
+
+1. **Notifiable* Interface**: Simple interface in `hgraph::value` namespace to avoid external dependencies.
+
+2. **Lazy Observer Storage**: `_observers` is `nullptr` until first `subscribe()` call - zero overhead when not used.
+
+3. **Parent Fallback**: When navigating to a child view without explicit child observers, the parent observer is used so notifications still propagate.
+
+4. **Unified Index-Based Children**: All container types (Bundle, List, Dict) use the same `_children` vector with index-based lookup.
+
+5. **Entry Index for Dict**: Dict entries use `DictStorage::find_index()` to map keys to stable entry indices for observer lookup.
+
 ## Future Extensions
 
 1. **Python Bindings**: Implement `to_python`/`from_python` ops
@@ -662,6 +863,7 @@ cpp/include/
         ├── type_registry.h          # TypeRegistry
         ├── value.h                  # Value, ValueView, ConstValueView
         ├── modification_tracker.h   # ModificationTrackerStorage, ModificationTracker
+        ├── observer_storage.h       # ObserverStorage, Notifiable interface
         ├── time_series_value.h      # TimeSeriesValue, TimeSeriesValueView
         ├── VALUE_DESIGN.md          # This document
         └── VALUE_USER_GUIDE.md      # User guide
@@ -670,7 +872,7 @@ cpp/include/
 ## Testing
 
 Tests are in `cpp/tests/`:
-- `test_value.cpp`: Unit tests (127 test cases, 7,094 assertions)
+- `test_value.cpp`: Unit tests (139 test cases, 7,146 assertions)
 - `value_examples.cpp`: Comprehensive examples
 
 Test categories include:
@@ -681,3 +883,4 @@ Test categories include:
 - Edge cases and stress tests
 - **Modification tracking** (12 test cases)
 - **Time-series values** (25 test cases)
+- **Observer/notification** (12 test cases)

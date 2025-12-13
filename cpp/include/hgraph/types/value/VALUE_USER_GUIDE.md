@@ -1105,3 +1105,288 @@ auto get_view() {
     return temp.view(current_time);  // temp destroyed!
 }
 ```
+
+## Observer/Notification System
+
+The `TimeSeriesValue` supports an observer pattern for change notification. When values are modified, subscribed observers are notified.
+
+### Creating an Observer
+
+Implement the `Notifiable` interface:
+
+```cpp
+#include <hgraph/types/value/observer_storage.h>
+using namespace hgraph::value;
+
+struct MyObserver : Notifiable {
+    int notification_count = 0;
+    engine_time_t last_notification_time{MIN_DT};
+
+    void notify(engine_time_t time) override {
+        ++notification_count;
+        last_notification_time = time;
+    }
+};
+```
+
+### Basic Subscription
+
+Subscribe an observer to a `TimeSeriesValue`:
+
+```cpp
+TimeSeriesValue ts(int_meta);
+MyObserver observer;
+
+// Subscribe at root level
+ts.subscribe(&observer);
+
+// Modifications trigger notification
+auto t1 = make_time(100);
+ts.set_value(42, t1);
+
+assert(observer.notification_count == 1);
+assert(observer.last_notification_time == t1);
+
+// Another modification at same time - still notified
+ts.set_value(43, t1);
+assert(observer.notification_count == 2);
+
+// Unsubscribe
+ts.unsubscribe(&observer);
+
+// No longer notified
+ts.set_value(44, t1);
+assert(observer.notification_count == 2);  // Unchanged
+```
+
+### Using View for Notifications
+
+Notifications are also triggered through `TimeSeriesValueView`:
+
+```cpp
+TimeSeriesValue ts(int_meta);
+MyObserver observer;
+ts.subscribe(&observer);
+
+auto t1 = make_time(100);
+auto view = ts.view(t1);
+
+// set() on view triggers notification
+view.set(42);
+assert(observer.notification_count == 1);
+```
+
+### Multiple Observers
+
+Multiple observers can subscribe to the same value:
+
+```cpp
+TimeSeriesValue ts(int_meta);
+MyObserver observer1, observer2;
+
+ts.subscribe(&observer1);
+ts.subscribe(&observer2);
+
+ts.set_value(42, current_time);
+
+// Both notified
+assert(observer1.notification_count == 1);
+assert(observer2.notification_count == 1);
+```
+
+### Bundle Field Notifications
+
+When a bundle field is modified, the bundle's observer is notified:
+
+```cpp
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Point");
+
+TimeSeriesValue ts(point_meta.get());
+MyObserver observer;
+ts.subscribe(&observer);
+
+auto view = ts.view(current_time);
+
+// Modifying any field notifies the bundle observer
+view.field("x").set(10);
+assert(observer.notification_count == 1);
+
+view.field("y").set(20);
+assert(observer.notification_count == 2);
+```
+
+### List Element Notifications
+
+List element modifications notify the list observer:
+
+```cpp
+auto list_meta = ListTypeBuilder()
+    .element<int>()
+    .count(5)
+    .build();
+
+TimeSeriesValue ts(list_meta.get());
+MyObserver observer;
+ts.subscribe(&observer);
+
+auto view = ts.view(current_time);
+
+view.element(0).set(100);
+assert(observer.notification_count == 1);
+
+view.element(2).set(200);
+assert(observer.notification_count == 2);
+```
+
+### Set Operation Notifications
+
+Set mutations (add/remove) notify when the set changes:
+
+```cpp
+auto set_meta = SetTypeBuilder()
+    .element<int>()
+    .build();
+
+TimeSeriesValue ts(set_meta.get());
+MyObserver observer;
+ts.subscribe(&observer);
+
+auto view = ts.view(current_time);
+
+// Adding new element notifies
+view.add(10);
+assert(observer.notification_count == 1);
+
+// Adding duplicate does NOT notify (set unchanged)
+view.add(10);
+assert(observer.notification_count == 1);
+
+// Removing existing element notifies
+view.remove(10);
+assert(observer.notification_count == 2);
+
+// Removing non-existent does NOT notify
+view.remove(999);
+assert(observer.notification_count == 2);
+```
+
+### Dict Operation Notifications
+
+Dict mutations notify for structural changes:
+
+```cpp
+auto dict_meta = DictTypeBuilder()
+    .key<int>()
+    .value<double>()
+    .build();
+
+TimeSeriesValue ts(dict_meta.get());
+MyObserver observer;
+ts.subscribe(&observer);
+
+auto view = ts.view(current_time);
+
+// Insert new key - structural change
+view.insert(1, 10.5);
+assert(observer.notification_count == 1);
+
+// Update existing key - also notifies (value changed)
+view.insert(1, 20.5);
+assert(observer.notification_count == 2);
+
+// Remove existing key
+view.dict_remove(1);
+assert(observer.notification_count == 3);
+```
+
+### Nested Structure Propagation
+
+Modifications at any level propagate upward to all ancestor observers:
+
+```cpp
+auto inner_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Inner");
+
+auto outer_meta = BundleTypeBuilder()
+    .add_field<int>("id")
+    .add_field("point", inner_meta.get())
+    .build("Outer");
+
+TimeSeriesValue ts(outer_meta.get());
+MyObserver observer;
+ts.subscribe(&observer);
+
+auto view = ts.view(current_time);
+
+// Direct field modification
+view.field("id").set(1);
+assert(observer.notification_count == 1);
+
+// Nested modification - propagates to root
+view.field("point").field("x").set(10);
+assert(observer.notification_count == 2);
+
+view.field("point").field("y").set(20);
+assert(observer.notification_count == 3);
+```
+
+### Lazy Allocation
+
+Observer storage is only allocated when first subscription is made:
+
+```cpp
+TimeSeriesValue ts(int_meta);
+
+// No overhead - _observers is nullptr
+assert(!ts.has_observers());
+
+MyObserver observer;
+ts.subscribe(&observer);
+
+// Now allocated
+assert(ts.has_observers());
+```
+
+### Observer Best Practices
+
+1. **Subscribe before modifications**: Ensure observers are subscribed before values are modified to receive all notifications.
+
+2. **Unsubscribe when done**: Always unsubscribe observers to prevent memory leaks and unwanted notifications.
+
+```cpp
+void process(TimeSeriesValue& ts) {
+    MyObserver observer;
+    ts.subscribe(&observer);
+
+    // ... do work ...
+
+    ts.unsubscribe(&observer);  // Don't forget!
+}
+```
+
+3. **Observer lifetime**: Ensure observers outlive their subscription period. Unsubscribe before destroying the observer.
+
+```cpp
+// GOOD
+{
+    MyObserver observer;
+    ts.subscribe(&observer);
+    // ... use ...
+    ts.unsubscribe(&observer);
+}  // observer destroyed safely
+
+// BAD
+{
+    MyObserver* observer = new MyObserver();
+    ts.subscribe(observer);
+    delete observer;  // Still subscribed!
+    // ts may crash when notifying
+}
+```
+
+4. **Avoid re-entrancy**: Don't modify the same `TimeSeriesValue` from within a `notify()` callback, as this may cause recursive notifications.
