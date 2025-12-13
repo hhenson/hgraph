@@ -11,6 +11,7 @@
 #include <hgraph/types/value/set_type.h>
 #include <hgraph/types/value/dict_type.h>
 #include <hgraph/types/value/window_type.h>
+#include <hgraph/types/value/ref_type.h>
 #include <memory>
 #include <stdexcept>
 #include <cassert>
@@ -60,6 +61,7 @@ namespace hgraph::value {
         [[nodiscard]] bool is_set() const { return valid() && _schema->kind == TypeKind::Set; }
         [[nodiscard]] bool is_dict() const { return valid() && _schema->kind == TypeKind::Dict; }
         [[nodiscard]] bool is_window() const { return valid() && _schema->kind == TypeKind::Window; }
+        [[nodiscard]] bool is_ref() const { return valid() && _schema->kind == TypeKind::Ref; }
 
         // Raw data access
         [[nodiscard]] const void* data() const { return _data; }
@@ -245,6 +247,60 @@ namespace hgraph::value {
         [[nodiscard]] bool window_is_variable_length() const {
             if (!is_window()) return false;
             return static_cast<const WindowTypeMeta*>(_schema)->is_variable_length();
+        }
+
+        // Ref operations (read-only)
+        [[nodiscard]] bool ref_is_empty() const {
+            if (!is_ref()) return true;
+            return static_cast<const RefStorage*>(_data)->is_empty();
+        }
+
+        [[nodiscard]] bool ref_is_bound() const {
+            if (!is_ref()) return false;
+            return static_cast<const RefStorage*>(_data)->is_bound();
+        }
+
+        [[nodiscard]] bool ref_is_unbound() const {
+            if (!is_ref()) return false;
+            return static_cast<const RefStorage*>(_data)->is_unbound();
+        }
+
+        [[nodiscard]] bool ref_is_valid() const {
+            if (!is_ref()) return false;
+            return static_cast<const RefStorage*>(_data)->is_valid();
+        }
+
+        [[nodiscard]] const ValueRef* ref_target() const {
+            if (!is_ref() || !ref_is_bound()) return nullptr;
+            return &static_cast<const RefStorage*>(_data)->target();
+        }
+
+        [[nodiscard]] size_t ref_item_count() const {
+            if (!is_ref()) return 0;
+            return static_cast<const RefStorage*>(_data)->item_count();
+        }
+
+        [[nodiscard]] ConstValueView ref_item(size_t index) const {
+            if (!is_ref() || !ref_is_unbound()) return {};
+            auto* ref_meta = static_cast<const RefTypeMeta*>(_schema);
+            const auto& storage = static_cast<const RefStorage*>(_data)->item(index);
+            // Return a view of the RefStorage item
+            return {&storage, ref_meta};
+        }
+
+        [[nodiscard]] const TypeMeta* ref_value_type() const {
+            if (!is_ref()) return nullptr;
+            return static_cast<const RefTypeMeta*>(_schema)->value_type;
+        }
+
+        [[nodiscard]] bool ref_is_atomic() const {
+            if (!is_ref()) return false;
+            return static_cast<const RefTypeMeta*>(_schema)->is_atomic();
+        }
+
+        [[nodiscard]] bool ref_can_be_unbound() const {
+            if (!is_ref()) return false;
+            return static_cast<const RefTypeMeta*>(_schema)->can_be_unbound();
         }
 
         // Comparison operations (uses schema's ops)
@@ -437,6 +493,49 @@ namespace hgraph::value {
             if (is_window()) {
                 static_cast<WindowStorage*>(_mutable_data)->clear();
             }
+        }
+
+        // Ref operations (mutable)
+        void ref_bind(ValueRef target) {
+            if (is_ref()) {
+                *static_cast<RefStorage*>(_mutable_data) = RefStorage::make_bound(target);
+            }
+        }
+
+        void ref_clear() {
+            if (is_ref()) {
+                *static_cast<RefStorage*>(_mutable_data) = RefStorage::make_empty();
+            }
+        }
+
+        void ref_make_unbound(size_t count) {
+            if (is_ref()) {
+                *static_cast<RefStorage*>(_mutable_data) = RefStorage::make_unbound(count);
+            }
+        }
+
+        [[nodiscard]] ValueRef* ref_target() {
+            if (!is_ref() || !ref_is_bound()) return nullptr;
+            return &static_cast<RefStorage*>(_mutable_data)->target();
+        }
+
+        // Bring in const version
+        using ConstValueView::ref_target;
+
+        [[nodiscard]] ValueView ref_item(size_t index) {
+            if (!is_ref() || !ref_is_unbound()) return {};
+            auto* ref_meta = static_cast<const RefTypeMeta*>(_schema);
+            auto& storage = static_cast<RefStorage*>(_mutable_data)->item(index);
+            return {&storage, ref_meta};
+        }
+
+        // Bring in const version
+        using ConstValueView::ref_item;
+
+        void ref_set_item(size_t index, ValueRef target) {
+            if (!is_ref() || !ref_is_unbound()) return;
+            auto& storage = static_cast<RefStorage*>(_mutable_data)->item(index);
+            storage = RefStorage::make_bound(target);
         }
 
         // Implicit conversion to TypedPtr

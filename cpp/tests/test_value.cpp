@@ -3344,3 +3344,411 @@ TEST_CASE("Window modification tracking - atomic", "[ts][window][tracker]") {
     REQUIRE(ts.modified_at(t2));
     REQUIRE_FALSE(ts.modified_at(t1));  // t1 is no longer the last modified
 }
+
+// =============================================================================
+// Ref Type Tests
+// =============================================================================
+
+TEST_CASE("RefTypeBuilder - atomic ref", "[value][ref]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    auto ref_meta = RefTypeBuilder()
+        .value_type(int_meta)
+        .build("RefInt");
+
+    REQUIRE(ref_meta);
+    REQUIRE(ref_meta->kind == TypeKind::Ref);
+    REQUIRE(ref_meta->value_type == int_meta);
+    REQUIRE(ref_meta->item_count == 0);
+    REQUIRE(ref_meta->is_atomic());
+    REQUIRE_FALSE(ref_meta->can_be_unbound());
+}
+
+TEST_CASE("RefTypeBuilder - composite ref", "[value][ref]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    auto ref_meta = RefTypeBuilder()
+        .value_type(int_meta)
+        .item_count(3)
+        .build("RefList3");
+
+    REQUIRE(ref_meta);
+    REQUIRE(ref_meta->kind == TypeKind::Ref);
+    REQUIRE(ref_meta->value_type == int_meta);
+    REQUIRE(ref_meta->item_count == 3);
+    REQUIRE_FALSE(ref_meta->is_atomic());
+    REQUIRE(ref_meta->can_be_unbound());
+}
+
+TEST_CASE("RefStorage - empty by default", "[value][ref]") {
+    RefStorage storage;
+
+    REQUIRE(storage.is_empty());
+    REQUIRE_FALSE(storage.is_bound());
+    REQUIRE_FALSE(storage.is_unbound());
+    REQUIRE_FALSE(storage.is_valid());
+    REQUIRE(storage.item_count() == 0);
+}
+
+TEST_CASE("RefStorage - bound reference", "[value][ref]") {
+    // Create a target value
+    int target_value = 42;
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+
+    ValueRef ref{&target_value, nullptr, int_meta};
+    RefStorage storage = RefStorage::make_bound(ref);
+
+    REQUIRE_FALSE(storage.is_empty());
+    REQUIRE(storage.is_bound());
+    REQUIRE_FALSE(storage.is_unbound());
+    REQUIRE(storage.is_valid());
+
+    // Access target
+    const ValueRef& target = storage.target();
+    REQUIRE(target.data == &target_value);
+    REQUIRE(target.schema == int_meta);
+    REQUIRE(*static_cast<int*>(target.data) == 42);
+}
+
+TEST_CASE("RefStorage - unbound reference", "[value][ref]") {
+    RefStorage storage = RefStorage::make_unbound(3);
+
+    REQUIRE_FALSE(storage.is_empty());
+    REQUIRE_FALSE(storage.is_bound());
+    REQUIRE(storage.is_unbound());
+    REQUIRE_FALSE(storage.is_valid());  // All items empty, so not valid
+    REQUIRE(storage.item_count() == 3);
+
+    // Access items
+    REQUIRE(storage.items().size() == 3);
+    REQUIRE(storage.item(0).is_empty());
+    REQUIRE(storage.item(1).is_empty());
+    REQUIRE(storage.item(2).is_empty());
+}
+
+TEST_CASE("RefStorage - unbound with bound items", "[value][ref]") {
+    int val1 = 10, val2 = 20, val3 = 30;
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+
+    std::vector<RefStorage> items;
+    items.push_back(RefStorage::make_bound(ValueRef{&val1, nullptr, int_meta}));
+    items.push_back(RefStorage::make_bound(ValueRef{&val2, nullptr, int_meta}));
+    items.push_back(RefStorage::make_bound(ValueRef{&val3, nullptr, int_meta}));
+
+    RefStorage storage = RefStorage::make_unbound(std::move(items));
+
+    REQUIRE(storage.is_unbound());
+    REQUIRE(storage.is_valid());  // Has at least one valid item
+    REQUIRE(storage.item_count() == 3);
+
+    REQUIRE(storage.item(0).is_bound());
+    REQUIRE(*static_cast<int*>(storage.item(0).target().data) == 10);
+    REQUIRE(*static_cast<int*>(storage.item(1).target().data) == 20);
+    REQUIRE(*static_cast<int*>(storage.item(2).target().data) == 30);
+}
+
+TEST_CASE("RefStorage - equality", "[value][ref]") {
+    int val1 = 10, val2 = 20;
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+
+    RefStorage empty1 = RefStorage::make_empty();
+    RefStorage empty2 = RefStorage::make_empty();
+    REQUIRE(empty1 == empty2);
+
+    RefStorage bound1 = RefStorage::make_bound(ValueRef{&val1, nullptr, int_meta});
+    RefStorage bound2 = RefStorage::make_bound(ValueRef{&val1, nullptr, int_meta});  // Same target
+    RefStorage bound3 = RefStorage::make_bound(ValueRef{&val2, nullptr, int_meta});  // Different target
+
+    REQUIRE(bound1 == bound2);
+    REQUIRE_FALSE(bound1 == bound3);
+    REQUIRE_FALSE(bound1 == empty1);
+}
+
+TEST_CASE("RefStorage - hash", "[value][ref]") {
+    int val1 = 10, val2 = 20;
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+
+    RefStorage empty = RefStorage::make_empty();
+    REQUIRE(empty.hash() == 0);
+
+    RefStorage bound1 = RefStorage::make_bound(ValueRef{&val1, nullptr, int_meta});
+    RefStorage bound2 = RefStorage::make_bound(ValueRef{&val1, nullptr, int_meta});
+    RefStorage bound3 = RefStorage::make_bound(ValueRef{&val2, nullptr, int_meta});
+
+    REQUIRE(bound1.hash() == bound2.hash());
+    // Different pointers likely have different hashes (not guaranteed but typical)
+}
+
+TEST_CASE("RefStorage - copy semantics", "[value][ref]") {
+    int val = 42;
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+
+    RefStorage original = RefStorage::make_bound(ValueRef{&val, nullptr, int_meta});
+
+    // Copy construct
+    RefStorage copy1(original);
+    REQUIRE(copy1.is_bound());
+    REQUIRE(copy1.target().data == &val);
+
+    // Copy assign
+    RefStorage copy2;
+    copy2 = original;
+    REQUIRE(copy2.is_bound());
+    REQUIRE(copy2.target().data == &val);
+
+    // Original unchanged
+    REQUIRE(original.is_bound());
+    REQUIRE(original.target().data == &val);
+}
+
+TEST_CASE("RefStorage - move semantics", "[value][ref]") {
+    int val = 42;
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+
+    RefStorage original = RefStorage::make_bound(ValueRef{&val, nullptr, int_meta});
+
+    // Move construct
+    RefStorage moved(std::move(original));
+    REQUIRE(moved.is_bound());
+    REQUIRE(moved.target().data == &val);
+
+    // Move from unbound
+    RefStorage unbound = RefStorage::make_unbound(3);
+    RefStorage moved_unbound(std::move(unbound));
+    REQUIRE(moved_unbound.is_unbound());
+    REQUIRE(moved_unbound.item_count() == 3);
+}
+
+TEST_CASE("Value - ref via ValueView", "[value][ref][integration]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    auto ref_meta = RefTypeBuilder()
+        .value_type(int_meta)
+        .build("RefInt");
+
+    Value ref_val(ref_meta.get());
+    ValueView rv = ref_val.view();
+
+    REQUIRE(rv.is_ref());
+    REQUIRE(rv.ref_is_empty());
+    REQUIRE_FALSE(rv.ref_is_bound());
+    REQUIRE_FALSE(rv.ref_is_unbound());
+    REQUIRE_FALSE(rv.ref_is_valid());
+    REQUIRE(rv.ref_value_type() == int_meta);
+    REQUIRE(rv.ref_is_atomic());
+
+    // Bind to a target
+    int target = 42;
+    rv.ref_bind(ValueRef{&target, nullptr, int_meta});
+
+    REQUIRE_FALSE(rv.ref_is_empty());
+    REQUIRE(rv.ref_is_bound());
+    REQUIRE(rv.ref_is_valid());
+
+    // Access target
+    const ValueRef* ref_target = rv.ref_target();
+    REQUIRE(ref_target != nullptr);
+    REQUIRE(ref_target->data == &target);
+    REQUIRE(*static_cast<int*>(ref_target->data) == 42);
+
+    // Clear reference
+    rv.ref_clear();
+    REQUIRE(rv.ref_is_empty());
+    REQUIRE_FALSE(rv.ref_is_bound());
+}
+
+TEST_CASE("Value - composite ref via ValueView", "[value][ref][integration]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    auto ref_meta = RefTypeBuilder()
+        .value_type(int_meta)
+        .item_count(3)
+        .build("RefList3");
+
+    Value ref_val(ref_meta.get());
+    ValueView rv = ref_val.view();
+
+    REQUIRE(rv.is_ref());
+    REQUIRE(rv.ref_is_empty());
+    REQUIRE_FALSE(rv.ref_is_atomic());
+    REQUIRE(rv.ref_can_be_unbound());
+
+    // Make unbound
+    rv.ref_make_unbound(3);
+
+    REQUIRE(rv.ref_is_unbound());
+    REQUIRE(rv.ref_item_count() == 3);
+
+    // Set items
+    int val1 = 10, val2 = 20, val3 = 30;
+    rv.ref_set_item(0, ValueRef{&val1, nullptr, int_meta});
+    rv.ref_set_item(1, ValueRef{&val2, nullptr, int_meta});
+    rv.ref_set_item(2, ValueRef{&val3, nullptr, int_meta});
+
+    // Navigate to items
+    auto item0 = rv.ref_item(0);
+    REQUIRE(item0.is_ref());
+    REQUIRE(item0.ref_is_bound());
+    REQUIRE(item0.ref_target()->data == &val1);
+}
+
+TEST_CASE("ModificationTracker - atomic ref tracking", "[modification][ref]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    auto ref_meta = RefTypeBuilder()
+        .value_type(int_meta)
+        .build("RefInt");
+
+    ModificationTrackerStorage storage(ref_meta.get());
+    ModificationTracker tracker = storage.tracker();
+
+    REQUIRE(tracker.valid());
+    REQUIRE(tracker.last_modified_time() == MIN_DT);
+    REQUIRE_FALSE(tracker.valid_value());
+
+    auto t1 = make_time(100);
+    tracker.mark_modified(t1);
+
+    REQUIRE(tracker.modified_at(t1));
+    REQUIRE(tracker.last_modified_time() == t1);
+    REQUIRE(tracker.valid_value());
+
+    tracker.mark_invalid();
+    REQUIRE(tracker.last_modified_time() == MIN_DT);
+}
+
+TEST_CASE("ModificationTracker - composite ref item tracking", "[modification][ref]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    auto ref_meta = RefTypeBuilder()
+        .value_type(int_meta)
+        .item_count(3)
+        .build("RefList3");
+
+    ModificationTrackerStorage storage(ref_meta.get());
+    ModificationTracker tracker = storage.tracker();
+
+    REQUIRE(tracker.valid());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    // Mark item 0 modified
+    tracker.ref_item(0).mark_modified(t1);
+
+    REQUIRE(tracker.ref_item_modified_at(0, t1));
+    REQUIRE_FALSE(tracker.ref_item_modified_at(1, t1));
+    REQUIRE_FALSE(tracker.ref_item_modified_at(2, t1));
+
+    // Ref itself should be modified (hierarchical propagation)
+    REQUIRE(tracker.modified_at(t1));
+
+    // Mark item 2 modified at later time
+    tracker.ref_item(2).mark_modified(t2);
+
+    REQUIRE(tracker.ref_item_modified_at(2, t2));
+    REQUIRE(tracker.modified_at(t2));
+}
+
+TEST_CASE("TimeSeriesValue - atomic ref", "[timeseries][ref]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    auto ref_meta = RefTypeBuilder()
+        .value_type(int_meta)
+        .build("RefInt");
+
+    TimeSeriesValue ts(ref_meta.get());
+
+    REQUIRE(ts.valid());
+    REQUIRE(ts.kind() == TypeKind::Ref);
+    REQUIRE_FALSE(ts.has_value());
+
+    auto t1 = make_time(100);
+    auto view = ts.view(t1);
+
+    REQUIRE(view.ref_is_empty());
+
+    // Bind to target
+    int target = 42;
+    view.ref_bind(ValueRef{&target, nullptr, int_meta});
+
+    REQUIRE(ts.modified_at(t1));
+    REQUIRE(ts.has_value());
+    REQUIRE(view.ref_is_bound());
+    REQUIRE(view.ref_target()->data == &target);
+}
+
+TEST_CASE("TimeSeriesValue - composite ref", "[timeseries][ref]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    auto ref_meta = RefTypeBuilder()
+        .value_type(int_meta)
+        .item_count(3)
+        .build("RefList3");
+
+    TimeSeriesValue ts(ref_meta.get());
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    auto view1 = ts.view(t1);
+
+    // Make unbound
+    view1.ref_make_unbound(3);
+
+    REQUIRE(ts.modified_at(t1));
+    REQUIRE(view1.ref_is_unbound());
+    REQUIRE(view1.ref_item_count() == 3);
+
+    // Set first item at t2
+    int val = 42;
+    auto view2 = ts.view(t2);
+    view2.ref_set_item(0, ValueRef{&val, nullptr, int_meta});
+
+    REQUIRE(ts.modified_at(t2));
+    REQUIRE(view2.ref_item_modified_at(0, t2));
+    REQUIRE_FALSE(view2.ref_item_modified_at(1, t2));
+}
+
+TEST_CASE("TimeSeriesValue - ref with observer", "[timeseries][ref][observer]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    auto ref_meta = RefTypeBuilder()
+        .value_type(int_meta)
+        .build("RefInt");
+
+    TimeSeriesValue ts(ref_meta.get());
+
+    TestObserver observer;
+    ts.subscribe(&observer);
+
+    auto t1 = make_time(100);
+    auto t2 = make_time(200);
+
+    // Bind triggers notification
+    int target = 42;
+    ts.view(t1).ref_bind(ValueRef{&target, nullptr, int_meta});
+    REQUIRE(observer.count() == 1);
+    REQUIRE(observer.notified_at(t1));
+
+    // Clear triggers notification
+    ts.view(t2).ref_clear();
+    REQUIRE(observer.count() == 2);
+    REQUIRE(observer.notified_at(t2));
+}
+
+TEST_CASE("Value - ref copy", "[value][ref][copy]") {
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    auto ref_meta = RefTypeBuilder()
+        .value_type(int_meta)
+        .build("RefInt");
+
+    int target = 42;
+    Value original(ref_meta.get());
+    original.view().ref_bind(ValueRef{&target, nullptr, int_meta});
+
+    Value copy = Value::copy(original);
+
+    REQUIRE(copy.const_view().ref_is_bound());
+    // Copy points to same target
+    REQUIRE(copy.const_view().ref_target()->data == &target);
+
+    // Clear original
+    original.view().ref_clear();
+    REQUIRE(original.const_view().ref_is_empty());
+
+    // Copy still points to target
+    REQUIRE(copy.const_view().ref_is_bound());
+    REQUIRE(copy.const_view().ref_target()->data == &target);
+}

@@ -10,6 +10,7 @@
 #include <hgraph/types/value/list_type.h>
 #include <hgraph/types/value/set_type.h>
 #include <hgraph/types/value/dict_type.h>
+#include <hgraph/types/value/ref_type.h>
 #include <hgraph/util/date_time.h>
 #include <ankerl/unordered_dense.h>
 #include <memory>
@@ -187,6 +188,7 @@ namespace hgraph::value {
                 case TypeKind::List:
                 case TypeKind::Set:
                 case TypeKind::Window:  // Window is atomic like Set
+                case TypeKind::Ref:     // Ref uses same pattern (single or array based on item_count)
                     // First element is always the container's own timestamp
                     return *static_cast<engine_time_t*>(_storage);
 
@@ -211,7 +213,8 @@ namespace hgraph::value {
                 case TypeKind::Bundle:
                 case TypeKind::List:
                 case TypeKind::Set:
-                case TypeKind::Window: {  // Window is atomic like Set
+                case TypeKind::Window:  // Window is atomic like Set
+                case TypeKind::Ref: {   // Ref uses same pattern
                     auto* ts = static_cast<engine_time_t*>(_storage);
                     if (time > *ts) {
                         *ts = time;
@@ -239,6 +242,7 @@ namespace hgraph::value {
                 case TypeKind::List:
                 case TypeKind::Set:
                 case TypeKind::Window:  // Window is atomic like Set
+                case TypeKind::Ref:     // Ref uses same pattern
                     *static_cast<engine_time_t*>(_storage) = MIN_DT;
                     break;
 
@@ -363,6 +367,41 @@ namespace hgraph::value {
             static_cast<DictModificationStorage*>(_storage)->remove_entry(entry_index);
         }
 
+        // For refs - item-level tracking (composite refs only)
+        [[nodiscard]] ModificationTracker ref_item(size_t index) {
+            if (!valid() || _value_meta->kind != TypeKind::Ref) {
+                return {};
+            }
+
+            auto* ref_meta = static_cast<const RefTypeMeta*>(_value_meta);
+            if (ref_meta->item_count == 0 || index >= ref_meta->item_count) {
+                return {};  // Atomic ref or out of bounds
+            }
+
+            // Storage layout: [ref_time][item0_time][item1_time]...
+            auto* times = static_cast<engine_time_t*>(_storage);
+            engine_time_t* item_time = &times[1 + index];
+            engine_time_t* parent_time = &times[0];  // Ref's own timestamp
+
+            // Each item is itself a ref, so use the same ref_meta for items
+            // (This is a simplification - in practice, items might have different types)
+            return {item_time, ref_meta, parent_time};
+        }
+
+        [[nodiscard]] bool ref_item_modified_at(size_t index, engine_time_t time) const {
+            if (!valid() || _value_meta->kind != TypeKind::Ref) {
+                return false;
+            }
+
+            auto* ref_meta = static_cast<const RefTypeMeta*>(_value_meta);
+            if (ref_meta->item_count == 0 || index >= ref_meta->item_count) {
+                return false;
+            }
+
+            auto* times = static_cast<engine_time_t*>(_storage);
+            return times[1 + index] == time;
+        }
+
     private:
         void propagate_to_parent(engine_time_t time) {
             if (_parent_time && time > *_parent_time) {
@@ -414,6 +453,23 @@ namespace hgraph::value {
                 _storage = new DictModificationStorage();
                 break;
 
+            case TypeKind::Ref: {
+                auto* ref_meta = static_cast<const RefTypeMeta*>(_value_meta);
+                if (ref_meta->item_count == 0) {
+                    // Atomic ref - single timestamp
+                    _storage = new engine_time_t{MIN_DT};
+                } else {
+                    // Composite ref - ref + items
+                    size_t count = 1 + ref_meta->item_count;
+                    auto* times = new engine_time_t[count];
+                    for (size_t i = 0; i < count; ++i) {
+                        times[i] = MIN_DT;
+                    }
+                    _storage = times;
+                }
+                break;
+            }
+
             default:
                 break;
         }
@@ -437,6 +493,18 @@ namespace hgraph::value {
             case TypeKind::Dict:
                 delete static_cast<DictModificationStorage*>(_storage);
                 break;
+
+            case TypeKind::Ref: {
+                auto* ref_meta = static_cast<const RefTypeMeta*>(_value_meta);
+                if (ref_meta->item_count == 0) {
+                    // Atomic ref - single timestamp
+                    delete static_cast<engine_time_t*>(_storage);
+                } else {
+                    // Composite ref - array
+                    delete[] static_cast<engine_time_t*>(_storage);
+                }
+                break;
+            }
 
             default:
                 break;

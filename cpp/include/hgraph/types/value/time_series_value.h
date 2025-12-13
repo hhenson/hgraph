@@ -325,6 +325,115 @@ namespace hgraph::value {
             }
         }
 
+        // Ref operations - modification tracking at REF level
+        // (For now, we track modifications at the reference level, not through to the target)
+
+        [[nodiscard]] bool ref_is_empty() const {
+            if (!valid() || kind() != TypeKind::Ref) return true;
+            return _value_view.ref_is_empty();
+        }
+
+        [[nodiscard]] bool ref_is_bound() const {
+            if (!valid() || kind() != TypeKind::Ref) return false;
+            return _value_view.ref_is_bound();
+        }
+
+        [[nodiscard]] bool ref_is_unbound() const {
+            if (!valid() || kind() != TypeKind::Ref) return false;
+            return _value_view.ref_is_unbound();
+        }
+
+        [[nodiscard]] bool ref_is_valid() const {
+            if (!valid() || kind() != TypeKind::Ref) return false;
+            return _value_view.ref_is_valid();
+        }
+
+        [[nodiscard]] const ValueRef* ref_target() const {
+            if (!valid() || kind() != TypeKind::Ref) return nullptr;
+            return _value_view.ref_target();
+        }
+
+        [[nodiscard]] ValueRef* ref_target() {
+            if (!valid() || kind() != TypeKind::Ref) return nullptr;
+            return _value_view.ref_target();
+        }
+
+        [[nodiscard]] size_t ref_item_count() const {
+            if (!valid() || kind() != TypeKind::Ref) return 0;
+            return _value_view.ref_item_count();
+        }
+
+        [[nodiscard]] const TypeMeta* ref_value_type() const {
+            if (!valid() || kind() != TypeKind::Ref) return nullptr;
+            return _value_view.ref_value_type();
+        }
+
+        [[nodiscard]] bool ref_is_atomic() const {
+            if (!valid() || kind() != TypeKind::Ref) return false;
+            return _value_view.ref_is_atomic();
+        }
+
+        [[nodiscard]] bool ref_can_be_unbound() const {
+            if (!valid() || kind() != TypeKind::Ref) return false;
+            return _value_view.ref_can_be_unbound();
+        }
+
+        // Ref navigation for unbound refs - returns sub-view with item tracking
+        [[nodiscard]] TimeSeriesValueView ref_item(size_t index) {
+            if (!valid() || kind() != TypeKind::Ref || !ref_is_unbound()) {
+                return {};
+            }
+            // Get child observer if available
+            ObserverStorage* child_observer = _observer ? _observer->child(index) : nullptr;
+            ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
+            return {_value_view.ref_item(index), _tracker.ref_item(index), _current_time, effective_observer};
+        }
+
+        [[nodiscard]] bool ref_item_modified_at(size_t index, engine_time_t time) const {
+            return _tracker.ref_item_modified_at(index, time);
+        }
+
+        // Mutable ref operations with tracking
+        void ref_bind(ValueRef target) {
+            if (!valid() || kind() != TypeKind::Ref) return;
+            _value_view.ref_bind(target);
+            _tracker.mark_modified(_current_time);
+            if (_observer) {
+                _observer->notify(_current_time);
+            }
+        }
+
+        void ref_clear() {
+            if (!valid() || kind() != TypeKind::Ref) return;
+            _value_view.ref_clear();
+            _tracker.mark_modified(_current_time);
+            if (_observer) {
+                _observer->notify(_current_time);
+            }
+        }
+
+        void ref_make_unbound(size_t count) {
+            if (!valid() || kind() != TypeKind::Ref) return;
+            _value_view.ref_make_unbound(count);
+            _tracker.mark_modified(_current_time);
+            if (_observer) {
+                _observer->notify(_current_time);
+            }
+        }
+
+        void ref_set_item(size_t index, ValueRef target) {
+            if (!valid() || kind() != TypeKind::Ref || !ref_is_unbound()) return;
+            _value_view.ref_set_item(index, target);
+            // Mark item as modified (for composite refs with item tracking)
+            auto item_tracker = _tracker.ref_item(index);
+            if (item_tracker.valid()) {
+                item_tracker.mark_modified(_current_time);
+            }
+            if (_observer) {
+                _observer->notify(_current_time);
+            }
+        }
+
         // Observer access
         [[nodiscard]] ObserverStorage* observer() { return _observer; }
         [[nodiscard]] const ObserverStorage* observer() const { return _observer; }

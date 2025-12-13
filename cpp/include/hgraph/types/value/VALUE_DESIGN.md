@@ -26,13 +26,13 @@ The `hgraph::value` type system provides a type-erased, metadata-driven approach
 │  (size, alignment, flags, kind, ops, type_info, name)       │
 └─────────────────┬───────────────────────────────────────────┘
                   │
-    ┌─────────────┼─────────────┬─────────────┬───────────────┐
-    │             │             │             │               │
-    ▼             ▼             ▼             ▼               ▼
-┌────────┐  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
-│ Scalar │  │BundleType- │ │ ListType-  │ │ SetType-   │ │ DictType-  │
-│TypeMeta│  │   Meta     │ │   Meta     │ │   Meta     │ │   Meta     │
-└────────┘  └────────────┘ └────────────┘ └────────────┘ └────────────┘
+    ┌─────────────┼─────────────┬─────────────┬─────────────┬───────────────┐
+    │             │             │             │             │               │
+    ▼             ▼             ▼             ▼             ▼               ▼
+┌────────┐  ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐ ┌────────────┐
+│ Scalar │  │BundleType- │ │ ListType-  │ │ SetType-   │ │ DictType-  │ │ RefType-   │
+│TypeMeta│  │   Meta     │ │   Meta     │ │   Meta     │ │   Meta     │ │   Meta     │
+└────────┘  └────────────┘ └────────────┘ └────────────┘ └────────────┘ └────────────┘
 ```
 
 ### TypeMeta
@@ -42,7 +42,7 @@ The central type descriptor containing:
 - `size`: Storage size in bytes
 - `alignment`: Required memory alignment
 - `flags`: Type capabilities (hashable, comparable, etc.)
-- `kind`: Type classification (Scalar, Bundle, List, Set, Dict)
+- `kind`: Type classification (Scalar, Bundle, List, Set, Dict, Window, Ref)
 - `ops`: Pointer to TypeOps vtable
 - `type_info`: Optional C++ RTTI for debugging
 - `name`: Optional human-readable name
@@ -173,6 +173,112 @@ Two specialized storage implementations:
 - Values stored separately from timestamps
 - `compact()` optimizes for reading (resets cyclic buffer to start at 0, removes expired entries)
 - Atomic modification tracking (single timestamp, like Set)
+
+### Ref Types (References)
+
+Non-owning references to other values. REF types enable pointer-like semantics within the value system.
+
+**Two structural forms:**
+
+1. **Atomic refs** (REF[TS], REF[TSS], REF[TSW], REF[TSD]):
+   - Always a single pointer (bound reference)
+   - `item_count == 0`
+
+2. **Composite refs** (REF[TSL], REF[TSB]):
+   - Can be bound (single pointer) OR unbound (collection of references)
+   - `item_count > 0` indicates potential unbound structure
+
+```cpp
+// Atomic ref - references a single int time-series
+auto ref_int_meta = RefTypeBuilder()
+    .value_type(int_meta)
+    .build("RefInt");
+
+// Composite ref - can reference a list or be unbound with 3 items
+auto ref_list_meta = RefTypeBuilder()
+    .value_type(list_meta)
+    .item_count(3)
+    .build("RefList3");
+```
+
+**Core Components:**
+
+- `ValueRef`: Non-owning view containing `data*`, `tracker*`, and `schema*`
+- `RefStorage`: Union type with three variants:
+  - `EMPTY`: No reference (null)
+  - `BOUND`: Single `ValueRef` pointing to a value
+  - `UNBOUND`: `vector<RefStorage>` for composite refs
+- `RefTypeMeta`: Extended TypeMeta with `value_type` and `item_count`
+
+**RefStorage States:**
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  RefStorage                                                  │
+├─────────────────────────────────────────────────────────────┤
+│  Kind::EMPTY   → No reference (is_valid() = false)          │
+│  Kind::BOUND   → ValueRef { data*, tracker*, schema* }      │
+│  Kind::UNBOUND → vector<RefStorage> (composite refs)         │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Usage Example:**
+
+```cpp
+#include <hgraph/types/value/ref_type.h>
+using namespace hgraph::value;
+
+// Create ref type
+const TypeMeta* int_meta = scalar_type_meta<int>();
+auto ref_meta = RefTypeBuilder()
+    .value_type(int_meta)
+    .build("RefInt");
+
+// Create ref value
+Value ref_val(ref_meta.get());
+ValueView rv = ref_val.view();
+
+// Initially empty
+assert(rv.ref_is_empty());
+
+// Bind to target
+int target = 42;
+rv.ref_bind(ValueRef{&target, nullptr, int_meta});
+
+// Access target
+assert(rv.ref_is_bound());
+assert(*static_cast<int*>(rv.ref_target()->data) == 42);
+
+// Clear
+rv.ref_clear();
+assert(rv.ref_is_empty());
+```
+
+**Composite Ref Example:**
+
+```cpp
+// Composite ref with 3 items
+auto ref_meta = RefTypeBuilder()
+    .value_type(int_meta)
+    .item_count(3)
+    .build("RefList3");
+
+Value ref_val(ref_meta.get());
+ValueView rv = ref_val.view();
+
+// Create unbound structure
+rv.ref_make_unbound(3);
+
+// Set individual items
+int val1 = 10, val2 = 20, val3 = 30;
+rv.ref_set_item(0, ValueRef{&val1, nullptr, int_meta});
+rv.ref_set_item(1, ValueRef{&val2, nullptr, int_meta});
+rv.ref_set_item(2, ValueRef{&val3, nullptr, int_meta});
+
+// Navigate to items
+auto item0 = rv.ref_item(0);
+assert(item0.ref_is_bound());
+```
 
 ## Value Access Pattern
 
@@ -429,6 +535,8 @@ The `ModificationTracker` provides a parallel data structure for tracking when v
 | **Set** | Single `engine_time_t` | Atomic tracking (no per-element) |
 | **Dict** | `DictModificationStorage` | Structural + per-entry timestamps |
 | **Window** | Single `engine_time_t` | Atomic tracking (like Set) |
+| **Ref (atomic)** | Single `engine_time_t` | Single timestamp for ref binding changes |
+| **Ref (composite)** | `[ref_time][item0_time][item1_time]...` | Per-item tracking with propagation |
 
 **Bundle Field Order**: Field indices correspond to schema creation order in `BundleTypeBuilder`. Fields are accessible by both index and name:
 
@@ -617,6 +725,8 @@ public:
 | **Set** | Atomic timestamp | N/A |
 | **Dict** | Structural + per-entry | Entry → Dict |
 | **Window** | Atomic timestamp | N/A |
+| **Ref (atomic)** | Single timestamp | N/A |
+| **Ref (composite)** | Per-item timestamps | Item → Ref |
 
 ### Usage Example
 
@@ -870,11 +980,11 @@ ts_point.unsubscribe(&observer);
 ## Future Extensions
 
 1. **Python Bindings**: Implement `to_python`/`from_python` ops
-2. **Ref Type**: Reference counting for shared values
-3. **Variant Type**: Union-like discriminated types
-4. **String Type**: Type-erased string with SSO
-5. **Serialization**: Binary and JSON serialization
-6. **Delta Tracking**: Track added/removed elements for TSS/TSD delta_value support
+2. **Variant Type**: Union-like discriminated types
+3. **String Type**: Type-erased string with SSO
+4. **Serialization**: Binary and JSON serialization
+5. **Delta Tracking**: Track added/removed elements for TSS/TSD delta_value support
+6. **Through-Reference Tracking**: Track modifications through to the target value (REF[TS] → TS)
 
 ## File Structure
 
@@ -895,6 +1005,7 @@ cpp/include/
         ├── set_type.h               # SetTypeMeta, SetTypeBuilder, SetStorage
         ├── dict_type.h              # DictTypeMeta, DictTypeBuilder, DictStorage
         ├── window_type.h            # WindowTypeMeta, WindowTypeBuilder, CyclicWindowStorage, QueueWindowStorage
+        ├── ref_type.h               # RefTypeMeta, RefTypeBuilder, ValueRef, RefStorage
         ├── type_registry.h          # TypeRegistry
         ├── value.h                  # Value, ValueView, ConstValueView
         ├── modification_tracker.h   # ModificationTrackerStorage, ModificationTracker
@@ -907,7 +1018,7 @@ cpp/include/
 ## Testing
 
 Tests are in `cpp/tests/`:
-- `test_value.cpp`: Unit tests (156 test cases, 7,260 assertions)
+- `test_value.cpp`: Unit tests (174 test cases, 7,377 assertions)
 - `value_examples.cpp`: Comprehensive examples
 
 Test categories include:
@@ -920,3 +1031,4 @@ Test categories include:
 - **Time-series values** (25 test cases)
 - **Observer/notification** (12 test cases)
 - **Window types** (17 test cases)
+- **Ref types** (18 test cases)
