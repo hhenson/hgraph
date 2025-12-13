@@ -14,7 +14,9 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
+#include <nanobind/stl/chrono.h>
 
+#include <hgraph/util/date_time.h>
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/scalar_type.h>
 #include <hgraph/types/value/bundle_type.h>
@@ -129,6 +131,80 @@ namespace hgraph::value {
             .to_python = to_python,
             .from_python = from_python,
         };
+    };
+
+    // ========================================================================
+    // Specialization for nb::object - already a Python object
+    // ========================================================================
+
+    template<>
+    struct ScalarTypeOpsWithPython<nb::object> {
+        static void construct(void* dest, const TypeMeta*) {
+            new (dest) nb::object();
+        }
+
+        static void destruct(void* dest, const TypeMeta*) {
+            static_cast<nb::object*>(dest)->~object();
+        }
+
+        static void copy_construct(void* dest, const void* src, const TypeMeta*) {
+            new (dest) nb::object(*static_cast<const nb::object*>(src));
+        }
+
+        static void move_construct(void* dest, void* src, const TypeMeta*) {
+            new (dest) nb::object(std::move(*static_cast<nb::object*>(src)));
+        }
+
+        static void copy_assign(void* dest, const void* src, const TypeMeta*) {
+            *static_cast<nb::object*>(dest) = *static_cast<const nb::object*>(src);
+        }
+
+        static void move_assign(void* dest, void* src, const TypeMeta*) {
+            *static_cast<nb::object*>(dest) = std::move(*static_cast<nb::object*>(src));
+        }
+
+        static bool equals(const void* a, const void* b, const TypeMeta*) {
+            return static_cast<const nb::object*>(a)->equal(*static_cast<const nb::object*>(b));
+        }
+
+        static bool less_than(const void* a, const void* b, const TypeMeta*) {
+            return static_cast<const nb::object*>(a)->operator<(*static_cast<const nb::object*>(b));
+        }
+
+        static size_t hash(const void* v, const TypeMeta*) {
+            try {
+                return nb::hash(*static_cast<const nb::object*>(v));
+            } catch (...) {
+                return 0;
+            }
+        }
+
+        static void* to_python(const void* v, const TypeMeta*) {
+            // Already a Python object - just increment refcount and return
+            const nb::object& obj = *static_cast<const nb::object*>(v);
+            return nb::object(obj).release().ptr();
+        }
+
+        static void from_python(void* dest, void* py_obj, const TypeMeta*) {
+            nb::handle h(static_cast<PyObject*>(py_obj));
+            *static_cast<nb::object*>(dest) = nb::borrow(h);
+        }
+
+        static const TypeOps ops;
+    };
+
+    inline const TypeOps ScalarTypeOpsWithPython<nb::object>::ops = {
+        .construct = construct,
+        .destruct = destruct,
+        .copy_construct = copy_construct,
+        .move_construct = move_construct,
+        .copy_assign = copy_assign,
+        .move_assign = move_assign,
+        .equals = equals,
+        .less_than = less_than,
+        .hash = hash,
+        .to_python = to_python,
+        .from_python = from_python,
     };
 
     /**
@@ -833,6 +909,67 @@ namespace hgraph::value {
         size_t _max_count{0};
         engine_time_delta_t _window_duration{0};
     };
+
+    // ========================================================================
+    // Named Type Instances - Standard scalar types with Python support
+    // ========================================================================
+
+    /**
+     * Named type metadata instances for the standard hgraph scalar types.
+     * These use the same naming convention as the existing time series types.
+     *
+     * Usage:
+     *   const TypeMeta* int_type = bool_type();  // Gets the bool TypeMeta
+     */
+
+    // bool type
+    inline const TypeMeta* bool_type() {
+        return scalar_type_meta_with_python<bool>();
+    }
+
+    // int type (int64_t)
+    inline const TypeMeta* int_type() {
+        return scalar_type_meta_with_python<int64_t>();
+    }
+
+    // float type (double)
+    inline const TypeMeta* float_type() {
+        return scalar_type_meta_with_python<double>();
+    }
+
+    // date type (engine_date_t / year_month_day)
+    inline const TypeMeta* date_type() {
+        return scalar_type_meta_with_python<engine_date_t>();
+    }
+
+    // date_time type (engine_time_t / time_point)
+    inline const TypeMeta* date_time_type() {
+        return scalar_type_meta_with_python<engine_time_t>();
+    }
+
+    // time_delta type (engine_time_delta_t / microseconds)
+    inline const TypeMeta* time_delta_type() {
+        return scalar_type_meta_with_python<engine_time_delta_t>();
+    }
+
+    // object type (nb::object)
+    inline const TypeMeta* object_type() {
+        return scalar_type_meta_with_python<nb::object>();
+    }
+
+    /**
+     * TypeRegistry helper - Maps type names to TypeMeta instances
+     */
+    inline const TypeMeta* scalar_type_by_name(const std::string& name) {
+        if (name == "bool") return bool_type();
+        if (name == "int") return int_type();
+        if (name == "float") return float_type();
+        if (name == "date") return date_type();
+        if (name == "date_time") return date_time_type();
+        if (name == "time_delta") return time_delta_type();
+        if (name == "object") return object_type();
+        return nullptr;
+    }
 
 } // namespace hgraph::value
 
