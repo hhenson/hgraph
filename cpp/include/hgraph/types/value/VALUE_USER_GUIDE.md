@@ -1566,3 +1566,141 @@ if (meta->kind == TypeKind::Window) {
     std::cout << "Element type: " << window_meta->element_type->name << "\n";
 }
 ```
+
+## Python Conversion Support
+
+The `python_conversion.h` header provides bidirectional conversion between C++ values and Python objects using nanobind.
+
+### Including Python Support
+
+```cpp
+#include <hgraph/types/value/python_conversion.h>
+using namespace hgraph::value;
+```
+
+### Standard Scalar Types
+
+Named accessor functions provide TypeMeta for standard hgraph scalar types with Python conversion:
+
+| Function | C++ Type | Python Type |
+|----------|----------|-------------|
+| `bool_type()` | `bool` | `bool` |
+| `int_type()` | `int64_t` | `int` |
+| `float_type()` | `double` | `float` |
+| `date_type()` | `engine_date_t` | `datetime.date` |
+| `date_time_type()` | `engine_time_t` | `datetime.datetime` |
+| `time_delta_type()` | `engine_time_delta_t` | `datetime.timedelta` |
+| `object_type()` | `nb::object` | any Python object |
+
+```cpp
+// Get type metadata with Python support
+const TypeMeta* int_meta = int_type();
+const TypeMeta* dt_meta = date_time_type();
+
+// Or lookup by name
+const TypeMeta* meta = scalar_type_by_name("float");  // Returns float_type()
+```
+
+### Converting Values to/from Python
+
+Use `value_to_python()` and `value_from_python()` for conversion:
+
+```cpp
+// C++ to Python
+Value val(int_type());
+val.view().as<int64_t>() = 42;
+nb::object py_obj = value_to_python(val.data(), val.schema());
+// py_obj is now Python int 42
+
+// Python to C++
+nb::object py_int = nb::cast(123);
+Value result(int_type());
+value_from_python(result.data(), py_int, result.schema());
+// result now contains 123
+```
+
+### Building Types with Python Support
+
+Use the `*WithPython` builder variants for composite types:
+
+```cpp
+// Bundle with Python support
+auto point_meta = BundleTypeBuilderWithPython()
+    .add_field<int64_t>("x")
+    .add_field<int64_t>("y")
+    .build("Point");
+
+// Converts to/from Python dict: {"x": 10, "y": 20}
+
+// List with Python support
+auto list_meta = ListTypeBuilderWithPython()
+    .element<double>()
+    .count(5)
+    .build();
+
+// Converts to/from Python list: [1.0, 2.0, 3.0, 4.0, 5.0]
+
+// Set with Python support
+auto set_meta = SetTypeBuilderWithPython()
+    .element<int64_t>()
+    .build();
+
+// Converts to/from Python set: {1, 2, 3}
+
+// Dict with Python support
+auto dict_meta = DictTypeBuilderWithPython()
+    .key<int64_t>()
+    .value<double>()
+    .build();
+
+// Converts to/from Python dict: {1: 1.5, 2: 2.5}
+
+// Window with Python support
+auto window_meta = WindowTypeBuilderWithPython()
+    .element<double>()
+    .fixed_count(10)
+    .build();
+
+// Converts to/from Python list of tuples: [(timestamp_ns, value), ...]
+```
+
+### Custom Scalar Types
+
+To add Python support for a custom scalar type:
+
+```cpp
+// Use the templated accessor
+const TypeMeta* my_type = scalar_type_meta_with_python<MyType>();
+
+// Requires that nb::cast<MyType>() works (nanobind type caster registered)
+```
+
+### Conversion Mappings
+
+| C++ Type Kind | Python Type |
+|---------------|-------------|
+| Scalar | Uses `nb::cast<T>()` |
+| Bundle | `dict` (field names as keys) |
+| List | `list` |
+| Set | `set` |
+| Dict | `dict` |
+| Window | `list` of `(timestamp_ns, value)` tuples |
+| Ref | Dereferenced value, or `list` for unbound refs |
+
+### Type Registry Integration
+
+```cpp
+TypeRegistry registry;
+
+// Register types with Python support
+registry.register_type("Point", BundleTypeBuilderWithPython()
+    .add_field<int64_t>("x")
+    .add_field<int64_t>("y")
+    .build("Point"));
+
+// Use for conversion
+const TypeMeta* point_type = registry.require("Point");
+Value point(point_type);
+// ... populate ...
+nb::object py_dict = value_to_python(point.data(), point_type);
+```

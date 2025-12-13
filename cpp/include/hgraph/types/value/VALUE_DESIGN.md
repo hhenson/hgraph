@@ -1011,6 +1011,7 @@ cpp/include/
         ├── modification_tracker.h   # ModificationTrackerStorage, ModificationTracker
         ├── observer_storage.h       # ObserverStorage, Notifiable interface
         ├── time_series_value.h      # TimeSeriesValue, TimeSeriesValueView
+        ├── python_conversion.h      # Python conversion ops, named type instances
         ├── VALUE_DESIGN.md          # This document
         └── VALUE_USER_GUIDE.md      # User guide
 ```
