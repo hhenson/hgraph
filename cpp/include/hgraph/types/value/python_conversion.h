@@ -415,7 +415,7 @@ namespace hgraph::value {
             nb::dict result;
 
             for (auto kv : *storage) {
-                nb::object py_key = value_to_python(kv.key.ptr, dict_meta->key_type);
+                nb::object py_key = value_to_python(kv.key.ptr, dict_meta->key_type());
                 nb::object py_value = value_to_python(kv.value.ptr, dict_meta->value_type);
                 result[py_key] = py_value;
             }
@@ -431,19 +431,19 @@ namespace hgraph::value {
 
             storage->clear();
 
-            std::vector<char> key_storage(dict_meta->key_type->size);
+            std::vector<char> key_storage(dict_meta->key_type()->size);
             std::vector<char> value_storage(dict_meta->value_type->size);
 
             for (auto item : py_dict) {
-                dict_meta->key_type->construct_at(key_storage.data());
+                dict_meta->key_type()->construct_at(key_storage.data());
                 dict_meta->value_type->construct_at(value_storage.data());
 
-                value_from_python(key_storage.data(), item.first, dict_meta->key_type);
+                value_from_python(key_storage.data(), item.first, dict_meta->key_type());
                 value_from_python(value_storage.data(), item.second, dict_meta->value_type);
 
                 storage->insert(key_storage.data(), value_storage.data());
 
-                dict_meta->key_type->destruct_at(key_storage.data());
+                dict_meta->key_type()->destruct_at(key_storage.data());
                 dict_meta->value_type->destruct_at(value_storage.data());
             }
         }
@@ -822,6 +822,7 @@ namespace hgraph::value {
                 flags = flags | TypeFlags::Hashable;
             }
 
+            // Initialize the DictTypeMeta
             meta->size = sizeof(DictStorage);
             meta->alignment = alignof(DictStorage);
             meta->flags = flags;
@@ -829,8 +830,17 @@ namespace hgraph::value {
             meta->ops = &DictTypeOpsWithPython;  // With Python support
             meta->type_info = nullptr;
             meta->name = type_name;
-            meta->key_type = _key_type;
             meta->value_type = _value_type;
+
+            // Initialize the embedded SetTypeMeta for keys
+            meta->key_set_meta.size = sizeof(SetStorage);
+            meta->key_set_meta.alignment = alignof(SetStorage);
+            meta->key_set_meta.flags = TypeFlags::Hashable | TypeFlags::Equatable;
+            meta->key_set_meta.kind = TypeKind::Set;
+            meta->key_set_meta.ops = &SetTypeOpsWithPython;  // With Python support
+            meta->key_set_meta.type_info = nullptr;
+            meta->key_set_meta.name = nullptr;  // Anonymous set type for keys
+            meta->key_set_meta.element_type = _key_type;
 
             return meta;
         }

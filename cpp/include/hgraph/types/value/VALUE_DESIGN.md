@@ -140,7 +140,9 @@ auto dict_meta = DictTypeBuilder()
     .build("IntDoubleMap");
 ```
 
-Uses `DictStorage` class internally (parallel vectors + index list).
+`DictStorage` composes `SetStorage` for keys with parallel value storage. This
+enables direct access to keys as a Set and shared modification tracking logic.
+`DictTypeMeta` embeds a `SetTypeMeta` for the key set type.
 
 ### Window Types (Time-Series History)
 
@@ -532,9 +534,9 @@ The `ModificationTracker` provides a parallel data structure for tracking when v
 | **Scalar** | Single `engine_time_t` | 8 bytes |
 | **Bundle** | `[bundle_time][field0_time][field1_time]...` | Per-field tracking, accessible by index or name |
 | **List** | `[list_time][elem0_time][elem1_time]...` | Per-element tracking with propagation |
-| **Set** | Single `engine_time_t` | Atomic tracking (no per-element) |
-| **Dict** | `DictModificationStorage` | Structural + per-entry timestamps |
-| **Window** | Single `engine_time_t` | Atomic tracking (like Set) |
+| **Set** | `SetModificationStorage` | Per-element tracking + delta (added/removed) |
+| **Dict** | `DictModificationStorage` | Composes `SetModificationStorage` for keys + value tracking |
+| **Window** | Single `engine_time_t` | Atomic tracking |
 | **Ref (atomic)** | Single `engine_time_t` | Single timestamp for ref binding changes |
 | **Ref (composite)** | `[ref_time][item0_time][item1_time]...` | Per-item tracking with propagation |
 
@@ -977,14 +979,136 @@ ts_point.unsubscribe(&observer);
 
 5. **Entry Index for Dict**: Dict entries use `DictStorage::find_index()` to map keys to stable entry indices for observer lookup.
 
+## Python Conversion Support
+
+The `python_conversion.h` header provides full bidirectional conversion between C++ values and Python objects using nanobind. Python support is implemented via:
+
+### Named Type Instances
+
+Standard hgraph scalar types with Python conversion support:
+
+| Function | C++ Type | Python Type |
+|----------|----------|-------------|
+| `bool_type()` | `bool` | `bool` |
+| `int_type()` | `int64_t` | `int` |
+| `float_type()` | `double` | `float` |
+| `date_type()` | `engine_date_t` | `datetime.date` |
+| `date_time_type()` | `engine_time_t` | `datetime.datetime` |
+| `time_delta_type()` | `engine_time_delta_t` | `datetime.timedelta` |
+| `object_type()` | `nb::object` | any Python object |
+
+Helper function `scalar_type_by_name(name)` provides lookup by string name.
+
+### Python-Enabled Type Builders
+
+Composite type builders with Python conversion ops:
+- `BundleTypeBuilderWithPython` - converts to/from Python `dict`
+- `ListTypeBuilderWithPython` - converts to/from Python `list`
+- `SetTypeBuilderWithPython` - converts to/from Python `set`
+- `DictTypeBuilderWithPython` - converts to/from Python `dict`
+- `WindowTypeBuilderWithPython` - converts to/from Python `list` of `(timestamp_ns, value)` tuples
+
+### Conversion Functions
+
+```cpp
+// C++ to Python
+nb::object value_to_python(const void* v, const TypeMeta* meta);
+
+// Python to C++
+void value_from_python(void* dest, nb::handle py_obj, const TypeMeta* meta);
+```
+
+### Custom Scalar Types
+
+Use `scalar_type_meta_with_python<T>()` to get TypeMeta with Python support for any type that has a nanobind type caster.
+
+## Schema-Driven Binding
+
+The binding system (`bind.h`, `bound_value.h`, `deref_time_series_value.h`) enables automatic dereferencing of REF types during wiring.
+
+### Schema Matching
+
+`match_schemas()` compares input and output schemas to determine binding requirements:
+
+| Match Result | Input Schema | Output Schema | Action |
+|--------------|--------------|---------------|--------|
+| `Peer` | `TS[X]` | `TS[X]` | Direct match, no transformation |
+| `Deref` | `TS[X]` | `REF[TS[X]]` | Dereference the REF |
+| `Composite` | `TSB[a:X,b:Y]` | `TSB[a:REF[X],b:Y]` | Per-field binding |
+| `Mismatch` | - | - | Incompatible types |
+
+### BoundValue
+
+Result of binding, representing the relationship between input expectation and output provider:
+
+```cpp
+enum class BoundValueKind {
+    Peer,       // Direct match: output type equals input type
+    Deref,      // Output is REF[X], input expects X
+    Composite   // TSB/TSL with per-field/element bindings
+};
+
+class BoundValue {
+    // Factory methods
+    static BoundValue make_peer(TimeSeriesValue* source);
+    static BoundValue make_deref(std::unique_ptr<DerefTimeSeriesValue> deref, const TypeMeta* schema);
+    static BoundValue make_composite(const TypeMeta* schema, std::vector<BoundValue> children);
+
+    // Unified access
+    ConstValueView value() const;
+    bool modified_at(engine_time_t time) const;
+    bool has_value() const;
+
+    // Lifecycle
+    void begin_evaluation(engine_time_t time);
+    void end_evaluation();
+};
+```
+
+### DerefTimeSeriesValue
+
+Wrapper that transparently dereferences REF values:
+
+- Tracks current and previous targets (for delta computation)
+- Unified modification tracking (ref changed OR underlying value modified)
+- Lifecycle: `begin_evaluation()` → use → `end_evaluation()`
+
+```cpp
+DerefTimeSeriesValue deref(ref_view, target_schema);
+
+deref.begin_evaluation(current_time);
+if (deref.modified_at(current_time)) {
+    auto value = deref.target_value();
+    if (deref.has_previous()) {
+        auto prev = deref.previous_target();
+        // Compute delta...
+    }
+}
+deref.end_evaluation();
+```
+
+### Usage
+
+```cpp
+// During wiring
+BoundValue binding = bind(input_schema, output_value, current_time);
+
+// During evaluation
+binding.begin_evaluation(time);
+if (binding.modified_at(time)) {
+    ConstValueView value = binding.value();
+    // Process value...
+}
+binding.end_evaluation();
+```
+
 ## Future Extensions
 
-1. **Python Bindings**: Implement `to_python`/`from_python` ops
-2. **Variant Type**: Union-like discriminated types
-3. **String Type**: Type-erased string with SSO
-4. **Serialization**: Binary and JSON serialization
-5. **Delta Tracking**: Track added/removed elements for TSS/TSD delta_value support
-6. **Through-Reference Tracking**: Track modifications through to the target value (REF[TS] → TS)
+1. **Variant Type**: Union-like discriminated types
+2. **String Type**: Type-erased string with SSO
+3. **Serialization**: Binary and JSON serialization
+4. **Delta Tracking**: Track added/removed elements for TSS/TSD delta_value support
+5. **Through-Reference Tracking**: Track modifications through to the target value (REF[TS] → TS)
 
 ## File Structure
 
@@ -997,23 +1121,26 @@ cpp/include/
     ├── util/
     │   └── date_time.h    # engine_time_t, MIN_DT, MAX_DT
     └── types/value/
-        ├── all.h                    # Convenience header (includes all)
-        ├── type_meta.h              # Core TypeMeta, TypeOps, TypeFlags
-        ├── scalar_type.h            # ScalarTypeMeta<T>, TypedValue
-        ├── bundle_type.h            # BundleTypeMeta, BundleTypeBuilder
-        ├── list_type.h              # ListTypeMeta, ListTypeBuilder
-        ├── set_type.h               # SetTypeMeta, SetTypeBuilder, SetStorage
-        ├── dict_type.h              # DictTypeMeta, DictTypeBuilder, DictStorage
-        ├── window_type.h            # WindowTypeMeta, WindowTypeBuilder, CyclicWindowStorage, QueueWindowStorage
-        ├── ref_type.h               # RefTypeMeta, RefTypeBuilder, ValueRef, RefStorage
-        ├── type_registry.h          # TypeRegistry
-        ├── value.h                  # Value, ValueView, ConstValueView
-        ├── modification_tracker.h   # ModificationTrackerStorage, ModificationTracker
-        ├── observer_storage.h       # ObserverStorage, Notifiable interface
-        ├── time_series_value.h      # TimeSeriesValue, TimeSeriesValueView
-        ├── python_conversion.h      # Python conversion ops, named type instances
-        ├── VALUE_DESIGN.md          # This document
-        └── VALUE_USER_GUIDE.md      # User guide
+        ├── all.h                      # Convenience header (includes all)
+        ├── type_meta.h                # Core TypeMeta, TypeOps, TypeFlags
+        ├── scalar_type.h              # ScalarTypeMeta<T>, TypedValue
+        ├── bundle_type.h              # BundleTypeMeta, BundleTypeBuilder
+        ├── list_type.h                # ListTypeMeta, ListTypeBuilder
+        ├── set_type.h                 # SetTypeMeta, SetTypeBuilder, SetStorage
+        ├── dict_type.h                # DictTypeMeta, DictTypeBuilder, DictStorage
+        ├── window_type.h              # WindowTypeMeta, WindowTypeBuilder, CyclicWindowStorage, QueueWindowStorage
+        ├── ref_type.h                 # RefTypeMeta, RefTypeBuilder, ValueRef, RefStorage
+        ├── type_registry.h            # TypeRegistry
+        ├── value.h                    # Value, ValueView, ConstValueView
+        ├── modification_tracker.h     # ModificationTrackerStorage, ModificationTracker
+        ├── observer_storage.h         # ObserverStorage, Notifiable interface
+        ├── time_series_value.h        # TimeSeriesValue, TimeSeriesValueView
+        ├── deref_time_series_value.h  # DerefTimeSeriesValue (REF dereferencing wrapper)
+        ├── bound_value.h              # BoundValue (schema-driven binding result)
+        ├── bind.h                     # Schema matching and binding functions
+        ├── python_conversion.h        # Python conversion ops, named type instances
+        ├── VALUE_DESIGN.md            # This document
+        └── VALUE_USER_GUIDE.md        # User guide
 ```
 
 ## Testing

@@ -10,6 +10,7 @@
 #include <ankerl/unordered_dense.h>
 #include <memory>
 #include <cassert>
+#include <optional>
 #include <vector>
 
 namespace hgraph::value {
@@ -129,13 +130,29 @@ namespace hgraph::value {
         [[nodiscard]] size_t size() const { return _index_set.size(); }
         [[nodiscard]] bool empty() const { return _index_set.empty(); }
 
+        // Find the stable index for a value (for tracking/observer lookup)
+        [[nodiscard]] std::optional<size_t> find_index(const void* value) const {
+            if (!_element_type || _index_set.empty()) return std::nullopt;
+            auto it = _index_set.find(value);
+            if (it == _index_set.end()) return std::nullopt;
+            return *it;
+        }
+
         // Add element (returns true if added, false if already present)
         bool add(const void* value) {
-            if (!_element_type) return false;
+            auto [added, index] = add_with_index(value);
+            return added;
+        }
+
+        // Add element with index return (for tracking)
+        // Returns (was_added, index) - index is valid even if element already existed
+        std::pair<bool, size_t> add_with_index(const void* value) {
+            if (!_element_type) return {false, 0};
 
             // Check if already present using heterogeneous lookup
-            if (_index_set.find(value) != _index_set.end()) {
-                return false;
+            auto it = _index_set.find(value);
+            if (it != _index_set.end()) {
+                return {false, *it};  // Already present, return existing index
             }
 
             // Add new element
@@ -147,22 +164,29 @@ namespace hgraph::value {
 
             // Insert index into set
             _index_set.insert(new_idx);
-            return true;
+            return {true, new_idx};
         }
 
         // Remove element
         bool remove(const void* value) {
-            if (!_element_type || _index_set.empty()) return false;
+            auto [removed, index] = remove_with_index(value);
+            return removed;
+        }
+
+        // Remove element with index return (for tracking)
+        // Returns (was_removed, index) - index is the removed element's index
+        std::pair<bool, size_t> remove_with_index(const void* value) {
+            if (!_element_type || _index_set.empty()) return {false, 0};
 
             auto it = _index_set.find(value);
             if (it == _index_set.end()) {
-                return false;
+                return {false, 0};
             }
 
             size_t idx = *it;
             _element_type->destruct_at(element_ptr(idx));
             _index_set.erase(it);
-            return true;
+            return {true, idx};
         }
 
         // Check if element exists - O(1) average
@@ -186,6 +210,7 @@ namespace hgraph::value {
         // Iteration support - iterates over active elements via the index set
         class Iterator {
         public:
+            Iterator() : _storage(nullptr) {}
             Iterator(const SetStorage* storage, typename IndexSet::const_iterator it)
                 : _storage(storage), _it(it) {}
 

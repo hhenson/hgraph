@@ -7,6 +7,7 @@
 
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/scalar_type.h>
+#include <hgraph/types/value/set_type.h>
 #include <ankerl/unordered_dense.h>
 #include <memory>
 #include <cassert>
@@ -20,113 +21,64 @@ namespace hgraph::value {
      *
      * Dictionaries are dynamic key-value collections with type-erased storage.
      * Key type must be hashable and equatable.
+     *
+     * Dict is conceptually a Set<K> + Values<V>, so we embed the key set meta
+     * rather than the raw key type. This enables:
+     * - Direct keys() access returning a SetView
+     * - Shared modification tracking between Set and Dict
+     * - Clean ownership (the SetTypeMeta is embedded, not a separate allocation)
      */
     struct DictTypeMeta : TypeMeta {
-        const TypeMeta* key_type;
+        SetTypeMeta key_set_meta;  // Embedded set meta for keys
         const TypeMeta* value_type;
-    };
 
-    // Forward declaration
-    class DictStorage;
+        // Accessor for API that expects a pointer to SetTypeMeta
+        [[nodiscard]] const SetTypeMeta* key_set_type() const {
+            return &key_set_meta;
+        }
 
-    /**
-     * DictIndexHash - Transparent hash functor for DictStorage
-     *
-     * Supports heterogeneous lookup: can hash both indices (existing keys)
-     * and raw pointers (lookup keys).
-     */
-    struct DictIndexHash {
-        using is_transparent = void;
-        using is_avalanching = void;
-
-        const DictStorage* storage{nullptr};
-
-        DictIndexHash() = default;
-        DictIndexHash(const DictStorage* s) : storage(s) {}
-
-        [[nodiscard]] auto operator()(size_t idx) const -> uint64_t;
-        [[nodiscard]] auto operator()(const void* ptr) const -> uint64_t;
-    };
-
-    /**
-     * DictIndexEqual - Transparent equality functor for DictStorage
-     *
-     * Supports heterogeneous lookup: can compare indices with indices,
-     * indices with pointers, and pointers with indices.
-     */
-    struct DictIndexEqual {
-        using is_transparent = void;
-
-        const DictStorage* storage{nullptr};
-
-        DictIndexEqual() = default;
-        DictIndexEqual(const DictStorage* s) : storage(s) {}
-
-        [[nodiscard]] bool operator()(size_t a, size_t b) const;
-        [[nodiscard]] bool operator()(size_t idx, const void* ptr) const;
-        [[nodiscard]] bool operator()(const void* ptr, size_t idx) const;
+        // Convenience accessor for key element type
+        [[nodiscard]] const TypeMeta* key_type() const {
+            return key_set_meta.element_type;
+        }
     };
 
     /**
      * DictStorage - Internal storage for a type-erased dictionary
      *
-     * Uses ankerl::unordered_dense for O(1) operations with robin-hood hashing.
-     * Keys and values are stored in parallel contiguous vectors.
-     * The set stores indices into the key/value vectors.
+     * Composes SetStorage for keys, with parallel value storage.
+     * This enables:
+     * - Direct keys() access to the underlying SetStorage
+     * - Shared index scheme between keys and values
+     * - Consistent API with SetStorage
      */
     class DictStorage {
     public:
-        friend struct DictIndexHash;
-        friend struct DictIndexEqual;
-
-        using IndexSet = ankerl::unordered_dense::set<size_t, DictIndexHash, DictIndexEqual>;
-
         DictStorage() = default;
 
         DictStorage(const TypeMeta* key_type, const TypeMeta* value_type)
-            : _key_type(key_type)
-            , _value_type(value_type)
-            , _index_set(0, DictIndexHash(this), DictIndexEqual(this)) {
+            : _key_set(key_type)
+            , _value_type(value_type) {
         }
 
         ~DictStorage() {
-            clear();
+            clear_values();
         }
 
         DictStorage(DictStorage&& other) noexcept
-            : _key_type(other._key_type)
-            , _value_type(other._value_type)
-            , _keys(std::move(other._keys))
+            : _key_set(std::move(other._key_set))
             , _values(std::move(other._values))
-            , _entry_count(other._entry_count)
-            , _index_set(0, DictIndexHash(this), DictIndexEqual(this)) {
-            // Rebuild index set with our own functors pointing to this
-            for (size_t idx : other._index_set) {
-                _index_set.insert(idx);
-            }
-            other._key_type = nullptr;
+            , _value_type(other._value_type) {
             other._value_type = nullptr;
-            other._entry_count = 0;
-            other._index_set.clear();
         }
 
         DictStorage& operator=(DictStorage&& other) noexcept {
             if (this != &other) {
-                clear();
-                _key_type = other._key_type;
-                _value_type = other._value_type;
-                _keys = std::move(other._keys);
+                clear_values();
+                _key_set = std::move(other._key_set);
                 _values = std::move(other._values);
-                _entry_count = other._entry_count;
-                // Rebuild index set with our own functors
-                _index_set = IndexSet(0, DictIndexHash(this), DictIndexEqual(this));
-                for (size_t idx : other._index_set) {
-                    _index_set.insert(idx);
-                }
-                other._key_type = nullptr;
+                _value_type = other._value_type;
                 other._value_type = nullptr;
-                other._entry_count = 0;
-                other._index_set.clear();
             }
             return *this;
         }
@@ -134,85 +86,78 @@ namespace hgraph::value {
         DictStorage(const DictStorage&) = delete;
         DictStorage& operator=(const DictStorage&) = delete;
 
-        [[nodiscard]] const TypeMeta* key_type() const { return _key_type; }
+        // Expose key set for direct access
+        [[nodiscard]] const SetStorage& keys() const { return _key_set; }
+        [[nodiscard]] SetStorage& keys() { return _key_set; }
+
+        [[nodiscard]] const TypeMeta* key_type() const { return _key_set.element_type(); }
         [[nodiscard]] const TypeMeta* value_type() const { return _value_type; }
-        [[nodiscard]] size_t size() const { return _index_set.size(); }
-        [[nodiscard]] bool empty() const { return _index_set.empty(); }
+        [[nodiscard]] size_t size() const { return _key_set.size(); }
+        [[nodiscard]] bool empty() const { return _key_set.empty(); }
 
         // Insert or update a key-value pair - O(1) average
-        void insert(const void* key, const void* value) {
-            if (!_key_type || !_value_type) return;
+        // Returns (was_new_key, index)
+        std::pair<bool, size_t> insert(const void* key, const void* value) {
+            if (!key_type() || !_value_type) return {false, 0};
 
-            // Check if key already exists using heterogeneous lookup
-            auto it = _index_set.find(key);
-            if (it != _index_set.end()) {
-                // Update existing value
-                _value_type->copy_assign_at(value_ptr(*it), value);
-                return;
+            // Try to add key to set
+            auto [added, idx] = _key_set.add_with_index(key);
+
+            if (added) {
+                // New key - allocate value storage
+                ensure_value_capacity(idx + 1);
+                _value_type->copy_construct_at(value_ptr(idx), value);
+            } else {
+                // Existing key - update value
+                _value_type->copy_assign_at(value_ptr(idx), value);
             }
 
-            // Add new entry
-            size_t new_idx = _entry_count;
-            _keys.resize(_keys.size() + _key_type->size);
-            _values.resize(_values.size() + _value_type->size);
-            _key_type->copy_construct_at(key_ptr(new_idx), key);
-            _value_type->copy_construct_at(value_ptr(new_idx), value);
-            ++_entry_count;
-
-            // Insert index into set
-            _index_set.insert(new_idx);
+            return {added, idx};
         }
 
         // Remove by key - O(1) average
-        bool remove(const void* key) {
-            if (!_key_type || _index_set.empty()) return false;
+        // Returns (was_removed, index)
+        std::pair<bool, size_t> remove(const void* key) {
+            if (!key_type() || _key_set.empty()) return {false, 0};
 
-            auto it = _index_set.find(key);
-            if (it == _index_set.end()) {
-                return false;
+            auto [removed, idx] = _key_set.remove_with_index(key);
+
+            if (removed) {
+                // Destruct the value (key already destructed by SetStorage)
+                _value_type->destruct_at(value_ptr(idx));
             }
 
-            size_t idx = *it;
-            _key_type->destruct_at(key_ptr(idx));
-            _value_type->destruct_at(value_ptr(idx));
-            _index_set.erase(it);
-            return true;
+            return {removed, idx};
         }
 
         // Check if key exists - O(1) average
         [[nodiscard]] bool contains(const void* key) const {
-            if (!_key_type || _index_set.empty()) return false;
-            return _index_set.find(key) != _index_set.end();
+            return _key_set.contains(key);
         }
 
         // Find the entry index for a key - O(1) average
-        // Returns the stable index for observer storage lookup
         [[nodiscard]] std::optional<size_t> find_index(const void* key) const {
-            if (!_key_type || _index_set.empty()) return std::nullopt;
-            auto it = _index_set.find(key);
-            if (it == _index_set.end()) return std::nullopt;
-            return *it;
+            return _key_set.find_index(key);
         }
 
         // Get value by key - O(1) average (returns nullptr if not found)
         [[nodiscard]] void* get(const void* key) {
-            if (!_key_type || _index_set.empty()) return nullptr;
-
-            auto it = _index_set.find(key);
-            if (it == _index_set.end()) {
-                return nullptr;
-            }
-            return value_ptr(*it);
+            auto idx = _key_set.find_index(key);
+            return idx ? value_ptr(*idx) : nullptr;
         }
 
         [[nodiscard]] const void* get(const void* key) const {
-            if (!_key_type || _index_set.empty()) return nullptr;
+            auto idx = _key_set.find_index(key);
+            return idx ? value_ptr(*idx) : nullptr;
+        }
 
-            auto it = _index_set.find(key);
-            if (it == _index_set.end()) {
-                return nullptr;
-            }
-            return value_ptr(*it);
+        // Get value by index directly
+        [[nodiscard]] void* value_at(size_t idx) {
+            return value_ptr(idx);
+        }
+
+        [[nodiscard]] const void* value_at(size_t idx) const {
+            return value_ptr(idx);
         }
 
         // Get typed pointer to value
@@ -228,38 +173,47 @@ namespace hgraph::value {
 
         // Clear all entries
         void clear() {
-            if (_key_type && _value_type) {
-                for (size_t idx : _index_set) {
-                    _key_type->destruct_at(key_ptr(idx));
-                    _value_type->destruct_at(value_ptr(idx));
+            // Clear values first (keys will be cleared by SetStorage)
+            for (auto it = _key_set.begin(); it != _key_set.end(); ++it) {
+                auto elem = *it;
+                // The iterator gives us the element ptr, but we need the index
+                // Use find_index to get it
+                auto idx = _key_set.find_index(elem.ptr);
+                if (idx) {
+                    _value_type->destruct_at(value_ptr(*idx));
                 }
             }
-            _keys.clear();
             _values.clear();
-            _index_set.clear();
-            _entry_count = 0;
+            _key_set.clear();
         }
 
-        // Iteration support
+        // Iteration support - iterates over key-value pairs
         struct KeyValuePair {
             ConstTypedPtr key;
             TypedPtr value;
+            size_t index;
         };
 
         struct ConstKeyValuePair {
             ConstTypedPtr key;
             ConstTypedPtr value;
+            size_t index;
         };
 
         class Iterator {
         public:
-            Iterator(DictStorage* storage, typename IndexSet::iterator it)
+            Iterator() : _storage(nullptr) {}
+            Iterator(DictStorage* storage, SetStorage::Iterator it)
                 : _storage(storage), _it(it) {}
 
             KeyValuePair operator*() const {
+                auto key_elem = *_it;
+                auto idx = _storage->_key_set.find_index(key_elem.ptr);
+                size_t index = idx.value_or(0);
                 return {
-                    {_storage->key_ptr(*_it), _storage->_key_type},
-                    {_storage->value_ptr(*_it), _storage->_value_type}
+                    key_elem,
+                    {_storage->value_ptr(index), _storage->_value_type},
+                    index
                 };
             }
 
@@ -278,18 +232,23 @@ namespace hgraph::value {
 
         private:
             DictStorage* _storage;
-            typename IndexSet::iterator _it;
+            SetStorage::Iterator _it;
         };
 
         class ConstIterator {
         public:
-            ConstIterator(const DictStorage* storage, typename IndexSet::const_iterator it)
+            ConstIterator() : _storage(nullptr) {}
+            ConstIterator(const DictStorage* storage, SetStorage::Iterator it)
                 : _storage(storage), _it(it) {}
 
             ConstKeyValuePair operator*() const {
+                auto key_elem = *_it;
+                auto idx = _storage->_key_set.find_index(key_elem.ptr);
+                size_t index = idx.value_or(0);
                 return {
-                    {_storage->key_ptr(*_it), _storage->_key_type},
-                    {_storage->value_ptr(*_it), _storage->_value_type}
+                    key_elem,
+                    {_storage->value_ptr(index), _storage->_value_type},
+                    index
                 };
             }
 
@@ -308,32 +267,44 @@ namespace hgraph::value {
 
         private:
             const DictStorage* _storage;
-            typename IndexSet::const_iterator _it;
+            SetStorage::Iterator _it;
         };
 
         [[nodiscard]] Iterator begin() {
-            return Iterator(this, _index_set.begin());
+            return Iterator(this, _key_set.begin());
         }
 
         [[nodiscard]] Iterator end() {
-            return Iterator(this, _index_set.end());
+            return Iterator(this, _key_set.end());
         }
 
         [[nodiscard]] ConstIterator begin() const {
-            return ConstIterator(this, _index_set.begin());
+            return ConstIterator(this, _key_set.begin());
         }
 
         [[nodiscard]] ConstIterator end() const {
-            return ConstIterator(this, _index_set.end());
+            return ConstIterator(this, _key_set.end());
         }
 
     private:
-        [[nodiscard]] void* key_ptr(size_t idx) {
-            return _keys.data() + idx * _key_type->size;
+        void ensure_value_capacity(size_t count) {
+            size_t needed = count * _value_type->size;
+            if (_values.size() < needed) {
+                _values.resize(needed);
+            }
         }
 
-        [[nodiscard]] const void* key_ptr(size_t idx) const {
-            return _keys.data() + idx * _key_type->size;
+        void clear_values() {
+            if (_value_type) {
+                for (auto it = _key_set.begin(); it != _key_set.end(); ++it) {
+                    auto key_elem = *it;
+                    auto idx = _key_set.find_index(key_elem.ptr);
+                    if (idx) {
+                        _value_type->destruct_at(value_ptr(*idx));
+                    }
+                }
+            }
+            _values.clear();
         }
 
         [[nodiscard]] void* value_ptr(size_t idx) {
@@ -344,38 +315,10 @@ namespace hgraph::value {
             return _values.data() + idx * _value_type->size;
         }
 
-        const TypeMeta* _key_type{nullptr};
+        SetStorage _key_set;
+        std::vector<char> _values;
         const TypeMeta* _value_type{nullptr};
-        std::vector<char> _keys;           // Raw storage for keys
-        std::vector<char> _values;         // Raw storage for values
-        size_t _entry_count{0};            // Total entries allocated
-        IndexSet _index_set;               // Robin-hood hash set of indices
     };
-
-    // Implementation of DictIndexHash
-    inline auto DictIndexHash::operator()(size_t idx) const -> uint64_t {
-        return storage->_key_type->hash_at(storage->key_ptr(idx));
-    }
-
-    inline auto DictIndexHash::operator()(const void* ptr) const -> uint64_t {
-        return storage->_key_type->hash_at(ptr);
-    }
-
-    // Implementation of DictIndexEqual
-    inline bool DictIndexEqual::operator()(size_t a, size_t b) const {
-        return storage->_key_type->equals_at(
-            storage->key_ptr(a),
-            storage->key_ptr(b)
-        );
-    }
-
-    inline bool DictIndexEqual::operator()(size_t idx, const void* ptr) const {
-        return storage->_key_type->equals_at(storage->key_ptr(idx), ptr);
-    }
-
-    inline bool DictIndexEqual::operator()(const void* ptr, size_t idx) const {
-        return storage->_key_type->equals_at(ptr, storage->key_ptr(idx));
-    }
 
     /**
      * DictTypeOps - Operations for dict types
@@ -383,7 +326,7 @@ namespace hgraph::value {
     struct DictTypeOps {
         static void construct(void* dest, const TypeMeta* meta) {
             auto* dict_meta = static_cast<const DictTypeMeta*>(meta);
-            new (dest) DictStorage(dict_meta->key_type, dict_meta->value_type);
+            new (dest) DictStorage(dict_meta->key_type(), dict_meta->value_type);
         }
 
         static void destruct(void* dest, const TypeMeta*) {
@@ -393,7 +336,7 @@ namespace hgraph::value {
         static void copy_construct(void* dest, const void* src, const TypeMeta* meta) {
             auto* dict_meta = static_cast<const DictTypeMeta*>(meta);
             auto* src_dict = static_cast<const DictStorage*>(src);
-            new (dest) DictStorage(dict_meta->key_type, dict_meta->value_type);
+            new (dest) DictStorage(dict_meta->key_type(), dict_meta->value_type);
             auto* dest_dict = static_cast<DictStorage*>(dest);
             for (auto kv : *src_dict) {
                 dest_dict->insert(kv.key.ptr, kv.value.ptr);
@@ -503,6 +446,7 @@ namespace hgraph::value {
                 flags = flags | TypeFlags::Hashable;
             }
 
+            // Initialize the DictTypeMeta
             meta->size = sizeof(DictStorage);
             meta->alignment = alignof(DictStorage);
             meta->flags = flags;
@@ -510,8 +454,17 @@ namespace hgraph::value {
             meta->ops = &DictTypeOps::ops;
             meta->type_info = nullptr;
             meta->name = type_name;
-            meta->key_type = _key_type;
             meta->value_type = _value_type;
+
+            // Initialize the embedded SetTypeMeta for keys
+            meta->key_set_meta.size = sizeof(SetStorage);
+            meta->key_set_meta.alignment = alignof(SetStorage);
+            meta->key_set_meta.flags = TypeFlags::Hashable | TypeFlags::Equatable;
+            meta->key_set_meta.kind = TypeKind::Set;
+            meta->key_set_meta.ops = &SetTypeOps::ops;
+            meta->key_set_meta.type_info = nullptr;
+            meta->key_set_meta.name = nullptr;  // Anonymous set type for keys
+            meta->key_set_meta.element_type = _key_type;
 
             return meta;
         }
@@ -531,7 +484,7 @@ namespace hgraph::value {
         explicit DictView(const DictTypeMeta* meta)
             : _meta(meta) {
             if (_meta) {
-                _storage = new DictStorage(_meta->key_type, _meta->value_type);
+                _storage = new DictStorage(_meta->key_type(), _meta->value_type);
                 _owns_storage = true;
             }
         }
@@ -629,21 +582,21 @@ namespace hgraph::value {
 
         // Iteration
         [[nodiscard]] DictStorage::Iterator begin() {
-            return _storage ? _storage->begin() : DictStorage::Iterator(nullptr, {});
+            return _storage ? _storage->begin() : DictStorage::Iterator{};
         }
 
         [[nodiscard]] DictStorage::Iterator end() {
-            return _storage ? _storage->end() : DictStorage::Iterator(nullptr, {});
+            return _storage ? _storage->end() : DictStorage::Iterator{};
         }
 
         [[nodiscard]] DictStorage::ConstIterator cbegin() const {
             return _storage ? static_cast<const DictStorage*>(_storage)->begin()
-                            : DictStorage::ConstIterator(nullptr, {});
+                            : DictStorage::ConstIterator{};
         }
 
         [[nodiscard]] DictStorage::ConstIterator cend() const {
             return _storage ? static_cast<const DictStorage*>(_storage)->end()
-                            : DictStorage::ConstIterator(nullptr, {});
+                            : DictStorage::ConstIterator{};
         }
 
     private:
