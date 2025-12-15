@@ -32,6 +32,7 @@ namespace hgraph
             .def_prop_ro("output", [](TimeSeriesReference &self) { return wrap_output(self.output()); })
             .def_prop_ro("items", &TimeSeriesReference::items)
             .def("__getitem__", &TimeSeriesReference::operator[])
+            .def("__eq__", &TimeSeriesReference::operator==)
             .def_static(
                 "make",
                 [](nb::object ts, nb::object items) -> TimeSeriesReference {
