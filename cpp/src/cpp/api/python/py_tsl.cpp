@@ -90,12 +90,6 @@ namespace hgraph
         return impl()->empty();
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    void PyTimeSeriesList<T_TS, T_U>::clear() requires std::is_same_v<T_TS, PyTimeSeriesOutput> {
-        impl()->clear();
-    }
-
     template <typename T_TS, typename T_U> constexpr const char *get_list_type_name() {
         if constexpr (std::is_same_v<T_TS, PyTimeSeriesInput>) {
             return "TimeSeriesListInput@{:p}[keys={}, valid={}]";
@@ -132,7 +126,7 @@ namespace hgraph
     template <typename T_TS, typename T_U> void _register_tsl_with_nanobind(nb::module_ &m) {
         using PyTS_Type = PyTimeSeriesList<T_TS, T_U>;
 
-        auto cls = nb::class_<PyTS_Type, T_TS>(m, std::is_same_v<T_TS, PyTimeSeriesInput> ? "TimeSeriesListInput" : "TimeSeriesListOutput")
+        nb::class_<PyTS_Type, T_TS>(m, std::is_same_v<T_TS, PyTimeSeriesInput> ? "TimeSeriesListInput" : "TimeSeriesListOutput")
             .def("__getitem__", &PyTS_Type::get_item)
             .def("__iter__", &PyTS_Type::iter)
             .def("__len__", &PyTS_Type::len)
@@ -148,11 +142,6 @@ namespace hgraph
             .def("modified_items", &PyTS_Type::modified_items)
             .def("__str__", &PyTS_Type::py_str)
             .def("__repr__", &PyTS_Type::py_repr);
-
-        // clear() only available on output
-        if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
-            cls.def("clear", &PyTS_Type::clear);
-        }
     }
 
     void tsl_register_with_nanobind(nb::module_ &m) {
