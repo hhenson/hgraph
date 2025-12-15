@@ -85,6 +85,9 @@ if is_feature_enabled("use_cpp"):
 
 
         class HgCppFactory(hgraph.TimeSeriesBuilderFactory):
+            def __init__(self):
+                self._use_v2 = is_feature_enabled("use_v2")
+
             def make_error_builder(self, value_tp):
                 return self.make_output_builder(value_tp)
 
@@ -92,6 +95,17 @@ if is_feature_enabled("use_cpp"):
                 return _tsw_input_builder_type_for(value_tp.value_scalar_tp)()
 
             def make_input_builder(self, value_tp):
+                # V2: Use unified builders based on TimeSeriesTypeMeta
+                # Falls back to V1 if cpp_type_meta is None (for types not yet supported in V2)
+                if self._use_v2:
+                    cpp_meta = value_tp.cpp_type_meta
+                    if cpp_meta is not None:
+                        try:
+                            return _hgraph.make_input_builder(cpp_meta)
+                        except RuntimeError:
+                            pass  # Fall back to V1 for unsupported types (e.g., TSD)
+
+                # V1: Original implementation with type-specific builders
                 return {
                     hgraph.HgSignalMetaData: lambda: _hgraph.InputBuilder_TS_Signal(),
                     hgraph.HgTSTypeMetaData: lambda: _ts_input_builder_type_for(value_tp.value_scalar_tp)(),
@@ -134,6 +148,17 @@ if is_feature_enabled("use_cpp"):
                     )
 
             def make_output_builder(self, value_tp):
+                # V2: Use unified builders based on TimeSeriesTypeMeta
+                # Falls back to V1 if cpp_type_meta is None (for types not yet supported in V2)
+                if self._use_v2:
+                    cpp_meta = value_tp.cpp_type_meta
+                    if cpp_meta is not None:
+                        try:
+                            return _hgraph.make_output_builder(cpp_meta)
+                        except RuntimeError:
+                            pass  # Fall back to V1 for unsupported types (e.g., TSD)
+
+                # V1: Original implementation with type-specific builders
                 return {
                     hgraph.HgTSTypeMetaData: lambda: _ts_output_builder_for_tp(value_tp.value_scalar_tp)(),
                     hgraph.HgTSLTypeMetaData: lambda: _hgraph.OutputBuilder_TSL(
