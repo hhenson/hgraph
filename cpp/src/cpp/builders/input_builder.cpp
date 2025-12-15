@@ -15,6 +15,7 @@
 #include <hgraph/builders/time_series_types/time_series_signal_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_value_input_builder.h>
 #include <hgraph/builders/time_series_types/time_series_window_input_builder.h>
+#include <hgraph/builders/time_series_types/cpp_time_series_builder.h>
 #include <hgraph/api/python/wrapper_factory.h>
 
 namespace hgraph {
@@ -66,5 +67,8 @@ namespace hgraph {
         time_series_set_input_builder_register_with_nanobind(m);
         time_series_window_input_builder_register_with_nanobind(m);
         time_series_dict_input_builder_register_with_nanobind(m);
+
+        // Unified Cpp time-series input builder
+        cpp_time_series_input_builder_register_with_nanobind(m);
     }
 } // namespace hgraph

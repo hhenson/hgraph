@@ -12,6 +12,7 @@
 #include <hgraph/builders/time_series_types/time_series_set_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_value_output_builder.h>
 #include <hgraph/builders/time_series_types/time_series_window_output_builder.h>
+#include <hgraph/builders/time_series_types/cpp_time_series_builder.h>
 #include <hgraph/api/python/wrapper_factory.h>
 
 namespace hgraph {
@@ -67,5 +68,8 @@ namespace hgraph {
         time_series_set_output_builder_register_with_nanobind(m);
         time_series_window_output_builder_register_with_nanobind(m);
         time_series_dict_output_builder_register_with_nanobind(m);
+
+        // Unified Cpp time-series output builder
+        cpp_time_series_output_builder_register_with_nanobind(m);
     }
 } // namespace hgraph

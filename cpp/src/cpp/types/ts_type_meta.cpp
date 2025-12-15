@@ -6,8 +6,32 @@
 
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/ts.h>
+#include <hgraph/types/tss.h>
+#include <hgraph/types/tsd.h>
+#include <hgraph/types/tsl.h>
+#include <hgraph/types/tsb.h>
+#include <hgraph/types/tsw.h>
+#include <hgraph/types/ref.h>
+#include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
+
+// ============================================================================
+// TimeSeriesTypeMeta - Base class default implementations
+// ============================================================================
+
+time_series_output_s_ptr TimeSeriesTypeMeta::make_output(time_series_output_ptr owning_output) const {
+    // Default: create using the parent's owning node
+    // This creates time-series with node parentage rather than time-series parentage
+    // Concrete types may override this if they need different behavior
+    return make_output(owning_output->owning_node());
+}
+
+time_series_input_s_ptr TimeSeriesTypeMeta::make_input(time_series_input_ptr owning_input) const {
+    // Default: create using the parent's owning node
+    return make_input(owning_input->owning_node());
+}
 
 // ============================================================================
 // TSTypeMeta - TS[T]
@@ -16,6 +40,16 @@ namespace hgraph {
 std::string TSTypeMeta::type_name_str() const {
     if (name) return name;
     return "TS[" + scalar_type->type_name_str() + "]";
+}
+
+time_series_output_s_ptr TSTypeMeta::make_output(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
+}
+
+time_series_input_s_ptr TSTypeMeta::make_input(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
 }
 
 // ============================================================================
@@ -27,6 +61,16 @@ std::string TSSTypeMeta::type_name_str() const {
     return "TSS[" + element_type->type_name_str() + "]";
 }
 
+time_series_output_s_ptr TSSTypeMeta::make_output(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
+}
+
+time_series_input_s_ptr TSSTypeMeta::make_input(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
+}
+
 // ============================================================================
 // TSDTypeMeta - TSD[K, V]
 // ============================================================================
@@ -35,6 +79,16 @@ std::string TSDTypeMeta::type_name_str() const {
     if (name) return name;
     return "TSD[" + key_type->type_name_str() + ", " +
            value_ts_type->type_name_str() + "]";
+}
+
+time_series_output_s_ptr TSDTypeMeta::make_output(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
+}
+
+time_series_input_s_ptr TSDTypeMeta::make_input(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
 }
 
 // ============================================================================
@@ -49,6 +103,16 @@ std::string TSLTypeMeta::type_name_str() const {
     }
     result += "]";
     return result;
+}
+
+time_series_output_s_ptr TSLTypeMeta::make_output(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
+}
+
+time_series_input_s_ptr TSLTypeMeta::make_input(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
 }
 
 // ============================================================================
@@ -68,6 +132,16 @@ std::string TSBTypeMeta::type_name_str() const {
     return result;
 }
 
+time_series_output_s_ptr TSBTypeMeta::make_output(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
+}
+
+time_series_input_s_ptr TSBTypeMeta::make_input(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
+}
+
 // ============================================================================
 // TSWTypeMeta - TSW[T, Size]
 // ============================================================================
@@ -82,6 +156,16 @@ std::string TSWTypeMeta::type_name_str() const {
     return result;
 }
 
+time_series_output_s_ptr TSWTypeMeta::make_output(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
+}
+
+time_series_input_s_ptr TSWTypeMeta::make_input(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
+}
+
 // ============================================================================
 // REFTypeMeta - REF[TS_TYPE]
 // ============================================================================
@@ -89,6 +173,16 @@ std::string TSWTypeMeta::type_name_str() const {
 std::string REFTypeMeta::type_name_str() const {
     if (name) return name;
     return "REF[" + value_ts_type->type_name_str() + "]";
+}
+
+time_series_output_s_ptr REFTypeMeta::make_output(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
+}
+
+time_series_input_s_ptr REFTypeMeta::make_input(node_ptr owning_node) const {
+    //TODO: Implement
+    return {};
 }
 
 // ============================================================================

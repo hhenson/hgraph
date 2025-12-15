@@ -43,6 +43,7 @@ set(HGRAPH_SOURCES
         builders/time_series_types/time_series_window_input_builder.cpp
         builders/time_series_types/time_series_dict_input_builder.cpp
         builders/time_series_types/time_series_value_output_builder.cpp
+        builders/time_series_types/cpp_time_series_builder.cpp
         builders/time_series_types/time_series_list_output_builder.cpp
         builders/time_series_types/time_series_bundle_output_builder.cpp
         builders/time_series_types/time_series_set_output_builder.cpp
