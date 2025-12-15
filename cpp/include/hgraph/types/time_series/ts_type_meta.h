@@ -4,13 +4,14 @@
 // TimeSeriesTypeMeta - Type metadata for time-series types (TS, TSS, TSD, TSL, TSB, TSW)
 //
 // This is separate from value::TypeMeta which handles value types.
-// Time-series types are wrappers/descriptors for type introspection,
-// not value storage, so they don't need construct/destruct/copy operations.
+// The type meta itself acts as a builder - it can efficiently construct instances
+// of the time-series type it represents.
 //
 
 #ifndef HGRAPH_TS_TYPE_META_H
 #define HGRAPH_TS_TYPE_META_H
 
+#include <hgraph/hgraph_forward_declarations.h>
 #include <hgraph/types/value/type_meta.h>
 #include <string>
 #include <vector>
@@ -34,8 +35,9 @@ enum class TimeSeriesKind : uint8_t {
 /**
  * TimeSeriesTypeMeta - Base structure for all time-series type metadata
  *
- * Unlike value::TypeMeta, this only provides type introspection capabilities.
- * Time-series objects are created and managed by the runtime, not by TypeMeta ops.
+ * The type meta acts as both a type descriptor and a builder.
+ * Each concrete type implements make_output/make_input to efficiently
+ * construct instances of the time-series type.
  */
 struct TimeSeriesTypeMeta {
     TimeSeriesKind ts_kind;
@@ -47,6 +49,35 @@ struct TimeSeriesTypeMeta {
      * Generate a type name string (e.g., "TS[int]", "TSD[str, TS[float]]")
      */
     [[nodiscard]] virtual std::string type_name_str() const = 0;
+
+    /**
+     * Create an output time-series instance owned by a node.
+     * The type meta knows how to efficiently construct the appropriate type.
+     */
+    [[nodiscard]] virtual time_series_output_s_ptr make_output(node_ptr owning_node) const = 0;
+
+    /**
+     * Create an output time-series instance owned by a parent time-series (for nested types).
+     * Default implementation delegates to the node-based version using parent's node.
+     */
+    [[nodiscard]] virtual time_series_output_s_ptr make_output(time_series_output_ptr owning_output) const;
+
+    /**
+     * Create an input time-series instance owned by a node.
+     * The type meta knows how to efficiently construct the appropriate type.
+     */
+    [[nodiscard]] virtual time_series_input_s_ptr make_input(node_ptr owning_node) const = 0;
+
+    /**
+     * Create an input time-series instance owned by a parent time-series (for nested types).
+     * Default implementation delegates to the node-based version using parent's node.
+     */
+    [[nodiscard]] virtual time_series_input_s_ptr make_input(time_series_input_ptr owning_input) const;
+
+    /**
+     * Returns true if this type represents a reference type (REF[...])
+     */
+    [[nodiscard]] bool is_reference() const { return ts_kind == TimeSeriesKind::REF; }
 };
 
 /**
@@ -58,6 +89,8 @@ struct TSTypeMeta : TimeSeriesTypeMeta {
     const value::TypeMeta* scalar_type;
 
     [[nodiscard]] std::string type_name_str() const override;
+    [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
+    [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
 };
 
 /**
@@ -69,6 +102,8 @@ struct TSSTypeMeta : TimeSeriesTypeMeta {
     const value::TypeMeta* element_type;
 
     [[nodiscard]] std::string type_name_str() const override;
+    [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
+    [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
 };
 
 /**
@@ -82,6 +117,8 @@ struct TSDTypeMeta : TimeSeriesTypeMeta {
     const TimeSeriesTypeMeta* value_ts_type;
 
     [[nodiscard]] std::string type_name_str() const override;
+    [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
+    [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
 };
 
 /**
@@ -95,6 +132,8 @@ struct TSLTypeMeta : TimeSeriesTypeMeta {
     int64_t size;  // -1 = dynamic/unresolved
 
     [[nodiscard]] std::string type_name_str() const override;
+    [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
+    [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
 };
 
 /**
@@ -110,6 +149,8 @@ struct TSBTypeMeta : TimeSeriesTypeMeta {
     std::vector<Field> fields;
 
     [[nodiscard]] std::string type_name_str() const override;
+    [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
+    [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
 };
 
 /**
@@ -123,6 +164,8 @@ struct TSWTypeMeta : TimeSeriesTypeMeta {
     int64_t min_size;   // min count, -1 for unspecified
 
     [[nodiscard]] std::string type_name_str() const override;
+    [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
+    [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
 };
 
 /**
@@ -135,6 +178,8 @@ struct REFTypeMeta : TimeSeriesTypeMeta {
     const TimeSeriesTypeMeta* value_ts_type;
 
     [[nodiscard]] std::string type_name_str() const override;
+    [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
+    [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
 };
 
 } // namespace hgraph
