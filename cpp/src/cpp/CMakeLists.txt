@@ -108,6 +108,7 @@ set(HGRAPH_SOURCES
         types/type_meta_bindings.cpp
         types/ts_type_meta.cpp
         types/ts_type_meta_bindings.cpp
+        types/time_series/ts_v2_types.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp

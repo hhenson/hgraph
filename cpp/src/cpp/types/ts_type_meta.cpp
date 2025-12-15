@@ -6,13 +6,7 @@
 
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
-#include <hgraph/types/ts.h>
-#include <hgraph/types/tss.h>
-#include <hgraph/types/tsd.h>
-#include <hgraph/types/tsl.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/tsw.h>
-#include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_v2_types.h>
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
@@ -43,13 +37,19 @@ std::string TSTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSTypeMeta::make_output(node_ptr owning_node) const {
-    //TODO: Implement
-    return {};
+    return std::make_shared<TsOutput>(owning_node, this);
 }
 
 time_series_input_s_ptr TSTypeMeta::make_input(node_ptr owning_node) const {
-    //TODO: Implement
-    return {};
+    return std::make_shared<TsInput>(owning_node, this);
+}
+
+size_t TSTypeMeta::output_memory_size() const {
+    return sizeof(TsOutput);
+}
+
+size_t TSTypeMeta::input_memory_size() const {
+    return sizeof(TsInput);
 }
 
 // ============================================================================
@@ -62,13 +62,19 @@ std::string TSSTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSSTypeMeta::make_output(node_ptr owning_node) const {
-    //TODO: Implement
-    return {};
+    return std::make_shared<TssOutput>(owning_node, this);
 }
 
 time_series_input_s_ptr TSSTypeMeta::make_input(node_ptr owning_node) const {
-    //TODO: Implement
-    return {};
+    return std::make_shared<TssInput>(owning_node, this);
+}
+
+size_t TSSTypeMeta::output_memory_size() const {
+    return sizeof(TssOutput);
+}
+
+size_t TSSTypeMeta::input_memory_size() const {
+    return sizeof(TssInput);
 }
 
 // ============================================================================
@@ -82,13 +88,23 @@ std::string TSDTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSDTypeMeta::make_output(node_ptr owning_node) const {
-    //TODO: Implement
+    // TSD V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
     return {};
 }
 
 time_series_input_s_ptr TSDTypeMeta::make_input(node_ptr owning_node) const {
-    //TODO: Implement
+    // TSD V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
     return {};
+}
+
+size_t TSDTypeMeta::output_memory_size() const {
+    // TSD V2 not yet implemented
+    return 0;
+}
+
+size_t TSDTypeMeta::input_memory_size() const {
+    // TSD V2 not yet implemented
+    return 0;
 }
 
 // ============================================================================
@@ -106,13 +122,20 @@ std::string TSLTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSLTypeMeta::make_output(node_ptr owning_node) const {
-    //TODO: Implement
-    return {};
+    return std::make_shared<TslOutput>(owning_node, this);
 }
 
 time_series_input_s_ptr TSLTypeMeta::make_input(node_ptr owning_node) const {
-    //TODO: Implement
-    return {};
+    return std::make_shared<TslInput>(owning_node, this);
+}
+
+size_t TSLTypeMeta::output_memory_size() const {
+    // Base size plus vector overhead (elements allocated separately)
+    return sizeof(TslOutput);
+}
+
+size_t TSLTypeMeta::input_memory_size() const {
+    return sizeof(TslInput);
 }
 
 // ============================================================================
@@ -133,13 +156,19 @@ std::string TSBTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSBTypeMeta::make_output(node_ptr owning_node) const {
-    //TODO: Implement
-    return {};
+    return std::make_shared<TsbOutput>(owning_node, this);
 }
 
 time_series_input_s_ptr TSBTypeMeta::make_input(node_ptr owning_node) const {
-    //TODO: Implement
-    return {};
+    return std::make_shared<TsbInput>(owning_node, this);
+}
+
+size_t TSBTypeMeta::output_memory_size() const {
+    return sizeof(TsbOutput);
+}
+
+size_t TSBTypeMeta::input_memory_size() const {
+    return sizeof(TsbInput);
 }
 
 // ============================================================================
@@ -157,13 +186,23 @@ std::string TSWTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSWTypeMeta::make_output(node_ptr owning_node) const {
-    //TODO: Implement
+    // TSW V2 not yet implemented - falls back to V1
     return {};
 }
 
 time_series_input_s_ptr TSWTypeMeta::make_input(node_ptr owning_node) const {
-    //TODO: Implement
+    // TSW V2 not yet implemented - falls back to V1
     return {};
+}
+
+size_t TSWTypeMeta::output_memory_size() const {
+    // TSW V2 not yet implemented
+    return 0;
+}
+
+size_t TSWTypeMeta::input_memory_size() const {
+    // TSW V2 not yet implemented
+    return 0;
 }
 
 // ============================================================================
@@ -176,13 +215,23 @@ std::string REFTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr REFTypeMeta::make_output(node_ptr owning_node) const {
-    //TODO: Implement
+    // REF V2 not yet implemented - falls back to V1
     return {};
 }
 
 time_series_input_s_ptr REFTypeMeta::make_input(node_ptr owning_node) const {
-    //TODO: Implement
+    // REF V2 not yet implemented - falls back to V1
     return {};
+}
+
+size_t REFTypeMeta::output_memory_size() const {
+    // REF V2 not yet implemented
+    return 0;
+}
+
+size_t REFTypeMeta::input_memory_size() const {
+    // REF V2 not yet implemented
+    return 0;
 }
 
 // ============================================================================

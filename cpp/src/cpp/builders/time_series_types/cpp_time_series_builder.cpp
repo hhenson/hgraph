@@ -41,10 +41,7 @@ bool CppTimeSeriesOutputBuilder::has_reference() const {
 }
 
 size_t CppTimeSeriesOutputBuilder::memory_size() const {
-    //TODO: THIS IS NOT ACCEPTABLE SIZE MUST BE KNOWN
-    // For now, return a reasonable estimate
-    // The actual size depends on the specific type
-    return sizeof(void*) * 8;  // Base estimate
+    return ts_type_meta->output_memory_size();
 }
 
 // ============================================================================
@@ -69,9 +66,7 @@ bool CppTimeSeriesInputBuilder::has_reference() const {
 }
 
 size_t CppTimeSeriesInputBuilder::memory_size() const {
-    //TODO: THIS IS NOT ACCEPTABLE SIZE MUST BE KNOWN
-    // For now, return a reasonable estimate
-    return sizeof(void*) * 8;  // Base estimate
+    return ts_type_meta->input_memory_size();
 }
 
 // ============================================================================

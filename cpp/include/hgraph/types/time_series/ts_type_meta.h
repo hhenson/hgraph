@@ -78,6 +78,18 @@ struct TimeSeriesTypeMeta {
      * Returns true if this type represents a reference type (REF[...])
      */
     [[nodiscard]] bool is_reference() const { return ts_kind == TimeSeriesKind::REF; }
+
+    /**
+     * Return the memory size required for output instances of this type.
+     * This must be accurate for arena allocation with in-place new.
+     */
+    [[nodiscard]] virtual size_t output_memory_size() const = 0;
+
+    /**
+     * Return the memory size required for input instances of this type.
+     * This must be accurate for arena allocation with in-place new.
+     */
+    [[nodiscard]] virtual size_t input_memory_size() const = 0;
 };
 
 /**
@@ -91,6 +103,8 @@ struct TSTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
+    [[nodiscard]] size_t output_memory_size() const override;
+    [[nodiscard]] size_t input_memory_size() const override;
 };
 
 /**
@@ -104,6 +118,8 @@ struct TSSTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
+    [[nodiscard]] size_t output_memory_size() const override;
+    [[nodiscard]] size_t input_memory_size() const override;
 };
 
 /**
@@ -119,6 +135,8 @@ struct TSDTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
+    [[nodiscard]] size_t output_memory_size() const override;
+    [[nodiscard]] size_t input_memory_size() const override;
 };
 
 /**
@@ -134,6 +152,8 @@ struct TSLTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
+    [[nodiscard]] size_t output_memory_size() const override;
+    [[nodiscard]] size_t input_memory_size() const override;
 };
 
 /**
@@ -151,6 +171,8 @@ struct TSBTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
+    [[nodiscard]] size_t output_memory_size() const override;
+    [[nodiscard]] size_t input_memory_size() const override;
 };
 
 /**
@@ -166,6 +188,8 @@ struct TSWTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
+    [[nodiscard]] size_t output_memory_size() const override;
+    [[nodiscard]] size_t input_memory_size() const override;
 };
 
 /**
@@ -180,6 +204,8 @@ struct REFTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
+    [[nodiscard]] size_t output_memory_size() const override;
+    [[nodiscard]] size_t input_memory_size() const override;
 };
 
 } // namespace hgraph
