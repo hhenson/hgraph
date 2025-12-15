@@ -136,21 +136,14 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
 
     @property
     def cpp_type_meta(self):
-        """Returns the C++ TimeSeriesTypeMeta for this TSD[K, V] type."""
-        from hgraph._feature_switch import is_feature_enabled
-        if not is_feature_enabled("use_cpp"):
-            return None
-        if not self.is_resolved:
-            return None
-        try:
-            import hgraph._hgraph as _hgraph
-            key_meta = self.key_tp.cpp_type_meta
-            value_ts_meta = self.value_tp.cpp_type_meta
-            if key_meta is None or value_ts_meta is None:
-                return None
-            return _hgraph.get_tsd_type_meta(key_meta, value_ts_meta)
-        except (ImportError, AttributeError):
-            return None
+        """Returns the C++ TimeSeriesTypeMeta for this TSD[K, V] type.
+
+        NOTE: TSD V2 builder support is not yet implemented, so this returns None
+        to allow fallback to V1 builders. Once TSD V2 support is added, this can
+        return the actual meta.
+        """
+        # V2 TSD builders not implemented yet - return None to use V1 fallback
+        return None
 
 
 class HgTSDOutTypeMetaData(HgTSDTypeMetaData):
