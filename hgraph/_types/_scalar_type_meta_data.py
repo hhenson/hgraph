@@ -239,6 +239,18 @@ class HgAtomicType(HgScalarTypeMetaData):
         return hash(self.py_type)
 
     @property
+    def cpp_type_meta(self):
+        """Returns the C++ TypeMeta for this atomic type."""
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            return _hgraph.get_scalar_type_meta(self.py_type)
+        except (ImportError, AttributeError):
+            return None
+
+    @property
     def generic_rank(self) -> dict[type, float]:
         return {self.py_type: 1e-10}
 

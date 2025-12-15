@@ -1,5 +1,5 @@
 from functools import lru_cache
-from typing import TypeVar, Type, Optional, TYPE_CHECKING
+from typing import TypeVar, Type, Optional, TYPE_CHECKING, Any
 
 if TYPE_CHECKING:
     from hgraph._types._ref_meta_data import HgREFTypeMetaData
@@ -72,6 +72,11 @@ class HgTypeMetaData:
     is_context_manager: bool = False  # Is this a context manager type
     is_context_wired: bool = False  # Is this auto-wiring from context
     py_type: Type  # The python type that represents this type
+
+    @property
+    def cpp_type_meta(self) -> "Optional[Any]":
+        """Returns the C++ TypeMeta for this type, or None if not available."""
+        return None
 
     @classmethod
     @lru_cache(maxsize=None)

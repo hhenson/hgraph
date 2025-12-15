@@ -108,6 +108,38 @@ namespace hgraph::value {
             }
         }
 
+        static std::string to_string(const void* v, const TypeMeta*) {
+            const T& val = *static_cast<const T*>(v);
+            if constexpr (std::is_same_v<T, bool>) {
+                return val ? "true" : "false";
+            } else if constexpr (std::is_arithmetic_v<T>) {
+                return std::to_string(val);
+            } else if constexpr (requires { std::to_string(val); }) {
+                return std::to_string(val);
+            } else {
+                return "<value>";
+            }
+        }
+
+        static std::string type_name(const TypeMeta*) {
+            // Return Python-style type names
+            if constexpr (std::is_same_v<T, bool>) {
+                return "bool";
+            } else if constexpr (std::is_same_v<T, int64_t>) {
+                return "int";
+            } else if constexpr (std::is_same_v<T, double>) {
+                return "float";
+            } else if constexpr (std::is_same_v<T, engine_date_t>) {
+                return "date";
+            } else if constexpr (std::is_same_v<T, engine_time_t>) {
+                return "datetime";
+            } else if constexpr (std::is_same_v<T, engine_time_delta_t>) {
+                return "timedelta";
+            } else {
+                return typeid(T).name();
+            }
+        }
+
         static void* to_python(const void* v, const TypeMeta*) {
             const T& val = *static_cast<const T*>(v);
             nb::object obj = nb::cast(val);
@@ -129,6 +161,8 @@ namespace hgraph::value {
             .equals = equals,
             .less_than = less_than,
             .hash = hash,
+            .to_string = to_string,
+            .type_name = type_name,
             .to_python = to_python,
             .from_python = from_python,
         };
@@ -180,6 +214,19 @@ namespace hgraph::value {
             }
         }
 
+        static std::string to_string(const void* v, const TypeMeta*) {
+            const nb::object& obj = *static_cast<const nb::object*>(v);
+            try {
+                return nb::cast<std::string>(nb::str(obj));
+            } catch (...) {
+                return "<object>";
+            }
+        }
+
+        static std::string type_name(const TypeMeta*) {
+            return "object";
+        }
+
         static void* to_python(const void* v, const TypeMeta*) {
             // Already a Python object - just increment refcount and return
             const nb::object& obj = *static_cast<const nb::object*>(v);
@@ -204,6 +251,8 @@ namespace hgraph::value {
         .equals = equals,
         .less_than = less_than,
         .hash = hash,
+        .to_string = to_string,
+        .type_name = type_name,
         .to_python = to_python,
         .from_python = from_python,
     };

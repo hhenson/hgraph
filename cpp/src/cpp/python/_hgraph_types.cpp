@@ -3,6 +3,7 @@
 #include <hgraph/api/python/py_tsl.h>
 
 #include <hgraph/api/python/py_ref.h>
+#include <hgraph/types/value/type_meta_bindings.h>
 
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
@@ -23,6 +24,9 @@
 
 void export_types(nb::module_ &m) {
     using namespace hgraph;
+
+    // Value type metadata
+    value::register_type_meta_with_nanobind(m);
 
     // Schema and scalar types (must come before time series types that use them)
     AbstractSchema::register_with_nanobind(m);
