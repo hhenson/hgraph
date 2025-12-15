@@ -437,7 +437,29 @@ class InsertionOrderIterator {
 - Con: Additional memory for bitmap (~1 bit per element)
 - Con: Memory fragmentation over time (tombstones accumulate)
 
-A compaction strategy could be added to periodically rebuild the storage and reclaim tombstone space when fragmentation exceeds a threshold.
+#### Compaction Strategy
+
+`SetStorage` and `DictStorage` include built-in compaction support to manage memory fragmentation:
+
+```cpp
+// Check fragmentation level (0.0 = no waste, 1.0 = all tombstones)
+double ratio = storage.fragmentation_ratio();
+
+// Compact when fragmentation exceeds threshold
+if (ratio > 0.5) {
+    storage.compact();  // Rebuilds storage, reclaims tombstones
+}
+```
+
+**`fragmentation_ratio()`**: Returns the proportion of allocated slots that are tombstones (removed elements). Calculated as `(capacity - active_count) / capacity`.
+
+**`compact()`**: Rebuilds the internal storage to eliminate tombstones:
+1. Creates new contiguous element storage
+2. Copies only active elements
+3. Rebuilds the index set
+4. Resets capacity to match active count
+
+This is useful after bulk deletions or when memory efficiency is critical. The operation is O(n) where n is the number of active elements.
 
 ## Thread Safety
 
@@ -1102,13 +1124,74 @@ if (binding.modified_at(time)) {
 binding.end_evaluation();
 ```
 
+## Delta Tracking
+
+The `bind.h` header provides delta computation for Set and Dict types, enabling efficient change detection between evaluation cycles.
+
+### SetDelta
+
+Tracks elements added to or removed from a set:
+
+```cpp
+struct SetDelta {
+    std::vector<ConstTypedPtr> added;    // Elements in new but not old
+    std::vector<ConstTypedPtr> removed;  // Elements in old but not new
+
+    [[nodiscard]] bool empty() const;
+    [[nodiscard]] size_t total_changes() const;
+};
+
+// Compute delta between two set values
+SetDelta delta = compute_set_delta(old_set_view, new_set_view);
+
+// Or compute full delta (treats old as defining removed, new as added)
+SetDelta full = compute_set_full_delta(old_set_view, new_set_view);
+```
+
+### DictDelta
+
+Tracks key-value pairs added, removed, or modified in a dictionary:
+
+```cpp
+struct DictDelta {
+    std::vector<DictStorage::ConstKeyValuePair> added;     // New keys
+    std::vector<DictStorage::ConstKeyValuePair> removed;   // Removed keys
+    std::vector<DictStorage::ConstKeyValuePair> modified;  // Existing keys with changed values
+
+    [[nodiscard]] bool empty() const;
+    [[nodiscard]] size_t total_changes() const;
+};
+
+// Compute delta between two dict values
+DictDelta delta = compute_dict_delta(old_dict_view, new_dict_view);
+
+// Or compute full delta
+DictDelta full = compute_dict_full_delta(old_dict_view, new_dict_view);
+```
+
+### Usage in Time-Series
+
+Delta tracking is essential for TSS (Time-Series Set) and TSD (Time-Series Dict) to implement `delta_value` semantics:
+
+```cpp
+// In TSS evaluation
+if (tss.modified_at(current_time)) {
+    SetDelta delta = compute_set_delta(previous_value, current_value);
+    for (const auto& elem : delta.added) {
+        // Process newly added elements
+    }
+    for (const auto& elem : delta.removed) {
+        // Process removed elements
+    }
+}
+```
+
 ## Future Extensions
 
 1. **Variant Type**: Union-like discriminated types
 2. **String Type**: Type-erased string with SSO
 3. **Serialization**: Binary and JSON serialization
-4. **Delta Tracking**: Track added/removed elements for TSS/TSD delta_value support
-5. **Through-Reference Tracking**: Track modifications through to the target value (REF[TS] → TS)
+4. **Through-Reference Tracking**: Track modifications through to the target value (REF[TS] → TS)
 
 ## File Structure
 
@@ -1160,3 +1243,5 @@ Test categories include:
 - **Observer/notification** (12 test cases)
 - **Window types** (17 test cases)
 - **Ref types** (18 test cases)
+- **Delta tracking** (Set/Dict delta computation)
+- **Compaction** (SetStorage/DictStorage fragmentation and compaction)
