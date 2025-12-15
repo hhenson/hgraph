@@ -285,6 +285,7 @@ namespace hgraph::value {
         meta->ops = &BundleTypeOps::ops;
         meta->type_info = nullptr;
         meta->name = type_name;
+        meta->numpy_format = nullptr;  // Bundles are not numpy-compatible
 
         return meta;
     }

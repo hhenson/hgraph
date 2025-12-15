@@ -113,6 +113,7 @@ namespace hgraph::value {
         const TypeOps* ops;
         const std::type_info* type_info;  // For debugging/RTTI (optional)
         const char* name;       // Human-readable name (optional)
+        const char* numpy_format;  // Numpy dtype format char (e.g., "d" for double, "q" for int64), nullptr if not numpy-compatible
 
         // Convenience methods
         [[nodiscard]] bool is_buffer_compatible() const {
@@ -133,6 +134,10 @@ namespace hgraph::value {
 
         [[nodiscard]] bool is_comparable() const {
             return has_flag(flags, TypeFlags::Comparable);
+        }
+
+        [[nodiscard]] bool is_numpy_compatible() const {
+            return numpy_format != nullptr;
         }
 
         // Operation wrappers

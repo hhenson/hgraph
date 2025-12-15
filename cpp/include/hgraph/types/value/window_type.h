@@ -233,6 +233,36 @@ namespace hgraph::value {
         [[nodiscard]] Iterator begin() const { return Iterator(this, 0); }
         [[nodiscard]] Iterator end() const { return Iterator(this, _count); }
 
+        // Buffer access for numpy compatibility
+        // Note: Requires compact() to be called first if _head != 0
+        [[nodiscard]] BufferInfo values_buffer_info() const {
+            if (!_element_type || _count == 0) {
+                return {};
+            }
+            // Only valid if compacted (head == 0)
+            if (_head != 0) {
+                return {};  // Must call compact() first
+            }
+            return BufferInfo{
+                .ptr = const_cast<void*>(static_cast<const void*>(_elements.data())),
+                .itemsize = _element_type->size,
+                .count = _count,
+                .readonly = true,
+            };
+        }
+
+        [[nodiscard]] const engine_time_t* timestamps_data() const {
+            // Only valid if compacted (head == 0)
+            if (_head != 0) {
+                return nullptr;  // Must call compact() first
+            }
+            return _timestamps.data();
+        }
+
+        [[nodiscard]] bool is_compacted() const {
+            return _head == 0;
+        }
+
     private:
         [[nodiscard]] size_t physical_index(size_t logical) const {
             return (_head + logical) % _max_count;
@@ -423,6 +453,23 @@ namespace hgraph::value {
         [[nodiscard]] Iterator begin() const { return Iterator(this, 0); }
         [[nodiscard]] Iterator end() const { return Iterator(this, _count); }
 
+        // Buffer access for numpy compatibility
+        [[nodiscard]] BufferInfo values_buffer_info() const {
+            if (!_element_type || _count == 0) {
+                return {};
+            }
+            return BufferInfo{
+                .ptr = const_cast<void*>(static_cast<const void*>(_elements.data())),
+                .itemsize = _element_type->size,
+                .count = _count,
+                .readonly = true,
+            };
+        }
+
+        [[nodiscard]] const engine_time_t* timestamps_data() const {
+            return _timestamps.data();
+        }
+
     private:
         [[nodiscard]] void* element_ptr(size_t index) {
             return _elements.data() + index * _element_type->size;
@@ -575,6 +622,23 @@ namespace hgraph::value {
             } else {
                 _variable.clear();
             }
+        }
+
+        // Buffer access for numpy compatibility
+        // For fixed windows, compact() must be called first to get valid buffer
+        [[nodiscard]] BufferInfo values_buffer_info() const {
+            return _is_fixed ? _fixed.values_buffer_info() : _variable.values_buffer_info();
+        }
+
+        [[nodiscard]] const engine_time_t* timestamps_data() const {
+            return _is_fixed ? _fixed.timestamps_data() : _variable.timestamps_data();
+        }
+
+        [[nodiscard]] bool is_buffer_accessible() const {
+            if (_is_fixed) {
+                return _fixed.is_compacted();
+            }
+            return true;  // Variable windows are always contiguous
         }
 
     private:
@@ -767,6 +831,7 @@ namespace hgraph::value {
             meta->ops = &WindowTypeOps::ops;
             meta->type_info = nullptr;
             meta->name = type_name;
+            meta->numpy_format = nullptr;  // Windows are not directly numpy-compatible
             meta->element_type = _element_type;
             meta->max_count = _max_count;
             meta->window_duration = _window_duration;

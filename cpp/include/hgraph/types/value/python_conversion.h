@@ -15,6 +15,7 @@
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
 #include <nanobind/stl/chrono.h>
+#include <nanobind/ndarray.h>
 
 #include <hgraph/util/date_time.h>
 #include <hgraph/types/value/type_meta.h>
@@ -225,6 +226,7 @@ namespace hgraph::value {
         .ops = &ScalarTypeOpsWithPython<T>::ops,
         .type_info = &typeid(T),
         .name = nullptr,
+        .numpy_format = numpy_format_for<T>(),
     };
 
     /**
@@ -470,10 +472,46 @@ namespace hgraph::value {
     struct WindowPythonOps {
         static void* to_python(const void* v, const TypeMeta* meta) {
             auto* window_meta = static_cast<const WindowTypeMeta*>(meta);
-            auto* storage = static_cast<const WindowStorage*>(v);
-            nb::list result;
+            auto* storage = const_cast<WindowStorage*>(static_cast<const WindowStorage*>(v));
 
-            for (size_t i = 0; i < storage->size(); ++i) {
+            size_t count = storage->size();
+            if (count == 0) {
+                // Return empty dict with None arrays
+                nb::dict result;
+                result["values"] = nb::none();
+                result["timestamps"] = nb::none();
+                return result.release().ptr();
+            }
+
+            // Check if element type is numpy-compatible (resolved at type construction time)
+            bool can_use_numpy = window_meta->element_type->is_numpy_compatible() &&
+                                 window_meta->element_type->is_buffer_compatible();
+
+            // For fixed windows, compact first to get contiguous buffer
+            if (storage->is_fixed_length()) {
+                storage->as_fixed().compact();
+            }
+
+            if (can_use_numpy && storage->is_buffer_accessible()) {
+                // Return dict with values and timestamps lists
+                // Python side can convert to numpy arrays using the numpy_format
+                nb::dict result;
+
+                nb::list values_list;
+                nb::list timestamps_list;
+                for (size_t i = 0; i < count; ++i) {
+                    values_list.append(value_to_python(storage->get(i), window_meta->element_type));
+                    timestamps_list.append(static_cast<int64_t>(storage->timestamp(i).time_since_epoch().count()));
+                }
+                result["values"] = values_list;
+                result["timestamps"] = timestamps_list;
+
+                return result.release().ptr();
+            }
+
+            // Fallback to list of tuples format for non-buffer-compatible types
+            nb::list result;
+            for (size_t i = 0; i < count; ++i) {
                 nb::object py_value = value_to_python(storage->get(i), window_meta->element_type);
                 engine_time_t ts = storage->timestamp(i);
                 nb::tuple entry = nb::make_tuple(static_cast<int64_t>(ts.time_since_epoch().count()), py_value);
@@ -487,11 +525,39 @@ namespace hgraph::value {
             auto* window_meta = static_cast<const WindowTypeMeta*>(meta);
             auto* storage = static_cast<WindowStorage*>(dest);
             nb::handle h(static_cast<PyObject*>(py_obj));
-            nb::list py_list = nb::cast<nb::list>(h);
 
             storage->clear();
 
             std::vector<char> elem_storage(window_meta->element_type->size);
+
+            // Handle dict format with 'values' and 'timestamps' keys
+            if (nb::isinstance<nb::dict>(h)) {
+                nb::dict d = nb::cast<nb::dict>(h);
+                if (d.contains("values") && d.contains("timestamps")) {
+                    nb::object values = d["values"];
+                    nb::object timestamps = d["timestamps"];
+
+                    if (!values.is_none() && !timestamps.is_none()) {
+                        nb::list values_list = nb::cast<nb::list>(values);
+                        nb::list ts_list = nb::cast<nb::list>(timestamps);
+
+                        size_t count = std::min(nb::len(values_list), nb::len(ts_list));
+                        for (size_t i = 0; i < count; ++i) {
+                            int64_t ts_nanos = nb::cast<int64_t>(ts_list[i]);
+                            engine_time_t ts{engine_time_delta_t{ts_nanos}};
+
+                            window_meta->element_type->construct_at(elem_storage.data());
+                            value_from_python(elem_storage.data(), values_list[i], window_meta->element_type);
+                            storage->push(elem_storage.data(), ts);
+                            window_meta->element_type->destruct_at(elem_storage.data());
+                        }
+                        return;
+                    }
+                }
+            }
+
+            // Fallback to list of tuples format
+            nb::list py_list = nb::cast<nb::list>(h);
 
             for (size_t i = 0; i < nb::len(py_list); ++i) {
                 nb::tuple entry = nb::cast<nb::tuple>(py_list[i]);
@@ -692,6 +758,7 @@ namespace hgraph::value {
             meta->ops = &BundleTypeOpsWithPython;  // With Python support
             meta->type_info = nullptr;
             meta->name = type_name;
+            meta->numpy_format = nullptr;
 
             return meta;
         }
@@ -736,6 +803,7 @@ namespace hgraph::value {
             meta->ops = &ListTypeOpsWithPython;  // With Python support
             meta->type_info = nullptr;
             meta->name = type_name;
+            meta->numpy_format = nullptr;
             meta->element_type = _element_type;
             meta->count = _count;
 
@@ -776,6 +844,7 @@ namespace hgraph::value {
             meta->ops = &SetTypeOpsWithPython;  // With Python support
             meta->type_info = nullptr;
             meta->name = type_name;
+            meta->numpy_format = nullptr;
             meta->element_type = _element_type;
 
             return meta;
@@ -830,6 +899,7 @@ namespace hgraph::value {
             meta->ops = &DictTypeOpsWithPython;  // With Python support
             meta->type_info = nullptr;
             meta->name = type_name;
+            meta->numpy_format = nullptr;
             meta->value_type = _value_type;
 
             // Initialize the embedded SetTypeMeta for keys
@@ -840,6 +910,7 @@ namespace hgraph::value {
             meta->key_set_meta.ops = &SetTypeOpsWithPython;  // With Python support
             meta->key_set_meta.type_info = nullptr;
             meta->key_set_meta.name = nullptr;  // Anonymous set type for keys
+            meta->key_set_meta.numpy_format = nullptr;
             meta->key_set_meta.element_type = _key_type;
 
             return meta;
@@ -907,6 +978,7 @@ namespace hgraph::value {
             meta->ops = &WindowTypeOpsWithPython;  // With Python support
             meta->type_info = nullptr;
             meta->name = type_name;
+            meta->numpy_format = nullptr;  // Windows themselves aren't numpy, but elements may be
             meta->element_type = _element_type;
             meta->max_count = _max_count;
             meta->window_duration = _window_duration;

@@ -195,6 +195,7 @@ namespace hgraph::value {
             meta->ops = &ListTypeOps::ops;
             meta->type_info = nullptr;
             meta->name = type_name;
+            meta->numpy_format = nullptr;  // Lists are not numpy-compatible
             meta->element_type = _element_type;
             meta->count = _count;
 

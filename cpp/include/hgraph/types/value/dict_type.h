@@ -187,6 +187,63 @@ namespace hgraph::value {
             _key_set.clear();
         }
 
+        // Fragmentation ratio (delegates to key set)
+        [[nodiscard]] double fragmentation_ratio() const {
+            return _key_set.fragmentation_ratio();
+        }
+
+        // Compact storage to eliminate holes from removed entries
+        // Returns a mapping from old indices to new indices
+        std::vector<std::pair<size_t, size_t>> compact() {
+            if (!_value_type || _key_set.empty()) {
+                _values.clear();
+                return _key_set.compact();
+            }
+
+            // Get current live count before compaction
+            size_t live_count = _key_set.size();
+
+            // If nothing removed, already compact
+            if (_key_set.fragmentation_ratio() == 0.0) {
+                return {};
+            }
+
+            // We need to rearrange values based on index mapping.
+            // Since SetStorage::compact() sorts indices, we can predict the mapping:
+            // Collect and sort live indices, then remap to 0, 1, 2, ...
+
+            // First, collect live indices from key_set (before compaction changes them)
+            std::vector<size_t> live_indices;
+            for (auto it = _key_set.begin(); it != _key_set.end(); ++it) {
+                auto idx = _key_set.find_index((*it).ptr);
+                if (idx) live_indices.push_back(*idx);
+            }
+            std::sort(live_indices.begin(), live_indices.end());
+
+            // Build new value storage before compacting keys
+            std::vector<char> new_values;
+            new_values.resize(live_count * _value_type->size);
+
+            std::vector<std::pair<size_t, size_t>> index_mapping;
+            index_mapping.reserve(live_indices.size());
+
+            for (size_t new_idx = 0; new_idx < live_indices.size(); ++new_idx) {
+                size_t old_idx = live_indices[new_idx];
+                index_mapping.emplace_back(old_idx, new_idx);
+
+                void* new_ptr = new_values.data() + new_idx * _value_type->size;
+                void* old_ptr = value_ptr(old_idx);
+                _value_type->move_construct_at(new_ptr, old_ptr);
+                _value_type->destruct_at(old_ptr);
+            }
+
+            // Now compact the key set (which will produce the same mapping)
+            _key_set.compact();
+
+            _values = std::move(new_values);
+            return index_mapping;
+        }
+
         // Iteration support - iterates over key-value pairs
         struct KeyValuePair {
             ConstTypedPtr key;
@@ -454,6 +511,7 @@ namespace hgraph::value {
             meta->ops = &DictTypeOps::ops;
             meta->type_info = nullptr;
             meta->name = type_name;
+            meta->numpy_format = nullptr;  // Dicts are not numpy-compatible
             meta->value_type = _value_type;
 
             // Initialize the embedded SetTypeMeta for keys
@@ -464,6 +522,7 @@ namespace hgraph::value {
             meta->key_set_meta.ops = &SetTypeOps::ops;
             meta->key_set_meta.type_info = nullptr;
             meta->key_set_meta.name = nullptr;  // Anonymous set type for keys
+            meta->key_set_meta.numpy_format = nullptr;
             meta->key_set_meta.element_type = _key_type;
 
             return meta;
@@ -578,6 +637,16 @@ namespace hgraph::value {
 
         void clear() {
             if (_storage) _storage->clear();
+        }
+
+        // Fragmentation ratio: 0.0 = no waste, 1.0 = all waste
+        [[nodiscard]] double fragmentation_ratio() const {
+            return _storage ? _storage->fragmentation_ratio() : 0.0;
+        }
+
+        // Compact storage to eliminate holes
+        std::vector<std::pair<size_t, size_t>> compact() {
+            return _storage ? _storage->compact() : std::vector<std::pair<size_t, size_t>>{};
         }
 
         // Iteration

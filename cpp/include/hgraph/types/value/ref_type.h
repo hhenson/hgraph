@@ -401,6 +401,7 @@ namespace hgraph::value {
             meta->ops = &RefTypeOps::ops;
             meta->type_info = nullptr;
             meta->name = type_name;
+            meta->numpy_format = nullptr;  // Refs are not numpy-compatible
             meta->value_type = _value_type;
             meta->item_count = _item_count;
 

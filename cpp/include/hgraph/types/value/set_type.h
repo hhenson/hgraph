@@ -8,6 +8,7 @@
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/scalar_type.h>
 #include <ankerl/unordered_dense.h>
+#include <algorithm>
 #include <memory>
 #include <cassert>
 #include <optional>
@@ -207,6 +208,68 @@ namespace hgraph::value {
             _element_count = 0;
         }
 
+        // Fragmentation ratio: 0.0 = no waste, 1.0 = all waste
+        // Returns the ratio of unused slots to total allocated slots
+        [[nodiscard]] double fragmentation_ratio() const {
+            if (_element_count == 0) return 0.0;
+            size_t live_count = _index_set.size();
+            return 1.0 - static_cast<double>(live_count) / static_cast<double>(_element_count);
+        }
+
+        // Compact storage to eliminate holes from removed elements
+        // Returns a mapping from old indices to new indices
+        // Indices not in the map are no longer valid (removed elements)
+        std::vector<std::pair<size_t, size_t>> compact() {
+            std::vector<std::pair<size_t, size_t>> index_mapping;
+            if (!_element_type || _index_set.empty()) {
+                _elements.clear();
+                _element_count = 0;
+                return index_mapping;
+            }
+
+            // If already compact, nothing to do
+            if (_index_set.size() == _element_count) {
+                return index_mapping;
+            }
+
+            // Build new storage
+            std::vector<char> new_elements;
+            new_elements.reserve(_index_set.size() * _element_type->size);
+
+            // Collect and sort live indices for deterministic order
+            std::vector<size_t> live_indices(_index_set.begin(), _index_set.end());
+            std::sort(live_indices.begin(), live_indices.end());
+
+            index_mapping.reserve(live_indices.size());
+            size_t new_idx = 0;
+
+            for (size_t old_idx : live_indices) {
+                // Record mapping
+                index_mapping.emplace_back(old_idx, new_idx);
+
+                // Move element to new position
+                new_elements.resize(new_elements.size() + _element_type->size);
+                void* new_ptr = new_elements.data() + new_idx * _element_type->size;
+                void* old_ptr = element_ptr(old_idx);
+                _element_type->move_construct_at(new_ptr, old_ptr);
+                _element_type->destruct_at(old_ptr);
+
+                ++new_idx;
+            }
+
+            // Rebuild index set with new indices
+            _index_set.clear();
+            for (size_t i = 0; i < new_idx; ++i) {
+                _index_set.insert(i);
+            }
+
+            // Swap in new storage
+            _elements = std::move(new_elements);
+            _element_count = new_idx;
+
+            return index_mapping;
+        }
+
         // Iteration support - iterates over active elements via the index set
         class Iterator {
         public:
@@ -397,6 +460,7 @@ namespace hgraph::value {
             meta->ops = &SetTypeOps::ops;
             meta->type_info = nullptr;
             meta->name = type_name;
+            meta->numpy_format = nullptr;  // Sets are not numpy-compatible
             meta->element_type = _element_type;
 
             return meta;
@@ -483,6 +547,16 @@ namespace hgraph::value {
 
         void clear() {
             if (_storage) _storage->clear();
+        }
+
+        // Fragmentation ratio: 0.0 = no waste, 1.0 = all waste
+        [[nodiscard]] double fragmentation_ratio() const {
+            return _storage ? _storage->fragmentation_ratio() : 0.0;
+        }
+
+        // Compact storage to eliminate holes
+        std::vector<std::pair<size_t, size_t>> compact() {
+            return _storage ? _storage->compact() : std::vector<std::pair<size_t, size_t>>{};
         }
 
         // Iteration

@@ -110,6 +110,34 @@ namespace hgraph::value {
     }
 
     /**
+     * Compile-time numpy format resolver
+     * Returns the numpy dtype format character for buffer-compatible scalar types
+     */
+    template<typename T>
+    constexpr const char* numpy_format_for() {
+        if constexpr (std::is_same_v<T, bool>) return "?";
+        else if constexpr (std::is_same_v<T, int8_t>) return "b";
+        else if constexpr (std::is_same_v<T, uint8_t>) return "B";
+        else if constexpr (std::is_same_v<T, int16_t>) return "h";
+        else if constexpr (std::is_same_v<T, uint16_t>) return "H";
+        else if constexpr (std::is_same_v<T, int32_t>) return "i";
+        else if constexpr (std::is_same_v<T, uint32_t>) return "I";
+        else if constexpr (std::is_same_v<T, int64_t>) return "q";
+        else if constexpr (std::is_same_v<T, uint64_t>) return "Q";
+        else if constexpr (std::is_same_v<T, float>) return "f";
+        else if constexpr (std::is_same_v<T, double>) return "d";
+        // Handle platform-specific int/long
+        else if constexpr (std::is_same_v<T, int> && sizeof(int) == 4) return "i";
+        else if constexpr (std::is_same_v<T, int> && sizeof(int) == 8) return "q";
+        else if constexpr (std::is_same_v<T, long> && sizeof(long) == 4) return "l";
+        else if constexpr (std::is_same_v<T, long> && sizeof(long) == 8) return "q";
+        else if constexpr (std::is_same_v<T, unsigned int> && sizeof(unsigned int) == 4) return "I";
+        else if constexpr (std::is_same_v<T, unsigned long> && sizeof(unsigned long) == 4) return "L";
+        else if constexpr (std::is_same_v<T, unsigned long> && sizeof(unsigned long) == 8) return "Q";
+        else return nullptr;  // Not numpy-compatible
+    }
+
+    /**
      * ScalarTypeMeta - TypeMeta for scalar types
      *
      * Usage:
@@ -131,6 +159,7 @@ namespace hgraph::value {
         .ops = &ScalarTypeOps<T>::ops,
         .type_info = &typeid(T),
         .name = nullptr,
+        .numpy_format = numpy_format_for<T>(),
     };
 
     /**
