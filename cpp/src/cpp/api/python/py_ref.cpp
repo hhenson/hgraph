@@ -13,6 +13,19 @@ namespace hgraph
         nb::class_<TimeSeriesReference>(m, "TimeSeriesReference")
             .def("__str__", &TimeSeriesReference::to_string)
             .def("__repr__", &TimeSeriesReference::to_string)
+            // Use std::optional with nb::arg().none() to allow None as input
+            .def("__eq__", [](const TimeSeriesReference &self, std::optional<TimeSeriesReference> other) {
+                if (!other.has_value()) {
+                    return false;  // None comparison
+                }
+                return self == other.value();
+            }, nb::arg("other").none())
+            .def("__ne__", [](const TimeSeriesReference &self, std::optional<TimeSeriesReference> other) {
+                if (!other.has_value()) {
+                    return true;  // None comparison
+                }
+                return !(self == other.value());
+            }, nb::arg("other").none())
             .def(
                 "bind_input",
                 [](TimeSeriesReference &self, PyTimeSeriesInput &ts_input) {

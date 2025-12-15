@@ -67,6 +67,9 @@ namespace hgraph
 
         [[nodiscard]] bool empty() const;
 
+        // Clear all elements (output only)
+        void clear() requires std::is_same_v<T_TS, PyTimeSeriesOutput>;
+
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();
 
