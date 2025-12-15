@@ -755,6 +755,23 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
     def __hash__(self) -> int:
         return hash(tuple) ^ hash(self.element_type)
 
+    @property
+    def cpp_type_meta(self):
+        """Returns the C++ TypeMeta for this tuple[T, ...] type."""
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        if not self.is_resolved:
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            element_meta = self.element_type.cpp_type_meta
+            if element_meta is None:
+                return None
+            return _hgraph.get_dynamic_list_type_meta(element_meta)
+        except (ImportError, AttributeError):
+            return None
+
 
 class HgArrayScalarTypeMetaData(HgCollectionType):
     py_collection_type = np.ndarray
@@ -907,6 +924,27 @@ class HgTupleFixedScalarType(HgTupleScalarType):
     def __hash__(self) -> int:
         return hash(tuple) ^ hash(self.element_types)
 
+    @property
+    def cpp_type_meta(self):
+        """Returns the C++ TypeMeta for this fixed tuple type, using Bundle with synthetic field names."""
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        if not self.is_resolved:
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            # Build fields with synthetic names $0, $1, etc.
+            fields = []
+            for i, elem_type in enumerate(self.element_types):
+                elem_meta = elem_type.cpp_type_meta
+                if elem_meta is None:
+                    return None
+                fields.append((f"${i}", elem_meta))
+            return _hgraph.get_bundle_type_meta(fields, None)
+        except (ImportError, AttributeError):
+            return None
+
 
 class HgSetScalarType(HgCollectionType):
     py_collection_type = Set  # This is an immutable set
@@ -971,6 +1009,23 @@ class HgSetScalarType(HgCollectionType):
 
     def __hash__(self) -> int:
         return hash(frozenset) ^ hash(self.element_type)
+
+    @property
+    def cpp_type_meta(self):
+        """Returns the C++ TypeMeta for this Set type."""
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        if not self.is_resolved:
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            element_meta = self.element_type.cpp_type_meta
+            if element_meta is None:
+                return None
+            return _hgraph.get_set_type_meta(element_meta)
+        except (ImportError, AttributeError):
+            return None
 
 
 class HgDictScalarType(HgCollectionType):
@@ -1052,6 +1107,24 @@ class HgDictScalarType(HgCollectionType):
 
     def __hash__(self) -> int:
         return hash(dict) ^ hash(self.key_type) ^ hash(self.value_type)
+
+    @property
+    def cpp_type_meta(self):
+        """Returns the C++ TypeMeta for this Dict type."""
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        if not self.is_resolved:
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            key_meta = self.key_type.cpp_type_meta
+            value_meta = self.value_type.cpp_type_meta
+            if key_meta is None or value_meta is None:
+                return None
+            return _hgraph.get_dict_type_meta(key_meta, value_meta)
+        except (ImportError, AttributeError):
+            return None
 
 
 class HgCompoundScalarType(HgScalarTypeMetaData):
@@ -1154,6 +1227,26 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
                 raise ParseError("Keys of schema do not match")
             for v, w_v in ((v, wired_type.meta_data_schema[k]) for k, v in self.meta_data_schema.items()):
                 v.build_resolution_dict(resolution_dict, w_v)
+
+    @property
+    def cpp_type_meta(self):
+        """Returns the C++ TypeMeta for this CompoundScalar type, using Bundle with named fields."""
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        if not self.is_resolved:
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            fields = []
+            for name, field_type in self.meta_data_schema.items():
+                field_meta = field_type.cpp_type_meta
+                if field_meta is None:
+                    return None
+                fields.append((name, field_meta))
+            return _hgraph.get_bundle_type_meta(fields, self.py_type.__name__)
+        except (ImportError, AttributeError):
+            return None
 
 
 class HgCompoundScalarTypeForwardRef(HgScalarTypeMetaData):

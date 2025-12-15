@@ -7,12 +7,21 @@
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/scalar_type.h>
 #include <hgraph/types/value/python_conversion.h>
+#include <hgraph/types/value/type_registry.h>
 #include <hgraph/util/date_time.h>
 
 namespace nb = nanobind;
 using namespace nb::literals;
 
 namespace hgraph::value {
+
+namespace {
+    // Hash helper for combining type keys
+    constexpr size_t DICT_SEED = 0x444943540000;   // "DICT"
+    constexpr size_t SET_SEED = 0x5345540000;      // "SET"
+    constexpr size_t DYNLIST_SEED = 0x44594E4C;    // "DYNL"
+    constexpr size_t BUNDLE_SEED = 0x42554E444C;   // "BUNDL"
+}
 
 void register_type_meta_with_nanobind(nb::module_ &m) {
     // TypeKind enum
@@ -81,6 +90,105 @@ void register_type_meta_with_nanobind(nb::module_ &m) {
         return ScalarTypeMetaWithPython<nb::object>::get();
     }, nb::rv_policy::reference, "py_type"_a,
        "Get the C++ TypeMeta for a Python scalar type.");
+
+    // ========================================================================
+    // Composite Type Factory Functions
+    // ========================================================================
+
+    // Dict factory: get_dict_type_meta(key_meta, value_meta) -> TypeMeta*
+    m.def("get_dict_type_meta", [](const TypeMeta* key_type, const TypeMeta* value_type) -> const TypeMeta* {
+        // Generate cache key from key+value type pointers
+        size_t key = hash_combine(DICT_SEED, reinterpret_cast<size_t>(key_type));
+        key = hash_combine(key, reinterpret_cast<size_t>(value_type));
+
+        auto& registry = TypeRegistry::global();
+        if (auto* existing = registry.lookup_by_key(key)) {
+            return existing;
+        }
+
+        auto meta = DictTypeBuilderWithPython()
+            .key_type(key_type)
+            .value_type(value_type)
+            .build();
+
+        return registry.register_by_key(key, std::move(meta));
+    }, nb::rv_policy::reference, "key_type"_a, "value_type"_a,
+       "Get or create a Dict TypeMeta for the given key and value types.");
+
+    // Set factory: get_set_type_meta(element_meta) -> TypeMeta*
+    m.def("get_set_type_meta", [](const TypeMeta* element_type) -> const TypeMeta* {
+        size_t key = hash_combine(SET_SEED, reinterpret_cast<size_t>(element_type));
+
+        auto& registry = TypeRegistry::global();
+        if (auto* existing = registry.lookup_by_key(key)) {
+            return existing;
+        }
+
+        auto meta = SetTypeBuilderWithPython()
+            .element_type(element_type)
+            .build();
+
+        return registry.register_by_key(key, std::move(meta));
+    }, nb::rv_policy::reference, "element_type"_a,
+       "Get or create a Set TypeMeta for the given element type.");
+
+    // DynamicList factory: get_dynamic_list_type_meta(element_meta) -> TypeMeta*
+    // Used for Python's tuple[T, ...] - variable length sequences
+    m.def("get_dynamic_list_type_meta", [](const TypeMeta* element_type) -> const TypeMeta* {
+        size_t key = hash_combine(DYNLIST_SEED, reinterpret_cast<size_t>(element_type));
+
+        auto& registry = TypeRegistry::global();
+        if (auto* existing = registry.lookup_by_key(key)) {
+            return existing;
+        }
+
+        auto meta = DynamicListTypeBuilderWithPython()
+            .element_type(element_type)
+            .build();
+
+        return registry.register_by_key(key, std::move(meta));
+    }, nb::rv_policy::reference, "element_type"_a,
+       "Get or create a DynamicList TypeMeta for variable-length sequences (tuple[T, ...]).");
+
+    // Bundle factory: get_bundle_type_meta(fields, type_name) -> TypeMeta*
+    // fields is a list of (name, TypeMeta*) tuples
+    m.def("get_bundle_type_meta", [](nb::list fields, nb::object type_name) -> const TypeMeta* {
+        // Build cache key from field names and types
+        size_t key = BUNDLE_SEED;
+        std::vector<std::pair<std::string, const TypeMeta*>> field_pairs;
+
+        for (auto item : fields) {
+            auto tuple = nb::cast<nb::tuple>(item);
+            auto name = nb::cast<std::string>(tuple[0]);
+            auto* field_type = nb::cast<const TypeMeta*>(tuple[1]);
+            key = hash_combine(key, hash_string(name));
+            key = hash_combine(key, reinterpret_cast<size_t>(field_type));
+            field_pairs.emplace_back(name, field_type);
+        }
+
+        auto& registry = TypeRegistry::global();
+        if (auto* existing = registry.lookup_by_key(key)) {
+            return existing;
+        }
+
+        BundleTypeBuilderWithPython builder;
+        for (const auto& [name, field_type] : field_pairs) {
+            builder.add_field(name, field_type);
+        }
+
+        // Handle type_name - need to store the string persistently
+        const char* name_str = nullptr;
+        static std::vector<std::string> stored_names;  // Keep names alive
+        if (!type_name.is_none()) {
+            stored_names.push_back(nb::cast<std::string>(type_name));
+            name_str = stored_names.back().c_str();
+        }
+
+        auto meta = builder.build(name_str);
+        return registry.register_by_key(key, std::move(meta));
+    }, nb::rv_policy::reference, "fields"_a, "type_name"_a = nb::none(),
+       "Get or create a Bundle TypeMeta for the given fields. "
+       "Fields should be a list of (name, TypeMeta) tuples.");
 }
 
 } // namespace hgraph::value

@@ -12,6 +12,8 @@
 #include <memory>
 #include <stdexcept>
 #include <vector>
+#include <mutex>
+#include <functional>
 
 namespace hgraph::value {
 
@@ -100,6 +102,42 @@ namespace hgraph::value {
             return instance;
         }
 
+        // ============================================================
+        // Hash-key based caching for composite types
+        // ============================================================
+
+        // Register a type by hash key (for composite type caching)
+        // Thread-safe, returns existing if key already registered
+        const TypeMeta* register_by_key(size_t key, std::unique_ptr<TypeMeta> meta) {
+            std::lock_guard<std::mutex> lock(_key_mutex);
+            auto it = _key_types.find(key);
+            if (it != _key_types.end()) {
+                return it->second.get();
+            }
+            auto* ptr = meta.get();
+            _key_types[key] = std::move(meta);
+            return ptr;
+        }
+
+        // Lookup by hash key (returns nullptr if not found)
+        [[nodiscard]] const TypeMeta* lookup_by_key(size_t key) const {
+            std::lock_guard<std::mutex> lock(_key_mutex);
+            auto it = _key_types.find(key);
+            return it != _key_types.end() ? it->second.get() : nullptr;
+        }
+
+        // Check if hash key exists
+        [[nodiscard]] bool contains_key(size_t key) const {
+            std::lock_guard<std::mutex> lock(_key_mutex);
+            return _key_types.contains(key);
+        }
+
+        // Get number of key-cached types
+        [[nodiscard]] size_t key_cache_size() const {
+            std::lock_guard<std::mutex> lock(_key_mutex);
+            return _key_types.size();
+        }
+
     private:
         void register_builtin_scalars() {
             // Register common scalar types
@@ -125,7 +163,28 @@ namespace hgraph::value {
 
         std::unordered_map<std::string, const TypeMeta*> _types;
         std::vector<std::unique_ptr<TypeMeta>> _owned_types;
+
+        // Hash-key based cache for composite types (thread-safe)
+        mutable std::mutex _key_mutex;
+        std::unordered_map<size_t, std::unique_ptr<TypeMeta>> _key_types;
     };
+
+    /**
+     * Hash combining utilities for building composite type keys
+     */
+    inline size_t hash_combine(size_t h1, size_t h2) {
+        // Boost-style hash combine
+        return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+    }
+
+    inline size_t hash_string(const std::string& s) {
+        return std::hash<std::string>{}(s);
+    }
+
+    inline size_t hash_cstr(const char* s) {
+        if (!s) return 0;
+        return std::hash<std::string>{}(s);
+    }
 
 } // namespace hgraph::value
 

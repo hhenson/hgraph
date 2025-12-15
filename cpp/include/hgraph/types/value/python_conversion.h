@@ -26,6 +26,7 @@
 #include <hgraph/types/value/dict_type.h>
 #include <hgraph/types/value/window_type.h>
 #include <hgraph/types/value/ref_type.h>
+#include <hgraph/types/value/dynamic_list_type.h>
 
 namespace nb = nanobind;
 
@@ -278,6 +279,25 @@ namespace hgraph::value {
         .numpy_format = numpy_format_for<T>(),
     };
 
+    // Specialization for nb::object - Python objects can be hashable and equatable
+    template<>
+    struct ScalarTypeMetaWithPython<nb::object> {
+        static const TypeMeta instance;
+        static const TypeMeta* get() { return &instance; }
+    };
+
+    inline const TypeMeta ScalarTypeMetaWithPython<nb::object>::instance = {
+        .size = sizeof(nb::object),
+        .alignment = alignof(nb::object),
+        // Python objects can be hashable and equatable - runtime checks in ops
+        .flags = TypeFlags::Hashable | TypeFlags::Equatable | TypeFlags::Comparable,
+        .kind = TypeKind::Scalar,
+        .ops = &ScalarTypeOpsWithPython<nb::object>::ops,
+        .type_info = &typeid(nb::object),
+        .name = nullptr,
+        .numpy_format = nullptr,
+    };
+
     /**
      * Helper to get TypeMeta for scalar type with Python support
      */
@@ -338,6 +358,35 @@ namespace hgraph::value {
                 }
             }
         }
+
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            auto* bundle_meta = static_cast<const BundleTypeMeta*>(meta);
+            std::string result = "{";
+            bool first = true;
+            for (const auto& field : bundle_meta->fields) {
+                if (!first) result += ", ";
+                first = false;
+                const void* field_ptr = static_cast<const char*>(v) + field.offset;
+                result += field.name + ": " + field.type->to_string_at(field_ptr);
+            }
+            result += "}";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* bundle_meta = static_cast<const BundleTypeMeta*>(meta);
+            if (bundle_meta->name) return bundle_meta->name;
+            // Generate: Bundle[field1: type1, field2: type2, ...]
+            std::string result = "Bundle[";
+            bool first = true;
+            for (const auto& field : bundle_meta->fields) {
+                if (!first) result += ", ";
+                first = false;
+                result += field.name + ": " + field.type->type_name_str();
+            }
+            result += "]";
+            return result;
+        }
     };
 
     inline const TypeOps BundleTypeOpsWithPython = {
@@ -350,6 +399,8 @@ namespace hgraph::value {
         .equals = BundleTypeOps::equals,
         .less_than = BundleTypeOps::less_than,
         .hash = BundleTypeOps::hash,
+        .to_string = BundlePythonOps::to_string,
+        .type_name = BundlePythonOps::type_name,
         .to_python = BundlePythonOps::to_python,
         .from_python = BundlePythonOps::from_python,
     };
@@ -387,6 +438,26 @@ namespace hgraph::value {
                 ptr += list_meta->element_type->size;
             }
         }
+
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            auto* list_meta = static_cast<const ListTypeMeta*>(meta);
+            std::string result = "[";
+            const char* ptr = static_cast<const char*>(v);
+            for (size_t i = 0; i < list_meta->count; ++i) {
+                if (i > 0) result += ", ";
+                result += list_meta->element_type->to_string_at(ptr);
+                ptr += list_meta->element_type->size;
+            }
+            result += "]";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* list_meta = static_cast<const ListTypeMeta*>(meta);
+            if (list_meta->name) return list_meta->name;
+            return "List[" + list_meta->element_type->type_name_str() + ", " +
+                   std::to_string(list_meta->count) + "]";
+        }
     };
 
     inline const TypeOps ListTypeOpsWithPython = {
@@ -399,6 +470,8 @@ namespace hgraph::value {
         .equals = ListTypeOps::equals,
         .less_than = ListTypeOps::less_than,
         .hash = ListTypeOps::hash,
+        .to_string = ListPythonOps::to_string,
+        .type_name = ListPythonOps::type_name,
         .to_python = ListPythonOps::to_python,
         .from_python = ListPythonOps::from_python,
     };
@@ -439,6 +512,26 @@ namespace hgraph::value {
                 ++it;
             }
         }
+
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            auto* set_meta = static_cast<const SetTypeMeta*>(meta);
+            auto* storage = static_cast<const SetStorage*>(v);
+            std::string result = "{";
+            bool first = true;
+            for (auto elem : *storage) {
+                if (!first) result += ", ";
+                first = false;
+                result += set_meta->element_type->to_string_at(elem.ptr);
+            }
+            result += "}";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* set_meta = static_cast<const SetTypeMeta*>(meta);
+            if (set_meta->name) return set_meta->name;
+            return "Set[" + set_meta->element_type->type_name_str() + "]";
+        }
     };
 
     inline const TypeOps SetTypeOpsWithPython = {
@@ -451,6 +544,8 @@ namespace hgraph::value {
         .equals = SetTypeOps::equals,
         .less_than = SetTypeOps::less_than,
         .hash = SetTypeOps::hash,
+        .to_string = SetPythonOps::to_string,
+        .type_name = SetPythonOps::type_name,
         .to_python = SetPythonOps::to_python,
         .from_python = SetPythonOps::from_python,
     };
@@ -498,6 +593,28 @@ namespace hgraph::value {
                 dict_meta->value_type->destruct_at(value_storage.data());
             }
         }
+
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            auto* dict_meta = static_cast<const DictTypeMeta*>(meta);
+            auto* storage = static_cast<const DictStorage*>(v);
+            std::string result = "{";
+            bool first = true;
+            for (auto kv : *storage) {
+                if (!first) result += ", ";
+                first = false;
+                result += dict_meta->key_type()->to_string_at(kv.key.ptr) + ": " +
+                         dict_meta->value_type->to_string_at(kv.value.ptr);
+            }
+            result += "}";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* dict_meta = static_cast<const DictTypeMeta*>(meta);
+            if (dict_meta->name) return dict_meta->name;
+            return "Dict[" + dict_meta->key_type()->type_name_str() + ", " +
+                   dict_meta->value_type->type_name_str() + "]";
+        }
     };
 
     inline const TypeOps DictTypeOpsWithPython = {
@@ -510,6 +627,8 @@ namespace hgraph::value {
         .equals = DictTypeOps::equals,
         .less_than = DictTypeOps::less_than,
         .hash = DictTypeOps::hash,
+        .to_string = DictPythonOps::to_string,
+        .type_name = DictPythonOps::type_name,
         .to_python = DictPythonOps::to_python,
         .from_python = DictPythonOps::from_python,
     };
@@ -621,6 +740,31 @@ namespace hgraph::value {
                 }
             }
         }
+
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            auto* window_meta = static_cast<const WindowTypeMeta*>(meta);
+            auto* storage = const_cast<WindowStorage*>(static_cast<const WindowStorage*>(v));
+            std::string result = "Window[";
+            for (size_t i = 0; i < storage->size(); ++i) {
+                if (i > 0) result += ", ";
+                result += window_meta->element_type->to_string_at(storage->get(i));
+            }
+            result += "]";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* window_meta = static_cast<const WindowTypeMeta*>(meta);
+            if (window_meta->name) return window_meta->name;
+            std::string result = "Window[" + window_meta->element_type->type_name_str();
+            if (window_meta->max_count > 0) {
+                result += ", count=" + std::to_string(window_meta->max_count);
+            } else if (window_meta->window_duration.count() > 0) {
+                result += ", duration=" + std::to_string(window_meta->window_duration.count()) + "us";
+            }
+            result += "]";
+            return result;
+        }
     };
 
     inline const TypeOps WindowTypeOpsWithPython = {
@@ -633,6 +777,8 @@ namespace hgraph::value {
         .equals = WindowTypeOps::equals,
         .less_than = WindowTypeOps::less_than,
         .hash = WindowTypeOps::hash,
+        .to_string = WindowPythonOps::to_string,
+        .type_name = WindowPythonOps::type_name,
         .to_python = WindowPythonOps::to_python,
         .from_python = WindowPythonOps::from_python,
     };
@@ -682,6 +828,28 @@ namespace hgraph::value {
             (void)py_obj;
             (void)meta;
         }
+
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            auto* ref_meta = static_cast<const RefTypeMeta*>(meta);
+            auto* storage = static_cast<const RefStorage*>(v);
+            if (storage->is_empty()) {
+                return "Ref(empty)";
+            }
+            if (storage->is_bound()) {
+                const ValueRef& target = storage->target();
+                if (target.data) {
+                    return "Ref(" + ref_meta->value_type->to_string_at(target.data) + ")";
+                }
+                return "Ref(null)";
+            }
+            return "Ref(unbound)";
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* ref_meta = static_cast<const RefTypeMeta*>(meta);
+            if (ref_meta->name) return ref_meta->name;
+            return "Ref[" + ref_meta->value_type->type_name_str() + "]";
+        }
     };
 
     inline const TypeOps RefTypeOpsWithPython = {
@@ -694,8 +862,87 @@ namespace hgraph::value {
         .equals = RefTypeOps::equals,
         .less_than = RefTypeOps::less_than,
         .hash = RefTypeOps::hash,
+        .to_string = RefPythonOps::to_string,
+        .type_name = RefPythonOps::type_name,
         .to_python = RefPythonOps::to_python,
         .from_python = RefPythonOps::from_python,
+    };
+
+    // ========================================================================
+    // DynamicList Type Python Conversions (for tuple[T, ...])
+    // ========================================================================
+
+    struct DynamicListPythonOps {
+        static void* to_python(const void* v, const TypeMeta* meta) {
+            auto* list_meta = static_cast<const DynamicListTypeMeta*>(meta);
+            auto* storage = static_cast<const DynamicListStorage*>(v);
+
+            // Build a list first, then convert to tuple
+            // (tuple[T, ...] in Python should return a tuple)
+            nb::list temp;
+            for (size_t i = 0; i < storage->size(); ++i) {
+                nb::object elem = value_to_python(storage->get(i), list_meta->element_type);
+                temp.append(elem);
+            }
+
+            // Convert to tuple
+            nb::tuple result = nb::cast<nb::tuple>(nb::module_::import_("builtins").attr("tuple")(temp));
+            return result.release().ptr();
+        }
+
+        static void from_python(void* dest, void* py_obj, const TypeMeta* meta) {
+            auto* list_meta = static_cast<const DynamicListTypeMeta*>(meta);
+            auto* storage = static_cast<DynamicListStorage*>(dest);
+            nb::handle h(static_cast<PyObject*>(py_obj));
+
+            storage->clear();
+
+            std::vector<char> temp_storage(list_meta->element_type->size);
+
+            nb::iterator it = nb::iter(h);
+            while (it != nb::iterator::sentinel()) {
+                list_meta->element_type->construct_at(temp_storage.data());
+                value_from_python(temp_storage.data(), *it, list_meta->element_type);
+                storage->push_back(temp_storage.data());
+                list_meta->element_type->destruct_at(temp_storage.data());
+                ++it;
+            }
+        }
+
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            auto* list_meta = static_cast<const DynamicListTypeMeta*>(meta);
+            auto* storage = static_cast<const DynamicListStorage*>(v);
+            std::string result = "(";
+            for (size_t i = 0; i < storage->size(); ++i) {
+                if (i > 0) result += ", ";
+                result += list_meta->element_type->to_string_at(storage->get(i));
+            }
+            if (storage->size() == 1) result += ",";  // Python tuple notation for single element
+            result += ")";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* list_meta = static_cast<const DynamicListTypeMeta*>(meta);
+            if (list_meta->name) return list_meta->name;
+            return "tuple[" + list_meta->element_type->type_name_str() + ", ...]";
+        }
+    };
+
+    inline const TypeOps DynamicListTypeOpsWithPython = {
+        .construct = DynamicListTypeOps::construct,
+        .destruct = DynamicListTypeOps::destruct,
+        .copy_construct = DynamicListTypeOps::copy_construct,
+        .move_construct = DynamicListTypeOps::move_construct,
+        .copy_assign = DynamicListTypeOps::copy_assign,
+        .move_assign = DynamicListTypeOps::move_assign,
+        .equals = DynamicListTypeOps::equals,
+        .less_than = DynamicListTypeOps::less_than,
+        .hash = DynamicListTypeOps::hash,
+        .to_string = DynamicListPythonOps::to_string,
+        .type_name = DynamicListPythonOps::type_name,
+        .to_python = DynamicListPythonOps::to_python,
+        .from_python = DynamicListPythonOps::from_python,
     };
 
     // ========================================================================
@@ -1039,6 +1286,55 @@ namespace hgraph::value {
         const TypeMeta* _element_type{nullptr};
         size_t _max_count{0};
         engine_time_delta_t _window_duration{0};
+    };
+
+    /**
+     * DynamicListTypeBuilderWithPython - Builds DynamicListTypeMeta with Python conversion ops
+     *
+     * Used for variable-length sequences like tuple[T, ...]
+     */
+    class DynamicListTypeBuilderWithPython {
+    public:
+        DynamicListTypeBuilderWithPython& element_type(const TypeMeta* type) {
+            _element_type = type;
+            return *this;
+        }
+
+        template<typename T>
+        DynamicListTypeBuilderWithPython& element() {
+            return element_type(scalar_type_meta_with_python<T>());
+        }
+
+        std::unique_ptr<DynamicListTypeMeta> build(const char* type_name = nullptr) {
+            assert(_element_type);
+
+            auto meta = std::make_unique<DynamicListTypeMeta>();
+
+            meta->size = sizeof(DynamicListStorage);
+            meta->alignment = alignof(DynamicListStorage);
+
+            // Propagate flags from element type
+            TypeFlags flags = TypeFlags::None;
+            if (has_flag(_element_type->flags, TypeFlags::Hashable)) {
+                flags = flags | TypeFlags::Hashable;
+            }
+            if (has_flag(_element_type->flags, TypeFlags::Equatable)) {
+                flags = flags | TypeFlags::Equatable;
+            }
+            meta->flags = flags;
+
+            meta->kind = TypeKind::List;  // Reuse List kind for dynamic lists
+            meta->ops = &DynamicListTypeOpsWithPython;  // With Python support
+            meta->type_info = nullptr;
+            meta->name = type_name;
+            meta->numpy_format = nullptr;  // Dynamic lists are not numpy-compatible
+            meta->element_type = _element_type;
+
+            return meta;
+        }
+
+    private:
+        const TypeMeta* _element_type{nullptr};
     };
 
     // ========================================================================
