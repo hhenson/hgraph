@@ -28,6 +28,7 @@ enum class TimeSeriesKind : uint8_t {
     TSL,     // Time-series list: TSL[V, Size]
     TSB,     // Time-series bundle: TSB[Schema]
     TSW,     // Time-series window: TSW[T, Size]
+    REF,     // Time-series reference: REF[TS_TYPE]
 };
 
 /**
@@ -120,6 +121,18 @@ struct TSWTypeMeta : TimeSeriesTypeMeta {
     const value::TypeMeta* scalar_type;
     int64_t size;       // count for fixed, -1 for time-based
     int64_t min_size;   // min count, -1 for unspecified
+
+    [[nodiscard]] std::string type_name_str() const override;
+};
+
+/**
+ * REFTypeMeta - REF[TS_TYPE] time-series reference
+ *
+ * Represents a reference to another time-series type.
+ * Used for lazy/deferred evaluation patterns.
+ */
+struct REFTypeMeta : TimeSeriesTypeMeta {
+    const TimeSeriesTypeMeta* value_ts_type;
 
     [[nodiscard]] std::string type_name_str() const override;
 };

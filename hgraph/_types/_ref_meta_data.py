@@ -98,6 +98,23 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
 
         return hash(REF) ^ hash(self.value_tp)
 
+    @property
+    def cpp_type_meta(self):
+        """Returns the C++ TimeSeriesTypeMeta for this REF[TS_TYPE] type."""
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        if not self.is_resolved:
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            value_ts_meta = self.value_tp.cpp_type_meta
+            if value_ts_meta is None:
+                return None
+            return _hgraph.get_ref_type_meta(value_ts_meta)
+        except (ImportError, AttributeError):
+            return None
+
 
 class HgREFOutTypeMetaData(HgREFTypeMetaData):
     """Parses REFOut[...]"""

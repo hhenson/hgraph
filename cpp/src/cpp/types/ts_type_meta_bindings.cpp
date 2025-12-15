@@ -24,6 +24,7 @@ namespace {
     constexpr size_t TSL_SEED = 0x54534C;     // "TSL"
     constexpr size_t TSB_SEED = 0x545342;     // "TSB"
     constexpr size_t TSW_SEED = 0x545357;     // "TSW"
+    constexpr size_t REF_SEED = 0x524546;     // "REF"
 }
 
 void register_ts_type_meta_with_nanobind(nb::module_ &m) {
@@ -37,6 +38,7 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
         .value("TSL", TimeSeriesKind::TSL)
         .value("TSB", TimeSeriesKind::TSB)
         .value("TSW", TimeSeriesKind::TSW)
+        .value("REF", TimeSeriesKind::REF)
         .export_values();
 
     // ========================================================================
@@ -192,6 +194,24 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
         return registry.register_by_key(key, std::move(meta));
     }, nb::rv_policy::reference, "scalar_type"_a, "size"_a, "min_size"_a,
        "Get or create a TSW[T, Size] TypeMeta for time-series windows.");
+
+    // Factory: get_ref_type_meta(value_ts_meta) -> REFTypeMeta*
+    // Creates a REF[TS_TYPE] type metadata for time-series references
+    m.def("get_ref_type_meta", [](const TimeSeriesTypeMeta* value_ts_type) -> const TimeSeriesTypeMeta* {
+        size_t key = ts_hash_combine(REF_SEED, reinterpret_cast<size_t>(value_ts_type));
+
+        auto& registry = TimeSeriesTypeRegistry::global();
+        if (auto* existing = registry.lookup_by_key(key)) {
+            return existing;
+        }
+
+        auto meta = std::make_unique<REFTypeMeta>();
+        meta->ts_kind = TimeSeriesKind::REF;
+        meta->value_ts_type = value_ts_type;
+
+        return registry.register_by_key(key, std::move(meta));
+    }, nb::rv_policy::reference, "value_ts_type"_a,
+       "Get or create a REF[TS_TYPE] TypeMeta for the given time-series type.");
 }
 
 } // namespace hgraph
