@@ -83,6 +83,23 @@ class HgTSSTypeMetaData(HgTimeSeriesTypeMetaData):
 
         return hash(TSS) ^ hash(self.value_scalar_tp)
 
+    @property
+    def cpp_type_meta(self):
+        """Returns the C++ TimeSeriesTypeMeta for this TSS[T] type."""
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        if not self.is_resolved:
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            element_meta = self.value_scalar_tp.cpp_type_meta
+            if element_meta is None:
+                return None
+            return _hgraph.get_tss_type_meta(element_meta)
+        except (ImportError, AttributeError):
+            return None
+
 
 class HgTSSOutTypeMetaData(HgTSSTypeMetaData):
 

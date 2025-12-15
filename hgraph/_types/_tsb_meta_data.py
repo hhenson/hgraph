@@ -282,3 +282,26 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
 
     def __getitem__(self, item):
         return self.bundle_schema_tp[item]
+
+    @property
+    def cpp_type_meta(self):
+        """Returns the C++ TimeSeriesTypeMeta for this TSB[Schema] type."""
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        if not self.is_resolved:
+            return None
+        if not isinstance(self.bundle_schema_tp, HgTimeSeriesSchemaTypeMetaData):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            fields = []
+            for name, field_tp in self.bundle_schema_tp.meta_data_schema.items():
+                field_meta = field_tp.cpp_type_meta
+                if field_meta is None:
+                    return None
+                fields.append((name, field_meta))
+            type_name = getattr(self.bundle_schema_tp.py_type, '__name__', None)
+            return _hgraph.get_tsb_type_meta(fields, type_name)
+        except (ImportError, AttributeError):
+            return None

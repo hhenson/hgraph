@@ -148,6 +148,29 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
     def __getitem__(self, item):
         return self.value_tp  # All instances of TSL are the same type
 
+    @property
+    def cpp_type_meta(self):
+        """Returns the C++ TimeSeriesTypeMeta for this TSL[V, Size] type."""
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        if not self.is_resolved:
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            element_ts_meta = self.value_tp.cpp_type_meta
+            if element_ts_meta is None:
+                return None
+            # Get size value - use -1 for unresolved/dynamic
+            size_type = self.size_tp.py_type
+            if hasattr(size_type, 'SIZE') and size_type.FIXED_SIZE:
+                size = size_type.SIZE
+            else:
+                size = -1
+            return _hgraph.get_tsl_type_meta(element_ts_meta, size)
+        except (ImportError, AttributeError):
+            return None
+
 
 class HgTSLOutTypeMetaData(HgTSLTypeMetaData):
     """Parses TSLOut[..., Size[...]]"""

@@ -1,0 +1,79 @@
+//
+// Created by Claude on 15/12/2025.
+//
+// TimeSeriesTypeRegistry - Caches TimeSeriesTypeMeta instances
+//
+
+#ifndef HGRAPH_TS_TYPE_REGISTRY_H
+#define HGRAPH_TS_TYPE_REGISTRY_H
+
+#include <hgraph/types/time_series/ts_type_meta.h>
+#include <unordered_map>
+#include <memory>
+#include <mutex>
+
+namespace hgraph {
+
+/**
+ * TimeSeriesTypeRegistry - Central registry for time-series type metadata
+ *
+ * Provides:
+ * - Registration of types by hash key
+ * - Lookup of types by hash key
+ * - Ownership of dynamically created type metadata
+ * - Thread-safe registration
+ *
+ * Usage:
+ *   auto& registry = TimeSeriesTypeRegistry::global();
+ *   size_t key = ts_hash_combine(TS_SEED, ptr_hash);
+ *   if (auto* existing = registry.lookup_by_key(key)) {
+ *       return existing;
+ *   }
+ *   return registry.register_by_key(key, std::move(meta));
+ */
+class TimeSeriesTypeRegistry {
+public:
+    /**
+     * Get the global singleton instance
+     */
+    static TimeSeriesTypeRegistry& global();
+
+    /**
+     * Register a type by hash key (for caching)
+     * Thread-safe, returns existing if key already registered
+     */
+    const TimeSeriesTypeMeta* register_by_key(size_t key,
+                                               std::unique_ptr<TimeSeriesTypeMeta> meta);
+
+    /**
+     * Lookup by hash key (returns nullptr if not found)
+     */
+    [[nodiscard]] const TimeSeriesTypeMeta* lookup_by_key(size_t key) const;
+
+    /**
+     * Check if hash key exists
+     */
+    [[nodiscard]] bool contains_key(size_t key) const;
+
+    /**
+     * Get number of cached types
+     */
+    [[nodiscard]] size_t cache_size() const;
+
+private:
+    TimeSeriesTypeRegistry() = default;
+    mutable std::mutex _mutex;
+    std::unordered_map<size_t, std::unique_ptr<TimeSeriesTypeMeta>> _types;
+};
+
+/**
+ * Hash combining utility for building composite type keys
+ * Uses Boost-style hash combine
+ */
+inline size_t ts_hash_combine(size_t h1, size_t h2) {
+    return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+}
+
+} // namespace hgraph
+
+#endif // HGRAPH_TS_TYPE_REGISTRY_H
