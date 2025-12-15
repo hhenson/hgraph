@@ -143,6 +143,26 @@ namespace hgraph::value {
             return result;
         }
 
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            auto* list_meta = static_cast<const ListTypeMeta*>(meta);
+            const char* ptr = static_cast<const char*>(v);
+            std::string result = "[";
+            for (size_t i = 0; i < list_meta->count; ++i) {
+                if (i > 0) result += ", ";
+                result += list_meta->element_type->to_string_at(ptr);
+                ptr += list_meta->element_type->size;
+            }
+            result += "]";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* list_meta = static_cast<const ListTypeMeta*>(meta);
+            // Format: Tuple[element_type, Size[count]]
+            return "Tuple[" + list_meta->element_type->type_name_str() +
+                   ", Size[" + std::to_string(list_meta->count) + "]]";
+        }
+
         static const TypeOps ops;
     };
 
@@ -156,6 +176,8 @@ namespace hgraph::value {
         .equals = ListTypeOps::equals,
         .less_than = ListTypeOps::less_than,
         .hash = ListTypeOps::hash,
+        .to_string = ListTypeOps::to_string,
+        .type_name = ListTypeOps::type_name,
         .to_python = nullptr,
         .from_python = nullptr,
     };

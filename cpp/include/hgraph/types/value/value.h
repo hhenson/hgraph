@@ -320,6 +320,11 @@ namespace hgraph::value {
             return valid() ? _schema->hash_at(_data) : 0;
         }
 
+        // String representation
+        [[nodiscard]] std::string to_string() const {
+            return valid() ? _schema->to_string_at(_data) : "<invalid>";
+        }
+
         // Implicit conversion to TypedPtr for compatibility
         operator ConstTypedPtr() const {
             return {_data, _schema};
@@ -708,6 +713,11 @@ namespace hgraph::value {
 
         [[nodiscard]] size_t hash() const {
             return view().hash();
+        }
+
+        // String representation
+        [[nodiscard]] std::string to_string() const {
+            return view().to_string();
         }
 
     private:

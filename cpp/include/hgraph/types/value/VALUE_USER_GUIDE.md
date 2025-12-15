@@ -346,6 +346,175 @@ size_t h1 = a.hash();
 size_t h2 = a.view().hash();
 ```
 
+## String Representation
+
+All value types support `to_string()` for logging and debugging:
+
+### Basic Usage
+
+```cpp
+Value val(int_meta);
+val.view().as<int>() = 42;
+
+std::string s = val.to_string();  // "42"
+```
+
+### Type-Specific Formats
+
+```cpp
+// Scalar types
+Value bool_val(bool_meta);
+bool_val.view().as<bool>() = true;
+bool_val.to_string();  // "true"
+
+Value str_val(string_meta);
+str_val.view().as<std::string>() = "hello";
+str_val.to_string();  // "\"hello\""
+
+// Bundle
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Point");
+Value point(point_meta.get());
+point.view().field("x").as<int>() = 10;
+point.view().field("y").as<int>() = 20;
+point.to_string();  // "{x=10, y=20}"
+
+// List
+auto list_meta = ListTypeBuilder().element<int>().count(3).build();
+Value list(list_meta.get());
+list.view().element(0).as<int>() = 1;
+list.view().element(1).as<int>() = 2;
+list.view().element(2).as<int>() = 3;
+list.to_string();  // "[1, 2, 3]"
+
+// Set
+auto set_meta = SetTypeBuilder().element<int>().build();
+Value set(set_meta.get());
+set.view().set_add(10);
+set.view().set_add(20);
+set.to_string();  // "{10, 20}"
+
+// Dict
+auto dict_meta = DictTypeBuilder().key<int>().value<double>().build();
+Value dict(dict_meta.get());
+dict.view().dict_insert(1, 1.5);
+dict.view().dict_insert(2, 2.5);
+dict.to_string();  // "{1: 1.5, 2: 2.5}"
+
+// Window
+window.to_string();  // "Window[size=3, newest=42]"
+
+// Ref
+ref.to_string();  // "REF[bound: 42]" or "REF[empty]" or "REF[unbound: 3 items]"
+```
+
+### TimeSeriesValue String Representation
+
+Time-series values support both simple and debug formats:
+
+```cpp
+TimeSeriesValue ts(int_meta);
+ts.set_value(42, current_time);
+
+// Simple: just the value
+ts.to_string();  // "42"
+
+// Debug: includes modification status
+ts.to_debug_string(current_time);
+// "TS[int64_t]@0x7fff5fbff8c0(value=\"42\", modified=true, last_modified=2025-01-01 12:00:00.000000)"
+
+// TimeSeriesValueView uses stored current_time
+auto view = ts.view(current_time);
+view.to_string();        // "42"
+view.to_debug_string();  // "TS[int64_t]@0x...(value=\"42\", modified=true)"
+```
+
+### Using TypeMeta Directly
+
+```cpp
+// Access via TypeMeta
+const TypeMeta* meta = value.schema();
+std::string s = meta->to_string_at(value.data());
+```
+
+## Type Names (Schema Description)
+
+Get a Python-style description of a type's schema:
+
+```cpp
+// Get type description
+const TypeMeta* meta = value.schema();
+std::string type_desc = meta->type_name_str();
+```
+
+### Type Name Formats
+
+Type names use Python naming conventions (e.g., `int64_t` → `int`):
+
+```cpp
+// Scalars
+scalar_type_meta<bool>()->type_name_str();      // "bool"
+scalar_type_meta<int64_t>()->type_name_str();   // "int"
+scalar_type_meta<double>()->type_name_str();    // "float"
+scalar_type_meta<std::string>()->type_name_str(); // "str"
+
+// Named bundle
+auto point_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<int>("y")
+    .build("Point");
+point_meta->type_name_str();  // "Point"
+
+// Anonymous bundle
+auto anon_meta = BundleTypeBuilder()
+    .add_field<int>("x")
+    .add_field<double>("y")
+    .build();  // No name
+anon_meta->type_name_str();  // "{x: int, y: float}"
+
+// List (fixed-size tuple)
+auto list_meta = ListTypeBuilder()
+    .element<int>()
+    .count(5)
+    .build();
+list_meta->type_name_str();  // "Tuple[int, Size[5]]"
+
+// Set
+auto set_meta = SetTypeBuilder()
+    .element<int>()
+    .build();
+set_meta->type_name_str();  // "Set[int]"
+
+// Dict
+auto dict_meta = DictTypeBuilder()
+    .key<std::string>()
+    .value<double>()
+    .build();
+dict_meta->type_name_str();  // "Dict[str, float]"
+
+// Window (fixed)
+auto window_meta = WindowTypeBuilder()
+    .element<double>()
+    .max_count(10)
+    .build();
+window_meta->type_name_str();  // "Window[float, Size[10]]"
+
+// Window (time-based)
+auto time_window_meta = WindowTypeBuilder()
+    .element<double>()
+    .time_duration(std::chrono::seconds(60))
+    .build();
+time_window_meta->type_name_str();  // "Window[float, timedelta[seconds=60]]"
+
+// Ref
+auto ref_meta = RefTypeBuilder()
+    .value_type(int_meta)
+    .build();
+ref_meta->type_name_str();  // "REF[int]"
+```
+
 ## Best Practices
 
 ### 1. Store Views Carefully

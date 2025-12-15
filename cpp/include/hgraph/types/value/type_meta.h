@@ -40,6 +40,12 @@ namespace hgraph::value {
         // Hashing
         size_t (*hash)(const void* v, const TypeMeta* meta);
 
+        // String representation (for logging/debugging)
+        std::string (*to_string)(const void* v, const TypeMeta* meta);
+
+        // Type name (Python-style type description, e.g., "int", "Dict[str, float]")
+        std::string (*type_name)(const TypeMeta* meta);
+
         // Python interop (optional - can be nullptr)
         void* (*to_python)(const void* v, const TypeMeta* meta);
         void (*from_python)(void* dest, void* py_obj, const TypeMeta* meta);
@@ -175,6 +181,14 @@ namespace hgraph::value {
 
         [[nodiscard]] size_t hash_at(const void* v) const {
             return ops->hash ? ops->hash(v, this) : 0;
+        }
+
+        [[nodiscard]] std::string to_string_at(const void* v) const {
+            return ops->to_string ? ops->to_string(v, this) : "<no to_string>";
+        }
+
+        [[nodiscard]] std::string type_name_str() const {
+            return ops->type_name ? ops->type_name(this) : (name ? name : "<unknown>");
         }
     };
 

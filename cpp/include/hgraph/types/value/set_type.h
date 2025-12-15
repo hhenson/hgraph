@@ -414,6 +414,25 @@ namespace hgraph::value {
             return result;
         }
 
+        static std::string to_string(const void* v, const TypeMeta*) {
+            auto* set = static_cast<const SetStorage*>(v);
+            std::string result = "{";
+            bool first = true;
+            for (auto elem : *set) {
+                if (!first) result += ", ";
+                first = false;
+                result += elem.meta->to_string_at(elem.ptr);
+            }
+            result += "}";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* set_meta = static_cast<const SetTypeMeta*>(meta);
+            // Format: Set[element_type]
+            return "Set[" + set_meta->element_type->type_name_str() + "]";
+        }
+
         static const TypeOps ops;
     };
 
@@ -427,6 +446,8 @@ namespace hgraph::value {
         .equals = SetTypeOps::equals,
         .less_than = SetTypeOps::less_than,
         .hash = SetTypeOps::hash,
+        .to_string = SetTypeOps::to_string,
+        .type_name = SetTypeOps::type_name,
         .to_python = nullptr,
         .from_python = nullptr,
     };

@@ -348,6 +348,40 @@ namespace hgraph::value {
             return static_cast<const RefStorage*>(v)->hash();
         }
 
+        static std::string to_string(const void* v, const TypeMeta* /*meta*/) {
+            auto* ref = static_cast<const RefStorage*>(v);
+            switch (ref->kind()) {
+                case RefStorage::Kind::EMPTY:
+                    return "REF[empty]";
+                case RefStorage::Kind::BOUND: {
+                    const auto& target = ref->target();
+                    if (target.valid() && target.schema) {
+                        return "REF[bound: " + target.schema->to_string_at(target.data) + "]";
+                    }
+                    return "REF[bound: <invalid>]";
+                }
+                case RefStorage::Kind::UNBOUND: {
+                    std::string result = "REF[unbound: ";
+                    result += std::to_string(ref->item_count()) + " items]";
+                    return result;
+                }
+            }
+            return "REF[unknown]";
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* ref_meta = static_cast<const RefTypeMeta*>(meta);
+            // Format: REF[target_type]
+            std::string result = "REF[";
+            if (ref_meta->value_type) {
+                result += ref_meta->value_type->type_name_str();
+            } else {
+                result += "?";
+            }
+            result += "]";
+            return result;
+        }
+
         static const TypeOps ops;
     };
 
@@ -361,6 +395,8 @@ namespace hgraph::value {
         .equals = RefTypeOps::equals,
         .less_than = RefTypeOps::less_than,
         .hash = RefTypeOps::hash,
+        .to_string = RefTypeOps::to_string,
+        .type_name = RefTypeOps::type_name,
         .to_python = nullptr,
         .from_python = nullptr,
     };

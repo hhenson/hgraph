@@ -62,9 +62,81 @@ struct TypeOps {
     bool (*equals)(const void* a, const void* b, const TypeMeta* meta);
     bool (*less_than)(const void* a, const void* b, const TypeMeta* meta);
     size_t (*hash)(const void* v, const TypeMeta* meta);
-    void* (*to_python)(const void* v, const TypeMeta* meta);
-    void (*from_python)(void* dest, void* py_obj, const TypeMeta* meta);
+    std::string (*to_string)(const void* v, const TypeMeta* meta);
+    nb::object (*to_python)(const void* v, const TypeMeta* meta);
+    bool (*from_python)(void* dest, const TypeMeta* meta, nb::handle py_obj);
 };
+```
+
+### String Representation
+
+All types implement `to_string` for logging and debugging. The `TypeMeta` provides a convenience wrapper:
+
+```cpp
+// Via TypeMeta
+std::string s = meta->to_string_at(data_ptr);
+
+// Via Value/ValueView
+std::string s = value.to_string();
+```
+
+### Type Names (Schema Description)
+
+All types implement `type_name` which returns a Python-style type description:
+
+```cpp
+// Via TypeMeta
+std::string type_desc = meta->type_name_str();
+```
+
+Type name formats use Python naming conventions:
+
+| TypeKind | Format | Example |
+|----------|--------|---------|
+| Scalar (bool) | `bool` | `bool` |
+| Scalar (int*) | `int` | `int` |
+| Scalar (float/double) | `float` | `float` |
+| Scalar (string) | `str` | `str` |
+| Scalar (other) | Uses `name` field | `datetime`, `date`, `timedelta` |
+| Bundle (named) | Uses `name` field | `Point` |
+| Bundle (anon) | `{field: type, ...}` | `{x: int, y: float}` |
+| List | `Tuple[elem, Size[n]]` | `Tuple[int, Size[5]]` |
+| Set | `Set[elem]` | `Set[int]` |
+| Dict | `Dict[key, value]` | `Dict[str, float]` |
+| Window (fixed) | `Window[elem, Size[n]]` | `Window[float, Size[10]]` |
+| Window (time) | `Window[elem, timedelta[...]]` | `Window[float, timedelta[seconds=60]]` |
+| Ref | `REF[target]` | `REF[int]` |
+
+Type-specific value output formats:
+
+| TypeKind | Format | Example |
+|----------|--------|---------|
+| Scalar (bool) | `true`/`false` | `true` |
+| Scalar (int) | `<number>` | `42` |
+| Scalar (float) | `<number>` | `3.14159` |
+| Scalar (string) | `"<value>"` | `"hello"` |
+| Bundle | `{field=val, ...}` | `{x=1, y=2.5}` |
+| List | `[elem, ...]` | `[1, 2, 3]` |
+| Set | `{elem, ...}` | `{1, 2, 3}` |
+| Dict | `{key: val, ...}` | `{a: 1, b: 2}` |
+| Window | `Window[size=N, newest=val]` | `Window[size=3, newest=42]` |
+| Ref (empty) | `REF[empty]` | `REF[empty]` |
+| Ref (bound) | `REF[bound: val]` | `REF[bound: 42]` |
+| Ref (unbound) | `REF[unbound: N items]` | `REF[unbound: 3 items]` |
+
+For time-series values, additional debug formatting is available:
+
+```cpp
+// Basic: just the value
+ts_value.to_string();  // "42"
+
+// Debug: with modification status
+ts_value.to_debug_string(current_time);
+// "TS[int64_t]@0x7fff5fbff8c0(value=\"42\", modified=true, last_modified=2025-01-01 12:00:00.000000)"
+
+// TimeSeriesValueView uses stored current_time
+ts_view.to_debug_string();
+// "TS[int64_t]@0x7fff5fbff8c0(value=\"42\", modified=true)"
 ```
 
 ### TypeFlags

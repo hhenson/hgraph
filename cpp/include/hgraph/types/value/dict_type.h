@@ -448,6 +448,28 @@ namespace hgraph::value {
             return result;
         }
 
+        static std::string to_string(const void* v, const TypeMeta*) {
+            auto* dict = static_cast<const DictStorage*>(v);
+            std::string result = "{";
+            bool first = true;
+            for (auto kv : *dict) {
+                if (!first) result += ", ";
+                first = false;
+                result += kv.key.meta->to_string_at(kv.key.ptr);
+                result += ": ";
+                result += kv.value.meta->to_string_at(kv.value.ptr);
+            }
+            result += "}";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* dict_meta = static_cast<const DictTypeMeta*>(meta);
+            // Format: Dict[key_type, value_type]
+            return "Dict[" + dict_meta->key_set_meta.element_type->type_name_str() +
+                   ", " + dict_meta->value_type->type_name_str() + "]";
+        }
+
         static const TypeOps ops;
     };
 
@@ -461,6 +483,8 @@ namespace hgraph::value {
         .equals = DictTypeOps::equals,
         .less_than = DictTypeOps::less_than,
         .hash = DictTypeOps::hash,
+        .to_string = DictTypeOps::to_string,
+        .type_name = DictTypeOps::type_name,
         .to_python = nullptr,
         .from_python = nullptr,
     };

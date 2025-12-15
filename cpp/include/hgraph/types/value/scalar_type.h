@@ -8,6 +8,8 @@
 #include <hgraph/types/value/type_meta.h>
 #include <type_traits>
 #include <cstring>
+#include <sstream>
+#include <iomanip>
 
 namespace hgraph::value {
 
@@ -64,6 +66,57 @@ namespace hgraph::value {
             }
         }
 
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            const T& value = *static_cast<const T*>(v);
+            if constexpr (std::is_same_v<T, bool>) {
+                return value ? "true" : "false";
+            } else if constexpr (std::is_integral_v<T>) {
+                return std::to_string(value);
+            } else if constexpr (std::is_floating_point_v<T>) {
+                std::ostringstream oss;
+                oss << std::setprecision(6) << value;
+                return oss.str();
+            } else if constexpr (std::is_same_v<T, std::string>) {
+                return "\"" + value + "\"";
+            } else if constexpr (requires { std::declval<std::ostream&>() << value; }) {
+                // Handles engine_time_t, engine_date_t, engine_time_delta_t, etc.
+                std::ostringstream oss;
+                oss << value;
+                return oss.str();
+            } else {
+                // Fallback: use type name if available
+                return meta->name ? meta->name : "<unknown>";
+            }
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            // Map C++ types to Python-style names
+            if constexpr (std::is_same_v<T, bool>) {
+                return "bool";
+            } else if constexpr (std::is_same_v<T, int64_t> || (std::is_same_v<T, long> && sizeof(long) == 8)) {
+                return "int";
+            } else if constexpr (std::is_same_v<T, int32_t> || (std::is_same_v<T, int> && sizeof(int) == 4)) {
+                return "int";  // Python doesn't distinguish int sizes
+            } else if constexpr (std::is_same_v<T, int16_t>) {
+                return "int";
+            } else if constexpr (std::is_same_v<T, int8_t>) {
+                return "int";
+            } else if constexpr (std::is_same_v<T, uint64_t> || std::is_same_v<T, uint32_t> ||
+                                 std::is_same_v<T, uint16_t> || std::is_same_v<T, uint8_t>) {
+                return "int";  // Python doesn't have unsigned
+            } else if constexpr (std::is_same_v<T, double> || std::is_same_v<T, float>) {
+                return "float";
+            } else if constexpr (std::is_same_v<T, std::string>) {
+                return "str";
+            } else {
+                // For other types (datetime, date, timedelta, object), use the name if set
+                if (meta->name) return meta->name;
+                // Fallback to type_info
+                if (meta->type_info) return meta->type_info->name();
+                return "<unknown>";
+            }
+        }
+
         static constexpr TypeOps ops = {
             .construct = construct,
             .destruct = destruct,
@@ -74,6 +127,8 @@ namespace hgraph::value {
             .equals = equals,
             .less_than = less_than,
             .hash = hash,
+            .to_string = to_string,
+            .type_name = type_name,
             .to_python = nullptr,
             .from_python = nullptr,
         };

@@ -203,6 +203,38 @@ namespace hgraph::value {
             return result;
         }
 
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            auto* bundle_meta = static_cast<const BundleTypeMeta*>(meta);
+            std::string result = "{";
+            bool first = true;
+            for (const auto& field : bundle_meta->fields) {
+                if (!first) result += ", ";
+                first = false;
+                const void* field_ptr = static_cast<const char*>(v) + field.offset;
+                result += field.name + "=" + field.type->to_string_at(field_ptr);
+            }
+            result += "}";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* bundle_meta = static_cast<const BundleTypeMeta*>(meta);
+            // If bundle has a name, use it
+            if (meta->name) {
+                return meta->name;
+            }
+            // Otherwise build anonymous bundle type: {field1: type1, field2: type2}
+            std::string result = "{";
+            bool first = true;
+            for (const auto& field : bundle_meta->fields) {
+                if (!first) result += ", ";
+                first = false;
+                result += field.name + ": " + field.type->type_name_str();
+            }
+            result += "}";
+            return result;
+        }
+
         static const TypeOps ops;
     };
 
@@ -216,6 +248,8 @@ namespace hgraph::value {
         .equals = BundleTypeOps::equals,
         .less_than = BundleTypeOps::less_than,
         .hash = BundleTypeOps::hash,
+        .to_string = BundleTypeOps::to_string,
+        .type_name = BundleTypeOps::type_name,
         .to_python = nullptr,
         .from_python = nullptr,
     };

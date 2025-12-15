@@ -745,6 +745,42 @@ namespace hgraph::value {
             return result;
         }
 
+        static std::string to_string(const void* v, const TypeMeta* meta) {
+            auto* window = static_cast<const WindowStorage*>(v);
+            auto* window_meta = static_cast<const WindowTypeMeta*>(meta);
+            std::string result = "Window[size=";
+            result += std::to_string(window->size());
+            if (window->size() > 0) {
+                result += ", newest=";
+                result += window_meta->element_type->to_string_at(window->get(window->size() - 1));
+            }
+            result += "]";
+            return result;
+        }
+
+        static std::string type_name(const TypeMeta* meta) {
+            auto* window_meta = static_cast<const WindowTypeMeta*>(meta);
+            // Format: Window[element_type, Size[count]] or Window[element_type, timedelta]
+            std::string result = "Window[" + window_meta->element_type->type_name_str();
+            if (window_meta->is_fixed_length()) {
+                result += ", Size[" + std::to_string(window_meta->max_count) + "]";
+            } else {
+                // Time-based window - show duration in appropriate units
+                auto ns = window_meta->window_duration.count();
+                if (ns >= 1000000000LL * 60 * 60) {
+                    result += ", timedelta[hours=" + std::to_string(ns / (1000000000LL * 60 * 60)) + "]";
+                } else if (ns >= 1000000000LL * 60) {
+                    result += ", timedelta[minutes=" + std::to_string(ns / (1000000000LL * 60)) + "]";
+                } else if (ns >= 1000000000LL) {
+                    result += ", timedelta[seconds=" + std::to_string(ns / 1000000000LL) + "]";
+                } else {
+                    result += ", timedelta[ns=" + std::to_string(ns) + "]";
+                }
+            }
+            result += "]";
+            return result;
+        }
+
         static const TypeOps ops;
     };
 
@@ -758,6 +794,8 @@ namespace hgraph::value {
         .equals = WindowTypeOps::equals,
         .less_than = WindowTypeOps::less_than,
         .hash = WindowTypeOps::hash,
+        .to_string = WindowTypeOps::to_string,
+        .type_name = WindowTypeOps::type_name,
         .to_python = nullptr,
         .from_python = nullptr,
     };

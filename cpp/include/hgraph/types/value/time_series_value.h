@@ -11,6 +11,7 @@
 #include <hgraph/types/value/bundle_type.h>
 #include <hgraph/types/value/dict_type.h>
 #include <hgraph/util/date_time.h>
+#include <hgraph/util/string_utils.h>
 
 namespace hgraph::value {
 
@@ -438,6 +439,26 @@ namespace hgraph::value {
         [[nodiscard]] ObserverStorage* observer() { return _observer; }
         [[nodiscard]] const ObserverStorage* observer() const { return _observer; }
 
+        // String representation - value only
+        [[nodiscard]] std::string to_string() const {
+            return _value_view.to_string();
+        }
+
+        // Debug string with modification status
+        // Format: TS[type]@addr(value="...", modified=true/false)
+        [[nodiscard]] std::string to_debug_string() const {
+            std::string result = "TS[";
+            result += _value_view.schema() ? (_value_view.schema()->name ? _value_view.schema()->name : "?") : "null";
+            result += "]@";
+            result += std::to_string(reinterpret_cast<uintptr_t>(_value_view.data()));
+            result += "(value=\"";
+            result += to_string();
+            result += "\", modified=";
+            result += _tracker.modified_at(_current_time) ? "true" : "false";
+            result += ")";
+            return result;
+        }
+
     private:
         ValueView _value_view;
         ModificationTracker _tracker;
@@ -538,6 +559,28 @@ namespace hgraph::value {
         [[nodiscard]] const ModificationTrackerStorage& underlying_tracker() const { return _tracker; }
         [[nodiscard]] ObserverStorage* underlying_observers() { return _observers.get(); }
         [[nodiscard]] const ObserverStorage* underlying_observers() const { return _observers.get(); }
+
+        // String representation - value only
+        [[nodiscard]] std::string to_string() const {
+            return _value.to_string();
+        }
+
+        // Debug string with modification status
+        // Format: TS[type]@addr(value="...", modified=true/false, last_modified=...)
+        [[nodiscard]] std::string to_debug_string(engine_time_t current_time) const {
+            std::string result = "TS[";
+            result += schema() ? (schema()->name ? schema()->name : "?") : "null";
+            result += "]@";
+            result += std::to_string(reinterpret_cast<uintptr_t>(_value.data()));
+            result += "(value=\"";
+            result += to_string();
+            result += "\", modified=";
+            result += modified_at(current_time) ? "true" : "false";
+            result += ", last_modified=";
+            result += hgraph::to_string(last_modified_time());
+            result += ")";
+            return result;
+        }
 
     private:
         void ensure_observers() {
