@@ -90,6 +90,38 @@ struct TimeSeriesTypeMeta {
      * This must be accurate for arena allocation with in-place new.
      */
     [[nodiscard]] virtual size_t input_memory_size() const = 0;
+
+    /**
+     * Get the underlying value::TypeMeta schema for the value storage.
+     * Used by TSOutput to construct the TimeSeriesValue.
+     */
+    [[nodiscard]] virtual const value::TypeMeta* value_schema() const { return nullptr; }
+
+    // === Navigation helpers for composite types ===
+
+    /**
+     * Get the metadata for a field by index (TSB only).
+     * Returns nullptr for non-bundle types or invalid index.
+     */
+    [[nodiscard]] virtual const TimeSeriesTypeMeta* field_meta(size_t /*index*/) const { return nullptr; }
+
+    /**
+     * Get the metadata for a field by name (TSB only).
+     * Returns nullptr for non-bundle types or unknown field name.
+     */
+    [[nodiscard]] virtual const TimeSeriesTypeMeta* field_meta(const std::string& /*name*/) const { return nullptr; }
+
+    /**
+     * Get the metadata for list elements (TSL only).
+     * Returns nullptr for non-list types.
+     */
+    [[nodiscard]] virtual const TimeSeriesTypeMeta* element_meta() const { return nullptr; }
+
+    /**
+     * Get the metadata for dict values (TSD only).
+     * Returns nullptr for non-dict types.
+     */
+    [[nodiscard]] virtual const TimeSeriesTypeMeta* value_meta() const { return nullptr; }
 };
 
 /**
@@ -105,6 +137,7 @@ struct TSTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
+    [[nodiscard]] const value::TypeMeta* value_schema() const override { return scalar_type; }
 };
 
 /**
@@ -137,6 +170,7 @@ struct TSDTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
+    [[nodiscard]] const TimeSeriesTypeMeta* value_meta() const override { return value_ts_type; }
 };
 
 /**
@@ -154,6 +188,7 @@ struct TSLTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
+    [[nodiscard]] const TimeSeriesTypeMeta* element_meta() const override { return element_ts_type; }
 };
 
 /**
@@ -173,6 +208,17 @@ struct TSBTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
+
+    [[nodiscard]] const TimeSeriesTypeMeta* field_meta(size_t index) const override {
+        return index < fields.size() ? fields[index].type : nullptr;
+    }
+
+    [[nodiscard]] const TimeSeriesTypeMeta* field_meta(const std::string& name) const override {
+        for (const auto& field : fields) {
+            if (field.name == name) return field.type;
+        }
+        return nullptr;
+    }
 };
 
 /**

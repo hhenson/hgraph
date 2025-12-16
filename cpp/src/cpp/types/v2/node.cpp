@@ -666,32 +666,36 @@ namespace hgraph
         _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
-    ts::TsbInput::s_ptr& Node::input() { return _input; }
-    const ts::TsbInput::s_ptr& Node::input() const { return _input; }
+    time_series_input_s_ptr& Node::input() { return _input; }
+    const time_series_input_s_ptr& Node::input() const { return _input; }
 
-    void Node::set_input(const ts::TsbInput::s_ptr& value) {
+    void Node::set_input(const time_series_input_s_ptr& value) {
         if (has_input()) { throw std::runtime_error("Input already set on node: " + _signature->signature()); }
         reset_input(value);
     }
 
-    void Node::reset_input(const ts::TsbInput::s_ptr& value) {
+    void Node::reset_input(const time_series_input_s_ptr& value) {
         _input = value;
         _check_all_valid_inputs.clear();
         _check_valid_inputs.clear();
         _check_valid_inputs.reserve(signature().valid_inputs.has_value() ? signature().valid_inputs->size()
                                                                          : signature().time_series_inputs->size());
+        // Cast to bundle input to access by key
+        auto* bundle_input = dynamic_cast<TimeSeriesBundleInput*>(input().get());
+        if (!bundle_input) { return; }  // Not a bundle input
+
         if (signature().valid_inputs.has_value()) {
-            for (const auto &key : std::views::all(*signature().valid_inputs)) { _check_valid_inputs.push_back((*input())[key].get()); }
+            for (const auto &key : std::views::all(*signature().valid_inputs)) { _check_valid_inputs.push_back((*bundle_input)[key].get()); }
         } else {
             for (const auto &key : std::views::elements<0>(*signature().time_series_inputs)) {
                 // Do not treat context inputs as required by default
                 bool is_context = signature().context_inputs.has_value() && signature().context_inputs->contains(key);
-                if (!is_context) { _check_valid_inputs.push_back((*input())[key].get()); }
+                if (!is_context) { _check_valid_inputs.push_back((*bundle_input)[key].get()); }
             }
         }
         if (signature().all_valid_inputs.has_value()) {
             _check_all_valid_inputs.reserve(signature().all_valid_inputs->size());
-            for (const auto &key : *signature().all_valid_inputs) { _check_all_valid_inputs.push_back((*input())[key].get()); }
+            for (const auto &key : *signature().all_valid_inputs) { _check_all_valid_inputs.push_back((*bundle_input)[key].get()); }
         }
     }
 
@@ -699,9 +703,9 @@ namespace hgraph
 
     void Node::set_output(const time_series_output_s_ptr& value) { _output = value; }
 
-    ts::TsbOutput::s_ptr& Node::recordable_state() { return _recordable_state; }
+    time_series_output_s_ptr& Node::recordable_state() { return _recordable_state; }
 
-    void Node::set_recordable_state(const ts::TsbOutput::s_ptr& value) { _recordable_state = value; }
+    void Node::set_recordable_state(const time_series_output_s_ptr& value) { _recordable_state = value; }
 
     bool Node::has_recordable_state() const { return _recordable_state != nullptr; }
 
@@ -714,9 +718,9 @@ namespace hgraph
 
     void Node::unset_scheduler() { _scheduler.reset(); }
 
-    ts::TsOutput::s_ptr& Node::error_output() { return _error_output; }
+    time_series_output_s_ptr& Node::error_output() { return _error_output; }
 
-    void Node::set_error_output(const ts::TsOutput::s_ptr& value) { _error_output = value; }
+    void Node::set_error_output(const time_series_output_s_ptr& value) { _error_output = value; }
 
     void Node::add_start_input(const time_series_reference_input_s_ptr& input) { _start_inputs.push_back(input); }
 

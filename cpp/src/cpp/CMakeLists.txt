@@ -29,7 +29,7 @@ set(HGRAPH_API_V1_SOURCES
         api/python/v1/wrapper_factory.cpp
 )
 
-# V2 API sources (unified time-series with TSValue shared state)
+# V2 API sources
 set(HGRAPH_API_V2_SOURCES
         api/python/v2/py_time_series.cpp
         api/python/v2/py_ts.cpp
@@ -41,12 +41,12 @@ set(HGRAPH_API_V2_SOURCES
         api/python/v2/py_ref.cpp
         api/python/v2/py_signal.cpp
         api/python/v2/wrapper_factory.cpp
-        # V2 core types (TSValue shared state architecture)
-        types/time_series/v2/ts_context.cpp
+)
+
+# V2 time-series type sources
+set(HGRAPH_TS_V2_SOURCES
         types/time_series/v2/ts_output.cpp
         types/time_series/v2/ts_input.cpp
-        types/time_series/v2/tsb_output.cpp
-        types/time_series/v2/tsb_input.cpp
 )
 
 # V1 Node sources
@@ -95,16 +95,19 @@ set(HGRAPH_NODES_V2_SOURCES
 if(HGRAPH_API_VERSION STREQUAL "2")
     set(HGRAPH_API_SOURCES ${HGRAPH_API_SHARED_SOURCES} ${HGRAPH_API_V2_SOURCES})
     set(HGRAPH_NODES_SOURCES ${HGRAPH_NODES_V2_SOURCES})
+    set(HGRAPH_TS_SOURCES ${HGRAPH_TS_V2_SOURCES})
     message(STATUS "Building with V2 time-series API")
 else()
     set(HGRAPH_API_SOURCES ${HGRAPH_API_SHARED_SOURCES} ${HGRAPH_API_V1_SOURCES})
     set(HGRAPH_NODES_SOURCES ${HGRAPH_NODES_V1_SOURCES})
+    set(HGRAPH_TS_SOURCES "")  # V1 doesn't use the new time-series types
     message(STATUS "Building with V1 time-series API (default)")
 endif()
 
 set(HGRAPH_SOURCES
         ${HGRAPH_API_SOURCES}
         ${HGRAPH_NODES_SOURCES}
+        ${HGRAPH_TS_SOURCES}
         builders/builder.cpp
         builders/graph_builder.cpp
         builders/input_builder.cpp

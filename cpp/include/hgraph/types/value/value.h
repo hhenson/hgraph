@@ -188,7 +188,7 @@ namespace hgraph::value {
 
         [[nodiscard]] const TypeMeta* key_type() const {
             if (!is_dict()) return nullptr;
-            return static_cast<const DictTypeMeta*>(_schema)->key_type;
+            return static_cast<const DictTypeMeta*>(_schema)->key_type();
         }
 
         [[nodiscard]] const TypeMeta* value_type() const {

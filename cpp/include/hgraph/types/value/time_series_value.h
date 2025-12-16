@@ -21,11 +21,11 @@ namespace hgraph::value {
     class ObserverStorage;
 
     /**
-     * TimeSeriesValueView - Mutable view with automatic modification tracking
+     * TimeSeriesValueView - Mutable view with explicit time parameters
      *
-     * Unlike raw ValueView, this view automatically marks modifications
-     * when values are changed via set(). It also tracks the current
-     * evaluation time for proper modification marking.
+     * Time is passed to mutation methods, not stored in the view.
+     * This avoids stale time issues and enables explicit control over
+     * when modifications are marked.
      *
      * Navigation (field/element) returns sub-views that propagate
      * modifications to the parent.
@@ -39,20 +39,24 @@ namespace hgraph::value {
     public:
         TimeSeriesValueView() = default;
 
-        TimeSeriesValueView(ValueView value_view, ModificationTracker tracker, engine_time_t current_time,
+        TimeSeriesValueView(ValueView value_view, ModificationTracker tracker,
                             ObserverStorage* observer = nullptr)
-            : _value_view(value_view), _tracker(tracker), _current_time(current_time), _observer(observer) {}
+            : _value_view(value_view), _tracker(tracker), _observer(observer) {}
 
         [[nodiscard]] bool valid() const { return _value_view.valid() && _tracker.valid(); }
         [[nodiscard]] const TypeMeta* schema() const { return _value_view.schema(); }
         [[nodiscard]] TypeKind kind() const { return _value_view.kind(); }
-        [[nodiscard]] engine_time_t current_time() const { return _current_time; }
 
         // Raw access (without auto-tracking - use with caution)
         [[nodiscard]] ValueView value_view() { return _value_view; }
+        [[nodiscard]] ConstValueView value_view() const {
+            return static_cast<const ConstValueView&>(_value_view);
+        }
         [[nodiscard]] ModificationTracker tracker() { return _tracker; }
+        [[nodiscard]] ObserverStorage* observer() { return _observer; }
+        [[nodiscard]] const ObserverStorage* observer() const { return _observer; }
 
-        // Scalar access - auto-marks modified
+        // === Scalar access ===
         template<typename T>
         [[nodiscard]] T& as() {
             return _value_view.as<T>();
@@ -60,30 +64,53 @@ namespace hgraph::value {
 
         template<typename T>
         [[nodiscard]] const T& as() const {
-            // Use ConstValueView::as<T>() for const access
             return static_cast<const ConstValueView&>(_value_view).as<T>();
         }
 
+        // Time passed at mutation point
         template<typename T>
-        void set(const T& val) {
+        void set(const T& val, engine_time_t time) {
             _value_view.as<T>() = val;
-            _tracker.mark_modified(_current_time);
+            _tracker.mark_modified(time);
             if (_observer) {
-                _observer->notify(_current_time);
+                _observer->notify(time);
             }
         }
 
-        // Bundle field navigation - returns sub-view with parent tracking
-        // Note: If no specific child observer exists, we pass the parent observer
-        // so that notifications still propagate up through the hierarchy.
+        void mark_modified(engine_time_t time) {
+            _tracker.mark_modified(time);
+            if (_observer) {
+                _observer->notify(time);
+            }
+        }
+
+        void mark_invalid() {
+            _tracker.mark_invalid();
+        }
+
+        // === Query methods (time as parameter) ===
+        [[nodiscard]] bool modified_at(engine_time_t time) const {
+            return _tracker.modified_at(time);
+        }
+
+        [[nodiscard]] bool has_value() const {
+            return _tracker.valid_value();
+        }
+
+        [[nodiscard]] engine_time_t last_modified_time() const {
+            return _tracker.last_modified_time();
+        }
+
+        // === Bundle field navigation ===
+        // Returns sub-view. If no specific child observer exists, we pass the parent
+        // observer so that notifications still propagate up through the hierarchy.
         [[nodiscard]] TimeSeriesValueView field(size_t index) {
             if (!valid() || kind() != TypeKind::Bundle) {
                 return {};
             }
-            // Try to get specific child observer, fall back to parent observer
             ObserverStorage* child_observer = _observer ? _observer->child(index) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            return {_value_view.field(index), _tracker.field(index), _current_time, effective_observer};
+            return {_value_view.field(index), _tracker.field(index), effective_observer};
         }
 
         [[nodiscard]] TimeSeriesValueView field(const std::string& name) {
@@ -92,7 +119,6 @@ namespace hgraph::value {
             }
             auto field_view = _value_view.field(name);
             auto field_tracker = _tracker.field(name);
-            // Get field index for observer lookup
             ObserverStorage* child_observer = nullptr;
             if (_observer && field_view.valid()) {
                 auto* bundle_meta = static_cast<const BundleTypeMeta*>(schema());
@@ -101,9 +127,8 @@ namespace hgraph::value {
                     child_observer = _observer->child(it->second);
                 }
             }
-            // If no specific child observer, use parent observer
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            return {field_view, field_tracker, _current_time, effective_observer};
+            return {field_view, field_tracker, effective_observer};
         }
 
         [[nodiscard]] bool field_modified_at(size_t index, engine_time_t time) const {
@@ -114,17 +139,14 @@ namespace hgraph::value {
             return _value_view.field_count();
         }
 
-        // List element navigation - returns sub-view with parent tracking
-        // Note: If no specific child observer exists, we pass the parent observer
-        // so that notifications still propagate up through the hierarchy.
+        // === List element navigation ===
         [[nodiscard]] TimeSeriesValueView element(size_t index) {
             if (!valid() || kind() != TypeKind::List) {
                 return {};
             }
-            // Try to get specific child observer, fall back to parent observer
             ObserverStorage* child_observer = _observer ? _observer->child(index) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            return {_value_view.element(index), _tracker.element(index), _current_time, effective_observer};
+            return {_value_view.element(index), _tracker.element(index), effective_observer};
         }
 
         [[nodiscard]] bool element_modified_at(size_t index, engine_time_t time) const {
@@ -135,28 +157,28 @@ namespace hgraph::value {
             return _value_view.list_size();
         }
 
-        // Set operations - atomic tracking
+        // === Set operations (time as parameter) ===
         template<typename T>
-        bool add(const T& element) {
+        bool add(const T& element, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Set) return false;
             bool added = _value_view.set_add(element);
             if (added) {
-                _tracker.mark_modified(_current_time);
+                _tracker.mark_modified(time);
                 if (_observer) {
-                    _observer->notify(_current_time);
+                    _observer->notify(time);
                 }
             }
             return added;
         }
 
         template<typename T>
-        bool remove(const T& element) {
+        bool remove(const T& element, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Set) return false;
             bool removed = _value_view.set_remove(element);
             if (removed) {
-                _tracker.mark_modified(_current_time);
+                _tracker.mark_modified(time);
                 if (_observer) {
-                    _observer->notify(_current_time);
+                    _observer->notify(time);
                 }
             }
             return removed;
@@ -172,22 +194,19 @@ namespace hgraph::value {
             return _value_view.set_size();
         }
 
-        // Dict operations - structural + entry tracking
+        // === Dict operations (time as parameter) ===
         template<typename K, typename V>
-        void insert(const K& key, const V& value) {
+        void insert(const K& key, const V& value, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Dict) return;
 
-            // Check if key exists before insertion
             bool is_new_key = !_value_view.dict_contains(key);
-
             _value_view.dict_insert(key, value);
 
-            // Mark structural modification if new key, always notify
             if (is_new_key) {
-                _tracker.mark_modified(_current_time);
+                _tracker.mark_modified(time);
             }
             if (_observer) {
-                _observer->notify(_current_time);
+                _observer->notify(time);
             }
         }
 
@@ -204,39 +223,33 @@ namespace hgraph::value {
         }
 
         // Dict entry navigation - returns sub-view for a specific entry
-        // Note: Modifications to entries will notify at the dict level (structural notification)
-        // For per-entry tracking, use the entry index with dict_entry_modified_at()
         template<typename K>
         [[nodiscard]] TimeSeriesValueView entry(const K& key) {
             if (!valid() || kind() != TypeKind::Dict) {
                 return {};
             }
-            // Get value view for this key
             auto entry_view = _value_view.dict_get(key);
             if (!entry_view.valid()) {
                 return {};
             }
-            // Get entry index for observer lookup
             auto* storage = static_cast<DictStorage*>(_value_view.data());
             auto idx = storage->find_index(&key);
             if (!idx) {
                 return {};
             }
-            // For dict entries, we use the dict's own tracker (modifications propagate to dict level)
-            // The observer subtree is per-entry; fall back to parent observer if no child exists
             ObserverStorage* child_observer = _observer ? _observer->child(*idx) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            return {entry_view, _tracker, _current_time, effective_observer};
+            return {entry_view, _tracker, effective_observer};
         }
 
         template<typename K>
-        bool dict_remove(const K& key) {
+        bool dict_remove(const K& key, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Dict) return false;
             bool removed = _value_view.dict_remove(key);
             if (removed) {
-                _tracker.mark_modified(_current_time);
+                _tracker.mark_modified(time);
                 if (_observer) {
-                    _observer->notify(_current_time);
+                    _observer->notify(time);
                 }
             }
             return removed;
@@ -246,23 +259,24 @@ namespace hgraph::value {
             return _value_view.dict_size();
         }
 
-        // Window operations - atomic tracking (like Set)
+        // === Window operations (time as parameter) ===
+        // Note: timestamp is the value's timestamp, eval_time is for modification tracking
         template<typename T>
-        void window_push(const T& value, engine_time_t timestamp) {
+        void window_push(const T& value, engine_time_t timestamp, engine_time_t eval_time) {
             if (!valid() || kind() != TypeKind::Window) return;
             _value_view.window_push(value, timestamp);
-            _tracker.mark_modified(_current_time);
+            _tracker.mark_modified(eval_time);
             if (_observer) {
-                _observer->notify(_current_time);
+                _observer->notify(eval_time);
             }
         }
 
-        void window_push(const void* value, engine_time_t timestamp) {
+        void window_push(const void* value, engine_time_t timestamp, engine_time_t eval_time) {
             if (!valid() || kind() != TypeKind::Window) return;
             _value_view.window_push(value, timestamp);
-            _tracker.mark_modified(_current_time);
+            _tracker.mark_modified(eval_time);
             if (_observer) {
-                _observer->notify(_current_time);
+                _observer->notify(eval_time);
             }
         }
 
@@ -307,27 +321,26 @@ namespace hgraph::value {
             return _value_view.window_is_variable_length();
         }
 
-        void window_compact() {
+        void window_compact(engine_time_t eval_time) {
             if (!valid() || kind() != TypeKind::Window) return;
-            _value_view.window_compact(_current_time);
+            _value_view.window_compact(eval_time);
         }
 
-        void window_evict_expired() {
+        void window_evict_expired(engine_time_t eval_time) {
             if (!valid() || kind() != TypeKind::Window) return;
-            _value_view.window_evict_expired(_current_time);
+            _value_view.window_evict_expired(eval_time);
         }
 
-        void window_clear() {
+        void window_clear(engine_time_t time) {
             if (!valid() || kind() != TypeKind::Window) return;
             _value_view.window_clear();
-            _tracker.mark_modified(_current_time);
+            _tracker.mark_modified(time);
             if (_observer) {
-                _observer->notify(_current_time);
+                _observer->notify(time);
             }
         }
 
-        // Ref operations - modification tracking at REF level
-        // (For now, we track modifications at the reference level, not through to the target)
+        // === Ref operations (time as parameter) ===
 
         [[nodiscard]] bool ref_is_empty() const {
             if (!valid() || kind() != TypeKind::Ref) return true;
@@ -379,15 +392,14 @@ namespace hgraph::value {
             return _value_view.ref_can_be_unbound();
         }
 
-        // Ref navigation for unbound refs - returns sub-view with item tracking
+        // Ref navigation for unbound refs
         [[nodiscard]] TimeSeriesValueView ref_item(size_t index) {
             if (!valid() || kind() != TypeKind::Ref || !ref_is_unbound()) {
                 return {};
             }
-            // Get child observer if available
             ObserverStorage* child_observer = _observer ? _observer->child(index) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            return {_value_view.ref_item(index), _tracker.ref_item(index), _current_time, effective_observer};
+            return {_value_view.ref_item(index), _tracker.ref_item(index), effective_observer};
         }
 
         [[nodiscard]] bool ref_item_modified_at(size_t index, engine_time_t time) const {
@@ -395,66 +407,62 @@ namespace hgraph::value {
         }
 
         // Mutable ref operations with tracking
-        void ref_bind(ValueRef target) {
+        void ref_bind(ValueRef target, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Ref) return;
             _value_view.ref_bind(target);
-            _tracker.mark_modified(_current_time);
+            _tracker.mark_modified(time);
             if (_observer) {
-                _observer->notify(_current_time);
+                _observer->notify(time);
             }
         }
 
-        void ref_clear() {
+        void ref_clear(engine_time_t time) {
             if (!valid() || kind() != TypeKind::Ref) return;
             _value_view.ref_clear();
-            _tracker.mark_modified(_current_time);
+            _tracker.mark_modified(time);
             if (_observer) {
-                _observer->notify(_current_time);
+                _observer->notify(time);
             }
         }
 
-        void ref_make_unbound(size_t count) {
+        void ref_make_unbound(size_t count, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Ref) return;
             _value_view.ref_make_unbound(count);
-            _tracker.mark_modified(_current_time);
+            _tracker.mark_modified(time);
             if (_observer) {
-                _observer->notify(_current_time);
+                _observer->notify(time);
             }
         }
 
-        void ref_set_item(size_t index, ValueRef target) {
+        void ref_set_item(size_t index, ValueRef target, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Ref || !ref_is_unbound()) return;
             _value_view.ref_set_item(index, target);
-            // Mark item as modified (for composite refs with item tracking)
             auto item_tracker = _tracker.ref_item(index);
             if (item_tracker.valid()) {
-                item_tracker.mark_modified(_current_time);
+                item_tracker.mark_modified(time);
             }
             if (_observer) {
-                _observer->notify(_current_time);
+                _observer->notify(time);
             }
         }
 
-        // Observer access
-        [[nodiscard]] ObserverStorage* observer() { return _observer; }
-        [[nodiscard]] const ObserverStorage* observer() const { return _observer; }
-
-        // String representation - value only
+        // === String representation ===
         [[nodiscard]] std::string to_string() const {
             return _value_view.to_string();
         }
 
-        // Debug string with modification status
-        // Format: TS[type]@addr(value="...", modified=true/false)
-        [[nodiscard]] std::string to_debug_string() const {
+        // Debug string with modification status (requires time parameter)
+        [[nodiscard]] std::string to_debug_string(engine_time_t time) const {
             std::string result = "TS[";
             result += _value_view.schema() ? (_value_view.schema()->name ? _value_view.schema()->name : "?") : "null";
             result += "]@";
-            result += std::to_string(reinterpret_cast<uintptr_t>(_value_view.data()));
+            // Use const accessor for data pointer
+            result += std::to_string(reinterpret_cast<uintptr_t>(
+                static_cast<const ConstValueView&>(_value_view).data()));
             result += "(value=\"";
             result += to_string();
             result += "\", modified=";
-            result += _tracker.modified_at(_current_time) ? "true" : "false";
+            result += _tracker.modified_at(time) ? "true" : "false";
             result += ")";
             return result;
         }
@@ -462,8 +470,8 @@ namespace hgraph::value {
     private:
         ValueView _value_view;
         ModificationTracker _tracker;
-        engine_time_t _current_time{MIN_DT};
-        ObserverStorage* _observer{nullptr};  // Non-owning pointer to observer at this level
+        ObserverStorage* _observer{nullptr};
+        // No _current_time - passed as parameter to mutations
     };
 
     /**
@@ -499,7 +507,7 @@ namespace hgraph::value {
         // Value access (read-only)
         [[nodiscard]] ConstValueView value() const { return _value.const_view(); }
 
-        // Modification state queries
+        // Modification state queries (time as parameter)
         [[nodiscard]] bool modified_at(engine_time_t time) const {
             return _tracker.tracker().modified_at(time);
         }
@@ -516,9 +524,9 @@ namespace hgraph::value {
             _tracker.tracker().mark_invalid();
         }
 
-        // Mutable access with tracking and observer notification
-        [[nodiscard]] TimeSeriesValueView view(engine_time_t current_time) {
-            return {_value.view(), _tracker.tracker(), current_time, _observers.get()};
+        // Mutable access - returns view without stored time
+        [[nodiscard]] TimeSeriesValueView view() {
+            return {_value.view(), _tracker.tracker(), _observers.get()};
         }
 
         // Direct scalar access (convenience for simple TS values)
@@ -565,8 +573,7 @@ namespace hgraph::value {
             return _value.to_string();
         }
 
-        // Debug string with modification status
-        // Format: TS[type]@addr(value="...", modified=true/false, last_modified=...)
+        // Debug string with modification status (requires time parameter)
         [[nodiscard]] std::string to_debug_string(engine_time_t current_time) const {
             std::string result = "TS[";
             result += schema() ? (schema()->name ? schema()->name : "?") : "null";

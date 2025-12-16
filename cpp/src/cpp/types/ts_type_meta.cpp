@@ -7,10 +7,6 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series_type.h>
-#ifdef HGRAPH_API_V2
-#include <hgraph/types/time_series/v2/ts_output.h>
-#include <hgraph/types/time_series/v2/ts_input.h>
-#endif
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 
@@ -42,39 +38,21 @@ std::string TSTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSTypeMeta::make_output(node_ptr owning_node) const {
-#ifdef HGRAPH_API_V2
-    // V2 build: use new ts::TsOutput (no BaseTimeSeriesOutput inheritance)
-    return arena_make_shared_as<ts::TsOutput, TimeSeriesOutput>(owning_node, this);
-#else
-    // V1 build: return nullptr to fall back to Python V1 implementation
+    // Not yet implemented - falls back to Python implementation
     return {};
-#endif
 }
 
 time_series_input_s_ptr TSTypeMeta::make_input(node_ptr owning_node) const {
-#ifdef HGRAPH_API_V2
-    // V2 build: use new ts::TsInput (no BaseTimeSeriesInput inheritance)
-    return arena_make_shared_as<ts::TsInput, TimeSeriesInput>(owning_node, this);
-#else
-    // V1 build: return nullptr to fall back to Python V1 implementation
+    // Not yet implemented - falls back to Python implementation
     return {};
-#endif
 }
 
 size_t TSTypeMeta::output_memory_size() const {
-#ifdef HGRAPH_API_V2
-    return sizeof(ts::TsOutput);
-#else
-    return 0;  // V1 build uses Python implementation
-#endif
+    return 0;  // Not yet implemented
 }
 
 size_t TSTypeMeta::input_memory_size() const {
-#ifdef HGRAPH_API_V2
-    return sizeof(ts::TsInput);
-#else
-    return 0;  // V1 build uses Python implementation
-#endif
+    return 0;  // Not yet implemented
 }
 
 // ============================================================================
