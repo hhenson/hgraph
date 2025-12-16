@@ -1,26 +1,8 @@
-//
-// Created by Howard Henson on 24/10/2025.
-//
+// Version-selecting forwarding header for python_node
+#pragma once
 
-#ifndef HGRAPH_CPP_ENGINE_PYTHON_NODE_H
-#define HGRAPH_CPP_ENGINE_PYTHON_NODE_H
-
-#include <hgraph/nodes/base_python_node.h>
-
-namespace hgraph {
-    /**
-     * PythonNode - Standard Python compute node
-     *
-     * Simple wrapper around BasePythonNode that provides access to the eval function.
-     * Most functionality is inherited from BasePythonNode.
-     */
-    struct PythonNode final : BasePythonNode {
-        using BasePythonNode::BasePythonNode;
-
-        const nb::callable &eval_fn();
-
-        VISITOR_SUPPORT()
-    };
-} // namespace hgraph
-
-#endif  // HGRAPH_CPP_ENGINE_PYTHON_NODE_H
+#ifdef HGRAPH_API_V2
+#include <hgraph/nodes/v2/python_node.h>
+#else
+#include <hgraph/nodes/v1/python_node.h>
+#endif

@@ -47,17 +47,60 @@ set(HGRAPH_API_V2_SOURCES
         types/time_series/v2/ts_input.cpp
 )
 
+# V1 Node sources
+set(HGRAPH_NODES_V1_SOURCES
+        nodes/v1/base_python_node.cpp
+        nodes/v1/component_node.cpp
+        nodes/v1/last_value_pull_node.cpp
+        nodes/v1/mesh_node.cpp
+        nodes/v1/context_node.cpp
+        nodes/v1/nested_evaluation_engine.cpp
+        nodes/v1/nested_graph_node.cpp
+        nodes/v1/nested_node.cpp
+        nodes/v1/non_associative_reduce_node.cpp
+        nodes/v1/python_generator_node.cpp
+        nodes/v1/python_node.cpp
+        nodes/v1/push_queue_node.cpp
+        nodes/v1/reduce_node.cpp
+        nodes/v1/switch_node.cpp
+        nodes/v1/try_except_node.cpp
+        nodes/v1/tsd_map_node.cpp
+)
+
+# V2 Node sources
+set(HGRAPH_NODES_V2_SOURCES
+        nodes/v2/base_python_node.cpp
+        nodes/v2/component_node.cpp
+        nodes/v2/last_value_pull_node.cpp
+        nodes/v2/mesh_node.cpp
+        nodes/v2/context_node.cpp
+        nodes/v2/nested_evaluation_engine.cpp
+        nodes/v2/nested_graph_node.cpp
+        nodes/v2/nested_node.cpp
+        nodes/v2/non_associative_reduce_node.cpp
+        nodes/v2/python_generator_node.cpp
+        nodes/v2/python_node.cpp
+        nodes/v2/push_queue_node.cpp
+        nodes/v2/reduce_node.cpp
+        nodes/v2/switch_node.cpp
+        nodes/v2/try_except_node.cpp
+        nodes/v2/tsd_map_node.cpp
+)
+
 # Select API version sources
 if(HGRAPH_API_VERSION STREQUAL "2")
     set(HGRAPH_API_SOURCES ${HGRAPH_API_SHARED_SOURCES} ${HGRAPH_API_V2_SOURCES})
+    set(HGRAPH_NODES_SOURCES ${HGRAPH_NODES_V2_SOURCES})
     message(STATUS "Building with V2 time-series API")
 else()
     set(HGRAPH_API_SOURCES ${HGRAPH_API_SHARED_SOURCES} ${HGRAPH_API_V1_SOURCES})
+    set(HGRAPH_NODES_SOURCES ${HGRAPH_NODES_V1_SOURCES})
     message(STATUS "Building with V1 time-series API (default)")
 endif()
 
 set(HGRAPH_SOURCES
         ${HGRAPH_API_SOURCES}
+        ${HGRAPH_NODES_SOURCES}
         builders/builder.cpp
         builders/graph_builder.cpp
         builders/input_builder.cpp
@@ -91,23 +134,6 @@ set(HGRAPH_SOURCES
         builders/time_series_types/time_series_set_output_builder.cpp
         builders/time_series_types/time_series_window_output_builder.cpp
         builders/time_series_types/time_series_dict_output_builder.cpp
-
-        nodes/base_python_node.cpp
-        nodes/component_node.cpp
-        nodes/last_value_pull_node.cpp
-        nodes/mesh_node.cpp
-        nodes/context_node.cpp
-        nodes/nested_evaluation_engine.cpp
-        nodes/nested_graph_node.cpp
-        nodes/nested_node.cpp
-        nodes/non_associative_reduce_node.cpp
-        nodes/python_generator_node.cpp
-        nodes/python_node.cpp
-        nodes/push_queue_node.cpp
-        nodes/reduce_node.cpp
-        nodes/switch_node.cpp
-        nodes/try_except_node.cpp
-        nodes/tsd_map_node.cpp
 
         python/_hgraph_builder.cpp
         python/_hgraph_module.cpp
