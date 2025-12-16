@@ -11,6 +11,7 @@
 #ifndef HGRAPH_TS_META_TYPES_H
 #define HGRAPH_TS_META_TYPES_H
 
+#include <hgraph/api/python/py_schema.h>
 #include <hgraph/types/base_time_series.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <vector>
@@ -198,6 +199,12 @@ private:
 struct TsbOutput final : BaseTimeSeriesOutput {
     using s_ptr = std::shared_ptr<TsbOutput>;
 
+    // Collection types (match TimeSeriesBundle interface)
+    using key_collection_type = std::vector<c_string_ref>;
+    using key_value_collection_type = std::vector<std::pair<c_string_ref, TimeSeriesOutput::s_ptr>>;
+    using raw_key_collection_type = std::vector<std::string>;
+    using raw_key_const_iterator = raw_key_collection_type::const_iterator;
+
     TsbOutput(node_ptr parent, const TSBTypeMeta* meta);
     TsbOutput(time_series_output_ptr parent, const TSBTypeMeta* meta);
 
@@ -213,16 +220,36 @@ struct TsbOutput final : BaseTimeSeriesOutput {
     [[nodiscard]] bool all_valid() const override;
     [[nodiscard]] bool has_reference() const override;
 
-    // Named field access
+    // Named field access (existing)
     [[nodiscard]] size_t size() const;
     [[nodiscard]] TimeSeriesOutput::s_ptr operator[](size_t ndx);
     [[nodiscard]] TimeSeriesOutput::s_ptr operator[](const std::string& name);
+
+    // Bundle interface methods (for PyTimeSeriesBundle compatibility)
+    [[nodiscard]] bool empty() const;
+    [[nodiscard]] bool contains(const std::string& key) const;
+    [[nodiscard]] const PyTimeSeriesSchema& schema() const;
+    [[nodiscard]] PyTimeSeriesSchema& schema();
+    [[nodiscard]] key_collection_type keys() const;
+    [[nodiscard]] key_collection_type valid_keys() const;
+    [[nodiscard]] key_collection_type modified_keys() const;
+    [[nodiscard]] std::vector<TimeSeriesOutput::s_ptr> values() const;
+    [[nodiscard]] std::vector<TimeSeriesOutput::s_ptr> valid_values() const;
+    [[nodiscard]] std::vector<TimeSeriesOutput::s_ptr> modified_values() const;
+    [[nodiscard]] key_value_collection_type items() const;
+    [[nodiscard]] key_value_collection_type valid_items() const;
+    [[nodiscard]] key_value_collection_type modified_items() const;
+    [[nodiscard]] const std::string& key_from_value(TimeSeriesOutput::s_ptr value) const;
+    [[nodiscard]] raw_key_const_iterator begin() const;
+    [[nodiscard]] raw_key_const_iterator end() const;
 
     VISITOR_SUPPORT()
 
 private:
     const TSBTypeMeta* _meta;
     std::vector<TimeSeriesOutput::s_ptr> _fields;
+    mutable PyTimeSeriesSchema::ptr _schema;  // Lazily created
+    mutable raw_key_collection_type _keys_cache;  // For begin()/end() iteration
 };
 
 // ============================================================================
@@ -231,6 +258,12 @@ private:
 
 struct TsbInput final : BaseTimeSeriesInput {
     using s_ptr = std::shared_ptr<TsbInput>;
+
+    // Collection types (match TimeSeriesBundle interface)
+    using key_collection_type = std::vector<c_string_ref>;
+    using key_value_collection_type = std::vector<std::pair<c_string_ref, TimeSeriesInput::s_ptr>>;
+    using raw_key_collection_type = std::vector<std::string>;
+    using raw_key_const_iterator = raw_key_collection_type::const_iterator;
 
     TsbInput(node_ptr parent, const TSBTypeMeta* meta);
     TsbInput(time_series_input_ptr parent, const TSBTypeMeta* meta);
@@ -247,12 +280,30 @@ struct TsbInput final : BaseTimeSeriesInput {
     void make_passive() override;
     [[nodiscard]] TimeSeriesInput::s_ptr get_input(size_t index) override;
 
-    // Named field access
+    // Named field access (existing)
     [[nodiscard]] size_t size() const;
     [[nodiscard]] TimeSeriesInput::s_ptr operator[](size_t ndx);
     [[nodiscard]] TimeSeriesInput::s_ptr operator[](size_t ndx) const;
     [[nodiscard]] TimeSeriesInput::s_ptr operator[](const std::string& name);
     [[nodiscard]] TimeSeriesInput::s_ptr operator[](const std::string& name) const;
+
+    // Bundle interface methods (for PyTimeSeriesBundle compatibility)
+    [[nodiscard]] bool empty() const;
+    [[nodiscard]] bool contains(const std::string& key) const;
+    [[nodiscard]] const PyTimeSeriesSchema& schema() const;
+    [[nodiscard]] PyTimeSeriesSchema& schema();
+    [[nodiscard]] key_collection_type keys() const;
+    [[nodiscard]] key_collection_type valid_keys() const;
+    [[nodiscard]] key_collection_type modified_keys() const;
+    [[nodiscard]] std::vector<TimeSeriesInput::s_ptr> values() const;
+    [[nodiscard]] std::vector<TimeSeriesInput::s_ptr> valid_values() const;
+    [[nodiscard]] std::vector<TimeSeriesInput::s_ptr> modified_values() const;
+    [[nodiscard]] key_value_collection_type items() const;
+    [[nodiscard]] key_value_collection_type valid_items() const;
+    [[nodiscard]] key_value_collection_type modified_items() const;
+    [[nodiscard]] const std::string& key_from_value(TimeSeriesInput::s_ptr value) const;
+    [[nodiscard]] raw_key_const_iterator begin() const;
+    [[nodiscard]] raw_key_const_iterator end() const;
 
     VISITOR_SUPPORT()
 
@@ -263,6 +314,8 @@ protected:
 private:
     const TSBTypeMeta* _meta;
     std::vector<TimeSeriesInput::s_ptr> _fields;
+    mutable PyTimeSeriesSchema::ptr _schema;  // Lazily created
+    mutable raw_key_collection_type _keys_cache;  // For begin()/end() iteration
 };
 
 } // namespace hgraph

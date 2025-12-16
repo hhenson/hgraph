@@ -7,6 +7,7 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/ts_v2_types.h>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
@@ -37,11 +38,11 @@ std::string TSTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSTypeMeta::make_output(node_ptr owning_node) const {
-    return std::make_shared<TsOutput>(owning_node, this);
+    return arena_make_shared_as<TsOutput, TimeSeriesOutput>(owning_node, this);
 }
 
 time_series_input_s_ptr TSTypeMeta::make_input(node_ptr owning_node) const {
-    return std::make_shared<TsInput>(owning_node, this);
+    return arena_make_shared_as<TsInput, TimeSeriesInput>(owning_node, this);
 }
 
 size_t TSTypeMeta::output_memory_size() const {
@@ -62,11 +63,11 @@ std::string TSSTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSSTypeMeta::make_output(node_ptr owning_node) const {
-    return std::make_shared<TssOutput>(owning_node, this);
+    return arena_make_shared_as<TssOutput, TimeSeriesOutput>(owning_node, this);
 }
 
 time_series_input_s_ptr TSSTypeMeta::make_input(node_ptr owning_node) const {
-    return std::make_shared<TssInput>(owning_node, this);
+    return arena_make_shared_as<TssInput, TimeSeriesInput>(owning_node, this);
 }
 
 size_t TSSTypeMeta::output_memory_size() const {
@@ -122,11 +123,11 @@ std::string TSLTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSLTypeMeta::make_output(node_ptr owning_node) const {
-    return std::make_shared<TslOutput>(owning_node, this);
+    return arena_make_shared_as<TslOutput, TimeSeriesOutput>(owning_node, this);
 }
 
 time_series_input_s_ptr TSLTypeMeta::make_input(node_ptr owning_node) const {
-    return std::make_shared<TslInput>(owning_node, this);
+    return arena_make_shared_as<TslInput, TimeSeriesInput>(owning_node, this);
 }
 
 size_t TSLTypeMeta::output_memory_size() const {
@@ -156,11 +157,11 @@ std::string TSBTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSBTypeMeta::make_output(node_ptr owning_node) const {
-    return std::make_shared<TsbOutput>(owning_node, this);
+    return arena_make_shared_as<TsbOutput, TimeSeriesOutput>(owning_node, this);
 }
 
 time_series_input_s_ptr TSBTypeMeta::make_input(node_ptr owning_node) const {
-    return std::make_shared<TsbInput>(owning_node, this);
+    return arena_make_shared_as<TsbInput, TimeSeriesInput>(owning_node, this);
 }
 
 size_t TSBTypeMeta::output_memory_size() const {

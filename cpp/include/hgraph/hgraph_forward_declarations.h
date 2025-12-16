@@ -131,7 +131,9 @@ namespace hgraph {
     using time_series_set_output_s_ptr = std::shared_ptr<TimeSeriesSetOutput>;
 
     // TimeSeriesSchema - keeps nb::ref
-    struct TimeSeriesSchema;
+    // PyTimeSeriesSchema is the actual struct, TimeSeriesSchema is an alias for backward compatibility
+    struct PyTimeSeriesSchema;
+    using TimeSeriesSchema = PyTimeSeriesSchema;
     using time_series_schema_ptr = TimeSeriesSchema*;
     using time_series_schema_s_ptr = nb::ref<TimeSeriesSchema>;
 

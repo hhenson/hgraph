@@ -34,6 +34,7 @@
 #include <hgraph/types/tsl.h>
 #include <hgraph/types/tss.h>
 #include <hgraph/types/tsw.h>
+#include <hgraph/types/time_series/ts_v2_types.h>
 #include <stdexcept>
 #include <utility>
 
@@ -61,6 +62,20 @@ namespace
                   PyTimeSeriesBundleReferenceInput>;
 
     static constexpr auto input_v = ddv::serial{
+        // V2 types - handle before V1 types
+        [](TsInput*, ApiPtr<TimeSeriesInput> impl) {
+            return nb::cast(PyTimeSeriesValueInput(std::move(impl)));
+        },
+        [](TsbInput*, ApiPtr<TimeSeriesInput> impl) {
+            return create_wrapper_from_api<PyTsbInput, TsbInput>(std::move(impl));
+        },
+        // TslInput/TssInput - wrap as value input for now (need V2-specific list/set wrappers)
+        [](TslInput*, ApiPtr<TimeSeriesInput> impl) {
+            return nb::cast(PyTimeSeriesValueInput(std::move(impl)));
+        },
+        [](TssInput*, ApiPtr<TimeSeriesInput> impl) {
+            return nb::cast(PyTimeSeriesValueInput(std::move(impl)));
+        },
         // typed inputs
         []<typename T>(TimeSeriesDictInput_T<T>*, ApiPtr<TimeSeriesInput> impl) {
             using U = TimeSeriesDictInput_T<T>;
@@ -111,6 +126,20 @@ namespace
                   PyTimeSeriesBundleReferenceOutput>;
 
     static constexpr auto output_v = ddv::serial{
+        // V2 types - handle before V1 types
+        [](TsOutput*, ApiPtr<TimeSeriesOutput> impl) {
+            return nb::cast(PyTimeSeriesValueOutput(std::move(impl)));
+        },
+        [](TsbOutput*, ApiPtr<TimeSeriesOutput> impl) {
+            return create_wrapper_from_api<PyTsbOutput, TsbOutput>(std::move(impl));
+        },
+        // TslOutput/TssOutput - wrap as value output for now (need V2-specific list/set wrappers)
+        [](TslOutput*, ApiPtr<TimeSeriesOutput> impl) {
+            return nb::cast(PyTimeSeriesValueOutput(std::move(impl)));
+        },
+        [](TssOutput*, ApiPtr<TimeSeriesOutput> impl) {
+            return nb::cast(PyTimeSeriesValueOutput(std::move(impl)));
+        },
         // typed outputs
         []<typename T>(TimeSeriesDictOutput_T<T>*, ApiPtr<TimeSeriesOutput> impl) {
             using U = TimeSeriesDictOutput_T<T>;

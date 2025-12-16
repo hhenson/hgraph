@@ -558,6 +558,193 @@ TimeSeriesOutput::s_ptr TsbOutput::operator[](const std::string& name) {
     throw std::out_of_range("Field not found: " + name);
 }
 
+// Bundle interface methods for PyTimeSeriesBundle compatibility
+
+bool TsbOutput::empty() const {
+    return _fields.empty();
+}
+
+bool TsbOutput::contains(const std::string& key) const {
+    return std::ranges::any_of(_meta->fields,
+        [&](const auto& f) { return f.name == key; });
+}
+
+const PyTimeSeriesSchema& TsbOutput::schema() const {
+    if (!_schema) {
+        _schema = nb::ref<PyTimeSeriesSchema>(new PyTimeSeriesSchema(_meta));
+    }
+    return *_schema;
+}
+
+PyTimeSeriesSchema& TsbOutput::schema() {
+    if (!_schema) {
+        _schema = nb::ref<PyTimeSeriesSchema>(new PyTimeSeriesSchema(_meta));
+    }
+    return *_schema;
+}
+
+TsbOutput::key_collection_type TsbOutput::keys() const {
+    key_collection_type result;
+    result.reserve(_meta->fields.size());
+    // Cache keys for c_string_ref stability
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    for (const auto& key : _keys_cache) {
+        result.emplace_back(key);
+    }
+    return result;
+}
+
+TsbOutput::key_collection_type TsbOutput::valid_keys() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    key_collection_type result;
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (_fields[i]->valid()) {
+            result.emplace_back(_keys_cache[i]);
+        }
+    }
+    return result;
+}
+
+TsbOutput::key_collection_type TsbOutput::modified_keys() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    key_collection_type result;
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (_fields[i]->modified()) {
+            result.emplace_back(_keys_cache[i]);
+        }
+    }
+    return result;
+}
+
+std::vector<TimeSeriesOutput::s_ptr> TsbOutput::values() const {
+    return _fields;
+}
+
+std::vector<TimeSeriesOutput::s_ptr> TsbOutput::valid_values() const {
+    std::vector<TimeSeriesOutput::s_ptr> result;
+    for (const auto& field : _fields) {
+        if (field->valid()) {
+            result.push_back(field);
+        }
+    }
+    return result;
+}
+
+std::vector<TimeSeriesOutput::s_ptr> TsbOutput::modified_values() const {
+    std::vector<TimeSeriesOutput::s_ptr> result;
+    for (const auto& field : _fields) {
+        if (field->modified()) {
+            result.push_back(field);
+        }
+    }
+    return result;
+}
+
+TsbOutput::key_value_collection_type TsbOutput::items() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    key_value_collection_type result;
+    result.reserve(_fields.size());
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        result.emplace_back(_keys_cache[i], _fields[i]);
+    }
+    return result;
+}
+
+TsbOutput::key_value_collection_type TsbOutput::valid_items() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    key_value_collection_type result;
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (_fields[i]->valid()) {
+            result.emplace_back(_keys_cache[i], _fields[i]);
+        }
+    }
+    return result;
+}
+
+TsbOutput::key_value_collection_type TsbOutput::modified_items() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    key_value_collection_type result;
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (_fields[i]->modified()) {
+            result.emplace_back(_keys_cache[i], _fields[i]);
+        }
+    }
+    return result;
+}
+
+const std::string& TsbOutput::key_from_value(TimeSeriesOutput::s_ptr value) const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (_fields[i] == value) {
+            return _keys_cache[i];
+        }
+    }
+    throw std::out_of_range("Value not found in bundle");
+}
+
+TsbOutput::raw_key_const_iterator TsbOutput::begin() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    return _keys_cache.begin();
+}
+
+TsbOutput::raw_key_const_iterator TsbOutput::end() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    return _keys_cache.end();
+}
+
 // ============================================================================
 // TsbInput
 // ============================================================================
@@ -682,6 +869,193 @@ void TsbInput::do_un_bind_output(bool unbind_refs) {
     for (auto& field : _fields) {
         field->un_bind_output(unbind_refs);
     }
+}
+
+// Bundle interface methods for PyTimeSeriesBundle compatibility
+
+bool TsbInput::empty() const {
+    return _fields.empty();
+}
+
+bool TsbInput::contains(const std::string& key) const {
+    return std::ranges::any_of(_meta->fields,
+        [&](const auto& f) { return f.name == key; });
+}
+
+const PyTimeSeriesSchema& TsbInput::schema() const {
+    if (!_schema) {
+        _schema = nb::ref<PyTimeSeriesSchema>(new PyTimeSeriesSchema(_meta));
+    }
+    return *_schema;
+}
+
+PyTimeSeriesSchema& TsbInput::schema() {
+    if (!_schema) {
+        _schema = nb::ref<PyTimeSeriesSchema>(new PyTimeSeriesSchema(_meta));
+    }
+    return *_schema;
+}
+
+TsbInput::key_collection_type TsbInput::keys() const {
+    key_collection_type result;
+    result.reserve(_meta->fields.size());
+    // Cache keys for c_string_ref stability
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    for (const auto& key : _keys_cache) {
+        result.emplace_back(key);
+    }
+    return result;
+}
+
+TsbInput::key_collection_type TsbInput::valid_keys() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    key_collection_type result;
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (_fields[i]->valid()) {
+            result.emplace_back(_keys_cache[i]);
+        }
+    }
+    return result;
+}
+
+TsbInput::key_collection_type TsbInput::modified_keys() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    key_collection_type result;
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (_fields[i]->modified()) {
+            result.emplace_back(_keys_cache[i]);
+        }
+    }
+    return result;
+}
+
+std::vector<TimeSeriesInput::s_ptr> TsbInput::values() const {
+    return _fields;
+}
+
+std::vector<TimeSeriesInput::s_ptr> TsbInput::valid_values() const {
+    std::vector<TimeSeriesInput::s_ptr> result;
+    for (const auto& field : _fields) {
+        if (field->valid()) {
+            result.push_back(field);
+        }
+    }
+    return result;
+}
+
+std::vector<TimeSeriesInput::s_ptr> TsbInput::modified_values() const {
+    std::vector<TimeSeriesInput::s_ptr> result;
+    for (const auto& field : _fields) {
+        if (field->modified()) {
+            result.push_back(field);
+        }
+    }
+    return result;
+}
+
+TsbInput::key_value_collection_type TsbInput::items() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    key_value_collection_type result;
+    result.reserve(_fields.size());
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        result.emplace_back(_keys_cache[i], _fields[i]);
+    }
+    return result;
+}
+
+TsbInput::key_value_collection_type TsbInput::valid_items() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    key_value_collection_type result;
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (_fields[i]->valid()) {
+            result.emplace_back(_keys_cache[i], _fields[i]);
+        }
+    }
+    return result;
+}
+
+TsbInput::key_value_collection_type TsbInput::modified_items() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    key_value_collection_type result;
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (_fields[i]->modified()) {
+            result.emplace_back(_keys_cache[i], _fields[i]);
+        }
+    }
+    return result;
+}
+
+const std::string& TsbInput::key_from_value(TimeSeriesInput::s_ptr value) const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    for (size_t i = 0; i < _fields.size(); ++i) {
+        if (_fields[i] == value) {
+            return _keys_cache[i];
+        }
+    }
+    throw std::out_of_range("Value not found in bundle");
+}
+
+TsbInput::raw_key_const_iterator TsbInput::begin() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    return _keys_cache.begin();
+}
+
+TsbInput::raw_key_const_iterator TsbInput::end() const {
+    // Ensure keys cache is populated
+    if (_keys_cache.empty()) {
+        _keys_cache.reserve(_meta->fields.size());
+        for (const auto& field : _meta->fields) {
+            _keys_cache.push_back(field.name);
+        }
+    }
+    return _keys_cache.end();
 }
 
 } // namespace hgraph
