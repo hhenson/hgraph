@@ -666,15 +666,15 @@ namespace hgraph
         _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
-    time_series_bundle_input_s_ptr& Node::input() { return _input; }
-    const time_series_bundle_input_s_ptr& Node::input() const { return _input; }
+    ts::TsbInput::s_ptr& Node::input() { return _input; }
+    const ts::TsbInput::s_ptr& Node::input() const { return _input; }
 
-    void Node::set_input(const time_series_bundle_input_s_ptr& value) {
+    void Node::set_input(const ts::TsbInput::s_ptr& value) {
         if (has_input()) { throw std::runtime_error("Input already set on node: " + _signature->signature()); }
         reset_input(value);
     }
 
-    void Node::reset_input(const time_series_bundle_input_s_ptr& value) {
+    void Node::reset_input(const ts::TsbInput::s_ptr& value) {
         _input = value;
         _check_all_valid_inputs.clear();
         _check_valid_inputs.clear();
@@ -699,9 +699,9 @@ namespace hgraph
 
     void Node::set_output(const time_series_output_s_ptr& value) { _output = value; }
 
-    time_series_bundle_output_s_ptr& Node::recordable_state() { return _recordable_state; }
+    ts::TsbOutput::s_ptr& Node::recordable_state() { return _recordable_state; }
 
-    void Node::set_recordable_state(const time_series_bundle_output_s_ptr& value) { _recordable_state = value; }
+    void Node::set_recordable_state(const ts::TsbOutput::s_ptr& value) { _recordable_state = value; }
 
     bool Node::has_recordable_state() const { return _recordable_state != nullptr; }
 
@@ -714,9 +714,9 @@ namespace hgraph
 
     void Node::unset_scheduler() { _scheduler.reset(); }
 
-    time_series_output_s_ptr& Node::error_output() { return _error_output; }
+    ts::TsOutput::s_ptr& Node::error_output() { return _error_output; }
 
-    void Node::set_error_output(const time_series_output_s_ptr& value) { _error_output = value; }
+    void Node::set_error_output(const ts::TsOutput::s_ptr& value) { _error_output = value; }
 
     void Node::add_start_input(const time_series_reference_input_s_ptr& input) { _start_inputs.push_back(input); }
 

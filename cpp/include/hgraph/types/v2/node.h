@@ -8,6 +8,11 @@
 
 #include <ddv/visitable.h>
 
+// V2 time-series types
+#include <hgraph/types/time_series/v2/ts_output.h>
+#include <hgraph/types/time_series/v2/tsb_input.h>
+#include <hgraph/types/time_series/v2/tsb_output.h>
+
 namespace hgraph
 {
     template <typename Enum> typename std::enable_if<std::is_enum<Enum>::value, Enum>::type operator|(Enum lhs, Enum rhs) {
@@ -221,23 +226,23 @@ namespace hgraph
 
         void set_graph(graph_ptr value);
 
-        time_series_bundle_input_s_ptr &input();
+        ts::TsbInput::s_ptr &input();
 
-        const time_series_bundle_input_s_ptr &input() const;
+        const ts::TsbInput::s_ptr &input() const;
 
         auto start_inputs() const { return _start_inputs; }
 
-        void set_input(const time_series_bundle_input_s_ptr &value);
+        void set_input(const ts::TsbInput::s_ptr &value);
 
-        virtual void reset_input(const time_series_bundle_input_s_ptr &value);
+        virtual void reset_input(const ts::TsbInput::s_ptr &value);
 
         time_series_output_s_ptr &output();
 
         void set_output(const time_series_output_s_ptr &value);
 
-        time_series_bundle_output_s_ptr &recordable_state();
+        ts::TsbOutput::s_ptr &recordable_state();
 
-        void set_recordable_state(const time_series_bundle_output_s_ptr &value);
+        void set_recordable_state(const ts::TsbOutput::s_ptr &value);
 
         bool has_recordable_state() const;
 
@@ -247,9 +252,9 @@ namespace hgraph
 
         void unset_scheduler();
 
-        time_series_output_s_ptr &error_output();
+        ts::TsOutput::s_ptr &error_output();
 
-        void set_error_output(const time_series_output_s_ptr &value);
+        void set_error_output(const ts::TsOutput::s_ptr &value);
 
         // Performance optimization: provide access to cached evaluation time pointer
         [[nodiscard]] const engine_time_t *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
@@ -286,10 +291,10 @@ namespace hgraph
         node_signature_s_ptr            _signature;
         nb::dict                        _scalars;
         graph_ptr                       _graph;             // back-pointer, not owned
-        time_series_bundle_input_s_ptr  _input;             // owned
-        time_series_output_s_ptr        _output;            // owned
-        time_series_output_s_ptr        _error_output;      // owned
-        time_series_bundle_output_s_ptr _recordable_state;  // owned
+        ts::TsbInput::s_ptr             _input;             // owned - V2 bundle input
+        time_series_output_s_ptr        _output;            // owned - any time-series output type
+        ts::TsOutput::s_ptr             _error_output;      // owned - V2 scalar output for errors
+        ts::TsbOutput::s_ptr            _recordable_state;  // owned - V2 bundle output
         NodeScheduler::s_ptr            _scheduler;         // owned
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.

@@ -171,7 +171,7 @@ namespace hgraph
         recordable_state()->apply_result(restored_state.attr("value"));
     }
 
-    void BasePythonNode::reset_input(const time_series_bundle_input_s_ptr& value) {
+    void BasePythonNode::reset_input(const ts::TsbInput::s_ptr& value) {
         Node::reset_input(value);
         _initialise_kwarg_inputs();
     }

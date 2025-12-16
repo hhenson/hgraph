@@ -89,6 +89,14 @@ struct TSContext {
         owner = static_cast<node_ptr>(nullptr);
     }
 
+    // Get parent as TimeSeriesInput (if owner is a parent input)
+    // Returns nullptr if owner is a node or not an input
+    [[nodiscard]] std::shared_ptr<TimeSeriesInput> parent_input() const;
+
+    // Get parent as TimeSeriesOutput (if owner is a parent output)
+    // Returns nullptr if owner is a node or not an output
+    [[nodiscard]] std::shared_ptr<TimeSeriesOutput> parent_output() const;
+
     // Factory helpers for clear construction intent
     static TSContext from_node(node_ptr n) { return TSContext(n); }
     static TSContext from_parent(TimeSeriesType* p) { return TSContext(p); }

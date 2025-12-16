@@ -128,8 +128,12 @@ namespace hgraph {
     void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node) const {
         if (input_builder.has_value()) {
             auto ts_input = (*input_builder)->make_instance(node);
-            // The input is always a TimeSeriesBundleInput at this level.
+            // The input is always a TimeSeriesBundleInput/TsbInput at this level.
+#ifdef HGRAPH_API_V2
+            node->set_input(std::static_pointer_cast<ts::TsbInput>(ts_input));
+#else
             node->set_input(std::static_pointer_cast<TimeSeriesBundleInput>(ts_input));
+#endif
         }
 
         if (output_builder.has_value()) {
@@ -139,13 +143,22 @@ namespace hgraph {
 
         if (error_builder.has_value()) {
             auto ts_error_output = (*error_builder)->make_instance(node);
+            // The error_output is a TimeSeriesOutput in V1, TsOutput in V2
+#ifdef HGRAPH_API_V2
+            node->set_error_output(std::static_pointer_cast<ts::TsOutput>(ts_error_output));
+#else
             node->set_error_output(ts_error_output);
+#endif
         }
 
         if (recordable_state_builder.has_value()) {
             auto ts_recordable_state = (*recordable_state_builder)->make_instance(node);
-            // The recordable_state is always a TimeSeriesBundleOutput at this level.
+            // The recordable_state is always a TimeSeriesBundleOutput/TsbOutput at this level.
+#ifdef HGRAPH_API_V2
+            node->set_recordable_state(std::static_pointer_cast<ts::TsbOutput>(ts_recordable_state));
+#else
             node->set_recordable_state(std::static_pointer_cast<TimeSeriesBundleOutput>(ts_recordable_state));
+#endif
         }
     }
 } // namespace hgraph

@@ -17,13 +17,13 @@ namespace hgraph
     namespace ts {
         struct TsInput;
         struct TsOutput;
+        struct TsbInput;
+        struct TsbOutput;
+        struct TslInput;
+        struct TslOutput;
+        struct TssInput;
+        struct TssOutput;
     }
-    struct TsbInput;
-    struct TsbOutput;
-    struct TslInput;
-    struct TslOutput;
-    struct TssInput;
-    struct TssOutput;
 #endif
 
     using ts_input_types = tp::tpack<BaseTimeSeriesInput, TimeSeriesValueInputBase, TimeSeriesSignalInput, IndexedTimeSeriesInput,
@@ -32,7 +32,7 @@ namespace hgraph
 
     // V2 input types (only when building V2 - no mixing with V1)
 #ifdef HGRAPH_API_V2
-    using ts_v2_input_types = tp::tpack<ts::TsInput, TsbInput, TslInput, TssInput>;
+    using ts_v2_input_types = tp::tpack<ts::TsInput, ts::TsbInput, ts::TslInput, ts::TssInput>;
     inline constexpr auto ts_v2_input_types_v = ts_v2_input_types{};
 #else
     using ts_v2_input_types = tp::tpack<>;  // Empty when building V1
@@ -51,7 +51,7 @@ namespace hgraph
 
     // V2 output types (only when building V2 - no mixing with V1)
 #ifdef HGRAPH_API_V2
-    using ts_v2_output_types = tp::tpack<ts::TsOutput, TsbOutput, TslOutput, TssOutput>;
+    using ts_v2_output_types = tp::tpack<ts::TsOutput, ts::TsbOutput, ts::TslOutput, ts::TssOutput>;
     inline constexpr auto ts_v2_output_types_v = ts_v2_output_types{};
 #else
     using ts_v2_output_types = tp::tpack<>;  // Empty when building V1
