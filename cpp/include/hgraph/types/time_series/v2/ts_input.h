@@ -94,8 +94,7 @@ struct TsInput final : TimeSeriesInput {
     // === Notifiable interface ===
     void notify(engine_time_t modified_time) override;
 
-    // Note: VISITOR_SUPPORT() removed temporarily until types are registered
-    // in the visitor system. Will be added when old V2 types are removed.
+    VISITOR_SUPPORT()
 
 private:
     TSValue::ptr _state;                      // Shared state (from bound output)

@@ -31,10 +31,20 @@ set(HGRAPH_API_V1_SOURCES
 
 # V2 API sources (unified time-series with TSValue shared state)
 set(HGRAPH_API_V2_SOURCES
-        # api/python/v2/py_time_series.cpp
-        # api/python/v2/py_ts.cpp
-        # api/python/v2/wrapper_factory.cpp
-        # ... to be implemented
+        api/python/v2/py_time_series.cpp
+        api/python/v2/py_ts.cpp
+        api/python/v2/py_tsb.cpp
+        api/python/v2/py_tsd.cpp
+        api/python/v2/py_tsl.cpp
+        api/python/v2/py_tss.cpp
+        api/python/v2/py_tsw.cpp
+        api/python/v2/py_ref.cpp
+        api/python/v2/py_signal.cpp
+        api/python/v2/wrapper_factory.cpp
+        # V2 core types (TSValue shared state architecture)
+        types/time_series/v2/ts_context.cpp
+        types/time_series/v2/ts_output.cpp
+        types/time_series/v2/ts_input.cpp
 )
 
 # Select API version sources
@@ -140,9 +150,6 @@ set(HGRAPH_SOURCES
         types/type_meta_bindings.cpp
         types/ts_type_meta.cpp
         types/ts_type_meta_bindings.cpp
-        types/time_series/v2/ts_context.cpp
-        types/time_series/v2/ts_output.cpp
-        types/time_series/v2/ts_input.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
