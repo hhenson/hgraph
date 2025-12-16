@@ -65,6 +65,7 @@ set(HGRAPH_NODES_V1_SOURCES
         nodes/v1/switch_node.cpp
         nodes/v1/try_except_node.cpp
         nodes/v1/tsd_map_node.cpp
+        types/v1/node.cpp
 )
 
 # V2 Node sources
@@ -85,6 +86,7 @@ set(HGRAPH_NODES_V2_SOURCES
         nodes/v2/switch_node.cpp
         nodes/v2/try_except_node.cpp
         nodes/v2/tsd_map_node.cpp
+        types/v2/node.cpp
 )
 
 # Select API version sources
@@ -158,7 +160,6 @@ set(HGRAPH_SOURCES
         types/error_type.cpp
         types/feature_extension.cpp
         types/graph.cpp
-        types/node.cpp
         types/ref.cpp
         types/scalar_types.cpp
         types/schema_type.cpp
