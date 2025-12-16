@@ -6,7 +6,11 @@
 
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
-#include <hgraph/types/time_series/ts_v2_types.h>
+#include <hgraph/types/time_series_type.h>
+#ifdef HGRAPH_API_V2
+#include <hgraph/types/time_series/v2/ts_output.h>
+#include <hgraph/types/time_series/v2/ts_input.h>
+#endif
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 
@@ -38,19 +42,39 @@ std::string TSTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSTypeMeta::make_output(node_ptr owning_node) const {
-    return arena_make_shared_as<TsOutput, TimeSeriesOutput>(owning_node, this);
+#ifdef HGRAPH_API_V2
+    // V2 build: use new ts::TsOutput (no BaseTimeSeriesOutput inheritance)
+    return arena_make_shared_as<ts::TsOutput, TimeSeriesOutput>(owning_node, this);
+#else
+    // V1 build: return nullptr to fall back to Python V1 implementation
+    return {};
+#endif
 }
 
 time_series_input_s_ptr TSTypeMeta::make_input(node_ptr owning_node) const {
-    return arena_make_shared_as<TsInput, TimeSeriesInput>(owning_node, this);
+#ifdef HGRAPH_API_V2
+    // V2 build: use new ts::TsInput (no BaseTimeSeriesInput inheritance)
+    return arena_make_shared_as<ts::TsInput, TimeSeriesInput>(owning_node, this);
+#else
+    // V1 build: return nullptr to fall back to Python V1 implementation
+    return {};
+#endif
 }
 
 size_t TSTypeMeta::output_memory_size() const {
-    return sizeof(TsOutput);
+#ifdef HGRAPH_API_V2
+    return sizeof(ts::TsOutput);
+#else
+    return 0;  // V1 build uses Python implementation
+#endif
 }
 
 size_t TSTypeMeta::input_memory_size() const {
-    return sizeof(TsInput);
+#ifdef HGRAPH_API_V2
+    return sizeof(ts::TsInput);
+#else
+    return 0;  // V1 build uses Python implementation
+#endif
 }
 
 // ============================================================================
@@ -63,19 +87,23 @@ std::string TSSTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSSTypeMeta::make_output(node_ptr owning_node) const {
-    return arena_make_shared_as<TssOutput, TimeSeriesOutput>(owning_node, this);
+    // TSS V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    return {};
 }
 
 time_series_input_s_ptr TSSTypeMeta::make_input(node_ptr owning_node) const {
-    return arena_make_shared_as<TssInput, TimeSeriesInput>(owning_node, this);
+    // TSS V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    return {};
 }
 
 size_t TSSTypeMeta::output_memory_size() const {
-    return sizeof(TssOutput);
+    // TSS V2 not yet implemented
+    return 0;
 }
 
 size_t TSSTypeMeta::input_memory_size() const {
-    return sizeof(TssInput);
+    // TSS V2 not yet implemented
+    return 0;
 }
 
 // ============================================================================
@@ -123,20 +151,23 @@ std::string TSLTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSLTypeMeta::make_output(node_ptr owning_node) const {
-    return arena_make_shared_as<TslOutput, TimeSeriesOutput>(owning_node, this);
+    // TSL V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    return {};
 }
 
 time_series_input_s_ptr TSLTypeMeta::make_input(node_ptr owning_node) const {
-    return arena_make_shared_as<TslInput, TimeSeriesInput>(owning_node, this);
+    // TSL V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    return {};
 }
 
 size_t TSLTypeMeta::output_memory_size() const {
-    // Base size plus vector overhead (elements allocated separately)
-    return sizeof(TslOutput);
+    // TSL V2 not yet implemented
+    return 0;
 }
 
 size_t TSLTypeMeta::input_memory_size() const {
-    return sizeof(TslInput);
+    // TSL V2 not yet implemented
+    return 0;
 }
 
 // ============================================================================
@@ -157,19 +188,23 @@ std::string TSBTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSBTypeMeta::make_output(node_ptr owning_node) const {
-    return arena_make_shared_as<TsbOutput, TimeSeriesOutput>(owning_node, this);
+    // TSB V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    return {};
 }
 
 time_series_input_s_ptr TSBTypeMeta::make_input(node_ptr owning_node) const {
-    return arena_make_shared_as<TsbInput, TimeSeriesInput>(owning_node, this);
+    // TSB V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    return {};
 }
 
 size_t TSBTypeMeta::output_memory_size() const {
-    return sizeof(TsbOutput);
+    // TSB V2 not yet implemented
+    return 0;
 }
 
 size_t TSBTypeMeta::input_memory_size() const {
-    return sizeof(TsbInput);
+    // TSB V2 not yet implemented
+    return 0;
 }
 
 // ============================================================================

@@ -1,22 +1,53 @@
 project(_hgraph)
 
-set(HGRAPH_SOURCES
+# API Version Selection (1 = V1, 2 = V2)
+# V1: Current implementation with BaseTimeSeriesInput/Output inheritance
+# V2: New unified time-series with TSValue shared state (planned)
+option(HGRAPH_API_VERSION "API version to build (1 or 2)" "1")
+
+# Shared API sources (version-independent)
+set(HGRAPH_API_SHARED_SOURCES
         api/python/py_evaluation_clock.cpp
         api/python/py_evaluation_engine.cpp
         api/python/py_graph.cpp
         api/python/py_node.cpp
         api/python/py_special_nodes.cpp
-        api/python/py_time_series.cpp
-        api/python/py_ref.cpp
-        api/python/py_signal.cpp
-        api/python/py_ts.cpp
-        api/python/py_tsb.cpp
-        api/python/py_tsd.cpp
-        api/python/py_tsl.cpp
-        api/python/py_tss.cpp
-        api/python/py_tsw.cpp
         api/python/py_schema.cpp
-        api/python/wrapper_factory.cpp
+)
+
+# V1 API sources (time-series type wrappers)
+set(HGRAPH_API_V1_SOURCES
+        api/python/v1/py_time_series.cpp
+        api/python/v1/py_ts.cpp
+        api/python/v1/py_tsb.cpp
+        api/python/v1/py_tsd.cpp
+        api/python/v1/py_tsl.cpp
+        api/python/v1/py_tss.cpp
+        api/python/v1/py_tsw.cpp
+        api/python/v1/py_ref.cpp
+        api/python/v1/py_signal.cpp
+        api/python/v1/wrapper_factory.cpp
+)
+
+# V2 API sources (unified time-series with TSValue shared state)
+set(HGRAPH_API_V2_SOURCES
+        # api/python/v2/py_time_series.cpp
+        # api/python/v2/py_ts.cpp
+        # api/python/v2/wrapper_factory.cpp
+        # ... to be implemented
+)
+
+# Select API version sources
+if(HGRAPH_API_VERSION STREQUAL "2")
+    set(HGRAPH_API_SOURCES ${HGRAPH_API_SHARED_SOURCES} ${HGRAPH_API_V2_SOURCES})
+    message(STATUS "Building with V2 time-series API")
+else()
+    set(HGRAPH_API_SOURCES ${HGRAPH_API_SHARED_SOURCES} ${HGRAPH_API_V1_SOURCES})
+    message(STATUS "Building with V1 time-series API (default)")
+endif()
+
+set(HGRAPH_SOURCES
+        ${HGRAPH_API_SOURCES}
         builders/builder.cpp
         builders/graph_builder.cpp
         builders/input_builder.cpp
@@ -109,7 +140,9 @@ set(HGRAPH_SOURCES
         types/type_meta_bindings.cpp
         types/ts_type_meta.cpp
         types/ts_type_meta_bindings.cpp
-        types/time_series/ts_v2_types.cpp
+        types/time_series/v2/ts_context.cpp
+        types/time_series/v2/ts_output.cpp
+        types/time_series/v2/ts_input.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
@@ -123,6 +156,13 @@ nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUD
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
 target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor)
+
+# Propagate API version to compiler for conditional compilation
+if(HGRAPH_API_VERSION STREQUAL "2")
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_API_V2=1)
+else()
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_API_V1=1)
+endif()
 
 # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
 if (HGRAPH_WITH_BACKWARD)

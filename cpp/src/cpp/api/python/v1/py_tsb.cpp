@@ -1,7 +1,6 @@
 #include <hgraph/api/python/py_tsb.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/tsb.h>
-#include <hgraph/types/time_series/ts_v2_types.h>
 
 namespace hgraph
 {
@@ -50,7 +49,7 @@ namespace hgraph
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::key_from_value(const nb::handle &value) const {
-        constexpr auto is_input = std::is_same_v<T_U, TimeSeriesBundleInput> || std::is_same_v<T_U, TsbInput>;
+        constexpr auto is_input = std::is_same_v<T_U, TimeSeriesBundleInput>;
         typedef std::conditional_t<is_input, time_series_input_s_ptr, time_series_output_s_ptr> TS_SPtr;
         TS_SPtr p;
         if constexpr (is_input) {
@@ -136,11 +135,7 @@ namespace hgraph
     }
 
     template <typename T_TS, typename T_U> constexpr const char *get_bundle_type_name() {
-        if constexpr (std::is_same_v<T_U, TsbInput>) {
-            return "TsbInput@{:p}[keys={}, valid={}]";
-        } else if constexpr (std::is_same_v<T_U, TsbOutput>) {
-            return "TsbOutput@{:p}[keys={}, valid={}]";
-        } else if constexpr (std::is_same_v<T_TS, PyTimeSeriesInput>) {
+        if constexpr (std::is_same_v<T_TS, PyTimeSeriesInput>) {
             return "TimeSeriesBundleInput@{:p}[keys={}, valid={}]";
         } else {
             return "TimeSeriesBundleOutput@{:p}[keys={}, valid={}]";
@@ -170,10 +165,6 @@ namespace hgraph
 
     template struct PyTimeSeriesBundle<PyTimeSeriesOutput, TimeSeriesBundleOutput>;
     template struct PyTimeSeriesBundle<PyTimeSeriesInput, TimeSeriesBundleInput>;
-
-    // V2 explicit instantiations
-    template struct PyTimeSeriesBundle<PyTimeSeriesOutput, TsbOutput>;
-    template struct PyTimeSeriesBundle<PyTimeSeriesInput, TsbInput>;
 
     template <typename T_TS, typename T_U> void _register_tsb_with_nanobind(nb::module_ &m) {
         using PyTS_Type = PyTimeSeriesBundle<T_TS, T_U>;

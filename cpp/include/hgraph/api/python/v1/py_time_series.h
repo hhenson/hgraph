@@ -1,6 +1,6 @@
 #pragma once
 
-#include "api_ptr.h"
+#include <hgraph/api/python/shared/api_ptr.h>
 
 #include <hgraph/hgraph_base.h>
 

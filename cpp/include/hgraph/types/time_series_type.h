@@ -12,23 +12,32 @@ namespace hgraph
 
     struct TimeSeriesVisitor;
 
-    // V2 types forward declarations for visitor support
-    struct TsInput;
-    struct TsOutput;
+    // V2 types forward declarations for visitor support (only when building V2)
+#ifdef HGRAPH_API_V2
+    namespace ts {
+        struct TsInput;
+        struct TsOutput;
+    }
     struct TsbInput;
     struct TsbOutput;
     struct TslInput;
     struct TslOutput;
     struct TssInput;
     struct TssOutput;
+#endif
 
     using ts_input_types = tp::tpack<BaseTimeSeriesInput, TimeSeriesValueInputBase, TimeSeriesSignalInput, IndexedTimeSeriesInput,
                                      TimeSeriesListInput, TimeSeriesSetInput, TimeSeriesDictInput, TimeSeriesBundleInput>;
     inline constexpr auto ts_input_types_v = ts_input_types{};
 
-    // V2 input types
-    using ts_v2_input_types = tp::tpack<TsInput, TsbInput, TslInput, TssInput>;
+    // V2 input types (only when building V2 - no mixing with V1)
+#ifdef HGRAPH_API_V2
+    using ts_v2_input_types = tp::tpack<ts::TsInput, TsbInput, TslInput, TssInput>;
     inline constexpr auto ts_v2_input_types_v = ts_v2_input_types{};
+#else
+    using ts_v2_input_types = tp::tpack<>;  // Empty when building V1
+    inline constexpr auto ts_v2_input_types_v = ts_v2_input_types{};
+#endif
 
     using ts_reference_input_types =
         tp::tpack<TimeSeriesReferenceInput, TimeSeriesValueReferenceInput, TimeSeriesWindowReferenceInput,
@@ -40,9 +49,14 @@ namespace hgraph
                                                         TimeSeriesListOutput, TimeSeriesSetOutput, TimeSeriesDictOutput, TimeSeriesBundleOutput>;
     inline constexpr auto ts_output_types_v = ts_output_types{};
 
-    // V2 output types
-    using ts_v2_output_types = tp::tpack<TsOutput, TsbOutput, TslOutput, TssOutput>;
+    // V2 output types (only when building V2 - no mixing with V1)
+#ifdef HGRAPH_API_V2
+    using ts_v2_output_types = tp::tpack<ts::TsOutput, TsbOutput, TslOutput, TssOutput>;
     inline constexpr auto ts_v2_output_types_v = ts_v2_output_types{};
+#else
+    using ts_v2_output_types = tp::tpack<>;  // Empty when building V1
+    inline constexpr auto ts_v2_output_types_v = ts_v2_output_types{};
+#endif
 
     using ts_reference_output_types =
         tp::tpack<TimeSeriesReferenceOutput, TimeSeriesValueReferenceOutput, TimeSeriesWindowReferenceOutput,

@@ -5,14 +5,11 @@
 
 namespace hgraph
 {
-    // Forward declarations for V2 types
-    struct TsbOutput;
-    struct TsbInput;
-
+    // V1 wrapper - only supports V1 types (TimeSeriesBundleOutput, TimeSeriesBundleInput)
     template <typename T_TS, typename T_U>
     concept is_py_tsb = ((std::is_same_v<T_TS, PyTimeSeriesInput> || std::is_same_v<T_TS, PyTimeSeriesOutput>) &&
-                         ((std::is_same_v<T_TS, PyTimeSeriesInput> && (std::is_same_v<T_U, TimeSeriesBundleInput> || std::is_same_v<T_U, TsbInput>)) ||
-                          (std::is_same_v<T_TS, PyTimeSeriesOutput> && (std::is_same_v<T_U, TimeSeriesBundleOutput> || std::is_same_v<T_U, TsbOutput>))));
+                         ((std::is_same_v<T_TS, PyTimeSeriesInput> && std::is_same_v<T_U, TimeSeriesBundleInput>) ||
+                          (std::is_same_v<T_TS, PyTimeSeriesOutput> && std::is_same_v<T_U, TimeSeriesBundleOutput>)));
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
@@ -87,10 +84,6 @@ namespace hgraph
 
     using PyTimeSeriesBundleOutput = PyTimeSeriesBundle<PyTimeSeriesOutput, TimeSeriesBundleOutput>;
     using PyTimeSeriesBundleInput  = PyTimeSeriesBundle<PyTimeSeriesInput, TimeSeriesBundleInput>;
-
-    // V2 type aliases - same wrapper class, different underlying type
-    using PyTsbOutput = PyTimeSeriesBundle<PyTimeSeriesOutput, TsbOutput>;
-    using PyTsbInput  = PyTimeSeriesBundle<PyTimeSeriesInput, TsbInput>;
 
     void tsb_register_with_nanobind(nb::module_ &m);
 
