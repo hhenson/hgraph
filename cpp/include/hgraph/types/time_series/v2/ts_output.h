@@ -14,6 +14,7 @@
 #define HGRAPH_TS_OUTPUT_V2_H
 
 #include <hgraph/hgraph_forward_declarations.h>
+#include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/time_series_value.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <string>
@@ -559,14 +560,13 @@ public:
     }
 
     // === Observer/subscription support ===
-    // TODO: Resolve Notifiable type mismatch between hgraph::Notifiable and hgraph::value::Notifiable
-    // void subscribe(Notifiable* notifiable) {
-    //     _value.subscribe(notifiable);
-    // }
-    //
-    // void unsubscribe(Notifiable* notifiable) {
-    //     _value.unsubscribe(notifiable);
-    // }
+    void subscribe(Notifiable* notifiable) {
+        _value.subscribe(notifiable);
+    }
+
+    void unsubscribe(Notifiable* notifiable) {
+        _value.unsubscribe(notifiable);
+    }
 
     [[nodiscard]] bool has_observers() const {
         return _value.has_observers();

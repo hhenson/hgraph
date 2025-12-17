@@ -440,10 +440,14 @@ struct NonPeeredStrategy : BindingStrategy {
  *
  * Tracks reference changes and rebinds to the target output.
  * Reports modified when reference changes (delta synthesis).
+ *
+ * Subscription behavior:
+ * - ALWAYS subscribed to _ref_output (to track reference changes)
+ * - Only subscribed to _target_output when active (for value changes)
  */
 struct RefObserverStrategy : BindingStrategy {
-    TSOutput* _ref_output{nullptr};    // The REF output we observe
-    TSOutput* _target_output{nullptr}; // Current target (what REF points to)
+    TSOutput* _ref_output{nullptr};    // The REF output we observe (always subscribed)
+    TSOutput* _target_output{nullptr}; // Current target (subscribed only when active)
     engine_time_t _sample_time{MIN_DT}; // When we last rebound
 
     RefObserverStrategy() = default;
@@ -558,7 +562,7 @@ struct RefWrapperStrategy : BindingStrategy {
  * Construction:
  * - Use TimeSeriesTypeMeta::make_input() to create instances
  */
-class TSInput {
+class TSInput : public Notifiable {
 public:
     using ptr = TSInput*;
     using s_ptr = std::shared_ptr<TSInput>;
@@ -645,6 +649,15 @@ public:
     void make_passive();
 
     [[nodiscard]] bool active() const { return _active; }
+
+    // === Notification (from Notifiable interface) ===
+
+    /**
+     * Called by bound output(s) when they are modified
+     *
+     * Propagates notification to the owning node.
+     */
+    void notify(engine_time_t time) override;
 
     // === View creation with path tracking ===
 

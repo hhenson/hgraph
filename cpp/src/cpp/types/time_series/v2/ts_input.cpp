@@ -6,6 +6,7 @@
 
 #include <hgraph/types/time_series/v2/ts_input.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/node.h>
 
 namespace hgraph::ts {
 
@@ -14,17 +15,15 @@ namespace hgraph::ts {
 // ============================================================================
 
 void PeeredStrategy::make_active() {
-    // TODO: Subscribe to peer output when Notifiable type is resolved
-    // if (_peer_output && _input) {
-    //     _peer_output->subscribe(_input);
-    // }
+    if (_peer_output && _input) {
+        _peer_output->subscribe(_input);
+    }
 }
 
 void PeeredStrategy::make_passive() {
-    // TODO: Unsubscribe from peer output when Notifiable type is resolved
-    // if (_peer_output && _input) {
-    //     _peer_output->unsubscribe(_input);
-    // }
+    if (_peer_output && _input) {
+        _peer_output->unsubscribe(_input);
+    }
 }
 
 void PeeredStrategy::unbind() {
@@ -87,22 +86,20 @@ value::ModificationTracker NonPeeredStrategy::tracker() const {
 
 void NonPeeredStrategy::make_active() {
     // Subscribe to all bound element outputs
-    // TODO: Implement when Notifiable type is resolved
-    // for (auto* output : _element_outputs) {
-    //     if (output && _input) {
-    //         output->subscribe(_input);
-    //     }
-    // }
+    for (auto* output : _element_outputs) {
+        if (output && _input) {
+            output->subscribe(_input);
+        }
+    }
 }
 
 void NonPeeredStrategy::make_passive() {
     // Unsubscribe from all element outputs
-    // TODO: Implement when Notifiable type is resolved
-    // for (auto* output : _element_outputs) {
-    //     if (output && _input) {
-    //         output->unsubscribe(_input);
-    //     }
-    // }
+    for (auto* output : _element_outputs) {
+        if (output && _input) {
+            output->unsubscribe(_input);
+        }
+    }
 }
 
 void NonPeeredStrategy::unbind() {
@@ -120,9 +117,9 @@ void NonPeeredStrategy::bind_element(size_t index, TSOutput* output) {
         return;
     }
 
-    // Unbind previous output at this index
+    // Unsubscribe from previous output at this index
     if (_element_outputs[index] && _input && _input->active()) {
-        // TODO: Unsubscribe from old output
+        _element_outputs[index]->unsubscribe(_input);
     }
 
     _element_outputs[index] = output;
@@ -141,7 +138,7 @@ void NonPeeredStrategy::bind_element(size_t index, TSOutput* output) {
 
     // Subscribe if active
     if (_input && _input->active() && output) {
-        // TODO: Subscribe to new output
+        output->subscribe(_input);
     }
 }
 
@@ -151,7 +148,7 @@ void NonPeeredStrategy::unbind_element(size_t index) {
     }
 
     if (_element_outputs[index] && _input && _input->active()) {
-        // TODO: Unsubscribe from output
+        _element_outputs[index]->unsubscribe(_input);
     }
 
     _element_outputs[index] = nullptr;
@@ -162,57 +159,57 @@ void NonPeeredStrategy::unbind_element(size_t index) {
 // ============================================================================
 
 void RefObserverStrategy::make_active() {
-    // Subscribe to the REF output for reference changes
-    // TODO: Implement reference observer registration
-    // if (_ref_output && _input) {
-    //     _ref_output->observe_reference(_input);
-    // }
+    // Always ensure we're subscribed to the ref output for reference changes
+    // (this is done in subscribe_to_ref, called when strategy is set)
 
-    // Also subscribe to current target
-    // if (_target_output && _input) {
-    //     _target_output->subscribe(_input);
-    // }
+    // Subscribe to current target for value changes (only when active)
+    if (_target_output && _input) {
+        _target_output->subscribe(_input);
+    }
 }
 
 void RefObserverStrategy::make_passive() {
-    // Unsubscribe from REF output
-    // TODO: Implement reference observer unregistration
-    // if (_ref_output && _input) {
-    //     _ref_output->unobserve_reference(_input);
-    // }
-
-    // Unsubscribe from current target
-    // if (_target_output && _input) {
-    //     _target_output->unsubscribe(_input);
-    // }
+    // Unsubscribe from current target (but remain subscribed to ref output)
+    if (_target_output && _input) {
+        _target_output->unsubscribe(_input);
+    }
 }
 
 void RefObserverStrategy::unbind() {
-    if (_input && _input->active()) {
-        make_passive();
+    // Unsubscribe from target if active
+    if (_input && _input->active() && _target_output) {
+        _target_output->unsubscribe(_input);
     }
+
+    // Always unsubscribe from ref output
+    if (_ref_output && _input) {
+        _ref_output->unsubscribe(_input);
+    }
+
     _ref_output = nullptr;
     _target_output = nullptr;
     _sample_time = MIN_DT;
 }
 
 void RefObserverStrategy::on_reference_changed(TSOutput* new_target, engine_time_t time) {
-    // Unsubscribe from old target
+    // Unsubscribe from old target (only if active)
     if (_target_output && _input && _input->active()) {
-        // TODO: Unsubscribe from old target
+        _target_output->unsubscribe(_input);
     }
 
     // Bind to new target
     _target_output = new_target;
     _sample_time = time;
 
-    // Subscribe to new target
+    // Subscribe to new target (only if active)
     if (_target_output && _input && _input->active()) {
-        // TODO: Subscribe to new target
+        _target_output->subscribe(_input);
     }
 
     // Notify the owning node that the input changed
-    // TODO: _input->notify(time);
+    if (_input) {
+        _input->notify(time);
+    }
 }
 
 // ============================================================================
@@ -360,6 +357,13 @@ void TSInput::make_passive() {
     _active = false;
 }
 
+void TSInput::notify(engine_time_t time) {
+    // Propagate notification to owning node if active
+    if (_active && _owning_node) {
+        _owning_node->notify(time);
+    }
+}
+
 TSInputView TSInput::view() const {
     if (!bound()) {
         return {};
@@ -416,6 +420,11 @@ void TSInput::set_strategy_non_peered(size_t element_count) {
 void TSInput::set_strategy_ref_observer(TSOutput* ref_output) {
     _strategy_storage = RefObserverStrategy(this, ref_output);
     _strategy = std::get_if<RefObserverStrategy>(&_strategy_storage);
+
+    // Always subscribe to ref output for reference changes (regardless of active state)
+    if (ref_output) {
+        ref_output->subscribe(this);
+    }
 }
 
 void TSInput::set_strategy_ref_wrapper(TSOutput* output, engine_time_t time) {
@@ -423,10 +432,9 @@ void TSInput::set_strategy_ref_wrapper(TSOutput* output, engine_time_t time) {
     _strategy = std::get_if<RefWrapperStrategy>(&_strategy_storage);
 
     // Create storage for REF value if not already present
-    // TODO: Create appropriate REF type storage
-    // if (!_storage && _meta && _meta->value_schema()) {
-    //     _storage.emplace(_meta->value_schema());
-    // }
+    if (!_storage && _meta && _meta->value_schema()) {
+        _storage.emplace(_meta->value_schema());
+    }
 }
 
 } // namespace hgraph::ts

@@ -5,25 +5,12 @@
 #ifndef HGRAPH_VALUE_OBSERVER_STORAGE_H
 #define HGRAPH_VALUE_OBSERVER_STORAGE_H
 
+#include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/util/date_time.h>
 #include <unordered_set>
 #include <vector>
 #include <memory>
-
-namespace hgraph::value {
-    /**
-     * Notifiable - Interface for objects that can receive notifications
-     *
-     * This is a minimal interface for the value type system's observer pattern.
-     * It mirrors hgraph::Notifiable but lives in the value namespace to avoid
-     * pulling in nanobind dependencies.
-     */
-    struct Notifiable {
-        virtual ~Notifiable() = default;
-        virtual void notify(engine_time_t time) = 0;
-    };
-}
 
 namespace hgraph::value {
 
@@ -60,13 +47,13 @@ namespace hgraph::value {
         [[nodiscard]] ObserverStorage* parent() const { return _parent; }
 
         // Subscription management at this level
-        void subscribe(Notifiable* notifiable) {
+        void subscribe(hgraph::Notifiable* notifiable) {
             if (notifiable) {
                 _subscribers.insert(notifiable);
             }
         }
 
-        void unsubscribe(Notifiable* notifiable) {
+        void unsubscribe(hgraph::Notifiable* notifiable) {
             _subscribers.erase(notifiable);
         }
 
@@ -144,7 +131,7 @@ namespace hgraph::value {
     private:
         const TypeMeta* _meta{nullptr};
         ObserverStorage* _parent{nullptr};  // Non-owning parent pointer for upward propagation
-        std::unordered_set<Notifiable*> _subscribers;
+        std::unordered_set<hgraph::Notifiable*> _subscribers;
         std::vector<std::unique_ptr<ObserverStorage>> _children;
     };
 

@@ -545,12 +545,12 @@ namespace hgraph::value {
         }
 
         // Observer/subscription API (lazy allocation)
-        void subscribe(Notifiable* notifiable) {
+        void subscribe(hgraph::Notifiable* notifiable) {
             ensure_observers();
             _observers->subscribe(notifiable);
         }
 
-        void unsubscribe(Notifiable* notifiable) {
+        void unsubscribe(hgraph::Notifiable* notifiable) {
             if (_observers) {
                 _observers->unsubscribe(notifiable);
             }
