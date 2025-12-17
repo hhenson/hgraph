@@ -56,6 +56,37 @@ target_link_libraries(hgraph_value_tests PRIVATE
 
 target_compile_features(hgraph_value_tests PRIVATE cxx_std_23)
 
+# Create test executable for TSInput and access strategy tests
+# Note: This test requires parent build configuration (HGRAPH_BUILD_TESTS=ON from cpp/CMakeLists.txt)
+# It uses nanobind and tpack dependencies from the parent project
+add_executable(hgraph_ts_input_tests
+    test_ts_input.cpp
+    ../src/cpp/types/time_series/v2/ts_output.cpp
+    ../src/cpp/types/time_series/v2/ts_input.cpp
+    ../src/cpp/types/time_series/v2/access_strategy.cpp
+    ../src/cpp/types/ts_type_meta.cpp
+)
+
+# Include directories for the test
+# Note: We need to explicitly add some directories that are normally inherited
+# from the main _hgraph target
+target_include_directories(hgraph_ts_input_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${Python_INCLUDE_DIRS}
+    ${NB_DIR}/include
+    ${CMAKE_BINARY_DIR}/_deps/tpack-src/include
+    ${CMAKE_BINARY_DIR}/_deps/ddvisitor-src/include
+)
+
+# Link libraries
+# Note: tpack is header-only (interface library), so no need to link it
+target_link_libraries(hgraph_ts_input_tests PRIVATE
+    Catch2::Catch2WithMain
+    fmt::fmt
+)
+
+target_compile_features(hgraph_ts_input_tests PRIVATE cxx_std_23)
+
 # Enable testing
 enable_testing()
 
@@ -64,6 +95,7 @@ include(CTest)
 include(Catch)
 catch_discover_tests(hgraph_visitor_tests)
 catch_discover_tests(hgraph_value_tests)
+catch_discover_tests(hgraph_ts_input_tests)
 
 # Optional: Add custom target to run tests
 add_custom_target(run_visitor_tests
@@ -78,4 +110,11 @@ add_custom_target(run_value_tests
     DEPENDS hgraph_value_tests
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Running value type system tests"
+)
+
+add_custom_target(run_ts_input_tests
+    COMMAND hgraph_ts_input_tests
+    DEPENDS hgraph_ts_input_tests
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Running TSInput and access strategy tests"
 )
