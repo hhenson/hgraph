@@ -2,9 +2,13 @@
 #define NODE_H
 
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <memory>
+#include <optional>
 
 #include <ddv/visitable.h>
 
@@ -195,7 +199,10 @@ namespace hgraph
         using ptr   = Node *;
         using s_ptr = std::shared_ptr<Node>;
 
-        Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars);
+        // Constructor - takes type metas and constructs input/output as value members
+        Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars,
+             const TimeSeriesTypeMeta* input_meta, const TimeSeriesTypeMeta* output_meta,
+             const TimeSeriesTypeMeta* error_output_meta, const TimeSeriesTypeMeta* recordable_state_meta);
 
         virtual void eval();
 
@@ -221,35 +228,30 @@ namespace hgraph
 
         void set_graph(graph_ptr value);
 
-        time_series_input_s_ptr &input();
+        // V2-style accessors (for new code using value types)
+        ts::TSInput* input() { return _ts_input ? &*_ts_input : nullptr; }
+        const ts::TSInput* input() const { return _ts_input ? &*_ts_input : nullptr; }
+        bool has_input() const { return _ts_input.has_value(); }
 
-        const time_series_input_s_ptr &input() const;
+        ts::TSOutput* output() { return _ts_output ? &*_ts_output : nullptr; }
+        const ts::TSOutput* output() const { return _ts_output ? &*_ts_output : nullptr; }
+        bool has_output() const { return _ts_output.has_value(); }
+
+        ts::TSOutput* error_output() { return _ts_error_output ? &*_ts_error_output : nullptr; }
+        const ts::TSOutput* error_output() const { return _ts_error_output ? &*_ts_error_output : nullptr; }
+        bool has_error_output() const { return _ts_error_output.has_value(); }
+
+        ts::TSOutput* recordable_state() { return _ts_recordable_state ? &*_ts_recordable_state : nullptr; }
+        const ts::TSOutput* recordable_state() const { return _ts_recordable_state ? &*_ts_recordable_state : nullptr; }
+        bool has_recordable_state() const { return _ts_recordable_state.has_value(); }
 
         auto start_inputs() const { return _start_inputs; }
-
-        void set_input(const time_series_input_s_ptr &value);
-
-        virtual void reset_input(const time_series_input_s_ptr &value);
-
-        time_series_output_s_ptr &output();
-
-        void set_output(const time_series_output_s_ptr &value);
-
-        time_series_output_s_ptr &recordable_state();
-
-        void set_recordable_state(const time_series_output_s_ptr &value);
-
-        bool has_recordable_state() const;
 
         NodeScheduler::s_ptr &scheduler();
 
         bool has_scheduler() const;
 
         void unset_scheduler();
-
-        time_series_output_s_ptr &error_output();
-
-        void set_error_output(const time_series_output_s_ptr &value);
 
         // Performance optimization: provide access to cached evaluation time pointer
         [[nodiscard]] const engine_time_t *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
@@ -258,10 +260,6 @@ namespace hgraph
         friend struct NodeScheduler;
 
         void add_start_input(const time_series_reference_input_s_ptr &input);
-
-        bool has_input() const;
-
-        bool has_output() const;
 
         std::string repr() const;
 
@@ -286,18 +284,17 @@ namespace hgraph
         node_signature_s_ptr            _signature;
         nb::dict                        _scalars;
         graph_ptr                       _graph;             // back-pointer, not owned
-        time_series_input_s_ptr         _input;             // owned - bundle input
-        time_series_output_s_ptr        _output;            // owned - any time-series output type
-        time_series_output_s_ptr        _error_output;      // owned - scalar output for errors
-        time_series_output_s_ptr        _recordable_state;  // owned - bundle output
+
+        // V2-style time-series (value types, constructed from type metas)
+        std::optional<ts::TSInput>      _ts_input;              // owned - input as value
+        std::optional<ts::TSOutput>     _ts_output;             // owned - output as value
+        std::optional<ts::TSOutput>     _ts_error_output;       // owned - error output as value
+        std::optional<ts::TSOutput>     _ts_recordable_state;   // owned - recordable state as value
+
         NodeScheduler::s_ptr            _scheduler;         // owned
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.
         std::vector<time_series_reference_input_s_ptr> _start_inputs;  // owned
-
-        // Cache for these calculated values - not owned, just references
-        std::vector<time_series_input_ptr> _check_valid_inputs;
-        std::vector<time_series_input_ptr> _check_all_valid_inputs;
 
         // Performance optimization: Cache evaluation time pointer from graph
         // Set once when graph is assigned to node, never changes

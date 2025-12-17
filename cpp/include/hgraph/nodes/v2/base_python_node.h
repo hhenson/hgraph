@@ -6,6 +6,7 @@
 #define HGRAPH_CPP_ENGINE_BASE_PYTHON_NODE_H
 
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 
 namespace hgraph {
     /**
@@ -23,15 +24,15 @@ namespace hgraph {
      */
     struct BasePythonNode : Node {
         BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                       nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
+                       nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn,
+                       const TimeSeriesTypeMeta* input_meta = nullptr, const TimeSeriesTypeMeta* output_meta = nullptr,
+                       const TimeSeriesTypeMeta* error_output_meta = nullptr, const TimeSeriesTypeMeta* recordable_state_meta = nullptr);
 
         void _initialise_kwargs();
 
         void _initialise_kwarg_inputs();
 
         void _initialise_state();
-
-        void reset_input(const time_series_input_s_ptr& value) override;
 
         VISITOR_SUPPORT()
 

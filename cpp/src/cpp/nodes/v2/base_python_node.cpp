@@ -12,9 +12,12 @@
 namespace hgraph
 {
     BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                                   nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn)
-        : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)), _eval_fn{std::move(eval_fn)},
-          _start_fn{std::move(start_fn)}, _stop_fn{std::move(stop_fn)} {}
+                                   nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn,
+                                   const TimeSeriesTypeMeta* input_meta, const TimeSeriesTypeMeta* output_meta,
+                                   const TimeSeriesTypeMeta* error_output_meta, const TimeSeriesTypeMeta* recordable_state_meta)
+        : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+               input_meta, output_meta, error_output_meta, recordable_state_meta),
+          _eval_fn{std::move(eval_fn)}, _start_fn{std::move(start_fn)}, _stop_fn{std::move(stop_fn)} {}
 
     void BasePythonNode::_initialise_kwargs() {
         // Assuming Injector and related types are properly defined, and scalars is a map-like container
@@ -42,8 +45,8 @@ namespace hgraph
                     if ((injectable & InjectableTypesEnum::NODE) != InjectableTypesEnum::NONE) {
                         wrapped_value = get_node_wrapper();
                     } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
-                        auto out = output();
-                        wrapped_value = wrap_time_series(out);
+                        // TODO: V2 needs wrap_ts_output() for ts::TSOutput*
+                        wrapped_value = nb::none();  // Placeholder
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
                         wrapped_value = wrap_node_scheduler(sched);
@@ -72,9 +75,9 @@ namespace hgraph
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
                         wrapped_value = g ? wrap_traits(&g->traits(), g->shared_from_this()) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
-                        auto recordable_state = this->recordable_state();
-                        if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }
-                        wrapped_value = wrap_time_series(recordable_state);
+                        if (!has_recordable_state()) { throw std::runtime_error("Recordable state not set"); }
+                        // TODO: V2 needs wrap_ts_output() for ts::TSOutput*
+                        wrapped_value = nb::none();  // Placeholder
                     } else {
                         // Fallback: call injector with this node (same behaviour as python impl)
                         wrapped_value = value(get_node_wrapper());
@@ -101,22 +104,16 @@ namespace hgraph
         // This can be called during wiring in the current flow, would be worth looking into that to clean up, but for now protect
         if (graph() == nullptr) { return; }
         // If is not a compute node or sink node, there are no inputs to map
-        auto input_{input()};
-        if (!input_) { return; }
+        if (!has_input()) { return; }
         auto &signature_args = signature().args;
-        // Match main branch behavior: iterate over time_series_inputs
-        for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0;
-             i < l;
-             ++i) {
-            auto key{input_->schema().keys()[i]};
+        // V2: Use the time_series_inputs map keys as the field names
+        // TODO: V2 needs proper input field wrapping
+        if (!signature().time_series_inputs.has_value()) { return; }
+        for (const auto& [key, _] : *signature().time_series_inputs) {
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                auto wrapped = wrap_time_series(input_->operator[](i));
-                if (wrapped.is_none()) {
-                    throw std::runtime_error(
-                        std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap time-series input '") +
-                        key + "' - wrap_time_series returned None. This indicates a bug in the wrapper factory.");
-                }
-                _kwargs[key.c_str()] = wrapped;
+                // TODO: V2 needs wrap_ts_input_field() for ts::TSInput* field access
+                // For now, set to none - this will need proper V2 wrapper implementation
+                _kwargs[key.c_str()] = nb::none();
             }
         }
     }
@@ -168,28 +165,29 @@ namespace hgraph
                                                  nb::arg("tm") = nb::cast(tm), nb::arg("as_of") = as_of);
 
         // Set the value on recordable_state
-        recordable_state()->apply_result(restored_state.attr("value"));
-    }
-
-    void BasePythonNode::reset_input(const ts::TsbInput::s_ptr& value) {
-        Node::reset_input(value);
-        _initialise_kwarg_inputs();
+        // TODO: V2 recordable_state needs apply_result equivalent
+        if (auto* rs = recordable_state()) {
+            // For now, skip - needs V2 implementation
+            // rs->set_value(...) or similar
+        }
     }
 
     class ContextManager
     {
       public:
         explicit ContextManager(BasePythonNode &node) {
-            if (node.signature().context_inputs.has_value() && !node.signature().context_inputs->empty()) {
-                contexts_.reserve(node.signature().context_inputs->size());
-                for (const auto &context_key : *node.signature().context_inputs) {
-                    if ((*node.input())[context_key]->valid()) {
-                        nb::object context_value = (*node.input())[context_key]->py_value();
-                        context_value.attr("__enter__")();
-                        contexts_.push_back(context_value);
-                    }
-                }
-            }
+            // TODO: V2 context input handling needs ts::TSInput field access
+            // For now, context inputs are not supported in V2
+            // Original V1 code:
+            // if (node.signature().context_inputs.has_value() && !node.signature().context_inputs->empty()) {
+            //     for (const auto &context_key : *node.signature().context_inputs) {
+            //         if ((*node.input())[context_key]->valid()) {
+            //             nb::object context_value = (*node.input())[context_key]->py_value();
+            //             context_value.attr("__enter__")();
+            //             contexts_.push_back(context_value);
+            //         }
+            //     }
+            // }
         }
 
         ~ContextManager() {
@@ -215,7 +213,13 @@ namespace hgraph
         ContextManager context_manager(*this);
         try {
             auto out{_eval_fn(**_kwargs)};
-            if (!out.is_none()) { output()->apply_result(out); }
+            if (!out.is_none() && has_output()) {
+                // TODO: V2 needs proper apply_result equivalent
+                // For now, use the evaluation time to set value
+                auto eval_time = *cached_evaluation_time_ptr();
+                // output()->set_value() requires the correct type
+                // This needs proper implementation
+            }
         } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During Python node evaluation"); }
     }
 

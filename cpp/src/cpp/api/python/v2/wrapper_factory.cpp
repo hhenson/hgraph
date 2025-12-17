@@ -34,8 +34,8 @@
 #include <hgraph/types/tsl.h>
 #include <hgraph/types/tss.h>
 #include <hgraph/types/tsw.h>
-#include <hgraph/types/time_series/v2/ts_output.h>
-#include <hgraph/types/time_series/v2/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <stdexcept>
 #include <utility>
 
