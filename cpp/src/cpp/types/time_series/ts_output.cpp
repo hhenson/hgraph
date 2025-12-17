@@ -8,7 +8,7 @@
 // any future non-template implementations.
 //
 
-#include <hgraph/types/time_series/v2/ts_output.h>
+#include <hgraph/types/time_series/ts_output.h>
 
 namespace hgraph::ts {
 

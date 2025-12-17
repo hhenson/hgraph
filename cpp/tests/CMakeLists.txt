@@ -61,9 +61,9 @@ target_compile_features(hgraph_value_tests PRIVATE cxx_std_23)
 # It uses nanobind and tpack dependencies from the parent project
 add_executable(hgraph_ts_input_tests
     test_ts_input.cpp
-    ../src/cpp/types/time_series/v2/ts_output.cpp
-    ../src/cpp/types/time_series/v2/ts_input.cpp
-    ../src/cpp/types/time_series/v2/access_strategy.cpp
+    ../src/cpp/types/time_series/ts_output.cpp
+    ../src/cpp/types/time_series/ts_input.cpp
+    ../src/cpp/types/time_series/access_strategy.cpp
     ../src/cpp/types/ts_type_meta.cpp
 )
 

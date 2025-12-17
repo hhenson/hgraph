@@ -10,8 +10,8 @@
 // - Chainable navigation API: output.view().field("price").element(0)
 //
 
-#ifndef HGRAPH_TS_OUTPUT_V2_H
-#define HGRAPH_TS_OUTPUT_V2_H
+#ifndef HGRAPH_TS_OUTPUT_H
+#define HGRAPH_TS_OUTPUT_H
 
 #include <hgraph/hgraph_forward_declarations.h>
 #include <hgraph/types/notifiable.h>
@@ -604,4 +604,4 @@ private:
 
 } // namespace hgraph::ts
 
-#endif // HGRAPH_TS_OUTPUT_V2_H
+#endif // HGRAPH_TS_OUTPUT_H

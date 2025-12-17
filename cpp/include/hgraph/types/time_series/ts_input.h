@@ -15,12 +15,12 @@
 // - Chainable navigation API: input.view().field("price").element(0)
 //
 
-#ifndef HGRAPH_TS_INPUT_V2_H
-#define HGRAPH_TS_INPUT_V2_H
+#ifndef HGRAPH_TS_INPUT_H
+#define HGRAPH_TS_INPUT_H
 
 #include <hgraph/hgraph_forward_declarations.h>
-#include <hgraph/types/time_series/v2/ts_output.h>
-#include <hgraph/types/time_series/v2/access_strategy.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/access_strategy.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/time_series_value.h>
@@ -488,4 +488,4 @@ private:
 
 } // namespace hgraph::ts
 
-#endif // HGRAPH_TS_INPUT_V2_H
+#endif // HGRAPH_TS_INPUT_H

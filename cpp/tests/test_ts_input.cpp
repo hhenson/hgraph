@@ -5,9 +5,9 @@
  */
 
 #include <catch2/catch_test_macros.hpp>
-#include <hgraph/types/time_series/v2/ts_input.h>
-#include <hgraph/types/time_series/v2/ts_output.h>
-#include <hgraph/types/time_series/v2/access_strategy.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/access_strategy.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/value/scalar_type.h>
 #include <string>

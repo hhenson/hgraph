@@ -16,8 +16,8 @@
 // - RefWrapperAccess: Wraps non-REF output as REF value
 //
 
-#ifndef HGRAPH_ACCESS_STRATEGY_V2_H
-#define HGRAPH_ACCESS_STRATEGY_V2_H
+#ifndef HGRAPH_ACCESS_STRATEGY_H
+#define HGRAPH_ACCESS_STRATEGY_H
 
 #include <hgraph/hgraph_forward_declarations.h>
 #include <hgraph/types/notifiable.h>
@@ -365,4 +365,4 @@ bool is_direct_access(const AccessStrategy* strategy);
 
 } // namespace hgraph::ts
 
-#endif // HGRAPH_ACCESS_STRATEGY_V2_H
+#endif // HGRAPH_ACCESS_STRATEGY_H

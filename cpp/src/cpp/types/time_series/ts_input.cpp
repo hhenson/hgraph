@@ -4,7 +4,7 @@
 // TSInput implementation - V2 time-series input with hierarchical access strategies
 //
 
-#include <hgraph/types/time_series/v2/ts_input.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/node.h>
 
 namespace hgraph::ts {
