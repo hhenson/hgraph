@@ -47,6 +47,7 @@ set(HGRAPH_API_V2_SOURCES
 set(HGRAPH_TS_V2_SOURCES
         types/time_series/v2/ts_output.cpp
         types/time_series/v2/ts_input.cpp
+        types/time_series/v2/access_strategy.cpp
 )
 
 # V1 Node sources
