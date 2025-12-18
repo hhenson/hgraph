@@ -2,12 +2,19 @@
 // Wrapper Factory Implementation
 //
 
+#include <fmt/format.h>
 #include <hgraph/api/python/py_evaluation_clock.h>
 #include <hgraph/api/python/py_evaluation_engine.h>
 #include <hgraph/api/python/py_node.h>
 #include <hgraph/api/python/py_special_nodes.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/api/python/py_ts.h>
+#include <hgraph/api/python/py_tsb.h>
+#include <hgraph/api/python/py_tsl.h>
+#include <hgraph/api/python/py_tss.h>
+#include <hgraph/api/python/py_tsd.h>
+#include <hgraph/api/python/py_tsw.h>
+#include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/mesh_node.h>
@@ -18,6 +25,7 @@
 #include <hgraph/types/traits.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 #include <ddv/serial_visitor.h>
 #include <stdexcept>
 #include <utility>
@@ -52,6 +60,58 @@ namespace
         [](auto, ApiPtr<Node> ptr) { return nb::cast(PyNode(std::move(ptr))); }
     };
 
+    // Helper to create the appropriate output wrapper based on TimeSeriesKind
+    nb::object create_output_wrapper(node_s_ptr node, ts::TSOutputView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta) {
+        if (!meta) {
+            return nb::cast(PyTimeSeriesOutput(std::move(node), std::move(view), output, meta));
+        }
+
+        switch (meta->ts_kind) {
+            case TimeSeriesKind::TS:
+                return nb::cast(PyTimeSeriesValueOutput(std::move(node), std::move(view), output, meta));
+            case TimeSeriesKind::TSB:
+                return nb::cast(PyTimeSeriesBundleOutput(std::move(node), std::move(view), output, meta));
+            case TimeSeriesKind::TSL:
+                return nb::cast(PyTimeSeriesListOutput(std::move(node), std::move(view), output, meta));
+            case TimeSeriesKind::TSS:
+                return nb::cast(PyTimeSeriesSetOutput(std::move(node), std::move(view), output, meta));
+            case TimeSeriesKind::TSD:
+                return nb::cast(PyTimeSeriesDictOutput(std::move(node), std::move(view), output, meta));
+            case TimeSeriesKind::TSW:
+                return nb::cast(PyTimeSeriesWindowOutput(std::move(node), std::move(view), output, meta));
+            case TimeSeriesKind::REF:
+                return nb::cast(PyTimeSeriesReferenceOutput(std::move(node), std::move(view), output, meta));
+            default:
+                return nb::cast(PyTimeSeriesOutput(std::move(node), std::move(view), output, meta));
+        }
+    }
+
+    // Helper to create the appropriate input wrapper based on TimeSeriesKind
+    nb::object create_input_wrapper(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TimeSeriesTypeMeta* meta) {
+        if (!meta) {
+            return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), input, meta));
+        }
+
+        switch (meta->ts_kind) {
+            case TimeSeriesKind::TS:
+                return nb::cast(PyTimeSeriesValueInput(std::move(node), std::move(view), input, meta));
+            case TimeSeriesKind::TSB:
+                return nb::cast(PyTimeSeriesBundleInput(std::move(node), std::move(view), input, meta));
+            case TimeSeriesKind::TSL:
+                return nb::cast(PyTimeSeriesListInput(std::move(node), std::move(view), input, meta));
+            case TimeSeriesKind::TSS:
+                return nb::cast(PyTimeSeriesSetInput(std::move(node), std::move(view), input, meta));
+            case TimeSeriesKind::TSD:
+                return nb::cast(PyTimeSeriesDictInput(std::move(node), std::move(view), input, meta));
+            case TimeSeriesKind::TSW:
+                return nb::cast(PyTimeSeriesWindowInput(std::move(node), std::move(view), input, meta));
+            case TimeSeriesKind::REF:
+                return nb::cast(PyTimeSeriesReferenceInput(std::move(node), std::move(view), input, meta));
+            default:
+                return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), input, meta));
+        }
+    }
+
 } // hidden namespace
 
     // Main implementation - takes ApiPtr<Node>
@@ -83,9 +143,7 @@ namespace
         auto view = output->view();
         auto meta = output->meta();
 
-        // TODO: Use meta->as_api() for specialized wrapper dispatch
-        // For now, create the base wrapper
-        return nb::cast(PyTimeSeriesOutput(node, std::move(view), output, meta));
+        return create_output_wrapper(node, std::move(view), output, meta);
     }
 
     nb::object wrap_input(ts::TSInput* input, const node_s_ptr& node) {
@@ -94,9 +152,66 @@ namespace
         auto view = input->view();
         auto meta = input->meta();
 
-        // TODO: Use meta->as_api() for specialized wrapper dispatch
-        // For now, create the base wrapper
-        return nb::cast(PyTimeSeriesInput(node, std::move(view), input, meta));
+        return create_input_wrapper(node, std::move(view), input, meta);
+    }
+
+    nb::object wrap_input_field(ts::TSInput* input, const std::string& field_name, const node_s_ptr& node) {
+        if (!input || !node) {
+            return nb::none();
+        }
+
+        auto* meta = input->meta();
+        if (!meta || meta->ts_kind != TimeSeriesKind::TSB) {
+            return nb::none();
+        }
+
+        // Find field index by name using TSBTypeMeta
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(meta);
+        size_t field_idx = 0;
+        bool found = false;
+        for (const auto& field : tsb_meta->fields) {
+            if (field.name == field_name) {
+                found = true;
+                break;
+            }
+            field_idx++;
+        }
+
+        if (!found) {
+            return nb::none();
+        }
+
+        // Get field metadata
+        const TimeSeriesTypeMeta* field_meta = field_idx < tsb_meta->fields.size()
+            ? tsb_meta->fields[field_idx].type
+            : nullptr;
+
+        // Try to get field view via strategy if available
+        if (auto* strategy = input->strategy()) {
+            // Check if strategy is a CollectionAccessStrategy with child for this field
+            if (auto* collection = dynamic_cast<ts::CollectionAccessStrategy*>(strategy)) {
+                if (auto* child_strategy = collection->child(field_idx)) {
+                    // Create view from child strategy
+                    auto child_value = child_strategy->value();
+                    auto child_tracker = child_strategy->tracker();
+                    ts::TSInputView field_view(child_value, child_tracker, field_meta,
+                                               ts::NavigationPath(nullptr));
+                    // Note: pass nullptr for input since field wrappers don't support make_active/make_passive
+                    return create_input_wrapper(node, std::move(field_view), nullptr, field_meta);
+                }
+            }
+        }
+
+        // Fallback to view-based navigation (for whole-input binding or unbound fields)
+        auto root_view = input->view();
+        if (!root_view.valid()) { return nb::none(); }
+
+        auto field_view = root_view.field(field_name);
+        if (!field_view.valid()) { return nb::none(); }
+
+        // Create a wrapper for the field view
+        // Note: pass nullptr for input since field views don't support make_active/make_passive
+        return create_input_wrapper(node, std::move(field_view), nullptr, field_view.meta());
     }
 
     // =========================================================================

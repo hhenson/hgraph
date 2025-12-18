@@ -97,10 +97,9 @@ if is_feature_enabled("use_cpp"):
             def make_input_builder(self, value_tp):
                 # V2: Use unified builders based on TimeSeriesTypeMeta
                 # Falls back to V1 if cpp_type_meta is None (for types not yet supported in V2)
-                # Note: TSB/TSL/TSS types are excluded from V2 for now due to:
-                # - TsbInput is not compatible with Node::set_input() which expects TimeSeriesBundleInput
+                # Note: TSL/TSS types are excluded from V2 for now due to:
                 # - TSL/TSS types create nested elements in constructor before shared_ptr is ready
-                _v2_excluded_types = (hgraph.HgTSBTypeMetaData, hgraph.HgTSLTypeMetaData, hgraph.HgTSSTypeMetaData)
+                _v2_excluded_types = (hgraph.HgTSLTypeMetaData, hgraph.HgTSSTypeMetaData)
                 if self._use_v2 and type(value_tp) not in _v2_excluded_types:
                     cpp_meta = value_tp.cpp_type_meta
                     if cpp_meta is not None:
@@ -154,10 +153,9 @@ if is_feature_enabled("use_cpp"):
             def make_output_builder(self, value_tp):
                 # V2: Use unified builders based on TimeSeriesTypeMeta
                 # Falls back to V1 if cpp_type_meta is None (for types not yet supported in V2)
-                # Note: TSB/TSL/TSS types are excluded from V2 for now due to:
-                # - TsbOutput is not compatible with Node::set_recordable_state() which expects TimeSeriesBundleOutput
+                # Note: TSL/TSS types are excluded from V2 for now due to:
                 # - TSL/TSS types create nested elements in constructor before shared_ptr is ready
-                _v2_excluded_types = (hgraph.HgTSBTypeMetaData, hgraph.HgTSLTypeMetaData, hgraph.HgTSSTypeMetaData)
+                _v2_excluded_types = (hgraph.HgTSLTypeMetaData, hgraph.HgTSSTypeMetaData)
                 if self._use_v2 and type(value_tp) not in _v2_excluded_types:
                     cpp_meta = value_tp.cpp_type_meta
                     if cpp_meta is not None:

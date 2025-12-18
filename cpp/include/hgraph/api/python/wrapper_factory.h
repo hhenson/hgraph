@@ -71,6 +71,16 @@ namespace hgraph
      */
     nb::object wrap_input(ts::TSInput* input, const node_s_ptr& node);
 
+    /**
+     * Wrap a field of a bundle input as a Python wrapper.
+     *
+     * @param input Pointer to the bundle input
+     * @param field_name Name of the field within the bundle
+     * @param node Shared pointer to the owning Node (provides lifetime management)
+     * @return Python wrapper object (PyTimeSeriesInput) for the field
+     */
+    nb::object wrap_input_field(ts::TSInput* input, const std::string& field_name, const node_s_ptr& node);
+
     // ---------------------------------------------------------------------
     // List-based helpers for time series wrapping
     // ---------------------------------------------------------------------

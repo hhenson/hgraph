@@ -52,14 +52,44 @@ namespace hgraph
             nodes.push_back(node_builders[i]->make_instance(graph_id, i + first_node_ndx));
         }
 
-        // TODO: Implement V2 edge wiring using ts::TSInput::bind_output and ts::TSOutput
-        // For now, edges are not wired in V2 - this needs to be implemented
+        // Wire edges: connect source outputs to destination inputs
         for (const auto &edge : edges) {
-            (void)edge;  // Suppress unused warning
-            // V2 wiring would be:
-            // auto* src_output = nodes[edge.src_node]->output();
-            // auto* dst_input = nodes[edge.dst_node]->input();
-            // dst_input->bind_output(src_output); // Need to add this method to TSInput
+            // Get source output based on output_path
+            ts::TSOutput* src_output = nullptr;
+            if (edge.output_path.empty()) {
+                // Direct output binding
+                src_output = nodes[edge.src_node]->output();
+            } else if (edge.output_path[0] == ERROR_PATH) {
+                // Error output binding
+                src_output = nodes[edge.src_node]->error_output();
+            } else if (edge.output_path[0] == STATE_PATH) {
+                // Recordable state binding
+                src_output = nodes[edge.src_node]->recordable_state();
+            } else {
+                // Non-empty path - navigate into bundle fields
+                // TODO: Implement bundle field navigation for complex paths
+                src_output = nodes[edge.src_node]->output();
+            }
+
+            // Get destination input and bind based on input_path
+            ts::TSInput* dst_input = nodes[edge.dst_node]->input();
+
+            if (!src_output || !dst_input) {
+                // If either is null, we're using V1 builders - skip V2 wiring
+                continue;
+            }
+
+            if (edge.input_path.empty()) {
+                // Direct input binding (empty path - bind to whole input)
+                dst_input->bind_output(src_output);
+            } else {
+                // Non-empty path - use view-based navigation for any depth
+                auto view = dst_input->field(static_cast<size_t>(edge.input_path[0]));
+                for (size_t i = 1; i < edge.input_path.size(); ++i) {
+                    view = view.field(static_cast<size_t>(edge.input_path[i]));
+                }
+                view.bind(src_output);
+            }
         }
 
         return nodes;

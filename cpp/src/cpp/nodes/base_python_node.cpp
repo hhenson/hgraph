@@ -104,16 +104,19 @@ namespace hgraph
         // This can be called during wiring in the current flow, would be worth looking into that to clean up, but for now protect
         if (graph() == nullptr) { return; }
         // If is not a compute node or sink node, there are no inputs to map
-        if (!has_input()) { return; }
+        if (!has_input()) {
+            return;
+        }
         auto &signature_args = signature().args;
-        // V2: Use the time_series_inputs map keys as the field names
-        // TODO: V2 needs proper input field wrapping
-        if (!signature().time_series_inputs.has_value()) { return; }
+        // V2: Wrap input fields from the bundle
+        if (!signature().time_series_inputs.has_value()) {
+            return;
+        }
         for (const auto& [key, _] : *signature().time_series_inputs) {
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                // TODO: V2 needs wrap_ts_input_field() for ts::TSInput* field access
-                // For now, set to none - this will need proper V2 wrapper implementation
-                _kwargs[key.c_str()] = nb::none();
+                // Wrap the field as a Python time-series input
+                auto wrapped = wrap_input_field(input(), key, shared_from_this());
+                _kwargs[key.c_str()] = wrapped;
             }
         }
     }

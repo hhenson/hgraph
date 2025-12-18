@@ -34,6 +34,7 @@ namespace hgraph::ts {
 // Forward declarations
 class TSInput;
 class TSInputView;
+class TSInputBindableView;
 
 // ============================================================================
 // TSInputView - Read-only view into TSInput with path tracking
@@ -293,6 +294,89 @@ private:
 };
 
 // ============================================================================
+// TSInputBindableView - View for navigating schema and binding outputs
+// ============================================================================
+
+/**
+ * TSInputBindableView - Schema navigation view for binding outputs
+ *
+ * Unlike TSInputView (which reads bound values), TSInputBindableView is used
+ * during graph construction to navigate the type schema and bind outputs
+ * at specific locations within the input's structure.
+ *
+ * Features:
+ * - Navigate to nested fields using field(index) or field(name)
+ * - Bind an output at the current position using bind(output)
+ * - Tracks path from root for proper strategy tree construction
+ * - Handles arbitrary nesting depth
+ *
+ * Usage:
+ *   input->bindable_field(0).field(1).bind(output);  // Bind to input[0][1]
+ *   input->bindable_field("price").bind(output);     // Bind to input.price
+ */
+class TSInputBindableView {
+public:
+    TSInputBindableView() = default;
+
+    /**
+     * Create a bindable view at the root of an input
+     */
+    explicit TSInputBindableView(TSInput* root);
+
+    /**
+     * Create a bindable view at a specific path within an input
+     */
+    TSInputBindableView(TSInput* root, std::vector<size_t> path, const TimeSeriesTypeMeta* meta);
+
+    // === Validity and type information ===
+
+    [[nodiscard]] bool valid() const { return _root != nullptr && _meta != nullptr; }
+    [[nodiscard]] const TimeSeriesTypeMeta* meta() const { return _meta; }
+    [[nodiscard]] const std::vector<size_t>& path() const { return _path; }
+    [[nodiscard]] TSInput* root() const { return _root; }
+
+    // === Navigation (chainable) ===
+
+    /**
+     * Navigate to a bundle field by index
+     *
+     * Returns an invalid view if:
+     * - This view is invalid
+     * - The metadata is not a bundle type
+     * - The index is out of range
+     */
+    [[nodiscard]] TSInputBindableView field(size_t index) const;
+
+    /**
+     * Navigate to a bundle field by name
+     *
+     * Returns an invalid view if:
+     * - This view is invalid
+     * - The metadata is not a bundle type
+     * - The field name is not found
+     */
+    [[nodiscard]] TSInputBindableView field(const std::string& name) const;
+
+    // === Binding ===
+
+    /**
+     * Bind an output at this location in the input's structure
+     *
+     * This creates/navigates the CollectionAccessStrategy tree as needed,
+     * then creates an appropriate child strategy for binding to the output.
+     *
+     * @param output The output to bind at this location
+     * @throws std::runtime_error if the view is invalid
+     */
+    void bind(TSOutput* output);
+
+private:
+    TSInput* _root{nullptr};           // The root input
+    std::vector<size_t> _path;         // Path from root to this position (field indices)
+    const TimeSeriesTypeMeta* _meta{nullptr};  // Metadata at this position
+};
+
+// ============================================================================
 // TSInput - Time-series input with hierarchical access strategies
 // ============================================================================
 
@@ -422,26 +506,40 @@ public:
         return _strategy ? _strategy->value() : value::ConstValueView{};
     }
 
-    // Element access for collections
+    // Element access for collections (use value().element() for more options)
     [[nodiscard]] value::ConstValueView element(size_t index) const {
         auto v = value();
         return v.valid() ? v.element(index) : value::ConstValueView{};
     }
 
-    [[nodiscard]] value::ConstValueView field(size_t index) const {
-        auto v = value();
-        return v.valid() ? v.field(index) : value::ConstValueView{};
-    }
+    // === Field navigation (returns bindable view for binding during construction) ===
 
-    [[nodiscard]] value::ConstValueView field(const std::string& name) const {
-        auto v = value();
-        return v.valid() ? v.field(name) : value::ConstValueView{};
-    }
+    /**
+     * Get a bindable view at a specific field
+     *
+     * Use this to bind different fields of a bundle input to different outputs:
+     *   input->field(0).bind(output1);
+     *   input->field(1).field(0).bind(output2);  // Nested binding
+     *
+     * For runtime value access, use value().field() or view().field() instead.
+     *
+     * @param index Field index within the bundle
+     * @return Bindable view at the specified field (invalid if not a bundle or out of range)
+     */
+    [[nodiscard]] TSInputBindableView field(size_t index) const;
+
+    /**
+     * Get a bindable view by field name
+     *
+     * @param name Field name within the bundle
+     * @return Bindable view at the specified field (invalid if not a bundle or name not found)
+     */
+    [[nodiscard]] TSInputBindableView field(const std::string& name) const;
 
     // === Modification queries ===
 
     [[nodiscard]] bool modified_at(engine_time_t time) const {
-        return _strategy ? _strategy->modified_at(time) : false;
+        return _strategy && _strategy->modified_at(time);
     }
 
     [[nodiscard]] engine_time_t last_modified_time() const {
@@ -449,7 +547,7 @@ public:
     }
 
     [[nodiscard]] bool has_value() const {
-        return _strategy ? _strategy->has_value() : false;
+        return _strategy && _strategy->has_value();
     }
 
     // === String representation ===
@@ -478,6 +576,36 @@ public:
         result += "}";
         return result;
     }
+
+    /**
+     * Check if this input is a bundle type
+     */
+    [[nodiscard]] bool is_bundle() const {
+        return _meta && _meta->ts_kind == TimeSeriesKind::TSB;
+    }
+
+    /**
+     * Get the number of fields (for bundle types)
+     * Returns 0 for non-bundle types.
+     */
+    [[nodiscard]] size_t field_count_from_meta() const;
+
+    // === Strategy tree management (internal use) ===
+
+    /**
+     * Get or create a CollectionAccessStrategy at the root level.
+     * Used internally by TSInputBindableView::bind().
+     */
+    CollectionAccessStrategy* ensure_collection_strategy();
+
+    /**
+     * Get or create a CollectionAccessStrategy at a given path.
+     * Walks the strategy tree, creating CollectionAccessStrategies as needed.
+     *
+     * @param path Path of field indices from root
+     * @return The CollectionAccessStrategy at the specified path (nullptr if path is empty)
+     */
+    CollectionAccessStrategy* ensure_collection_strategy_at_path(const std::vector<size_t>& path);
 
 private:
     const TimeSeriesTypeMeta* _meta{nullptr};

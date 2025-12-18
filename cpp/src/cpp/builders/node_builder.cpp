@@ -132,10 +132,12 @@ namespace hgraph {
         if (!input_builder.has_value()) {
             return nullptr;
         }
-        if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesInputBuilder*>(input_builder->get())) {
+        auto* raw_ptr = input_builder->get();
+        if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesInputBuilder*>(raw_ptr)) {
             return cpp_builder->ts_type_meta;
         }
-        throw std::runtime_error("input_meta() requires CppTimeSeriesInputBuilder - other builders not yet supported");
+        // V1 builder - return nullptr (node won't have V2 TSInput)
+        return nullptr;
     }
 
     const TimeSeriesTypeMeta* NodeBuilder::output_meta() const {
@@ -145,7 +147,8 @@ namespace hgraph {
         if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(output_builder->get())) {
             return cpp_builder->ts_type_meta;
         }
-        throw std::runtime_error("output_meta() requires CppTimeSeriesOutputBuilder - other builders not yet supported");
+        // V1 builder - return nullptr (node won't have V2 TSOutput)
+        return nullptr;
     }
 
     const TimeSeriesTypeMeta* NodeBuilder::error_output_meta() const {
@@ -155,7 +158,8 @@ namespace hgraph {
         if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(error_builder->get())) {
             return cpp_builder->ts_type_meta;
         }
-        throw std::runtime_error("error_output_meta() requires CppTimeSeriesOutputBuilder - other builders not yet supported");
+        // V1 builder - return nullptr (node won't have V2 TSOutput for errors)
+        return nullptr;
     }
 
     const TimeSeriesTypeMeta* NodeBuilder::recordable_state_meta() const {
@@ -165,6 +169,7 @@ namespace hgraph {
         if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(recordable_state_builder->get())) {
             return cpp_builder->ts_type_meta;
         }
-        throw std::runtime_error("recordable_state_meta() requires CppTimeSeriesOutputBuilder - other builders not yet supported");
+        // V1 builder - return nullptr (node won't have V2 TSOutput for recordable state)
+        return nullptr;
     }
 } // namespace hgraph
