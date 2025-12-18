@@ -14,7 +14,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
-#include <nanobind/stl/chrono.h>
+// Note: chrono casters are provided by hgraph/python/chrono.h via hgraph_base.h
 #include <nanobind/ndarray.h>
 
 #include <hgraph/util/date_time.h>

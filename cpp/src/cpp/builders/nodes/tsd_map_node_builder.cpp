@@ -71,9 +71,10 @@ namespace hgraph {
 
     template<typename T>
     node_s_ptr TsdMapNodeBuilder<T>::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
-        auto node = arena_make_shared_as<TsdMapNode<T>, Node>(node_ndx, owning_graph_id, signature, scalars, nested_graph_builder, input_node_ids,
-                              output_node_id, multiplexed_args, key_arg);
-        _build_inputs_and_outputs(node.get());
+        auto node = arena_make_shared_as<TsdMapNode<T>, Node>(
+            node_ndx, owning_graph_id, signature, scalars, nested_graph_builder, input_node_ids,
+            output_node_id, multiplexed_args, key_arg,
+            input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
         return node;
     }
 

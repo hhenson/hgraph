@@ -383,7 +383,7 @@ namespace hgraph {
         
         for (int64_t i = 0; i < graph->push_source_nodes_end(); ++i) {
             auto node = graph->nodes()[i];
-            if (node->output()->modified()) {
+            if (node->output()->modified_at(graph->evaluation_time())) {
                 _process_node_after_eval(node.get());
             }
         }

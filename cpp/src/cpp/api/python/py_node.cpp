@@ -120,14 +120,17 @@ namespace hgraph
 
     nb::object PyNode::input() const {
         auto inp = _impl->input();
-        return inp ? wrap_input(inp) : nb::none();
+        auto node = _impl.control_block_typed<Node>();
+        return inp ? wrap_input(inp, node) : nb::none();
     }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;
         auto inp_ = _impl->input();
         if (!inp_) { return d; }
-        for (const auto &key : inp_->schema().keys()) { d[key.c_str()] = wrap_input((*inp_)[key]); }
+        // TODO: V2 - TSInput doesn't expose field iteration directly
+        // Need deeper V2 API work to support inputs() dict
+        // For now, return empty dict
         return d;
     }
 
@@ -135,10 +138,14 @@ namespace hgraph
 
     nb::object PyNode::output() {
         auto out = _impl->output();
-        return out ? wrap_output(out) : nb::none();
+        auto node = _impl.control_block_typed<Node>();
+        return out ? wrap_output(out, node) : nb::none();
     }
 
-    nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state()); }
+    nb::object PyNode::recordable_state() {
+        auto node = _impl.control_block_typed<Node>();
+        return wrap_output(_impl->recordable_state(), node);
+    }
 
     nb::bool_ PyNode::has_recordable_state() const { return nb::bool_(_impl->has_recordable_state()); }
 
@@ -146,7 +153,10 @@ namespace hgraph
 
     nb::bool_ PyNode::has_scheduler() const { return nb::bool_(_impl->has_scheduler()); }
 
-    nb::object PyNode::error_output() { return wrap_output(_impl->error_output()); }
+    nb::object PyNode::error_output() {
+        auto node = _impl.control_block_typed<Node>();
+        return wrap_output(_impl->error_output(), node);
+    }
 
     nb::bool_ PyNode::has_input() const { return nb::bool_(_impl->has_input()); }
 

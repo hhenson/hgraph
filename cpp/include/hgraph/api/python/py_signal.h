@@ -1,11 +1,32 @@
-// Version redirect header - includes from v1/ or v2/ based on build configuration
-#ifndef HGRAPH_PY_SIGNAL_REDIRECT_H
-#define HGRAPH_PY_SIGNAL_REDIRECT_H
+#pragma once
 
-#ifdef HGRAPH_API_V2
-#include <hgraph/api/python/v2/py_signal.h>
-#else
-#include <hgraph/api/python/v1/py_signal.h>
-#endif
+#include <hgraph/api/python/py_time_series.h>
 
-#endif // HGRAPH_PY_SIGNAL_REDIRECT_H
+namespace hgraph
+{
+    /**
+     * PyTimeSeriesSignalInput - Wrapper for signal inputs
+     *
+     * Signal is a special input type that carries no value, just modification state.
+     * Inherits all functionality from base class.
+     */
+    struct PyTimeSeriesSignalInput : PyTimeSeriesInput
+    {
+        using PyTimeSeriesInput::PyTimeSeriesInput;
+
+        PyTimeSeriesSignalInput(PyTimeSeriesSignalInput&& other) noexcept
+            : PyTimeSeriesInput(std::move(other)) {}
+
+        PyTimeSeriesSignalInput& operator=(PyTimeSeriesSignalInput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesInput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        PyTimeSeriesSignalInput(const PyTimeSeriesSignalInput&) = delete;
+        PyTimeSeriesSignalInput& operator=(const PyTimeSeriesSignalInput&) = delete;
+    };
+
+    void signal_register_with_nanobind(nb::module_ &m);
+}

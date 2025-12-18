@@ -7,6 +7,7 @@
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/node_builder.h>
 #include <hgraph/builders/output_builder.h>
+#include <hgraph/builders/time_series_types/cpp_time_series_builder.h>
 
 // Include all the extracted builder headers
 #include <hgraph/builders/nodes/python_node_builder.h>
@@ -56,10 +57,12 @@ namespace hgraph {
     }
 
     void NodeBuilder::release_instance(const node_s_ptr &item) const {
-        if (input_builder) { (*input_builder)->release_instance(item->input().get()); }
-        if (output_builder) { (*output_builder)->release_instance(item->output().get()); }
-        if (error_builder) { (*error_builder)->release_instance(item->error_output().get()); }
-        if (recordable_state_builder) { (*recordable_state_builder)->release_instance(item->recordable_state().get()); }
+        // V2 uses value types (std::optional<ts::TSInput/TSOutput>) owned by the Node.
+        // No need to call release_instance on builders - just dispose the component.
+        (void)input_builder;
+        (void)output_builder;
+        (void)error_builder;
+        (void)recordable_state_builder;
         dispose_component(*item);
     }
 
@@ -125,40 +128,43 @@ namespace hgraph {
         last_value_pull_node_builder_register_with_nanobind(m);
     }
 
-    void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node) const {
-        if (input_builder.has_value()) {
-            auto ts_input = (*input_builder)->make_instance(node);
-            // The input is always a TimeSeriesBundleInput/TsbInput at this level.
-#ifdef HGRAPH_API_V2
-            node->set_input(std::static_pointer_cast<ts::TsbInput>(ts_input));
-#else
-            node->set_input(std::static_pointer_cast<TimeSeriesBundleInput>(ts_input));
-#endif
+    const TimeSeriesTypeMeta* NodeBuilder::input_meta() const {
+        if (!input_builder.has_value()) {
+            return nullptr;
         }
+        if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesInputBuilder*>(input_builder->get())) {
+            return cpp_builder->ts_type_meta;
+        }
+        throw std::runtime_error("input_meta() requires CppTimeSeriesInputBuilder - other builders not yet supported");
+    }
 
-        if (output_builder.has_value()) {
-            auto ts_output = (*output_builder)->make_instance(node);
-            node->set_output(ts_output);
+    const TimeSeriesTypeMeta* NodeBuilder::output_meta() const {
+        if (!output_builder.has_value()) {
+            return nullptr;
         }
+        if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(output_builder->get())) {
+            return cpp_builder->ts_type_meta;
+        }
+        throw std::runtime_error("output_meta() requires CppTimeSeriesOutputBuilder - other builders not yet supported");
+    }
 
-        if (error_builder.has_value()) {
-            auto ts_error_output = (*error_builder)->make_instance(node);
-            // The error_output is a TimeSeriesOutput in V1, TsOutput in V2
-#ifdef HGRAPH_API_V2
-            node->set_error_output(std::static_pointer_cast<ts::TsOutput>(ts_error_output));
-#else
-            node->set_error_output(ts_error_output);
-#endif
+    const TimeSeriesTypeMeta* NodeBuilder::error_output_meta() const {
+        if (!error_builder.has_value()) {
+            return nullptr;
         }
+        if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(error_builder->get())) {
+            return cpp_builder->ts_type_meta;
+        }
+        throw std::runtime_error("error_output_meta() requires CppTimeSeriesOutputBuilder - other builders not yet supported");
+    }
 
-        if (recordable_state_builder.has_value()) {
-            auto ts_recordable_state = (*recordable_state_builder)->make_instance(node);
-            // The recordable_state is always a TimeSeriesBundleOutput/TsbOutput at this level.
-#ifdef HGRAPH_API_V2
-            node->set_recordable_state(std::static_pointer_cast<ts::TsbOutput>(ts_recordable_state));
-#else
-            node->set_recordable_state(std::static_pointer_cast<TimeSeriesBundleOutput>(ts_recordable_state));
-#endif
+    const TimeSeriesTypeMeta* NodeBuilder::recordable_state_meta() const {
+        if (!recordable_state_builder.has_value()) {
+            return nullptr;
         }
+        if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(recordable_state_builder->get())) {
+            return cpp_builder->ts_type_meta;
+        }
+        throw std::runtime_error("recordable_state_meta() requires CppTimeSeriesOutputBuilder - other builders not yet supported");
     }
 } // namespace hgraph

@@ -1,8 +1,47 @@
-// Version-selecting forwarding header for nest_graph_node
-#pragma once
+#ifndef NEST_GRAPH_NODE_H
+#define NEST_GRAPH_NODE_H
 
-#ifdef HGRAPH_API_V2
-#include <hgraph/nodes/v2/nest_graph_node.h>
-#else
-#include <hgraph/nodes/v1/nest_graph_node.h>
-#endif
+#include <hgraph/nodes/nested_node.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
+
+namespace hgraph {
+    struct NestedGraphNode : NestedNode {
+        NestedGraphNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
+                        nb::dict scalars,
+                        graph_builder_s_ptr nested_graph_builder,
+                        const std::unordered_map<std::string, int> &input_node_ids,
+                        int output_node_id,
+                        const TimeSeriesTypeMeta* input_meta = nullptr, const TimeSeriesTypeMeta* output_meta = nullptr,
+                        const TimeSeriesTypeMeta* error_output_meta = nullptr, const TimeSeriesTypeMeta* recordable_state_meta = nullptr);
+
+        void initialise() override;
+
+        void do_start() override;
+
+        void do_stop() override;
+
+        void dispose() override;
+
+        void do_eval() override;
+
+        std::unordered_map<int, graph_s_ptr> nested_graphs() const;
+
+        void enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const override;
+
+        VISITOR_SUPPORT()
+
+    protected:
+        void wire_graph();
+
+        void write_inputs();
+
+        virtual void wire_outputs();
+
+        graph_builder_s_ptr m_nested_graph_builder_;
+        std::unordered_map<std::string, int> m_input_node_ids_;
+        int m_output_node_id_;
+        graph_s_ptr m_active_graph_;
+    };
+} // namespace hgraph
+
+#endif  // NEST_GRAPH_NODE_H

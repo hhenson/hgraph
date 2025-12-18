@@ -24,6 +24,9 @@
 
 #include <nanobind/stl/detail/chrono.h>
 
+// NOTE: nanobind/stl/detail/chrono.h leaves the nanobind::detail namespace OPEN
+// so we continue inside it and close it at the end of this file.
+
 // Casts a std::chrono type (either a duration or a time_point) to/from
 // Python timedelta objects, or from a Python float representing seconds.
 template<typename type>
@@ -261,7 +264,7 @@ public:
         if (!PyDateTimeAPI) {
             PyDateTime_IMPORT;
             if (!PyDateTimeAPI) {
-                return nanobind::none().release();
+                return none().release();
             }
         }
         PyObject *result = PyDate_FromDate(year, month, day);
@@ -273,12 +276,12 @@ public:
             result = datetime_types.date(year, month, day).release().ptr();
         } catch (python_error &e) {
             e.restore();
-            return nanobind::none().release();
+            return none().release();
         }
 #endif
         if (!result) {
             PyErr_Clear();
-            return nanobind::none().release();
+            return none().release();
         }
         return result;
     }
@@ -293,5 +296,5 @@ public:
 #endif
 };
 
-NAMESPACE_END (detail)
-NAMESPACE_END (NB_NAMESPACE)
+NAMESPACE_END(detail)
+NAMESPACE_END(NB_NAMESPACE)

@@ -1,8 +1,74 @@
-// Version-selecting forwarding header for last_value_pull_node
-#pragma once
+//
+// Created by Claude Code
+//
 
-#ifdef HGRAPH_API_V2
-#include <hgraph/nodes/v2/last_value_pull_node.h>
-#else
-#include <hgraph/nodes/v1/last_value_pull_node.h>
-#endif
+#ifndef LAST_VALUE_PULL_NODE_H
+#define LAST_VALUE_PULL_NODE_H
+
+#include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <optional>
+#include <functional>
+#include <variant>
+
+namespace hgraph {
+    /**
+     * LastValuePullNode implementation in C++
+     * This node type is used for pull source nodes that cache delta values
+     * and combine them when multiple values are received before evaluation.
+     */
+    struct HGRAPH_EXPORT LastValuePullNode final : Node {
+        using Node::Node;
+
+        /**
+         * Copy a value from a V2 input
+         * This is called when the node needs to pull a value from another output
+         */
+        void copy_from_input(const ts::TSInput &input);
+
+        void copy_from_output(const ts::TSOutput &output);
+
+        /**
+         * Apply a value directly to the node
+         * This is used when setting a default value or when the node receives a new value
+         */
+        void apply_value(const nb::object &new_value);
+
+        // Lifecycle hooks required by the base class
+        void initialise() override; // no-op
+        void dispose() override; // no-op
+
+        VISITOR_SUPPORT()
+
+    protected:
+        void do_eval() override;
+
+        void do_start() override;
+
+        void do_stop() override;
+
+        /**
+         * Combine two delta values based on the output type
+         * Different time series types have different combination strategies
+         */
+        nb::object combine_delta_values(const nb::object &old_delta, const nb::object &new_delta);
+
+    private:
+        std::optional<nb::object> _delta_value;
+        std::function<nb::object(const nb::object &, const nb::object &)> _delta_combine_fn;
+
+        // Type-specific combine functions
+        static nb::object _combine_tss_delta(const nb::object &old_delta, const nb::object &new_delta);
+
+        static nb::object _combine_tsd_delta(const nb::object &old_delta, const nb::object &new_delta);
+
+        static nb::object _combine_tsb_delta(const nb::object &old_delta, const nb::object &new_delta);
+
+        static nb::object _combine_tsl_delta_value(const nb::object &old_delta, const nb::object &new_delta);
+
+        void _setup_combine_function();
+    };
+} // namespace hgraph
+
+#endif  // LAST_VALUE_PULL_NODE_H

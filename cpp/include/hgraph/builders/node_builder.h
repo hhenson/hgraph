@@ -6,8 +6,14 @@
 #define NODE_BUILDER_H
 
 #include <hgraph/builders/builder.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 
 namespace hgraph {
+
+    // Forward declaration
+    struct CppTimeSeriesInputBuilder;
+    struct CppTimeSeriesOutputBuilder;
+
     struct NodeBuilder : Builder {
         NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
                     std::optional<input_builder_s_ptr> input_builder_ = std::nullopt,
@@ -33,6 +39,13 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
+        // Helper methods to extract TimeSeriesTypeMeta* from builders
+        // These extract the schema from the builders for passing to Node constructors
+        [[nodiscard]] const TimeSeriesTypeMeta* input_meta() const;
+        [[nodiscard]] const TimeSeriesTypeMeta* output_meta() const;
+        [[nodiscard]] const TimeSeriesTypeMeta* error_output_meta() const;
+        [[nodiscard]] const TimeSeriesTypeMeta* recordable_state_meta() const;
+
         node_signature_s_ptr signature;
         nb::dict scalars;
         std::optional<input_builder_s_ptr> input_builder;
@@ -43,9 +56,6 @@ namespace hgraph {
 
     struct BaseNodeBuilder : NodeBuilder {
         using NodeBuilder::NodeBuilder;
-
-    protected:
-        void _build_inputs_and_outputs(node_ptr node) const;
     };
 } // namespace hgraph
 

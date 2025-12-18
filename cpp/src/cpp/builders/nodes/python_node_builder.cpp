@@ -36,16 +36,15 @@ namespace hgraph {
 
         // If this is a push-queue node, build a PushQueueNode so the runtime can receive external messages
         if (signature->is_push_source_node()) {
-            auto node = arena_make_shared_as<PushQueueNode, Node>(node_ndx, owning_graph_id, signature, scalars);
-            _build_inputs_and_outputs(node.get());
-            // Provide the eval function so the node can expose a sender in start()
-            node->set_eval_fn(eval_fn_to_use);
+            auto node = arena_make_shared_as<PushQueueNode, Node>(
+                node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use,
+                input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
             return node;
         }
 
-        auto node = arena_make_shared_as<PythonNode, Node>(node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn);
-
-        _build_inputs_and_outputs(node.get());
+        auto node = arena_make_shared_as<PythonNode, Node>(
+            node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn,
+            input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
         return node;
     }
 

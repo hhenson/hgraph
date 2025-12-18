@@ -1,11 +1,90 @@
-// Version redirect header - includes from v1/ or v2/ based on build configuration
-#ifndef HGRAPH_PY_TSS_REDIRECT_H
-#define HGRAPH_PY_TSS_REDIRECT_H
+#pragma once
 
-#ifdef HGRAPH_API_V2
-#include <hgraph/api/python/v2/py_tss.h>
-#else
-#include <hgraph/api/python/v1/py_tss.h>
-#endif
+#include <hgraph/api/python/py_time_series.h>
 
-#endif // HGRAPH_PY_TSS_REDIRECT_H
+namespace hgraph
+{
+    /**
+     * PyTimeSeriesSetOutput - Wrapper for set outputs (TSS)
+     *
+     * Provides set operations via view.
+     */
+    struct PyTimeSeriesSetOutput : PyTimeSeriesOutput
+    {
+        using PyTimeSeriesOutput::PyTimeSeriesOutput;
+
+        PyTimeSeriesSetOutput(PyTimeSeriesSetOutput&& other) noexcept
+            : PyTimeSeriesOutput(std::move(other)) {}
+
+        PyTimeSeriesSetOutput& operator=(PyTimeSeriesSetOutput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesOutput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        PyTimeSeriesSetOutput(const PyTimeSeriesSetOutput&) = delete;
+        PyTimeSeriesSetOutput& operator=(const PyTimeSeriesSetOutput&) = delete;
+
+        // Set operations
+        [[nodiscard]] bool contains(const nb::object &item) const;
+        [[nodiscard]] size_t size() const;
+        [[nodiscard]] nb::bool_ empty() const;
+
+        void add(const nb::object &item);
+        void remove(const nb::object &item);
+
+        // Value access
+        [[nodiscard]] nb::object values() const;
+        [[nodiscard]] nb::object added() const;
+        [[nodiscard]] nb::object removed() const;
+
+        [[nodiscard]] nb::bool_ was_added(const nb::object &item) const;
+        [[nodiscard]] nb::bool_ was_removed(const nb::object &item) const;
+
+        [[nodiscard]] nb::str py_str() const;
+        [[nodiscard]] nb::str py_repr() const;
+    };
+
+    /**
+     * PyTimeSeriesSetInput - Wrapper for set inputs (TSS)
+     *
+     * Provides set operations via view.
+     */
+    struct PyTimeSeriesSetInput : PyTimeSeriesInput
+    {
+        using PyTimeSeriesInput::PyTimeSeriesInput;
+
+        PyTimeSeriesSetInput(PyTimeSeriesSetInput&& other) noexcept
+            : PyTimeSeriesInput(std::move(other)) {}
+
+        PyTimeSeriesSetInput& operator=(PyTimeSeriesSetInput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesInput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        PyTimeSeriesSetInput(const PyTimeSeriesSetInput&) = delete;
+        PyTimeSeriesSetInput& operator=(const PyTimeSeriesSetInput&) = delete;
+
+        // Set operations
+        [[nodiscard]] bool contains(const nb::object &item) const;
+        [[nodiscard]] size_t size() const;
+        [[nodiscard]] nb::bool_ empty() const;
+
+        // Value access
+        [[nodiscard]] nb::object values() const;
+        [[nodiscard]] nb::object added() const;
+        [[nodiscard]] nb::object removed() const;
+
+        [[nodiscard]] nb::bool_ was_added(const nb::object &item) const;
+        [[nodiscard]] nb::bool_ was_removed(const nb::object &item) const;
+
+        [[nodiscard]] nb::str py_str() const;
+        [[nodiscard]] nb::str py_repr() const;
+    };
+
+    void tss_register_with_nanobind(nb::module_ &m);
+
+}  // namespace hgraph

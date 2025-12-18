@@ -1,109 +1,55 @@
 project(_hgraph)
 
-# API Version Selection (1 = V1, 2 = V2)
-# V1: Current implementation with BaseTimeSeriesInput/Output inheritance
-# V2: New unified time-series with TSValue shared state (planned)
-option(HGRAPH_API_VERSION "API version to build (1 or 2)" "1")
+# V2 time-series API (V1 has been archived to cpp/v1_archive/)
+message(STATUS "Building with V2 time-series API")
 
-# Shared API sources (version-independent)
-set(HGRAPH_API_SHARED_SOURCES
+# API sources (Python wrappers)
+set(HGRAPH_API_SOURCES
         api/python/py_evaluation_clock.cpp
         api/python/py_evaluation_engine.cpp
         api/python/py_graph.cpp
         api/python/py_node.cpp
         api/python/py_special_nodes.cpp
         api/python/py_schema.cpp
+        api/python/py_time_series.cpp
+        api/python/py_ts.cpp
+        api/python/py_tsb.cpp
+        api/python/py_tsd.cpp
+        api/python/py_tsl.cpp
+        api/python/py_tss.cpp
+        api/python/py_tsw.cpp
+        api/python/py_ref.cpp
+        api/python/py_signal.cpp
+        api/python/wrapper_factory.cpp
 )
 
-# V1 API sources (time-series type wrappers)
-set(HGRAPH_API_V1_SOURCES
-        api/python/v1/py_time_series.cpp
-        api/python/v1/py_ts.cpp
-        api/python/v1/py_tsb.cpp
-        api/python/v1/py_tsd.cpp
-        api/python/v1/py_tsl.cpp
-        api/python/v1/py_tss.cpp
-        api/python/v1/py_tsw.cpp
-        api/python/v1/py_ref.cpp
-        api/python/v1/py_signal.cpp
-        api/python/v1/wrapper_factory.cpp
+# Time-series type sources
+set(HGRAPH_TS_SOURCES
+        types/time_series/ts_output.cpp
+        types/time_series/ts_input.cpp
+        types/time_series/access_strategy.cpp
 )
 
-# V2 API sources
-set(HGRAPH_API_V2_SOURCES
-        api/python/v2/py_time_series.cpp
-        api/python/v2/py_ts.cpp
-        api/python/v2/py_tsb.cpp
-        api/python/v2/py_tsd.cpp
-        api/python/v2/py_tsl.cpp
-        api/python/v2/py_tss.cpp
-        api/python/v2/py_tsw.cpp
-        api/python/v2/py_ref.cpp
-        api/python/v2/py_signal.cpp
-        api/python/v2/wrapper_factory.cpp
+# Node sources
+set(HGRAPH_NODES_SOURCES
+        nodes/base_python_node.cpp
+        nodes/component_node.cpp
+        nodes/last_value_pull_node.cpp
+        nodes/mesh_node.cpp
+        nodes/context_node.cpp
+        nodes/nested_evaluation_engine.cpp
+        nodes/nested_graph_node.cpp
+        nodes/nested_node.cpp
+        nodes/non_associative_reduce_node.cpp
+        nodes/python_generator_node.cpp
+        nodes/python_node.cpp
+        nodes/push_queue_node.cpp
+        nodes/reduce_node.cpp
+        nodes/switch_node.cpp
+        nodes/try_except_node.cpp
+        nodes/tsd_map_node.cpp
+        types/node.cpp
 )
-
-# V2 time-series type sources
-set(HGRAPH_TS_V2_SOURCES
-        types/time_series/v2/ts_output.cpp
-        types/time_series/v2/ts_input.cpp
-        types/time_series/v2/access_strategy.cpp
-)
-
-# V1 Node sources
-set(HGRAPH_NODES_V1_SOURCES
-        nodes/v1/base_python_node.cpp
-        nodes/v1/component_node.cpp
-        nodes/v1/last_value_pull_node.cpp
-        nodes/v1/mesh_node.cpp
-        nodes/v1/context_node.cpp
-        nodes/v1/nested_evaluation_engine.cpp
-        nodes/v1/nested_graph_node.cpp
-        nodes/v1/nested_node.cpp
-        nodes/v1/non_associative_reduce_node.cpp
-        nodes/v1/python_generator_node.cpp
-        nodes/v1/python_node.cpp
-        nodes/v1/push_queue_node.cpp
-        nodes/v1/reduce_node.cpp
-        nodes/v1/switch_node.cpp
-        nodes/v1/try_except_node.cpp
-        nodes/v1/tsd_map_node.cpp
-        types/v1/node.cpp
-)
-
-# V2 Node sources
-set(HGRAPH_NODES_V2_SOURCES
-        nodes/v2/base_python_node.cpp
-        nodes/v2/component_node.cpp
-        nodes/v2/last_value_pull_node.cpp
-        nodes/v2/mesh_node.cpp
-        nodes/v2/context_node.cpp
-        nodes/v2/nested_evaluation_engine.cpp
-        nodes/v2/nested_graph_node.cpp
-        nodes/v2/nested_node.cpp
-        nodes/v2/non_associative_reduce_node.cpp
-        nodes/v2/python_generator_node.cpp
-        nodes/v2/python_node.cpp
-        nodes/v2/push_queue_node.cpp
-        nodes/v2/reduce_node.cpp
-        nodes/v2/switch_node.cpp
-        nodes/v2/try_except_node.cpp
-        nodes/v2/tsd_map_node.cpp
-        types/v2/node.cpp
-)
-
-# Select API version sources
-if(HGRAPH_API_VERSION STREQUAL "2")
-    set(HGRAPH_API_SOURCES ${HGRAPH_API_SHARED_SOURCES} ${HGRAPH_API_V2_SOURCES})
-    set(HGRAPH_NODES_SOURCES ${HGRAPH_NODES_V2_SOURCES})
-    set(HGRAPH_TS_SOURCES ${HGRAPH_TS_V2_SOURCES})
-    message(STATUS "Building with V2 time-series API")
-else()
-    set(HGRAPH_API_SOURCES ${HGRAPH_API_SHARED_SOURCES} ${HGRAPH_API_V1_SOURCES})
-    set(HGRAPH_NODES_SOURCES ${HGRAPH_NODES_V1_SOURCES})
-    set(HGRAPH_TS_SOURCES "")  # V1 doesn't use the new time-series types
-    message(STATUS "Building with V1 time-series API (default)")
-endif()
 
 set(HGRAPH_SOURCES
         ${HGRAPH_API_SOURCES}
@@ -197,12 +143,8 @@ nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUD
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
 target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor)
 
-# Propagate API version to compiler for conditional compilation
-if(HGRAPH_API_VERSION STREQUAL "2")
-    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_API_V2=1)
-else()
-    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_API_V1=1)
-endif()
+# Always compile with V2 API (V1 has been archived)
+target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_API_V2=1)
 
 # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
 if (HGRAPH_WITH_BACKWARD)

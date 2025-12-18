@@ -17,33 +17,6 @@ namespace hgraph
     // The path in the wiring edges representing the recordable state output of the node
     constexpr int64_t KEY_SET = -3;  // The path in the wiring edges representing the recordable state output of the node
 
-    time_series_output_s_ptr _extract_output(node_ptr node, const std::vector<int64_t> &path) {
-        if (path.empty()) { throw std::runtime_error("No path to find an output for"); }
-
-        time_series_output_s_ptr output = node->output();
-        for (auto index : path) {
-            if (index == KEY_SET) {
-                auto tsd_output = std::dynamic_pointer_cast<TimeSeriesDictOutput>(output);
-                if (!tsd_output) { throw std::runtime_error("Output is not a TSD for KEY_SET access"); }
-                output = tsd_output->key_set().shared_from_this();
-            } else {
-                auto indexed_output = std::dynamic_pointer_cast<IndexedTimeSeriesOutput>(output);
-                if (!indexed_output) { throw std::runtime_error("Output is not an indexed time series"); }
-                output = (*indexed_output)[index];
-            }
-        }
-        return output;
-    }
-
-    time_series_input_s_ptr _extract_input(node_ptr node, const std::vector<int64_t> &path) {
-        if (path.empty()) { throw std::runtime_error("No path to find an input for"); }
-
-        time_series_input_s_ptr input = std::static_pointer_cast<TimeSeriesInput>(node->input());
-
-        for (const auto &ndx : path) { input = input->get_input(ndx); }
-        return input;
-    }
-
     GraphBuilder::GraphBuilder(std::vector<node_builder_s_ptr> node_builders_, std::vector<Edge> edges_)
         : node_builders{std::move(node_builders_)}, edges{std::move(edges_)} {
         // Calculate and cache memory size
@@ -79,22 +52,14 @@ namespace hgraph
             nodes.push_back(node_builders[i]->make_instance(graph_id, i + first_node_ndx));
         }
 
+        // TODO: Implement V2 edge wiring using ts::TSInput::bind_output and ts::TSOutput
+        // For now, edges are not wired in V2 - this needs to be implemented
         for (const auto &edge : edges) {
-            auto src_node = nodes[edge.src_node].get();
-            auto dst_node = nodes[edge.dst_node].get();
-
-            time_series_output_s_ptr output;
-            if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
-                output = src_node->error_output();
-            } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
-                output = std::static_pointer_cast<TimeSeriesOutput>(src_node->recordable_state());
-            } else {
-                output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path);
-            }
-
-            auto input = _extract_input(dst_node, edge.input_path);
-            // Convert raw output pointer to shared_ptr for bind_output
-            input->bind_output(output ? output->shared_from_this() : time_series_output_s_ptr{});
+            (void)edge;  // Suppress unused warning
+            // V2 wiring would be:
+            // auto* src_output = nodes[edge.src_node]->output();
+            // auto* dst_input = nodes[edge.dst_node]->input();
+            // dst_input->bind_output(src_output); // Need to add this method to TSInput
         }
 
         return nodes;

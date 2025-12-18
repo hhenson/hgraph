@@ -1,8 +1,72 @@
-// Version-selecting forwarding header for push_queue_node
-#pragma once
+//
+// Created by Howard Henson on 24/10/2025.
+//
 
-#ifdef HGRAPH_API_V2
-#include <hgraph/nodes/v2/push_queue_node.h>
-#else
-#include <hgraph/nodes/v1/push_queue_node.h>
-#endif
+#ifndef HGRAPH_CPP_ENGINE_PUSH_QUEUE_NODE_H
+#define HGRAPH_CPP_ENGINE_PUSH_QUEUE_NODE_H
+
+#include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
+
+namespace hgraph {
+    /**
+     * PushQueueNode - Node that receives messages from external sources
+     *
+     * This node type is used with the @push_queue decorator in Python.
+     * It maintains a queue of messages that can be pushed from external
+     * sources (via a sender callable) and processes them through the
+     * node evaluation cycle.
+     *
+     * Features:
+     * - Elide mode: applies messages immediately if output can accept them
+     * - Batch mode: controls message batching behavior
+     * - Message queuing: tracks queued vs dequeued messages
+     * - Custom eval function: optional callable that receives a sender
+     */
+    struct PushQueueNode final : Node {
+        PushQueueNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature,
+                      nb::dict scalars, nb::callable eval_fn,
+                      const TimeSeriesTypeMeta* input_meta = nullptr, const TimeSeriesTypeMeta* output_meta = nullptr,
+                      const TimeSeriesTypeMeta* error_output_meta = nullptr, const TimeSeriesTypeMeta* recordable_state_meta = nullptr);
+
+        static void register_with_nanobind(nb::module_ &m);
+
+        void set_eval_fn(nb::callable fn) { _eval_fn = std::move(fn); }
+
+        void enqueue_message(nb::object message);
+
+        [[nodiscard]] bool apply_message(nb::object message);
+
+        int64_t messages_in_queue() const;
+
+        void set_receiver(sender_receiver_state_ptr value);
+
+        VISITOR_SUPPORT()
+
+    protected:
+        void do_eval() override;
+
+        void do_start() override;
+
+        void do_stop() override {
+        }
+
+        void initialise() override {
+        }
+
+        void dispose() override {
+        }
+
+    private:
+        sender_receiver_state_ptr _receiver;
+        int64_t _messages_queued{0};
+        int64_t _messages_dequeued{0};
+        bool _elide{false};
+        bool _batch{false};
+        nb::callable _eval_fn;
+
+        bool _is_tsd = false;
+    };
+} // namespace hgraph
+
+#endif  // HGRAPH_CPP_ENGINE_PUSH_QUEUE_NODE_H

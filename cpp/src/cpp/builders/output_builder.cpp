@@ -26,22 +26,10 @@ namespace hgraph {
         nb::class_<OutputBuilder, Builder>(m, "OutputBuilder")
                 .def(
                     "make_instance",
-                    [](OutputBuilder::ptr self, nb::object owning_node,
-                       nb::object owning_output) -> nb::object {
-                        if (!owning_node.is_none()) {
-                            auto node{unwrap_node(owning_node)};
-                            auto output_{self->make_instance(node.get())};
-                            return wrap_time_series(output_);
-                        }
-                        if (!owning_output.is_none()) {
-                            auto object_{unwrap_output(owning_output)};
-                            auto result_{self->make_instance(object_.get())};
-                            return wrap_time_series(result_);
-                        }
-                        // TODO: Here we need to create a standalone instance of the output
-
-                        // Allow both to be None to match Python behavior
-                        throw std::runtime_error("At least one of owning_node or owning_output must be provided");
+                    [](OutputBuilder::ptr, nb::object, nb::object) -> nb::object {
+                        // V2 doesn't use builders to create time-series instances.
+                        // Time-series are value types owned by the Node, created via emplace methods.
+                        throw std::runtime_error("OutputBuilder.make_instance not supported in V2");
                     },
                     "owning_node"_a = nb::none(), "owning_output"_a = nb::none())
                 .def("release_instance", &OutputBuilder::release_instance)
