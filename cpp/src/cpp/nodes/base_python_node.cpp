@@ -1,6 +1,7 @@
 #include <hgraph/api/python/wrapper_factory.h>
 
 #include <hgraph/nodes/base_python_node.h>
+#include <hgraph/types/time_series/ts_python_helpers.h>
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>
@@ -217,11 +218,8 @@ namespace hgraph
         try {
             auto out{_eval_fn(**_kwargs)};
             if (!out.is_none() && has_output()) {
-                // TODO: V2 needs proper apply_result equivalent
-                // For now, use the evaluation time to set value
                 auto eval_time = *cached_evaluation_time_ptr();
-                // output()->set_value() requires the correct type
-                // This needs proper implementation
+                ts::apply_python_result(output(), std::move(out), eval_time);
             }
         } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During Python node evaluation"); }
     }
