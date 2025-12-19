@@ -220,7 +220,7 @@ namespace hgraph {
                         if (ref_ts->valid() && ref_ts->has_value()) {
                             auto ref = ref_ts->value();
                             if (ref.is_bound()) {
-                                if (auto tgt = ref.output(); tgt != nullptr) {
+                                if (auto tgt = ref.output_ptr(); tgt != nullptr) {
                                     active_inputs.emplace(
                                         input_name, BackTrace::capture_back_trace(
                                             tgt->owning_node(), capture_values, depth - 1));

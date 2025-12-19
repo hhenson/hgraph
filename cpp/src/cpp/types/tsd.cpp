@@ -139,9 +139,15 @@ namespace hgraph
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
                               auto  it = output_t._ts_values.find(key);
                               if (it != output_t._ts_values.end()) {
-                                  auto r{TimeSeriesReference::make(it->second)};
-                                  auto r_val{nb::cast(r)};
-                                  result_output.apply_result(r_val);
+                                  // Create reference using node + path with TypeErasedKey for TSD key
+                                  auto* node = output.owning_node();
+                                  if (node) {
+                                      auto type_erased_key = TypeErasedKey::from_value(key, nullptr);
+                                      std::vector<PathKey> path{type_erased_key};
+                                      auto r = TimeSeriesReference::make(node->shared_from_this(), std::move(path));
+                                      auto r_val{nb::cast(r)};
+                                      result_output.apply_result(r_val);
+                                  }
                               } else {
                                   // Key removed: propagate empty reference and mark modified to match Python semantics
                                   auto r{TimeSeriesReference::make()};
@@ -163,9 +169,15 @@ namespace hgraph
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
                               auto  it = output_t._ts_values.find(key);
                               if (it != output_t._ts_values.end()) {
-                                  auto r{TimeSeriesReference::make(it->second)};
-                                  auto r_val{nb::cast(r)};
-                                  result_output.apply_result(r_val);
+                                  // Create reference using node + path with TypeErasedKey for TSD key
+                                  auto* node = output.owning_node();
+                                  if (node) {
+                                      auto type_erased_key = TypeErasedKey::from_value(key, nullptr);
+                                      std::vector<PathKey> path{type_erased_key};
+                                      auto r = TimeSeriesReference::make(node->shared_from_this(), std::move(path));
+                                      auto r_val{nb::cast(r)};
+                                      result_output.apply_result(r_val);
+                                  }
                               } else {
                                   // Key removed: propagate empty reference and mark modified to match Python semantics
                                   auto r{TimeSeriesReference::make()};

@@ -5,7 +5,6 @@
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
-#include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <memory>
 #include <optional>
@@ -193,7 +192,7 @@ namespace hgraph
     // Node - runtime object, uses shared_ptr
     struct HGRAPH_EXPORT Node : ComponentLifeCycle,
                                 Notifiable,
-                                arena_enable_shared_from_this<Node>,
+                                std::enable_shared_from_this<Node>,
                                 ddv::visitable<Node, NodeVisitor>
     {
         using ptr   = Node *;
