@@ -850,3 +850,420 @@ def test_iter_dict():
     v.py_value = {"a": 1, "b": 2}
     keys = set(v)
     assert keys == {"a", "b"}
+
+
+# =============================================================================
+# Set Algebra Operator Tests
+# =============================================================================
+
+def test_set_union():
+    """Test set union operator: a | b"""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {3, 4, 5}
+
+    result = v1 | v2
+    assert result.py_value == {1, 2, 3, 4, 5}
+
+
+def test_set_union_inplace():
+    """Test set in-place union operator: a |= b"""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {3, 4, 5}
+
+    v1 |= v2
+    assert v1.py_value == {1, 2, 3, 4, 5}
+
+
+def test_set_intersection():
+    """Test set intersection operator: a & b"""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3, 4}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {3, 4, 5, 6}
+
+    result = v1 & v2
+    assert result.py_value == {3, 4}
+
+
+def test_set_intersection_inplace():
+    """Test set in-place intersection operator: a &= b"""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3, 4}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {3, 4, 5, 6}
+
+    v1 &= v2
+    assert v1.py_value == {3, 4}
+
+
+def test_set_difference():
+    """Test set difference operator: a - b"""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3, 4}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {3, 4, 5}
+
+    result = v1 - v2
+    assert result.py_value == {1, 2}
+
+
+def test_set_difference_inplace():
+    """Test set in-place difference operator: a -= b"""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3, 4}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {3, 4, 5}
+
+    v1 -= v2
+    assert v1.py_value == {1, 2}
+
+
+def test_set_symmetric_difference():
+    """Test set symmetric difference operator: a ^ b"""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {2, 3, 4}
+
+    result = v1 ^ v2
+    assert result.py_value == {1, 4}
+
+
+def test_set_symmetric_difference_inplace():
+    """Test set in-place symmetric difference operator: a ^= b"""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {2, 3, 4}
+
+    v1 ^= v2
+    assert v1.py_value == {1, 4}
+
+
+def test_set_union_empty():
+    """Test union with empty set."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = set()
+
+    result = v1 | v2
+    assert result.py_value == {1, 2, 3}
+
+
+def test_set_intersection_empty():
+    """Test intersection with empty set."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = set()
+
+    result = v1 & v2
+    assert result.py_value == set()
+
+
+def test_set_difference_disjoint():
+    """Test difference with disjoint sets."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {4, 5, 6}
+
+    result = v1 - v2
+    assert result.py_value == {1, 2, 3}
+
+
+def test_set_str_union():
+    """Test set union with string elements."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    set_schema = _hgraph.get_set_type_meta(str_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {"apple", "banana"}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {"banana", "cherry"}
+
+    result = v1 | v2
+    assert result.py_value == {"apple", "banana", "cherry"}
+
+
+# =============================================================================
+# Dict Merge Operator Tests
+# =============================================================================
+
+def test_dict_merge():
+    """Test dict merge operator: a | b"""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+
+    v1 = _hgraph.HgValue(dict_schema)
+    v1.py_value = {"a": 1, "b": 2}
+
+    v2 = _hgraph.HgValue(dict_schema)
+    v2.py_value = {"b": 20, "c": 3}
+
+    result = v1 | v2
+    assert result.py_value == {"a": 1, "b": 20, "c": 3}
+
+
+def test_dict_merge_inplace():
+    """Test dict in-place merge operator: a |= b"""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+
+    v1 = _hgraph.HgValue(dict_schema)
+    v1.py_value = {"a": 1, "b": 2}
+
+    v2 = _hgraph.HgValue(dict_schema)
+    v2.py_value = {"b": 20, "c": 3}
+
+    v1 |= v2
+    assert v1.py_value == {"a": 1, "b": 20, "c": 3}
+
+
+def test_dict_merge_empty():
+    """Test merging with empty dict."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+
+    v1 = _hgraph.HgValue(dict_schema)
+    v1.py_value = {"a": 1, "b": 2}
+
+    v2 = _hgraph.HgValue(dict_schema)
+    v2.py_value = {}
+
+    result = v1 | v2
+    assert result.py_value == {"a": 1, "b": 2}
+
+
+def test_dict_merge_disjoint():
+    """Test merging dicts with no overlapping keys."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+
+    v1 = _hgraph.HgValue(dict_schema)
+    v1.py_value = {"a": 1, "b": 2}
+
+    v2 = _hgraph.HgValue(dict_schema)
+    v2.py_value = {"c": 3, "d": 4}
+
+    result = v1 | v2
+    assert result.py_value == {"a": 1, "b": 2, "c": 3, "d": 4}
+
+
+# =============================================================================
+# List Concatenation Operator Tests
+# =============================================================================
+
+def test_list_concat():
+    """Test list concatenation operator: a + b"""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    list_schema = _hgraph.get_dynamic_list_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(list_schema)
+    v1.py_value = (1, 2, 3)
+
+    v2 = _hgraph.HgValue(list_schema)
+    v2.py_value = (4, 5, 6)
+
+    result = v1 + v2
+    assert result.py_value == (1, 2, 3, 4, 5, 6)
+
+
+def test_list_concat_inplace():
+    """Test list in-place concatenation operator: a += b"""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    list_schema = _hgraph.get_dynamic_list_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(list_schema)
+    v1.py_value = (1, 2, 3)
+
+    v2 = _hgraph.HgValue(list_schema)
+    v2.py_value = (4, 5, 6)
+
+    v1 += v2
+    assert v1.py_value == (1, 2, 3, 4, 5, 6)
+
+
+def test_list_concat_empty():
+    """Test concatenation with empty list."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    list_schema = _hgraph.get_dynamic_list_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(list_schema)
+    v1.py_value = (1, 2, 3)
+
+    v2 = _hgraph.HgValue(list_schema)
+    v2.py_value = ()
+
+    result = v1 + v2
+    assert result.py_value == (1, 2, 3)
+
+
+def test_list_concat_str():
+    """Test concatenation with string elements."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    list_schema = _hgraph.get_dynamic_list_type_meta(str_schema)
+
+    v1 = _hgraph.HgValue(list_schema)
+    v1.py_value = ("hello",)
+
+    v2 = _hgraph.HgValue(list_schema)
+    v2.py_value = ("world",)
+
+    result = v1 + v2
+    assert result.py_value == ("hello", "world")
+
+
+# =============================================================================
+# Mixed Operations Tests
+# =============================================================================
+
+def test_set_operations_preserve_original():
+    """Test that set operations don't modify originals (except in-place)."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(set_schema)
+    v1.py_value = {1, 2, 3}
+    original_v1 = {1, 2, 3}
+
+    v2 = _hgraph.HgValue(set_schema)
+    v2.py_value = {3, 4, 5}
+    original_v2 = {3, 4, 5}
+
+    # Non-modifying operations
+    _ = v1 | v2
+    _ = v1 & v2
+    _ = v1 - v2
+    _ = v1 ^ v2
+
+    # Check originals are unchanged
+    assert v1.py_value == original_v1
+    assert v2.py_value == original_v2
+
+
+def test_dict_operations_preserve_original():
+    """Test that dict operations don't modify originals (except in-place)."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+
+    v1 = _hgraph.HgValue(dict_schema)
+    v1.py_value = {"a": 1, "b": 2}
+    original_v1 = {"a": 1, "b": 2}
+
+    v2 = _hgraph.HgValue(dict_schema)
+    v2.py_value = {"b": 20, "c": 3}
+
+    _ = v1 | v2
+
+    assert v1.py_value == original_v1
+
+
+def test_list_operations_preserve_original():
+    """Test that list operations don't modify originals (except in-place)."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    list_schema = _hgraph.get_dynamic_list_type_meta(int_schema)
+
+    v1 = _hgraph.HgValue(list_schema)
+    v1.py_value = (1, 2, 3)
+    original_v1 = (1, 2, 3)
+
+    v2 = _hgraph.HgValue(list_schema)
+    v2.py_value = (4, 5, 6)
+
+    _ = v1 + v2
+
+    assert v1.py_value == original_v1
+
+
+def test_scalar_subtract_vs_set_difference():
+    """Test that - works correctly for both scalars and sets."""
+    # Scalar subtraction
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(int_schema, 10)
+    v2 = _hgraph.HgValue.from_python(int_schema, 3)
+    result = v1 - v2
+    assert result.py_value == 7
+
+    # Set difference
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+    s1 = _hgraph.HgValue(set_schema)
+    s1.py_value = {1, 2, 3}
+    s2 = _hgraph.HgValue(set_schema)
+    s2.py_value = {2, 3, 4}
+    result = s1 - s2
+    assert result.py_value == {1}
+
+
+def test_scalar_add_vs_list_concat():
+    """Test that + works correctly for both scalars and lists."""
+    # Scalar addition
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(int_schema, 10)
+    v2 = _hgraph.HgValue.from_python(int_schema, 5)
+    result = v1 + v2
+    assert result.py_value == 15
+
+    # List concatenation
+    list_schema = _hgraph.get_dynamic_list_type_meta(int_schema)
+    l1 = _hgraph.HgValue(list_schema)
+    l1.py_value = (1, 2)
+    l2 = _hgraph.HgValue(list_schema)
+    l2.py_value = (3, 4)
+    result = l1 + l2
+    assert result.py_value == (1, 2, 3, 4)

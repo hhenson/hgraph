@@ -4223,3 +4223,824 @@ TEST_CASE("BoundValueKind - enum values", "[bind]") {
     REQUIRE(BoundValueKind::Peer != BoundValueKind::Deref);
     REQUIRE(BoundValueKind::Deref != BoundValueKind::Composite);
 }
+
+// ============================================================================
+// Collection Operators Tests
+// ============================================================================
+
+// ----------------------------------------------------------------------------
+// Set Operators
+// ----------------------------------------------------------------------------
+
+TEST_CASE("SetStorage - union", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+    a.add_typed(3);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(3);
+    b.add_typed(4);
+    b.add_typed(5);
+
+    SetStorage result = a.union_with(b);
+
+    REQUIRE(result.size() == 5);
+    REQUIRE(result.contains_typed(1));
+    REQUIRE(result.contains_typed(2));
+    REQUIRE(result.contains_typed(3));
+    REQUIRE(result.contains_typed(4));
+    REQUIRE(result.contains_typed(5));
+
+    // Verify originals unchanged
+    REQUIRE(a.size() == 3);
+    REQUIRE(b.size() == 3);
+}
+
+TEST_CASE("SetStorage - intersection", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+    a.add_typed(3);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(2);
+    b.add_typed(3);
+    b.add_typed(4);
+
+    SetStorage result = a.intersection_with(b);
+
+    REQUIRE(result.size() == 2);
+    REQUIRE(result.contains_typed(2));
+    REQUIRE(result.contains_typed(3));
+    REQUIRE_FALSE(result.contains_typed(1));
+    REQUIRE_FALSE(result.contains_typed(4));
+}
+
+TEST_CASE("SetStorage - difference", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+    a.add_typed(3);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(2);
+    b.add_typed(4);
+
+    SetStorage result = a.difference_with(b);
+
+    REQUIRE(result.size() == 2);
+    REQUIRE(result.contains_typed(1));
+    REQUIRE(result.contains_typed(3));
+    REQUIRE_FALSE(result.contains_typed(2));
+}
+
+TEST_CASE("SetStorage - symmetric_difference", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+    a.add_typed(3);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(2);
+    b.add_typed(3);
+    b.add_typed(4);
+
+    SetStorage result = a.symmetric_difference_with(b);
+
+    REQUIRE(result.size() == 2);
+    REQUIRE(result.contains_typed(1));
+    REQUIRE(result.contains_typed(4));
+    REQUIRE_FALSE(result.contains_typed(2));
+    REQUIRE_FALSE(result.contains_typed(3));
+}
+
+TEST_CASE("SetStorage - update (in-place union)", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(2);
+    b.add_typed(3);
+
+    a.update(b);
+
+    REQUIRE(a.size() == 3);
+    REQUIRE(a.contains_typed(1));
+    REQUIRE(a.contains_typed(2));
+    REQUIRE(a.contains_typed(3));
+}
+
+TEST_CASE("SetStorage - intersection_update", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+    a.add_typed(3);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(2);
+    b.add_typed(3);
+    b.add_typed(4);
+
+    a.intersection_update(b);
+
+    REQUIRE(a.size() == 2);
+    REQUIRE(a.contains_typed(2));
+    REQUIRE(a.contains_typed(3));
+    REQUIRE_FALSE(a.contains_typed(1));
+}
+
+TEST_CASE("SetStorage - difference_update", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+    a.add_typed(3);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(2);
+
+    a.difference_update(b);
+
+    REQUIRE(a.size() == 2);
+    REQUIRE(a.contains_typed(1));
+    REQUIRE(a.contains_typed(3));
+    REQUIRE_FALSE(a.contains_typed(2));
+}
+
+TEST_CASE("SetStorage - symmetric_difference_update", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+    a.add_typed(3);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(2);
+    b.add_typed(3);
+    b.add_typed(4);
+
+    a.symmetric_difference_update(b);
+
+    REQUIRE(a.size() == 2);
+    REQUIRE(a.contains_typed(1));
+    REQUIRE(a.contains_typed(4));
+}
+
+TEST_CASE("SetStorage - discard", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage s(meta->element_type);
+    s.add_typed(1);
+    s.add_typed(2);
+
+    REQUIRE(s.discard_typed(1));
+    REQUIRE(s.size() == 1);
+    REQUIRE_FALSE(s.contains_typed(1));
+
+    // Discard non-existent element
+    REQUIRE_FALSE(s.discard_typed(99));
+    REQUIRE(s.size() == 1);
+}
+
+TEST_CASE("SetStorage - is_subset_of", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(1);
+    b.add_typed(2);
+    b.add_typed(3);
+
+    REQUIRE(a.is_subset_of(b));
+    REQUIRE_FALSE(b.is_subset_of(a));
+
+    // Equal sets: both are subsets of each other
+    SetStorage c(meta->element_type);
+    c.add_typed(1);
+    c.add_typed(2);
+    REQUIRE(a.is_subset_of(c));
+    REQUIRE(c.is_subset_of(a));
+}
+
+TEST_CASE("SetStorage - is_proper_subset_of", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(1);
+    b.add_typed(2);
+    b.add_typed(3);
+
+    REQUIRE(a.is_proper_subset_of(b));
+    REQUIRE_FALSE(b.is_proper_subset_of(a));
+
+    // Equal sets: neither is a proper subset
+    SetStorage c(meta->element_type);
+    c.add_typed(1);
+    c.add_typed(2);
+    REQUIRE_FALSE(a.is_proper_subset_of(c));
+}
+
+TEST_CASE("SetStorage - is_disjoint_with", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage a(meta->element_type);
+    a.add_typed(1);
+    a.add_typed(2);
+
+    SetStorage b(meta->element_type);
+    b.add_typed(3);
+    b.add_typed(4);
+
+    REQUIRE(a.is_disjoint_with(b));
+
+    b.add_typed(2);
+    REQUIRE_FALSE(a.is_disjoint_with(b));
+}
+
+// ----------------------------------------------------------------------------
+// Value Class Operator Tests (Set)
+// ----------------------------------------------------------------------------
+
+TEST_CASE("Value - set union operator", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<SetStorage*>(a.data());
+    a_storage.add_typed(1);
+    a_storage.add_typed(2);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<SetStorage*>(b.data());
+    b_storage.add_typed(2);
+    b_storage.add_typed(3);
+
+    Value result = a | b;
+
+    auto& result_storage = *static_cast<const SetStorage*>(result.data());
+    REQUIRE(result_storage.size() == 3);
+    REQUIRE(result_storage.contains_typed(1));
+    REQUIRE(result_storage.contains_typed(2));
+    REQUIRE(result_storage.contains_typed(3));
+}
+
+TEST_CASE("Value - set intersection operator", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<SetStorage*>(a.data());
+    a_storage.add_typed(1);
+    a_storage.add_typed(2);
+    a_storage.add_typed(3);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<SetStorage*>(b.data());
+    b_storage.add_typed(2);
+    b_storage.add_typed(3);
+    b_storage.add_typed(4);
+
+    Value result = a & b;
+
+    auto& result_storage = *static_cast<const SetStorage*>(result.data());
+    REQUIRE(result_storage.size() == 2);
+    REQUIRE(result_storage.contains_typed(2));
+    REQUIRE(result_storage.contains_typed(3));
+}
+
+TEST_CASE("Value - set difference operator", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<SetStorage*>(a.data());
+    a_storage.add_typed(1);
+    a_storage.add_typed(2);
+    a_storage.add_typed(3);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<SetStorage*>(b.data());
+    b_storage.add_typed(2);
+
+    Value result = a - b;
+
+    auto& result_storage = *static_cast<const SetStorage*>(result.data());
+    REQUIRE(result_storage.size() == 2);
+    REQUIRE(result_storage.contains_typed(1));
+    REQUIRE(result_storage.contains_typed(3));
+}
+
+TEST_CASE("Value - set symmetric difference operator", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<SetStorage*>(a.data());
+    a_storage.add_typed(1);
+    a_storage.add_typed(2);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<SetStorage*>(b.data());
+    b_storage.add_typed(2);
+    b_storage.add_typed(3);
+
+    Value result = a ^ b;
+
+    auto& result_storage = *static_cast<const SetStorage*>(result.data());
+    REQUIRE(result_storage.size() == 2);
+    REQUIRE(result_storage.contains_typed(1));
+    REQUIRE(result_storage.contains_typed(3));
+}
+
+TEST_CASE("Value - set in-place union operator", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<SetStorage*>(a.data());
+    a_storage.add_typed(1);
+    a_storage.add_typed(2);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<SetStorage*>(b.data());
+    b_storage.add_typed(2);
+    b_storage.add_typed(3);
+
+    a |= b;
+
+    REQUIRE(a_storage.size() == 3);
+    REQUIRE(a_storage.contains_typed(1));
+    REQUIRE(a_storage.contains_typed(2));
+    REQUIRE(a_storage.contains_typed(3));
+}
+
+TEST_CASE("Value - set in-place intersection operator", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<SetStorage*>(a.data());
+    a_storage.add_typed(1);
+    a_storage.add_typed(2);
+    a_storage.add_typed(3);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<SetStorage*>(b.data());
+    b_storage.add_typed(2);
+    b_storage.add_typed(3);
+
+    a &= b;
+
+    REQUIRE(a_storage.size() == 2);
+    REQUIRE(a_storage.contains_typed(2));
+    REQUIRE(a_storage.contains_typed(3));
+}
+
+TEST_CASE("Value - set in-place difference operator", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<SetStorage*>(a.data());
+    a_storage.add_typed(1);
+    a_storage.add_typed(2);
+    a_storage.add_typed(3);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<SetStorage*>(b.data());
+    b_storage.add_typed(2);
+
+    a -= b;
+
+    REQUIRE(a_storage.size() == 2);
+    REQUIRE(a_storage.contains_typed(1));
+    REQUIRE(a_storage.contains_typed(3));
+}
+
+TEST_CASE("Value - set in-place symmetric difference operator", "[value][set][operators]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<SetStorage*>(a.data());
+    a_storage.add_typed(1);
+    a_storage.add_typed(2);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<SetStorage*>(b.data());
+    b_storage.add_typed(2);
+    b_storage.add_typed(3);
+
+    a ^= b;
+
+    REQUIRE(a_storage.size() == 2);
+    REQUIRE(a_storage.contains_typed(1));
+    REQUIRE(a_storage.contains_typed(3));
+}
+
+// ----------------------------------------------------------------------------
+// Dict Operators
+// ----------------------------------------------------------------------------
+
+TEST_CASE("DictStorage - merge_with", "[value][dict][operators]") {
+    auto meta = DictTypeBuilder()
+        .key<int>()
+        .value<double>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<DictStorage*>(a.data());
+    int k1 = 1, k2 = 2;
+    double v1 = 1.1, v2 = 2.2;
+    a_storage.insert(&k1, &v1);
+    a_storage.insert(&k2, &v2);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<DictStorage*>(b.data());
+    int k3 = 2, k4 = 3;
+    double v3 = 20.2, v4 = 3.3;
+    b_storage.insert(&k3, &v3);
+    b_storage.insert(&k4, &v4);
+
+    DictStorage result = a_storage.merge_with(b_storage);
+
+    REQUIRE(result.size() == 3);
+    REQUIRE(result.contains(&k1));
+    REQUIRE(result.contains(&k2));
+    REQUIRE(result.contains(&k4));
+
+    // Key 2 should have value from b (20.2)
+    const double* val2 = static_cast<const double*>(result.get(&k2));
+    REQUIRE(*val2 == 20.2);
+}
+
+TEST_CASE("DictStorage - update", "[value][dict][operators]") {
+    auto meta = DictTypeBuilder()
+        .key<int>()
+        .value<double>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<DictStorage*>(a.data());
+    int k1 = 1, k2 = 2;
+    double v1 = 1.1, v2 = 2.2;
+    a_storage.insert(&k1, &v1);
+    a_storage.insert(&k2, &v2);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<DictStorage*>(b.data());
+    int k3 = 2, k4 = 3;
+    double v3 = 20.2, v4 = 3.3;
+    b_storage.insert(&k3, &v3);
+    b_storage.insert(&k4, &v4);
+
+    a_storage.update(b_storage);
+
+    REQUIRE(a_storage.size() == 3);
+    const double* val2 = static_cast<const double*>(a_storage.get(&k2));
+    REQUIRE(*val2 == 20.2);
+}
+
+TEST_CASE("Value - dict merge operator", "[value][dict][operators]") {
+    auto meta = DictTypeBuilder()
+        .key<int>()
+        .value<double>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<DictStorage*>(a.data());
+    int k1 = 1, k2 = 2;
+    double v1 = 1.1, v2 = 2.2;
+    a_storage.insert(&k1, &v1);
+    a_storage.insert(&k2, &v2);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<DictStorage*>(b.data());
+    int k3 = 3;
+    double v3 = 3.3;
+    b_storage.insert(&k3, &v3);
+
+    Value result = a | b;
+
+    auto& result_storage = *static_cast<const DictStorage*>(result.data());
+    REQUIRE(result_storage.size() == 3);
+}
+
+TEST_CASE("Value - dict in-place merge operator", "[value][dict][operators]") {
+    auto meta = DictTypeBuilder()
+        .key<int>()
+        .value<double>()
+        .build();
+
+    Value a(meta.get());
+    auto& a_storage = *static_cast<DictStorage*>(a.data());
+    int k1 = 1;
+    double v1 = 1.1;
+    a_storage.insert(&k1, &v1);
+
+    Value b(meta.get());
+    auto& b_storage = *static_cast<DictStorage*>(b.data());
+    int k2 = 2;
+    double v2 = 2.2;
+    b_storage.insert(&k2, &v2);
+
+    a |= b;
+
+    REQUIRE(a_storage.size() == 2);
+}
+
+// ----------------------------------------------------------------------------
+// List Operators
+// ----------------------------------------------------------------------------
+
+TEST_CASE("DynamicListStorage - concat_with", "[value][list][operators]") {
+    auto meta = dynamic_list_type_meta<int>();
+
+    Value a(meta);
+    auto& a_storage = *static_cast<DynamicListStorage*>(a.data());
+    int v1 = 1, v2 = 2;
+    a_storage.push_back(&v1);
+    a_storage.push_back(&v2);
+
+    Value b(meta);
+    auto& b_storage = *static_cast<DynamicListStorage*>(b.data());
+    int v3 = 3, v4 = 4;
+    b_storage.push_back(&v3);
+    b_storage.push_back(&v4);
+
+    DynamicListStorage result = a_storage.concat_with(b_storage);
+
+    REQUIRE(result.size() == 4);
+    REQUIRE(*static_cast<const int*>(result.get(0)) == 1);
+    REQUIRE(*static_cast<const int*>(result.get(1)) == 2);
+    REQUIRE(*static_cast<const int*>(result.get(2)) == 3);
+    REQUIRE(*static_cast<const int*>(result.get(3)) == 4);
+}
+
+TEST_CASE("DynamicListStorage - extend", "[value][list][operators]") {
+    auto meta = dynamic_list_type_meta<int>();
+
+    Value a(meta);
+    auto& a_storage = *static_cast<DynamicListStorage*>(a.data());
+    int v1 = 1, v2 = 2;
+    a_storage.push_back(&v1);
+    a_storage.push_back(&v2);
+
+    Value b(meta);
+    auto& b_storage = *static_cast<DynamicListStorage*>(b.data());
+    int v3 = 3;
+    b_storage.push_back(&v3);
+
+    a_storage.extend(b_storage);
+
+    REQUIRE(a_storage.size() == 3);
+    REQUIRE(*static_cast<const int*>(a_storage.get(2)) == 3);
+}
+
+TEST_CASE("DynamicListStorage - slice", "[value][list][operators]") {
+    auto meta = dynamic_list_type_meta<int>();
+
+    Value a(meta);
+    auto& a_storage = *static_cast<DynamicListStorage*>(a.data());
+    for (int i = 0; i < 5; ++i) {
+        a_storage.push_back(&i);
+    }
+
+    DynamicListStorage result = a_storage.slice(1, 4);
+
+    REQUIRE(result.size() == 3);
+    REQUIRE(*static_cast<const int*>(result.get(0)) == 1);
+    REQUIRE(*static_cast<const int*>(result.get(1)) == 2);
+    REQUIRE(*static_cast<const int*>(result.get(2)) == 3);
+}
+
+TEST_CASE("DynamicListStorage - index_of", "[value][list][operators]") {
+    auto meta = dynamic_list_type_meta<int>();
+
+    Value a(meta);
+    auto& a_storage = *static_cast<DynamicListStorage*>(a.data());
+    int v1 = 10, v2 = 20, v3 = 30;
+    a_storage.push_back(&v1);
+    a_storage.push_back(&v2);
+    a_storage.push_back(&v3);
+
+    auto idx = a_storage.index_of(&v2);
+    REQUIRE(idx.has_value());
+    REQUIRE(*idx == 1);
+
+    int v4 = 99;
+    auto not_found = a_storage.index_of(&v4);
+    REQUIRE_FALSE(not_found.has_value());
+}
+
+TEST_CASE("DynamicListStorage - count", "[value][list][operators]") {
+    auto meta = dynamic_list_type_meta<int>();
+
+    Value a(meta);
+    auto& a_storage = *static_cast<DynamicListStorage*>(a.data());
+    int v1 = 1, v2 = 2, v3 = 1;
+    a_storage.push_back(&v1);
+    a_storage.push_back(&v2);
+    a_storage.push_back(&v3);
+
+    REQUIRE(a_storage.count(&v1) == 2);
+    REQUIRE(a_storage.count(&v2) == 1);
+
+    int v4 = 99;
+    REQUIRE(a_storage.count(&v4) == 0);
+}
+
+TEST_CASE("DynamicListStorage - pop_at", "[value][list][operators]") {
+    auto meta = dynamic_list_type_meta<int>();
+
+    Value a(meta);
+    auto& a_storage = *static_cast<DynamicListStorage*>(a.data());
+    int v1 = 10, v2 = 20, v3 = 30;
+    a_storage.push_back(&v1);
+    a_storage.push_back(&v2);
+    a_storage.push_back(&v3);
+
+    a_storage.pop_at(1);
+
+    REQUIRE(a_storage.size() == 2);
+    REQUIRE(*static_cast<const int*>(a_storage.get(0)) == 10);
+    REQUIRE(*static_cast<const int*>(a_storage.get(1)) == 30);
+}
+
+TEST_CASE("DynamicListStorage - reverse", "[value][list][operators]") {
+    auto meta = dynamic_list_type_meta<int>();
+
+    Value a(meta);
+    auto& a_storage = *static_cast<DynamicListStorage*>(a.data());
+    int v1 = 1, v2 = 2, v3 = 3;
+    a_storage.push_back(&v1);
+    a_storage.push_back(&v2);
+    a_storage.push_back(&v3);
+
+    a_storage.reverse();
+
+    REQUIRE(*static_cast<const int*>(a_storage.get(0)) == 3);
+    REQUIRE(*static_cast<const int*>(a_storage.get(1)) == 2);
+    REQUIRE(*static_cast<const int*>(a_storage.get(2)) == 1);
+}
+
+TEST_CASE("Value - list concatenation operator", "[value][list][operators]") {
+    auto meta = dynamic_list_type_meta<int>();
+
+    Value a(meta);
+    auto& a_storage = *static_cast<DynamicListStorage*>(a.data());
+    int v1 = 1, v2 = 2;
+    a_storage.push_back(&v1);
+    a_storage.push_back(&v2);
+
+    Value b(meta);
+    auto& b_storage = *static_cast<DynamicListStorage*>(b.data());
+    int v3 = 3;
+    b_storage.push_back(&v3);
+
+    Value result = a + b;
+
+    auto& result_storage = *static_cast<const DynamicListStorage*>(result.data());
+    REQUIRE(result_storage.size() == 3);
+}
+
+TEST_CASE("Value - list in-place extend operator", "[value][list][operators]") {
+    auto meta = dynamic_list_type_meta<int>();
+
+    Value a(meta);
+    auto& a_storage = *static_cast<DynamicListStorage*>(a.data());
+    int v1 = 1;
+    a_storage.push_back(&v1);
+
+    Value b(meta);
+    auto& b_storage = *static_cast<DynamicListStorage*>(b.data());
+    int v2 = 2, v3 = 3;
+    b_storage.push_back(&v2);
+    b_storage.push_back(&v3);
+
+    a += b;
+
+    REQUIRE(a_storage.size() == 3);
+}
+
+// ----------------------------------------------------------------------------
+// Edge Cases
+// ----------------------------------------------------------------------------
+
+TEST_CASE("Set - empty set operations", "[value][set][operators][edge]") {
+    auto meta = SetTypeBuilder()
+        .element<int>()
+        .build();
+
+    SetStorage empty(meta->element_type);
+    SetStorage nonempty(meta->element_type);
+    nonempty.add_typed(1);
+    nonempty.add_typed(2);
+
+    // Union with empty
+    SetStorage u = empty.union_with(nonempty);
+    REQUIRE(u.size() == 2);
+
+    // Intersection with empty
+    SetStorage i = empty.intersection_with(nonempty);
+    REQUIRE(i.size() == 0);
+
+    // Difference with empty
+    SetStorage d = nonempty.difference_with(empty);
+    REQUIRE(d.size() == 2);
+}
+
+TEST_CASE("List - empty list operations", "[value][list][operators][edge]") {
+    auto meta = dynamic_list_type_meta<int>();
+
+    Value empty(meta);
+    Value nonempty(meta);
+    auto& nonempty_storage = *static_cast<DynamicListStorage*>(nonempty.data());
+    int v = 42;
+    nonempty_storage.push_back(&v);
+
+    Value result = empty + nonempty;
+    auto& result_storage = *static_cast<const DynamicListStorage*>(result.data());
+    REQUIRE(result_storage.size() == 1);
+}
+
+TEST_CASE("Scalar - subtraction vs set difference", "[value][operators]") {
+    // Scalar subtraction
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    Value a(int_meta);
+    a.as<int>() = 10;
+
+    Value b(int_meta);
+    b.as<int>() = 3;
+
+    Value result = a - b;
+    REQUIRE(result.as<int>() == 7);
+}
+
+TEST_CASE("Scalar - addition vs list concatenation", "[value][operators]") {
+    // Scalar addition
+    const TypeMeta* int_meta = scalar_type_meta<int>();
+    Value a(int_meta);
+    a.as<int>() = 5;
+
+    Value b(int_meta);
+    b.as<int>() = 3;
+
+    Value result = a + b;
+    REQUIRE(result.as<int>() == 8);
+}

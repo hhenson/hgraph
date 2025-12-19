@@ -93,7 +93,7 @@ void register_py_value_with_nanobind(nb::module_& m) {
         .def("__ior__", [](PyHgValue& self, const PyHgValue& other) -> PyHgValue& {
             self.ior_op(other);
             return self;
-        }, "other"_a)
+        }, "other"_a, nb::rv_policy::none)
 
         // Intersection: &
         .def("__and__", &PyHgValue::and_op, "other"_a)
@@ -101,7 +101,7 @@ void register_py_value_with_nanobind(nb::module_& m) {
         .def("__iand__", [](PyHgValue& self, const PyHgValue& other) -> PyHgValue& {
             self.iand_op(other);
             return self;
-        }, "other"_a)
+        }, "other"_a, nb::rv_policy::none)
 
         // Difference: - (note: for scalars this falls back to arithmetic subtraction)
         // sub_op handles both set difference and scalar subtraction
@@ -114,7 +114,7 @@ void register_py_value_with_nanobind(nb::module_& m) {
         .def("__isub__", [](PyHgValue& self, const PyHgValue& other) -> PyHgValue& {
             self.isub_op(other);
             return self;
-        }, "other"_a)
+        }, "other"_a, nb::rv_policy::none)
 
         // Symmetric difference: ^
         .def("__xor__", &PyHgValue::xor_op, "other"_a)
@@ -122,7 +122,7 @@ void register_py_value_with_nanobind(nb::module_& m) {
         .def("__ixor__", [](PyHgValue& self, const PyHgValue& other) -> PyHgValue& {
             self.ixor_op(other);
             return self;
-        }, "other"_a)
+        }, "other"_a, nb::rv_policy::none)
 
         // Addition / concatenation: +
         // add_op handles both arithmetic addition and list concatenation
@@ -133,7 +133,7 @@ void register_py_value_with_nanobind(nb::module_& m) {
         .def("__iadd__", [](PyHgValue& self, const PyHgValue& other) -> PyHgValue& {
             self.iadd_op(other);
             return self;
-        }, "other"_a)
+        }, "other"_a, nb::rv_policy::none)
 
         // =====================================================================
         // Unary operators
