@@ -212,43 +212,100 @@ configure_file(
 include_directories(${CMAKE_CURRENT_SOURCE_DIR}/include)
 
 set(HGRAPH_INCLUDES
+        # Third-party headers
+        include/ankerl/stl.h
+        include/ankerl/unordered_dense.h
+
+        # API/Python headers
         include/hgraph/api/python/api_ptr.h
         include/hgraph/api/python/py_evaluation_clock.h
         include/hgraph/api/python/py_evaluation_engine.h
         include/hgraph/api/python/py_graph.h
         include/hgraph/api/python/py_node.h
+        include/hgraph/api/python/py_ref.h
+        include/hgraph/api/python/py_schema.h
+        include/hgraph/api/python/py_signal.h
         include/hgraph/api/python/py_special_nodes.h
         include/hgraph/api/python/py_time_series.h
-        include/hgraph/api/python/py_ref.h
-        include/hgraph/api/python/py_signal.h
         include/hgraph/api/python/py_ts.h
         include/hgraph/api/python/py_tsb.h
         include/hgraph/api/python/py_tsd.h
         include/hgraph/api/python/py_tsl.h
         include/hgraph/api/python/py_tss.h
         include/hgraph/api/python/py_tsw.h
+        include/hgraph/api/python/shared/api_ptr.h
         include/hgraph/api/python/wrapper_factory.h
+
+        # Core headers
+        include/hgraph/hgraph_base.h
+        include/hgraph/hgraph_export.h
         include/hgraph/hgraph_forward_declarations.h
+
+        # Builder headers
         include/hgraph/builders/builder.h
         include/hgraph/builders/graph_builder.h
         include/hgraph/builders/input_builder.h
         include/hgraph/builders/node_builder.h
         include/hgraph/builders/output_builder.h
+        include/hgraph/builders/nodes/base_nested_graph_node_builder.h
+        include/hgraph/builders/nodes/component_node_builder.h
+        include/hgraph/builders/nodes/context_node_builder.h
+        include/hgraph/builders/nodes/last_value_pull_node_builder.h
+        include/hgraph/builders/nodes/mesh_node_builder.h
+        include/hgraph/builders/nodes/nested_graph_node_builder.h
+        include/hgraph/builders/nodes/python_generator_node_builder.h
+        include/hgraph/builders/nodes/python_node_builder.h
+        include/hgraph/builders/nodes/reduce_node_builder.h
+        include/hgraph/builders/nodes/switch_node_builder.h
+        include/hgraph/builders/nodes/try_except_node_builder.h
+        include/hgraph/builders/nodes/tsd_map_node_builder.h
+        include/hgraph/builders/nodes/tsd_non_associative_reduce_node_builder.h
+        include/hgraph/builders/time_series_types/cpp_time_series_builder.h
+        include/hgraph/builders/time_series_types/specialized_ref_builders.h
+        include/hgraph/builders/time_series_types/time_series_bundle_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_bundle_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_dict_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_dict_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_list_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_list_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_ref_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_ref_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_set_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_set_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_signal_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_value_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_value_output_builder.h
+        include/hgraph/builders/time_series_types/time_series_window_input_builder.h
+        include/hgraph/builders/time_series_types/time_series_window_output_builder.h
+
+        # Node headers
         include/hgraph/nodes/base_python_node.h
         include/hgraph/nodes/component_node.h
+        include/hgraph/nodes/context_node.h
         include/hgraph/nodes/last_value_pull_node.h
         include/hgraph/nodes/mesh_node.h
         include/hgraph/nodes/nest_graph_node.h
         include/hgraph/nodes/nested_evaluation_engine.h
         include/hgraph/nodes/nested_node.h
-        include/hgraph/nodes/python_node.h
         include/hgraph/nodes/non_associative_reduce_node.h
-        include/hgraph/nodes/python_generator_node.h
         include/hgraph/nodes/push_queue_node.h
+        include/hgraph/nodes/python_generator_node.h
+        include/hgraph/nodes/python_node.h
         include/hgraph/nodes/reduce_node.h
         include/hgraph/nodes/switch_node.h
         include/hgraph/nodes/try_except_node.h
         include/hgraph/nodes/tsd_map_node.h
+
+        # Python binding helpers
+        include/hgraph/python/chrono.h
+        include/hgraph/python/format.h
+        include/hgraph/python/global_keys.h
+        include/hgraph/python/global_state.h
+        include/hgraph/python/hashable.h
+        include/hgraph/python/nb_types_ext.h
+        include/hgraph/python/reference_wrapper.h
+
+        # Runtime headers
         include/hgraph/runtime/evaluation_context.h
         include/hgraph/runtime/evaluation_engine.h
         include/hgraph/runtime/graph_executor.h
@@ -256,6 +313,8 @@ set(HGRAPH_INCLUDES
         include/hgraph/runtime/observers/evaluation_profiler.h
         include/hgraph/runtime/observers/evaluation_trace.h
         include/hgraph/runtime/observers/inspection_observer.h
+
+        # Type headers
         include/hgraph/types/base_time_series.h
         include/hgraph/types/constants.h
         include/hgraph/types/error_type.h
@@ -269,26 +328,57 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/time_series_type.h
         include/hgraph/types/traits.h
         include/hgraph/types/ts.h
-        include/hgraph/types/ts_signal.h
-        include/hgraph/types/tsd.h
-        include/hgraph/types/tss.h
         include/hgraph/types/ts_indexed.h
+        include/hgraph/types/ts_signal.h
         include/hgraph/types/tsb.h
+        include/hgraph/types/tsd.h
         include/hgraph/types/tsl.h
+        include/hgraph/types/tss.h
         include/hgraph/types/tsw.h
-        include/hgraph/python/chrono.h
-        include/hgraph/python/format.h
-        include/hgraph/python/global_state.h
-        include/hgraph/python/global_keys.h
-        include/hgraph/python/hashable.h
-        include/hgraph/python/nb_types_ext.h
-        include/hgraph/python/reference_wrapper.h
+
+        # Time-series headers
+        include/hgraph/types/time_series/access_strategy.h
+        include/hgraph/types/time_series/ts_input.h
+        include/hgraph/types/time_series/ts_output.h
+        include/hgraph/types/time_series/ts_python_helpers.h
+        include/hgraph/types/time_series/ts_type_meta.h
+        include/hgraph/types/time_series/ts_type_meta_bindings.h
+        include/hgraph/types/time_series/ts_type_registry.h
+
+        # Value type headers
+        include/hgraph/types/value/all.h
+        include/hgraph/types/value/bind.h
+        include/hgraph/types/value/bound_value.h
+        include/hgraph/types/value/bundle_type.h
+        include/hgraph/types/value/deref_time_series_value.h
+        include/hgraph/types/value/dict_type.h
+        include/hgraph/types/value/dynamic_list_type.h
+        include/hgraph/types/value/list_type.h
+        include/hgraph/types/value/modification_tracker.h
+        include/hgraph/types/value/observer_storage.h
+        include/hgraph/types/value/py_value.h
+        include/hgraph/types/value/python_conversion.h
+        include/hgraph/types/value/ref_type.h
+        include/hgraph/types/value/scalar_type.h
+        include/hgraph/types/value/set_type.h
+        include/hgraph/types/value/time_series_value.h
+        include/hgraph/types/value/type_meta.h
+        include/hgraph/types/value/type_meta_bindings.h
+        include/hgraph/types/value/type_registry.h
+        include/hgraph/types/value/value.h
+        include/hgraph/types/value/window_type.h
+
+        # Utility headers
+        include/hgraph/util/arena_enable_shared_from_this.h
         include/hgraph/util/date_time.h
         include/hgraph/util/lifecycle.h
+        include/hgraph/util/scope.h
         include/hgraph/util/sender_receiver_state.h
         include/hgraph/util/stack_trace.h
         include/hgraph/util/string_utils.h
-        include/hgraph/hgraph_export.h
+
+        # Visitor headers
+        include/hgraph/visitors/example_visitors.h
 )
 list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 
