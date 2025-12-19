@@ -1,8 +1,72 @@
 #include <hgraph/api/python/py_tsb.h>
+#include <hgraph/types/value/python_conversion.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
+#include <fmt/format.h>
 
 namespace hgraph
 {
     // PyTimeSeriesBundleOutput implementations
+
+    void PyTimeSeriesBundleOutput::set_value(nb::object py_value) {
+        if (!_view.valid() || !_meta) return;
+
+        auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto& ts_value_view = _view.value_view();
+
+        if (py_value.is_none()) {
+            _view.mark_invalid();
+            return;
+        }
+
+        // Get the TSB metadata to access field information
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        auto* bundle_schema = static_cast<const value::BundleTypeMeta*>(tsb_meta->bundle_value_type);
+
+        if (!bundle_schema) {
+            // Fall back to base implementation if no bundle schema
+            PyTimeSeriesOutput::set_value(std::move(py_value));
+            return;
+        }
+
+        // Iterate over the dict and set each field
+        if (!nb::isinstance<nb::dict>(py_value)) {
+            PyTimeSeriesOutput::set_value(std::move(py_value));
+            return;
+        }
+
+        nb::dict d = nb::cast<nb::dict>(py_value);
+
+        // Get the raw data pointer for the bundle storage
+        auto bundle_data = ts_value_view.value_view().data();
+
+        // Get the tracker for field modification
+        auto tracker = ts_value_view.tracker();
+
+        for (const auto& field : bundle_schema->fields) {
+            if (d.contains(field.name.c_str())) {
+                // Get the field's storage location
+                void* field_ptr = static_cast<char*>(bundle_data) + field.offset;
+
+                // Convert Python value to C++ and store
+                if (field.type && field.type->ops && field.type->ops->from_python) {
+                    value::value_from_python(field_ptr, d[field.name.c_str()], field.type);
+                }
+
+                // Find the field index and mark as modified
+                size_t field_index = tsb_meta->field_index(field.name);
+                if (field_index != SIZE_MAX) {
+                    // Mark this specific field as modified
+                    auto field_tracker = tracker.field(field_index);
+                    field_tracker.mark_modified(eval_time);
+                }
+            }
+        }
+
+        // Also mark the bundle itself as modified
+        _view.mark_modified(eval_time);
+    }
+
     nb::object PyTimeSeriesBundleOutput::get_item(const nb::handle &key) const {
         // TODO: Implement via view field navigation
         return nb::none();
@@ -148,6 +212,11 @@ namespace hgraph
             .def("__iter__", &PyTimeSeriesBundleOutput::iter)
             .def("__len__", &PyTimeSeriesBundleOutput::len)
             .def("__contains__", &PyTimeSeriesBundleOutput::contains)
+            // Override value property to use bundle-aware set_value
+            .def_prop_rw("value",
+                [](const PyTimeSeriesBundleOutput& self) { return self.PyTimeSeriesOutput::value(); },
+                &PyTimeSeriesBundleOutput::set_value,
+                nb::arg("value").none())
             .def("keys", &PyTimeSeriesBundleOutput::keys)
             .def("values", &PyTimeSeriesBundleOutput::values)
             .def("items", &PyTimeSeriesBundleOutput::items)

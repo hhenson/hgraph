@@ -16,6 +16,7 @@
 #include <nanobind/stl/vector.h>
 // Note: chrono casters are provided by hgraph/python/chrono.h via hgraph_base.h
 #include <nanobind/ndarray.h>
+#include <fmt/format.h>
 
 #include <hgraph/util/date_time.h>
 #include <hgraph/types/value/type_meta.h>
@@ -27,6 +28,8 @@
 #include <hgraph/types/value/window_type.h>
 #include <hgraph/types/value/ref_type.h>
 #include <hgraph/types/value/dynamic_list_type.h>
+#include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_output.h>
 
 namespace nb = nanobind;
 
@@ -1063,44 +1066,140 @@ namespace hgraph::value {
 
     struct RefPythonOps {
         static void* to_python(const void* v, const TypeMeta* meta) {
-            auto* ref_meta = static_cast<const RefTypeMeta*>(meta);
+            // NOTE: This is called from value_to_python() to convert RefStorage to Python.
+            // For REF types, we need to return a TimeSeriesReference, not the dereferenced value.
+            // The TimeSeriesReference is created from the ValueRef's owner field which points
+            // to the TSOutput that contains the referenced value.
             auto* storage = static_cast<const RefStorage*>(v);
 
             if (storage->is_empty()) {
-                return nb::none().release().ptr();
+                // Return empty TimeSeriesReference
+                return nb::cast(TimeSeriesReference::make()).release().ptr();
             }
 
             if (storage->is_bound()) {
                 const ValueRef& target = storage->target();
-                if (target.data) {
-                    return value_to_python(target.data, ref_meta->value_type).release().ptr();
+                if (target.has_owner()) {
+                    // Create TimeSeriesReference from the owning TSOutput
+                    auto* output = static_cast<ts::TSOutput*>(target.owner);
+                    auto ref = TimeSeriesReference::make(output->view());
+                    return nb::cast(ref).release().ptr();
                 }
-                return nb::none().release().ptr();
+                // Fallback to empty ref if no owner
+                return nb::cast(TimeSeriesReference::make()).release().ptr();
             }
 
-            // Unbound composite - return list of referenced values
-            nb::list result;
-            const auto& items = storage->items();
-            for (const auto& item : items) {
+            // Unbound composite - return TimeSeriesReference with items
+            std::vector<TimeSeriesReference> items;
+            const auto& ref_items = storage->items();
+            for (const auto& item : ref_items) {
                 if (item.is_bound()) {
                     const ValueRef& target = item.target();
-                    if (target.data) {
-                        result.append(value_to_python(target.data, ref_meta->value_type));
+                    if (target.has_owner()) {
+                        auto* output = static_cast<ts::TSOutput*>(target.owner);
+                        items.push_back(TimeSeriesReference::make(output->view()));
                     } else {
-                        result.append(nb::none());
+                        items.push_back(TimeSeriesReference::make());
                     }
                 } else {
-                    result.append(nb::none());
+                    items.push_back(TimeSeriesReference::make());
                 }
             }
-            return result.release().ptr();
+            return nb::cast(TimeSeriesReference::make(std::move(items))).release().ptr();
         }
 
         static void from_python(void* dest, void* py_obj, const TypeMeta* meta) {
-            // Refs are non-owning pointers to C++ objects - cannot reconstruct from Python
-            (void)dest;
-            (void)py_obj;
-            (void)meta;
+            // Convert a Python TimeSeriesReference to RefStorage
+            auto py_ref = nb::handle(static_cast<PyObject*>(py_obj));
+            if (py_ref.is_none()) {
+                // None → EMPTY
+                *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
+                return;
+            }
+
+            // Cast to TimeSeriesReference
+            if (!nb::isinstance<TimeSeriesReference>(py_ref)) {
+                // Not a TimeSeriesReference - try to get from .value property
+                if (nb::hasattr(py_ref, "value")) {
+                    auto val = py_ref.attr("value");
+                    if (nb::isinstance<TimeSeriesReference>(val)) {
+                        py_ref = val;
+                    } else {
+                        *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
+                        return;
+                    }
+                } else {
+                    *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
+                    return;
+                }
+            }
+
+            const auto& ts_ref = nb::cast<const TimeSeriesReference&>(py_ref);
+
+            if (ts_ref.is_empty()) {
+                *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
+                return;
+            }
+
+            if (ts_ref.is_bound()) {
+                // Resolve to get the view
+                auto view = ts_ref.resolve();
+                if (!view.valid()) {
+                    *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
+                    return;
+                }
+
+                // Get the value view and create ValueRef
+                // view is TSOutputView, value_view() returns TimeSeriesValueView,
+                // value_view().value_view() returns ValueView which has data()
+                auto ts_value_view = view.value_view();
+                auto vv = ts_value_view.value_view();
+                auto* output = ts_ref.output_ptr();
+
+                ValueRef vref(
+                    vv.data(),
+                    ts_value_view.tracker().storage(),
+                    ts_value_view.schema(),
+                    static_cast<void*>(output)  // owner
+                );
+                *static_cast<RefStorage*>(dest) = RefStorage::make_bound(vref);
+                return;
+            }
+
+            if (ts_ref.is_unbound()) {
+                // Recursively convert items
+                std::vector<RefStorage> items;
+                for (const auto& item : ts_ref.items()) {
+                    RefStorage item_storage;
+                    // Recursively convert each item
+                    if (item.is_empty()) {
+                        items.push_back(RefStorage::make_empty());
+                    } else if (item.is_bound()) {
+                        auto item_view = item.resolve();
+                        if (!item_view.valid()) {
+                            items.push_back(RefStorage::make_empty());
+                        } else {
+                            auto item_ts_value_view = item_view.value_view();
+                            auto item_vv = item_ts_value_view.value_view();
+                            auto* item_output = item.output_ptr();
+                            ValueRef vref(
+                                item_vv.data(),
+                                item_ts_value_view.tracker().storage(),
+                                item_ts_value_view.schema(),
+                                static_cast<void*>(item_output)
+                            );
+                            items.push_back(RefStorage::make_bound(vref));
+                        }
+                    } else {
+                        // Nested unbound - for now just push empty
+                        items.push_back(RefStorage::make_empty());
+                    }
+                }
+                *static_cast<RefStorage*>(dest) = RefStorage::make_unbound(std::move(items));
+                return;
+            }
+
+            *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
         }
 
         static std::string to_string(const void* v, const TypeMeta* meta) {

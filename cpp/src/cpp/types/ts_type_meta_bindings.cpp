@@ -7,6 +7,9 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/value/type_meta.h>
+#include <hgraph/types/value/bundle_type.h>
+#include <hgraph/types/value/python_conversion.h>
+#include <hgraph/types/value/ref_type.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
@@ -167,6 +170,30 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
             meta->name = stored_names.back().c_str();
         }
 
+        // Build the bundle value type from each field's value_schema
+        // Use BundleTypeBuilderWithPython for Python conversion support
+        // Store the bundle metas persistently
+        static std::vector<std::unique_ptr<value::BundleTypeMeta>> stored_bundle_metas;
+
+        value::BundleTypeBuilderWithPython builder;
+        bool all_fields_have_value_schema = true;
+        for (const auto& field : meta->fields) {
+            auto* field_value_schema = field.type->value_schema();
+            if (field_value_schema) {
+                builder.add_field(field.name, field_value_schema);
+            } else {
+                // Field doesn't have a value schema (e.g., nested TSB without bundle_value_type)
+                all_fields_have_value_schema = false;
+                break;
+            }
+        }
+
+        if (all_fields_have_value_schema && !meta->fields.empty()) {
+            auto bundle_meta = builder.build(meta->name);
+            meta->bundle_value_type = bundle_meta.get();
+            stored_bundle_metas.push_back(std::move(bundle_meta));
+        }
+
         return registry.register_by_key(key, std::move(meta));
     }, nb::rv_policy::reference, "fields"_a, "type_name"_a = nb::none(),
        "Get or create a TSB[Schema] TypeMeta from field definitions. "
@@ -208,6 +235,19 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
         auto meta = std::make_unique<REFTypeMeta>();
         meta->ts_kind = TimeSeriesKind::REF;
         meta->value_ts_type = value_ts_type;
+
+        // Build the value-layer RefTypeMeta for RefStorage
+        // The value_type is the value_schema of the referenced time-series type
+        static std::vector<std::unique_ptr<value::RefTypeMeta>> stored_ref_metas;
+
+        const value::TypeMeta* value_type = value_ts_type ? value_ts_type->value_schema() : nullptr;
+        auto ref_meta = value::RefTypeBuilder()
+            .value_type(value_type)
+            .build();
+        // Use RefTypeOpsWithPython which has proper to_python implementation
+        ref_meta->ops = &value::RefTypeOpsWithPython;
+        meta->ref_value_type = ref_meta.get();
+        stored_ref_metas.push_back(std::move(ref_meta));
 
         return registry.register_by_key(key, std::move(meta));
     }, nb::rv_policy::reference, "value_ts_type"_a,

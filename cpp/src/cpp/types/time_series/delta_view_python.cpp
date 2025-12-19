@@ -8,6 +8,7 @@
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/value/set_type.h>
 #include <hgraph/types/value/dict_type.h>
+#include <fmt/format.h>
 
 namespace hgraph::ts {
 

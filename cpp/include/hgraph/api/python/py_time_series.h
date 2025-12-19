@@ -4,6 +4,7 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/access_strategy.h>
 
 namespace hgraph
 {
@@ -105,7 +106,7 @@ namespace hgraph
 
         // Mutation operations
         void apply_result(nb::object value);
-        void set_value(nb::object value);
+        virtual void set_value(nb::object value);
         void copy_from_output(const PyTimeSeriesOutput &output);
         void copy_from_input(const PyTimeSeriesInput &input);
         void clear();
@@ -122,7 +123,7 @@ namespace hgraph
         // Constructor
         PyTimeSeriesOutput(node_s_ptr node, ts::TSOutputView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta);
 
-      private:
+      protected:
         ts::TSOutputView _view;
         ts::TSOutput* _output{nullptr};
     };
@@ -140,8 +141,10 @@ namespace hgraph
         PyTimeSeriesInput(PyTimeSeriesInput&& other) noexcept
             : PyTimeSeriesType(std::move(other))
             , _view(std::move(other._view))
-            , _input(other._input) {
+            , _input(other._input)
+            , _strategy(other._strategy) {
             other._input = nullptr;
+            other._strategy = nullptr;
         }
 
         PyTimeSeriesInput& operator=(PyTimeSeriesInput&& other) noexcept {
@@ -149,7 +152,9 @@ namespace hgraph
                 PyTimeSeriesType::operator=(std::move(other));
                 _view = std::move(other._view);
                 _input = other._input;
+                _strategy = other._strategy;
                 other._input = nullptr;
+                other._strategy = nullptr;
             }
             return *this;
         }
@@ -189,13 +194,18 @@ namespace hgraph
         [[nodiscard]] ts::TSInputView& view() { return _view; }
         [[nodiscard]] const ts::TSInputView& view() const { return _view; }
         [[nodiscard]] ts::TSInput* input() const { return _input; }
+        [[nodiscard]] ts::AccessStrategy* strategy() const { return _strategy; }
 
-        // Constructor
+        // Constructor for direct input wrappers
         PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TimeSeriesTypeMeta* meta);
+
+        // Constructor for field wrappers with strategy (for dynamic value access)
+        PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::AccessStrategy* strategy, const TimeSeriesTypeMeta* meta);
 
       private:
         ts::TSInputView _view;
         ts::TSInput* _input{nullptr};
+        ts::AccessStrategy* _strategy{nullptr};  // For field wrappers that need fresh value access
     };
 
 }  // namespace hgraph

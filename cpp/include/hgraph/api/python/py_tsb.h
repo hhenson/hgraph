@@ -27,6 +27,9 @@ namespace hgraph
         PyTimeSeriesBundleOutput(const PyTimeSeriesBundleOutput&) = delete;
         PyTimeSeriesBundleOutput& operator=(const PyTimeSeriesBundleOutput&) = delete;
 
+        // Override set_value to properly mark fields as modified
+        void set_value(nb::object py_value) override;
+
         // Field access - __getitem__ and __getattr__
         [[nodiscard]] nb::object get_item(const nb::handle &key) const;
         [[nodiscard]] nb::object get_attr(const nb::handle &key) const;

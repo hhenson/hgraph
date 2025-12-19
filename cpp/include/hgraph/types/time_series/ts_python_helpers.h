@@ -13,6 +13,7 @@
 #define HGRAPH_TS_PYTHON_HELPERS_H
 
 #include <nanobind/nanobind.h>
+#include <fmt/format.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/value/python_conversion.h>
@@ -25,6 +26,8 @@ namespace hgraph::ts
  *
  * If py_value is None, the output is invalidated.
  * Otherwise, the value is converted using the schema's ops->from_python.
+ *
+ * For TSB (bundle) types, this also marks individual fields as modified.
  *
  * @param output The output to set
  * @param py_value The Python value to set
@@ -47,6 +50,24 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         // Get the underlying ValueView which has the data() method
         auto value_view = ts_value_view.value_view();
         schema->ops->from_python(value_view.data(), py_value.ptr(), schema);
+
+        // For TSB types, also mark individual fields as modified
+        auto* meta = output->meta();
+        if (meta && meta->ts_kind == TimeSeriesKind::TSB && nb::isinstance<nb::dict>(py_value)) {
+            nb::dict d = nb::cast<nb::dict>(py_value);
+            auto* tsb_meta = static_cast<const TSBTypeMeta*>(meta);
+            auto tracker = ts_value_view.tracker();
+
+            // Mark each field from the dict as modified
+            for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+                const auto& field = tsb_meta->fields[i];
+                if (d.contains(field.name.c_str())) {
+                    auto field_tracker = tracker.field(i);
+                    field_tracker.mark_modified(time);
+                }
+            }
+        }
+
         view.mark_modified(time);
     }
 }

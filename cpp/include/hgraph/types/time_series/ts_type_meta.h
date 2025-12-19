@@ -203,11 +203,16 @@ struct TSBTypeMeta : TimeSeriesTypeMeta {
     };
     std::vector<Field> fields;
 
+    // The value schema for this bundle - a BundleTypeMeta composed of each field's value_schema
+    const value::TypeMeta* bundle_value_type{nullptr};
+
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
+
+    [[nodiscard]] const value::TypeMeta* value_schema() const override { return bundle_value_type; }
 
     [[nodiscard]] const TimeSeriesTypeMeta* field_meta(size_t index) const override {
         return index < fields.size() ? fields[index].type : nullptr;
@@ -218,6 +223,13 @@ struct TSBTypeMeta : TimeSeriesTypeMeta {
             if (field.name == name) return field.type;
         }
         return nullptr;
+    }
+
+    [[nodiscard]] size_t field_index(const std::string& name) const {
+        for (size_t i = 0; i < fields.size(); ++i) {
+            if (fields[i].name == name) return i;
+        }
+        return SIZE_MAX;
     }
 };
 
@@ -246,12 +258,14 @@ struct TSWTypeMeta : TimeSeriesTypeMeta {
  */
 struct REFTypeMeta : TimeSeriesTypeMeta {
     const TimeSeriesTypeMeta* value_ts_type;
+    const value::TypeMeta* ref_value_type{nullptr};  // Value layer schema for RefStorage
 
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
+    [[nodiscard]] const value::TypeMeta* value_schema() const override { return ref_value_type; }
 };
 
 } // namespace hgraph
