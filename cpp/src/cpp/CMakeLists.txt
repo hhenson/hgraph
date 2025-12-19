@@ -73,21 +73,7 @@ set(HGRAPH_SOURCES
         builders/nodes/tsd_non_associative_reduce_node_builder.cpp
         builders/nodes/mesh_node_builder.cpp
         builders/nodes/last_value_pull_node_builder.cpp
-        builders/time_series_types/time_series_signal_input_builder.cpp
-        builders/time_series_types/time_series_value_input_builder.cpp
-        builders/time_series_types/specialized_ref_builders.cpp
-        builders/time_series_types/time_series_list_input_builder.cpp
-        builders/time_series_types/time_series_bundle_input_builder.cpp
-        builders/time_series_types/time_series_set_input_builder.cpp
-        builders/time_series_types/time_series_window_input_builder.cpp
-        builders/time_series_types/time_series_dict_input_builder.cpp
-        builders/time_series_types/time_series_value_output_builder.cpp
         builders/time_series_types/cpp_time_series_builder.cpp
-        builders/time_series_types/time_series_list_output_builder.cpp
-        builders/time_series_types/time_series_bundle_output_builder.cpp
-        builders/time_series_types/time_series_set_output_builder.cpp
-        builders/time_series_types/time_series_window_output_builder.cpp
-        builders/time_series_types/time_series_dict_output_builder.cpp
 
         python/_hgraph_builder.cpp
         python/_hgraph_module.cpp
@@ -107,7 +93,6 @@ set(HGRAPH_SOURCES
         runtime/observers/inspection_observer.cpp
         runtime/observers/observers_bindings.cpp
 
-        types/base_time_series.cpp
         types/constants.cpp
         types/error_type.cpp
         types/feature_extension.cpp
@@ -115,16 +100,7 @@ set(HGRAPH_SOURCES
         types/ref.cpp
         types/scalar_types.cpp
         types/schema_type.cpp
-        types/time_series_type.cpp
         types/traits.cpp
-        types/ts.cpp
-        types/ts_signal.cpp
-        types/tsd.cpp
-        types/tss.cpp
-        types/ts_indexed.cpp
-        types/tsb.cpp
-        types/tsl.cpp
-        types/tsw.cpp
         types/value_python_conversion.cpp
         types/type_meta_bindings.cpp
         types/py_value.cpp

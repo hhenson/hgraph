@@ -6,7 +6,6 @@
 #include <hgraph/python/global_keys.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
-#include <hgraph/types/tsb.h>
 #include <nanobind/nanobind.h>
 
 namespace hgraph {

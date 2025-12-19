@@ -3,6 +3,7 @@
 #include <hgraph/api/python/py_tsl.h>
 
 #include <hgraph/api/python/py_ref.h>
+#include <hgraph/api/python/py_schema.h>
 #include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/value/py_value.h>
 #include <hgraph/types/time_series/ts_type_meta_bindings.h>
@@ -17,12 +18,10 @@
 #include <hgraph/api/python/py_tsw.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tss.h>
 
 #include <hgraph/types/scalar_types.h>
 #include <hgraph/types/schema_type.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/tsb.h>
 
 void export_types(nb::module_ &m) {
     using namespace hgraph;
@@ -46,9 +45,6 @@ void export_types(nb::module_ &m) {
     PyTimeSeriesType::register_with_nanobind(m);
     PyTimeSeriesOutput::register_with_nanobind(m);
     PyTimeSeriesInput::register_with_nanobind(m);
-
-    // All reference types registered inside this function
-    register_set_delta_with_nanobind(m);
 
     ref_register_with_nanobind(m);
     signal_register_with_nanobind(m);

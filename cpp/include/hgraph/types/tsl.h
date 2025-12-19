@@ -1,96 +1,28 @@
-//
-// Created by Howard Henson on 02/05/2025.
-//
+// STUB: Old tsl.h removed - types migrated to new system
+// This stub exists only to allow incremental migration
+#pragma once
 
-#ifndef TSL_H
-#define TSL_H
-
-
-#include <hgraph/types/ts_indexed.h>
+#include <hgraph/hgraph_forward_declarations.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_input.h>
 
 namespace hgraph {
-    template<typename T_TS>
-        requires IndexedTimeSeriesT<T_TS>
-    struct TimeSeriesList : T_TS {
-        using list_type = TimeSeriesList<T_TS>;
-        using ptr = list_type*;
-        using typename T_TS::index_ts_type;
-        using typename T_TS::ts_type;
-
-        using value_iterator = typename T_TS::value_iterator;
-        using value_const_iterator = typename T_TS::value_const_iterator;
-        using collection_type = typename T_TS::collection_type;
-        using enumerated_collection_type = typename T_TS::enumerated_collection_type;
-        using index_collection_type = typename T_TS::index_collection_type;
-
-        using index_ts_type::size;
-        using T_TS::T_TS;
-
-        [[nodiscard]] nb::object py_value() const override;
-
-        [[nodiscard]] nb::object py_delta_value() const override;
-
-        value_iterator begin() { return ts_values().begin(); }
-        value_const_iterator begin() const { return const_cast<list_type *>(this)->begin(); }
-        value_iterator end() { return ts_values().end(); }
-        value_const_iterator end() const { return const_cast<list_type *>(this)->end(); }
-
-        // Retrieves valid keys
-        [[nodiscard]] index_collection_type keys() const;
-
-        [[nodiscard]] index_collection_type valid_keys() const;
-
-        [[nodiscard]] index_collection_type modified_keys() const;
-
-        // Retrieves valid items
-        [[nodiscard]] enumerated_collection_type items();
-
-        [[nodiscard]] enumerated_collection_type items() const;
-
-        [[nodiscard]] enumerated_collection_type valid_items();
-
-        [[nodiscard]] enumerated_collection_type valid_items() const;
-
-        [[nodiscard]] enumerated_collection_type modified_items();
-
-        [[nodiscard]] enumerated_collection_type modified_items() const;
-
-        [[nodiscard]] bool has_reference() const override;
-
-
-    protected:
-        using T_TS::index_with_constraint;
-        using T_TS::ts_values;
+    // Legacy list types - stubs for migration
+    struct TimeSeriesListOutput : ts::TSOutput {
+        using ts::TSOutput::TSOutput;
     };
 
-    struct TimeSeriesListOutputBuilder;
-
-    struct TimeSeriesListOutput final : TimeSeriesList<IndexedTimeSeriesOutput> {
-        using list_type::TimeSeriesList;
-
-        void apply_result(const nb::object& value) override;
-
-        [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
-
-        void py_set_value(const nb::object& value) override;
-
-        VISITOR_SUPPORT()
-
-    protected:
-        friend TimeSeriesListOutputBuilder;
+    struct TimeSeriesListInput : ts::TSInput {
+        using ts::TSInput::TSInput;
     };
 
-    struct TimeSeriesListInputBuilder;
-
-    struct TimeSeriesListInput final: TimeSeriesList<IndexedTimeSeriesInput> {
-        using list_type::TimeSeriesList;
-
-        [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
-
-        VISITOR_SUPPORT()
-
-    protected:
-        friend TimeSeriesListInputBuilder;
+    template<typename T>
+    struct TimeSeriesListOutput_T : TimeSeriesListOutput {
+        using TimeSeriesListOutput::TimeSeriesListOutput;
     };
-} // namespace hgraph
-#endif  // TSL_H
+
+    template<typename T>
+    struct TimeSeriesListInput_T : TimeSeriesListInput {
+        using TimeSeriesListInput::TimeSeriesListInput;
+    };
+}

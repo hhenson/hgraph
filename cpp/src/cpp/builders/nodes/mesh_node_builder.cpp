@@ -2,7 +2,6 @@
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/nodes/mesh_node.h>
 

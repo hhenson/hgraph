@@ -1,5 +1,3 @@
-#include <hgraph/types/tss.h>
-
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/python_node.h>
@@ -9,9 +7,8 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/tsd.h>
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/util/string_utils.h>
 
@@ -79,7 +76,7 @@ namespace hgraph
         throw std::runtime_error("TsdMapNode::eval not yet implemented");
     }
 
-    template <typename K> TimeSeriesDictOutput_T<K> &TsdMapNode<K>::tsd_output() {
+    template <typename K> ts::TSOutput &TsdMapNode<K>::tsd_output() {
         throw std::runtime_error("TsdMapNode::tsd_output not yet implemented");
     }
 

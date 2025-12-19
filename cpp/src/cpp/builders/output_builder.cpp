@@ -2,24 +2,16 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series_type.h>
 
-// Include all the extracted builder headers
 #include "hgraph/api/python/py_node.h"
-
-#include <hgraph/builders/time_series_types/specialized_ref_builders.h>
-#include <hgraph/builders/time_series_types/time_series_bundle_output_builder.h>
-#include <hgraph/builders/time_series_types/time_series_dict_output_builder.h>
-#include <hgraph/builders/time_series_types/time_series_list_output_builder.h>
-#include <hgraph/builders/time_series_types/time_series_set_output_builder.h>
-#include <hgraph/builders/time_series_types/time_series_value_output_builder.h>
-#include <hgraph/builders/time_series_types/time_series_window_output_builder.h>
 #include <hgraph/builders/time_series_types/cpp_time_series_builder.h>
 #include <hgraph/api/python/wrapper_factory.h>
 
 namespace hgraph {
     void OutputBuilder::release_instance(time_series_output_ptr item) const {
-        // Perform minimal teardown - builder_release_cleanup handles subscriber cleanup
-        item->builder_release_cleanup();
-        item->reset_parent_or_node();
+        // In the new system, time-series are value types owned by Node.
+        // The builder doesn't own or cleanup time-series instances.
+        // This method is kept for API compatibility but does nothing.
+        (void)item;
     }
 
     void OutputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -40,24 +32,7 @@ namespace hgraph {
                     return fmt::format("OutputBuilder@{:p}", static_cast<const void *>(&self));
                 });
 
-        // Call the register functions from each builder type
-        time_series_value_output_builder_register_with_nanobind(m);
-        
-        // Specialized reference output builders
-        TimeSeriesValueRefOutputBuilder::register_with_nanobind(m);
-        TimeSeriesListRefOutputBuilder::register_with_nanobind(m);
-        TimeSeriesBundleRefOutputBuilder::register_with_nanobind(m);
-        TimeSeriesDictRefOutputBuilder::register_with_nanobind(m);
-        TimeSeriesSetRefOutputBuilder::register_with_nanobind(m);
-        TimeSeriesWindowRefOutputBuilder::register_with_nanobind(m);
-        
-        TimeSeriesListOutputBuilder::register_with_nanobind(m);
-        TimeSeriesBundleOutputBuilder::register_with_nanobind(m);
-        time_series_set_output_builder_register_with_nanobind(m);
-        time_series_window_output_builder_register_with_nanobind(m);
-        time_series_dict_output_builder_register_with_nanobind(m);
-
-        // Unified Cpp time-series output builder
+        // Unified Cpp time-series output builder (new system)
         cpp_time_series_output_builder_register_with_nanobind(m);
     }
 } // namespace hgraph

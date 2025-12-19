@@ -1,5 +1,3 @@
-#include <hgraph/types/tss.h>
-
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/reduce_node.h>
@@ -7,8 +5,8 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/tsd.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <hgraph/util/string_utils.h>
@@ -67,12 +65,12 @@ namespace hgraph {
     // TODO: Implement ReduceNode
 
     template<typename K>
-    typename TimeSeriesDictInput_T<K>::ptr ReduceNode<K>::ts() {
+    ts::TSInput* ReduceNode<K>::ts() {
         throw std::runtime_error("ReduceNode::ts not yet implemented");
     }
 
     template<typename K>
-    time_series_reference_input_ptr ReduceNode<K>::zero() {
+    ts::TSInput* ReduceNode<K>::zero() {
         throw std::runtime_error("ReduceNode::zero not yet implemented");
     }
 
@@ -105,7 +103,7 @@ namespace hgraph {
     }
 
     template<typename K>
-    TimeSeriesOutput::s_ptr ReduceNode<K>::last_output() {
+    time_series_output_s_ptr ReduceNode<K>::last_output() {
         throw std::runtime_error("ReduceNode::last_output not yet implemented");
     }
 

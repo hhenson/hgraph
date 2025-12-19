@@ -4,29 +4,16 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series_type.h>
 
-// Include all the extracted builder headers
 #include "hgraph/api/python/py_node.h"
-
-#include <hgraph/builders/time_series_types/specialized_ref_builders.h>
-#include <hgraph/builders/time_series_types/time_series_bundle_input_builder.h>
-#include <hgraph/builders/time_series_types/time_series_dict_input_builder.h>
-#include <hgraph/builders/time_series_types/time_series_list_input_builder.h>
-#include <hgraph/builders/time_series_types/time_series_set_input_builder.h>
-#include <hgraph/builders/time_series_types/time_series_signal_input_builder.h>
-#include <hgraph/builders/time_series_types/time_series_value_input_builder.h>
-#include <hgraph/builders/time_series_types/time_series_window_input_builder.h>
 #include <hgraph/builders/time_series_types/cpp_time_series_builder.h>
 #include <hgraph/api/python/wrapper_factory.h>
 
 namespace hgraph {
     void InputBuilder::release_instance(time_series_input_ptr item) const {
-        // Perform minimal teardown to avoid notifications and dangling refs
-        item->builder_release_cleanup();
-        // We can't detect if we are escaping from an error condition or not, so just log issues.
-        if (item->has_output()) {
-            fmt::print("Input instance still has an output reference when released, this is a bug.");
-        }
-        item->reset_parent_or_node();
+        // In the new system, time-series are value types owned by Node.
+        // The builder doesn't own or cleanup time-series instances.
+        // This method is kept for API compatibility but does nothing.
+        (void)item;
     }
 
     void InputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -50,25 +37,7 @@ namespace hgraph {
                     return fmt::format("InputBuilder@{:p}", static_cast<const void *>(&self));
                 });
 
-        // Call the register functions from each builder type
-        TimeSeriesSignalInputBuilder::register_with_nanobind(m);
-        time_series_value_input_builder_register_with_nanobind(m);
-        
-        // Specialized reference input builders
-        TimeSeriesValueRefInputBuilder::register_with_nanobind(m);
-        TimeSeriesListRefInputBuilder::register_with_nanobind(m);
-        TimeSeriesBundleRefInputBuilder::register_with_nanobind(m);
-        TimeSeriesDictRefInputBuilder::register_with_nanobind(m);
-        TimeSeriesSetRefInputBuilder::register_with_nanobind(m);
-        TimeSeriesWindowRefInputBuilder::register_with_nanobind(m);
-        
-        TimeSeriesListInputBuilder::register_with_nanobind(m);
-        TimeSeriesBundleInputBuilder::register_with_nanobind(m);
-        time_series_set_input_builder_register_with_nanobind(m);
-        time_series_window_input_builder_register_with_nanobind(m);
-        time_series_dict_input_builder_register_with_nanobind(m);
-
-        // Unified Cpp time-series input builder
+        // Unified Cpp time-series input builder (new system)
         cpp_time_series_input_builder_register_with_nanobind(m);
     }
 } // namespace hgraph

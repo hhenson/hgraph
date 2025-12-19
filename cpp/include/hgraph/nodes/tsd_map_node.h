@@ -3,7 +3,7 @@
 
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/nested_node.h>
-#include <hgraph/types/tsd.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 
 namespace hgraph
@@ -58,7 +58,7 @@ namespace hgraph
 
         void do_eval() override {};
 
-        virtual TimeSeriesDictOutput_T<K> &tsd_output();
+        virtual ts::TSOutput& tsd_output();
 
         void create_new_graph(const K &key);
 

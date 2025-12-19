@@ -4,7 +4,7 @@
 #include <deque>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/nested_node.h>
-#include <hgraph/types/tsd.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 
 namespace hgraph {
@@ -31,9 +31,9 @@ namespace hgraph {
 
         std::unordered_map<int, graph_s_ptr> &nested_graphs();
 
-        TimeSeriesDictInput_T<K>::ptr ts();
+        ts::TSInput* ts();
 
-        time_series_reference_input_ptr zero();
+        ts::TSInput* zero();
 
         // Expose attributes to allow us to more easily inspect the state in Python
         // Can make debugging easier.
@@ -65,7 +65,7 @@ namespace hgraph {
         void do_eval() override {
         };
 
-        TimeSeriesOutput::s_ptr last_output();
+        time_series_output_s_ptr last_output();
 
         void add_nodes(const std::unordered_set<K> &keys);
 
@@ -100,7 +100,7 @@ namespace hgraph {
         // The python code uses the fact that you can randomly add properties to a python object and tracks
         // if an input is bound to a key or not using _bound_to_key.
         // C++ does not do that, so we can track if the ts is bound to a key using a set.
-        std::unordered_set<TimeSeriesInput *> bound_to_key_flags_;
+        std::unordered_set<ts::TSInput *> bound_to_key_flags_;
     };
 } // namespace hgraph
 

@@ -261,22 +261,6 @@ set(HGRAPH_INCLUDES
         include/hgraph/builders/nodes/tsd_map_node_builder.h
         include/hgraph/builders/nodes/tsd_non_associative_reduce_node_builder.h
         include/hgraph/builders/time_series_types/cpp_time_series_builder.h
-        include/hgraph/builders/time_series_types/specialized_ref_builders.h
-        include/hgraph/builders/time_series_types/time_series_bundle_input_builder.h
-        include/hgraph/builders/time_series_types/time_series_bundle_output_builder.h
-        include/hgraph/builders/time_series_types/time_series_dict_input_builder.h
-        include/hgraph/builders/time_series_types/time_series_dict_output_builder.h
-        include/hgraph/builders/time_series_types/time_series_list_input_builder.h
-        include/hgraph/builders/time_series_types/time_series_list_output_builder.h
-        include/hgraph/builders/time_series_types/time_series_ref_input_builder.h
-        include/hgraph/builders/time_series_types/time_series_ref_output_builder.h
-        include/hgraph/builders/time_series_types/time_series_set_input_builder.h
-        include/hgraph/builders/time_series_types/time_series_set_output_builder.h
-        include/hgraph/builders/time_series_types/time_series_signal_input_builder.h
-        include/hgraph/builders/time_series_types/time_series_value_input_builder.h
-        include/hgraph/builders/time_series_types/time_series_value_output_builder.h
-        include/hgraph/builders/time_series_types/time_series_window_input_builder.h
-        include/hgraph/builders/time_series_types/time_series_window_output_builder.h
 
         # Node headers
         include/hgraph/nodes/base_python_node.h

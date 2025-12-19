@@ -1,6 +1,6 @@
 #include <hgraph/types/node.h>
-#include <hgraph/types/time_series_type.h>
-#include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_input.h>
 
 #include <hgraph/builders/builder.h>
 #include <hgraph/builders/graph_builder.h>
@@ -72,20 +72,21 @@ namespace hgraph {
         size_t total = add_canary_size(sizeof(Node));
         // Align and add each time-series builder's size
         if (input_builder) {
-            // We don't know the exact type, so use TimeSeriesType alignment as a conservative estimate
-            total = align_size(total, alignof(TimeSeriesType));
+            // Use ts::TSInput alignment for input time-series
+            total = align_size(total, alignof(ts::TSInput));
             total += (*input_builder)->memory_size();
         }
         if (output_builder) {
-            total = align_size(total, alignof(TimeSeriesType));
+            // Use ts::TSOutput alignment for output time-series
+            total = align_size(total, alignof(ts::TSOutput));
             total += (*output_builder)->memory_size();
         }
         if (error_builder) {
-            total = align_size(total, alignof(TimeSeriesType));
+            total = align_size(total, alignof(ts::TSOutput));
             total += (*error_builder)->memory_size();
         }
         if (recordable_state_builder) {
-            total = align_size(total, alignof(TimeSeriesType));
+            total = align_size(total, alignof(ts::TSOutput));
             total += (*recordable_state_builder)->memory_size();
         }
         return total;

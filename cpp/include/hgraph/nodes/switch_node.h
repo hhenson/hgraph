@@ -1,9 +1,8 @@
 #ifndef SWITCH_NODE_H
 #define SWITCH_NODE_H
 
-#include "hgraph/types/ts.h"
-
 #include <hgraph/nodes/nested_node.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <optional>
 #include <unordered_map>
@@ -56,7 +55,7 @@ namespace hgraph {
         std::unordered_map<K, graph_builder_s_ptr> nested_graph_builders_;
         std::unordered_map<K, std::unordered_map<std::string, int> > input_node_ids_;
         std::unordered_map<K, int> output_node_ids_;
-        TimeSeriesValueInput<K> *key_ts;
+        ts::TSInput *key_ts;
 
         bool reload_on_ticked_;
         graph_s_ptr active_graph_{};

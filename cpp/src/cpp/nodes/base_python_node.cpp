@@ -7,7 +7,6 @@
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/util/date_time.h>
 
 namespace hgraph

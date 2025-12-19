@@ -67,71 +67,28 @@ namespace hgraph {
     using output_builder_ptr = OutputBuilder*;
     using output_builder_s_ptr = nb::ref<OutputBuilder>;
 
-    // TimeSeriesType - converted to shared_ptr
-    struct TimeSeriesType;
-    using time_series_type_ptr = TimeSeriesType*;
-    using time_series_type_s_ptr = std::shared_ptr<TimeSeriesType>;
+    // New time-series types (ts namespace)
+    namespace ts {
+        class TSOutput;
+        class TSInput;
+    }
 
-    // TimeSeriesInput - converted to shared_ptr
-    struct TimeSeriesInput;
-    struct BaseTimeSeriesInput;
-    using time_series_input_ptr = TimeSeriesInput*;
-    using time_series_input_s_ptr = std::shared_ptr<TimeSeriesInput>;
+    // Type aliases for new system
+    using time_series_output_ptr = ts::TSOutput*;
+    using const_time_series_output_ptr = const ts::TSOutput*;
+    using time_series_output_s_ptr = std::shared_ptr<ts::TSOutput>;
 
-    // TimeSeriesBundleInput - converted to shared_ptr
-    struct TimeSeriesBundleInput;
-    using time_series_bundle_input_ptr = TimeSeriesBundleInput*;
-    using time_series_bundle_input_s_ptr = std::shared_ptr<TimeSeriesBundleInput>;
+    using time_series_input_ptr = ts::TSInput*;
+    using time_series_input_s_ptr = std::shared_ptr<ts::TSInput>;
 
-    // TimeSeriesBundleOutput - converted to shared_ptr
-    struct TimeSeriesBundleOutput;
-    using time_series_bundle_output_ptr = TimeSeriesBundleOutput*;
-    using time_series_bundle_output_s_ptr = std::shared_ptr<TimeSeriesBundleOutput>;
-
-    // TimeSeriesOutput - converted to shared_ptr
-    struct TimeSeriesOutput;
-    struct BaseTimeSeriesOutput;
-    using time_series_output_ptr = TimeSeriesOutput*;
-    using const_time_series_output_ptr = const TimeSeriesOutput*;
-    using time_series_output_s_ptr = std::shared_ptr<TimeSeriesOutput>;
-
-    // TimeSeriesReference - converted to shared_ptr
+    // TimeSeriesReference - value type for node+path references
     struct TimeSeriesReference;
-    using time_series_reference_ptr = TimeSeriesReference*;
-    using time_series_reference_s_ptr = std::shared_ptr<TimeSeriesReference>;
 
-    // TimeSeriesReferenceInput - converted to shared_ptr
-    struct TimeSeriesReferenceInput;
-    using time_series_reference_input_ptr = TimeSeriesReferenceInput*;
-    using time_series_reference_input_s_ptr = std::shared_ptr<TimeSeriesReferenceInput>;
-
-    // TimeSeriesReferenceOutput - converted to shared_ptr
-    struct TimeSeriesReferenceOutput;
-    using time_series_reference_output_ptr = TimeSeriesReferenceOutput*;
-    using time_series_reference_output_s_ptr = std::shared_ptr<TimeSeriesReferenceOutput>;
-
-    // TimeSeriesListInput - converted to shared_ptr
-    struct TimeSeriesListInput;
-    using time_series_list_input_ptr = TimeSeriesListInput*;
-    using time_series_list_input_s_ptr = std::shared_ptr<TimeSeriesListInput>;
-
-    // TimeSeriesListOutput - converted to shared_ptr
-    struct TimeSeriesListOutput;
-    using time_series_list_output_ptr = TimeSeriesListOutput*;
-    using time_series_list_output_s_ptr = std::shared_ptr<TimeSeriesListOutput>;
-
-    // TimeSeriesSetInput - converted to shared_ptr
-    struct TimeSeriesSetInput;
-    using time_series_set_input_ptr = TimeSeriesSetInput*;
-    using time_series_set_input_s_ptr = std::shared_ptr<TimeSeriesSetInput>;
-
-    // TimeSeriesSetOutput - converted to shared_ptr
-    struct TimeSeriesSetOutput;
-    using time_series_set_output_ptr = TimeSeriesSetOutput*;
-    using time_series_set_output_s_ptr = std::shared_ptr<TimeSeriesSetOutput>;
+    // Legacy typedefs for reference types (migration stubs)
+    using time_series_reference_input_s_ptr = time_series_input_s_ptr;
+    using time_series_reference_output_s_ptr = time_series_output_s_ptr;
 
     // TimeSeriesSchema - keeps nb::ref
-    // PyTimeSeriesSchema is the actual struct, TimeSeriesSchema is an alias for backward compatibility
     struct PyTimeSeriesSchema;
     using TimeSeriesSchema = PyTimeSeriesSchema;
     using time_series_schema_ptr = TimeSeriesSchema*;
@@ -139,39 +96,7 @@ namespace hgraph {
 
     using c_string_ref = std::reference_wrapper<const std::string>;
 
-    template<typename T_TS>
-    concept TimeSeriesT = std::is_base_of_v<TimeSeriesInput, T_TS> || std::is_base_of_v<TimeSeriesOutput, T_TS>;
-
-    struct TimeSeriesValueInputBase;
-    struct TimeSeriesSignalInput;
-    struct IndexedTimeSeriesInput;
-    struct TimeSeriesDictInput;
-    struct TimeSeriesValueReferenceInput;
-    struct TimeSeriesWindowReferenceInput;
-    struct TimeSeriesListReferenceInput;
-    struct TimeSeriesSetReferenceInput;
-    struct TimeSeriesDictReferenceInput;
-    struct TimeSeriesBundleReferenceInput;
-    struct TimeSeriesValueOutputBase;
-    struct IndexedTimeSeriesOutput;
-    struct TimeSeriesDictOutput;
-    struct TimeSeriesValueReferenceOutput;
-    struct TimeSeriesWindowReferenceOutput;
-    struct TimeSeriesListReferenceOutput;
-    struct TimeSeriesSetReferenceOutput;
-    struct TimeSeriesDictReferenceOutput;
-    struct TimeSeriesBundleReferenceOutput;
-
-    template<typename> struct TimeSeriesValueInput;
-    template<typename> struct TimeSeriesDictInput_T;
-    template<typename> struct TimeSeriesSetInput_T;
-    template<typename> struct TimeSeriesWindowInput;
-    template<typename> struct TimeSeriesValueOutput;
-    template<typename> struct TimeSeriesDictOutput_T;
-    template<typename> struct TimeSeriesSetOutput_T;
-    template<typename> struct TimeSeriesFixedWindowOutput;
-    template<typename> struct TimeSeriesTimeWindowOutput;
-
+    // Node types
     struct ContextStubSourceNode;
     struct NestedNode;
     struct PushQueueNode;

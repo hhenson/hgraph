@@ -1,6 +1,5 @@
 #include <hgraph/builders/nodes/nested_graph_node_builder.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/nodes/nest_graph_node.h>
 
 namespace hgraph {

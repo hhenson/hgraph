@@ -6,6 +6,7 @@
 #define ERROR_TYPE_H
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/scalar_types.h>
 
 #include <exception>
@@ -78,7 +79,7 @@ namespace hgraph {
         static BackTrace capture_back_trace(const Node *node, bool capture_values = false, int64_t depth = 4);
 
         static void capture_input(std::unordered_map<std::string, BackTrace> &active_inputs,
-                                  const TimeSeriesInput &input,
+                                  const ts::TSInput &input,
                                   const std::string &input_name, bool capture_values, int64_t depth);
     };
 

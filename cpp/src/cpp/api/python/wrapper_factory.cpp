@@ -80,7 +80,7 @@ namespace
             case TimeSeriesKind::TSW:
                 return nb::cast(PyTimeSeriesWindowOutput(std::move(node), std::move(view), output, meta));
             case TimeSeriesKind::REF:
-                return nb::cast(PyTimeSeriesReferenceOutput(std::move(node), std::move(view), output, meta));
+                // REF types use the base output wrapper (TimeSeriesReference is handled as a value)
             default:
                 return nb::cast(PyTimeSeriesOutput(std::move(node), std::move(view), output, meta));
         }
@@ -106,7 +106,7 @@ namespace
             case TimeSeriesKind::TSW:
                 return nb::cast(PyTimeSeriesWindowInput(std::move(node), std::move(view), input, meta));
             case TimeSeriesKind::REF:
-                return nb::cast(PyTimeSeriesReferenceInput(std::move(node), std::move(view), input, meta));
+                // REF types use the base input wrapper (TimeSeriesReference is handled as a value)
             default:
                 return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), input, meta));
         }

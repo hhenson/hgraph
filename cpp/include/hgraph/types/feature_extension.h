@@ -3,6 +3,7 @@
 
 #include <any>
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <utility>
 
 namespace hgraph {
@@ -15,7 +16,7 @@ namespace hgraph {
 
     template<typename T>
     struct FeatureOutputExtension {
-        using feature_fn = std::function<void(const TimeSeriesOutput &, TimeSeriesOutput &, const T &)>;
+        using feature_fn = std::function<void(const ts::TSOutput &, ts::TSOutput &, const T &)>;
 
         FeatureOutputExtension(time_series_output_ptr owning_output_, output_builder_s_ptr output_builder_,
                                feature_fn value_getter_,

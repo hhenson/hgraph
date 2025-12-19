@@ -10,8 +10,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/tss.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/util/string_utils.h>
 #include <hgraph/util/scope.h>
 
@@ -93,7 +92,7 @@ namespace hgraph {
     }
 
     template<typename K>
-    TimeSeriesDictOutput_T<K> &MeshNode<K>::tsd_output() {
+    ts::TSOutput &MeshNode<K>::tsd_output() {
         throw std::runtime_error("MeshNode::tsd_output not yet implemented");
     }
 

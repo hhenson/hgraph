@@ -7,7 +7,6 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
-#include <hgraph/types/tsb.h>
 #include <ranges>
 #include <sstream>
 
@@ -768,9 +767,11 @@ namespace hgraph
 
     void Node::_initialise_inputs() {
         if (signature().time_series_inputs.has_value()) {
-            for (auto &start_input : _start_inputs) {
-                start_input->start();  // Assuming start_input is some time series type with a start method
-            }
+            // Note: _start_inputs handling is a legacy feature for reference inputs.
+            // In the new system, reference inputs are just regular TSInput objects.
+            // The start() call was used to begin tracking the referenced output.
+            // TODO: Implement proper reference input tracking in the new system if needed.
+
             // Make the input active
             if (has_input()) {
                 input()->make_active();
