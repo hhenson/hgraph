@@ -26,8 +26,8 @@ namespace hgraph
             .def(
                 "bind_input",
                 [](TimeSeriesReference &self, PyTimeSeriesInput &ts_input) {
-                    // V2 stub - bind_input requires V2 input implementation
-                    throw std::runtime_error("TimeSeriesReference::bind_input not yet implemented for V2");
+                    // TODO: bind_input requires input implementation
+                    throw std::runtime_error("TimeSeriesReference::bind_input not yet implemented");
                 },
                 "input_"_a)
             .def_prop_ro("has_output", &TimeSeriesReference::has_output)
@@ -36,28 +36,27 @@ namespace hgraph
             .def_prop_ro("is_unbound", &TimeSeriesReference::is_unbound)
             .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
             .def_prop_ro("output", [](TimeSeriesReference &self) -> nb::object {
-                // V2 stub - requires V2 wrap_output
+                // TODO: requires wrap_output
                 if (!self.has_output()) return nb::none();
-                throw std::runtime_error("TimeSeriesReference::output not yet implemented for V2");
+                throw std::runtime_error("TimeSeriesReference::output not yet implemented");
             })
             .def_prop_ro("items", &TimeSeriesReference::items)
             .def("__getitem__", &TimeSeriesReference::operator[])
             .def_static(
                 "make",
                 [](nb::object ts, nb::object items) -> TimeSeriesReference {
-                    // V2 implementation
                     if (!ts.is_none()) {
                         if (nb::isinstance<PyTimeSeriesOutput>(ts)) {
-                            // V2 stub - requires V2 unwrap_output
-                            throw std::runtime_error("TimeSeriesReference::make from output not yet implemented for V2");
+                            // TODO: requires unwrap_output
+                            throw std::runtime_error("TimeSeriesReference::make from output not yet implemented");
                         }
                         if (nb::isinstance<PyTimeSeriesReferenceInput>(ts)) {
-                            // V2 stub - requires V2 reference input value access
-                            throw std::runtime_error("TimeSeriesReference::make from ref input not yet implemented for V2");
+                            // TODO: requires reference input value access
+                            throw std::runtime_error("TimeSeriesReference::make from ref input not yet implemented");
                         }
                         if (nb::isinstance<PyTimeSeriesInput>(ts)) {
-                            // V2 stub - requires V2 input handling
-                            throw std::runtime_error("TimeSeriesReference::make from input not yet implemented for V2");
+                            // TODO: requires input handling
+                            throw std::runtime_error("TimeSeriesReference::make from input not yet implemented");
                         }
                     } else if (!items.is_none()) {
                         auto items_list = nb::cast<std::vector<TimeSeriesReference>>(items);

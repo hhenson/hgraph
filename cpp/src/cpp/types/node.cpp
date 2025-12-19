@@ -771,7 +771,7 @@ namespace hgraph
             for (auto &start_input : _start_inputs) {
                 start_input->start();  // Assuming start_input is some time series type with a start method
             }
-            // Make the input active - the V2 input handles activation internally
+            // Make the input active
             if (has_input()) {
                 input()->make_active();
             }
@@ -783,7 +783,7 @@ namespace hgraph
         bool should_eval{true};
 
         if (has_input()) {
-            // V2: Check validity using the input's has_value() method
+            // Check validity using the input's has_value() method
             should_eval = input()->has_value();
 
             // Check scheduler state - if uses scheduler and not scheduled, check if input is modified
@@ -801,7 +801,7 @@ namespace hgraph
             } catch (const NodeException &e) {
                 if (signature().capture_exception && has_error_output()) {
                     // Route captured error to the node's error output instead of rethrowing
-                    // TODO: V2 error output needs Python value setting support
+                    // TODO: Error output needs Python value setting support
                     // For now, just rethrow
                     throw;
                 } else {
@@ -809,7 +809,7 @@ namespace hgraph
                 }
             } catch (const std::exception &e) {
                 if (signature().capture_exception && has_error_output()) {
-                    // TODO: V2 error output needs Python value setting support
+                    // TODO: Error output needs Python value setting support
                     // For now, wrap and rethrow
                     throw NodeException::capture_error(e, *this, "During evaluation");
                 } else {
@@ -817,7 +817,7 @@ namespace hgraph
                 }
             } catch (...) {
                 if (signature().capture_exception && has_error_output()) {
-                    // TODO: V2 error output needs Python value setting support
+                    // TODO: Error output needs Python value setting support
                     throw NodeException::capture_error(std::current_exception(), *this, "Unknown error during node evaluation");
                 } else {
                     throw NodeException::capture_error(std::current_exception(), *this, "Unknown error during node evaluation");

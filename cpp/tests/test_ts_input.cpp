@@ -1,7 +1,7 @@
 /**
  * Unit tests for TSInput and AccessStrategy
  *
- * Tests the V2 time-series input binding system with hierarchical access strategies.
+ * Tests the time-series input binding system with hierarchical access strategies.
  */
 
 #include <catch2/catch_test_macros.hpp>

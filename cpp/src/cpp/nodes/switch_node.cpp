@@ -48,8 +48,7 @@ namespace hgraph {
         }
     }
 
-    // V2 stubs - SwitchNode uses V1 APIs extensively
-    // TODO: Implement SwitchNode for V2
+    // TODO: Implement SwitchNode
 
     template<typename K>
     void SwitchNode<K>::initialise() {
@@ -58,7 +57,7 @@ namespace hgraph {
 
     template<typename K>
     void SwitchNode<K>::do_start() {
-        throw std::runtime_error("SwitchNode::do_start not yet implemented for V2");
+        throw std::runtime_error("SwitchNode::do_start not yet implemented");
     }
 
     template<typename K>
@@ -77,17 +76,17 @@ namespace hgraph {
 
     template<typename K>
     void SwitchNode<K>::eval() {
-        throw std::runtime_error("SwitchNode::eval not yet implemented for V2");
+        throw std::runtime_error("SwitchNode::eval not yet implemented");
     }
 
     template<typename K>
     void SwitchNode<K>::wire_graph(graph_s_ptr &) {
-        throw std::runtime_error("SwitchNode::wire_graph not yet implemented for V2");
+        throw std::runtime_error("SwitchNode::wire_graph not yet implemented");
     }
 
     template<typename K>
     void SwitchNode<K>::unwire_graph(graph_s_ptr &) {
-        throw std::runtime_error("SwitchNode::unwire_graph not yet implemented for V2");
+        throw std::runtime_error("SwitchNode::unwire_graph not yet implemented");
     }
 
     // Template instantiations

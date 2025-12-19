@@ -71,7 +71,7 @@ namespace hgraph {
     }
 
     void LastValuePullNode::copy_from_input(const ts::TSInput &input) {
-        // Get value from V2 input view and convert to Python
+        // Get value from input view and convert to Python
         auto view = input.view();
         if (!view.valid() || !view.has_value()) {
             return;  // Nothing to copy
@@ -92,7 +92,7 @@ namespace hgraph {
     }
 
     void LastValuePullNode::copy_from_output(const ts::TSOutput &output) {
-        // Get value from V2 output view and convert to Python
+        // Get value from output view and convert to Python
         auto view = const_cast<ts::TSOutput&>(output).view();
         if (!view.valid() || !view.has_value()) {
             return;  // Nothing to copy

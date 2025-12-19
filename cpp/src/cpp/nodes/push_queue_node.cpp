@@ -33,9 +33,8 @@ namespace hgraph {
             auto eval_time = graph()->evaluation_time();
 
             if (_is_tsd) {
-                // TODO: TSD batching not yet implemented for V2
+                // TODO: TSD batching not yet implemented
                 // For now, fall through to non-batch handling
-                // This requires proper TSD support in V2 which is not yet available
             } else {
                 // For non-TSD outputs, accumulate messages into a tuple
                 auto eval_time = graph()->evaluation_time();
@@ -76,7 +75,7 @@ namespace hgraph {
         _receiver = &graph()->receiver();
         _elide = scalars().contains("elide") ? nb::cast<bool>(scalars()["elide"]) : false;
         _batch = scalars().contains("batch") ? nb::cast<bool>(scalars()["batch"]) : false;
-        // TODO: Need V2-compatible way to check if output is TSD
+        // TODO: Need a way to check if output is TSD
         _is_tsd = false; // dynamic_cast<TimeSeriesDictOutput *>(output()) != nullptr;
 
         // If an eval function was provided (from push_queue decorator), call it with a sender and scalar kwargs

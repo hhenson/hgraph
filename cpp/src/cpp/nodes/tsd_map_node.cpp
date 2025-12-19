@@ -58,11 +58,10 @@ namespace hgraph
 
     template <typename K> void TsdMapNode<K>::initialise() {}
 
-    // V2 stubs - TsdMapNode uses V1 APIs extensively
-    // TODO: Implement TsdMapNode for V2
+    // TODO: Implement TsdMapNode
 
     template <typename K> void TsdMapNode<K>::do_start() {
-        throw std::runtime_error("TsdMapNode::do_start not yet implemented for V2");
+        throw std::runtime_error("TsdMapNode::do_start not yet implemented");
     }
 
     template <typename K> void TsdMapNode<K>::do_stop() {
@@ -77,15 +76,15 @@ namespace hgraph
     template <typename K> void TsdMapNode<K>::dispose() {}
 
     template <typename K> void TsdMapNode<K>::eval() {
-        throw std::runtime_error("TsdMapNode::eval not yet implemented for V2");
+        throw std::runtime_error("TsdMapNode::eval not yet implemented");
     }
 
     template <typename K> TimeSeriesDictOutput_T<K> &TsdMapNode<K>::tsd_output() {
-        throw std::runtime_error("TsdMapNode::tsd_output not yet implemented for V2");
+        throw std::runtime_error("TsdMapNode::tsd_output not yet implemented");
     }
 
     template <typename K> void TsdMapNode<K>::create_new_graph(const K &) {
-        throw std::runtime_error("TsdMapNode::create_new_graph not yet implemented for V2");
+        throw std::runtime_error("TsdMapNode::create_new_graph not yet implemented");
     }
 
     template <typename K> void TsdMapNode<K>::remove_graph(const K &key) {
@@ -97,15 +96,15 @@ namespace hgraph
     }
 
     template <typename K> engine_time_t TsdMapNode<K>::evaluate_graph(const K &) {
-        throw std::runtime_error("TsdMapNode::evaluate_graph not yet implemented for V2");
+        throw std::runtime_error("TsdMapNode::evaluate_graph not yet implemented");
     }
 
     template <typename K> void TsdMapNode<K>::un_wire_graph(const K &, graph_s_ptr &) {
-        throw std::runtime_error("TsdMapNode::un_wire_graph not yet implemented for V2");
+        throw std::runtime_error("TsdMapNode::un_wire_graph not yet implemented");
     }
 
     template <typename K> void TsdMapNode<K>::wire_graph(const K &, graph_s_ptr &) {
-        throw std::runtime_error("TsdMapNode::wire_graph not yet implemented for V2");
+        throw std::runtime_error("TsdMapNode::wire_graph not yet implemented");
     }
 
     using TsdMapNode_bool = TsdMapNode<bool>;

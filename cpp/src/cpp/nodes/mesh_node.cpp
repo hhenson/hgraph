@@ -74,12 +74,11 @@ namespace hgraph {
         full_context_path_ = keys::context_output_key(this->owning_graph_id(), context_path);
     }
 
-    // V2 stubs - MeshNode uses V1 APIs extensively
-    // TODO: Implement MeshNode for V2
+    // TODO: Implement MeshNode
 
     template<typename K>
     void MeshNode<K>::do_start() {
-        throw std::runtime_error("MeshNode::do_start not yet implemented for V2");
+        throw std::runtime_error("MeshNode::do_start not yet implemented");
     }
 
     template<typename K>
@@ -90,22 +89,22 @@ namespace hgraph {
 
     template<typename K>
     void MeshNode<K>::eval() {
-        throw std::runtime_error("MeshNode::eval not yet implemented for V2");
+        throw std::runtime_error("MeshNode::eval not yet implemented");
     }
 
     template<typename K>
     TimeSeriesDictOutput_T<K> &MeshNode<K>::tsd_output() {
-        throw std::runtime_error("MeshNode::tsd_output not yet implemented for V2");
+        throw std::runtime_error("MeshNode::tsd_output not yet implemented");
     }
 
     template<typename K>
     void MeshNode<K>::create_new_graph(const K &, int) {
-        throw std::runtime_error("MeshNode::create_new_graph not yet implemented for V2");
+        throw std::runtime_error("MeshNode::create_new_graph not yet implemented");
     }
 
     template<typename K>
     void MeshNode<K>::schedule_graph(const K &, engine_time_t) {
-        throw std::runtime_error("MeshNode::schedule_graph not yet implemented for V2");
+        throw std::runtime_error("MeshNode::schedule_graph not yet implemented");
     }
 
     template<typename K>
@@ -122,22 +121,22 @@ namespace hgraph {
 
     template<typename K>
     bool MeshNode<K>::add_graph_dependency(const K &, const K &) {
-        throw std::runtime_error("MeshNode::add_graph_dependency not yet implemented for V2");
+        throw std::runtime_error("MeshNode::add_graph_dependency not yet implemented");
     }
 
     template<typename K>
     void MeshNode<K>::remove_graph_dependency(const K &, const K &) {
-        throw std::runtime_error("MeshNode::remove_graph_dependency not yet implemented for V2");
+        throw std::runtime_error("MeshNode::remove_graph_dependency not yet implemented");
     }
 
     template<typename K>
     bool MeshNode<K>::request_re_rank(const K &, const K &) {
-        throw std::runtime_error("MeshNode::request_re_rank not yet implemented for V2");
+        throw std::runtime_error("MeshNode::request_re_rank not yet implemented");
     }
 
     template<typename K>
     void MeshNode<K>::re_rank(const K &, const K &, std::vector<K>) {
-        throw std::runtime_error("MeshNode::re_rank not yet implemented for V2");
+        throw std::runtime_error("MeshNode::re_rank not yet implemented");
     }
 
     // Template instantiations

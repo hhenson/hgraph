@@ -92,7 +92,7 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesOutput::parent_output() const {
-        // V2 views don't track parent - return None
+        // Views don't track parent - return None
         // TODO: Could potentially navigate via path if needed
         return nb::none();
     }
@@ -200,7 +200,7 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesInput::parent_input() const {
-        // V2 views don't track parent
+        // Views don't track parent
         return nb::none();
     }
 

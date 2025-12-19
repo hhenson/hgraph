@@ -25,15 +25,14 @@ namespace hgraph {
     }
 
 
-    // V2 stubs - ComponentNode uses V1 APIs extensively
-    // TODO: Implement ComponentNode for V2
+    // TODO: Implement ComponentNode
 
     std::pair<std::string, bool> ComponentNode::recordable_id() {
-        throw std::runtime_error("ComponentNode::recordable_id not yet implemented for V2");
+        throw std::runtime_error("ComponentNode::recordable_id not yet implemented");
     }
 
     void ComponentNode::wire_graph() {
-        throw std::runtime_error("ComponentNode::wire_graph not yet implemented for V2");
+        throw std::runtime_error("ComponentNode::wire_graph not yet implemented");
     }
 
     void ComponentNode::write_inputs() {}
@@ -41,11 +40,11 @@ namespace hgraph {
     void ComponentNode::wire_outputs() {}
 
     void ComponentNode::initialise() {
-        // V2: Stubbed - nested graph wiring requires V1 APIs
+        // Stubbed - nested graph wiring not yet implemented
     }
 
     void ComponentNode::do_start() {
-        throw std::runtime_error("ComponentNode::do_start not yet implemented for V2");
+        throw std::runtime_error("ComponentNode::do_start not yet implemented");
     }
 
     void ComponentNode::do_stop() {
@@ -62,7 +61,7 @@ namespace hgraph {
     }
 
     void ComponentNode::do_eval() {
-        throw std::runtime_error("ComponentNode::do_eval not yet implemented for V2");
+        throw std::runtime_error("ComponentNode::do_eval not yet implemented");
     }
 
     std::unordered_map<int, graph_s_ptr> ComponentNode::nested_graphs() const {

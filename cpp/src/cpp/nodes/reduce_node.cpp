@@ -64,27 +64,26 @@ namespace hgraph {
         return free_node_indexes_;
     }
 
-    // V2 stubs - ReduceNode uses V1 APIs extensively
-    // TODO: Implement ReduceNode for V2
+    // TODO: Implement ReduceNode
 
     template<typename K>
     typename TimeSeriesDictInput_T<K>::ptr ReduceNode<K>::ts() {
-        throw std::runtime_error("ReduceNode::ts not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::ts not yet implemented");
     }
 
     template<typename K>
     time_series_reference_input_ptr ReduceNode<K>::zero() {
-        throw std::runtime_error("ReduceNode::zero not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::zero not yet implemented");
     }
 
     template<typename K>
     void ReduceNode<K>::initialise() {
-        throw std::runtime_error("ReduceNode::initialise not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::initialise not yet implemented");
     }
 
     template<typename K>
     void ReduceNode<K>::do_start() {
-        throw std::runtime_error("ReduceNode::do_start not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::do_start not yet implemented");
     }
 
     template<typename K>
@@ -102,27 +101,27 @@ namespace hgraph {
 
     template<typename K>
     void ReduceNode<K>::eval() {
-        throw std::runtime_error("ReduceNode::eval not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::eval not yet implemented");
     }
 
     template<typename K>
     TimeSeriesOutput::s_ptr ReduceNode<K>::last_output() {
-        throw std::runtime_error("ReduceNode::last_output not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::last_output not yet implemented");
     }
 
     template<typename K>
     void ReduceNode<K>::add_nodes(const std::unordered_set<K> &) {
-        throw std::runtime_error("ReduceNode::add_nodes not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::add_nodes not yet implemented");
     }
 
     template<typename K>
     void ReduceNode<K>::remove_nodes(const std::unordered_set<K> &) {
-        throw std::runtime_error("ReduceNode::remove_nodes not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::remove_nodes not yet implemented");
     }
 
     template<typename K>
     void ReduceNode<K>::swap_node(const std::tuple<int64_t, int64_t> &, const std::tuple<int64_t, int64_t> &) {
-        throw std::runtime_error("ReduceNode::swap_node not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::swap_node not yet implemented");
     }
 
     template<typename K>
@@ -130,7 +129,7 @@ namespace hgraph {
 
     template<typename K>
     void ReduceNode<K>::grow_tree() {
-        throw std::runtime_error("ReduceNode::grow_tree not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::grow_tree not yet implemented");
     }
 
     template<typename K>
@@ -138,12 +137,12 @@ namespace hgraph {
 
     template<typename K>
     void ReduceNode<K>::bind_key_to_node(const K &, const std::tuple<int64_t, int64_t> &) {
-        throw std::runtime_error("ReduceNode::bind_key_to_node not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::bind_key_to_node not yet implemented");
     }
 
     template<typename K>
     void ReduceNode<K>::zero_node(const std::tuple<int64_t, int64_t> &) {
-        throw std::runtime_error("ReduceNode::zero_node not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::zero_node not yet implemented");
     }
 
     template<typename K>
@@ -156,7 +155,7 @@ namespace hgraph {
 
     template<typename K>
     std::vector<node_s_ptr> ReduceNode<K>::get_node(int64_t) {
-        throw std::runtime_error("ReduceNode::get_node not yet implemented for V2");
+        throw std::runtime_error("ReduceNode::get_node not yet implemented");
     }
 
     // Explicit template instantiations for supported key types

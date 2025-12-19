@@ -27,9 +27,9 @@ namespace hgraph {
                 .def(
                     "make_instance",
                     [](OutputBuilder::ptr, nb::object, nb::object) -> nb::object {
-                        // V2 doesn't use builders to create time-series instances.
+                        // Builders don't create time-series instances.
                         // Time-series are value types owned by the Node, created via emplace methods.
-                        throw std::runtime_error("OutputBuilder.make_instance not supported in V2");
+                        throw std::runtime_error("OutputBuilder.make_instance not supported");
                     },
                     "owning_node"_a = nb::none(), "owning_output"_a = nb::none())
                 .def("release_instance", &OutputBuilder::release_instance)

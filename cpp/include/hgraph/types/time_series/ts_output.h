@@ -1,7 +1,7 @@
 //
 // Created by Claude on 16/12/2025.
 //
-// TSOutput and TSOutputView - V2 time-series output implementation
+// TSOutput and TSOutputView - Value-based time-series output implementation
 //
 // Design principles:
 // - Output owns a TimeSeriesValue (type-erased storage)
@@ -460,7 +460,7 @@ private:
 // ============================================================================
 
 /**
- * TSOutput - V2 time-series output implementation
+ * TSOutput - Value-based time-series output implementation
  *
  * Owns:
  * - TimeSeriesValue (type-erased value storage + modification tracking)

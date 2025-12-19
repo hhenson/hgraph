@@ -12,7 +12,7 @@ namespace hgraph
 
     struct TimeSeriesVisitor;
 
-    // V2 types forward declarations for visitor support
+    // Value-based time-series types (ts namespace)
     namespace ts {
         struct TsInput;
         struct TsOutput;
@@ -28,9 +28,9 @@ namespace hgraph
                                      TimeSeriesListInput, TimeSeriesSetInput, TimeSeriesDictInput, TimeSeriesBundleInput>;
     inline constexpr auto ts_input_types_v = ts_input_types{};
 
-    // V2 input types
-    using ts_v2_input_types = tp::tpack<ts::TsInput, ts::TsbInput, ts::TslInput, ts::TssInput>;
-    inline constexpr auto ts_v2_input_types_v = ts_v2_input_types{};
+    // Value-based input types (ts namespace)
+    using ts_value_input_types = tp::tpack<ts::TsInput, ts::TsbInput, ts::TslInput, ts::TssInput>;
+    inline constexpr auto ts_value_input_types_v = ts_value_input_types{};
 
     using ts_reference_input_types =
         tp::tpack<TimeSeriesReferenceInput, TimeSeriesValueReferenceInput, TimeSeriesWindowReferenceInput,
@@ -42,9 +42,9 @@ namespace hgraph
                                                         TimeSeriesListOutput, TimeSeriesSetOutput, TimeSeriesDictOutput, TimeSeriesBundleOutput>;
     inline constexpr auto ts_output_types_v = ts_output_types{};
 
-    // V2 output types
-    using ts_v2_output_types = tp::tpack<ts::TsOutput, ts::TsbOutput, ts::TslOutput, ts::TssOutput>;
-    inline constexpr auto ts_v2_output_types_v = ts_v2_output_types{};
+    // Value-based output types (ts namespace)
+    using ts_value_output_types = tp::tpack<ts::TsOutput, ts::TsbOutput, ts::TslOutput, ts::TssOutput>;
+    inline constexpr auto ts_value_output_types_v = ts_value_output_types{};
 
     using ts_reference_output_types =
         tp::tpack<TimeSeriesReferenceOutput, TimeSeriesValueReferenceOutput, TimeSeriesWindowReferenceOutput,
@@ -53,7 +53,7 @@ namespace hgraph
     inline constexpr auto ts_reference_output_types_v = ts_reference_output_types{};
 
     using TimeSeriesInputVisitor =
-        decltype(tp::make_v<ddv::mux>(ts_v2_input_types_v +  // V2 types first for priority matching
+        decltype(tp::make_v<ddv::mux>(ts_value_input_types_v +  // Value types first for priority matching
                                       ts_input_types_v +
                                       ts_reference_input_types_v
                                       // payload specialized inputs
@@ -63,7 +63,7 @@ namespace hgraph
                                       tp::transform<tp::meta::apply<TimeSeriesWindowInput>::type>(ts_payload_types_v)))::type;
 
     using TimeSeriesOutputVisitor =
-        decltype(tp::make_v<ddv::mux>(ts_v2_output_types_v +  // V2 types first for priority matching
+        decltype(tp::make_v<ddv::mux>(ts_value_output_types_v +  // Value types first for priority matching
                                       ts_output_types_v +
                                       ts_reference_output_types_v
                                       // payload specialized outputs

@@ -24,8 +24,7 @@ namespace hgraph {
         void do_eval() override;
 
     private:
-        // TODO: V2 needs equivalent REF output tracking
-        // For now, stubbed out
+        // TODO: Needs REF output tracking
     };
 
     void register_context_node_with_nanobind(nb::module_ & m);

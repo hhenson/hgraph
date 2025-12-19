@@ -75,7 +75,7 @@ namespace hgraph
             ts::TSInput* dst_input = nodes[edge.dst_node]->input();
 
             if (!src_output || !dst_input) {
-                // If either is null, we're using V1 builders - skip V2 wiring
+                // If either is null, the node doesn't have value-based time-series - skip wiring
                 continue;
             }
 

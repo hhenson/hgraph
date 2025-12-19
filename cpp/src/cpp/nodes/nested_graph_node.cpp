@@ -29,18 +29,16 @@ namespace hgraph {
     }
 
     void NestedGraphNode::write_inputs() {
-        // TODO: V2 implementation - requires TSInput field access and node input management
-        // For now stubbed - nested graph node needs V2-compatible input wiring
+        // TODO: Requires TSInput field access and node input management
         if (!m_input_node_ids_.empty()) {
-            throw std::runtime_error("NestedGraphNode::write_inputs not yet implemented for V2");
+            throw std::runtime_error("NestedGraphNode::write_inputs not yet implemented");
         }
     }
 
     void NestedGraphNode::wire_outputs() {
-        // TODO: V2 implementation - requires node output management
-        // For now stubbed - nested graph node needs V2-compatible output wiring
+        // TODO: Requires node output management
         if (m_output_node_id_ >= 0) {
-            throw std::runtime_error("NestedGraphNode::wire_outputs not yet implemented for V2");
+            throw std::runtime_error("NestedGraphNode::wire_outputs not yet implemented");
         }
     }
 

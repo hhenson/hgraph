@@ -16,15 +16,15 @@ using namespace nb::literals;
 
 namespace hgraph {
 
-// V1 constructor: keys only
+// Legacy constructor: keys only
 PyTimeSeriesSchema::PyTimeSeriesSchema(std::vector<std::string> keys)
     : PyTimeSeriesSchema(std::move(keys), nb::none()) {}
 
-// V1 constructor: keys + scalar type
+// Legacy constructor: keys + scalar type
 PyTimeSeriesSchema::PyTimeSeriesSchema(std::vector<std::string> keys, nb::object type)
     : _meta(nullptr), _keys(std::move(keys)), _scalar_type(std::move(type)), _keys_cached(true) {}
 
-// V2 constructor: delegate to TSBTypeMeta
+// Value-based constructor: delegate to TSBTypeMeta
 PyTimeSeriesSchema::PyTimeSeriesSchema(const TSBTypeMeta* meta, nb::object scalar_type)
     : _meta(meta), _scalar_type(std::move(scalar_type)), _keys_cached(false) {}
 

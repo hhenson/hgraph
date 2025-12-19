@@ -5,8 +5,8 @@
 //
 // This class provides the schema interface required by PyTimeSeriesBundle.
 // It can delegate to either:
-// - Owned data (vector of keys + scalar_type) for V1 bundle types
-// - TSBTypeMeta* for V2 bundle types (delegation pattern)
+// - Owned data (vector of keys + scalar_type) for legacy bundle types
+// - TSBTypeMeta* for value-based bundle types (delegation pattern)
 //
 
 #pragma once
@@ -24,17 +24,17 @@ struct TSBTypeMeta;
  *
  * In Python, this extends AbstractSchema and provides schema information
  * for TSB (TimeSeriesBundle) types. It can be created from:
- * 1. A list of keys (property names) - V1 bundles
- * 2. A TSBTypeMeta* pointer - V2 bundles (delegation)
+ * 1. A list of keys (property names) - legacy bundles
+ * 2. A TSBTypeMeta* pointer - value-based bundles (delegation)
  */
 struct PyTimeSeriesSchema : AbstractSchema {
     using ptr = nb::ref<PyTimeSeriesSchema>;
 
-    // V1 constructors: own the data
+    // Legacy constructors: own the data
     explicit PyTimeSeriesSchema(std::vector<std::string> keys);
     explicit PyTimeSeriesSchema(std::vector<std::string> keys, nb::object type);
 
-    // V2 constructor: delegate to TSBTypeMeta
+    // Value-based constructor: delegate to TSBTypeMeta
     explicit PyTimeSeriesSchema(const TSBTypeMeta* meta, nb::object scalar_type = nb::none());
 
     // Override from AbstractSchema
@@ -47,8 +47,8 @@ struct PyTimeSeriesSchema : AbstractSchema {
     static void register_with_nanobind(nb::module_& m);
 
 private:
-    const TSBTypeMeta* _meta{nullptr};       // V2: delegate to this (may be null)
-    mutable std::vector<std::string> _keys;  // V1: owned keys, or cached from meta
+    const TSBTypeMeta* _meta{nullptr};       // Value-based: delegate to this (may be null)
+    mutable std::vector<std::string> _keys;  // Legacy: owned keys, or cached from meta
     nb::object _scalar_type;
     mutable bool _keys_cached{false};
 };

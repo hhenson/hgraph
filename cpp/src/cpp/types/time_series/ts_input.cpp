@@ -1,7 +1,7 @@
 //
 // Created by Claude on 16/12/2025.
 //
-// TSInput implementation - V2 time-series input with hierarchical access strategies
+// TSInput implementation - Value-based time-series input with hierarchical access strategies
 //
 
 #include <hgraph/types/time_series/ts_input.h>

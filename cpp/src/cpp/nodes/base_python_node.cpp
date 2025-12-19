@@ -46,7 +46,7 @@ namespace hgraph
                     if ((injectable & InjectableTypesEnum::NODE) != InjectableTypesEnum::NONE) {
                         wrapped_value = get_node_wrapper();
                     } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
-                        // TODO: V2 needs wrap_ts_output() for ts::TSOutput*
+                        // TODO: Needs wrap_ts_output() for ts::TSOutput*
                         wrapped_value = nb::none();  // Placeholder
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
@@ -77,7 +77,7 @@ namespace hgraph
                         wrapped_value = g ? wrap_traits(&g->traits(), g->shared_from_this()) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
                         if (!has_recordable_state()) { throw std::runtime_error("Recordable state not set"); }
-                        // TODO: V2 needs wrap_ts_output() for ts::TSOutput*
+                        // TODO: Needs wrap_ts_output() for ts::TSOutput*
                         wrapped_value = nb::none();  // Placeholder
                     } else {
                         // Fallback: call injector with this node (same behaviour as python impl)
@@ -109,7 +109,7 @@ namespace hgraph
             return;
         }
         auto &signature_args = signature().args;
-        // V2: Wrap input fields from the bundle
+        // Wrap input fields from the bundle
         if (!signature().time_series_inputs.has_value()) {
             return;
         }
@@ -169,9 +169,9 @@ namespace hgraph
                                                  nb::arg("tm") = nb::cast(tm), nb::arg("as_of") = as_of);
 
         // Set the value on recordable_state
-        // TODO: V2 recordable_state needs apply_result equivalent
+        // TODO: recordable_state needs apply_result equivalent
         if (auto* rs = recordable_state()) {
-            // For now, skip - needs V2 implementation
+            // For now, skip - needs implementation
             // rs->set_value(...) or similar
         }
     }
@@ -180,9 +180,9 @@ namespace hgraph
     {
       public:
         explicit ContextManager(BasePythonNode &node) {
-            // TODO: V2 context input handling needs ts::TSInput field access
-            // For now, context inputs are not supported in V2
-            // Original V1 code:
+            // TODO: Context input handling needs ts::TSInput field access
+            // For now, context inputs are not supported
+            // Original code:
             // if (node.signature().context_inputs.has_value() && !node.signature().context_inputs->empty()) {
             //     for (const auto &context_key : *node.signature().context_inputs) {
             //         if ((*node.input())[context_key]->valid()) {

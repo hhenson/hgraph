@@ -57,7 +57,7 @@ namespace hgraph {
     }
 
     void NodeBuilder::release_instance(const node_s_ptr &item) const {
-        // V2 uses value types (std::optional<ts::TSInput/TSOutput>) owned by the Node.
+        // Time-series are value types (std::optional<ts::TSInput/TSOutput>) owned by the Node.
         // No need to call release_instance on builders - just dispose the component.
         (void)input_builder;
         (void)output_builder;
@@ -136,7 +136,7 @@ namespace hgraph {
         if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesInputBuilder*>(raw_ptr)) {
             return cpp_builder->ts_type_meta;
         }
-        // V1 builder - return nullptr (node won't have V2 TSInput)
+        // Non-C++ builder - return nullptr (node won't have value-based TSInput)
         return nullptr;
     }
 
@@ -147,7 +147,7 @@ namespace hgraph {
         if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(output_builder->get())) {
             return cpp_builder->ts_type_meta;
         }
-        // V1 builder - return nullptr (node won't have V2 TSOutput)
+        // Non-C++ builder - return nullptr (node won't have value-based TSOutput)
         return nullptr;
     }
 
@@ -158,7 +158,7 @@ namespace hgraph {
         if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(error_builder->get())) {
             return cpp_builder->ts_type_meta;
         }
-        // V1 builder - return nullptr (node won't have V2 TSOutput for errors)
+        // Non-C++ builder - return nullptr (node won't have value-based TSOutput for errors)
         return nullptr;
     }
 
@@ -169,7 +169,7 @@ namespace hgraph {
         if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(recordable_state_builder->get())) {
             return cpp_builder->ts_type_meta;
         }
-        // V1 builder - return nullptr (node won't have V2 TSOutput for recordable state)
+        // Non-C++ builder - return nullptr (node won't have value-based TSOutput for recordable state)
         return nullptr;
     }
 } // namespace hgraph

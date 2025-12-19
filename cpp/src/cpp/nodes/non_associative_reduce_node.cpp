@@ -47,15 +47,14 @@ namespace hgraph {
         return nested_graph_ ? nested_graph_->nodes().size() / node_size() : 0;
     }
 
-    // V2 stubs - TsdNonAssociativeReduceNode uses V1 APIs extensively
-    // TODO: Implement TsdNonAssociativeReduceNode for V2
+    // TODO: Implement TsdNonAssociativeReduceNode
 
     void TsdNonAssociativeReduceNode::initialise() {
-        throw std::runtime_error("TsdNonAssociativeReduceNode::initialise not yet implemented for V2");
+        throw std::runtime_error("TsdNonAssociativeReduceNode::initialise not yet implemented");
     }
 
     void TsdNonAssociativeReduceNode::do_start() {
-        throw std::runtime_error("TsdNonAssociativeReduceNode::do_start not yet implemented for V2");
+        throw std::runtime_error("TsdNonAssociativeReduceNode::do_start not yet implemented");
     }
 
     void TsdNonAssociativeReduceNode::do_stop() {
@@ -70,15 +69,15 @@ namespace hgraph {
     }
 
     void TsdNonAssociativeReduceNode::eval() {
-        throw std::runtime_error("TsdNonAssociativeReduceNode::eval not yet implemented for V2");
+        throw std::runtime_error("TsdNonAssociativeReduceNode::eval not yet implemented");
     }
 
     void TsdNonAssociativeReduceNode::update_changes() {
-        throw std::runtime_error("TsdNonAssociativeReduceNode::update_changes not yet implemented for V2");
+        throw std::runtime_error("TsdNonAssociativeReduceNode::update_changes not yet implemented");
     }
 
     void TsdNonAssociativeReduceNode::extend_nodes_to(int64_t) {
-        throw std::runtime_error("TsdNonAssociativeReduceNode::extend_nodes_to not yet implemented for V2");
+        throw std::runtime_error("TsdNonAssociativeReduceNode::extend_nodes_to not yet implemented");
     }
 
     void TsdNonAssociativeReduceNode::erase_nodes_from(int64_t ndx) {
@@ -86,15 +85,15 @@ namespace hgraph {
     }
 
     void TsdNonAssociativeReduceNode::bind_output() {
-        throw std::runtime_error("TsdNonAssociativeReduceNode::bind_output not yet implemented for V2");
+        throw std::runtime_error("TsdNonAssociativeReduceNode::bind_output not yet implemented");
     }
 
     nb::object TsdNonAssociativeReduceNode::last_output_value() {
-        throw std::runtime_error("TsdNonAssociativeReduceNode::last_output_value not yet implemented for V2");
+        throw std::runtime_error("TsdNonAssociativeReduceNode::last_output_value not yet implemented");
     }
 
     std::vector<node_s_ptr> TsdNonAssociativeReduceNode::get_node(int64_t) {
-        throw std::runtime_error("TsdNonAssociativeReduceNode::get_node not yet implemented for V2");
+        throw std::runtime_error("TsdNonAssociativeReduceNode::get_node not yet implemented");
     }
 
     void register_non_associative_reduce_node_with_nanobind(nb::module_ &m) {

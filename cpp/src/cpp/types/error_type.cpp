@@ -185,7 +185,7 @@ namespace hgraph {
         }
 
         if (depth > 0 && node) {
-            // TODO: Implement V2 back trace capture using TSInput field iteration
+            // TODO: Implement back trace capture using TSInput field iteration
             (void)capture_values;
             return BackTrace(signature, {}, {}, {}, {}, {});
         }

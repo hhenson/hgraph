@@ -1,7 +1,7 @@
 //
 // Python helper functions for ts::TSOutput and ts::TSInput
 //
-// These functions provide Python-aware operations for V2 time-series types.
+// These functions provide Python-aware operations for value-based time-series types.
 // They delegate conversion logic to the schema's from_python/to_python ops.
 //
 // Pattern:

@@ -15,7 +15,7 @@ namespace hgraph {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
             // Python parity: set the outer REF 'out' to reference the inner node's existing output.
             // Do NOT replace the inner node's output pointer.
-            // TODO: V2 implementation needs proper bundle field navigation
+            // TODO: Needs proper bundle field navigation
             auto* output_ptr = output();
             if (output_ptr && output_ptr->meta() && output_ptr->meta()->ts_kind == TimeSeriesKind::TSB) {
                 // Bundle case - need to navigate to 'out' field

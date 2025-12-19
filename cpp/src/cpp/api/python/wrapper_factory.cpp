@@ -268,13 +268,10 @@ namespace
     }
 
     nb::object wrap_time_series(const time_series_output_s_ptr& output) {
-        // V1 compatibility: Wrap a shared_ptr<TimeSeriesOutput> using V1 Python wrapper
-        // This is used by V1 types like TSD that are still compiled
+        // Wrap a shared_ptr<TimeSeriesOutput> - this is for legacy time-series types
         if (!output) { return nb::none(); }
-        // In V2 mode, we don't have V1 Python wrappers.
-        // This function is only called from V1 types (like TSD) which shouldn't
-        // be actively used in V2 mode.
-        throw std::runtime_error("wrap_time_series(shared_ptr) not supported in V2 mode - V1 types should not be used");
+        // This function is only called from legacy types which are not actively used
+        throw std::runtime_error("wrap_time_series(shared_ptr) not supported - legacy types should not be used");
     }
 
     nb::object wrap_evaluation_engine_api(EvaluationEngineApi::s_ptr impl) {

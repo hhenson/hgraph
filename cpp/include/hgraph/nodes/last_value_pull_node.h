@@ -22,7 +22,7 @@ namespace hgraph {
         using Node::Node;
 
         /**
-         * Copy a value from a V2 input
+         * Copy a value from an input
          * This is called when the node needs to pull a value from another output
          */
         void copy_from_input(const ts::TSInput &input);

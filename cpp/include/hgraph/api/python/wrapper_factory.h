@@ -152,9 +152,8 @@ namespace hgraph
     }
 
     /**
-     * V1 compatibility: Wrap a time_series_output_s_ptr in a Python wrapper.
-     * Uses the Python API wrapper classes from V1.
-     * This is kept for V1 types that still exist in the codebase.
+     * Wrap a time_series_output_s_ptr in a Python wrapper.
+     * Uses the Python API wrapper classes for legacy time-series types.
      */
     nb::object wrap_time_series(const time_series_output_s_ptr& output);
 

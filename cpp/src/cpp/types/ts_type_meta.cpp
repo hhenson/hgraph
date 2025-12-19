@@ -65,23 +65,21 @@ std::string TSSTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSSTypeMeta::make_output(node_ptr owning_node) const {
-    // TSS V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    // Not yet implemented
     return {};
 }
 
 time_series_input_s_ptr TSSTypeMeta::make_input(node_ptr owning_node) const {
-    // TSS V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    // Not yet implemented
     return {};
 }
 
 size_t TSSTypeMeta::output_memory_size() const {
-    // TSS V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 size_t TSSTypeMeta::input_memory_size() const {
-    // TSS V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 // ============================================================================
@@ -95,23 +93,21 @@ std::string TSDTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSDTypeMeta::make_output(node_ptr owning_node) const {
-    // TSD V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    // Not yet implemented
     return {};
 }
 
 time_series_input_s_ptr TSDTypeMeta::make_input(node_ptr owning_node) const {
-    // TSD V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    // Not yet implemented
     return {};
 }
 
 size_t TSDTypeMeta::output_memory_size() const {
-    // TSD V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 size_t TSDTypeMeta::input_memory_size() const {
-    // TSD V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 // ============================================================================
@@ -129,23 +125,21 @@ std::string TSLTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSLTypeMeta::make_output(node_ptr owning_node) const {
-    // TSL V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    // Not yet implemented
     return {};
 }
 
 time_series_input_s_ptr TSLTypeMeta::make_input(node_ptr owning_node) const {
-    // TSL V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    // Not yet implemented
     return {};
 }
 
 size_t TSLTypeMeta::output_memory_size() const {
-    // TSL V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 size_t TSLTypeMeta::input_memory_size() const {
-    // TSL V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 // ============================================================================
@@ -166,23 +160,21 @@ std::string TSBTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSBTypeMeta::make_output(node_ptr owning_node) const {
-    // TSB V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    // Not yet implemented
     return {};
 }
 
 time_series_input_s_ptr TSBTypeMeta::make_input(node_ptr owning_node) const {
-    // TSB V2 not yet implemented - falls back to V1 via cpp_type_meta returning None
+    // Not yet implemented
     return {};
 }
 
 size_t TSBTypeMeta::output_memory_size() const {
-    // TSB V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 size_t TSBTypeMeta::input_memory_size() const {
-    // TSB V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 // ============================================================================
@@ -200,23 +192,21 @@ std::string TSWTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSWTypeMeta::make_output(node_ptr owning_node) const {
-    // TSW V2 not yet implemented - falls back to V1
+    // Not yet implemented
     return {};
 }
 
 time_series_input_s_ptr TSWTypeMeta::make_input(node_ptr owning_node) const {
-    // TSW V2 not yet implemented - falls back to V1
+    // Not yet implemented
     return {};
 }
 
 size_t TSWTypeMeta::output_memory_size() const {
-    // TSW V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 size_t TSWTypeMeta::input_memory_size() const {
-    // TSW V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 // ============================================================================
@@ -229,23 +219,21 @@ std::string REFTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr REFTypeMeta::make_output(node_ptr owning_node) const {
-    // REF V2 not yet implemented - falls back to V1
+    // Not yet implemented
     return {};
 }
 
 time_series_input_s_ptr REFTypeMeta::make_input(node_ptr owning_node) const {
-    // REF V2 not yet implemented - falls back to V1
+    // Not yet implemented
     return {};
 }
 
 size_t REFTypeMeta::output_memory_size() const {
-    // REF V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 size_t REFTypeMeta::input_memory_size() const {
-    // REF V2 not yet implemented
-    return 0;
+    return 0;  // Not yet implemented
 }
 
 // ============================================================================

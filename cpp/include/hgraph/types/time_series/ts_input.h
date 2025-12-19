@@ -1,7 +1,7 @@
 //
 // Created by Claude on 16/12/2025.
 //
-// TSInput and TSInputView - V2 time-series input implementation
+// TSInput and TSInputView - Value-based time-series input implementation
 //
 // Design principles:
 // - Input binds to an output (does not own data)
@@ -381,7 +381,7 @@ private:
 // ============================================================================
 
 /**
- * TSInput - V2 time-series input implementation
+ * TSInput - Value-based time-series input implementation
  *
  * Behavior:
  * - Binds to a TSOutput to receive data

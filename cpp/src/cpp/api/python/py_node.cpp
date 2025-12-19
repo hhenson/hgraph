@@ -128,8 +128,8 @@ namespace hgraph
         nb::dict d;
         auto inp_ = _impl->input();
         if (!inp_) { return d; }
-        // TODO: V2 - TSInput doesn't expose field iteration directly
-        // Need deeper V2 API work to support inputs() dict
+        // TODO: TSInput doesn't expose field iteration directly
+        // Need deeper API work to support inputs() dict
         // For now, return empty dict
         return d;
     }

@@ -1,7 +1,7 @@
 //
 // Created by Claude on 16/12/2025.
 //
-// TSOutput implementation - V2 time-series output
+// TSOutput implementation - Value-based time-series output
 //
 // Most functionality is header-only (templates and inline methods).
 // This file ensures the header compiles and provides a location for

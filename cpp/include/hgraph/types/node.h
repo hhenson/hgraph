@@ -228,7 +228,7 @@ namespace hgraph
 
         void set_graph(graph_ptr value);
 
-        // V2-style accessors (for new code using value types)
+        // Value-based time-series accessors
         ts::TSInput* input() { return _ts_input ? &*_ts_input : nullptr; }
         const ts::TSInput* input() const { return _ts_input ? &*_ts_input : nullptr; }
         bool has_input() const { return _ts_input.has_value(); }
@@ -285,7 +285,7 @@ namespace hgraph
         nb::dict                        _scalars;
         graph_ptr                       _graph;             // back-pointer, not owned
 
-        // V2-style time-series (value types, constructed from type metas)
+        // Value-based time-series (constructed from type metas)
         std::optional<ts::TSInput>      _ts_input;              // owned - input as value
         std::optional<ts::TSOutput>     _ts_output;             // owned - output as value
         std::optional<ts::TSOutput>     _ts_error_output;       // owned - error output as value
