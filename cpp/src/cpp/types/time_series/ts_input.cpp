@@ -73,6 +73,12 @@ void TSInput::make_passive() {
 }
 
 void TSInput::notify(engine_time_t time) {
+
+    // Let strategy handle the notification first (e.g., detect reference changes)
+    if (_strategy) {
+        _strategy->on_notify(time);
+    }
+
     // Propagate notification to owning node if active
     if (_active && _owning_node) {
         _owning_node->notify(time);
@@ -84,15 +90,66 @@ TSInputView TSInput::view() const {
         return {};
     }
 
-    auto val = _strategy->value();
-    auto trk = _strategy->tracker();
+    // Return a view pointing to the strategy - never materialized
+    // The view will fetch fresh data from the strategy on each access
+    return TSInputView(_strategy.get(), _meta);
+}
 
-    return {
-        val,
-        trk,
-        _meta,
-        NavigationPath(nullptr)  // Input views track from input, not output
-    };
+// ============================================================================
+// TSInputView navigation implementation
+// ============================================================================
+
+TSInputView TSInputView::field(size_t index) const {
+    if (!valid()) {
+        return {};
+    }
+
+    // Check if source is a CollectionAccessStrategy with a child at this index
+    if (auto* collection = dynamic_cast<CollectionAccessStrategy*>(_source)) {
+        if (auto* child = collection->child(index)) {
+            auto field_meta = _meta ? _meta->field_meta(index) : nullptr;
+            return TSInputView(child, field_meta,
+                              NavigationPath(_path, PathSegment::field(index, field_meta)));
+        }
+    }
+
+    // No child strategy - return invalid view
+    return {};
+}
+
+TSInputView TSInputView::field(const std::string& name) const {
+    if (!valid() || !_meta || _meta->ts_kind != TimeSeriesKind::TSB) {
+        return {};
+    }
+
+    auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+
+    // Find field index by name
+    for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+        if (tsb_meta->fields[i].name == name) {
+            return field(i);
+        }
+    }
+
+    return {};
+}
+
+TSInputView TSInputView::element(size_t index) const {
+    if (!valid()) {
+        return {};
+    }
+
+    // Check if source is a CollectionAccessStrategy with a child at this index
+    if (auto* collection = dynamic_cast<CollectionAccessStrategy*>(_source)) {
+        if (auto* child = collection->child(index)) {
+            auto elem_meta = _meta ? _meta->element_meta() : nullptr;
+            return TSInputView(child, elem_meta,
+                              NavigationPath(_path, PathSegment::at_index(index, elem_meta)));
+        }
+    }
+
+    // No child strategy - return invalid view
+    return {};
 }
 
 size_t TSInput::field_count_from_meta() const {

@@ -1072,20 +1072,34 @@ namespace hgraph::value {
             // to the TSOutput that contains the referenced value.
             auto* storage = static_cast<const RefStorage*>(v);
 
+            fmt::print("[TRACE] RefPythonOps::to_python storage={} is_empty={} is_bound={}\n",
+                       (void*)storage, storage->is_empty(), storage->is_bound());
+
             if (storage->is_empty()) {
                 // Return empty TimeSeriesReference
+                fmt::print("[TRACE]   returning empty TimeSeriesReference\n");
                 return nb::cast(TimeSeriesReference::make()).release().ptr();
             }
 
             if (storage->is_bound()) {
                 const ValueRef& target = storage->target();
+                fmt::print("[TRACE]   target.has_owner()={} owner={}\n",
+                           target.has_owner(), target.owner);
                 if (target.has_owner()) {
                     // Create TimeSeriesReference from the owning TSOutput
                     auto* output = static_cast<ts::TSOutput*>(target.owner);
                     auto ref = TimeSeriesReference::make(output->view());
-                    return nb::cast(ref).release().ptr();
+                    fmt::print("[TRACE]   created TimeSeriesReference is_empty={} is_bound={}\n",
+                               ref.is_empty(), ref.is_bound());
+                    auto py_obj = nb::cast(ref);
+                    // Verify it's still valid after cast to Python
+                    auto& ref_from_py = nb::cast<TimeSeriesReference&>(py_obj);
+                    fmt::print("[TRACE]   after cast back: is_empty={} is_bound={}\n",
+                               ref_from_py.is_empty(), ref_from_py.is_bound());
+                    return py_obj.release().ptr();
                 }
                 // Fallback to empty ref if no owner
+                fmt::print("[TRACE]   no owner, returning empty ref\n");
                 return nb::cast(TimeSeriesReference::make()).release().ptr();
             }
 
@@ -1111,8 +1125,10 @@ namespace hgraph::value {
         static void from_python(void* dest, void* py_obj, const TypeMeta* meta) {
             // Convert a Python TimeSeriesReference to RefStorage
             auto py_ref = nb::handle(static_cast<PyObject*>(py_obj));
+            fmt::print("[TRACE] RefPythonOps::from_python dest={}\n", dest);
             if (py_ref.is_none()) {
                 // None → EMPTY
+                fmt::print("[TRACE]   py_ref is None, returning empty\n");
                 *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
                 return;
             }
@@ -1120,21 +1136,25 @@ namespace hgraph::value {
             // Cast to TimeSeriesReference
             if (!nb::isinstance<TimeSeriesReference>(py_ref)) {
                 // Not a TimeSeriesReference - try to get from .value property
+                fmt::print("[TRACE]   not TimeSeriesReference, checking .value\n");
                 if (nb::hasattr(py_ref, "value")) {
                     auto val = py_ref.attr("value");
                     if (nb::isinstance<TimeSeriesReference>(val)) {
                         py_ref = val;
                     } else {
+                        fmt::print("[TRACE]   .value not TimeSeriesReference, returning empty\n");
                         *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
                         return;
                     }
                 } else {
+                    fmt::print("[TRACE]   no .value attr, returning empty\n");
                     *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
                     return;
                 }
             }
 
             const auto& ts_ref = nb::cast<const TimeSeriesReference&>(py_ref);
+            fmt::print("[TRACE]   ts_ref is_empty={} is_bound={}\n", ts_ref.is_empty(), ts_ref.is_bound());
 
             if (ts_ref.is_empty()) {
                 *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
@@ -1142,26 +1162,39 @@ namespace hgraph::value {
             }
 
             if (ts_ref.is_bound()) {
-                // Resolve to get the view
-                auto view = ts_ref.resolve();
-                if (!view.valid()) {
+                // Get the output pointer - this is the key piece we need to store
+                auto* output = ts_ref.output_ptr();
+                if (!output) {
+                    fmt::print("[TRACE]   output_ptr() is null, returning empty\n");
                     *static_cast<RefStorage*>(dest) = RefStorage::make_empty();
                     return;
                 }
 
-                // Get the value view and create ValueRef
-                // view is TSOutputView, value_view() returns TimeSeriesValueView,
-                // value_view().value_view() returns ValueView which has data()
-                auto ts_value_view = view.value_view();
-                auto vv = ts_value_view.value_view();
-                auto* output = ts_ref.output_ptr();
+                // Resolve to get the view
+                auto view = ts_ref.resolve();
+                fmt::print("[TRACE]   resolve() valid={} output={}\n", view.valid(), (void*)output);
 
-                ValueRef vref(
-                    vv.data(),
-                    ts_value_view.tracker().storage(),
-                    ts_value_view.schema(),
-                    static_cast<void*>(output)  // owner
-                );
+                // For collection types (TSL, TSD, etc.) view.valid() may be false
+                // because they don't have scalar value storage. That's OK - we still
+                // have a valid reference via the output pointer.
+                void* data = nullptr;
+                void* tracker = nullptr;
+                const TypeMeta* schema = nullptr;
+
+                if (view.valid()) {
+                    // Scalar types have data and schema
+                    auto ts_value_view = view.value_view();
+                    auto vv = ts_value_view.value_view();
+                    data = vv.data();
+                    tracker = ts_value_view.tracker().storage();
+                    schema = ts_value_view.schema();
+                }
+
+                fmt::print("[TRACE]   data={} schema={} output={}\n",
+                           data, (void*)schema, (void*)output);
+
+                ValueRef vref(data, tracker, schema, static_cast<void*>(output));
+                fmt::print("[TRACE]   created bound RefStorage\n");
                 *static_cast<RefStorage*>(dest) = RefStorage::make_bound(vref);
                 return;
             }

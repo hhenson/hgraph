@@ -35,14 +35,16 @@ namespace hgraph::value {
         void* data{nullptr};                    // Pointer to the value's data
         void* tracker{nullptr};                 // Pointer to modification tracker storage (optional)
         const TypeMeta* schema{nullptr};        // Type of the referenced value
+        void* owner{nullptr};                   // Pointer to owning TSOutput (for REF resolution)
 
         ValueRef() = default;
 
-        ValueRef(void* d, void* t, const TypeMeta* s)
-            : data(d), tracker(t), schema(s) {}
+        ValueRef(void* d, void* t, const TypeMeta* s, void* o = nullptr)
+            : data(d), tracker(t), schema(s), owner(o) {}
 
         [[nodiscard]] bool valid() const { return data != nullptr && schema != nullptr; }
         [[nodiscard]] bool has_tracker() const { return tracker != nullptr; }
+        [[nodiscard]] bool has_owner() const { return owner != nullptr; }
 
         // Equality based on data pointer (uniqueness)
         bool operator==(const ValueRef& other) const { return data == other.data; }

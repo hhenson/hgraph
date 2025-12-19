@@ -63,11 +63,13 @@ namespace hgraph
         if (!ts_value_view.valid()) return nb::none();
         // Get the underlying ValueView which has the data() method
         auto vv = ts_value_view.value_view();
-        return value::value_to_python(vv.data(), ts_value_view.schema());
+        auto* schema = ts_value_view.schema();
+        return value::value_to_python(vv.data(), schema);
     }
 
     nb::object PyTimeSeriesOutput::delta_value() const {
-        if (!_view.valid() || !_node) return nb::none();
+        if (!_view.valid()) return nb::none();
+        if (!_node) return nb::none();
 
         auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
         if (!_view.modified_at(eval_time)) return nb::none();
@@ -174,17 +176,26 @@ namespace hgraph
     PyTimeSeriesInput::PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TimeSeriesTypeMeta* meta)
         : PyTimeSeriesType(std::move(node), meta), _view(std::move(view)), _input(input) {}
 
+    PyTimeSeriesInput::PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, const TimeSeriesTypeMeta* meta)
+        : PyTimeSeriesType(std::move(node), meta), _view(std::move(view)), _input(nullptr) {}
+
     nb::object PyTimeSeriesInput::value() const {
+        // The view points to the AccessStrategy and fetches fresh data on each call
+        // This works for both direct inputs and field wrappers
         if (!_view.valid()) return nb::none();
         auto value_view = _view.value_view();
         if (!value_view.valid()) return nb::none();
-        return value::value_to_python(value_view.data(), value_view.schema());
+        // Get schema from meta if available, fall back to value_view schema
+        auto* schema = _meta ? _meta->value_schema() : value_view.schema();
+        return value::value_to_python(value_view.data(), schema);
     }
 
     nb::object PyTimeSeriesInput::delta_value() const {
-        if (!_view.valid() || !_node) return nb::none();
-
+        if (!_node) return nb::none();
         auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+
+        // The view fetches fresh data from the strategy
+        if (!_view.valid()) return nb::none();
         if (!_view.modified_at(eval_time)) return nb::none();
 
         auto delta = _view.delta_view(eval_time);

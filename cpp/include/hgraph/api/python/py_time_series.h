@@ -82,12 +82,18 @@ namespace hgraph
     {
         // Move semantics
         PyTimeSeriesOutput(PyTimeSeriesOutput&& other) noexcept
-            : PyTimeSeriesType(std::move(other)), _view(std::move(other._view)) {}
+            : PyTimeSeriesType(std::move(other))
+            , _view(std::move(other._view))
+            , _output(other._output) {
+            other._output = nullptr;
+        }
 
         PyTimeSeriesOutput& operator=(PyTimeSeriesOutput&& other) noexcept {
             if (this != &other) {
                 PyTimeSeriesType::operator=(std::move(other));
                 _view = std::move(other._view);
+                _output = other._output;
+                other._output = nullptr;
             }
             return *this;
         }
@@ -131,8 +137,12 @@ namespace hgraph
     /**
      * PyTimeSeriesInput - Python wrapper for time-series inputs
      *
-     * Holds TSInputView for value access.
-     * Holds raw pointer to TSInput for binding operations.
+     * Holds TSInputView for value access. The view points to an AccessStrategy
+     * and fetches fresh data on each access (never materialized).
+     *
+     * Optionally holds raw pointer to TSInput for binding operations.
+     * Field wrappers don't have a TSInput, only a view.
+     *
      * Inherits node_s_ptr and meta from base class.
      */
     struct HGRAPH_EXPORT PyTimeSeriesInput : PyTimeSeriesType
@@ -141,10 +151,8 @@ namespace hgraph
         PyTimeSeriesInput(PyTimeSeriesInput&& other) noexcept
             : PyTimeSeriesType(std::move(other))
             , _view(std::move(other._view))
-            , _input(other._input)
-            , _strategy(other._strategy) {
+            , _input(other._input) {
             other._input = nullptr;
-            other._strategy = nullptr;
         }
 
         PyTimeSeriesInput& operator=(PyTimeSeriesInput&& other) noexcept {
@@ -152,9 +160,7 @@ namespace hgraph
                 PyTimeSeriesType::operator=(std::move(other));
                 _view = std::move(other._view);
                 _input = other._input;
-                _strategy = other._strategy;
                 other._input = nullptr;
-                other._strategy = nullptr;
             }
             return *this;
         }
@@ -194,18 +200,16 @@ namespace hgraph
         [[nodiscard]] ts::TSInputView& view() { return _view; }
         [[nodiscard]] const ts::TSInputView& view() const { return _view; }
         [[nodiscard]] ts::TSInput* input() const { return _input; }
-        [[nodiscard]] ts::AccessStrategy* strategy() const { return _strategy; }
 
-        // Constructor for direct input wrappers
+        // Constructor for direct input wrappers (with TSInput for binding operations)
         PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TimeSeriesTypeMeta* meta);
 
-        // Constructor for field wrappers with strategy (for dynamic value access)
-        PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::AccessStrategy* strategy, const TimeSeriesTypeMeta* meta);
+        // Constructor for field wrappers (view only, no TSInput)
+        PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, const TimeSeriesTypeMeta* meta);
 
       private:
         ts::TSInputView _view;
         ts::TSInput* _input{nullptr};
-        ts::AccessStrategy* _strategy{nullptr};  // For field wrappers that need fresh value access
     };
 
 }  // namespace hgraph

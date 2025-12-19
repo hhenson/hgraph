@@ -33,6 +33,7 @@ namespace hgraph::ts {
 
 // Forward declarations
 class TSOutput;
+class TSOutputView;
 class TSInput;
 
 // ============================================================================
@@ -96,6 +97,13 @@ public:
      */
     virtual void make_passive() = 0;
 
+    /**
+     * Handle notification from subscribed output
+     * Called by TSInput::notify() before notifying the owning node.
+     * Strategies can override to detect changes (e.g., reference changes).
+     */
+    virtual void on_notify(engine_time_t time) {}
+
     // === Value access ===
 
     /**
@@ -128,6 +136,20 @@ public:
 
     // === Owner access ===
     [[nodiscard]] TSInput* owner() const { return _owner; }
+
+    /**
+     * Get the current evaluation time from the owner's graph context
+     * Returns MIN_DT if the owner or graph is not available
+     */
+    [[nodiscard]] engine_time_t get_evaluation_time() const;
+
+    // === Bound output access ===
+    /**
+     * Get the output this strategy is bound to for value purposes
+     * For RefObserver, returns target_output (what REF points to)
+     * For others, returns the directly bound output
+     */
+    [[nodiscard]] virtual TSOutput* bound_output() const = 0;
 
 protected:
     TSInput* _owner;
@@ -167,6 +189,7 @@ public:
     [[nodiscard]] engine_time_t last_modified_time() const override;
 
     [[nodiscard]] TSOutput* output() const { return _output; }
+    [[nodiscard]] TSOutput* bound_output() const override { return _output; }
 
 private:
     TSOutput* _output{nullptr};
@@ -196,6 +219,11 @@ public:
 
     void make_active() override;
     void make_passive() override;
+
+    /**
+     * Propagate on_notify to child strategies
+     */
+    void on_notify(engine_time_t time) override;
 
     [[nodiscard]] value::ConstValueView value() const override;
     [[nodiscard]] value::ModificationTracker tracker() const override;
@@ -231,6 +259,7 @@ public:
     [[nodiscard]] bool has_storage() const { return _storage.has_value(); }
 
     [[nodiscard]] TSOutput* output() const { return _output; }
+    [[nodiscard]] TSOutput* bound_output() const override { return _output; }
 
 private:
     TSOutput* _output{nullptr};
@@ -263,6 +292,11 @@ public:
     void make_active() override;
     void make_passive() override;
 
+    /**
+     * Handle notification - detect reference changes
+     */
+    void on_notify(engine_time_t time) override;
+
     [[nodiscard]] value::ConstValueView value() const override;
     [[nodiscard]] value::ModificationTracker tracker() const override;
 
@@ -278,6 +312,7 @@ public:
 
     [[nodiscard]] TSOutput* ref_output() const { return _ref_output; }
     [[nodiscard]] TSOutput* target_output() const { return _target_output; }
+    [[nodiscard]] TSOutput* bound_output() const override { return _target_output; }
     [[nodiscard]] AccessStrategy* child_strategy() const { return _child.get(); }
 
 private:
@@ -295,6 +330,7 @@ private:
     TSOutput* _target_output{nullptr};   // Current target (what REF points to)
     std::unique_ptr<AccessStrategy> _child;  // Strategy for accessing target's value
     engine_time_t _sample_time{MIN_DT};  // When we last rebound
+    mutable engine_time_t _last_notify_time{MIN_DT};  // Last notification time (for Python-managed types)
 };
 
 // ============================================================================
@@ -319,22 +355,77 @@ public:
     void rebind(TSOutput* output) override;
     void unbind() override;
 
-    void make_active() override { /* no-op: doesn't subscribe */ }
-    void make_passive() override { /* no-op */ }
+    void make_active() override;
+    void make_passive() override;
 
     [[nodiscard]] value::ConstValueView value() const override;
     [[nodiscard]] value::ModificationTracker tracker() const override;
 
     [[nodiscard]] bool has_value() const override { return _wrapped_output != nullptr; }
     [[nodiscard]] bool modified_at(engine_time_t time) const override;
-    [[nodiscard]] engine_time_t last_modified_time() const override { return _bind_time; }
+    [[nodiscard]] engine_time_t last_modified_time() const override;
 
     [[nodiscard]] TSOutput* wrapped_output() const { return _wrapped_output; }
+    [[nodiscard]] TSOutput* bound_output() const override { return _wrapped_output; }
 
 private:
     TSOutput* _wrapped_output{nullptr};
     value::TimeSeriesValue _storage;  // Holds the REF value
     engine_time_t _bind_time{MIN_DT};
+};
+
+// ============================================================================
+// ElementAccessStrategy - Accesses a specific element of a collection
+// ============================================================================
+
+/**
+ * ElementAccessStrategy - Accesses an element of a collection output via navigation
+ *
+ * Used for TSL elements and TSB fields when the collection has no child outputs.
+ * Instead of binding to individual element outputs (which don't exist), this
+ * strategy navigates via views to access element-specific values.
+ *
+ * Subscription:
+ * - Subscribes to the parent collection output
+ * - Element modification detected via view navigation
+ */
+class ElementAccessStrategy : public AccessStrategy {
+public:
+    enum class NavigationKind : uint8_t {
+        ListElement,   // TSL - use view.element(index)
+        BundleField    // TSB - use view.field(index)
+    };
+
+    ElementAccessStrategy(TSInput* owner, size_t index, NavigationKind kind)
+        : AccessStrategy(owner), _index(index), _kind(kind) {}
+
+    void bind(TSOutput* output) override;
+    void rebind(TSOutput* output) override;
+    void unbind() override;
+
+    void make_active() override;
+    void make_passive() override;
+
+    [[nodiscard]] value::ConstValueView value() const override;
+    [[nodiscard]] value::ModificationTracker tracker() const override;
+
+    [[nodiscard]] bool has_value() const override;
+    [[nodiscard]] bool modified_at(engine_time_t time) const override;
+    [[nodiscard]] engine_time_t last_modified_time() const override;
+
+    [[nodiscard]] TSOutput* parent_output() const { return _parent_output; }
+    [[nodiscard]] TSOutput* bound_output() const override { return _parent_output; }
+    [[nodiscard]] size_t index() const { return _index; }
+
+private:
+    /**
+     * Navigate to the element's output view
+     */
+    [[nodiscard]] TSOutputView get_element_view() const;
+
+    TSOutput* _parent_output{nullptr};
+    size_t _index;
+    NavigationKind _kind;
 };
 
 // ============================================================================

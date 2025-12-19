@@ -348,6 +348,8 @@ namespace hgraph::value {
 
         [[nodiscard]] bool valid() const { return _storage && _value_meta; }
         [[nodiscard]] const TypeMeta* value_schema() const { return _value_meta; }
+        [[nodiscard]] void* storage() { return _storage; }
+        [[nodiscard]] const void* storage() const { return _storage; }
 
         // Query modification state
         [[nodiscard]] bool modified_at(engine_time_t time) const {

@@ -69,6 +69,12 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         }
 
         view.mark_modified(time);
+    } else {
+        // For collection types without value schema (TSL, TSD, TSS),
+        // we can't store the value directly in C++ storage, but we should
+        // still mark as modified so subscribers (like REF inputs) get notified.
+        // The actual value is managed by the Python implementation.
+        view.mark_modified(time);
     }
 }
 
@@ -144,8 +150,8 @@ inline nb::object get_python_value(const TSInput* input) {
     if (!input || !input->has_value()) return nb::none();
 
     auto view = input->view();
-    // TSInputView::value_view() returns ConstValueView directly (not TimeSeriesValueView)
-    auto& value_view = view.value_view();
+    // TSInputView::value_view() returns a fresh ConstValueView each time (not cached)
+    auto value_view = view.value_view();
     auto* schema = value_view.schema();
 
     if (!value_view.valid() || !schema) return nb::none();

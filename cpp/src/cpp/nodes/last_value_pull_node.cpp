@@ -78,7 +78,7 @@ namespace hgraph {
         }
 
         // Convert value to Python object
-        auto& value_view = view.value_view();
+        auto value_view = view.value_view();
         auto delta = value::value_to_python(value_view.data(), value_view.schema());
 
         if (_delta_value.has_value()) {

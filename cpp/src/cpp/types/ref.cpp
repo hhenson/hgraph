@@ -60,10 +60,19 @@ namespace hgraph
         // Start with the root view
         ts::TSOutputView view = output->view();
 
+        // If no path, return the root view directly
+        // Don't check view.valid() - collection types may have null value schema
+        // but still be valid references to outputs
+        if (_path.empty()) {
+            return view;
+        }
+
         // Navigate the path
         for (const auto& key : _path) {
-            if (!view.valid()) {
-                return {};  // Navigation failed
+            // For navigation, check if we have metadata rather than value validity
+            // Collection types don't have value schemas but can still be navigated
+            if (!view.meta()) {
+                return {};  // Can't navigate without type metadata
             }
             if (std::holds_alternative<size_t>(key)) {
                 size_t idx = std::get<size_t>(key);
@@ -184,8 +193,9 @@ namespace hgraph
     }
 
     TimeSeriesReference TimeSeriesReference::make(const ts::TSOutputView& view) {
-        if (!view.valid()) return make();
-
+        // For TimeSeriesReference, we don't need view.valid() (which checks value/schema).
+        // Collection types (TSL, TSD, etc.) have null schema but can still be referenced.
+        // We just need to be able to navigate back to the owning node via the path.
         const auto& nav_path = view.path();
         const auto* root = nav_path.root();
         if (!root) return make();

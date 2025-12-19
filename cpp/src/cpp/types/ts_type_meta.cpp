@@ -220,13 +220,13 @@ std::string REFTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr REFTypeMeta::make_output(node_ptr owning_node) const {
-    // Not yet implemented
-    return {};
+    // Create a TSOutput for REF type with RefStorage value schema
+    return std::make_shared<ts::TSOutput>(this, owning_node);
 }
 
 time_series_input_s_ptr REFTypeMeta::make_input(node_ptr owning_node) const {
-    // Not yet implemented
-    return {};
+    // Create a TSInput for REF type
+    return std::make_shared<ts::TSInput>(this, owning_node);
 }
 
 size_t REFTypeMeta::output_memory_size() const {

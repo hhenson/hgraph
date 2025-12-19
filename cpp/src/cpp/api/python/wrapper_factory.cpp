@@ -2,7 +2,6 @@
 // Wrapper Factory Implementation
 //
 
-#include <fmt/format.h>
 #include <hgraph/api/python/py_evaluation_clock.h>
 #include <hgraph/api/python/py_evaluation_engine.h>
 #include <hgraph/api/python/py_node.h>
@@ -81,6 +80,7 @@ namespace
                 return nb::cast(PyTimeSeriesWindowOutput(std::move(node), std::move(view), output, meta));
             case TimeSeriesKind::REF:
                 // REF types use the base output wrapper (TimeSeriesReference is handled as a value)
+                // Fall through intentional
             default:
                 return nb::cast(PyTimeSeriesOutput(std::move(node), std::move(view), output, meta));
         }
@@ -109,6 +109,23 @@ namespace
                 // REF types use the base input wrapper (TimeSeriesReference is handled as a value)
             default:
                 return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), input, meta));
+        }
+    }
+
+    // Helper to create input wrapper for field views (no TSInput, just view)
+    nb::object create_field_wrapper(node_s_ptr node, ts::TSInputView view, const TimeSeriesTypeMeta* meta) {
+        if (!meta) {
+            return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), meta));
+        }
+
+        // Field wrappers use the view-only constructor (no TSInput)
+        // The view points to the child strategy and fetches fresh data on each access
+        switch (meta->ts_kind) {
+            case TimeSeriesKind::TS:
+                // For now, all field wrappers use the base PyTimeSeriesInput
+                // since specialized wrappers may need updates for view-only construction
+            default:
+                return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), meta));
         }
     }
 
@@ -165,53 +182,21 @@ namespace
             return nb::none();
         }
 
-        // Find field index by name using TSBTypeMeta
-        auto* tsb_meta = static_cast<const TSBTypeMeta*>(meta);
-        size_t field_idx = 0;
-        bool found = false;
-        for (const auto& field : tsb_meta->fields) {
-            if (field.name == field_name) {
-                found = true;
-                break;
-            }
-            field_idx++;
-        }
-
-        if (!found) {
+        // Get the root view - it points to the strategy and navigates to child strategies
+        auto root_view = input->view();
+        if (!root_view.valid()) {
             return nb::none();
         }
 
-        // Get field metadata
-        const TimeSeriesTypeMeta* field_meta = field_idx < tsb_meta->fields.size()
-            ? tsb_meta->fields[field_idx].type
-            : nullptr;
-
-        // Try to get field view via strategy if available
-        if (auto* strategy = input->strategy()) {
-            // Check if strategy is a CollectionAccessStrategy with child for this field
-            if (auto* collection = dynamic_cast<ts::CollectionAccessStrategy*>(strategy)) {
-                if (auto* child_strategy = collection->child(field_idx)) {
-                    // Create view from child strategy
-                    auto child_value = child_strategy->value();
-                    auto child_tracker = child_strategy->tracker();
-                    ts::TSInputView field_view(child_value, child_tracker, field_meta,
-                                               ts::NavigationPath(nullptr));
-                    // Note: pass nullptr for input since field wrappers don't support make_active/make_passive
-                    return create_input_wrapper(node, std::move(field_view), nullptr, field_meta);
-                }
-            }
+        // Navigate to the field - this returns a view pointing to the child strategy
+        // The view handles all the navigation and fetches fresh data on each access
+        auto field_view = root_view.field(field_name);
+        if (!field_view.valid()) {
+            return nb::none();
         }
 
-        // Fallback to view-based navigation (for whole-input binding or unbound fields)
-        auto root_view = input->view();
-        if (!root_view.valid()) { return nb::none(); }
-
-        auto field_view = root_view.field(field_name);
-        if (!field_view.valid()) { return nb::none(); }
-
-        // Create a wrapper for the field view
-        // Note: pass nullptr for input since field views don't support make_active/make_passive
-        return create_input_wrapper(node, std::move(field_view), nullptr, field_view.meta());
+        // Create a field wrapper (view only, no TSInput)
+        return create_field_wrapper(node, std::move(field_view), field_view.meta());
     }
 
     // =========================================================================
