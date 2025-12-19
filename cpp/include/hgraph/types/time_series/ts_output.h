@@ -17,6 +17,7 @@
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/time_series_value.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/delta_view.h>
 #include <string>
 #include <variant>
 #include <vector>
@@ -26,6 +27,7 @@ namespace hgraph::ts {
 // Forward declarations
 class TSOutput;
 class TSOutputView;
+class DeltaView;
 
 // ============================================================================
 // PathSegment - Describes a single navigation step
@@ -447,6 +449,26 @@ public:
         result += _value_view.to_debug_string(time);
         result += "}";
         return result;
+    }
+
+    // === Delta value access ===
+
+    /**
+     * Get a DeltaView for accessing delta values at the given time.
+     *
+     * Returns an invalid view if not modified at this time.
+     *
+     * @param time The engine time to check for modification
+     * @return DeltaView for accessing delta information
+     */
+    [[nodiscard]] DeltaView delta_view(engine_time_t time) const {
+        if (!valid() || !modified_at(time)) {
+            return {};
+        }
+        // Get const value view and tracker from the underlying TimeSeriesValueView
+        auto const_value = value::ConstValueView(_value_view.value_view().data(),
+                                                  _value_view.value_view().schema());
+        return {const_value, _value_view.tracker(), _meta, time};
     }
 
 private:

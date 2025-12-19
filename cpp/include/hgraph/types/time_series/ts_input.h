@@ -286,6 +286,21 @@ public:
         return result;
     }
 
+    // === Delta view access ===
+
+    /**
+     * Get a delta view for accessing modification information.
+     *
+     * @param time The engine time to check for modifications
+     * @return DeltaView for accessing delta values, or invalid view if not modified
+     */
+    [[nodiscard]] DeltaView delta_view(engine_time_t time) const {
+        if (!valid() || !modified_at(time)) {
+            return {};
+        }
+        return {_value_view, _tracker, _meta, time};
+    }
+
 private:
     value::ConstValueView _value_view;
     value::ModificationTracker _tracker;

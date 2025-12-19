@@ -9,6 +9,7 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/access_strategy.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/delta_view.h>
 #include <hgraph/types/value/scalar_type.h>
 #include <string>
 #include <vector>

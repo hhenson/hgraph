@@ -3,6 +3,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/value/python_conversion.h>
+#include <hgraph/types/time_series/delta_view_python.h>
 
 namespace hgraph
 {
@@ -66,9 +67,13 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesOutput::delta_value() const {
-        // For now, delta_value returns the same as value for simple types
-        // TODO: Implement proper delta tracking for collections
-        return value();
+        if (!_view.valid() || !_node) return nb::none();
+
+        auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        if (!_view.modified_at(eval_time)) return nb::none();
+
+        auto delta = _view.delta_view(eval_time);
+        return ts::delta_to_python(delta);
     }
 
     engine_time_t PyTimeSeriesOutput::last_modified_time() const {
@@ -177,8 +182,13 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesInput::delta_value() const {
-        // For now, delta_value returns the same as value for simple types
-        return value();
+        if (!_view.valid() || !_node) return nb::none();
+
+        auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        if (!_view.modified_at(eval_time)) return nb::none();
+
+        auto delta = _view.delta_view(eval_time);
+        return ts::delta_to_python(delta);
     }
 
     engine_time_t PyTimeSeriesInput::last_modified_time() const {

@@ -53,6 +53,7 @@ namespace hgraph::value {
             return static_cast<const ConstValueView&>(_value_view);
         }
         [[nodiscard]] ModificationTracker tracker() { return _tracker; }
+        [[nodiscard]] ModificationTracker tracker() const { return _tracker; }
         [[nodiscard]] ObserverStorage* observer() { return _observer; }
         [[nodiscard]] const ObserverStorage* observer() const { return _observer; }
 
