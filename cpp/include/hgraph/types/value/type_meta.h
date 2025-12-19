@@ -21,6 +21,10 @@ namespace hgraph::value {
      *
      * All operations take raw pointers and the TypeMeta for context.
      * This enables type-erased operations on any value.
+     *
+     * For arithmetic operations, dest must point to already-constructed storage
+     * of the appropriate type. The operation writes the result to dest.
+     * Operations return false if the operation is not supported for this type.
      */
     struct TypeOps {
         // Lifecycle
@@ -49,6 +53,28 @@ namespace hgraph::value {
         // Python interop (optional - can be nullptr)
         void* (*to_python)(const void* v, const TypeMeta* meta);
         void (*from_python)(void* dest, void* py_obj, const TypeMeta* meta);
+
+        // Arithmetic binary operations (optional - nullptr if not supported)
+        // These write result to dest, return true on success
+        bool (*add)(void* dest, const void* a, const void* b, const TypeMeta* meta);
+        bool (*subtract)(void* dest, const void* a, const void* b, const TypeMeta* meta);
+        bool (*multiply)(void* dest, const void* a, const void* b, const TypeMeta* meta);
+        bool (*divide)(void* dest, const void* a, const void* b, const TypeMeta* meta);
+        bool (*floor_divide)(void* dest, const void* a, const void* b, const TypeMeta* meta);
+        bool (*modulo)(void* dest, const void* a, const void* b, const TypeMeta* meta);
+        bool (*power)(void* dest, const void* a, const void* b, const TypeMeta* meta);
+
+        // Arithmetic unary operations (optional - nullptr if not supported)
+        bool (*negate)(void* dest, const void* src, const TypeMeta* meta);
+        bool (*absolute)(void* dest, const void* src, const TypeMeta* meta);
+        bool (*invert)(void* dest, const void* src, const TypeMeta* meta);
+
+        // Boolean conversion (optional - nullptr if not supported)
+        bool (*to_bool)(const void* v, const TypeMeta* meta);
+
+        // Container operations (optional - nullptr if not supported)
+        size_t (*length)(const void* v, const TypeMeta* meta);
+        bool (*contains)(const void* container, const void* element, const TypeMeta* meta);
     };
 
     /**
@@ -63,6 +89,9 @@ namespace hgraph::value {
         Hashable = 1 << 4,
         Comparable = 1 << 5,        // Supports < and ==
         Equatable = 1 << 6,         // Supports ==
+        Arithmetic = 1 << 7,        // Supports +, -, *, /
+        Integral = 1 << 8,          // Supports //, %, ~
+        Container = 1 << 9,         // Supports len(), in
     };
 
     inline TypeFlags operator|(TypeFlags a, TypeFlags b) {
@@ -189,6 +218,86 @@ namespace hgraph::value {
 
         [[nodiscard]] std::string type_name_str() const {
             return ops->type_name ? ops->type_name(this) : (name ? name : "<unknown>");
+        }
+
+        // Arithmetic capability checks
+        [[nodiscard]] bool is_arithmetic() const {
+            return has_flag(flags, TypeFlags::Arithmetic);
+        }
+
+        [[nodiscard]] bool is_integral() const {
+            return has_flag(flags, TypeFlags::Integral);
+        }
+
+        [[nodiscard]] bool is_container() const {
+            return has_flag(flags, TypeFlags::Container);
+        }
+
+        [[nodiscard]] bool supports_add() const { return ops->add != nullptr; }
+        [[nodiscard]] bool supports_subtract() const { return ops->subtract != nullptr; }
+        [[nodiscard]] bool supports_multiply() const { return ops->multiply != nullptr; }
+        [[nodiscard]] bool supports_divide() const { return ops->divide != nullptr; }
+        [[nodiscard]] bool supports_floor_divide() const { return ops->floor_divide != nullptr; }
+        [[nodiscard]] bool supports_modulo() const { return ops->modulo != nullptr; }
+        [[nodiscard]] bool supports_power() const { return ops->power != nullptr; }
+        [[nodiscard]] bool supports_negate() const { return ops->negate != nullptr; }
+        [[nodiscard]] bool supports_absolute() const { return ops->absolute != nullptr; }
+        [[nodiscard]] bool supports_invert() const { return ops->invert != nullptr; }
+        [[nodiscard]] bool supports_to_bool() const { return ops->to_bool != nullptr; }
+        [[nodiscard]] bool supports_length() const { return ops->length != nullptr; }
+        [[nodiscard]] bool supports_contains() const { return ops->contains != nullptr; }
+
+        // Arithmetic operation wrappers - return false if not supported
+        [[nodiscard]] bool add_at(void* dest, const void* a, const void* b) const {
+            return ops->add ? ops->add(dest, a, b, this) : false;
+        }
+
+        [[nodiscard]] bool subtract_at(void* dest, const void* a, const void* b) const {
+            return ops->subtract ? ops->subtract(dest, a, b, this) : false;
+        }
+
+        [[nodiscard]] bool multiply_at(void* dest, const void* a, const void* b) const {
+            return ops->multiply ? ops->multiply(dest, a, b, this) : false;
+        }
+
+        [[nodiscard]] bool divide_at(void* dest, const void* a, const void* b) const {
+            return ops->divide ? ops->divide(dest, a, b, this) : false;
+        }
+
+        [[nodiscard]] bool floor_divide_at(void* dest, const void* a, const void* b) const {
+            return ops->floor_divide ? ops->floor_divide(dest, a, b, this) : false;
+        }
+
+        [[nodiscard]] bool modulo_at(void* dest, const void* a, const void* b) const {
+            return ops->modulo ? ops->modulo(dest, a, b, this) : false;
+        }
+
+        [[nodiscard]] bool power_at(void* dest, const void* a, const void* b) const {
+            return ops->power ? ops->power(dest, a, b, this) : false;
+        }
+
+        [[nodiscard]] bool negate_at(void* dest, const void* src) const {
+            return ops->negate ? ops->negate(dest, src, this) : false;
+        }
+
+        [[nodiscard]] bool absolute_at(void* dest, const void* src) const {
+            return ops->absolute ? ops->absolute(dest, src, this) : false;
+        }
+
+        [[nodiscard]] bool invert_at(void* dest, const void* src) const {
+            return ops->invert ? ops->invert(dest, src, this) : false;
+        }
+
+        [[nodiscard]] bool to_bool_at(const void* v) const {
+            return ops->to_bool ? ops->to_bool(v, this) : false;
+        }
+
+        [[nodiscard]] size_t length_at(const void* v) const {
+            return ops->length ? ops->length(v, this) : 0;
+        }
+
+        [[nodiscard]] bool contains_at(const void* container, const void* element) const {
+            return ops->contains ? ops->contains(container, element, this) : false;
         }
     };
 

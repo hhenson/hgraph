@@ -87,7 +87,33 @@ namespace hgraph::value {
 
         void push_back(const void* element) {
             size_t old_size = _data.size();
-            _data.resize(old_size + _element_type->size);
+            size_t needed = old_size + _element_type->size;
+
+            // For trivially copyable types, simple resize is safe
+            if (_element_type->is_trivially_copyable() || _count == 0) {
+                _data.resize(needed);
+            } else if (_data.capacity() < needed) {
+                // For non-trivially copyable types, we must properly move-construct
+                // existing elements when reallocating to avoid dangling pointers
+                std::vector<char> new_data;
+                // Reserve with some growth factor to avoid repeated reallocations
+                new_data.reserve(std::max(needed, _data.capacity() * 2));
+                new_data.resize(needed);
+
+                // Move existing elements to new storage
+                for (size_t i = 0; i < _count; ++i) {
+                    void* old_ptr = _data.data() + i * _element_type->size;
+                    void* new_ptr = new_data.data() + i * _element_type->size;
+                    _element_type->move_construct_at(new_ptr, old_ptr);
+                    _element_type->destruct_at(old_ptr);
+                }
+
+                _data = std::move(new_data);
+            } else {
+                // Enough capacity, just resize
+                _data.resize(needed);
+            }
+
             void* dest = _data.data() + old_size;
             _element_type->copy_construct_at(dest, element);
             ++_count;
@@ -104,7 +130,32 @@ namespace hgraph::value {
         }
 
         void reserve(size_t capacity) {
-            _data.reserve(capacity * _element_type->size);
+            size_t needed = capacity * _element_type->size;
+            if (_data.capacity() >= needed) {
+                return;  // Already have enough capacity
+            }
+
+            // For trivially copyable types or empty list, simple reserve is safe
+            if (_element_type->is_trivially_copyable() || _count == 0) {
+                _data.reserve(needed);
+                return;
+            }
+
+            // For non-trivially copyable types, we must properly move-construct
+            // existing elements when reallocating
+            std::vector<char> new_data;
+            new_data.reserve(needed);
+            new_data.resize(_data.size());
+
+            // Move existing elements to new storage
+            for (size_t i = 0; i < _count; ++i) {
+                void* old_ptr = _data.data() + i * _element_type->size;
+                void* new_ptr = new_data.data() + i * _element_type->size;
+                _element_type->move_construct_at(new_ptr, old_ptr);
+                _element_type->destruct_at(old_ptr);
+            }
+
+            _data = std::move(new_data);
         }
 
         // Equality
@@ -209,6 +260,27 @@ namespace hgraph::value {
             return "DynamicList[" + list_meta->element_type->type_name_str() + "]";
         }
 
+        // Container operations
+        static size_t length(const void* v, const TypeMeta*) {
+            return static_cast<const DynamicListStorage*>(v)->size();
+        }
+
+        static bool contains(const void* container, const void* element, const TypeMeta* meta) {
+            auto* list_meta = static_cast<const DynamicListTypeMeta*>(meta);
+            auto* storage = static_cast<const DynamicListStorage*>(container);
+            for (size_t i = 0; i < storage->size(); ++i) {
+                if (list_meta->element_type->equals_at(storage->get(i), element)) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        // Boolean conversion - non-empty lists are truthy
+        static bool to_bool(const void* v, const TypeMeta*) {
+            return !static_cast<const DynamicListStorage*>(v)->empty();
+        }
+
         static const TypeOps ops;
     };
 
@@ -226,6 +298,21 @@ namespace hgraph::value {
         .type_name = DynamicListTypeOps::type_name,
         .to_python = nullptr,  // Set by DynamicListTypeOpsWithPython
         .from_python = nullptr,
+        // Arithmetic operations - not supported for lists
+        .add = nullptr,
+        .subtract = nullptr,
+        .multiply = nullptr,
+        .divide = nullptr,
+        .floor_divide = nullptr,
+        .modulo = nullptr,
+        .power = nullptr,
+        .negate = nullptr,
+        .absolute = nullptr,
+        .invert = nullptr,
+        // Boolean/Container operations
+        .to_bool = DynamicListTypeOps::to_bool,
+        .length = DynamicListTypeOps::length,
+        .contains = DynamicListTypeOps::contains,
     };
 
     /**
@@ -251,8 +338,8 @@ namespace hgraph::value {
             meta->size = sizeof(DynamicListStorage);
             meta->alignment = alignof(DynamicListStorage);
 
-            // Propagate flags from element type
-            TypeFlags flags = TypeFlags::None;
+            // Propagate flags from element type and add Container
+            TypeFlags flags = TypeFlags::Container;
             if (has_flag(_element_type->flags, TypeFlags::Hashable)) {
                 flags = flags | TypeFlags::Hashable;
             }

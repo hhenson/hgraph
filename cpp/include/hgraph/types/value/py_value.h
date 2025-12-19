@@ -22,11 +22,20 @@ namespace hgraph::value {
      * Provides a Python-accessible wrapper around the type-erased Value class,
      * allowing Python code to create, manipulate, and test values of any schema.
      *
+     * All operators are implemented at the C++ TypeOps level:
+     * - Comparison: ==, !=, <, <=, >, >=
+     * - Arithmetic: +, -, *, /, //, %, **, unary -, abs()
+     * - Boolean: bool()
+     * - Container: len(), in, [], iteration
+     *
+     * If a type does not support an operation, calling it will throw.
+     *
      * Example Python usage:
      *   schema = _hgraph.get_scalar_type_meta(int)
      *   value = _hgraph.HgValue(schema)
      *   value.py_value = 42
      *   assert value.py_value == 42
+     *   assert (value + value).py_value == 84
      */
     class PyHgValue {
     public:
@@ -66,8 +75,6 @@ namespace hgraph::value {
                 throw std::runtime_error("Cannot set value on invalid HgValue");
             }
             if (py_obj.is_none()) {
-                // For None, we could re-construct to default, but that may not be
-                // what's expected. For now, just ignore.
                 return;
             }
             value_from_python(_value.data(), py_obj, _value.schema());
@@ -84,10 +91,157 @@ namespace hgraph::value {
             return _value.schema()->type_name_str();
         }
 
-        // Equality comparison
+        // =========================================================================
+        // Comparison operators
+        // =========================================================================
+
+        // Equality comparison (uses C++ equals for efficiency)
         [[nodiscard]] bool equals(const PyHgValue& other) const {
             return _value.equals(other._value);
         }
+
+        // Less than - delegate to Value's C++ implementation
+        [[nodiscard]] bool less_than(const PyHgValue& other) const {
+            return _value.less_than(other._value);
+        }
+
+        [[nodiscard]] bool less_equal(const PyHgValue& other) const {
+            return less_than(other) || equals(other);
+        }
+
+        [[nodiscard]] bool greater_than(const PyHgValue& other) const {
+            return other.less_than(*this);
+        }
+
+        [[nodiscard]] bool greater_equal(const PyHgValue& other) const {
+            return !less_than(other);
+        }
+
+        // =========================================================================
+        // Arithmetic operators (binary) - delegate to Value's C++ implementation
+        // =========================================================================
+
+        [[nodiscard]] PyHgValue add(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value.add(other._value);
+            return result;
+        }
+
+        [[nodiscard]] PyHgValue subtract(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value.subtract(other._value);
+            return result;
+        }
+
+        [[nodiscard]] PyHgValue multiply(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value.multiply(other._value);
+            return result;
+        }
+
+        [[nodiscard]] PyHgValue divide(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value.divide(other._value);
+            return result;
+        }
+
+        [[nodiscard]] PyHgValue floor_divide(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value.floor_divide(other._value);
+            return result;
+        }
+
+        [[nodiscard]] PyHgValue modulo(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value.modulo(other._value);
+            return result;
+        }
+
+        [[nodiscard]] PyHgValue power(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value.power(other._value);
+            return result;
+        }
+
+        // =========================================================================
+        // Unary operators - delegate to Value's C++ implementation
+        // =========================================================================
+
+        [[nodiscard]] PyHgValue negate() const {
+            PyHgValue result;
+            result._value = _value.negate();
+            return result;
+        }
+
+        [[nodiscard]] PyHgValue positive() const {
+            // Positive returns a copy of the value
+            return copy();
+        }
+
+        [[nodiscard]] PyHgValue absolute() const {
+            PyHgValue result;
+            result._value = _value.absolute();
+            return result;
+        }
+
+        [[nodiscard]] PyHgValue invert() const {
+            PyHgValue result;
+            result._value = _value.invert();
+            return result;
+        }
+
+        // =========================================================================
+        // Boolean conversion - delegate to Value's C++ implementation
+        // =========================================================================
+
+        [[nodiscard]] bool to_bool() const {
+            if (!valid()) return false;
+            return _value.to_bool();
+        }
+
+        // =========================================================================
+        // Container operations - delegate to Value's C++ implementation
+        // =========================================================================
+
+        [[nodiscard]] size_t length() const {
+            return _value.length();
+        }
+
+        [[nodiscard]] bool contains(nb::object item) const {
+            if (!valid()) return false;
+            // Convert item to a temporary Value and check contains
+            // For now, convert via Python since item could be any type
+            nb::object v = py_value();
+            return nb::cast<bool>(v.attr("__contains__")(item));
+        }
+
+        [[nodiscard]] nb::object getitem(nb::object key) const {
+            if (!valid()) return nb::none();
+            nb::object v = py_value();
+            return v[key];
+        }
+
+        void setitem(nb::object key, nb::object value) {
+            if (!valid()) {
+                throw std::runtime_error("Cannot set item on invalid HgValue");
+            }
+            nb::object v = py_value();
+            v[key] = value;
+            // Write back the modified container
+            set_py_value(v);
+        }
+
+        [[nodiscard]] nb::iterator iter() const {
+            if (!valid()) {
+                throw std::runtime_error("Cannot iterate invalid HgValue");
+            }
+            nb::object v = py_value();
+            return nb::iter(v);
+        }
+
+        // =========================================================================
+        // Utility
+        // =========================================================================
 
         // Hash
         [[nodiscard]] size_t hash() const {

@@ -433,6 +433,20 @@ namespace hgraph::value {
             return "Set[" + set_meta->element_type->type_name_str() + "]";
         }
 
+        // Container operations
+        static size_t length(const void* v, const TypeMeta*) {
+            return static_cast<const SetStorage*>(v)->size();
+        }
+
+        static bool contains(const void* container, const void* element, const TypeMeta*) {
+            return static_cast<const SetStorage*>(container)->contains(element);
+        }
+
+        // Boolean conversion - non-empty sets are truthy
+        static bool to_bool(const void* v, const TypeMeta*) {
+            return !static_cast<const SetStorage*>(v)->empty();
+        }
+
         static const TypeOps ops;
     };
 
@@ -450,6 +464,21 @@ namespace hgraph::value {
         .type_name = SetTypeOps::type_name,
         .to_python = nullptr,
         .from_python = nullptr,
+        // Arithmetic operations - not supported for sets
+        .add = nullptr,
+        .subtract = nullptr,
+        .multiply = nullptr,
+        .divide = nullptr,
+        .floor_divide = nullptr,
+        .modulo = nullptr,
+        .power = nullptr,
+        .negate = nullptr,
+        .absolute = nullptr,
+        .invert = nullptr,
+        // Boolean/Container operations
+        .to_bool = SetTypeOps::to_bool,
+        .length = SetTypeOps::length,
+        .contains = SetTypeOps::contains,
     };
 
     /**
@@ -476,7 +505,7 @@ namespace hgraph::value {
 
             meta->size = sizeof(SetStorage);
             meta->alignment = alignof(SetStorage);
-            meta->flags = TypeFlags::Hashable | TypeFlags::Equatable;
+            meta->flags = TypeFlags::Hashable | TypeFlags::Equatable | TypeFlags::Container;
             meta->kind = TypeKind::Set;
             meta->ops = &SetTypeOps::ops;
             meta->type_info = nullptr;

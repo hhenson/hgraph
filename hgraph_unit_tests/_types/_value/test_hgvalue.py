@@ -379,3 +379,474 @@ def test_from_dict_metadata():
     test_dict = {"a": 1, "b": 2}
     hgvalue.py_value = test_dict
     assert hgvalue.py_value == test_dict
+
+
+# =============================================================================
+# Nested Container Tests
+# =============================================================================
+
+def test_nested_set_of_tuples():
+    """Test set containing tuples (set[tuple[int, ...]])."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    tuple_schema = _hgraph.get_dynamic_list_type_meta(int_schema)
+    set_schema = _hgraph.get_set_type_meta(tuple_schema)
+
+    hgvalue = _hgraph.HgValue(set_schema)
+    # Sets of tuples - tuples are hashable
+    test_value = {(1, 2, 3), (4, 5), (6,)}
+    hgvalue.py_value = test_value
+    assert hgvalue.py_value == test_value
+
+
+def test_nested_dict_of_sets():
+    """Test dict with set values (dict[str, set[int]])."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, set_schema)
+
+    hgvalue = _hgraph.HgValue(dict_schema)
+    test_value = {"evens": {2, 4, 6}, "odds": {1, 3, 5}, "empty": set()}
+    hgvalue.py_value = test_value
+    assert hgvalue.py_value == test_value
+
+
+def test_nested_dict_of_dicts():
+    """Test dict with dict values (dict[str, dict[str, int]])."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    inner_dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+    outer_dict_schema = _hgraph.get_dict_type_meta(str_schema, inner_dict_schema)
+
+    hgvalue = _hgraph.HgValue(outer_dict_schema)
+    test_value = {
+        "person1": {"age": 30, "score": 100},
+        "person2": {"age": 25, "score": 95},
+    }
+    hgvalue.py_value = test_value
+    assert hgvalue.py_value == test_value
+
+
+def test_nested_tuple_of_dicts():
+    """Test tuple containing dicts (tuple[dict[str, int], ...])."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+    tuple_schema = _hgraph.get_dynamic_list_type_meta(dict_schema)
+
+    hgvalue = _hgraph.HgValue(tuple_schema)
+    test_value = ({"a": 1, "b": 2}, {"c": 3}, {})
+    hgvalue.py_value = test_value
+    assert hgvalue.py_value == test_value
+
+
+def test_nested_tuple_of_tuples():
+    """Test tuple of tuples (tuple[tuple[int, ...], ...])."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    inner_tuple_schema = _hgraph.get_dynamic_list_type_meta(int_schema)
+    outer_tuple_schema = _hgraph.get_dynamic_list_type_meta(inner_tuple_schema)
+
+    hgvalue = _hgraph.HgValue(outer_tuple_schema)
+    test_value = ((1, 2), (3, 4, 5), (), (6,))
+    hgvalue.py_value = test_value
+    assert hgvalue.py_value == test_value
+
+
+def test_nested_bundle_with_containers():
+    """Test bundle containing container fields."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+
+    bundle_schema = _hgraph.get_bundle_type_meta(
+        [("ids", set_schema), ("mapping", dict_schema), ("count", int_schema)],
+        "ContainerBundle"
+    )
+
+    hgvalue = _hgraph.HgValue(bundle_schema)
+    test_value = {"ids": {1, 2, 3}, "mapping": {"a": 10, "b": 20}, "count": 42}
+    hgvalue.py_value = test_value
+    result = hgvalue.py_value
+    assert result["ids"] == test_value["ids"]
+    assert result["mapping"] == test_value["mapping"]
+    assert result["count"] == test_value["count"]
+
+
+def test_triple_nested_dict():
+    """Test three levels of nesting (dict[str, dict[str, dict[str, int]]])."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    level1_dict = _hgraph.get_dict_type_meta(str_schema, int_schema)
+    level2_dict = _hgraph.get_dict_type_meta(str_schema, level1_dict)
+    level3_dict = _hgraph.get_dict_type_meta(str_schema, level2_dict)
+
+    hgvalue = _hgraph.HgValue(level3_dict)
+    test_value = {
+        "a": {
+            "b": {"c": 1, "d": 2},
+            "e": {"f": 3},
+        },
+        "g": {
+            "h": {},
+        },
+    }
+    hgvalue.py_value = test_value
+    assert hgvalue.py_value == test_value
+
+
+def test_nested_bundle_in_bundle():
+    """Test bundle containing another bundle."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    str_schema = _hgraph.get_scalar_type_meta(str)
+
+    inner_bundle = _hgraph.get_bundle_type_meta(
+        [("x", int_schema), ("y", int_schema)],
+        "Point"
+    )
+    outer_bundle = _hgraph.get_bundle_type_meta(
+        [("name", str_schema), ("location", inner_bundle)],
+        "NamedPoint"
+    )
+
+    hgvalue = _hgraph.HgValue(outer_bundle)
+    test_value = {"name": "origin", "location": {"x": 0, "y": 0}}
+    hgvalue.py_value = test_value
+    result = hgvalue.py_value
+    assert result["name"] == "origin"
+    assert result["location"]["x"] == 0
+    assert result["location"]["y"] == 0
+
+
+# =============================================================================
+# Arithmetic Operator Tests
+# =============================================================================
+
+def test_add_int():
+    """Test addition with integers."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(schema, 10)
+    v2 = _hgraph.HgValue.from_python(schema, 5)
+    result = v1 + v2
+    assert result.py_value == 15
+
+
+def test_add_float():
+    """Test addition with floats."""
+    schema = _hgraph.get_scalar_type_meta(float)
+    v1 = _hgraph.HgValue.from_python(schema, 3.14)
+    v2 = _hgraph.HgValue.from_python(schema, 2.86)
+    result = v1 + v2
+    assert abs(result.py_value - 6.0) < 1e-10
+
+
+def test_subtract_int():
+    """Test subtraction with integers."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(schema, 10)
+    v2 = _hgraph.HgValue.from_python(schema, 3)
+    result = v1 - v2
+    assert result.py_value == 7
+
+
+def test_multiply_int():
+    """Test multiplication with integers."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(schema, 6)
+    v2 = _hgraph.HgValue.from_python(schema, 7)
+    result = v1 * v2
+    assert result.py_value == 42
+
+
+def test_divide_float():
+    """Test division with floats."""
+    schema = _hgraph.get_scalar_type_meta(float)
+    v1 = _hgraph.HgValue.from_python(schema, 10.0)
+    v2 = _hgraph.HgValue.from_python(schema, 4.0)
+    result = v1 / v2
+    assert abs(result.py_value - 2.5) < 1e-10
+
+
+def test_floor_divide_int():
+    """Test floor division with integers."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(schema, 17)
+    v2 = _hgraph.HgValue.from_python(schema, 5)
+    result = v1 // v2
+    assert result.py_value == 3
+
+
+def test_modulo_int():
+    """Test modulo with integers."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(schema, 17)
+    v2 = _hgraph.HgValue.from_python(schema, 5)
+    result = v1 % v2
+    assert result.py_value == 2
+
+
+def test_power_int():
+    """Test power with integers."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(schema, 2)
+    v2 = _hgraph.HgValue.from_python(schema, 10)
+    result = v1 ** v2
+    assert result.py_value == 1024
+
+
+# =============================================================================
+# Unary Operator Tests
+# =============================================================================
+
+def test_negate_int():
+    """Test unary negation with integers."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v = _hgraph.HgValue.from_python(schema, 42)
+    result = -v
+    assert result.py_value == -42
+
+
+def test_negate_float():
+    """Test unary negation with floats."""
+    schema = _hgraph.get_scalar_type_meta(float)
+    v = _hgraph.HgValue.from_python(schema, 3.14)
+    result = -v
+    assert abs(result.py_value - (-3.14)) < 1e-10
+
+
+def test_positive_int():
+    """Test unary positive with integers."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v = _hgraph.HgValue.from_python(schema, -42)
+    result = +v
+    assert result.py_value == -42  # unary + doesn't change sign
+
+
+def test_absolute_int():
+    """Test abs() with integers."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v = _hgraph.HgValue.from_python(schema, -42)
+    result = abs(v)
+    assert result.py_value == 42
+
+
+def test_absolute_float():
+    """Test abs() with floats."""
+    schema = _hgraph.get_scalar_type_meta(float)
+    v = _hgraph.HgValue.from_python(schema, -3.14)
+    result = abs(v)
+    assert abs(result.py_value - 3.14) < 1e-10
+
+
+def test_invert_int():
+    """Test bitwise inversion with integers."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v = _hgraph.HgValue.from_python(schema, 0)
+    result = ~v
+    assert result.py_value == -1
+
+
+# =============================================================================
+# Comparison Operator Tests
+# =============================================================================
+
+def test_less_than_int():
+    """Test less than comparison."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(schema, 5)
+    v2 = _hgraph.HgValue.from_python(schema, 10)
+    assert v1 < v2
+    assert not v2 < v1
+
+
+def test_less_equal_int():
+    """Test less than or equal comparison."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(schema, 5)
+    v2 = _hgraph.HgValue.from_python(schema, 10)
+    v3 = _hgraph.HgValue.from_python(schema, 5)
+    assert v1 <= v2
+    assert v1 <= v3
+    assert not v2 <= v1
+
+
+def test_greater_than_int():
+    """Test greater than comparison."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(schema, 10)
+    v2 = _hgraph.HgValue.from_python(schema, 5)
+    assert v1 > v2
+    assert not v2 > v1
+
+
+def test_greater_equal_int():
+    """Test greater than or equal comparison."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v1 = _hgraph.HgValue.from_python(schema, 10)
+    v2 = _hgraph.HgValue.from_python(schema, 5)
+    v3 = _hgraph.HgValue.from_python(schema, 10)
+    assert v1 >= v2
+    assert v1 >= v3
+    assert not v2 >= v1
+
+
+def test_comparison_float():
+    """Test comparison operators with floats."""
+    schema = _hgraph.get_scalar_type_meta(float)
+    v1 = _hgraph.HgValue.from_python(schema, 1.5)
+    v2 = _hgraph.HgValue.from_python(schema, 2.5)
+    assert v1 < v2
+    assert v1 <= v2
+    assert v2 > v1
+    assert v2 >= v1
+
+
+def test_comparison_str():
+    """Test comparison operators with strings."""
+    schema = _hgraph.get_scalar_type_meta(str)
+    v1 = _hgraph.HgValue.from_python(schema, "apple")
+    v2 = _hgraph.HgValue.from_python(schema, "banana")
+    assert v1 < v2
+    assert v2 > v1
+
+
+# =============================================================================
+# Boolean Conversion Tests
+# =============================================================================
+
+def test_bool_true():
+    """Test boolean conversion to True."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v = _hgraph.HgValue.from_python(schema, 42)
+    assert bool(v) is True
+
+
+def test_bool_false():
+    """Test boolean conversion to False."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    v = _hgraph.HgValue.from_python(schema, 0)
+    assert bool(v) is False
+
+
+def test_bool_empty_set():
+    """Test boolean conversion of empty set."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+    v = _hgraph.HgValue(set_schema)
+    v.py_value = set()
+    assert bool(v) is False
+
+
+def test_bool_nonempty_set():
+    """Test boolean conversion of non-empty set."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+    v = _hgraph.HgValue(set_schema)
+    v.py_value = {1, 2, 3}
+    assert bool(v) is True
+
+
+# =============================================================================
+# Container Operation Tests
+# =============================================================================
+
+def test_len_tuple():
+    """Test len() on tuple."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    tuple_schema = _hgraph.get_dynamic_list_type_meta(int_schema)
+    v = _hgraph.HgValue(tuple_schema)
+    v.py_value = (1, 2, 3, 4, 5)
+    assert len(v) == 5
+
+
+def test_len_set():
+    """Test len() on set."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+    v = _hgraph.HgValue(set_schema)
+    v.py_value = {1, 2, 3}
+    assert len(v) == 3
+
+
+def test_len_dict():
+    """Test len() on dict."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+    v = _hgraph.HgValue(dict_schema)
+    v.py_value = {"a": 1, "b": 2}
+    assert len(v) == 2
+
+
+def test_contains_set():
+    """Test 'in' operator on set."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+    v = _hgraph.HgValue(set_schema)
+    v.py_value = {1, 2, 3}
+    assert 2 in v
+    assert 5 not in v
+
+
+def test_contains_dict():
+    """Test 'in' operator on dict (checks keys)."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+    v = _hgraph.HgValue(dict_schema)
+    v.py_value = {"a": 1, "b": 2}
+    assert "a" in v
+    assert "c" not in v
+
+
+def test_getitem_tuple():
+    """Test indexing on tuple."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    tuple_schema = _hgraph.get_dynamic_list_type_meta(int_schema)
+    v = _hgraph.HgValue(tuple_schema)
+    v.py_value = (10, 20, 30)
+    assert v[0] == 10
+    assert v[1] == 20
+    assert v[-1] == 30
+
+
+def test_getitem_dict():
+    """Test key access on dict."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+    v = _hgraph.HgValue(dict_schema)
+    v.py_value = {"a": 1, "b": 2}
+    assert v["a"] == 1
+    assert v["b"] == 2
+
+
+def test_iter_tuple():
+    """Test iteration over tuple."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    tuple_schema = _hgraph.get_dynamic_list_type_meta(int_schema)
+    v = _hgraph.HgValue(tuple_schema)
+    v.py_value = (1, 2, 3)
+    items = list(v)
+    assert items == [1, 2, 3]
+
+
+def test_iter_set():
+    """Test iteration over set."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    set_schema = _hgraph.get_set_type_meta(int_schema)
+    v = _hgraph.HgValue(set_schema)
+    v.py_value = {1, 2, 3}
+    items = set(v)
+    assert items == {1, 2, 3}
+
+
+def test_iter_dict():
+    """Test iteration over dict (iterates keys)."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+    v = _hgraph.HgValue(dict_schema)
+    v.py_value = {"a": 1, "b": 2}
+    keys = set(v)
+    assert keys == {"a", "b"}

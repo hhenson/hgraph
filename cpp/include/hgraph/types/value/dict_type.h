@@ -346,9 +346,38 @@ namespace hgraph::value {
     private:
         void ensure_value_capacity(size_t count) {
             size_t needed = count * _value_type->size;
-            if (_values.size() < needed) {
-                _values.resize(needed);
+            if (_values.size() >= needed) {
+                return; // Already have enough capacity
             }
+
+            // For trivially copyable types, simple resize is safe
+            if (_value_type->is_trivially_copyable()) {
+                _values.resize(needed);
+                return;
+            }
+
+            // For non-trivially copyable types (like nested DictStorage), we must
+            // properly move-construct existing values to avoid dangling pointers
+            // in internal data structures (like SetStorage's hash functors).
+            std::vector<char> new_values(needed);
+
+            // Move existing values to new storage - only move slots that have
+            // been constructed (tracked by _constructed_count)
+            // Note: We track indices that are live in the key set
+            size_t old_capacity = _values.size() / _value_type->size;
+            for (auto it = _key_set.begin(); it != _key_set.end(); ++it) {
+                auto key_elem = *it;
+                auto idx = _key_set.find_index(key_elem.ptr);
+                // Only move if the index is within old capacity and was previously constructed
+                if (idx && *idx < old_capacity) {
+                    void* old_ptr = value_ptr(*idx);
+                    void* new_ptr = new_values.data() + (*idx) * _value_type->size;
+                    _value_type->move_construct_at(new_ptr, old_ptr);
+                    _value_type->destruct_at(old_ptr);
+                }
+            }
+
+            _values = std::move(new_values);
         }
 
         void clear_values() {
@@ -470,6 +499,20 @@ namespace hgraph::value {
                    ", " + dict_meta->value_type->type_name_str() + "]";
         }
 
+        // Container operations
+        static size_t length(const void* v, const TypeMeta*) {
+            return static_cast<const DictStorage*>(v)->size();
+        }
+
+        static bool contains(const void* container, const void* key, const TypeMeta*) {
+            return static_cast<const DictStorage*>(container)->contains(key);
+        }
+
+        // Boolean conversion - non-empty dicts are truthy
+        static bool to_bool(const void* v, const TypeMeta*) {
+            return !static_cast<const DictStorage*>(v)->empty();
+        }
+
         static const TypeOps ops;
     };
 
@@ -487,6 +530,21 @@ namespace hgraph::value {
         .type_name = DictTypeOps::type_name,
         .to_python = nullptr,
         .from_python = nullptr,
+        // Arithmetic operations - not supported for dicts
+        .add = nullptr,
+        .subtract = nullptr,
+        .multiply = nullptr,
+        .divide = nullptr,
+        .floor_divide = nullptr,
+        .modulo = nullptr,
+        .power = nullptr,
+        .negate = nullptr,
+        .absolute = nullptr,
+        .invert = nullptr,
+        // Boolean/Container operations
+        .to_bool = DictTypeOps::to_bool,
+        .length = DictTypeOps::length,
+        .contains = DictTypeOps::contains,
     };
 
     /**
@@ -522,7 +580,7 @@ namespace hgraph::value {
             auto meta = std::make_unique<DictTypeMeta>();
 
             // Value hashability determines dict hashability
-            TypeFlags flags = TypeFlags::Equatable;
+            TypeFlags flags = TypeFlags::Equatable | TypeFlags::Container;
             if (has_flag(_value_type->flags, TypeFlags::Hashable)) {
                 flags = flags | TypeFlags::Hashable;
             }

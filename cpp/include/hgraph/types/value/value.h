@@ -720,6 +720,217 @@ namespace hgraph::value {
             return view().to_string();
         }
 
+        // =========================================================================
+        // Arithmetic capability checks
+        // =========================================================================
+
+        [[nodiscard]] bool supports_add() const { return valid() && _schema->supports_add(); }
+        [[nodiscard]] bool supports_subtract() const { return valid() && _schema->supports_subtract(); }
+        [[nodiscard]] bool supports_multiply() const { return valid() && _schema->supports_multiply(); }
+        [[nodiscard]] bool supports_divide() const { return valid() && _schema->supports_divide(); }
+        [[nodiscard]] bool supports_floor_divide() const { return valid() && _schema->supports_floor_divide(); }
+        [[nodiscard]] bool supports_modulo() const { return valid() && _schema->supports_modulo(); }
+        [[nodiscard]] bool supports_power() const { return valid() && _schema->supports_power(); }
+        [[nodiscard]] bool supports_negate() const { return valid() && _schema->supports_negate(); }
+        [[nodiscard]] bool supports_absolute() const { return valid() && _schema->supports_absolute(); }
+        [[nodiscard]] bool supports_invert() const { return valid() && _schema->supports_invert(); }
+        [[nodiscard]] bool supports_to_bool() const { return valid() && _schema->supports_to_bool(); }
+        [[nodiscard]] bool supports_length() const { return valid() && _schema->supports_length(); }
+        [[nodiscard]] bool supports_contains() const { return valid() && _schema->supports_contains(); }
+
+        [[nodiscard]] bool is_arithmetic() const { return valid() && _schema->is_arithmetic(); }
+        [[nodiscard]] bool is_integral() const { return valid() && _schema->is_integral(); }
+        [[nodiscard]] bool is_container() const { return valid() && _schema->is_container(); }
+
+        // =========================================================================
+        // Arithmetic binary operations - return new Value, throw if unsupported
+        // =========================================================================
+
+        [[nodiscard]] Value add(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("add: incompatible types");
+            }
+            if (!supports_add()) {
+                throw std::runtime_error("add: operation not supported for this type");
+            }
+            Value result(_schema);
+            if (!_schema->add_at(result._storage, _storage, other._storage)) {
+                throw std::runtime_error("add: operation failed");
+            }
+            return result;
+        }
+
+        [[nodiscard]] Value subtract(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("subtract: incompatible types");
+            }
+            if (!supports_subtract()) {
+                throw std::runtime_error("subtract: operation not supported for this type");
+            }
+            Value result(_schema);
+            if (!_schema->subtract_at(result._storage, _storage, other._storage)) {
+                throw std::runtime_error("subtract: operation failed");
+            }
+            return result;
+        }
+
+        [[nodiscard]] Value multiply(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("multiply: incompatible types");
+            }
+            if (!supports_multiply()) {
+                throw std::runtime_error("multiply: operation not supported for this type");
+            }
+            Value result(_schema);
+            if (!_schema->multiply_at(result._storage, _storage, other._storage)) {
+                throw std::runtime_error("multiply: operation failed");
+            }
+            return result;
+        }
+
+        [[nodiscard]] Value divide(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("divide: incompatible types");
+            }
+            if (!supports_divide()) {
+                throw std::runtime_error("divide: operation not supported for this type");
+            }
+            Value result(_schema);
+            if (!_schema->divide_at(result._storage, _storage, other._storage)) {
+                throw std::runtime_error("divide: operation failed");
+            }
+            return result;
+        }
+
+        [[nodiscard]] Value floor_divide(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("floor_divide: incompatible types");
+            }
+            if (!supports_floor_divide()) {
+                throw std::runtime_error("floor_divide: operation not supported for this type");
+            }
+            Value result(_schema);
+            if (!_schema->floor_divide_at(result._storage, _storage, other._storage)) {
+                throw std::runtime_error("floor_divide: operation failed");
+            }
+            return result;
+        }
+
+        [[nodiscard]] Value modulo(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("modulo: incompatible types");
+            }
+            if (!supports_modulo()) {
+                throw std::runtime_error("modulo: operation not supported for this type");
+            }
+            Value result(_schema);
+            if (!_schema->modulo_at(result._storage, _storage, other._storage)) {
+                throw std::runtime_error("modulo: operation failed");
+            }
+            return result;
+        }
+
+        [[nodiscard]] Value power(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("power: incompatible types");
+            }
+            if (!supports_power()) {
+                throw std::runtime_error("power: operation not supported for this type");
+            }
+            Value result(_schema);
+            if (!_schema->power_at(result._storage, _storage, other._storage)) {
+                throw std::runtime_error("power: operation failed");
+            }
+            return result;
+        }
+
+        // =========================================================================
+        // Arithmetic unary operations - return new Value, throw if unsupported
+        // =========================================================================
+
+        [[nodiscard]] Value negate() const {
+            if (!valid()) {
+                throw std::runtime_error("negate: invalid value");
+            }
+            if (!supports_negate()) {
+                throw std::runtime_error("negate: operation not supported for this type");
+            }
+            Value result(_schema);
+            if (!_schema->negate_at(result._storage, _storage)) {
+                throw std::runtime_error("negate: operation failed");
+            }
+            return result;
+        }
+
+        [[nodiscard]] Value absolute() const {
+            if (!valid()) {
+                throw std::runtime_error("absolute: invalid value");
+            }
+            if (!supports_absolute()) {
+                throw std::runtime_error("absolute: operation not supported for this type");
+            }
+            Value result(_schema);
+            if (!_schema->absolute_at(result._storage, _storage)) {
+                throw std::runtime_error("absolute: operation failed");
+            }
+            return result;
+        }
+
+        [[nodiscard]] Value invert() const {
+            if (!valid()) {
+                throw std::runtime_error("invert: invalid value");
+            }
+            if (!supports_invert()) {
+                throw std::runtime_error("invert: operation not supported for this type");
+            }
+            Value result(_schema);
+            if (!_schema->invert_at(result._storage, _storage)) {
+                throw std::runtime_error("invert: operation failed");
+            }
+            return result;
+        }
+
+        // =========================================================================
+        // Boolean conversion
+        // =========================================================================
+
+        [[nodiscard]] bool to_bool() const {
+            if (!valid()) {
+                return false;
+            }
+            return _schema->to_bool_at(_storage);
+        }
+
+        [[nodiscard]] explicit operator bool() const {
+            return to_bool();
+        }
+
+        // =========================================================================
+        // Container operations
+        // =========================================================================
+
+        [[nodiscard]] size_t length() const {
+            if (!valid() || !supports_length()) {
+                return 0;
+            }
+            return _schema->length_at(_storage);
+        }
+
+        [[nodiscard]] bool contains(const Value& element) const {
+            if (!valid() || !supports_contains()) {
+                return false;
+            }
+            return _schema->contains_at(_storage, element._storage);
+        }
+
+        // =========================================================================
+        // Comparison operations (already have equals via view)
+        // =========================================================================
+
+        [[nodiscard]] bool less_than(const Value& other) const {
+            return view().less_than(other.view());
+        }
+
     private:
         void* _storage{nullptr};
         const TypeMeta* _schema{nullptr};

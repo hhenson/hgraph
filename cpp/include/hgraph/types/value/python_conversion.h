@@ -152,6 +152,41 @@ namespace hgraph::value {
             *static_cast<T*>(dest) = nb::cast<T>(h);
         }
 
+        // Arithmetic operators - delegate to ScalarTypeOps
+        static bool add(void* dest, const void* a, const void* b, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::add(dest, a, b, meta);
+        }
+        static bool subtract(void* dest, const void* a, const void* b, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::subtract(dest, a, b, meta);
+        }
+        static bool multiply(void* dest, const void* a, const void* b, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::multiply(dest, a, b, meta);
+        }
+        static bool divide(void* dest, const void* a, const void* b, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::divide(dest, a, b, meta);
+        }
+        static bool floor_divide(void* dest, const void* a, const void* b, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::floor_divide(dest, a, b, meta);
+        }
+        static bool modulo(void* dest, const void* a, const void* b, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::modulo(dest, a, b, meta);
+        }
+        static bool power(void* dest, const void* a, const void* b, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::power(dest, a, b, meta);
+        }
+        static bool negate(void* dest, const void* src, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::negate(dest, src, meta);
+        }
+        static bool absolute(void* dest, const void* src, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::absolute(dest, src, meta);
+        }
+        static bool invert(void* dest, const void* src, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::invert(dest, src, meta);
+        }
+        static bool to_bool(const void* v, const TypeMeta* meta) {
+            return ScalarTypeOps<T>::to_bool(v, meta);
+        }
+
         static constexpr TypeOps ops = {
             .construct = construct,
             .destruct = destruct,
@@ -166,6 +201,19 @@ namespace hgraph::value {
             .type_name = type_name,
             .to_python = to_python,
             .from_python = from_python,
+            .add = add,
+            .subtract = subtract,
+            .multiply = multiply,
+            .divide = divide,
+            .floor_divide = floor_divide,
+            .modulo = modulo,
+            .power = power,
+            .negate = negate,
+            .absolute = absolute,
+            .invert = invert,
+            .to_bool = to_bool,
+            .length = nullptr,
+            .contains = nullptr,
         };
     };
 
@@ -239,6 +287,145 @@ namespace hgraph::value {
             *static_cast<nb::object*>(dest) = nb::borrow(h);
         }
 
+        // =========================================================================
+        // Arithmetic operators - delegate to Python
+        // =========================================================================
+
+        static bool add(void* dest, const void* a, const void* b, const TypeMeta*) {
+            const nb::object& oa = *static_cast<const nb::object*>(a);
+            const nb::object& ob = *static_cast<const nb::object*>(b);
+            try {
+                *static_cast<nb::object*>(dest) = oa + ob;
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
+
+        static bool subtract(void* dest, const void* a, const void* b, const TypeMeta*) {
+            const nb::object& oa = *static_cast<const nb::object*>(a);
+            const nb::object& ob = *static_cast<const nb::object*>(b);
+            try {
+                *static_cast<nb::object*>(dest) = oa - ob;
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
+
+        static bool multiply(void* dest, const void* a, const void* b, const TypeMeta*) {
+            const nb::object& oa = *static_cast<const nb::object*>(a);
+            const nb::object& ob = *static_cast<const nb::object*>(b);
+            try {
+                *static_cast<nb::object*>(dest) = oa * ob;
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
+
+        static bool divide(void* dest, const void* a, const void* b, const TypeMeta*) {
+            const nb::object& oa = *static_cast<const nb::object*>(a);
+            const nb::object& ob = *static_cast<const nb::object*>(b);
+            try {
+                *static_cast<nb::object*>(dest) = oa / ob;
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
+
+        static bool floor_divide(void* dest, const void* a, const void* b, const TypeMeta*) {
+            const nb::object& oa = *static_cast<const nb::object*>(a);
+            const nb::object& ob = *static_cast<const nb::object*>(b);
+            try {
+                *static_cast<nb::object*>(dest) = oa.attr("__floordiv__")(ob);
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
+
+        static bool modulo(void* dest, const void* a, const void* b, const TypeMeta*) {
+            const nb::object& oa = *static_cast<const nb::object*>(a);
+            const nb::object& ob = *static_cast<const nb::object*>(b);
+            try {
+                *static_cast<nb::object*>(dest) = oa % ob;
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
+
+        static bool power(void* dest, const void* a, const void* b, const TypeMeta*) {
+            const nb::object& oa = *static_cast<const nb::object*>(a);
+            const nb::object& ob = *static_cast<const nb::object*>(b);
+            try {
+                *static_cast<nb::object*>(dest) = oa.attr("__pow__")(ob);
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
+
+        static bool negate(void* dest, const void* src, const TypeMeta*) {
+            const nb::object& o = *static_cast<const nb::object*>(src);
+            try {
+                *static_cast<nb::object*>(dest) = -o;
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
+
+        static bool absolute(void* dest, const void* src, const TypeMeta*) {
+            const nb::object& o = *static_cast<const nb::object*>(src);
+            try {
+                *static_cast<nb::object*>(dest) = o.attr("__abs__")();
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
+
+        static bool invert(void* dest, const void* src, const TypeMeta*) {
+            const nb::object& o = *static_cast<const nb::object*>(src);
+            try {
+                *static_cast<nb::object*>(dest) = o.attr("__invert__")();
+                return true;
+            } catch (...) {
+                return false;
+            }
+        }
+
+        static bool to_bool(const void* v, const TypeMeta*) {
+            const nb::object& o = *static_cast<const nb::object*>(v);
+            try {
+                return nb::cast<bool>(nb::bool_(o));
+            } catch (...) {
+                return true;  // Non-null objects are truthy by default
+            }
+        }
+
+        static size_t length(const void* v, const TypeMeta*) {
+            const nb::object& o = *static_cast<const nb::object*>(v);
+            try {
+                return nb::len(o);
+            } catch (...) {
+                return 0;
+            }
+        }
+
+        static bool contains(const void* container, const void* element, const TypeMeta*) {
+            const nb::object& c = *static_cast<const nb::object*>(container);
+            const nb::object& e = *static_cast<const nb::object*>(element);
+            try {
+                return nb::cast<bool>(c.attr("__contains__")(e));
+            } catch (...) {
+                return false;
+            }
+        }
+
         static const TypeOps ops;
     };
 
@@ -256,6 +443,20 @@ namespace hgraph::value {
         .type_name = type_name,
         .to_python = to_python,
         .from_python = from_python,
+        // Python object operators - delegate to Python runtime
+        .add = add,
+        .subtract = subtract,
+        .multiply = multiply,
+        .divide = divide,
+        .floor_divide = floor_divide,
+        .modulo = modulo,
+        .power = power,
+        .negate = negate,
+        .absolute = absolute,
+        .invert = invert,
+        .to_bool = to_bool,
+        .length = length,
+        .contains = contains,
     };
 
     /**
@@ -289,8 +490,9 @@ namespace hgraph::value {
     inline const TypeMeta ScalarTypeMetaWithPython<nb::object>::instance = {
         .size = sizeof(nb::object),
         .alignment = alignof(nb::object),
-        // Python objects can be hashable and equatable - runtime checks in ops
-        .flags = TypeFlags::Hashable | TypeFlags::Equatable | TypeFlags::Comparable,
+        // Python objects support all operations via Python runtime delegation
+        .flags = TypeFlags::Hashable | TypeFlags::Equatable | TypeFlags::Comparable |
+                 TypeFlags::Arithmetic | TypeFlags::Integral | TypeFlags::Container,
         .kind = TypeKind::Scalar,
         .ops = &ScalarTypeOpsWithPython<nb::object>::ops,
         .type_info = &typeid(nb::object),
@@ -403,6 +605,20 @@ namespace hgraph::value {
         .type_name = BundlePythonOps::type_name,
         .to_python = BundlePythonOps::to_python,
         .from_python = BundlePythonOps::from_python,
+        // Bundles don't support arithmetic
+        .add = nullptr,
+        .subtract = nullptr,
+        .multiply = nullptr,
+        .divide = nullptr,
+        .floor_divide = nullptr,
+        .modulo = nullptr,
+        .power = nullptr,
+        .negate = nullptr,
+        .absolute = nullptr,
+        .invert = nullptr,
+        .to_bool = nullptr,
+        .length = nullptr,
+        .contains = nullptr,
     };
 
     // ========================================================================
@@ -474,6 +690,20 @@ namespace hgraph::value {
         .type_name = ListPythonOps::type_name,
         .to_python = ListPythonOps::to_python,
         .from_python = ListPythonOps::from_python,
+        // Lists don't support arithmetic
+        .add = nullptr,
+        .subtract = nullptr,
+        .multiply = nullptr,
+        .divide = nullptr,
+        .floor_divide = nullptr,
+        .modulo = nullptr,
+        .power = nullptr,
+        .negate = nullptr,
+        .absolute = nullptr,
+        .invert = nullptr,
+        .to_bool = nullptr,
+        .length = nullptr,  // Fixed-size lists - could add if needed
+        .contains = nullptr,
     };
 
     // ========================================================================
@@ -548,6 +778,21 @@ namespace hgraph::value {
         .type_name = SetPythonOps::type_name,
         .to_python = SetPythonOps::to_python,
         .from_python = SetPythonOps::from_python,
+        // Sets don't support arithmetic
+        .add = nullptr,
+        .subtract = nullptr,
+        .multiply = nullptr,
+        .divide = nullptr,
+        .floor_divide = nullptr,
+        .modulo = nullptr,
+        .power = nullptr,
+        .negate = nullptr,
+        .absolute = nullptr,
+        .invert = nullptr,
+        // Container operations - use SetTypeOps
+        .to_bool = SetTypeOps::to_bool,
+        .length = SetTypeOps::length,
+        .contains = SetTypeOps::contains,
     };
 
     // ========================================================================
@@ -631,6 +876,21 @@ namespace hgraph::value {
         .type_name = DictPythonOps::type_name,
         .to_python = DictPythonOps::to_python,
         .from_python = DictPythonOps::from_python,
+        // Dicts don't support arithmetic
+        .add = nullptr,
+        .subtract = nullptr,
+        .multiply = nullptr,
+        .divide = nullptr,
+        .floor_divide = nullptr,
+        .modulo = nullptr,
+        .power = nullptr,
+        .negate = nullptr,
+        .absolute = nullptr,
+        .invert = nullptr,
+        // Container operations - use DictTypeOps
+        .to_bool = DictTypeOps::to_bool,
+        .length = DictTypeOps::length,
+        .contains = DictTypeOps::contains,
     };
 
     // ========================================================================
@@ -781,6 +1041,20 @@ namespace hgraph::value {
         .type_name = WindowPythonOps::type_name,
         .to_python = WindowPythonOps::to_python,
         .from_python = WindowPythonOps::from_python,
+        // Windows don't support arithmetic
+        .add = nullptr,
+        .subtract = nullptr,
+        .multiply = nullptr,
+        .divide = nullptr,
+        .floor_divide = nullptr,
+        .modulo = nullptr,
+        .power = nullptr,
+        .negate = nullptr,
+        .absolute = nullptr,
+        .invert = nullptr,
+        .to_bool = nullptr,
+        .length = nullptr,
+        .contains = nullptr,
     };
 
     // ========================================================================
@@ -866,6 +1140,20 @@ namespace hgraph::value {
         .type_name = RefPythonOps::type_name,
         .to_python = RefPythonOps::to_python,
         .from_python = RefPythonOps::from_python,
+        // Refs don't support arithmetic
+        .add = nullptr,
+        .subtract = nullptr,
+        .multiply = nullptr,
+        .divide = nullptr,
+        .floor_divide = nullptr,
+        .modulo = nullptr,
+        .power = nullptr,
+        .negate = nullptr,
+        .absolute = nullptr,
+        .invert = nullptr,
+        .to_bool = nullptr,
+        .length = nullptr,
+        .contains = nullptr,
     };
 
     // ========================================================================
@@ -943,6 +1231,21 @@ namespace hgraph::value {
         .type_name = DynamicListPythonOps::type_name,
         .to_python = DynamicListPythonOps::to_python,
         .from_python = DynamicListPythonOps::from_python,
+        // DynamicLists don't support arithmetic
+        .add = nullptr,
+        .subtract = nullptr,
+        .multiply = nullptr,
+        .divide = nullptr,
+        .floor_divide = nullptr,
+        .modulo = nullptr,
+        .power = nullptr,
+        .negate = nullptr,
+        .absolute = nullptr,
+        .invert = nullptr,
+        // Container operations - use DynamicListTypeOps
+        .to_bool = DynamicListTypeOps::to_bool,
+        .length = DynamicListTypeOps::length,
+        .contains = DynamicListTypeOps::contains,
     };
 
     // ========================================================================
