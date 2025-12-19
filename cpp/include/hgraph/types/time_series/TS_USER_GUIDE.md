@@ -323,6 +323,98 @@ if (view.valid() && view.has_value()) {
 }
 ```
 
+## Python Value Operations
+
+When working with Python values in C++, use these helper functions from `ts_python_helpers.h`:
+
+Include the header:
+
+```cpp
+#include <hgraph/types/time_series/ts_python_helpers.h>
+```
+
+### apply_python_result
+
+Apply a Python result to a time-series output:
+
+```cpp
+void process_node_result(TSOutput* output, nb::object result, engine_time_t time) {
+    // If result is None, nothing happens (no-op)
+    // If result has a value, it's converted and set
+    hgraph::ts::apply_python_result(output, result, time);
+}
+```
+
+This is the preferred function when processing node results because:
+- `None` means "no result to apply" - the output is unchanged
+- Non-None values are converted and set using the schema's `from_python` conversion
+
+### set_python_value
+
+Use when you explicitly want to set or invalidate:
+
+```cpp
+// Set a value
+hgraph::ts::set_python_value(output, value, time);
+
+// Invalidate the output (None means invalidate)
+hgraph::ts::set_python_value(output, nb::none(), time);
+```
+
+Key difference from `apply_python_result`: `None` here means "invalidate the output" rather than "do nothing".
+
+### can_apply_python_result
+
+Check if a value can be applied before doing so:
+
+```cpp
+if (hgraph::ts::can_apply_python_result(output, value)) {
+    hgraph::ts::apply_python_result(output, value, time);
+}
+```
+
+Returns `true` if the output is valid and can accept a value.
+
+### get_python_value
+
+Get the current value from an input or output:
+
+```cpp
+// From output
+nb::object val = hgraph::ts::get_python_value(output);
+
+// From input
+nb::object val = hgraph::ts::get_python_value(input);
+
+if (!val.is_none()) {
+    // Use the value
+}
+```
+
+Returns `None` if the time-series has no valid value.
+
+### copy_from_view
+
+Copy a value from a view to an output using type-erased copy:
+
+```cpp
+// Copy from an input view
+bool success = hgraph::ts::copy_from_input_view(output, input.view(), time);
+
+// Copy from another output's view
+bool success = hgraph::ts::copy_from_output_view(output, other_output.view(), time);
+
+// Core function taking ConstValueView directly
+bool success = hgraph::ts::copy_from_view(output, const_value_view, time);
+```
+
+Returns `true` if copy succeeded, `false` if:
+- Output is null or invalid
+- Source view is invalid
+- Schema mismatch (schemas must match exactly)
+
+The copy uses `TypeMeta::copy_assign_at` which handles all type kinds (scalar, bundle, list, set, dict, ref) through the type's copy operation.
+
 ## Type Metadata
 
 To use TSOutput/TSInput, you need TimeSeriesTypeMeta implementations. See `ts_type_meta.h` for the base classes:
@@ -358,4 +450,5 @@ struct MyTSLMeta : TSLTypeMeta {
 
 - `TS_DESIGN.md` - Detailed architecture and design documentation
 - `VALUE_USER_GUIDE.md` - User guide for the underlying value system
+- `ts_python_helpers.h` - Python value operation functions
 - `test_ts_input.cpp` - Comprehensive test examples

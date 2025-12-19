@@ -134,4 +134,7 @@ inline nb::object get_python_value(const TSInput* input) {
 
 } // namespace hgraph::ts
 
+// Include type-erased copy helpers (no nanobind dependency)
+#include <hgraph/types/time_series/ts_copy_helpers.h>
+
 #endif // HGRAPH_TS_PYTHON_HELPERS_H

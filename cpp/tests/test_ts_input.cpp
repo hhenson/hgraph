@@ -830,3 +830,110 @@ TEST_CASE("build_access_strategy - both null returns DirectAccess", "[ts][strate
     REQUIRE(strategy != nullptr);
     REQUIRE(is_direct_access(strategy.get()));
 }
+
+// ============================================================================
+// Type-erased copy tests
+// ============================================================================
+
+#include <hgraph/types/time_series/ts_copy_helpers.h>
+
+TEST_CASE("copy_from_input_view - copies scalar value", "[ts][copy]") {
+    // Create source output and set value
+    TSOutput source(&g_ts_int_meta, nullptr);
+    auto time1 = make_time(1000);
+    source.view().set<int>(42, time1);
+
+    // Create input bound to source
+    TSInput input(&g_ts_int_meta, nullptr);
+    input.bind_output(&source);
+
+    // Create destination output
+    TSOutput dest(&g_ts_int_meta, nullptr);
+    auto time2 = make_time(2000);
+
+    // Copy from input view
+    bool result = copy_from_input_view(&dest, input.view(), time2);
+
+    REQUIRE(result == true);
+    REQUIRE(dest.has_value());
+    REQUIRE(dest.view().as<int>() == 42);
+    REQUIRE(dest.modified_at(time2));
+
+    input.unbind_output();
+}
+
+TEST_CASE("copy_from_output_view - copies scalar value", "[ts][copy]") {
+    // Create source output and set value
+    TSOutput source(&g_ts_int_meta, nullptr);
+    auto time1 = make_time(1000);
+    source.view().set<int>(99, time1);
+
+    // Create destination output
+    TSOutput dest(&g_ts_int_meta, nullptr);
+    auto time2 = make_time(2000);
+
+    // Copy from output view
+    bool result = copy_from_output_view(&dest, source.view(), time2);
+
+    REQUIRE(result == true);
+    REQUIRE(dest.has_value());
+    REQUIRE(dest.view().as<int>() == 99);
+    REQUIRE(dest.modified_at(time2));
+}
+
+TEST_CASE("copy_from_view - schema mismatch returns false", "[ts][copy][error]") {
+    // Create source with int type
+    TSOutput source(&g_ts_int_meta, nullptr);
+    auto time1 = make_time(1000);
+    source.view().set<int>(42, time1);
+
+    // Create destination with string type
+    TSOutput dest(&g_ts_string_meta, nullptr);
+    auto time2 = make_time(2000);
+
+    // Get source as ConstValueView
+    auto source_view = source.view().value_view().value_view();
+    ConstValueView const_view(source_view.data(), source_view.schema());
+
+    // Copy should fail due to schema mismatch
+    bool result = copy_from_view(&dest, const_view, time2);
+
+    REQUIRE(result == false);
+}
+
+TEST_CASE("copy_from_view - null output returns false", "[ts][copy][error]") {
+    TSOutput source(&g_ts_int_meta, nullptr);
+    auto time1 = make_time(1000);
+    source.view().set<int>(42, time1);
+
+    auto source_view = source.view().value_view().value_view();
+    ConstValueView const_view(source_view.data(), source_view.schema());
+
+    bool result = copy_from_view(nullptr, const_view, time1);
+
+    REQUIRE(result == false);
+}
+
+TEST_CASE("copy_from_input_view - invalid view returns false", "[ts][copy][error]") {
+    TSOutput dest(&g_ts_int_meta, nullptr);
+    auto time = make_time(1000);
+
+    // Create an invalid input view (default constructed)
+    TSInputView invalid_view;
+
+    bool result = copy_from_input_view(&dest, invalid_view, time);
+
+    REQUIRE(result == false);
+}
+
+TEST_CASE("copy_from_output_view - invalid view returns false", "[ts][copy][error]") {
+    TSOutput dest(&g_ts_int_meta, nullptr);
+    auto time = make_time(1000);
+
+    // Create an invalid output view (default constructed)
+    TSOutputView invalid_view;
+
+    bool result = copy_from_output_view(&dest, invalid_view, time);
+
+    REQUIRE(result == false);
+}
