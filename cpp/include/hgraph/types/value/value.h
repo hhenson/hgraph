@@ -8,6 +8,7 @@
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/bundle_type.h>
 #include <hgraph/types/value/list_type.h>
+#include <hgraph/types/value/dynamic_list_type.h>
 #include <hgraph/types/value/set_type.h>
 #include <hgraph/types/value/dict_type.h>
 #include <hgraph/types/value/window_type.h>
@@ -929,6 +930,262 @@ namespace hgraph::value {
 
         [[nodiscard]] bool less_than(const Value& other) const {
             return view().less_than(other.view());
+        }
+
+        // =========================================================================
+        // Collection operator overloads
+        // These operators work on Set, Dict, and List types
+        // =========================================================================
+
+        /**
+         * Union operator: a | b
+         * For sets: returns union of two sets
+         * For dicts: returns merge of two dicts (b's values take precedence)
+         */
+        [[nodiscard]] Value operator|(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("operator|: incompatible types");
+            }
+
+            if (_schema->kind == TypeKind::Set) {
+                const auto& storage_a = *static_cast<const SetStorage*>(_storage);
+                const auto& storage_b = *static_cast<const SetStorage*>(other._storage);
+                Value result(_schema);
+                auto& result_storage = *static_cast<SetStorage*>(result._storage);
+                result_storage = storage_a.union_with(storage_b);
+                return result;
+            } else if (_schema->kind == TypeKind::Dict) {
+                const auto& storage_a = *static_cast<const DictStorage*>(_storage);
+                const auto& storage_b = *static_cast<const DictStorage*>(other._storage);
+                Value result(_schema);
+                auto& result_storage = *static_cast<DictStorage*>(result._storage);
+                result_storage = storage_a.merge_with(storage_b);
+                return result;
+            }
+
+            throw std::runtime_error("operator|: not supported for this type");
+        }
+
+        /**
+         * In-place union: a |= b
+         */
+        Value& operator|=(const Value& other) {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("operator|=: incompatible types");
+            }
+
+            if (_schema->kind == TypeKind::Set) {
+                auto& storage = *static_cast<SetStorage*>(_storage);
+                const auto& other_storage = *static_cast<const SetStorage*>(other._storage);
+                storage.update(other_storage);
+                return *this;
+            } else if (_schema->kind == TypeKind::Dict) {
+                auto& storage = *static_cast<DictStorage*>(_storage);
+                const auto& other_storage = *static_cast<const DictStorage*>(other._storage);
+                storage.update(other_storage);
+                return *this;
+            }
+
+            throw std::runtime_error("operator|=: not supported for this type");
+        }
+
+        /**
+         * Intersection operator: a & b
+         * For sets: returns intersection of two sets
+         */
+        [[nodiscard]] Value operator&(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("operator&: incompatible types");
+            }
+
+            if (_schema->kind == TypeKind::Set) {
+                const auto& storage_a = *static_cast<const SetStorage*>(_storage);
+                const auto& storage_b = *static_cast<const SetStorage*>(other._storage);
+                Value result(_schema);
+                auto& result_storage = *static_cast<SetStorage*>(result._storage);
+                result_storage = storage_a.intersection_with(storage_b);
+                return result;
+            }
+
+            throw std::runtime_error("operator&: not supported for this type");
+        }
+
+        /**
+         * In-place intersection: a &= b
+         */
+        Value& operator&=(const Value& other) {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("operator&=: incompatible types");
+            }
+
+            if (_schema->kind == TypeKind::Set) {
+                auto& storage = *static_cast<SetStorage*>(_storage);
+                const auto& other_storage = *static_cast<const SetStorage*>(other._storage);
+                storage.intersection_update(other_storage);
+                return *this;
+            }
+
+            throw std::runtime_error("operator&=: not supported for this type");
+        }
+
+        /**
+         * Difference operator: a - b
+         * For sets: returns elements in a but not in b
+         */
+        [[nodiscard]] Value operator-(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("operator-: incompatible types for difference");
+            }
+
+            if (_schema->kind == TypeKind::Set) {
+                const auto& storage_a = *static_cast<const SetStorage*>(_storage);
+                const auto& storage_b = *static_cast<const SetStorage*>(other._storage);
+                Value result(_schema);
+                auto& result_storage = *static_cast<SetStorage*>(result._storage);
+                result_storage = storage_a.difference_with(storage_b);
+                return result;
+            }
+
+            // For scalars, delegate to subtract
+            if (supports_subtract()) {
+                return subtract(other);
+            }
+
+            throw std::runtime_error("operator-: not supported for this type");
+        }
+
+        /**
+         * In-place difference: a -= b
+         */
+        Value& operator-=(const Value& other) {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("operator-=: incompatible types");
+            }
+
+            if (_schema->kind == TypeKind::Set) {
+                auto& storage = *static_cast<SetStorage*>(_storage);
+                const auto& other_storage = *static_cast<const SetStorage*>(other._storage);
+                storage.difference_update(other_storage);
+                return *this;
+            }
+
+            throw std::runtime_error("operator-=: not supported for this type");
+        }
+
+        /**
+         * Symmetric difference operator: a ^ b
+         * For sets: returns elements in either but not both
+         */
+        [[nodiscard]] Value operator^(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("operator^: incompatible types");
+            }
+
+            if (_schema->kind == TypeKind::Set) {
+                const auto& storage_a = *static_cast<const SetStorage*>(_storage);
+                const auto& storage_b = *static_cast<const SetStorage*>(other._storage);
+                Value result(_schema);
+                auto& result_storage = *static_cast<SetStorage*>(result._storage);
+                result_storage = storage_a.symmetric_difference_with(storage_b);
+                return result;
+            }
+
+            throw std::runtime_error("operator^: not supported for this type");
+        }
+
+        /**
+         * In-place symmetric difference: a ^= b
+         */
+        Value& operator^=(const Value& other) {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("operator^=: incompatible types");
+            }
+
+            if (_schema->kind == TypeKind::Set) {
+                auto& storage = *static_cast<SetStorage*>(_storage);
+                const auto& other_storage = *static_cast<const SetStorage*>(other._storage);
+                storage.symmetric_difference_update(other_storage);
+                return *this;
+            }
+
+            throw std::runtime_error("operator^=: not supported for this type");
+        }
+
+        /**
+         * Addition/concatenation operator: a + b
+         * For scalars: arithmetic addition
+         * For lists: concatenation
+         */
+        [[nodiscard]] Value operator+(const Value& other) const {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("operator+: incompatible types");
+            }
+
+            // For scalars with add support
+            if (supports_add()) {
+                return add(other);
+            }
+
+            // For dynamic lists: concatenation
+            if (_schema->kind == TypeKind::List && _schema->size == sizeof(DynamicListStorage)) {
+                const auto& storage_a = *static_cast<const DynamicListStorage*>(_storage);
+                const auto& storage_b = *static_cast<const DynamicListStorage*>(other._storage);
+                Value result(_schema);
+                auto& result_storage = *static_cast<DynamicListStorage*>(result._storage);
+                result_storage = storage_a.concat_with(storage_b);
+                return result;
+            }
+
+            throw std::runtime_error("operator+: not supported for this type");
+        }
+
+        /**
+         * In-place addition/extend: a += b
+         * For scalars: in-place addition (creates new value)
+         * For lists: extend
+         */
+        Value& operator+=(const Value& other) {
+            if (!valid() || !other.valid() || _schema != other._schema) {
+                throw std::runtime_error("operator+=: incompatible types");
+            }
+
+            // For dynamic lists: extend
+            if (_schema->kind == TypeKind::List && _schema->size == sizeof(DynamicListStorage)) {
+                auto& storage = *static_cast<DynamicListStorage*>(_storage);
+                const auto& other_storage = *static_cast<const DynamicListStorage*>(other._storage);
+                storage.extend(other_storage);
+                return *this;
+            }
+
+            throw std::runtime_error("operator+=: not supported for this type");
+        }
+
+        // =========================================================================
+        // Comparison operators
+        // =========================================================================
+
+        [[nodiscard]] bool operator==(const Value& other) const {
+            return equals(other);
+        }
+
+        [[nodiscard]] bool operator!=(const Value& other) const {
+            return !equals(other);
+        }
+
+        [[nodiscard]] bool operator<(const Value& other) const {
+            return less_than(other);
+        }
+
+        [[nodiscard]] bool operator<=(const Value& other) const {
+            return less_than(other) || equals(other);
+        }
+
+        [[nodiscard]] bool operator>(const Value& other) const {
+            return other.less_than(*this);
+        }
+
+        [[nodiscard]] bool operator>=(const Value& other) const {
+            return other.less_than(*this) || equals(other);
         }
 
     private:

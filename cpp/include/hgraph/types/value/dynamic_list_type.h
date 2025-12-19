@@ -183,6 +183,178 @@ namespace hgraph::value {
             return h;
         }
 
+        // --- List Operation Helper Methods ---
+
+        // Create a copy of this list
+        [[nodiscard]] DynamicListStorage clone() const {
+            DynamicListStorage result(_element_type);
+            result.reserve(_count);
+            for (size_t i = 0; i < _count; ++i) {
+                result.push_back(get(i));
+            }
+            return result;
+        }
+
+        // Concatenation: returns a new list with elements from both
+        [[nodiscard]] DynamicListStorage concat_with(const DynamicListStorage& other) const {
+            assert(_element_type == other._element_type);
+            DynamicListStorage result(_element_type);
+            result.reserve(_count + other._count);
+            for (size_t i = 0; i < _count; ++i) {
+                result.push_back(get(i));
+            }
+            for (size_t i = 0; i < other._count; ++i) {
+                result.push_back(other.get(i));
+            }
+            return result;
+        }
+
+        // Slice: returns a new list with elements from start (inclusive) to end (exclusive)
+        [[nodiscard]] DynamicListStorage slice(size_t start, size_t end) const {
+            if (start > _count) start = _count;
+            if (end > _count) end = _count;
+            if (start >= end) return DynamicListStorage(_element_type);
+
+            DynamicListStorage result(_element_type);
+            result.reserve(end - start);
+            for (size_t i = start; i < end; ++i) {
+                result.push_back(get(i));
+            }
+            return result;
+        }
+
+        // Find index of element (returns nullopt if not found)
+        [[nodiscard]] std::optional<size_t> index_of(const void* elem) const {
+            for (size_t i = 0; i < _count; ++i) {
+                if (_element_type->equals_at(get(i), elem)) {
+                    return i;
+                }
+            }
+            return std::nullopt;
+        }
+
+        // Count occurrences of element
+        [[nodiscard]] size_t count(const void* elem) const {
+            size_t result = 0;
+            for (size_t i = 0; i < _count; ++i) {
+                if (_element_type->equals_at(get(i), elem)) {
+                    ++result;
+                }
+            }
+            return result;
+        }
+
+        // Pop element at index, shifting remaining elements
+        void pop_at(size_t idx) {
+            if (idx >= _count) return;
+
+            // Destruct the element at idx
+            _element_type->destruct_at(get(idx));
+
+            // Move subsequent elements down
+            for (size_t i = idx + 1; i < _count; ++i) {
+                void* dest = _data.data() + (i - 1) * _element_type->size;
+                void* src = _data.data() + i * _element_type->size;
+                _element_type->move_construct_at(dest, src);
+                _element_type->destruct_at(src);
+            }
+
+            --_count;
+            _data.resize(_count * _element_type->size);
+        }
+
+        // Pop last element
+        void pop_back() {
+            if (_count > 0) {
+                pop_at(_count - 1);
+            }
+        }
+
+        // Extend: in-place concatenation
+        void extend(const DynamicListStorage& other) {
+            assert(_element_type == other._element_type);
+            reserve(_count + other._count);
+            for (size_t i = 0; i < other._count; ++i) {
+                push_back(other.get(i));
+            }
+        }
+
+        // Reverse in place
+        void reverse() {
+            if (_count <= 1) return;
+
+            // Use a temporary buffer for swapping
+            std::vector<char> temp(_element_type->size);
+
+            for (size_t i = 0; i < _count / 2; ++i) {
+                size_t j = _count - 1 - i;
+                void* a = get(i);
+                void* b = get(j);
+
+                // temp = a
+                _element_type->move_construct_at(temp.data(), a);
+                _element_type->destruct_at(a);
+
+                // a = b
+                _element_type->move_construct_at(a, b);
+                _element_type->destruct_at(b);
+
+                // b = temp
+                _element_type->move_construct_at(b, temp.data());
+                _element_type->destruct_at(temp.data());
+            }
+        }
+
+        // Insert at index (shifts existing elements)
+        void insert_at(size_t idx, const void* elem) {
+            if (idx > _count) idx = _count;
+
+            // Grow the storage
+            size_t old_size = _data.size();
+            size_t needed = old_size + _element_type->size;
+
+            if (_element_type->is_trivially_copyable() || _count == 0) {
+                _data.resize(needed);
+            } else if (_data.capacity() < needed) {
+                std::vector<char> new_data;
+                new_data.reserve(std::max(needed, _data.capacity() * 2));
+                new_data.resize(needed);
+
+                for (size_t i = 0; i < _count; ++i) {
+                    void* old_ptr = _data.data() + i * _element_type->size;
+                    void* new_ptr = new_data.data() + i * _element_type->size;
+                    _element_type->move_construct_at(new_ptr, old_ptr);
+                    _element_type->destruct_at(old_ptr);
+                }
+                _data = std::move(new_data);
+            } else {
+                _data.resize(needed);
+            }
+
+            // Shift elements after idx to make room
+            for (size_t i = _count; i > idx; --i) {
+                void* src = _data.data() + (i - 1) * _element_type->size;
+                void* dest = _data.data() + i * _element_type->size;
+                _element_type->move_construct_at(dest, src);
+                _element_type->destruct_at(src);
+            }
+
+            // Insert the new element
+            void* dest = _data.data() + idx * _element_type->size;
+            _element_type->copy_construct_at(dest, elem);
+            ++_count;
+        }
+
+        // Remove first occurrence of element
+        bool remove_first(const void* elem) {
+            auto idx = index_of(elem);
+            if (idx) {
+                pop_at(*idx);
+                return true;
+            }
+            return false;
+        }
+
     private:
         const TypeMeta* _element_type;
         std::vector<char> _data;  // Type-erased storage

@@ -216,6 +216,175 @@ namespace hgraph::value {
             return 1.0 - static_cast<double>(live_count) / static_cast<double>(_element_count);
         }
 
+        // --- Set Algebra Helper Methods ---
+
+        // Create a copy of this set
+        [[nodiscard]] SetStorage clone() const {
+            SetStorage result(_element_type);
+            for (auto elem : *this) {
+                result.add(elem.ptr);
+            }
+            return result;
+        }
+
+        // Union: returns a new set containing all elements from both sets
+        [[nodiscard]] SetStorage union_with(const SetStorage& other) const {
+            assert(_element_type == other._element_type);
+            SetStorage result = clone();
+            for (auto elem : other) {
+                result.add(elem.ptr);
+            }
+            return result;
+        }
+
+        // Intersection: returns a new set containing elements in both sets
+        [[nodiscard]] SetStorage intersection_with(const SetStorage& other) const {
+            assert(_element_type == other._element_type);
+            SetStorage result(_element_type);
+            for (auto elem : *this) {
+                if (other.contains(elem.ptr)) {
+                    result.add(elem.ptr);
+                }
+            }
+            return result;
+        }
+
+        // Difference: returns a new set containing elements in this but not other
+        [[nodiscard]] SetStorage difference_with(const SetStorage& other) const {
+            assert(_element_type == other._element_type);
+            SetStorage result(_element_type);
+            for (auto elem : *this) {
+                if (!other.contains(elem.ptr)) {
+                    result.add(elem.ptr);
+                }
+            }
+            return result;
+        }
+
+        // Symmetric difference: returns elements in either but not both
+        [[nodiscard]] SetStorage symmetric_difference_with(const SetStorage& other) const {
+            assert(_element_type == other._element_type);
+            SetStorage result(_element_type);
+            for (auto elem : *this) {
+                if (!other.contains(elem.ptr)) {
+                    result.add(elem.ptr);
+                }
+            }
+            for (auto elem : other) {
+                if (!contains(elem.ptr)) {
+                    result.add(elem.ptr);
+                }
+            }
+            return result;
+        }
+
+        // Subset check: returns true if all elements of this are in other
+        [[nodiscard]] bool is_subset_of(const SetStorage& other) const {
+            assert(_element_type == other._element_type);
+            for (auto elem : *this) {
+                if (!other.contains(elem.ptr)) {
+                    return false;
+                }
+            }
+            return true;
+        }
+
+        // Proper subset: subset but not equal
+        [[nodiscard]] bool is_proper_subset_of(const SetStorage& other) const {
+            return size() < other.size() && is_subset_of(other);
+        }
+
+        // Superset check: returns true if all elements of other are in this
+        [[nodiscard]] bool is_superset_of(const SetStorage& other) const {
+            return other.is_subset_of(*this);
+        }
+
+        // Proper superset: superset but not equal
+        [[nodiscard]] bool is_proper_superset_of(const SetStorage& other) const {
+            return size() > other.size() && is_superset_of(other);
+        }
+
+        // Disjoint check: returns true if sets have no common elements
+        [[nodiscard]] bool is_disjoint_with(const SetStorage& other) const {
+            assert(_element_type == other._element_type);
+            // Iterate over smaller set for efficiency
+            if (size() <= other.size()) {
+                for (auto elem : *this) {
+                    if (other.contains(elem.ptr)) {
+                        return false;
+                    }
+                }
+            } else {
+                for (auto elem : other) {
+                    if (contains(elem.ptr)) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }
+
+        // Discard: remove if present (silent if missing), returns true if removed
+        bool discard(const void* value) {
+            return remove(value);  // remove already returns false if not found
+        }
+
+        // Update: in-place union with another set
+        void update(const SetStorage& other) {
+            assert(_element_type == other._element_type);
+            for (auto elem : other) {
+                add(elem.ptr);
+            }
+        }
+
+        // Intersection update: in-place intersection
+        void intersection_update(const SetStorage& other) {
+            assert(_element_type == other._element_type);
+            // Collect elements to remove (can't modify during iteration)
+            std::vector<size_t> to_remove;
+            for (size_t idx : _index_set) {
+                if (!other.contains(element_ptr(idx))) {
+                    to_remove.push_back(idx);
+                }
+            }
+            for (size_t idx : to_remove) {
+                _element_type->destruct_at(element_ptr(idx));
+                _index_set.erase(idx);
+            }
+        }
+
+        // Difference update: in-place difference
+        void difference_update(const SetStorage& other) {
+            assert(_element_type == other._element_type);
+            for (auto elem : other) {
+                remove(elem.ptr);
+            }
+        }
+
+        // Symmetric difference update: in-place symmetric difference
+        void symmetric_difference_update(const SetStorage& other) {
+            assert(_element_type == other._element_type);
+            // Elements in other but not this: add them
+            // Elements in both: remove them from this
+            std::vector<const void*> to_add;
+            std::vector<const void*> to_remove;
+
+            for (auto elem : other) {
+                if (contains(elem.ptr)) {
+                    to_remove.push_back(elem.ptr);
+                } else {
+                    to_add.push_back(elem.ptr);
+                }
+            }
+
+            for (const void* ptr : to_remove) {
+                remove(ptr);
+            }
+            for (const void* ptr : to_add) {
+                add(ptr);
+            }
+        }
+
         // Compact storage to eliminate holes from removed elements
         // Returns a mapping from old indices to new indices
         // Indices not in the map are no longer valid (removed elements)

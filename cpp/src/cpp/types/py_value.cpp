@@ -62,13 +62,9 @@ void register_py_value_with_nanobind(nb::module_& m) {
 
         // =====================================================================
         // Arithmetic operators (binary)
+        // Note: __add__ and __sub__ are defined in collection operators section
+        // because they handle both arithmetic and collection operations
         // =====================================================================
-        .def("__add__", &PyHgValue::add, "other"_a)
-        .def("__radd__", &PyHgValue::add, "other"_a)
-        .def("__sub__", &PyHgValue::subtract, "other"_a)
-        .def("__rsub__", [](const PyHgValue& self, const PyHgValue& other) {
-            return other.subtract(self);
-        }, "other"_a)
         .def("__mul__", &PyHgValue::multiply, "other"_a)
         .def("__rmul__", &PyHgValue::multiply, "other"_a)
         .def("__truediv__", &PyHgValue::divide, "other"_a)
@@ -86,6 +82,57 @@ void register_py_value_with_nanobind(nb::module_& m) {
         .def("__pow__", &PyHgValue::power, "other"_a)
         .def("__rpow__", [](const PyHgValue& self, const PyHgValue& other) {
             return other.power(self);
+        }, "other"_a)
+
+        // =====================================================================
+        // Collection operators (set algebra, dict merge, list concat)
+        // =====================================================================
+        // Union / merge: |
+        .def("__or__", &PyHgValue::or_op, "other"_a)
+        .def("__ror__", &PyHgValue::or_op, "other"_a)
+        .def("__ior__", [](PyHgValue& self, const PyHgValue& other) -> PyHgValue& {
+            self.ior_op(other);
+            return self;
+        }, "other"_a)
+
+        // Intersection: &
+        .def("__and__", &PyHgValue::and_op, "other"_a)
+        .def("__rand__", &PyHgValue::and_op, "other"_a)
+        .def("__iand__", [](PyHgValue& self, const PyHgValue& other) -> PyHgValue& {
+            self.iand_op(other);
+            return self;
+        }, "other"_a)
+
+        // Difference: - (note: for scalars this falls back to arithmetic subtraction)
+        // sub_op handles both set difference and scalar subtraction
+        .def("__sub__", &PyHgValue::sub_op, "other"_a)
+        .def("__rsub__", [](const PyHgValue& self, const PyHgValue& other) {
+            // For rsub, we need other - self
+            // This only makes sense for scalars, not sets
+            return other.subtract(self);
+        }, "other"_a)
+        .def("__isub__", [](PyHgValue& self, const PyHgValue& other) -> PyHgValue& {
+            self.isub_op(other);
+            return self;
+        }, "other"_a)
+
+        // Symmetric difference: ^
+        .def("__xor__", &PyHgValue::xor_op, "other"_a)
+        .def("__rxor__", &PyHgValue::xor_op, "other"_a)
+        .def("__ixor__", [](PyHgValue& self, const PyHgValue& other) -> PyHgValue& {
+            self.ixor_op(other);
+            return self;
+        }, "other"_a)
+
+        // Addition / concatenation: +
+        // add_op handles both arithmetic addition and list concatenation
+        .def("__add__", &PyHgValue::add_op, "other"_a)
+        .def("__radd__", &PyHgValue::add_op, "other"_a)
+
+        // In-place addition / extend: +=
+        .def("__iadd__", [](PyHgValue& self, const PyHgValue& other) -> PyHgValue& {
+            self.iadd_op(other);
+            return self;
         }, "other"_a)
 
         // =====================================================================

@@ -191,6 +191,98 @@ namespace hgraph::value {
         }
 
         // =========================================================================
+        // Collection operators - delegate to Value's C++ operators
+        // =========================================================================
+
+        /**
+         * Union/merge operator: a | b
+         * For sets: returns union of two sets
+         * For dicts: returns merge of two dicts
+         */
+        [[nodiscard]] PyHgValue or_op(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value | other._value;
+            return result;
+        }
+
+        /**
+         * In-place union/merge: a |= b
+         */
+        void ior_op(const PyHgValue& other) {
+            _value |= other._value;
+        }
+
+        /**
+         * Intersection operator: a & b
+         * For sets: returns intersection of two sets
+         */
+        [[nodiscard]] PyHgValue and_op(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value & other._value;
+            return result;
+        }
+
+        /**
+         * In-place intersection: a &= b
+         */
+        void iand_op(const PyHgValue& other) {
+            _value &= other._value;
+        }
+
+        /**
+         * Difference operator: a - b
+         * For sets: returns elements in a but not in b
+         * For scalars: arithmetic subtraction
+         */
+        [[nodiscard]] PyHgValue sub_op(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value - other._value;
+            return result;
+        }
+
+        /**
+         * In-place difference: a -= b
+         */
+        void isub_op(const PyHgValue& other) {
+            _value -= other._value;
+        }
+
+        /**
+         * Symmetric difference operator: a ^ b
+         * For sets: returns elements in either but not both
+         */
+        [[nodiscard]] PyHgValue xor_op(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value ^ other._value;
+            return result;
+        }
+
+        /**
+         * In-place symmetric difference: a ^= b
+         */
+        void ixor_op(const PyHgValue& other) {
+            _value ^= other._value;
+        }
+
+        /**
+         * Addition/concatenation operator: a + b
+         * For scalars: arithmetic addition
+         * For lists: concatenation
+         */
+        [[nodiscard]] PyHgValue add_op(const PyHgValue& other) const {
+            PyHgValue result;
+            result._value = _value + other._value;
+            return result;
+        }
+
+        /**
+         * In-place addition/extend: a += b
+         */
+        void iadd_op(const PyHgValue& other) {
+            _value += other._value;
+        }
+
+        // =========================================================================
         // Boolean conversion - delegate to Value's C++ implementation
         // =========================================================================
 

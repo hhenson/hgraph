@@ -343,6 +343,61 @@ namespace hgraph::value {
             return ConstIterator(this, _key_set.end());
         }
 
+        // --- Dict Operation Helper Methods ---
+
+        // Create a copy of this dict
+        [[nodiscard]] DictStorage clone() const {
+            DictStorage result(key_type(), _value_type);
+            for (auto kv : *this) {
+                result.insert(kv.key.ptr, kv.value.ptr);
+            }
+            return result;
+        }
+
+        // Merge: returns a new dict containing all entries from both
+        // If key exists in both, value from other takes precedence
+        [[nodiscard]] DictStorage merge_with(const DictStorage& other) const {
+            assert(key_type() == other.key_type() && _value_type == other._value_type);
+            DictStorage result = clone();
+            for (auto kv : other) {
+                result.insert(kv.key.ptr, kv.value.ptr);
+            }
+            return result;
+        }
+
+        // Update: in-place merge with another dict
+        // If key exists in both, value from other takes precedence
+        void update(const DictStorage& other) {
+            assert(key_type() == other.key_type() && _value_type == other._value_type);
+            for (auto kv : other) {
+                insert(kv.key.ptr, kv.value.ptr);
+            }
+        }
+
+        // Pop: remove entry and return true if existed
+        // Note: This doesn't return the value - use get() first if needed
+        bool pop(const void* key) {
+            auto [removed, idx] = remove(key);
+            return removed;
+        }
+
+        // Get with default: returns value if key exists, otherwise default_val
+        [[nodiscard]] const void* get_or_default(const void* key, const void* default_val) const {
+            const void* val = get(key);
+            return val ? val : default_val;
+        }
+
+        // Setdefault: if key exists, return its value; otherwise insert default and return it
+        void* setdefault(const void* key, const void* default_val) {
+            auto idx = _key_set.find_index(key);
+            if (idx) {
+                return value_ptr(*idx);
+            }
+            // Key not found - insert with default value
+            auto [added, new_idx] = insert(key, default_val);
+            return value_ptr(new_idx);
+        }
+
     private:
         void ensure_value_capacity(size_t count) {
             size_t needed = count * _value_type->size;
