@@ -1312,11 +1312,11 @@ private:
 
 ---
 
-## 14. V2 Time-Series Implementation (Current)
+## 14. Time-Series Implementation
 
 **Status:** Implemented and tested as of 2025-12-17
 
-The V2 implementation provides a new time-series input/output system using the type-erased value system. This section documents what has been built.
+The implementation provides a time-series input/output system using the type-erased value system. This section documents what has been built.
 
 ### 14.1 File Locations
 
@@ -1436,7 +1436,7 @@ class TSInputView {
 
 ### 14.4 AccessStrategy Hierarchy
 
-The key innovation in V2 is the **hierarchical access strategy** pattern for binding inputs to outputs. This handles complex type transformations like REF redistribution.
+The key innovation is the **hierarchical access strategy** pattern for binding inputs to outputs. This handles complex type transformations like REF redistribution.
 
 ```
 AccessStrategy (abstract base)
@@ -1491,7 +1491,7 @@ std::unique_ptr<AccessStrategy> build_access_strategy(
 
 ### 14.6 Stacked Strategy Pattern
 
-The V2 system supports complex type transformations through strategy stacking. For example:
+The system supports complex type transformations through strategy stacking. For example:
 
 **Scenario:** `TSD[str, REF[TSL[TS[int], Size[2]]]]` output bound to `TSD[str, TSL[REF[TS[int]], Size[2]]]` input
 
@@ -1571,13 +1571,13 @@ TestTSDOfTSLOfRefMeta  // TSD[str, TSL[REF[TS[int]], Size[2]]]
 
 ```bash
 # Configure with tests enabled
-cmake -B cmake-build-test-v2 -S cpp -DHGRAPH_BUILD_TESTS=ON
+cmake -B cmake-build-test -S cpp -DHGRAPH_BUILD_TESTS=ON
 
 # Build the test executable
-cmake --build cmake-build-test-v2 --target hgraph_ts_input_tests
+cmake --build cmake-build-test --target hgraph_ts_input_tests
 
 # Run tests
-./cmake-build-test-v2/tests/hgraph_ts_input_tests
+./cmake-build-test/tests/hgraph_ts_input_tests
 ```
 
 ### 14.10 Design Principles

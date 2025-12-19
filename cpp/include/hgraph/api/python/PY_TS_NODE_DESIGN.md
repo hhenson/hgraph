@@ -11,10 +11,10 @@ Node owns `ts::TSInput` and `ts::TSOutput` as value members (`std::optional`), n
 - Only the implementation can change
 
 ## Current Implementation
-The existing wrappers use `ApiPtr<TimeSeriesOutput>` / `ApiPtr<TimeSeriesInput>` which wrap a `shared_ptr`. This works for V1 types that are heap-allocated with shared ownership.
+The existing wrappers use `ApiPtr<TimeSeriesOutput>` / `ApiPtr<TimeSeriesInput>` which wrap a `shared_ptr`. This worked for legacy types that were heap-allocated with shared ownership.
 
 ## Challenge
-V2 `ts::TSOutput` and `ts::TSInput` are:
+The current `ts::TSOutput` and `ts::TSInput` are:
 - Value types owned by Node (via `std::optional`)
 - No shared_ptr available for them directly
 - Lifetime tied to the owning Node
@@ -29,7 +29,7 @@ This allows wrapping a raw pointer while using a different shared_ptr for lifeti
 
 ## Type Mismatch Problem
 - `ApiPtr<TimeSeriesOutput>` expects a `TimeSeriesOutput*`
-- V2 `ts::TSOutput` does NOT inherit from `TimeSeriesOutput`
+- `ts::TSOutput` does NOT inherit from `TimeSeriesOutput`
 - They are completely separate types in different namespaces
 
 ## Chosen Approach: View-based Wrappers with Schema-driven Factory
@@ -82,9 +82,9 @@ nb::cast(wrapper)  →  Python object
 ```
 
 ### Files to Modify
-- `cpp/include/hgraph/api/python/v2/py_time_series.h` - Base wrapper changes
-- `cpp/include/hgraph/api/python/v2/py_tsb.h` - Bundle wrapper
-- `cpp/include/hgraph/api/python/v2/py_ts.h` - Value wrapper
+- `cpp/include/hgraph/api/python/py_time_series.h` - Base wrapper changes
+- `cpp/include/hgraph/api/python/py_tsb.h` - Bundle wrapper
+- `cpp/include/hgraph/api/python/py_ts.h` - Value wrapper
 - etc. for each type
 - `cpp/include/hgraph/types/time_series/ts_type_meta.h` - Add `as_api()` method
-- `cpp/src/cpp/api/python/v2/wrapper_factory.cpp` - New factory overloads
+- `cpp/src/cpp/api/python/wrapper_factory.cpp` - New factory overloads
