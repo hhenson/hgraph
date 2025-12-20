@@ -12,7 +12,6 @@ namespace hgraph
         if (!_view.valid() || !_meta) return;
 
         auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
-        auto& ts_value_view = _view.value_view();
 
         if (py_value.is_none()) {
             _view.mark_invalid();
@@ -37,11 +36,11 @@ namespace hgraph
 
         nb::dict d = nb::cast<nb::dict>(py_value);
 
-        // Get the raw data pointer for the bundle storage
-        auto bundle_data = ts_value_view.value_view().data();
+        // _view is already a TimeSeriesValueView - get its inner ValueView
+        auto bundle_data = _view.value_view().data();
 
         // Get the tracker for field modification
-        auto tracker = ts_value_view.tracker();
+        auto tracker = _view.tracker();
 
         for (const auto& field : bundle_schema->fields) {
             if (d.contains(field.name.c_str())) {

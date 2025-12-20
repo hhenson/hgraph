@@ -1,7 +1,7 @@
 //
 // Created by Claude on 20/12/2025.
 //
-// Implementation of Python bindings for TSOutput and TSOutputView.
+// Implementation of Python bindings for TSOutput and TimeSeriesValueView (exposed as TSOutputView in Python).
 //
 
 #include <hgraph/types/time_series/py_ts_output.h>

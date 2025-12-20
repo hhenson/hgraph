@@ -46,7 +46,7 @@ class TSInputBindableView;
  * Features:
  * - Read-only access to the bound output's value
  * - Chainable navigation: view.field("price").element(0)
- * - Path tracking for debugging (knows where it came from)
+ * - Path tracking for debugging (uses ValuePath like TimeSeriesValueView)
  * - NEVER materialized - always goes to source for fresh data
  *
  * Views hold a pointer to the AccessStrategy and navigate on demand.
@@ -60,17 +60,18 @@ public:
      * Create a view rooted at an AccessStrategy
      */
     explicit TSInputView(AccessStrategy* source, const TimeSeriesTypeMeta* meta)
-        : _source(source), _meta(meta), _path(nullptr) {}
+        : _source(source), _meta(meta), _path() {}
 
     /**
-     * Create a view with a navigation path (for debugging)
+     * Create a view with a navigation path (for debugging and consistency with TimeSeriesValueView)
      */
-    TSInputView(AccessStrategy* source, const TimeSeriesTypeMeta* meta, NavigationPath path)
+    TSInputView(AccessStrategy* source, const TimeSeriesTypeMeta* meta, value::ValuePath path)
         : _source(source), _meta(meta), _path(std::move(path)) {}
 
     // === Validity and type queries ===
     [[nodiscard]] bool valid() const { return _source != nullptr; }
     [[nodiscard]] const TimeSeriesTypeMeta* meta() const { return _meta; }
+    [[nodiscard]] const TimeSeriesTypeMeta* ts_meta() const { return _meta; }
     [[nodiscard]] const value::TypeMeta* value_schema() const {
         return _meta ? _meta->value_schema() : nullptr;
     }
@@ -81,7 +82,7 @@ public:
     [[nodiscard]] TimeSeriesKind ts_kind() const { return _meta ? _meta->ts_kind : TimeSeriesKind::TS; }
 
     // === Path tracking ===
-    [[nodiscard]] const NavigationPath& path() const { return _path; }
+    [[nodiscard]] const value::ValuePath& path() const { return _path; }
     [[nodiscard]] std::string path_string() const { return _path.to_string(); }
 
     // === Underlying value view access (fresh every call) ===
@@ -181,8 +182,7 @@ public:
         }
         // For dict entries, we still use parent source but path indicates the entry
         auto value_meta = _meta ? _meta->value_meta() : nullptr;
-        return {_source, value_meta,
-                NavigationPath(_path, PathSegment::at_index(0, value_meta))};
+        return {_source, value_meta, _path.with(0)};
     }
 
     [[nodiscard]] size_t dict_size() const {
@@ -258,7 +258,7 @@ public:
 private:
     AccessStrategy* _source{nullptr};
     const TimeSeriesTypeMeta* _meta{nullptr};
-    NavigationPath _path;
+    value::ValuePath _path;
 };
 
 // ============================================================================

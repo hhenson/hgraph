@@ -108,8 +108,7 @@ TSInputView TSInputView::field(size_t index) const {
     if (auto* collection = dynamic_cast<CollectionAccessStrategy*>(_source)) {
         if (auto* child = collection->child(index)) {
             auto field_meta = _meta ? _meta->field_meta(index) : nullptr;
-            return TSInputView(child, field_meta,
-                              NavigationPath(_path, PathSegment::field(index, field_meta)));
+            return TSInputView(child, field_meta, _path.with(index));
         }
     }
 
@@ -143,8 +142,7 @@ TSInputView TSInputView::element(size_t index) const {
     if (auto* collection = dynamic_cast<CollectionAccessStrategy*>(_source)) {
         if (auto* child = collection->child(index)) {
             auto elem_meta = _meta ? _meta->element_meta() : nullptr;
-            return TSInputView(child, elem_meta,
-                              NavigationPath(_path, PathSegment::at_index(index, elem_meta)));
+            return TSInputView(child, elem_meta, _path.with(index));
         }
     }
 

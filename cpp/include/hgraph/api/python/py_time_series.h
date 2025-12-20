@@ -14,7 +14,7 @@ namespace hgraph
      * Implementation:
      * - Holds shared_ptr<Node> for lifetime management
      * - Holds const TimeSeriesTypeMeta* for type info and navigation
-     * - Derived classes hold TSOutputView or TSInputView
+     * - Derived classes hold TimeSeriesValueView or TSInputView
      */
     struct HGRAPH_EXPORT PyTimeSeriesType
     {
@@ -75,7 +75,7 @@ namespace hgraph
     /**
      * PyTimeSeriesOutput - Python wrapper for time-series outputs
      *
-     * Holds TSOutputView for value access and mutation.
+     * Holds TimeSeriesValueView for value access and mutation.
      * Inherits node_s_ptr and meta from base class.
      */
     struct HGRAPH_EXPORT PyTimeSeriesOutput : PyTimeSeriesType
@@ -122,15 +122,15 @@ namespace hgraph
         static void register_with_nanobind(nb::module_ &m);
 
         // Access to underlying view and output
-        [[nodiscard]] ts::TSOutputView& view() { return _view; }
-        [[nodiscard]] const ts::TSOutputView& view() const { return _view; }
+        [[nodiscard]] value::TimeSeriesValueView& view() { return _view; }
+        [[nodiscard]] const value::TimeSeriesValueView& view() const { return _view; }
         [[nodiscard]] ts::TSOutput* output() const { return _output; }
 
         // Constructor
-        PyTimeSeriesOutput(node_s_ptr node, ts::TSOutputView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta);
+        PyTimeSeriesOutput(node_s_ptr node, value::TimeSeriesValueView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta);
 
       protected:
-        ts::TSOutputView _view;
+        value::TimeSeriesValueView _view;
         ts::TSOutput* _output{nullptr};
     };
 

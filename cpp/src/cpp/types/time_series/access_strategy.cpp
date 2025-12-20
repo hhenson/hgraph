@@ -555,29 +555,27 @@ void ElementAccessStrategy::make_passive() {
     }
 }
 
-TSOutputView ElementAccessStrategy::get_element_view() const {
+value::TimeSeriesValueView ElementAccessStrategy::get_element_view() const {
     if (!_parent_output) return {};
 
     auto view = _parent_output->view();
     if (_kind == NavigationKind::ListElement) {
-        return std::move(view).element(_index);
+        return view.element(_index);
     } else {
-        return std::move(view).field(_index);
+        return view.field(_index);
     }
 }
 
 value::ConstValueView ElementAccessStrategy::value() const {
     auto elem_view = get_element_view();
     if (!elem_view.valid()) return {};
-    auto ts_value_view = elem_view.value_view();
-    return ts_value_view.value_view();
+    return elem_view.value_view();
 }
 
 value::ModificationTracker ElementAccessStrategy::tracker() const {
     auto elem_view = get_element_view();
     if (!elem_view.valid()) return {};
-    auto ts_value_view = elem_view.value_view();
-    return ts_value_view.tracker();
+    return elem_view.tracker();
 }
 
 bool ElementAccessStrategy::has_value() const {

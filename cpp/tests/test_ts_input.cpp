@@ -892,8 +892,10 @@ TEST_CASE("copy_from_view - schema mismatch returns false", "[ts][copy][error]")
     TSOutput dest(&g_ts_string_meta, nullptr);
     auto time2 = make_time(2000);
 
-    // Get source as ConstValueView
-    auto source_view = source.view().value_view().value_view();
+    // Get source as ConstValueView - source.view() is a TimeSeriesValueView
+    // and value_view() returns the inner ValueView
+    auto ts_view = source.view();
+    auto source_view = ts_view.value_view();
     ConstValueView const_view(source_view.data(), source_view.schema());
 
     // Copy should fail due to schema mismatch
@@ -907,7 +909,8 @@ TEST_CASE("copy_from_view - null output returns false", "[ts][copy][error]") {
     auto time1 = make_time(1000);
     source.view().set<int>(42, time1);
 
-    auto source_view = source.view().value_view().value_view();
+    auto ts_view = source.view();
+    auto source_view = ts_view.value_view();
     ConstValueView const_view(source_view.data(), source_view.schema());
 
     bool result = copy_from_view(nullptr, const_view, time1);
@@ -932,7 +935,7 @@ TEST_CASE("copy_from_output_view - invalid view returns false", "[ts][copy][erro
     auto time = make_time(1000);
 
     // Create an invalid output view (default constructed)
-    TSOutputView invalid_view;
+    value::TimeSeriesValueView invalid_view;
 
     bool result = copy_from_output_view(&dest, invalid_view, time);
 

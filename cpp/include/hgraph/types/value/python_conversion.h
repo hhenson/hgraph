@@ -1183,11 +1183,11 @@ namespace hgraph::value {
 
                 if (view.valid()) {
                     // Scalar types have data and schema
-                    auto ts_value_view = view.value_view();
-                    auto vv = ts_value_view.value_view();
+                    // view is already a TimeSeriesValueView
+                    auto vv = view.value_view();  // Get inner ValueView
                     data = vv.data();
-                    tracker = ts_value_view.tracker().storage();
-                    schema = ts_value_view.schema();
+                    tracker = view.tracker().storage();
+                    schema = view.schema();
                 }
 
                 fmt::print("[TRACE]   data={} schema={} output={}\n",
@@ -1212,13 +1212,13 @@ namespace hgraph::value {
                         if (!item_view.valid()) {
                             items.push_back(RefStorage::make_empty());
                         } else {
-                            auto item_ts_value_view = item_view.value_view();
-                            auto item_vv = item_ts_value_view.value_view();
+                            // item_view is already a TimeSeriesValueView
+                            auto item_vv = item_view.value_view();  // Get inner ValueView
                             auto* item_output = item.output_ptr();
                             ValueRef vref(
                                 item_vv.data(),
-                                item_ts_value_view.tracker().storage(),
-                                item_ts_value_view.schema(),
+                                item_view.tracker().storage(),
+                                item_view.schema(),
                                 static_cast<void*>(item_output)
                             );
                             items.push_back(RefStorage::make_bound(vref));

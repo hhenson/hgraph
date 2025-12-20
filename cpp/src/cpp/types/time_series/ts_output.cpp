@@ -12,7 +12,7 @@
 
 namespace hgraph::ts {
 
-// Currently all TSOutput/TSOutputView methods are inline in the header.
+// Currently all TSOutput methods are inline in the header.
 // This file serves as a compilation unit to verify header correctness
 // and as a location for any future non-template implementations.
 

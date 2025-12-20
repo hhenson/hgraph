@@ -12,6 +12,20 @@
 #include <hgraph/types/value/dict_type.h>
 #include <hgraph/util/date_time.h>
 #include <hgraph/util/string_utils.h>
+#include <algorithm>
+#include <cstring>
+
+// Forward declarations
+namespace hgraph::ts {
+    class TSOutput;
+    class DeltaView;
+}
+
+// Forward declarations in hgraph namespace (where they're actually defined)
+namespace hgraph {
+    struct TimeSeriesTypeMeta;
+    enum class TimeSeriesKind : uint8_t;
+}
 
 namespace hgraph::value {
 
@@ -19,6 +33,201 @@ namespace hgraph::value {
     class TimeSeriesValue;
     class TimeSeriesValueView;
     class ObserverStorage;
+
+    // ============================================================================
+    // ValuePath - Lightweight path from root TSOutput to current view position
+    // ============================================================================
+
+    /**
+     * ValuePath - Tracks navigation path from a root TSOutput
+     *
+     * Used for:
+     * - REF creation (TS→REF) - Need to know root and path to create reference
+     * - Owning node access - REF needs the node that owns the output
+     * - Debug output - Path can be reconstructed for debugging
+     *
+     * Uses small vector optimization:
+     * - Paths with depth ≤ 4 use inline storage (no heap allocation)
+     * - Deeper paths fall back to heap allocation
+     *
+     * Memory: ~48 bytes fixed (fits in cache line with TimeSeriesValueView)
+     */
+    struct ValuePath {
+        const ts::TSOutput* root{nullptr};
+
+        // Small vector optimization - most paths are short (depth ≤ 4)
+        static constexpr size_t INLINE_CAPACITY = 4;
+
+    private:
+        union Storage {
+            size_t inline_indices[INLINE_CAPACITY];
+            struct {
+                size_t* heap_indices;
+                size_t heap_capacity;
+            };
+            Storage() : inline_indices{} {}
+        } _storage;
+        uint8_t _depth{0};
+        bool _uses_heap{false};
+
+    public:
+        ValuePath() = default;
+
+        explicit ValuePath(const ts::TSOutput* root_output)
+            : root(root_output), _depth(0), _uses_heap(false) {}
+
+        // Copy constructor
+        ValuePath(const ValuePath& other)
+            : root(other.root), _depth(other._depth), _uses_heap(other._uses_heap) {
+            if (_uses_heap && other._storage.heap_indices) {
+                _storage.heap_capacity = other._storage.heap_capacity;
+                _storage.heap_indices = new size_t[_storage.heap_capacity];
+                std::memcpy(_storage.heap_indices, other._storage.heap_indices,
+                           _depth * sizeof(size_t));
+            } else {
+                std::memcpy(_storage.inline_indices, other._storage.inline_indices,
+                           sizeof(_storage.inline_indices));
+            }
+        }
+
+        // Move constructor
+        ValuePath(ValuePath&& other) noexcept
+            : root(other.root), _depth(other._depth), _uses_heap(other._uses_heap) {
+            if (_uses_heap) {
+                _storage.heap_indices = other._storage.heap_indices;
+                _storage.heap_capacity = other._storage.heap_capacity;
+                other._storage.heap_indices = nullptr;
+                other._storage.heap_capacity = 0;
+            } else {
+                std::memcpy(_storage.inline_indices, other._storage.inline_indices,
+                           sizeof(_storage.inline_indices));
+            }
+            other.root = nullptr;
+            other._depth = 0;
+            other._uses_heap = false;
+        }
+
+        // Copy assignment
+        ValuePath& operator=(const ValuePath& other) {
+            if (this != &other) {
+                // Clean up existing heap storage
+                if (_uses_heap && _storage.heap_indices) {
+                    delete[] _storage.heap_indices;
+                }
+                root = other.root;
+                _depth = other._depth;
+                _uses_heap = other._uses_heap;
+                if (_uses_heap && other._storage.heap_indices) {
+                    _storage.heap_capacity = other._storage.heap_capacity;
+                    _storage.heap_indices = new size_t[_storage.heap_capacity];
+                    std::memcpy(_storage.heap_indices, other._storage.heap_indices,
+                               _depth * sizeof(size_t));
+                } else {
+                    std::memcpy(_storage.inline_indices, other._storage.inline_indices,
+                               sizeof(_storage.inline_indices));
+                }
+            }
+            return *this;
+        }
+
+        // Move assignment
+        ValuePath& operator=(ValuePath&& other) noexcept {
+            if (this != &other) {
+                // Clean up existing heap storage
+                if (_uses_heap && _storage.heap_indices) {
+                    delete[] _storage.heap_indices;
+                }
+                root = other.root;
+                _depth = other._depth;
+                _uses_heap = other._uses_heap;
+                if (_uses_heap) {
+                    _storage.heap_indices = other._storage.heap_indices;
+                    _storage.heap_capacity = other._storage.heap_capacity;
+                    other._storage.heap_indices = nullptr;
+                    other._storage.heap_capacity = 0;
+                } else {
+                    std::memcpy(_storage.inline_indices, other._storage.inline_indices,
+                               sizeof(_storage.inline_indices));
+                }
+                other.root = nullptr;
+                other._depth = 0;
+                other._uses_heap = false;
+            }
+            return *this;
+        }
+
+        ~ValuePath() {
+            if (_uses_heap && _storage.heap_indices) {
+                delete[] _storage.heap_indices;
+            }
+        }
+
+        // Returns a new path with the given index appended
+        [[nodiscard]] ValuePath with(size_t index) const {
+            ValuePath result(*this);
+            result.push(index);
+            return result;
+        }
+
+        // Appends an index to this path (mutating)
+        void push(size_t index) {
+            size_t new_depth = static_cast<size_t>(_depth) + 1;
+
+            if (!_uses_heap && new_depth <= INLINE_CAPACITY) {
+                // Can still use inline storage
+                _storage.inline_indices[_depth] = index;
+                _depth = static_cast<uint8_t>(new_depth);
+            } else if (!_uses_heap) {
+                // Need to transition to heap storage
+                size_t new_capacity = std::max(static_cast<size_t>(8), new_depth * 2);
+                size_t* new_indices = new size_t[new_capacity];
+                std::memcpy(new_indices, _storage.inline_indices,
+                           _depth * sizeof(size_t));
+                new_indices[_depth] = index;
+                _storage.heap_indices = new_indices;
+                _storage.heap_capacity = new_capacity;
+                _uses_heap = true;
+                _depth = static_cast<uint8_t>(new_depth);
+            } else {
+                // Already using heap
+                if (new_depth > _storage.heap_capacity) {
+                    size_t new_capacity = _storage.heap_capacity * 2;
+                    size_t* new_indices = new size_t[new_capacity];
+                    std::memcpy(new_indices, _storage.heap_indices,
+                               _depth * sizeof(size_t));
+                    delete[] _storage.heap_indices;
+                    _storage.heap_indices = new_indices;
+                    _storage.heap_capacity = new_capacity;
+                }
+                _storage.heap_indices[_depth] = index;
+                _depth = static_cast<uint8_t>(new_depth);
+            }
+        }
+
+        // Access
+        [[nodiscard]] const ts::TSOutput* root_output() const { return root; }
+        [[nodiscard]] size_t depth() const { return _depth; }
+        [[nodiscard]] bool empty() const { return _depth == 0; }
+
+        [[nodiscard]] size_t operator[](size_t i) const {
+            if (i >= _depth) return 0;
+            return _uses_heap ? _storage.heap_indices[i] : _storage.inline_indices[i];
+        }
+
+        // Get owning node from root TSOutput (defined in ts_output.h)
+        [[nodiscard]] node_ptr owning_node() const;
+
+        // Debug string representation
+        [[nodiscard]] std::string to_string() const {
+            std::string result = "root";
+            for (size_t i = 0; i < _depth; ++i) {
+                result += "[";
+                result += std::to_string((*this)[i]);
+                result += "]";
+            }
+            return result;
+        }
+    };
 
     /**
      * TimeSeriesValueView - Mutable view with explicit time parameters
@@ -34,18 +243,48 @@ namespace hgraph::value {
      * - Optionally holds a pointer to an ObserverStorage for notifications
      * - Modifications trigger notifications that propagate upward
      * - Subscribe/unsubscribe available for hierarchical subscriptions
+     *
+     * Time-Series Metadata Support:
+     * - Optionally holds TimeSeriesTypeMeta for ts_kind() queries
+     * - Optionally holds ValuePath for root/path tracking (REF creation)
+     * - delta_view() method when meta is provided
+     *
+     * This class replaces the previous TSOutputView, consolidating all
+     * time-series output view functionality into a single type.
      */
     class TimeSeriesValueView {
     public:
         TimeSeriesValueView() = default;
 
+        // Basic construction (no TS metadata) - for internal/lower-level use
         TimeSeriesValueView(ValueView value_view, ModificationTracker tracker,
                             ObserverStorage* observer = nullptr)
             : _value_view(value_view), _tracker(tracker), _observer(observer) {}
 
+        // Full construction (with TS metadata) - for TSOutput::view()
+        TimeSeriesValueView(ValueView value_view, ModificationTracker tracker,
+                            ObserverStorage* observer, const TimeSeriesTypeMeta* ts_meta,
+                            ValuePath path = {})
+            : _value_view(value_view), _tracker(tracker), _observer(observer),
+              _ts_meta(ts_meta), _path(std::move(path)) {}
+
         [[nodiscard]] bool valid() const { return _value_view.valid() && _tracker.valid(); }
         [[nodiscard]] const TypeMeta* schema() const { return _value_view.schema(); }
+        [[nodiscard]] const TypeMeta* value_schema() const { return _value_view.schema(); }
         [[nodiscard]] TypeKind kind() const { return _value_view.kind(); }
+
+        // === Time-Series type queries ===
+        [[nodiscard]] const TimeSeriesTypeMeta* ts_meta() const { return _ts_meta; }
+        [[nodiscard]] TimeSeriesKind ts_kind() const;  // Defined after TimeSeriesKind is complete
+
+        // === Path tracking (for REF creation) ===
+        [[nodiscard]] const ValuePath& path() const { return _path; }
+        [[nodiscard]] std::string path_string() const { return _path.to_string(); }
+        [[nodiscard]] const ts::TSOutput* root_output() const { return _path.root_output(); }
+        [[nodiscard]] node_ptr owning_node() const { return _path.owning_node(); }
+
+        // === Delta view access ===
+        [[nodiscard]] ts::DeltaView delta_view(engine_time_t time) const;  // Defined in ts_output.h
 
         // Raw access (without auto-tracking - use with caution)
         [[nodiscard]] ValueView value_view() { return _value_view; }
@@ -105,13 +344,16 @@ namespace hgraph::value {
         // === Bundle field navigation ===
         // Returns sub-view. If no specific child observer exists, we pass the parent
         // observer so that notifications still propagate up through the hierarchy.
+        // Also propagates ts_meta (field metadata) and extends path.
         [[nodiscard]] TimeSeriesValueView field(size_t index) {
             if (!valid() || kind() != TypeKind::Bundle) {
                 return {};
             }
             ObserverStorage* child_observer = _observer ? _observer->child(index) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            return {_value_view.field(index), _tracker.field(index), effective_observer};
+            const TimeSeriesTypeMeta* field_meta = _ts_meta ? field_meta_at(index) : nullptr;
+            return {_value_view.field(index), _tracker.field(index), effective_observer,
+                    field_meta, _path.with(index)};
         }
 
         [[nodiscard]] TimeSeriesValueView field(const std::string& name) {
@@ -121,15 +363,20 @@ namespace hgraph::value {
             auto field_view = _value_view.field(name);
             auto field_tracker = _tracker.field(name);
             ObserverStorage* child_observer = nullptr;
-            if (_observer && field_view.valid()) {
+            size_t field_index = 0;
+            if (field_view.valid()) {
                 auto* bundle_meta = static_cast<const BundleTypeMeta*>(schema());
                 auto it = bundle_meta->name_to_index.find(name);
                 if (it != bundle_meta->name_to_index.end()) {
-                    child_observer = _observer->child(it->second);
+                    field_index = it->second;
+                    if (_observer) {
+                        child_observer = _observer->child(field_index);
+                    }
                 }
             }
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            return {field_view, field_tracker, effective_observer};
+            const TimeSeriesTypeMeta* field_meta = _ts_meta ? field_meta_at(field_index) : nullptr;
+            return {field_view, field_tracker, effective_observer, field_meta, _path.with(field_index)};
         }
 
         [[nodiscard]] bool field_modified_at(size_t index, engine_time_t time) const {
@@ -141,13 +388,16 @@ namespace hgraph::value {
         }
 
         // === List element navigation ===
+        // Also propagates ts_meta (element metadata) and extends path.
         [[nodiscard]] TimeSeriesValueView element(size_t index) {
             if (!valid() || kind() != TypeKind::List) {
                 return {};
             }
             ObserverStorage* child_observer = _observer ? _observer->child(index) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            return {_value_view.element(index), _tracker.element(index), effective_observer};
+            const TimeSeriesTypeMeta* elem_meta = _ts_meta ? element_meta_at() : nullptr;
+            return {_value_view.element(index), _tracker.element(index), effective_observer,
+                    elem_meta, _path.with(index)};
         }
 
         [[nodiscard]] bool element_modified_at(size_t index, engine_time_t time) const {
@@ -224,6 +474,7 @@ namespace hgraph::value {
         }
 
         // Dict entry navigation - returns sub-view for a specific entry
+        // Also propagates ts_meta (value metadata) and extends path.
         template<typename K>
         [[nodiscard]] TimeSeriesValueView entry(const K& key) {
             if (!valid() || kind() != TypeKind::Dict) {
@@ -240,7 +491,8 @@ namespace hgraph::value {
             }
             ObserverStorage* child_observer = _observer ? _observer->child(*idx) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            return {entry_view, _tracker, effective_observer};
+            const TimeSeriesTypeMeta* value_meta = _ts_meta ? value_meta_at() : nullptr;
+            return {entry_view, _tracker, effective_observer, value_meta, _path.with(*idx)};
         }
 
         template<typename K>
@@ -261,6 +513,7 @@ namespace hgraph::value {
         }
 
         // Dict entry navigation using ConstValueView as key
+        // Also propagates ts_meta (value metadata) and extends path.
         [[nodiscard]] TimeSeriesValueView entry(ConstValueView key) {
             if (!valid() || kind() != TypeKind::Dict || !key.valid()) {
                 return {};
@@ -275,7 +528,8 @@ namespace hgraph::value {
             }
             ObserverStorage* child_observer = _observer ? _observer->child(*idx) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            return {entry_view, _tracker, effective_observer};
+            const TimeSeriesTypeMeta* valu_meta = _ts_meta ? value_meta_at() : nullptr;
+            return {entry_view, _tracker, effective_observer, valu_meta, _path.with(*idx)};
         }
 
         // === Child observer management ===
@@ -300,6 +554,7 @@ namespace hgraph::value {
          *
          * Unlike field(), this ensures a child observer exists for the field,
          * enabling subscriptions at this level.
+         * Also propagates ts_meta (field metadata) and extends path.
          */
         [[nodiscard]] TimeSeriesValueView field_with_observer(size_t index) {
             if (!valid() || kind() != TypeKind::Bundle) {
@@ -310,7 +565,8 @@ namespace hgraph::value {
                 return {};
             }
             ObserverStorage* child_observer = ensure_child_observer(index, field_value.schema());
-            return {field_value, _tracker.field(index), child_observer};
+            const TimeSeriesTypeMeta* field_meta = _ts_meta ? field_meta_at(index) : nullptr;
+            return {field_value, _tracker.field(index), child_observer, field_meta, _path.with(index)};
         }
 
         [[nodiscard]] TimeSeriesValueView field_with_observer(const std::string& name) {
@@ -327,6 +583,7 @@ namespace hgraph::value {
 
         /**
          * Navigate to an element with child observer ensured.
+         * Also propagates ts_meta (element metadata) and extends path.
          */
         [[nodiscard]] TimeSeriesValueView element_with_observer(size_t index) {
             if (!valid() || kind() != TypeKind::List) {
@@ -337,13 +594,15 @@ namespace hgraph::value {
                 return {};
             }
             ObserverStorage* child_observer = ensure_child_observer(index, elem_value.schema());
-            return {elem_value, _tracker.element(index), child_observer};
+            const TimeSeriesTypeMeta* elem_meta = _ts_meta ? element_meta_at() : nullptr;
+            return {elem_value, _tracker.element(index), child_observer, elem_meta, _path.with(index)};
         }
 
         /**
          * Navigate to a dict entry with child observer ensured.
          *
          * Uses ConstValueView for type-safe key passing.
+         * Also propagates ts_meta (value metadata) and extends path.
          */
         [[nodiscard]] TimeSeriesValueView entry_with_observer(ConstValueView key) {
             if (!valid() || kind() != TypeKind::Dict || !key.valid()) {
@@ -359,7 +618,8 @@ namespace hgraph::value {
             }
             auto* dict_meta = static_cast<const DictTypeMeta*>(schema());
             ObserverStorage* child_observer = ensure_child_observer(*idx, dict_meta->value_type);
-            return {entry_view, _tracker, child_observer};
+            const TimeSeriesTypeMeta* valu_meta = _ts_meta ? value_meta_at() : nullptr;
+            return {entry_view, _tracker, child_observer, valu_meta, _path.with(*idx)};
         }
 
         // === Window operations (time as parameter) ===
@@ -575,7 +835,13 @@ namespace hgraph::value {
         ValueView _value_view;
         ModificationTracker _tracker;
         ObserverStorage* _observer{nullptr};
-        // No _current_time - passed as parameter to mutations
+        const TimeSeriesTypeMeta* _ts_meta{nullptr};  // Optional TS type metadata
+        ValuePath _path;  // Path from root TSOutput (for REF creation)
+
+        // Helper methods for navigation - defined in ts_output.h where TimeSeriesTypeMeta is complete
+        [[nodiscard]] const TimeSeriesTypeMeta* field_meta_at(size_t index) const;
+        [[nodiscard]] const TimeSeriesTypeMeta* element_meta_at() const;
+        [[nodiscard]] const TimeSeriesTypeMeta* value_meta_at() const;
     };
 
     /**

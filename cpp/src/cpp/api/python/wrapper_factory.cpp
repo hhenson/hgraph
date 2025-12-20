@@ -60,7 +60,7 @@ namespace
     };
 
     // Helper to create the appropriate output wrapper based on TimeSeriesKind
-    nb::object create_output_wrapper(node_s_ptr node, ts::TSOutputView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta) {
+    nb::object create_output_wrapper(node_s_ptr node, value::TimeSeriesValueView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta) {
         if (!meta) {
             return nb::cast(PyTimeSeriesOutput(std::move(node), std::move(view), output, meta));
         }

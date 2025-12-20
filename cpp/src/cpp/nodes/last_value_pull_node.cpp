@@ -93,15 +93,15 @@ namespace hgraph {
 
     void LastValuePullNode::copy_from_output(const ts::TSOutput &output) {
         // Get value from output view and convert to Python
+        // view is already a TimeSeriesValueView
         auto view = const_cast<ts::TSOutput&>(output).view();
         if (!view.valid() || !view.has_value()) {
             return;  // Nothing to copy
         }
 
-        // Convert value to Python object
-        auto ts_value_view = view.value_view();
-        auto vv = ts_value_view.value_view();
-        auto delta = value::value_to_python(vv.data(), ts_value_view.schema());
+        // Convert value to Python object - get inner ValueView for data access
+        auto vv = view.value_view();
+        auto delta = value::value_to_python(vv.data(), view.schema());
 
         if (_delta_value.has_value()) {
             _delta_value = _delta_combine_fn(_delta_value.value(), delta);

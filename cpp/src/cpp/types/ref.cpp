@@ -41,8 +41,8 @@ namespace hgraph
         return _node_ref.lock();
     }
 
-    // Resolve to TSOutputView
-    ts::TSOutputView TimeSeriesReference::resolve() const {
+    // Resolve to TimeSeriesValueView
+    value::TimeSeriesValueView TimeSeriesReference::resolve() const {
         if (_kind != Kind::BOUND) {
             return {};  // Invalid view
         }
@@ -58,7 +58,7 @@ namespace hgraph
         }
 
         // Start with the root view
-        ts::TSOutputView view = output->view();
+        value::TimeSeriesValueView view = output->view();
 
         // If no path, return the root view directly
         // Don't check view.valid() - collection types may have null value schema
@@ -71,16 +71,16 @@ namespace hgraph
         for (const auto& key : _path) {
             // For navigation, check if we have metadata rather than value validity
             // Collection types don't have value schemas but can still be navigated
-            if (!view.meta()) {
+            if (!view.ts_meta()) {
                 return {};  // Can't navigate without type metadata
             }
             if (std::holds_alternative<size_t>(key)) {
                 size_t idx = std::get<size_t>(key);
                 // Try field first (for bundles), then element (for lists)
                 if (view.kind() == value::TypeKind::Bundle) {
-                    view = std::move(view).field(idx);
+                    view = view.field(idx);
                 } else {
-                    view = std::move(view).element(idx);
+                    view = view.element(idx);
                 }
             } else {
                 // TypeErasedKey - for TSD navigation
@@ -192,29 +192,23 @@ namespace hgraph
         return TimeSeriesReference(std::move(items));
     }
 
-    TimeSeriesReference TimeSeriesReference::make(const ts::TSOutputView& view) {
+    TimeSeriesReference TimeSeriesReference::make(const value::TimeSeriesValueView& view) {
         // For TimeSeriesReference, we don't need view.valid() (which checks value/schema).
         // Collection types (TSL, TSD, etc.) have null schema but can still be referenced.
         // We just need to be able to navigate back to the owning node via the path.
-        const auto& nav_path = view.path();
-        const auto* root = nav_path.root();
+        const auto& value_path = view.path();
+        const auto* root = value_path.root_output();
         if (!root) return make();
 
         auto* node = root->owning_node();
         if (!node) return make();
 
-        // Convert PathSegments to PathKeys
+        // Convert ValuePath indices to PathKeys
         std::vector<PathKey> path;
-        path.reserve(nav_path.segments().size());
-        for (const auto& seg : nav_path.segments()) {
-            if (seg.has_index()) {
-                // Both Field and Element with index map to size_t PathKey
-                path.push_back(seg.as_index());
-            } else if (seg.has_name()) {
-                // String field names - would need TypeMeta to convert to index
-                // For now, skip string-based navigation in references
-                // This is a limitation that can be addressed later
-            }
+        path.reserve(value_path.depth());
+        for (size_t i = 0; i < value_path.depth(); ++i) {
+            // ValuePath stores indices directly
+            path.push_back(value_path[i]);
         }
 
         return make(node->shared_from_this(), std::move(path));

@@ -54,17 +54,15 @@ namespace hgraph
     // PyTimeSeriesOutput - Output wrapper implementation
     // =========================================================================
 
-    PyTimeSeriesOutput::PyTimeSeriesOutput(node_s_ptr node, ts::TSOutputView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta)
+    PyTimeSeriesOutput::PyTimeSeriesOutput(node_s_ptr node, value::TimeSeriesValueView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta)
         : PyTimeSeriesType(std::move(node), meta), _view(std::move(view)), _output(output) {}
 
     nb::object PyTimeSeriesOutput::value() const {
         if (!_view.valid()) return nb::none();
-        // Use the value type's to_python conversion
-        auto ts_value_view = _view.value_view();
-        if (!ts_value_view.valid()) return nb::none();
-        // Get the underlying ValueView which has the data() method
-        auto vv = ts_value_view.value_view();
-        auto* schema = ts_value_view.schema();
+        // Get the underlying value view which has the data() method
+        auto vv = _view.value_view();
+        if (!vv.valid()) return nb::none();
+        auto* schema = _view.value_schema();
         return value::value_to_python(vv.data(), schema);
     }
 
@@ -134,18 +132,17 @@ namespace hgraph
         if (!_view.valid() || !_meta) return;
 
         auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
-        auto& ts_value_view = _view.value_view();
 
         if (py_value.is_none()) {
             _view.mark_invalid();
             return;
         }
 
-        // Use the value type's from_python conversion
-        auto* schema = ts_value_view.schema();
+        // _view is already a TimeSeriesValueView - use it directly
+        auto* schema = _view.schema();
         if (schema && schema->ops && schema->ops->from_python) {
             // Get the underlying ValueView which has the data() method
-            auto vv = ts_value_view.value_view();
+            auto vv = _view.value_view();
             schema->ops->from_python(vv.data(), py_value.ptr(), schema);
             _view.mark_modified(eval_time);
         }

@@ -124,13 +124,13 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         return;
     }
 
+    // view is already a TimeSeriesValueView
     auto view = output->view();
-    auto ts_value_view = view.value_view();
-    auto* schema = ts_value_view.schema();
+    auto* schema = view.schema();
 
     if (schema && schema->ops && schema->ops->from_python) {
         // Get the underlying ValueView which has the data() method
-        auto value_view = ts_value_view.value_view();
+        auto value_view = view.value_view();
         schema->ops->from_python(value_view.data(), py_value.ptr(), schema);
 
         // For TSB types, also mark individual fields as modified
@@ -138,7 +138,7 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         if (meta && meta->ts_kind == TimeSeriesKind::TSB && nb::isinstance<nb::dict>(py_value)) {
             nb::dict d = nb::cast<nb::dict>(py_value);
             auto* tsb_meta = static_cast<const TSBTypeMeta*>(meta);
-            auto tracker = ts_value_view.tracker();
+            auto tracker = view.tracker();
 
             // Mark each field from the dict as modified
             for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
@@ -210,14 +210,14 @@ inline bool can_apply_python_result(TSOutput* output, nb::object py_value) {
 inline nb::object get_python_value(const TSOutput* output) {
     if (!output || !output->has_value()) return nb::none();
 
+    // view is already a TimeSeriesValueView
     auto view = const_cast<TSOutput*>(output)->view();
-    auto ts_value_view = view.value_view();
-    auto* schema = ts_value_view.schema();
+    auto* schema = view.schema();
 
-    if (!ts_value_view.valid() || !schema) return nb::none();
+    if (!view.valid() || !schema) return nb::none();
 
     // Get the underlying ValueView which has the data() method
-    auto value_view = ts_value_view.value_view();
+    auto value_view = view.value_view();
     return value::value_to_python(value_view.data(), schema);
 }
 

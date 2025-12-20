@@ -33,7 +33,6 @@ namespace hgraph::ts {
 
 // Forward declarations
 class TSOutput;
-class TSOutputView;
 class TSInput;
 
 // ============================================================================
@@ -421,7 +420,7 @@ private:
     /**
      * Navigate to the element's output view
      */
-    [[nodiscard]] TSOutputView get_element_view() const;
+    [[nodiscard]] value::TimeSeriesValueView get_element_view() const;
 
     TSOutput* _parent_output{nullptr};
     size_t _index;

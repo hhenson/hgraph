@@ -1,7 +1,7 @@
 //
 // Created by Claude on 20/12/2025.
 //
-// Python wrapper for TSOutput and TSOutputView.
+// Python wrapper for TSOutput and TimeSeriesValueView.
 // Exposes TSOutput functionality to Python for testing.
 //
 
@@ -10,6 +10,7 @@
 
 #include <nanobind/nanobind.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/value/observer_storage.h>
 #include <hgraph/util/date_time.h>
@@ -102,7 +103,7 @@ private:
 };
 
 /**
- * PyTSOutputView - Python wrapper for TSOutputView
+ * PyTSOutputView - Python wrapper for TimeSeriesValueView
  *
  * Provides fluent navigation API and value access with explicit time parameters.
  * Supports hierarchical subscriptions at any navigation level.
@@ -112,19 +113,19 @@ public:
     PyTSOutputView() = default;
 
     // Full constructor with observer and subscription manager
-    PyTSOutputView(TSOutputView view,
+    PyTSOutputView(value::TimeSeriesValueView view,
                    value::ObserverStorage* observer,
                    std::shared_ptr<SubscriptionManagerForOutput> sub_mgr)
         : _view(std::move(view)), _observer(observer), _sub_mgr(std::move(sub_mgr)) {}
 
     // Constructor without observer (for backward compatibility, subscriptions won't work)
-    explicit PyTSOutputView(TSOutputView view)
+    explicit PyTSOutputView(value::TimeSeriesValueView view)
         : _view(std::move(view)), _observer(nullptr), _sub_mgr(nullptr) {}
 
     // === Validity and type queries ===
     [[nodiscard]] bool valid() const { return _view.valid(); }
 
-    [[nodiscard]] const TimeSeriesTypeMeta* meta() const { return _view.meta(); }
+    [[nodiscard]] const TimeSeriesTypeMeta* meta() const { return _view.ts_meta(); }
 
     [[nodiscard]] const value::TypeMeta* value_schema() const { return _view.value_schema(); }
 
@@ -166,7 +167,7 @@ public:
     // === Value access ===
     [[nodiscard]] nb::object py_value() const {
         if (!valid()) return nb::none();
-        auto const_view = _view.value_view().value_view();
+        auto const_view = _view.value_view();
         return value::value_to_python(const_view.data(), const_view.schema());
     }
 
@@ -177,8 +178,8 @@ public:
         if (py_obj.is_none()) {
             return;
         }
-        auto value_view = _view.value_view().value_view();
-        value::value_from_python(value_view.data(), py_obj, value_view.schema());
+        auto value_v = _view.value_view();
+        value::value_from_python(value_v.data(), py_obj, value_v.schema());
         _view.mark_modified(time);
     }
 
@@ -192,8 +193,9 @@ public:
         }
         // Use field_with_observer to ensure child observer exists for subscriptions
         auto field_view = _view.field_with_observer(index);
-        auto* observer = field_view.observer();
-        return PyTSOutputView(std::move(field_view), observer, _sub_mgr);
+        // For observer, use ensure_child_observer if we have an observer
+        auto* child_observer = _observer ? _observer->child(index) : nullptr;
+        return PyTSOutputView(std::move(field_view), child_observer, _sub_mgr);
     }
 
     [[nodiscard]] PyTSOutputView field_by_name(const std::string& name) {
@@ -204,8 +206,17 @@ public:
         if (!field_view.valid()) {
             throw std::runtime_error("Invalid field name: " + name);
         }
-        auto* observer = field_view.observer();
-        return PyTSOutputView(std::move(field_view), observer, _sub_mgr);
+        // Get field index for observer lookup
+        size_t index = 0;
+        auto* bundle_meta = static_cast<const value::BundleTypeMeta*>(_view.value_schema());
+        if (bundle_meta) {
+            auto it = bundle_meta->name_to_index.find(name);
+            if (it != bundle_meta->name_to_index.end()) {
+                index = it->second;
+            }
+        }
+        auto* child_observer = _observer ? _observer->child(index) : nullptr;
+        return PyTSOutputView(std::move(field_view), child_observer, _sub_mgr);
     }
 
     [[nodiscard]] bool field_modified_at(size_t index, engine_time_t time) const {
@@ -226,8 +237,8 @@ public:
         }
         // Use element_with_observer to ensure child observer exists for subscriptions
         auto elem_view = _view.element_with_observer(index);
-        auto* observer = elem_view.observer();
-        return PyTSOutputView(std::move(elem_view), observer, _sub_mgr);
+        auto* child_observer = _observer ? _observer->child(index) : nullptr;
+        return PyTSOutputView(std::move(elem_view), child_observer, _sub_mgr);
     }
 
     [[nodiscard]] bool element_modified_at(size_t index, engine_time_t time) const {
@@ -334,11 +345,11 @@ public:
     }
 
     // Access underlying view for internal use
-    TSOutputView& underlying() { return _view; }
-    const TSOutputView& underlying() const { return _view; }
+    value::TimeSeriesValueView& underlying() { return _view; }
+    const value::TimeSeriesValueView& underlying() const { return _view; }
 
 private:
-    TSOutputView _view;
+    value::TimeSeriesValueView _view;
     value::ObserverStorage* _observer{nullptr};
     std::shared_ptr<SubscriptionManagerForOutput> _sub_mgr;
 };
@@ -393,10 +404,10 @@ public:
             throw std::runtime_error("Cannot create view from invalid TSOutput");
         }
         // Ensure root observer exists
-        auto& underlying = _output->underlying();
-        underlying.ensure_observers();
+        auto& underlyingValue = _output->underlying();
+        underlyingValue.ensure_observers();
         auto ts_view = _output->view();
-        auto* observer = ts_view.observer();
+        auto* observer = underlyingValue.observers();
         return PyTSOutputView(std::move(ts_view), observer, _sub_mgr);
     }
 
@@ -433,8 +444,8 @@ public:
         }
         // Use the view to set the value
         auto v = _output->view();
-        auto value_view = v.value_view().value_view();
-        value::value_from_python(value_view.data(), py_obj, value_view.schema());
+        auto value_v = v.value_view();
+        value::value_from_python(value_v.data(), py_obj, value_v.schema());
         v.mark_modified(time);
     }
 

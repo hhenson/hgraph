@@ -115,7 +115,7 @@ namespace hgraph
         [[nodiscard]] const std::vector<PathKey>& path() const { return _path; }
 
         // Resolve to view (returns invalid view if expired or not bound)
-        [[nodiscard]] ts::TSOutputView resolve() const;
+        [[nodiscard]] value::TimeSeriesValueView resolve() const;
 
         // Resolve to raw output pointer (returns nullptr if expired or not bound)
         [[nodiscard]] ts::TSOutput* output_ptr() const;
@@ -134,7 +134,7 @@ namespace hgraph
         static TimeSeriesReference make(std::vector<TimeSeriesReference> items);  // UNBOUND
 
         // Create from output view - extracts node and path from the view
-        static TimeSeriesReference make(const ts::TSOutputView& view);
+        static TimeSeriesReference make(const value::TimeSeriesValueView& view);
 
       private:
         // Private constructors for factory use
