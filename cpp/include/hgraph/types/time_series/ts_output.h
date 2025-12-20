@@ -25,6 +25,7 @@ namespace hgraph::ts {
 // Forward declarations
 class TSOutput;
 class DeltaView;
+struct PythonCache;  // Defined in cpp file with nanobind - holds cached Python conversions
 
 // ============================================================================
 // TSOutput - Owning time-series output with node parentage
@@ -65,9 +66,12 @@ public:
         , _owning_node(owning_node)
         , _value(meta ? meta->value_schema() : nullptr) {}
 
+    // Destructor - defined in cpp where PythonCache is complete
+    ~TSOutput();
+
     // Move only (value owns storage)
-    TSOutput(TSOutput&&) noexcept = default;
-    TSOutput& operator=(TSOutput&&) noexcept = default;
+    TSOutput(TSOutput&& other) noexcept;
+    TSOutput& operator=(TSOutput&& other) noexcept;
     TSOutput(const TSOutput&) = delete;
     TSOutput& operator=(const TSOutput&) = delete;
 
@@ -186,6 +190,39 @@ public:
      */
     [[nodiscard]] bool delta_reset_registered() const { return _delta_reset_registered; }
 
+    // === Python value/delta cache ===
+
+    /**
+     * Get or create the Python cache for this output.
+     *
+     * The cache stores:
+     * - Cached value conversion (valid while cache_time >= last_modified_time)
+     * - Cached delta conversion (valid only for current evaluation tick)
+     *
+     * When delta is first cached, a cleanup callback is registered
+     * to clear it at the end of the evaluation tick.
+     *
+     * @return Pointer to the cache (created on first call)
+     */
+    PythonCache* python_cache();
+
+    /**
+     * Check if a Python cache exists (without creating one).
+     */
+    [[nodiscard]] bool has_python_cache() const { return _python_cache != nullptr; }
+
+    /**
+     * Clear the cached delta value.
+     * Called by the after-evaluation callback.
+     */
+    void clear_cached_delta();
+
+    /**
+     * Clear the cached value.
+     * Called when the value is updated.
+     */
+    void clear_cached_value();
+
     // TODO: Register with visitor system
     // VISITOR_SUPPORT()
 
@@ -194,6 +231,7 @@ private:
     node_ptr _owning_node{nullptr};
     value::TSValue _value;
     mutable bool _delta_reset_registered{false};  // mutable: registration is a caching mechanism
+    PythonCache* _python_cache{nullptr};  // Lazily created, owned by this object
 };
 
 } // namespace hgraph::ts

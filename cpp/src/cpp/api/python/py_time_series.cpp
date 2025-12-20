@@ -80,8 +80,8 @@ namespace hgraph
             if (ts_kind == TSKind::TSD ||
                 ts_kind == TSKind::TSL ||
                 ts_kind == TSKind::TSS) {
-                // Try to get cached delta - this also consumes (clears) it
-                auto cached = ts::get_cached_delta(_output, eval_time);
+                // Try to get cached delta (cleared at tick end by callback)
+                auto cached = ts::get_cached_delta(_output);
                 if (!cached.is_none()) {
                     return cached;
                 }
@@ -226,7 +226,7 @@ namespace hgraph
                 // Get the bound output and check its cache
                 auto* bound_output = _view.bound_output();
                 if (bound_output) {
-                    auto cached = ts::get_cached_delta(bound_output, eval_time);
+                    auto cached = ts::get_cached_delta(bound_output);
                     if (!cached.is_none()) {
                         return cached;
                     }

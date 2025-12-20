@@ -113,21 +113,24 @@ if is_feature_enabled("use_cpp"):
         )
 
 
-        def _create_set_delta(added, removed, tp):
-            sd_tp = {
-                bool: _hgraph.SetDelta_bool,
-                int: _hgraph.SetDelta_int,
-                float: _hgraph.SetDelta_float,
-                date: _hgraph.SetDelta_date,
-                datetime: _hgraph.SetDelta_date_time,
-                timedelta: _hgraph.SetDelta_time_delta,
-            }.get(tp, None)
-            if sd_tp is None:
-                return _hgraph.SetDelta_object(added, removed, tp)
-            return sd_tp(added, removed)
+        # Check if C++ SetDelta types are available
+        # If not, skip registering the C++ factory and use the Python PythonSetDelta
+        if hasattr(_hgraph, 'SetDelta_bool'):
+            def _create_set_delta(added, removed, tp):
+                sd_tp = {
+                    bool: _hgraph.SetDelta_bool,
+                    int: _hgraph.SetDelta_int,
+                    float: _hgraph.SetDelta_float,
+                    date: _hgraph.SetDelta_date,
+                    datetime: _hgraph.SetDelta_date_time,
+                    timedelta: _hgraph.SetDelta_time_delta,
+                }.get(tp, None)
+                if sd_tp is None:
+                    return _hgraph.SetDelta_object(added, removed, tp)
+                return sd_tp(added, removed)
 
-
-        hgraph.set_set_delta_factory(_create_set_delta)
+            hgraph.set_set_delta_factory(_create_set_delta)
+        # else: Use the default PythonSetDelta factory
 
 
         def _create_tsd_map_builder_factory(

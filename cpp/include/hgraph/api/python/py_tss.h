@@ -34,6 +34,10 @@ namespace hgraph
         void add(const nb::object &item);
         void remove(const nb::object &item);
 
+        // Override to handle SetDelta objects
+        void set_value(nb::object py_value);
+        void apply_result(nb::object value);
+
         // Value access
         [[nodiscard]] nb::object values() const;
         [[nodiscard]] nb::object added() const;

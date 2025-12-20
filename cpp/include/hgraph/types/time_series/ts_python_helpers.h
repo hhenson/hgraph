@@ -16,34 +16,23 @@
 #include <fmt/format.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_python_cache.h>
 #include <hgraph/types/value/python_conversion.h>
-#include <unordered_map>
 
 namespace hgraph::ts
 {
 
 // =============================================================================
-// Delta Cache for Collection Types (TSD, TSL, TSS)
+// Delta/Value Cache Helper Functions
 // =============================================================================
 //
 // Collection types (TSD, TSL, TSS) don't have native C++ storage - their values
 // are managed by Python. When a Python node returns a dict/list/set result,
-// we need to cache it so that delta_value() can return it later for recording.
+// we cache it on the TSOutput so that delta_value() can return it later.
 //
-// The cache maps TSOutput* -> (nb::object, engine_time_t) pairs.
-// Values are cleared when consumed to avoid memory leaks.
-
-struct CachedDelta {
-    nb::object value;
-    engine_time_t time{MIN_DT};
-};
-
-// Thread-local cache for delta values
-// Using a simple map keyed by TSOutput pointer
-inline std::unordered_map<const TSOutput*, CachedDelta>& get_delta_cache() {
-    static std::unordered_map<const TSOutput*, CachedDelta> cache;
-    return cache;
-}
+// The cache is stored directly on TSOutput::python_cache().
+// Delta values are cleared at the end of each evaluation tick via
+// TSOutput::register_delta_reset_callback().
 
 /**
  * Cache a delta value for a collection type output.
@@ -51,56 +40,88 @@ inline std::unordered_map<const TSOutput*, CachedDelta>& get_delta_cache() {
  * Called from set_python_value() for TSD/TSL/TSS types that don't have
  * native C++ storage.
  */
-inline void cache_delta(const TSOutput* output, nb::object value, engine_time_t time) {
+inline void cache_delta(TSOutput* output, nb::object value) {
     if (!output) return;
-    get_delta_cache()[output] = CachedDelta{std::move(value), time};
+    auto* cache = output->python_cache();
+    cache->cached_delta = std::move(value);
 }
 
 /**
- * Get and consume a cached delta value.
+ * Get the cached delta value (non-consuming).
  *
- * Returns the cached value if available and was set at the given time.
- * The value is removed from the cache after retrieval.
+ * Returns the cached delta if available.
+ * The delta is NOT consumed - it will be cleared at tick end by the
+ * after-evaluation callback.
  *
  * @param output The output to get cached delta for
- * @param time The time to check (must match cache time)
  * @return The cached Python object, or None if not available
  */
-inline nb::object get_cached_delta(const TSOutput* output, engine_time_t time) {
-    if (!output) return nb::none();
+inline nb::object get_cached_delta(const TSOutput* output) {
+    if (!output || !output->has_python_cache()) return nb::none();
+    auto* cache = const_cast<TSOutput*>(output)->python_cache();
+    if (cache->cached_delta.is_none()) return nb::none();
+    return cache->cached_delta;
+}
 
-    auto& cache = get_delta_cache();
-    auto it = cache.find(output);
-    if (it == cache.end()) return nb::none();
+/**
+ * Cache a value conversion for an output.
+ *
+ * The cached value is valid as long as cache_time >= last_modified_time.
+ */
+inline void cache_value(TSOutput* output, nb::object value, engine_time_t time) {
+    if (!output) return;
+    auto* cache = output->python_cache();
+    cache->cached_value = std::move(value);
+    cache->value_cache_time = time;
+}
 
-    // Check if the cached value is from the current time
-    if (it->second.time != time) {
-        cache.erase(it);
-        return nb::none();
+/**
+ * Get the cached value if still valid.
+ *
+ * @param output The output to get cached value for
+ * @return The cached Python object if valid, or None if stale/unavailable
+ */
+inline nb::object get_cached_value(const TSOutput* output) {
+    if (!output || !output->has_python_cache()) return nb::none();
+    auto* cache = const_cast<TSOutput*>(output)->python_cache();
+
+    // Check if cache is still valid:
+    // - cached_value must not be None (cleared)
+    // - cache_time must be >= last_modified_time (not stale)
+    if (!cache->cached_value.is_none() &&
+        cache->value_cache_time >= output->last_modified_time()) {
+        return cache->cached_value;
     }
-
-    // Extract and remove the cached value
-    nb::object result = std::move(it->second.value);
-    cache.erase(it);
-    return result;
+    return nb::none();
 }
 
-/**
- * Check if a delta is cached for this output at the given time.
- */
-inline bool has_cached_delta(const TSOutput* output, engine_time_t time) {
-    if (!output) return false;
-    auto& cache = get_delta_cache();
-    auto it = cache.find(output);
-    if (it == cache.end()) return false;
-    return it->second.time == time;
+// Helper to check if an object is a SetDelta (has 'added' and 'removed' attributes)
+inline bool is_set_delta(const nb::object& obj) {
+    return nb::hasattr(obj, "added") && nb::hasattr(obj, "removed");
 }
 
-/**
- * Clear all cached deltas (e.g., at end of evaluation cycle).
- */
-inline void clear_delta_cache() {
-    get_delta_cache().clear();
+// Helper to check if an object is a set or frozenset
+inline bool is_python_set(const nb::object& obj) {
+    return nb::isinstance<nb::set>(obj) || nb::isinstance<nb::frozenset>(obj);
+}
+
+// Helper to check if an object is a Removed marker (has 'item' attribute and is from hgraph._impl._types._tss)
+inline bool is_removed_marker(const nb::object& obj) {
+    // Check for the 'item' attribute which Removed has
+    if (!nb::hasattr(obj, "item")) return false;
+    // Also verify it's the Removed class by checking the type name
+    auto type_name = nb::str(obj.type().attr("__name__"));
+    return std::string_view(type_name.c_str()) == "Removed";
+}
+
+// Helper to check if a set contains any Removed markers
+inline bool set_contains_removed_markers(const nb::object& set_obj) {
+    for (auto item : set_obj) {
+        if (is_removed_marker(nb::cast<nb::object>(item))) {
+            return true;
+        }
+    }
+    return false;
 }
 
 /**
@@ -110,6 +131,7 @@ inline void clear_delta_cache() {
  * Otherwise, the value is converted using the schema's ops->from_python.
  *
  * For TSB (bundle) types, this also marks individual fields as modified.
+ * For TSS types, SetDelta and plain set objects are handled specially to compute deltas.
  *
  * @param output The output to set
  * @param py_value The Python value to set
@@ -121,7 +143,175 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
     // None means invalidate
     if (py_value.is_none()) {
         output->mark_invalid();
+        output->clear_cached_value();
         return;
+    }
+
+    // Clear value cache since we're updating the value
+    output->clear_cached_value();
+
+    auto* meta = output->meta();
+
+    // Special handling for TSS (TimeSeriesSet) types
+    if (meta && meta->ts_kind == TSKind::TSS) {
+        auto view = output->view();
+
+        // Get current value
+        nb::object current_value = nb::none();
+        if (view.has_value()) {
+            auto* schema = view.value_schema();
+            if (schema && schema->ops && schema->ops->to_python) {
+                auto vv = view.value_view();
+                current_value = nb::steal(reinterpret_cast<PyObject*>(schema->ops->to_python(vv.data(), schema)));
+            }
+        }
+
+        nb::set old_set;
+        if (!current_value.is_none()) {
+            old_set = nb::set(current_value);
+        }
+
+        // Handle SetDelta objects
+        if (is_set_delta(py_value)) {
+            nb::set new_set;
+            if (!current_value.is_none()) {
+                new_set = nb::set(current_value);
+            }
+
+            // Get added and removed from the delta
+            nb::object added = py_value.attr("added");
+            nb::object removed = py_value.attr("removed");
+
+            // Build filtered added set (only elements not already in set)
+            nb::set filtered_added;
+            for (auto item : added) {
+                nb::object item_obj = nb::cast<nb::object>(item);
+                bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
+                if (!in_set) {
+                    filtered_added.add(item_obj);
+                    new_set.add(item_obj);
+                }
+            }
+
+            // Build filtered removed set (only elements that are in set)
+            nb::set filtered_removed;
+            for (auto item : removed) {
+                nb::object item_obj = nb::cast<nb::object>(item);
+                bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
+                if (in_set) {
+                    filtered_removed.add(item_obj);
+                    new_set.discard(item_obj);
+                }
+            }
+
+            // Only mark as modified if there were actual changes
+            if (len(filtered_added) > 0 || len(filtered_removed) > 0 || !view.has_value()) {
+                // Store the new set value
+                auto* schema = view.schema();
+                if (schema && schema->ops && schema->ops->from_python) {
+                    auto value_view = view.value_view();
+                    nb::frozenset fs(new_set);
+                    schema->ops->from_python(value_view.data(), fs.ptr(), schema);
+                }
+
+                // Create and cache the filtered delta
+                nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
+                nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
+                nb::object filtered_delta = PythonSetDelta(
+                    nb::frozenset(filtered_added),
+                    nb::frozenset(filtered_removed)
+                );
+
+                cache_delta(output, filtered_delta);
+                view.mark_modified(time);
+                output->register_delta_reset_callback();
+            }
+            return;
+        }
+
+        // Handle plain set/frozenset - may contain Removed markers
+        if (is_python_set(py_value)) {
+            nb::set added_set;
+            nb::set removed_set;
+            nb::set new_set;
+
+            // Check if set contains Removed markers
+            bool has_removed_markers = set_contains_removed_markers(py_value);
+
+            if (has_removed_markers) {
+                // Process set with Removed markers
+                // Start with a copy of the old set
+                if (!current_value.is_none()) {
+                    new_set = nb::set(current_value);
+                }
+
+                for (auto item : py_value) {
+                    nb::object item_obj = nb::cast<nb::object>(item);
+                    if (is_removed_marker(item_obj)) {
+                        // Extract the actual item from the Removed wrapper
+                        nb::object actual_item = item_obj.attr("item");
+                        // Only remove if it's in the current set
+                        bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(actual_item));
+                        if (in_set) {
+                            removed_set.add(actual_item);
+                            new_set.discard(actual_item);
+                        }
+                    } else {
+                        // Regular item - add if not already in set
+                        bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
+                        if (!in_set) {
+                            added_set.add(item_obj);
+                            new_set.add(item_obj);
+                        }
+                    }
+                }
+            } else {
+                // Pure set without Removed markers - compute delta from old value
+                new_set = nb::set(py_value);
+
+                // Find added elements (in new but not in old)
+                for (auto item : py_value) {
+                    nb::object item_obj = nb::cast<nb::object>(item);
+                    bool in_old = len(old_set) > 0 && nb::cast<bool>(old_set.attr("__contains__")(item_obj));
+                    if (!in_old) {
+                        added_set.add(item_obj);
+                    }
+                }
+
+                // Find removed elements (in old but not in new)
+                for (auto item : old_set) {
+                    nb::object item_obj = nb::cast<nb::object>(item);
+                    bool in_new = nb::cast<bool>(new_set.attr("__contains__")(item_obj));
+                    if (!in_new) {
+                        removed_set.add(item_obj);
+                    }
+                }
+            }
+
+            // Only mark as modified if there were actual changes or first tick
+            if (len(added_set) > 0 || len(removed_set) > 0 || !view.has_value()) {
+                // Store the new set value
+                auto* schema = view.schema();
+                if (schema && schema->ops && schema->ops->from_python) {
+                    auto value_view = view.value_view();
+                    nb::frozenset fs(new_set);
+                    schema->ops->from_python(value_view.data(), fs.ptr(), schema);
+                }
+
+                // Create and cache the delta
+                nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
+                nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
+                nb::object delta = PythonSetDelta(
+                    nb::frozenset(added_set),
+                    nb::frozenset(removed_set)
+                );
+
+                cache_delta(output, delta);
+                view.mark_modified(time);
+                output->register_delta_reset_callback();
+            }
+            return;
+        }
     }
 
     // view is already a TSView
@@ -134,7 +324,7 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         schema->ops->from_python(value_view.data(), py_value.ptr(), schema);
 
         // For TSB types, also mark individual fields as modified
-        auto* meta = output->meta();
+        if (!meta) meta = output->meta();
         if (meta && meta->ts_kind == TSKind::TSB && nb::isinstance<nb::dict>(py_value)) {
             nb::dict d = nb::cast<nb::dict>(py_value);
             auto* tsb_meta = static_cast<const TSBTypeMeta*>(meta);
@@ -162,7 +352,7 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         // we can't store the value directly in C++ storage, but we should
         // still mark as modified so subscribers (like REF inputs) get notified.
         // Cache the Python value so delta_value() can return it later.
-        cache_delta(output, py_value, time);
+        cache_delta(output, py_value);
         view.mark_modified(time);
 
         // For TSS and TSD types, register callback to clear delta at tick end
@@ -214,13 +404,20 @@ inline bool can_apply_python_result(TSOutput* output, nb::object py_value) {
 /**
  * Get the Python value from a TSOutput.
  *
- * Uses the schema's to_python conversion.
+ * Uses the schema's to_python conversion with caching.
+ * The cached value is valid as long as the output hasn't been modified.
  *
  * @param output The output to get from
  * @return The Python object, or None if not valid
  */
 inline nb::object get_python_value(const TSOutput* output) {
     if (!output || !output->has_value()) return nb::none();
+
+    // Check for cached value first
+    auto cached = get_cached_value(output);
+    if (!cached.is_none()) {
+        return cached;
+    }
 
     // view is already a TSView
     auto view = const_cast<TSOutput*>(output)->view();
@@ -230,7 +427,12 @@ inline nb::object get_python_value(const TSOutput* output) {
 
     // Get the underlying ValueView which has the data() method
     auto value_view = view.value_view();
-    return value::value_to_python(value_view.data(), schema);
+    auto result = value::value_to_python(value_view.data(), schema);
+
+    // Cache the result using last_modified_time as the cache time
+    cache_value(const_cast<TSOutput*>(output), result, output->last_modified_time());
+
+    return result;
 }
 
 /**
