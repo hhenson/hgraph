@@ -297,7 +297,7 @@ TSD[int, TSB[Schema]]    # Dict with int keys, bundle values
 | Property | Type | Description |
 |----------|------|-------------|
 | `value` | `dict[K, V]` | Dictionary of key to value |
-| `delta_value` | `TSDDelta` | Added, removed, and modified keys |
+| `delta_value` | `frozendict[K, V \| REMOVE]` | Modified/added values and removed keys |
 | `modified` | `bool` | True if any change occurred |
 | `valid` | `bool` | True (always valid, may be empty) |
 | `all_valid` | `bool` | True if all values valid |
@@ -381,7 +381,7 @@ TSS[int]        # Set of integers
 | Property | Type | Description |
 |----------|------|-------------|
 | `value` | `frozenset[T]` | Current set of values |
-| `delta_value` | `TSSDelta` | Added and removed items |
+| `delta_value` | `SetDelta` | Added and removed items |
 | `modified` | `bool` | True if add/remove occurred |
 | `valid` | `bool` | True (always valid, may be empty) |
 | `added` | `frozenset[T]` | Items added this tick |
@@ -523,10 +523,12 @@ REF[TSD[K, V]]          # Reference to dictionary
 
 | Property | Type | Description |
 |----------|------|-------------|
-| `value` | `T` | Value of referenced time-series |
+| `value` | `TimeSeriesReference` | Reference object pointing to target (on input) |
 | `delta_value` | varies | Delta of referenced time-series |
-| `modified` | `bool` | True if reference or target modified |
-| `valid` | `bool` | True if bound and target valid |
+| `modified` | `bool` | True if reference changed or target modified |
+| `valid` | `bool` | True if bound to a valid target |
+
+**Note:** To access the actual value of the referenced time-series, dereference first or use the reference in a context that auto-dereferences (e.g., passing to a node expecting `TS[T]`).
 
 ### 9.3 Reference Semantics
 
@@ -546,14 +548,15 @@ graph TB
 ### 9.4 Reference Operations
 
 ```python
-# Reading through reference
-ref.value               # Value of target
+# Reading reference (on REF input)
+ref.value               # Returns TimeSeriesReference object
+ref.value.output        # The underlying output (if BoundTimeSeriesReference)
 ref.modified            # True if ref changed or target modified
 ref.valid               # True if bound to valid target
 
-# Output operations (binding)
-ref_output.value = output_ts    # Bind to a time-series
-ref_output.invalidate()         # Unbind
+# Output operations (on REF output)
+ref_output.value = time_series_ref  # Set to a TimeSeriesReference
+ref_output.invalidate()             # Unbind (set to empty reference)
 ```
 
 ### 9.5 Two Modification Conditions
@@ -624,8 +627,8 @@ graph TB
 | TS[T] | `T` | Same as value |
 | TSB | `dict` | Only modified field values |
 | TSL | `dict[int, T]` | Index to modified value |
-| TSD | `TSDDelta` | added, removed, modified |
-| TSS | `TSSDelta` | added, removed |
+| TSD | `frozendict[K, V \| REMOVE]` | Modified values and removed keys |
+| TSS | `SetDelta` | added and removed sets |
 | TSW | `tuple[T, ...]` | Values added this tick |
 | REF | varies | Delta of target |
 
@@ -640,12 +643,12 @@ output.value = 20
 output.value = 30
 # delta_value = 30 (final value)
 
-# For collections
+# For collections (assuming "a" existed at start of tick)
 tsd["a"] = 1
 tsd["a"] = 2
 del tsd["a"]
 tsd["a"] = 3
-# Result: {"a": 3} with "a" in modified (not added, since it existed before this tick's changes)
+# Result: {"a": 3} in delta_value, "a" not in added (existed at tick start)
 ```
 
 ---
@@ -1065,9 +1068,9 @@ classDiagram
 
 ### 15.2 Binding Operations
 
-#### REF → REF Binding (Peered)
+#### REF → REF Binding (Observer Pattern)
 
-When a REF input binds to a REF output, a **peered** relationship is established:
+When a REF input binds to a REF output, an **observer** relationship is established:
 
 ```python
 # REF[TS[int]] output → REF[TS[int]] input
@@ -1113,14 +1116,12 @@ def g(ts: TS[int]) -> REF[TS[int]]:
 4. Input is scheduled for notification at node start
 
 ```python
-# Simplified binding logic
+# Simplified binding logic for REF input receiving TS output
 def do_bind_output(self, output: TimeSeriesOutput) -> bool:
-    if isinstance(output, TimeSeriesReferenceOutput):
-        return super().do_bind_output(output)  # Peered
-    else:
-        self._value = TimeSeriesReference.make(output)  # Wrap
-        self._output = None  # Non-peered
-        return False
+    # output is a TS[int] output, not a REF output
+    self._value = TimeSeriesReference.make(output)  # Wrap in reference
+    self._output = None  # Non-peered (no direct output binding)
+    return False  # Indicates non-peered
 ```
 
 #### REF → TS Binding (Dereferencing)
@@ -1366,11 +1367,22 @@ Empty references represent the "no reference" state:
 
 ```python
 @compute_node
-def conditional_ref(condition: TS[bool], ts: TS[int]) -> REF[TS[int]]:
+def conditional_ref(condition: TS[bool], ts: REF[TS[int]]) -> REF[TS[int]]:
     if condition.value:
-        return ts.value  # BoundTimeSeriesReference
+        return ts.value  # Returns the TimeSeriesReference from input
     else:
         return TimeSeriesReference.make()  # EmptyTimeSeriesReference
+```
+
+Or when creating a reference from a non-REF input:
+
+```python
+@compute_node
+def maybe_ref(condition: TS[bool], ts: TS[int]) -> REF[TS[int]]:
+    if condition.value:
+        return TimeSeriesReference.make(ts)  # BoundTimeSeriesReference wrapping ts
+    else:
+        return TimeSeriesReference.make()     # EmptyTimeSeriesReference
 ```
 
 **Properties of EmptyTimeSeriesReference:**
@@ -1383,13 +1395,14 @@ def conditional_ref(condition: TS[bool], ts: TS[int]) -> REF[TS[int]]:
 
 | Source | Target | Peered | Mechanism |
 |--------|--------|--------|-----------|
-| `REF[T]` output | `REF[T]` input | Yes | Observer registration, direct delegation |
+| `REF[T]` output | `REF[T]` input | No* | Observer registration, delegates to REF output |
 | `TS[T]` output | `REF[T]` input | No | Wrapped in `BoundTimeSeriesReference` |
-| `REF[T]` reference | `TS[T]` input | Yes* | Dereferenced via `bind_input()` |
+| `REF[T]` reference | `TS[T]` input | Yes** | Dereferenced via `bind_input()` |
 | `TSL[T]` outputs | `REF[TSL[T]]` input | No | `UnBoundTimeSeriesReference` with items |
 | Empty reference | Any input | N/A | Unbinds the input |
 
-*The resulting binding between TS input and TS output is peered.
+*REF→REF uses observer pattern rather than traditional peering.
+**The resulting binding between TS input and the underlying TS output is peered.
 
 ---
 
