@@ -59,26 +59,26 @@ namespace
         [](auto, ApiPtr<Node> ptr) { return nb::cast(PyNode(std::move(ptr))); }
     };
 
-    // Helper to create the appropriate output wrapper based on TimeSeriesKind
-    nb::object create_output_wrapper(node_s_ptr node, value::TimeSeriesValueView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta) {
+    // Helper to create the appropriate output wrapper based on TSKind
+    nb::object create_output_wrapper(node_s_ptr node, value::TSView view, ts::TSOutput* output, const TSMeta* meta) {
         if (!meta) {
             return nb::cast(PyTimeSeriesOutput(std::move(node), std::move(view), output, meta));
         }
 
         switch (meta->ts_kind) {
-            case TimeSeriesKind::TS:
+            case TSKind::TS:
                 return nb::cast(PyTimeSeriesValueOutput(std::move(node), std::move(view), output, meta));
-            case TimeSeriesKind::TSB:
+            case TSKind::TSB:
                 return nb::cast(PyTimeSeriesBundleOutput(std::move(node), std::move(view), output, meta));
-            case TimeSeriesKind::TSL:
+            case TSKind::TSL:
                 return nb::cast(PyTimeSeriesListOutput(std::move(node), std::move(view), output, meta));
-            case TimeSeriesKind::TSS:
+            case TSKind::TSS:
                 return nb::cast(PyTimeSeriesSetOutput(std::move(node), std::move(view), output, meta));
-            case TimeSeriesKind::TSD:
+            case TSKind::TSD:
                 return nb::cast(PyTimeSeriesDictOutput(std::move(node), std::move(view), output, meta));
-            case TimeSeriesKind::TSW:
+            case TSKind::TSW:
                 return nb::cast(PyTimeSeriesWindowOutput(std::move(node), std::move(view), output, meta));
-            case TimeSeriesKind::REF:
+            case TSKind::REF:
                 // REF types use the base output wrapper (TimeSeriesReference is handled as a value)
                 // Fall through intentional
             default:
@@ -86,26 +86,26 @@ namespace
         }
     }
 
-    // Helper to create the appropriate input wrapper based on TimeSeriesKind
-    nb::object create_input_wrapper(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TimeSeriesTypeMeta* meta) {
+    // Helper to create the appropriate input wrapper based on TSKind
+    nb::object create_input_wrapper(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TSMeta* meta) {
         if (!meta) {
             return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), input, meta));
         }
 
         switch (meta->ts_kind) {
-            case TimeSeriesKind::TS:
+            case TSKind::TS:
                 return nb::cast(PyTimeSeriesValueInput(std::move(node), std::move(view), input, meta));
-            case TimeSeriesKind::TSB:
+            case TSKind::TSB:
                 return nb::cast(PyTimeSeriesBundleInput(std::move(node), std::move(view), input, meta));
-            case TimeSeriesKind::TSL:
+            case TSKind::TSL:
                 return nb::cast(PyTimeSeriesListInput(std::move(node), std::move(view), input, meta));
-            case TimeSeriesKind::TSS:
+            case TSKind::TSS:
                 return nb::cast(PyTimeSeriesSetInput(std::move(node), std::move(view), input, meta));
-            case TimeSeriesKind::TSD:
+            case TSKind::TSD:
                 return nb::cast(PyTimeSeriesDictInput(std::move(node), std::move(view), input, meta));
-            case TimeSeriesKind::TSW:
+            case TSKind::TSW:
                 return nb::cast(PyTimeSeriesWindowInput(std::move(node), std::move(view), input, meta));
-            case TimeSeriesKind::REF:
+            case TSKind::REF:
                 // REF types use the base input wrapper (TimeSeriesReference is handled as a value)
             default:
                 return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), input, meta));
@@ -113,7 +113,7 @@ namespace
     }
 
     // Helper to create input wrapper for field views (no TSInput, just view)
-    nb::object create_field_wrapper(node_s_ptr node, ts::TSInputView view, const TimeSeriesTypeMeta* meta) {
+    nb::object create_field_wrapper(node_s_ptr node, ts::TSInputView view, const TSMeta* meta) {
         if (!meta) {
             return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), meta));
         }
@@ -121,7 +121,7 @@ namespace
         // Field wrappers use the view-only constructor (no TSInput)
         // The view points to the child strategy and fetches fresh data on each access
         switch (meta->ts_kind) {
-            case TimeSeriesKind::TS:
+            case TSKind::TS:
                 // For now, all field wrappers use the base PyTimeSeriesInput
                 // since specialized wrappers may need updates for view-only construction
             default:
@@ -178,7 +178,7 @@ namespace
         }
 
         auto* meta = input->meta();
-        if (!meta || meta->ts_kind != TimeSeriesKind::TSB) {
+        if (!meta || meta->ts_kind != TSKind::TSB) {
             return nb::none();
         }
 
