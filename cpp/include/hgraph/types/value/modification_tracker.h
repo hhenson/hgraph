@@ -262,16 +262,22 @@ namespace hgraph::value {
     class ModificationTracker;
 
     /**
-     * ModificationTrackerStorage - Owning storage for modification tracking
+     * ModificationTrackerStorage - Hierarchical storage for modification tracking
      *
-     * Allocates and manages the appropriate storage based on TypeKind.
+     * Mirrors the type structure to track modifications at any level:
+     * - Root level: tracks overall modification time
+     * - Field/element level: tracks modifications for nested structures
+     *
+     * Modifications propagate upward: a change at a leaf updates all ancestors.
      *
      * Storage layout by type:
-     * - Scalar: single engine_time_t
-     * - Bundle: array of engine_time_t [bundle_time][field0_time][field1_time]...
-     * - List: array of engine_time_t [list_time][elem0_time][elem1_time]...
-     * - Set: single engine_time_t (set is atomic - tracks structural changes only)
+     * - Scalar: single engine_time_t (own timestamp only)
+     * - Bundle: own timestamp + recursive child storage for each field
+     * - List: own timestamp + recursive child storage for each element
+     * - Set: SetModificationStorage (structural + per-element tracking)
      * - Dict: DictModificationStorage (structural + per-entry timestamps)
+     * - Window: single engine_time_t (atomic)
+     * - Ref: own timestamp + optional child storage for composite refs
      */
     class ModificationTrackerStorage {
     public:
@@ -290,9 +296,18 @@ namespace hgraph::value {
         // Move only
         ModificationTrackerStorage(ModificationTrackerStorage&& other) noexcept
             : _value_meta(other._value_meta)
-            , _storage(other._storage) {
+            , _storage(other._storage)
+            , _parent(other._parent)
+            , _children(std::move(other._children)) {
             other._value_meta = nullptr;
             other._storage = nullptr;
+            other._parent = nullptr;
+            // Update children's parent pointers
+            for (auto& child : _children) {
+                if (child) {
+                    child->_parent = this;
+                }
+            }
         }
 
         ModificationTrackerStorage& operator=(ModificationTrackerStorage&& other) noexcept {
@@ -300,8 +315,17 @@ namespace hgraph::value {
                 deallocate_storage();
                 _value_meta = other._value_meta;
                 _storage = other._storage;
+                _parent = other._parent;
+                _children = std::move(other._children);
                 other._value_meta = nullptr;
                 other._storage = nullptr;
+                other._parent = nullptr;
+                // Update children's parent pointers
+                for (auto& child : _children) {
+                    if (child) {
+                        child->_parent = this;
+                    }
+                }
             }
             return *this;
         }
@@ -314,6 +338,55 @@ namespace hgraph::value {
         [[nodiscard]] const void* storage() const { return _storage; }
         [[nodiscard]] bool valid() const { return _value_meta && _storage; }
 
+        // Parent linkage for upward modification propagation
+        void set_parent(ModificationTrackerStorage* parent) { _parent = parent; }
+        [[nodiscard]] ModificationTrackerStorage* parent() const { return _parent; }
+
+        // Get own timestamp (for propagation)
+        [[nodiscard]] engine_time_t* timestamp_ptr() {
+            if (!_storage) return nullptr;
+            switch (_value_meta->kind) {
+                case TypeKind::Scalar:
+                case TypeKind::Bundle:
+                case TypeKind::List:
+                case TypeKind::Window:
+                case TypeKind::Ref:
+                    return static_cast<engine_time_t*>(_storage);
+                case TypeKind::Set:
+                    return &static_cast<SetModificationStorage*>(_storage)->structural_modified;
+                case TypeKind::Dict:
+                    return &static_cast<DictModificationStorage*>(_storage)->key_tracking.structural_modified;
+                default:
+                    return nullptr;
+            }
+        }
+
+        // Child storage access (for hierarchical tracking)
+        [[nodiscard]] ModificationTrackerStorage* child(size_t index) {
+            if (index >= _children.size()) {
+                return nullptr;
+            }
+            return _children[index].get();
+        }
+
+        [[nodiscard]] const ModificationTrackerStorage* child(size_t index) const {
+            if (index >= _children.size()) {
+                return nullptr;
+            }
+            return _children[index].get();
+        }
+
+        // Propagate modification time to parent
+        void propagate_to_parent(engine_time_t time) {
+            if (_parent) {
+                auto* parent_ts = _parent->timestamp_ptr();
+                if (parent_ts && time > *parent_ts) {
+                    *parent_ts = time;
+                }
+                _parent->propagate_to_parent(time);
+            }
+        }
+
         ModificationTracker tracker();
         [[nodiscard]] ModificationTracker tracker() const;
 
@@ -322,7 +395,9 @@ namespace hgraph::value {
         void deallocate_storage();
 
         const TypeMeta* _value_meta{nullptr};
-        void* _storage{nullptr};
+        void* _storage{nullptr};  // Own timestamp storage
+        ModificationTrackerStorage* _parent{nullptr};  // For upward propagation
+        std::vector<std::unique_ptr<ModificationTrackerStorage>> _children;  // Child storage for nested types
     };
 
     /**
@@ -331,25 +406,28 @@ namespace hgraph::value {
      * Non-owning view that provides access to modification timestamps.
      * Can represent the whole value or a sub-element (field, element).
      *
-     * For nested types, sub-trackers maintain a _parent_time pointer
-     * to enable hierarchical propagation.
+     * For nested types, sub-trackers reference child ModificationTrackerStorage
+     * to enable proper hierarchical tracking and propagation.
      */
     class ModificationTracker {
     public:
         ModificationTracker() = default;
 
-        // Root tracker (no parent propagation)
-        ModificationTracker(void* storage, const TypeMeta* value_meta)
-            : _storage(storage), _value_meta(value_meta), _parent_time(nullptr) {}
+        // Tracker backed by storage (has access to children and parent propagation)
+        explicit ModificationTracker(ModificationTrackerStorage* storage)
+            : _owner(storage)
+            , _storage(storage ? storage->storage() : nullptr)
+            , _value_meta(storage ? storage->value_meta() : nullptr) {}
 
-        // Sub-tracker with parent propagation
-        ModificationTracker(void* storage, const TypeMeta* value_meta, engine_time_t* parent_time)
-            : _storage(storage), _value_meta(value_meta), _parent_time(parent_time) {}
+        // Legacy constructor for compatibility (used internally)
+        ModificationTracker(void* storage, const TypeMeta* value_meta)
+            : _owner(nullptr), _storage(storage), _value_meta(value_meta) {}
 
         [[nodiscard]] bool valid() const { return _storage && _value_meta; }
         [[nodiscard]] const TypeMeta* value_schema() const { return _value_meta; }
         [[nodiscard]] void* storage() { return _storage; }
         [[nodiscard]] const void* storage() const { return _storage; }
+        [[nodiscard]] ModificationTrackerStorage* owner() const { return _owner; }
 
         // Query modification state
         [[nodiscard]] bool modified_at(engine_time_t time) const {
@@ -363,9 +441,8 @@ namespace hgraph::value {
                 case TypeKind::Scalar:
                 case TypeKind::Bundle:
                 case TypeKind::List:
-                case TypeKind::Window:  // Window is atomic
-                case TypeKind::Ref:     // Ref uses same pattern (single or array based on item_count)
-                    // First element is always the container's own timestamp
+                case TypeKind::Window:
+                case TypeKind::Ref:
                     return *static_cast<engine_time_t*>(_storage);
 
                 case TypeKind::Set:
@@ -383,7 +460,7 @@ namespace hgraph::value {
             return last_modified_time() > MIN_DT;
         }
 
-        // Mark as modified (propagates to parent if hierarchical)
+        // Mark as modified (propagates to parent via storage hierarchy)
         void mark_modified(engine_time_t time) {
             if (!valid()) return;
 
@@ -391,8 +468,8 @@ namespace hgraph::value {
                 case TypeKind::Scalar:
                 case TypeKind::Bundle:
                 case TypeKind::List:
-                case TypeKind::Window:  // Window is atomic
-                case TypeKind::Ref: {   // Ref uses same pattern
+                case TypeKind::Window:
+                case TypeKind::Ref: {
                     auto* ts = static_cast<engine_time_t*>(_storage);
                     if (time > *ts) {
                         *ts = time;
@@ -411,8 +488,10 @@ namespace hgraph::value {
                     break;
             }
 
-            // Propagate to parent
-            propagate_to_parent(time);
+            // Propagate to parent via storage hierarchy
+            if (_owner) {
+                _owner->propagate_to_parent(time);
+            }
         }
 
         void mark_invalid() {
@@ -422,8 +501,8 @@ namespace hgraph::value {
                 case TypeKind::Scalar:
                 case TypeKind::Bundle:
                 case TypeKind::List:
-                case TypeKind::Window:  // Window is atomic
-                case TypeKind::Ref:     // Ref uses same pattern
+                case TypeKind::Window:
+                case TypeKind::Ref:
                     *static_cast<engine_time_t*>(_storage) = MIN_DT;
                     break;
 
@@ -440,7 +519,7 @@ namespace hgraph::value {
             }
         }
 
-        // For bundles - field-level tracking
+        // For bundles - field-level tracking using child storage
         [[nodiscard]] ModificationTracker field(size_t index) {
             if (!valid() || _value_meta->kind != TypeKind::Bundle) {
                 return {};
@@ -451,13 +530,16 @@ namespace hgraph::value {
                 return {};
             }
 
-            // Storage layout: [bundle_time][field0_time][field1_time]...
-            auto* times = static_cast<engine_time_t*>(_storage);
-            engine_time_t* field_time = &times[1 + index];
-            engine_time_t* parent_time = &times[0];  // Bundle's own timestamp
+            // Use child storage if available (hierarchical mode)
+            if (_owner) {
+                auto* child_storage = _owner->child(index);
+                if (child_storage) {
+                    return ModificationTracker(child_storage);
+                }
+            }
 
-            const auto& field_meta = bundle_meta->fields[index];
-            return {field_time, field_meta.type, parent_time};
+            // Fallback for non-hierarchical trackers (shouldn't happen in normal use)
+            return {};
         }
 
         [[nodiscard]] ModificationTracker field(const std::string& name) {
@@ -484,11 +566,19 @@ namespace hgraph::value {
                 return false;
             }
 
-            auto* times = static_cast<engine_time_t*>(_storage);
-            return times[1 + index] == time;
+            // Use child storage to check modification
+            if (_owner) {
+                auto* child_storage = _owner->child(index);
+                if (child_storage) {
+                    auto* child_ts = child_storage->timestamp_ptr();
+                    return child_ts && *child_ts == time;
+                }
+            }
+
+            return false;
         }
 
-        // For lists - element-level tracking
+        // For lists - element-level tracking using child storage
         [[nodiscard]] ModificationTracker element(size_t index) {
             if (!valid() || _value_meta->kind != TypeKind::List) {
                 return {};
@@ -499,12 +589,16 @@ namespace hgraph::value {
                 return {};
             }
 
-            // Storage layout: [list_time][elem0_time][elem1_time]...
-            auto* times = static_cast<engine_time_t*>(_storage);
-            engine_time_t* elem_time = &times[1 + index];
-            engine_time_t* parent_time = &times[0];  // List's own timestamp
+            // Use child storage if available (hierarchical mode)
+            if (_owner) {
+                auto* child_storage = _owner->child(index);
+                if (child_storage) {
+                    return ModificationTracker(child_storage);
+                }
+            }
 
-            return {elem_time, list_meta->element_type, parent_time};
+            // Fallback for non-hierarchical trackers
+            return {};
         }
 
         [[nodiscard]] bool element_modified_at(size_t index, engine_time_t time) const {
@@ -517,8 +611,16 @@ namespace hgraph::value {
                 return false;
             }
 
-            auto* times = static_cast<engine_time_t*>(_storage);
-            return times[1 + index] == time;
+            // Use child storage to check modification
+            if (_owner) {
+                auto* child_storage = _owner->child(index);
+                if (child_storage) {
+                    auto* child_ts = child_storage->timestamp_ptr();
+                    return child_ts && *child_ts == time;
+                }
+            }
+
+            return false;
         }
 
         // For sets - structural and element tracking
@@ -531,7 +633,7 @@ namespace hgraph::value {
             if (!valid() || _value_meta->kind != TypeKind::Set) return;
             auto* storage = static_cast<SetModificationStorage*>(_storage);
             storage->mark_element_added(index, time);
-            propagate_to_parent(time);
+            if (_owner) _owner->propagate_to_parent(time);
         }
 
         void record_set_removal(const void* elem) {
@@ -583,7 +685,7 @@ namespace hgraph::value {
             if (!valid() || _value_meta->kind != TypeKind::Dict) return;
             auto* storage = static_cast<DictModificationStorage*>(_storage);
             storage->mark_key_added(entry_index, time);
-            propagate_to_parent(time);
+            if (_owner) _owner->propagate_to_parent(time);
         }
 
         void record_dict_key_removal(const void* key) {
@@ -595,7 +697,7 @@ namespace hgraph::value {
             if (!valid() || _value_meta->kind != TypeKind::Dict) return;
             auto* storage = static_cast<DictModificationStorage*>(_storage);
             storage->mark_value_modified(entry_index, time);
-            propagate_to_parent(time);
+            if (_owner) _owner->propagate_to_parent(time);
         }
 
         void record_dict_old_value(size_t entry_index, const void* old_val) {
@@ -679,14 +781,15 @@ namespace hgraph::value {
                 return {};  // Atomic ref or out of bounds
             }
 
-            // Storage layout: [ref_time][item0_time][item1_time]...
-            auto* times = static_cast<engine_time_t*>(_storage);
-            engine_time_t* item_time = &times[1 + index];
-            engine_time_t* parent_time = &times[0];  // Ref's own timestamp
+            // Use child storage if available (hierarchical mode)
+            if (_owner) {
+                auto* child_storage = _owner->child(index);
+                if (child_storage) {
+                    return ModificationTracker(child_storage);
+                }
+            }
 
-            // Each item is itself a ref, so use the same ref_meta for items
-            // (This is a simplification - in practice, items might have different types)
-            return {item_time, ref_meta, parent_time};
+            return {};
         }
 
         [[nodiscard]] bool ref_item_modified_at(size_t index, engine_time_t time) const {
@@ -699,20 +802,22 @@ namespace hgraph::value {
                 return false;
             }
 
-            auto* times = static_cast<engine_time_t*>(_storage);
-            return times[1 + index] == time;
+            // Use child storage to check modification
+            if (_owner) {
+                auto* child_storage = _owner->child(index);
+                if (child_storage) {
+                    auto* child_ts = child_storage->timestamp_ptr();
+                    return child_ts && *child_ts == time;
+                }
+            }
+
+            return false;
         }
 
     private:
-        void propagate_to_parent(engine_time_t time) {
-            if (_parent_time && time > *_parent_time) {
-                *_parent_time = time;
-            }
-        }
-
-        void* _storage{nullptr};
+        ModificationTrackerStorage* _owner{nullptr};  // Owning storage (for hierarchy access)
+        void* _storage{nullptr};                      // Direct storage pointer
         const TypeMeta* _value_meta{nullptr};
-        engine_time_t* _parent_time{nullptr};  // For hierarchical propagation
     };
 
     // Implementation of ModificationTrackerStorage methods
@@ -723,7 +828,7 @@ namespace hgraph::value {
         switch (_value_meta->kind) {
             case TypeKind::Scalar:
             case TypeKind::Window:  // Window is atomic
-                // Single timestamp
+                // Single timestamp (no children)
                 _storage = new engine_time_t{MIN_DT};
                 break;
 
@@ -734,24 +839,28 @@ namespace hgraph::value {
             }
 
             case TypeKind::Bundle: {
+                // Own timestamp + recursive children for each field
+                _storage = new engine_time_t{MIN_DT};
                 auto* bundle_meta = static_cast<const BundleTypeMeta*>(_value_meta);
-                size_t count = 1 + bundle_meta->fields.size();  // bundle + fields
-                auto* times = new engine_time_t[count];
-                for (size_t i = 0; i < count; ++i) {
-                    times[i] = MIN_DT;
+                _children.reserve(bundle_meta->fields.size());
+                for (const auto& field : bundle_meta->fields) {
+                    auto child = std::make_unique<ModificationTrackerStorage>(field.type);
+                    child->set_parent(this);
+                    _children.push_back(std::move(child));
                 }
-                _storage = times;
                 break;
             }
 
             case TypeKind::List: {
+                // Own timestamp + recursive children for each element
+                _storage = new engine_time_t{MIN_DT};
                 auto* list_meta = static_cast<const ListTypeMeta*>(_value_meta);
-                size_t count = 1 + list_meta->count;  // list + elements
-                auto* times = new engine_time_t[count];
-                for (size_t i = 0; i < count; ++i) {
-                    times[i] = MIN_DT;
+                _children.reserve(list_meta->count);
+                for (size_t i = 0; i < list_meta->count; ++i) {
+                    auto child = std::make_unique<ModificationTrackerStorage>(list_meta->element_type);
+                    child->set_parent(this);
+                    _children.push_back(std::move(child));
                 }
-                _storage = times;
                 break;
             }
 
@@ -760,18 +869,17 @@ namespace hgraph::value {
                 break;
 
             case TypeKind::Ref: {
+                // Own timestamp + recursive children for composite refs
+                _storage = new engine_time_t{MIN_DT};
                 auto* ref_meta = static_cast<const RefTypeMeta*>(_value_meta);
-                if (ref_meta->item_count == 0) {
-                    // Atomic ref - single timestamp
-                    _storage = new engine_time_t{MIN_DT};
-                } else {
-                    // Composite ref - ref + items
-                    size_t count = 1 + ref_meta->item_count;
-                    auto* times = new engine_time_t[count];
-                    for (size_t i = 0; i < count; ++i) {
-                        times[i] = MIN_DT;
+                if (ref_meta->item_count > 0) {
+                    _children.reserve(ref_meta->item_count);
+                    for (size_t i = 0; i < ref_meta->item_count; ++i) {
+                        // Each item is a ref to the same value type
+                        auto child = std::make_unique<ModificationTrackerStorage>(ref_meta);
+                        child->set_parent(this);
+                        _children.push_back(std::move(child));
                     }
-                    _storage = times;
                 }
                 break;
             }
@@ -782,11 +890,18 @@ namespace hgraph::value {
     }
 
     inline void ModificationTrackerStorage::deallocate_storage() {
+        // Children are automatically cleaned up via unique_ptr
+        _children.clear();
+
         if (!_storage || !_value_meta) return;
 
         switch (_value_meta->kind) {
             case TypeKind::Scalar:
-            case TypeKind::Window:  // Window is atomic
+            case TypeKind::Window:
+            case TypeKind::Bundle:
+            case TypeKind::List:
+            case TypeKind::Ref:
+                // All use single timestamp now (children are separate)
                 delete static_cast<engine_time_t*>(_storage);
                 break;
 
@@ -794,26 +909,9 @@ namespace hgraph::value {
                 delete static_cast<SetModificationStorage*>(_storage);
                 break;
 
-            case TypeKind::Bundle:
-            case TypeKind::List:
-                delete[] static_cast<engine_time_t*>(_storage);
-                break;
-
             case TypeKind::Dict:
                 delete static_cast<DictModificationStorage*>(_storage);
                 break;
-
-            case TypeKind::Ref: {
-                auto* ref_meta = static_cast<const RefTypeMeta*>(_value_meta);
-                if (ref_meta->item_count == 0) {
-                    // Atomic ref - single timestamp
-                    delete static_cast<engine_time_t*>(_storage);
-                } else {
-                    // Composite ref - array
-                    delete[] static_cast<engine_time_t*>(_storage);
-                }
-                break;
-            }
 
             default:
                 break;
@@ -823,13 +921,13 @@ namespace hgraph::value {
     }
 
     inline ModificationTracker ModificationTrackerStorage::tracker() {
-        return {_storage, _value_meta};
+        return ModificationTracker(this);
     }
 
     inline ModificationTracker ModificationTrackerStorage::tracker() const {
         // const_cast is safe here because the returned ModificationTracker
         // will only be used for const operations (modified_at, last_modified_time, etc.)
-        return {const_cast<void*>(_storage), _value_meta};
+        return ModificationTracker(const_cast<ModificationTrackerStorage*>(this));
     }
 
 } // namespace hgraph::value

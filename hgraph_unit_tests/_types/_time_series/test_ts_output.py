@@ -1415,7 +1415,6 @@ def test_modification_tsl_only_modified_element_notified():
         assert not view.element_modified_at(i, T100), f"Element {i} should NOT be modified at T100"
 
 
-@pytest.mark.xfail(reason="Modification tracking doesn't isolate sibling fields correctly")
 def test_modification_nested_tsb_only_modified_path_notified():
     """Test nested TSB modification tracking."""
     int_meta = _hgraph.get_scalar_type_meta(int)
@@ -1451,7 +1450,6 @@ def test_modification_nested_tsb_only_modified_path_notified():
     assert not destination.field_modified_at(1, T100), "destination.y should NOT be modified"
 
 
-@pytest.mark.xfail(reason="Modification tracking doesn't isolate sibling elements correctly")
 def test_modification_tsl_of_tsb_only_modified_path_notified():
     """Test TSL of TSB modification tracking."""
     int_meta = _hgraph.get_scalar_type_meta(int)
@@ -1484,7 +1482,6 @@ def test_modification_tsl_of_tsb_only_modified_path_notified():
     assert not elem1.field_modified_at(1, T100), "Element 1, field 1 should NOT be modified"
 
 
-@pytest.mark.xfail(reason="Modification tracking doesn't isolate sibling elements correctly")
 def test_modification_tsb_of_tsl_only_modified_path_notified():
     """Test TSB of TSL modification tracking."""
     int_meta = _hgraph.get_scalar_type_meta(int)
@@ -1571,7 +1568,6 @@ def test_modification_at_different_times():
     assert ts_output.view().field_modified_at(1, T200), "Field 1 modified at T200"
 
 
-@pytest.mark.xfail(reason="Deep nested modification propagation needs work")
 def test_modification_deep_nesting_isolation():
     """Test that modifications in deep nesting only affect the path."""
     int_meta = _hgraph.get_scalar_type_meta(int)
@@ -1660,7 +1656,6 @@ def test_propagation_tsl_root_modified_when_element_modified():
     assert ts_output.modified_at(T100), "Root should be modified when element is modified"
 
 
-@pytest.mark.xfail(reason="Deep nested modification propagation to root needs work")
 def test_propagation_nested_modification_propagates_to_root():
     """Test deep modification propagates to root."""
     int_meta = _hgraph.get_scalar_type_meta(int)
