@@ -97,6 +97,26 @@ catch_discover_tests(hgraph_visitor_tests)
 catch_discover_tests(hgraph_value_tests)
 catch_discover_tests(hgraph_ts_input_tests)
 
+# Create test executable for type API tests
+# Note: type_api.h is header-only, no additional source files needed
+add_executable(hgraph_type_api_tests
+    test_type_api.cpp
+)
+
+target_include_directories(hgraph_type_api_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/../include
+    ${Python_INCLUDE_DIRS}
+    ${NB_DIR}/include
+    ${CMAKE_BINARY_DIR}/_deps/tpack-src/include
+    ${CMAKE_BINARY_DIR}/_deps/ddvisitor-src/include
+)
+
+target_link_libraries(hgraph_type_api_tests PRIVATE
+    fmt::fmt
+)
+
+target_compile_features(hgraph_type_api_tests PRIVATE cxx_std_23)
+
 # Optional: Add custom target to run tests
 add_custom_target(run_visitor_tests
     COMMAND hgraph_visitor_tests

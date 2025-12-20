@@ -29,6 +29,9 @@ graph TD
     A --> F[05_TIME_SERIES_TYPES.md]
     A --> G[06_NODE_TYPES.md]
     A --> H[07_OPERATORS.md]
+    A --> I[08_ADVANCED_CONCEPTS.md]
+    A --> J[09_CONTROL_FLOW.md]
+    A --> K[10_DATA_SOURCES.md]
 
     B --> B1[Core Concepts]
     B --> B2[Architecture Diagrams]
@@ -63,7 +66,21 @@ graph TD
     H --> H1[Arithmetic]
     H --> H2[Comparison]
     H --> H3[Collection]
-    H --> H4[Flow Control]
+    H --> H4[Overloading]
+
+    I --> I1[Operators]
+    I --> I2[Resolvers]
+    I --> I3[Services]
+    I --> I4[Adaptors]
+
+    J --> J1[switch_]
+    J --> J2[map_]
+    J --> J3[reduce_]
+    J --> J4[feedback]
+
+    K --> K1[Generators]
+    K --> K2[Push Sources]
+    K --> K3[Record/Replay]
 ```
 
 ---
@@ -111,6 +128,14 @@ graph TD
 | Document | Description |
 |----------|-------------|
 | [07_OPERATORS.md](07_OPERATORS.md) | Built-in operators and functions |
+
+### Part VIII: Advanced Features
+
+| Document | Description |
+|----------|-------------|
+| [08_ADVANCED_CONCEPTS.md](08_ADVANCED_CONCEPTS.md) | Operator overloading, resolvers, services, adaptors, components |
+| [09_CONTROL_FLOW.md](09_CONTROL_FLOW.md) | switch_, map_, reduce_, mesh_, feedback |
+| [10_DATA_SOURCES.md](10_DATA_SOURCES.md) | Generators, push sources, record/replay |
 
 ---
 
@@ -191,13 +216,13 @@ An implementation may claim conformance at different levels:
 ## Reading Guide
 
 ### For Language Implementers
-Start with: Overview → Type System → Runtime System → Time-Series Types
+Start with: Overview → Type System → Runtime System → Time-Series Types → Advanced Concepts
 
 ### For Library Developers
-Start with: Overview → Node Types → Operators → Wiring System
+Start with: Overview → Node Types → Operators → Advanced Concepts → Control Flow
 
 ### For Users
-Start with: Overview → Node Types → Time-Series Types
+Start with: Overview → Node Types → Time-Series Types → Control Flow → Data Sources
 
 ---
 

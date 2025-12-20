@@ -28,6 +28,43 @@ This document outlines the migration strategy for replacing the legacy Python-ba
 
 ---
 
+## Architecture: Python Wrapper Adaptor Pattern
+
+### Key Architectural Principle
+
+**The PyXXX wrapper classes provide the contractual binding point between Python and C++ APIs.**
+
+The C++ core should remain:
+- **Type-erased and lightweight** - No Python-specific behavioral assumptions
+- **Minimal interface** - Exposes raw capabilities, not Python API conventions
+- **Performance-focused** - Avoids overhead of Python's object model
+
+The Python wrapper classes (`PyTimeSeriesInput`, `PyTimeSeriesOutput`, etc.) serve as **lightweight view/adaptor classes** that:
+1. Wrap the underlying C++ types
+2. Implement Python's behavioral contracts on top of C++ primitives
+3. Translate between Python's object-oriented expectations and C++ implementation
+
+### Example: Active/Passive Subscription
+
+**Python behavioral contract:**
+```python
+def make_active(self):
+    self._output.subscribe(self)  # Python expects subscribe() method
+```
+
+**C++ core provides:**
+- `ObserverStorage` with a list of observer pointers
+- Raw add/remove operations on that list
+
+**PyTimeSeriesInput adaptor implements:**
+- `make_active()` / `make_passive()` methods
+- Calls into C++ to manipulate observer list
+- Manages Python-side state (`_active`, `_notify_time`, etc.)
+
+This separation ensures the C++ core remains clean and type-erased while Python wrappers implement the full behavioral contract expected by Python code.
+
+---
+
 ## Part 1: Python Behavioral Requirements
 
 ### 1.1 Core Behavioral Contracts
@@ -84,9 +121,10 @@ def make_passive(self):
 - Subscription changes trigger appropriate subscribe/unsubscribe calls
 
 **C++ Mapping:**
-- `ObserverStorage` provides subscription list
-- Need to implement `subscribe()/unsubscribe()` on TSOutput
-- TSInput needs `make_active()/make_passive()` methods
+- `ObserverStorage` provides raw observer list storage
+- C++ core exposes list manipulation primitives (add/remove observer)
+- **PyTimeSeriesInput adaptor** implements `make_active()`/`make_passive()` using C++ primitives
+- Active/passive state tracking lives in the Python adaptor layer
 
 #### Contract 3: Notification Idempotency
 **Source:** `_input.py:PythonBoundTimeSeriesInput.notify()`
@@ -107,8 +145,9 @@ def notify(self, modified_time: datetime):
 - Only propagates if time differs from last notification
 
 **C++ Mapping:**
-- TSInput needs `_notify_time` field
-- Guard check before propagation
+- C++ core provides notification dispatch mechanism
+- **PyTimeSeriesInput adaptor** tracks `_notify_time` for idempotency
+- Guard check implemented in adaptor's `notify()` method
 
 #### Contract 4: Parent Chain Propagation
 **Source:** `_output.py:mark_modified()`, `_input.py:notify()`
@@ -185,8 +224,9 @@ def bind_output(self, output: TimeSeriesOutput) -> bool:
 - Allows nodes to react to binding changes even if value unchanged
 
 **C++ Mapping:**
-- TSInput needs `_sample_time` field
-- `modified` property must check both output modification and sample state
+- C++ core tracks binding state (bound/unbound)
+- **PyTimeSeriesInput adaptor** tracks `_sample_time` for sampling behavior
+- Adaptor's `modified` property checks both C++ modification state and sample state
 
 #### Contract 7: Bound vs Unbound State
 **Source:** `_input.py:PythonBoundTimeSeriesInput`
@@ -238,8 +278,10 @@ def bind_output(self, output: TimeSeriesOutput) -> bool:
 - Referenced TS may be None (unbound reference)
 
 **C++ Mapping:**
-- RefObserver and RefWrapper AccessStrategies exist
-- Need `_reference_output` field for observer tracking
+- RefObserver and RefWrapper AccessStrategies provide C++ core functionality
+- C++ provides raw reference storage and indirection
+- **PyTimeSeriesInput adaptor** tracks `_reference_output` for observer pattern
+- Adaptor implements `observe_reference()`/`stop_observing_reference()` lifecycle
 - Python wrapper issues documented in KNOWN_ISSUES.md
 
 #### Contract 9: Collection Key Tracking (TSD/TSS)
@@ -400,15 +442,20 @@ Several methods are stubs:
 
 ### Phase 1: Core Binding Infrastructure (Priority: CRITICAL)
 
-**Objective:** Complete TSInput/TSOutput binding lifecycle
+**Objective:** Complete TSInput/TSOutput binding lifecycle with proper C++ / Python adaptor separation
 
-**Tasks:**
-1. [ ] Implement `TSOutput::subscribe(TSInput*)`
-2. [ ] Implement `TSOutput::unsubscribe(TSInput*)`
-3. [ ] Implement `TSInput::make_active()/make_passive()`
-4. [ ] Add notification idempotency (`_notify_time` check)
-5. [ ] Implement sampling behavior (`_sample_time` tracking)
-6. [ ] Implement `bind_output()`/`un_bind_output()` with proper state transitions
+**C++ Core Tasks:**
+1. [ ] Expose `ObserverStorage` list manipulation primitives (add/remove observer)
+2. [ ] Implement raw binding operations (`set_bound_output()`, `clear_bound_output()`)
+3. [ ] Ensure modification time tracking in `ModificationTrackerStorage`
+4. [ ] Expose notification dispatch to observers
+
+**Python Adaptor Tasks (PyTimeSeriesInput/PyTimeSeriesOutput):**
+1. [ ] Implement `make_active()`/`make_passive()` using C++ observer primitives
+2. [ ] Track `_active` state in adaptor
+3. [ ] Implement notification idempotency (`_notify_time` check) in adaptor
+4. [ ] Implement sampling behavior (`_sample_time` tracking) in adaptor
+5. [ ] Implement `bind_output()`/`un_bind_output()` with proper state transitions
 
 **Validation:**
 - Test: Input subscribes when becoming active
@@ -420,11 +467,15 @@ Several methods are stubs:
 
 **Objective:** Complete modification/notification propagation
 
-**Tasks:**
-1. [ ] Implement `TSOutput::mark_child_modified()`
-2. [ ] Implement `TSInput::notify_parent()`
-3. [ ] Ensure parent references set in builders
-4. [ ] Wire up to Node::notify() as terminal case
+**C++ Core Tasks:**
+1. [ ] Expose parent pointer storage in TSOutput/TSInput
+2. [ ] Implement raw `mark_modified()` that updates timestamp
+3. [ ] Ensure builders wire up parent references during construction
+
+**Python Adaptor Tasks:**
+1. [ ] Implement `mark_child_modified()` propagation in adaptor
+2. [ ] Implement `notify_parent()` propagation in adaptor
+3. [ ] Wire up to Node::notify() as terminal case
 
 **Validation:**
 - Test: Child modification propagates to parent output
@@ -451,12 +502,16 @@ Several methods are stubs:
 
 **Objective:** Complete REF[T] implementation
 
-**Tasks:**
-1. [ ] Implement reference observer mechanism
-2. [ ] Track `_reference_output` in TSInput
-3. [ ] Implement `observe_reference()`/`stop_observing_reference()`
-4. [ ] Handle reference rebinding notifications
-5. [ ] Fix Python wrapper has_peer/output/bind_output
+**C++ Core Tasks:**
+1. [ ] Complete RefObserver AccessStrategy for reference indirection
+2. [ ] Complete RefWrapper AccessStrategy for reference storage
+3. [ ] Expose raw reference pointer storage
+
+**Python Adaptor Tasks:**
+1. [ ] Track `_reference_output` separately from bound output in adaptor
+2. [ ] Implement `observe_reference()`/`stop_observing_reference()` in adaptor
+3. [ ] Handle reference rebinding notifications in adaptor
+4. [ ] Fix adaptor's `has_peer()`/`output()`/`bind_output()` implementations
 
 **Validation:**
 - Test: REF input tracks bound reference
@@ -482,15 +537,17 @@ Several methods are stubs:
 - Test: ComponentNode manages component lifecycle
 - Test: MeshNode handles rank-based scheduling
 
-### Phase 6: Python Wrapper Completion (Priority: LOW)
+### Phase 6: Python Wrapper Adaptor Completion (Priority: LOW)
 
-**Objective:** Complete Python API surface
+**Objective:** Complete Python adaptor API surface
+
+**Note:** These are all adaptor-layer tasks in `PyTimeSeriesInput`/`PyTimeSeriesOutput`.
 
 **Tasks:**
-1. [ ] Implement `all_valid()` for collections
-2. [ ] Implement proper `parent_input()`/`parent_output()`
-3. [ ] Complete BackTrace error capture
-4. [ ] Review and fix remaining stubs
+1. [ ] Implement `all_valid()` for collections (aggregate over C++ children)
+2. [ ] Implement proper `parent_input()`/`parent_output()` accessors
+3. [ ] Complete BackTrace error capture using C++ data
+4. [ ] Review and fix remaining adaptor stubs
 
 **Validation:**
 - Test: all_valid returns correct aggregate state
@@ -543,13 +600,20 @@ HGRAPH_USE_CPP=1 uv run pytest hgraph_unit_tests/_types/_time_series/ -v
 - `hgraph/_impl/_types/_tss_impl.py` - TSS implementation
 - `hgraph/_impl/_types/_ref_impl.py` - REF implementation
 
-### C++ Implementation
+### C++ Core Implementation
 - `cpp/include/hgraph/types/time_series/ts_output.h` - TSOutput class
 - `cpp/include/hgraph/types/time_series/ts_input.h` - TSInput class
 - `cpp/include/hgraph/types/time_series/access_strategy.h` - AccessStrategy hierarchy
 - `cpp/include/hgraph/types/value/value.h` - Type-erased Value
 - `cpp/include/hgraph/types/type_meta.h` - Runtime type info
 - `cpp/src/cpp/nodes/` - Node implementations (stubs)
+
+### Python Wrapper Adaptors
+- `cpp/src/cpp/api/python/py_time_series.cpp` - PyTimeSeriesInput/PyTimeSeriesOutput adaptors
+- `cpp/src/cpp/api/python/wrapper_factory.cpp` - Factory for creating Python wrappers
+- `cpp/include/hgraph/api/python/py_time_series.h` - Adaptor class declarations
+
+**Note:** The PyXXX classes are the contractual binding point between Python and C++ APIs. They implement Python behavioral contracts as lightweight views/adaptors over the C++ core.
 
 ### Design Documents
 - `cpp/include/hgraph/types/time_series/TS_DESIGN.md` - Core design

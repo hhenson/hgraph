@@ -3,16 +3,13 @@
 //
 // Python bindings for TimeSeriesTypeMeta and related types.
 //
+// This file provides nanobind bindings for the type API defined in type_api.h.
+// It uses the runtime_python:: namespace functions for Python-aware type construction.
+//
 
-#include <hgraph/types/time_series/ts_type_meta.h>
-#include <hgraph/types/time_series/ts_type_registry.h>
-#include <hgraph/types/value/type_meta.h>
-#include <hgraph/types/value/type_registry.h>
-#include <hgraph/types/value/bundle_type.h>
-#include <hgraph/types/value/set_type.h>
-#include <hgraph/types/value/list_type.h>
-#include <hgraph/types/value/python_conversion.h>
-#include <hgraph/types/value/ref_type.h>
+// Enable Python-aware type construction functions
+#define HGRAPH_TYPE_API_WITH_PYTHON
+#include <hgraph/types/type_api.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/vector.h>
@@ -22,16 +19,7 @@ using namespace nb::literals;
 
 namespace hgraph {
 
-namespace {
-    // Hash seeds for different time-series types
-    constexpr size_t TS_SEED = 0x54530000;    // "TS\0\0"
-    constexpr size_t TSS_SEED = 0x545353;     // "TSS"
-    constexpr size_t TSD_SEED = 0x545344;     // "TSD"
-    constexpr size_t TSL_SEED = 0x54534C;     // "TSL"
-    constexpr size_t TSB_SEED = 0x545342;     // "TSB"
-    constexpr size_t TSW_SEED = 0x545357;     // "TSW"
-    constexpr size_t REF_SEED = 0x524546;     // "REF"
-}
+using namespace types;
 
 void register_ts_type_meta_with_nanobind(nb::module_ &m) {
     // ========================================================================
@@ -65,48 +53,14 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
     // Factory: get_ts_type_meta(scalar_meta) -> TSTypeMeta*
     // Creates a TS[T] type metadata where T is the scalar type
     m.def("get_ts_type_meta", [](const value::TypeMeta* scalar_type) -> const TimeSeriesTypeMeta* {
-        size_t key = ts_hash_combine(TS_SEED, reinterpret_cast<size_t>(scalar_type));
-
-        auto& registry = TimeSeriesTypeRegistry::global();
-        if (auto* existing = registry.lookup_by_key(key)) {
-            return existing;
-        }
-
-        auto meta = std::make_unique<TSTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TS;
-        meta->scalar_type = scalar_type;
-
-        return registry.register_by_key(key, std::move(meta));
+        return runtime_python::ts(scalar_type);
     }, nb::rv_policy::reference, "scalar_type"_a,
        "Get or create a TS[T] TypeMeta for the given scalar type.");
 
     // Factory: get_tss_type_meta(element_meta) -> TSSTypeMeta*
     // Creates a TSS[T] type metadata where T is the element type
     m.def("get_tss_type_meta", [](const value::TypeMeta* element_type) -> const TimeSeriesTypeMeta* {
-        size_t key = ts_hash_combine(TSS_SEED, reinterpret_cast<size_t>(element_type));
-
-        auto& registry = TimeSeriesTypeRegistry::global();
-        if (auto* existing = registry.lookup_by_key(key)) {
-            return existing;
-        }
-
-        auto meta = std::make_unique<TSSTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSS;
-        meta->element_type = element_type;
-
-        // Build and register the SetTypeMeta for value storage via value registry
-        size_t set_key = value::hash_combine(0x53455400, reinterpret_cast<size_t>(element_type));  // "SET\0"
-        auto& value_registry = value::TypeRegistry::global();
-        if (auto* existing_set = value_registry.lookup_by_key(set_key)) {
-            meta->set_value_type = existing_set;
-        } else {
-            auto set_meta = value::SetTypeBuilderWithPython()
-                .element_type(element_type)
-                .build();
-            meta->set_value_type = value_registry.register_by_key(set_key, std::move(set_meta));
-        }
-
-        return registry.register_by_key(key, std::move(meta));
+        return runtime_python::tss(element_type);
     }, nb::rv_policy::reference, "element_type"_a,
        "Get or create a TSS[T] TypeMeta for the given element type.");
 
@@ -114,20 +68,7 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
     // Creates a TSD[K, V] type metadata where K is a scalar key and V is a time-series
     m.def("get_tsd_type_meta", [](const value::TypeMeta* key_type,
                                    const TimeSeriesTypeMeta* value_ts_type) -> const TimeSeriesTypeMeta* {
-        size_t key = ts_hash_combine(TSD_SEED, reinterpret_cast<size_t>(key_type));
-        key = ts_hash_combine(key, reinterpret_cast<size_t>(value_ts_type));
-
-        auto& registry = TimeSeriesTypeRegistry::global();
-        if (auto* existing = registry.lookup_by_key(key)) {
-            return existing;
-        }
-
-        auto meta = std::make_unique<TSDTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSD;
-        meta->key_type = key_type;
-        meta->value_ts_type = value_ts_type;
-
-        return registry.register_by_key(key, std::move(meta));
+        return runtime_python::tsd(key_type, value_ts_type);
     }, nb::rv_policy::reference, "key_type"_a, "value_ts_type"_a,
        "Get or create a TSD[K, V] TypeMeta for the given key and value time-series types.");
 
@@ -135,159 +76,54 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
     // Creates a TSL[V, Size] type metadata where V is a time-series element type
     m.def("get_tsl_type_meta", [](const TimeSeriesTypeMeta* element_ts_type,
                                    int64_t size) -> const TimeSeriesTypeMeta* {
-        size_t key = ts_hash_combine(TSL_SEED, reinterpret_cast<size_t>(element_ts_type));
-        // +1 to differentiate size=-1 from other values in the hash
-        key = ts_hash_combine(key, static_cast<size_t>(size + 1));
-
-        auto& registry = TimeSeriesTypeRegistry::global();
-        if (auto* existing = registry.lookup_by_key(key)) {
-            return existing;
-        }
-
-        auto meta = std::make_unique<TSLTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSL;
-        meta->element_ts_type = element_ts_type;
-        meta->size = size;
-
-        // Build and register the ListTypeMeta for value storage via value registry
-        if (element_ts_type && element_ts_type->value_schema() && size > 0) {
-            const auto* elem_value_schema = element_ts_type->value_schema();
-            size_t list_key = value::hash_combine(0x4C495354, reinterpret_cast<size_t>(elem_value_schema));  // "LIST"
-            list_key = value::hash_combine(list_key, static_cast<size_t>(size));
-
-            auto& value_registry = value::TypeRegistry::global();
-            if (auto* existing_list = value_registry.lookup_by_key(list_key)) {
-                meta->list_value_type = existing_list;
-            } else {
-                auto list_meta = value::ListTypeBuilderWithPython()
-                    .element_type(elem_value_schema)
-                    .count(static_cast<size_t>(size))
-                    .build();
-                meta->list_value_type = value_registry.register_by_key(list_key, std::move(list_meta));
-            }
-        }
-
-        return registry.register_by_key(key, std::move(meta));
+        return runtime_python::tsl(element_ts_type, size);
     }, nb::rv_policy::reference, "element_ts_type"_a, "size"_a,
        "Get or create a TSL[V, Size] TypeMeta. Use size=-1 for dynamic/unresolved size.");
 
     // Factory: get_tsb_type_meta(fields, type_name) -> TSBTypeMeta*
     // Creates a TSB[Schema] type metadata from a list of (name, type) tuples
     m.def("get_tsb_type_meta", [](nb::list fields, nb::object type_name) -> const TimeSeriesTypeMeta* {
-        // Build cache key from field names and types
-        size_t key = TSB_SEED;
-        std::vector<TSBTypeMeta::Field> field_vec;
-
+        // Convert Python list to C++ vector
+        std::vector<std::pair<std::string, const TimeSeriesTypeMeta*>> field_vec;
         for (auto item : fields) {
             auto tuple = nb::cast<nb::tuple>(item);
             auto name = nb::cast<std::string>(tuple[0]);
             auto* field_type = nb::cast<const TimeSeriesTypeMeta*>(tuple[1]);
-            key = ts_hash_combine(key, std::hash<std::string>{}(name));
-            key = ts_hash_combine(key, reinterpret_cast<size_t>(field_type));
-            field_vec.push_back({name, field_type});
+            field_vec.emplace_back(name, field_type);
         }
 
-        auto& registry = TimeSeriesTypeRegistry::global();
-        if (auto* existing = registry.lookup_by_key(key)) {
-            return existing;
-        }
-
-        auto meta = std::make_unique<TSBTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSB;
-        meta->fields = std::move(field_vec);
-
-        // Handle type_name - store in static vector (names are strings, not TypeMeta)
-        static std::vector<std::string> stored_names;
+        const char* name_cstr = nullptr;
+        std::string name_str;
         if (!type_name.is_none()) {
-            stored_names.push_back(nb::cast<std::string>(type_name));
-            meta->name = stored_names.back().c_str();
+            name_str = nb::cast<std::string>(type_name);
+            name_cstr = name_str.c_str();
         }
 
-        // Build and register the bundle value type via value registry
-        value::BundleTypeBuilderWithPython builder;
-        bool all_fields_have_value_schema = true;
-        for (const auto& field : meta->fields) {
-            auto* field_value_schema = field.type->value_schema();
-            if (field_value_schema) {
-                builder.add_field(field.name, field_value_schema);
-            } else {
-                // Field doesn't have a value schema (e.g., nested TSB without bundle_value_type)
-                all_fields_have_value_schema = false;
-                break;
-            }
-        }
-
-        if (all_fields_have_value_schema && !meta->fields.empty()) {
-            // Use the same key for the bundle value type (key already includes all field info)
-            size_t bundle_key = value::hash_combine(0x42554E44, key);  // "BUND"
-            auto& value_registry = value::TypeRegistry::global();
-            if (auto* existing_bundle = value_registry.lookup_by_key(bundle_key)) {
-                meta->bundle_value_type = existing_bundle;
-            } else {
-                auto bundle_meta = builder.build(meta->name);
-                meta->bundle_value_type = value_registry.register_by_key(bundle_key, std::move(bundle_meta));
-            }
-        }
-
-        return registry.register_by_key(key, std::move(meta));
+        return runtime_python::tsb(field_vec, name_cstr);
     }, nb::rv_policy::reference, "fields"_a, "type_name"_a = nb::none(),
        "Get or create a TSB[Schema] TypeMeta from field definitions. "
        "Fields should be a list of (name, TimeSeriesTypeMeta) tuples.");
 
     // Factory: get_tsw_type_meta(scalar_meta, size, min_size) -> TSWTypeMeta*
-    // Creates a TSW[T, Size] type metadata for time-series windows
+    // Creates a TSW[T, Size] type metadata for time-series windows (count-based)
     m.def("get_tsw_type_meta", [](const value::TypeMeta* scalar_type,
                                    int64_t size, int64_t min_size) -> const TimeSeriesTypeMeta* {
-        size_t key = ts_hash_combine(TSW_SEED, reinterpret_cast<size_t>(scalar_type));
-        key = ts_hash_combine(key, static_cast<size_t>(size + 1));
-        key = ts_hash_combine(key, static_cast<size_t>(min_size + 1));
-
-        auto& registry = TimeSeriesTypeRegistry::global();
-        if (auto* existing = registry.lookup_by_key(key)) {
-            return existing;
-        }
-
-        auto meta = std::make_unique<TSWTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSW;
-        meta->scalar_type = scalar_type;
-        meta->size = size;
-        meta->min_size = min_size;
-
-        return registry.register_by_key(key, std::move(meta));
+        return runtime_python::tsw(scalar_type, size, min_size);
     }, nb::rv_policy::reference, "scalar_type"_a, "size"_a, "min_size"_a,
-       "Get or create a TSW[T, Size] TypeMeta for time-series windows.");
+       "Get or create a TSW[T, Size] TypeMeta for count-based time-series windows.");
+
+    // Factory: get_tsw_time_type_meta(scalar_meta, duration_us, min_size) -> TSWTypeMeta*
+    // Creates a time-based TSW type metadata
+    m.def("get_tsw_time_type_meta", [](const value::TypeMeta* scalar_type,
+                                        int64_t duration_us, int64_t min_size) -> const TimeSeriesTypeMeta* {
+        return runtime_python::tsw_time(scalar_type, duration_us, min_size);
+    }, nb::rv_policy::reference, "scalar_type"_a, "duration_us"_a, "min_size"_a = 0,
+       "Get or create a time-based TSW TypeMeta. Duration is in microseconds.");
 
     // Factory: get_ref_type_meta(value_ts_meta) -> REFTypeMeta*
     // Creates a REF[TS_TYPE] type metadata for time-series references
     m.def("get_ref_type_meta", [](const TimeSeriesTypeMeta* value_ts_type) -> const TimeSeriesTypeMeta* {
-        size_t key = ts_hash_combine(REF_SEED, reinterpret_cast<size_t>(value_ts_type));
-
-        auto& registry = TimeSeriesTypeRegistry::global();
-        if (auto* existing = registry.lookup_by_key(key)) {
-            return existing;
-        }
-
-        auto meta = std::make_unique<REFTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::REF;
-        meta->value_ts_type = value_ts_type;
-
-        // Build and register the value-layer RefTypeMeta via value registry
-        const value::TypeMeta* value_type = value_ts_type ? value_ts_type->value_schema() : nullptr;
-        size_t ref_key = value::hash_combine(0x52454600, reinterpret_cast<size_t>(value_type));  // "REF\0"
-
-        auto& value_registry = value::TypeRegistry::global();
-        if (auto* existing_ref = value_registry.lookup_by_key(ref_key)) {
-            meta->ref_value_type = existing_ref;
-        } else {
-            auto ref_meta = value::RefTypeBuilder()
-                .value_type(value_type)
-                .build();
-            // Use RefTypeOpsWithPython which has proper to_python implementation
-            ref_meta->ops = &value::RefTypeOpsWithPython;
-            meta->ref_value_type = value_registry.register_by_key(ref_key, std::move(ref_meta));
-        }
-
-        return registry.register_by_key(key, std::move(meta));
+        return runtime_python::ref(value_ts_type);
     }, nb::rv_policy::reference, "value_ts_type"_a,
        "Get or create a REF[TS_TYPE] TypeMeta for the given time-series type.");
 }

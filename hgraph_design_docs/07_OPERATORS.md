@@ -565,7 +565,86 @@ Python operators are mapped to HGraph functions:
 
 ---
 
-## 16. Reference Locations
+## 16. Extending Operators
+
+### 16.1 Creating New Operators
+
+Define new operators using the `@operator` decorator:
+
+```python
+@operator
+def custom_op(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """Custom binary operation."""
+```
+
+### 16.2 Adding Overloads
+
+Register implementations using `overloads` parameter:
+
+```python
+@compute_node(overloads=custom_op)
+def custom_op_ints(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    return lhs.value + rhs.value * 2
+
+@compute_node(overloads=custom_op)
+def custom_op_floats(lhs: TS[float], rhs: TS[float]) -> TS[float]:
+    return lhs.value + rhs.value * 2.0
+```
+
+### 16.3 Overload Resolution
+
+When an operator is called, the best overload is selected by:
+
+1. **Type matching**: Try to resolve each overload's signature
+2. **Rank calculation**: Calculate specificity rank for each candidate
+3. **Selection**: Choose the candidate with lowest rank (most specific)
+
+```mermaid
+graph LR
+    CALL["custom_op(TS[int], TS[int])"]
+    CALL --> MATCH[Match Overloads]
+    MATCH --> R1["custom_op_ints: rank 0.001"]
+    MATCH --> R2["custom_op_floats: rank 0.001"]
+    MATCH --> R3["custom_op_generic: rank 1.0"]
+    R1 --> |"lowest rank"| SELECT[Selected]
+```
+
+### 16.4 Generic Rank
+
+Type specificity is quantified by generic rank:
+
+| Type | Rank |
+|------|------|
+| Concrete (`TS[int]`) | ~0.001 |
+| TypeVar (`TS[SCALAR]`) | ~1.0 |
+| Most generic (`TIME_SERIES_TYPE`) | ~1.0+ |
+
+Lower rank = more specific = preferred.
+
+### 16.5 Import Requirements
+
+Overloads must be imported before use:
+
+```python
+# In __init__.py or imported module
+from my_package._impl._operators import custom_op_ints, custom_op_floats
+```
+
+For more details on operator overloading and custom resolvers, see [08_ADVANCED_CONCEPTS.md](08_ADVANCED_CONCEPTS.md).
+
+---
+
+## 17. Reference Locations
+
+| Category | Location |
+|----------|----------|
+| Operators | `hgraph/_wiring/_decorators.py` |
+| OperatorWiringNodeClass | `hgraph/_wiring/_wiring_node_class/_operator_wiring_node.py` |
+| Generic Rank | `hgraph/_types/_generic_rank_util.py` |
+
+---
+
+## 18. Standard Library Reference Locations
 
 | Category | Location |
 |----------|----------|
@@ -582,7 +661,7 @@ Python operators are mapped to HGraph functions:
 
 ---
 
-## 17. Summary
+## 19. Summary
 
 HGraph's operator system provides:
 
