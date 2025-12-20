@@ -6,6 +6,7 @@
 #include <hgraph/api/python/py_schema.h>
 #include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/value/py_value.h>
+#include <hgraph/types/value/py_time_series_value.h>
 #include <hgraph/types/time_series/ts_type_meta_bindings.h>
 
 #include <hgraph/api/python/py_graph.h>
@@ -29,6 +30,7 @@ void export_types(nb::module_ &m) {
     // Value type metadata
     value::register_type_meta_with_nanobind(m);
     value::register_py_value_with_nanobind(m);
+    value::register_py_time_series_value_with_nanobind(m);
 
     // Time-series type metadata
     register_ts_type_meta_with_nanobind(m);

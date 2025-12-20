@@ -105,6 +105,7 @@ set(HGRAPH_SOURCES
         types/value_python_conversion.cpp
         types/type_meta_bindings.cpp
         types/py_value.cpp
+        types/py_time_series_value.cpp
         types/ts_type_meta.cpp
         types/ts_type_meta_bindings.cpp
 
