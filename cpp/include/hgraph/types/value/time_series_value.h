@@ -374,8 +374,9 @@ namespace hgraph::value {
             }
         }
 
-        void window_push(const void* value, engine_time_t timestamp, engine_time_t eval_time) {
-            if (!valid() || kind() != TypeKind::Window) return;
+        // Type-safe window push using ConstValueView
+        void window_push(ConstValueView value, engine_time_t timestamp, engine_time_t eval_time) {
+            if (!valid() || kind() != TypeKind::Window || !value.valid()) return;
             _value_view.window_push(value, timestamp);
             _tracker.mark_modified(eval_time);
             if (_observer) {

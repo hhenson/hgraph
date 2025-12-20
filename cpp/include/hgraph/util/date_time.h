@@ -31,8 +31,11 @@ namespace std {
             size_t h1 = std::hash<int>{}(static_cast<int>(ymd.year()));
             size_t h2 = std::hash<unsigned>{}(static_cast<unsigned>(ymd.month()));
             size_t h3 = std::hash<unsigned>{}(static_cast<unsigned>(ymd.day()));
-            // Combine hashes (boost::hash_combine-like)
-            return h1 ^ (h2 << 1) ^ (h3 << 2);
+            // Combine hashes using boost::hash_combine-style mixing to avoid collisions
+            size_t seed = h1;
+            seed ^= (h2 + 0x9e3779b9 + (seed << 6) + (seed >> 2));
+            seed ^= (h3 + 0x9e3779b9 + (seed << 6) + (seed >> 2));
+            return seed;
         }
     };
 } // namespace std

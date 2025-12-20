@@ -503,10 +503,13 @@ namespace hgraph::value {
             }
         }
 
-        void window_push(const void* value, engine_time_t timestamp) {
-            if (is_window()) {
-                static_cast<WindowStorage*>(_mutable_data)->push(value, timestamp);
-            }
+        // Type-safe window push using ConstValueView
+        void window_push(ConstValueView value, engine_time_t timestamp) {
+            if (!is_window() || !value.valid()) return;
+            auto* window_meta = static_cast<const WindowTypeMeta*>(_schema);
+            // Verify element type matches
+            if (value.schema() != window_meta->element_type) return;
+            static_cast<WindowStorage*>(_mutable_data)->push(value.data(), timestamp);
         }
 
         [[nodiscard]] ValueView window_get(size_t index) {
