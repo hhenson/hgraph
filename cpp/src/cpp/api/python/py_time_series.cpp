@@ -4,6 +4,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/time_series/delta_view_python.h>
+#include <hgraph/types/time_series/ts_python_helpers.h>
 
 namespace hgraph
 {
@@ -74,6 +75,22 @@ namespace hgraph
         auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
         if (!_view.modified_at(eval_time)) return nb::none();
 
+        // For collection types (TSD, TSL, TSS), check if there's a cached delta
+        // These types don't have native C++ storage, so we cache the Python result
+        if (_output && _meta) {
+            auto ts_kind = _meta->ts_kind;
+            if (ts_kind == TimeSeriesKind::TSD ||
+                ts_kind == TimeSeriesKind::TSL ||
+                ts_kind == TimeSeriesKind::TSS) {
+                // Try to get cached delta - this also consumes (clears) it
+                auto cached = ts::get_cached_delta(_output, eval_time);
+                if (!cached.is_none()) {
+                    return cached;
+                }
+            }
+        }
+
+        // Fall back to DeltaView-based conversion for types with C++ storage
         auto delta = _view.delta_view(eval_time);
         return ts::delta_to_python(delta);
     }
@@ -195,9 +212,32 @@ namespace hgraph
         auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
 
         // The view fetches fresh data from the strategy
-        if (!_view.valid()) return nb::none();
-        if (!_view.modified_at(eval_time)) return nb::none();
+        if (!_view.valid()) {
+            return nb::none();
+        }
+        if (!_view.modified_at(eval_time)) {
+            return nb::none();
+        }
 
+        // For collection types (TSD, TSL, TSS), check if there's a cached delta
+        // on the bound output. These types don't have native C++ storage.
+        if (_meta) {
+            auto ts_kind = _meta->ts_kind;
+            if (ts_kind == TimeSeriesKind::TSD ||
+                ts_kind == TimeSeriesKind::TSL ||
+                ts_kind == TimeSeriesKind::TSS) {
+                // Get the bound output and check its cache
+                auto* bound_output = _view.bound_output();
+                if (bound_output) {
+                    auto cached = ts::get_cached_delta(bound_output, eval_time);
+                    if (!cached.is_none()) {
+                        return cached;
+                    }
+                }
+            }
+        }
+
+        // Fall back to DeltaView-based conversion for types with C++ storage
         auto delta = _view.delta_view(eval_time);
         return ts::delta_to_python(delta);
     }

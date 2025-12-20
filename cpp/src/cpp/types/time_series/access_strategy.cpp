@@ -10,7 +10,6 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
-#include <fmt/format.h>
 
 namespace hgraph::ts {
 
@@ -53,12 +52,8 @@ void DirectAccessStrategy::unbind() {
 }
 
 void DirectAccessStrategy::make_active() {
-    fmt::print("[TRACE] DirectAccessStrategy::make_active() _output={} _owner={}\n",
-               (void*)_output, (void*)_owner);
     if (_output && _owner) {
-        fmt::print("[TRACE]   subscribing owner to output\n");
         _output->subscribe(_owner);
-        fmt::print("[TRACE]   output has_observers={}\n", _output->has_observers());
     }
 }
 
@@ -104,12 +99,6 @@ void CollectionAccessStrategy::bind(TSOutput* output) {
     // Bind child strategies to corresponding output elements
     for (size_t i = 0; i < _children.size(); ++i) {
         if (_children[i] && output) {
-            // Get the element output from the collection output
-            // For now, use the view navigation - actual implementation
-            // may need direct element access
-            // TODO: TSOutput needs element_output(size_t) method
-            // For now, children will receive the parent output and
-            // navigate to their element
             _children[i]->bind(output);
         }
     }
@@ -137,11 +126,14 @@ void CollectionAccessStrategy::unbind() {
 }
 
 void CollectionAccessStrategy::make_active() {
-    fmt::print("[TRACE] CollectionAccessStrategy::make_active() num_children={}\n", _children.size());
+    // For dynamic collections (like TSD) that have no fixed children,
+    // subscribe directly to the output to receive notifications
+    if (_output && _owner && _children.empty()) {
+        _output->subscribe(_owner);
+    }
+
     // Propagate to all child strategies
-    for (size_t i = 0; i < _children.size(); ++i) {
-        auto& child = _children[i];
-        fmt::print("[TRACE]   child[{}]={}\n", i, (void*)child.get());
+    for (auto& child : _children) {
         if (child) {
             child->make_active();
         }
@@ -149,6 +141,11 @@ void CollectionAccessStrategy::make_active() {
 }
 
 void CollectionAccessStrategy::make_passive() {
+    // Unsubscribe from direct output subscription (if we subscribed in make_active)
+    if (_output && _owner && _children.empty()) {
+        _output->unsubscribe(_owner);
+    }
+
     // Propagate to all child strategies
     for (auto& child : _children) {
         if (child) {
@@ -158,7 +155,6 @@ void CollectionAccessStrategy::make_passive() {
 }
 
 void CollectionAccessStrategy::on_notify(engine_time_t time) {
-    fmt::print("[TRACE] CollectionAccessStrategy::on_notify() propagating to {} children\n", _children.size());
     // Propagate to all child strategies
     for (auto& child : _children) {
         if (child) {
@@ -186,25 +182,13 @@ value::ModificationTracker CollectionAccessStrategy::tracker() const {
 }
 
 bool CollectionAccessStrategy::has_value() const {
-    fmt::print("[TRACE] CollectionAccessStrategy::has_value() _output={}\n", (void*)_output);
-
     // For Python-managed collections (no C++ storage), check the bound output directly
     // This handles TSL, TSB, TSD where values are stored in Python
     if (_output) {
-        bool out_has = _output->has_value();
-        fmt::print("[TRACE]   _output->has_value()={}\n", out_has);
-
-        // Python-managed collections may not report has_value via C++ storage,
-        // but they do have Python-managed values. Check if output has been modified.
-        // If modified, it means Python code has set values.
-        if (out_has) return true;
+        if (_output->has_value()) return true;
 
         // Fallback: Check if output was ever modified (Python-managed case)
-        // For Python-managed types, has_value() on the output may be false,
-        // but the output can still have valid Python content
-        auto last_mod = _output->last_modified_time();
-        fmt::print("[TRACE]   _output->last_modified_time()={}\n", last_mod.time_since_epoch().count());
-        if (last_mod != MIN_DT) {
+        if (_output->last_modified_time() != MIN_DT) {
             return true;  // Was modified at some point, so has value
         }
     }
@@ -324,30 +308,21 @@ void RefObserverAccessStrategy::make_passive() {
 }
 
 void RefObserverAccessStrategy::on_notify(engine_time_t time) {
-    fmt::print("[TRACE] RefObserverAccessStrategy::on_notify() time={}\n", time);
-
     // Track the notification time for Python-managed types
     _last_notify_time = time;
 
     // Check if the reference target has changed
     auto* new_target = resolve_ref_target(_ref_output);
-    fmt::print("[TRACE]   current_target={} new_target={}\n",
-               (void*)_target_output, (void*)new_target);
     if (new_target != _target_output) {
-        fmt::print("[TRACE]   -> calling on_reference_changed()\n");
         on_reference_changed(new_target, time);
     }
 }
 
 value::ConstValueView RefObserverAccessStrategy::value() const {
     if (!_child) {
-        fmt::print("[TRACE] RefObserverAccessStrategy::value() no child\n");
         return {};
     }
-    auto v = _child->value();
-    fmt::print("[TRACE] RefObserverAccessStrategy::value() child->value().valid()={} data={}\n",
-               v.valid(), v.data());
-    return v;
+    return _child->value();
 }
 
 value::ModificationTracker RefObserverAccessStrategy::tracker() const {
@@ -357,49 +332,40 @@ value::ModificationTracker RefObserverAccessStrategy::tracker() const {
 bool RefObserverAccessStrategy::has_value() const {
     // First check child strategy
     if (_child && _child->has_value()) {
-        fmt::print("[TRACE] RefObserverAccessStrategy::has_value()=true (child has value)\n");
         return true;
     }
 
     // For Python-managed collections, child may not report has_value correctly
     // If we have a target output that was sampled, consider it as having a value
     if (_target_output && _sample_time != MIN_DT) {
-        fmt::print("[TRACE] RefObserverAccessStrategy::has_value()=true (has sampled target)\n");
         return true;
     }
 
-    fmt::print("[TRACE] RefObserverAccessStrategy::has_value()=false _child={} _target={}\n",
-               (void*)_child.get(), (void*)_target_output);
     return false;
 }
 
 bool RefObserverAccessStrategy::modified_at(engine_time_t time) const {
     // Modified if just rebound
     if (_sample_time == time) {
-        fmt::print("[TRACE] RefObserverAccessStrategy::modified_at() true (sample_time match)\n");
         return true;
     }
 
     // Check child strategy
     if (_child && _child->modified_at(time)) {
-        fmt::print("[TRACE] RefObserverAccessStrategy::modified_at() true (child modified)\n");
         return true;
     }
 
     // For Python-managed collections, C++ can't track modifications via TSOutput.
     // Use the notification time we tracked in on_notify()
     if (_last_notify_time == time) {
-        fmt::print("[TRACE] RefObserverAccessStrategy::modified_at() true (notify time match)\n");
         return true;
     }
 
     // Also check target output directly
     if (_target_output && _target_output->modified_at(time)) {
-        fmt::print("[TRACE] RefObserverAccessStrategy::modified_at() true (target modified)\n");
         return true;
     }
 
-    fmt::print("[TRACE] RefObserverAccessStrategy::modified_at()=false\n");
     return false;
 }
 
@@ -467,41 +433,27 @@ RefWrapperAccessStrategy::RefWrapperAccessStrategy(TSInput* owner, const value::
     , _storage(ref_schema) {}
 
 void RefWrapperAccessStrategy::bind(TSOutput* output) {
-    fmt::print("[TRACE] RefWrapperAccessStrategy::bind() this={} output={}\n", (void*)this, (void*)output);
     _wrapped_output = output;
-    // TODO: Get current time from evaluation context
     _bind_time = MIN_DT;
-
-    fmt::print("[TRACE]   _storage.schema()={} _storage valid before={}\n",
-               (void*)_storage.schema(), _storage.value().valid());
 
     // Initialize storage with REF pointing to output
     if (output) {
-        fmt::print("[TRACE]   output not null, initializing storage\n");
         auto storage_view = _storage.view();
-        fmt::print("[TRACE]   storage_view.valid()={}\n", storage_view.valid());
 
         // Create ValueRef with output's value data, tracker, schema, and output as owner
         auto& ts_value = output->underlying();
-        fmt::print("[TRACE]   ts_value.value().data()={} ts_value.schema()={}\n",
-                   ts_value.value().data(), (void*)ts_value.schema());
         value::ValueRef ref{
             const_cast<void*>(ts_value.value().data()),
             ts_value.underlying_tracker().storage(),
             ts_value.schema(),
             output  // owner - the TSOutput* for REF resolution
         };
-        fmt::print("[TRACE]   calling ref_bind\n");
         storage_view.ref_bind(ref, _bind_time);
-        fmt::print("[TRACE]   storage initialized, value().valid()={}\n", _storage.value().valid());
-    } else {
-        fmt::print("[TRACE]   output is null!\n");
     }
 }
 
 void RefWrapperAccessStrategy::rebind(TSOutput* output) {
     _wrapped_output = output;
-    // TODO: Get current time from evaluation context
     _bind_time = MIN_DT;
 
     if (output) {
@@ -550,22 +502,17 @@ engine_time_t RefWrapperAccessStrategy::last_modified_time() const {
 }
 
 void RefWrapperAccessStrategy::make_active() {
-    fmt::print("[TRACE] RefWrapperAccessStrategy::make_active() _wrapped_output={} _owner={}\n",
-               (void*)_wrapped_output, (void*)_owner);
-
     // Set bind time to current evaluation time - this marks the REF as "modified"
     // at the first tick after activation, which is when the REF becomes available
     auto eval_time = get_evaluation_time();
     if (eval_time != MIN_DT && _bind_time == MIN_DT) {
         _bind_time = eval_time;
-        fmt::print("[TRACE]   setting _bind_time to eval_time={}\n", _bind_time.time_since_epoch().count());
     }
 
     // REF wrapper subscribes to the wrapped output so that when the output changes,
     // the notification propagates to the owner (even though the REF value itself doesn't change,
     // dereferencing it yields a different value)
     if (_wrapped_output && _owner) {
-        fmt::print("[TRACE]   subscribing owner to wrapped output\n");
         _wrapped_output->subscribe(_owner);
     }
 }
@@ -597,10 +544,7 @@ void ElementAccessStrategy::unbind() {
 }
 
 void ElementAccessStrategy::make_active() {
-    fmt::print("[TRACE] ElementAccessStrategy::make_active() _parent_output={} _index={} _owner={}\n",
-               (void*)_parent_output, _index, (void*)_owner);
     if (_parent_output && _owner) {
-        fmt::print("[TRACE]   subscribing owner to parent output\n");
         _parent_output->subscribe(_owner);
     }
 }
@@ -625,8 +569,6 @@ TSOutputView ElementAccessStrategy::get_element_view() const {
 value::ConstValueView ElementAccessStrategy::value() const {
     auto elem_view = get_element_view();
     if (!elem_view.valid()) return {};
-    // TSOutputView::value_view() returns TimeSeriesValueView
-    // TimeSeriesValueView::value_view() returns ConstValueView
     auto ts_value_view = elem_view.value_view();
     return ts_value_view.value_view();
 }
@@ -635,7 +577,6 @@ value::ModificationTracker ElementAccessStrategy::tracker() const {
     auto elem_view = get_element_view();
     if (!elem_view.valid()) return {};
     auto ts_value_view = elem_view.value_view();
-    // TimeSeriesValueView::tracker() returns ModificationTracker directly
     return ts_value_view.tracker();
 }
 

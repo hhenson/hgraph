@@ -250,6 +250,11 @@ public:
     // === Access to source strategy (for wrapper construction) ===
     [[nodiscard]] AccessStrategy* source() const { return _source; }
 
+    // === Access to bound output (for delta cache lookup) ===
+    [[nodiscard]] TSOutput* bound_output() const {
+        return _source ? _source->bound_output() : nullptr;
+    }
+
 private:
     AccessStrategy* _source{nullptr};
     const TimeSeriesTypeMeta* _meta{nullptr};

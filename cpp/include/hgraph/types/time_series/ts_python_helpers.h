@@ -17,9 +17,91 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/value/python_conversion.h>
+#include <unordered_map>
 
 namespace hgraph::ts
 {
+
+// =============================================================================
+// Delta Cache for Collection Types (TSD, TSL, TSS)
+// =============================================================================
+//
+// Collection types (TSD, TSL, TSS) don't have native C++ storage - their values
+// are managed by Python. When a Python node returns a dict/list/set result,
+// we need to cache it so that delta_value() can return it later for recording.
+//
+// The cache maps TSOutput* -> (nb::object, engine_time_t) pairs.
+// Values are cleared when consumed to avoid memory leaks.
+
+struct CachedDelta {
+    nb::object value;
+    engine_time_t time{MIN_DT};
+};
+
+// Thread-local cache for delta values
+// Using a simple map keyed by TSOutput pointer
+inline std::unordered_map<const TSOutput*, CachedDelta>& get_delta_cache() {
+    static std::unordered_map<const TSOutput*, CachedDelta> cache;
+    return cache;
+}
+
+/**
+ * Cache a delta value for a collection type output.
+ *
+ * Called from set_python_value() for TSD/TSL/TSS types that don't have
+ * native C++ storage.
+ */
+inline void cache_delta(const TSOutput* output, nb::object value, engine_time_t time) {
+    if (!output) return;
+    get_delta_cache()[output] = CachedDelta{std::move(value), time};
+}
+
+/**
+ * Get and consume a cached delta value.
+ *
+ * Returns the cached value if available and was set at the given time.
+ * The value is removed from the cache after retrieval.
+ *
+ * @param output The output to get cached delta for
+ * @param time The time to check (must match cache time)
+ * @return The cached Python object, or None if not available
+ */
+inline nb::object get_cached_delta(const TSOutput* output, engine_time_t time) {
+    if (!output) return nb::none();
+
+    auto& cache = get_delta_cache();
+    auto it = cache.find(output);
+    if (it == cache.end()) return nb::none();
+
+    // Check if the cached value is from the current time
+    if (it->second.time != time) {
+        cache.erase(it);
+        return nb::none();
+    }
+
+    // Extract and remove the cached value
+    nb::object result = std::move(it->second.value);
+    cache.erase(it);
+    return result;
+}
+
+/**
+ * Check if a delta is cached for this output at the given time.
+ */
+inline bool has_cached_delta(const TSOutput* output, engine_time_t time) {
+    if (!output) return false;
+    auto& cache = get_delta_cache();
+    auto it = cache.find(output);
+    if (it == cache.end()) return false;
+    return it->second.time == time;
+}
+
+/**
+ * Clear all cached deltas (e.g., at end of evaluation cycle).
+ */
+inline void clear_delta_cache() {
+    get_delta_cache().clear();
+}
 
 /**
  * Set a Python value on a TSOutput, using the schema's from_python conversion.
@@ -73,7 +155,8 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         // For collection types without value schema (TSL, TSD, TSS),
         // we can't store the value directly in C++ storage, but we should
         // still mark as modified so subscribers (like REF inputs) get notified.
-        // The actual value is managed by the Python implementation.
+        // Cache the Python value so delta_value() can return it later.
+        cache_delta(output, py_value, time);
         view.mark_modified(time);
     }
 }
