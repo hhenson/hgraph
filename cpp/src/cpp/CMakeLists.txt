@@ -29,6 +29,7 @@ set(HGRAPH_TS_SOURCES
         types/time_series/ts_input.cpp
         types/time_series/access_strategy.cpp
         types/time_series/delta_view_python.cpp
+        types/time_series/py_ts_output.cpp
 )
 
 # Node sources

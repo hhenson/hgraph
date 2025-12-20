@@ -148,11 +148,16 @@ struct TSTypeMeta : TimeSeriesTypeMeta {
 struct TSSTypeMeta : TimeSeriesTypeMeta {
     const value::TypeMeta* element_type;
 
+    // The value schema - a SetTypeMeta with element_type as the set's element type
+    const value::TypeMeta* set_value_type{nullptr};
+
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
+
+    [[nodiscard]] const value::TypeMeta* value_schema() const override { return set_value_type; }
 };
 
 /**
@@ -183,12 +188,17 @@ struct TSLTypeMeta : TimeSeriesTypeMeta {
     const TimeSeriesTypeMeta* element_ts_type;
     int64_t size;  // -1 = dynamic/unresolved
 
+    // The value schema - a ListTypeMeta with element_ts_type's value_schema as element type
+    const value::TypeMeta* list_value_type{nullptr};
+
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
     [[nodiscard]] const TimeSeriesTypeMeta* element_meta() const override { return element_ts_type; }
+
+    [[nodiscard]] const value::TypeMeta* value_schema() const override { return list_value_type; }
 };
 
 /**

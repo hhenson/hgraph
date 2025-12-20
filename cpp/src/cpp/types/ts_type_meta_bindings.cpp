@@ -7,7 +7,10 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/value/type_meta.h>
+#include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/bundle_type.h>
+#include <hgraph/types/value/set_type.h>
+#include <hgraph/types/value/list_type.h>
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/value/ref_type.h>
 #include <nanobind/nanobind.h>
@@ -91,6 +94,18 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
         meta->ts_kind = TimeSeriesKind::TSS;
         meta->element_type = element_type;
 
+        // Build and register the SetTypeMeta for value storage via value registry
+        size_t set_key = value::hash_combine(0x53455400, reinterpret_cast<size_t>(element_type));  // "SET\0"
+        auto& value_registry = value::TypeRegistry::global();
+        if (auto* existing_set = value_registry.lookup_by_key(set_key)) {
+            meta->set_value_type = existing_set;
+        } else {
+            auto set_meta = value::SetTypeBuilderWithPython()
+                .element_type(element_type)
+                .build();
+            meta->set_value_type = value_registry.register_by_key(set_key, std::move(set_meta));
+        }
+
         return registry.register_by_key(key, std::move(meta));
     }, nb::rv_policy::reference, "element_type"_a,
        "Get or create a TSS[T] TypeMeta for the given element type.");
@@ -134,6 +149,24 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
         meta->element_ts_type = element_ts_type;
         meta->size = size;
 
+        // Build and register the ListTypeMeta for value storage via value registry
+        if (element_ts_type && element_ts_type->value_schema() && size > 0) {
+            const auto* elem_value_schema = element_ts_type->value_schema();
+            size_t list_key = value::hash_combine(0x4C495354, reinterpret_cast<size_t>(elem_value_schema));  // "LIST"
+            list_key = value::hash_combine(list_key, static_cast<size_t>(size));
+
+            auto& value_registry = value::TypeRegistry::global();
+            if (auto* existing_list = value_registry.lookup_by_key(list_key)) {
+                meta->list_value_type = existing_list;
+            } else {
+                auto list_meta = value::ListTypeBuilderWithPython()
+                    .element_type(elem_value_schema)
+                    .count(static_cast<size_t>(size))
+                    .build();
+                meta->list_value_type = value_registry.register_by_key(list_key, std::move(list_meta));
+            }
+        }
+
         return registry.register_by_key(key, std::move(meta));
     }, nb::rv_policy::reference, "element_ts_type"_a, "size"_a,
        "Get or create a TSL[V, Size] TypeMeta. Use size=-1 for dynamic/unresolved size.");
@@ -163,18 +196,14 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
         meta->ts_kind = TimeSeriesKind::TSB;
         meta->fields = std::move(field_vec);
 
-        // Handle type_name - need to store the string persistently
+        // Handle type_name - store in static vector (names are strings, not TypeMeta)
         static std::vector<std::string> stored_names;
         if (!type_name.is_none()) {
             stored_names.push_back(nb::cast<std::string>(type_name));
             meta->name = stored_names.back().c_str();
         }
 
-        // Build the bundle value type from each field's value_schema
-        // Use BundleTypeBuilderWithPython for Python conversion support
-        // Store the bundle metas persistently
-        static std::vector<std::unique_ptr<value::BundleTypeMeta>> stored_bundle_metas;
-
+        // Build and register the bundle value type via value registry
         value::BundleTypeBuilderWithPython builder;
         bool all_fields_have_value_schema = true;
         for (const auto& field : meta->fields) {
@@ -189,9 +218,15 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
         }
 
         if (all_fields_have_value_schema && !meta->fields.empty()) {
-            auto bundle_meta = builder.build(meta->name);
-            meta->bundle_value_type = bundle_meta.get();
-            stored_bundle_metas.push_back(std::move(bundle_meta));
+            // Use the same key for the bundle value type (key already includes all field info)
+            size_t bundle_key = value::hash_combine(0x42554E44, key);  // "BUND"
+            auto& value_registry = value::TypeRegistry::global();
+            if (auto* existing_bundle = value_registry.lookup_by_key(bundle_key)) {
+                meta->bundle_value_type = existing_bundle;
+            } else {
+                auto bundle_meta = builder.build(meta->name);
+                meta->bundle_value_type = value_registry.register_by_key(bundle_key, std::move(bundle_meta));
+            }
         }
 
         return registry.register_by_key(key, std::move(meta));
@@ -236,18 +271,21 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
         meta->ts_kind = TimeSeriesKind::REF;
         meta->value_ts_type = value_ts_type;
 
-        // Build the value-layer RefTypeMeta for RefStorage
-        // The value_type is the value_schema of the referenced time-series type
-        static std::vector<std::unique_ptr<value::RefTypeMeta>> stored_ref_metas;
-
+        // Build and register the value-layer RefTypeMeta via value registry
         const value::TypeMeta* value_type = value_ts_type ? value_ts_type->value_schema() : nullptr;
-        auto ref_meta = value::RefTypeBuilder()
-            .value_type(value_type)
-            .build();
-        // Use RefTypeOpsWithPython which has proper to_python implementation
-        ref_meta->ops = &value::RefTypeOpsWithPython;
-        meta->ref_value_type = ref_meta.get();
-        stored_ref_metas.push_back(std::move(ref_meta));
+        size_t ref_key = value::hash_combine(0x52454600, reinterpret_cast<size_t>(value_type));  // "REF\0"
+
+        auto& value_registry = value::TypeRegistry::global();
+        if (auto* existing_ref = value_registry.lookup_by_key(ref_key)) {
+            meta->ref_value_type = existing_ref;
+        } else {
+            auto ref_meta = value::RefTypeBuilder()
+                .value_type(value_type)
+                .build();
+            // Use RefTypeOpsWithPython which has proper to_python implementation
+            ref_meta->ops = &value::RefTypeOpsWithPython;
+            meta->ref_value_type = value_registry.register_by_key(ref_key, std::move(ref_meta));
+        }
 
         return registry.register_by_key(key, std::move(meta));
     }, nb::rv_policy::reference, "value_ts_type"_a,
