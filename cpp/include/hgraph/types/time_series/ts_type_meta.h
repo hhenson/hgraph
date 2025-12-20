@@ -170,12 +170,17 @@ struct TSDTypeMeta : TimeSeriesTypeMeta {
     const value::TypeMeta* key_type;
     const TimeSeriesTypeMeta* value_ts_type;
 
+    // The value schema - a DictTypeMeta for tracking keys and their value schemas
+    const value::TypeMeta* dict_value_type{nullptr};
+
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
     [[nodiscard]] const TimeSeriesTypeMeta* value_meta() const override { return value_ts_type; }
+
+    [[nodiscard]] const value::TypeMeta* value_schema() const override { return dict_value_type; }
 };
 
 /**
@@ -250,14 +255,19 @@ struct TSBTypeMeta : TimeSeriesTypeMeta {
  */
 struct TSWTypeMeta : TimeSeriesTypeMeta {
     const value::TypeMeta* scalar_type;
-    int64_t size;       // count for fixed, -1 for time-based
+    int64_t size;       // count for fixed, negative for time-based (duration in microseconds)
     int64_t min_size;   // min count, -1 for unspecified
+
+    // The value schema - a WindowTypeMeta for the window storage
+    const value::TypeMeta* window_value_type{nullptr};
 
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
+
+    [[nodiscard]] const value::TypeMeta* value_schema() const override { return window_value_type; }
 };
 
 /**

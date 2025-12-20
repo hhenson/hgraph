@@ -755,7 +755,6 @@ def test_has_observers_initially_false():
 # =============================================================================
 
 
-@pytest.mark.xfail(reason="TSW value_schema not yet implemented")
 @pytest.mark.skipif(
     not hasattr(_hgraph, 'get_tsw_type_meta'),
     reason="TSW type meta not available"
@@ -771,7 +770,6 @@ def test_construction_tsw():
     assert ts_output.ts_kind == _hgraph.TimeSeriesKind.TSW
 
 
-@pytest.mark.xfail(reason="TSW value_schema not yet implemented")
 @pytest.mark.skipif(
     not hasattr(_hgraph, 'get_tsw_type_meta'),
     reason="TSW type meta not available"
@@ -830,7 +828,6 @@ def test_ref_initial_state():
 # =============================================================================
 
 
-@pytest.mark.xfail(reason="TSD value_schema not yet implemented")
 @pytest.mark.skipif(
     not hasattr(_hgraph, 'get_tsd_type_meta'),
     reason="TSD type meta not available"
@@ -848,7 +845,6 @@ def test_construction_tsd():
     assert ts_output.ts_kind == _hgraph.TimeSeriesKind.TSD
 
 
-@pytest.mark.xfail(reason="TSD value_schema not yet implemented")
 @pytest.mark.skipif(
     not hasattr(_hgraph, 'get_tsd_type_meta'),
     reason="TSD type meta not available"

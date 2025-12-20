@@ -46,6 +46,8 @@
 #include <hgraph/types/value/list_type.h>
 #include <hgraph/types/value/bundle_type.h>
 #include <hgraph/types/value/ref_type.h>
+#include <hgraph/types/value/window_type.h>
+#include <hgraph/types/value/dict_type.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 
@@ -342,6 +344,26 @@ struct TSD {
         meta->key_type = key_meta;
         meta->value_ts_type = value_ts;
 
+        // Build DictTypeMeta via value registry
+        if (key_meta && value_ts) {
+            const value::TypeMeta* value_schema = value_ts->value_schema();
+            if (value_schema) {
+                size_t dict_key = value::hash_combine(0x44494354, reinterpret_cast<size_t>(key_meta));
+                dict_key = value::hash_combine(dict_key, reinterpret_cast<size_t>(value_schema));
+
+                auto& value_registry = value::TypeRegistry::global();
+                if (auto* existing_dict = value_registry.lookup_by_key(dict_key)) {
+                    meta->dict_value_type = existing_dict;
+                } else {
+                    auto dict_meta = value::DictTypeBuilder()
+                        .key_type(key_meta)
+                        .value_type(value_schema)
+                        .build();
+                    meta->dict_value_type = value_registry.register_by_key(dict_key, std::move(dict_meta));
+                }
+            }
+        }
+
         return registry.register_by_key(key, std::move(meta));
     }
 };
@@ -506,6 +528,23 @@ struct TSW {
         meta->size = Size;
         meta->min_size = MinSize;
 
+        // Build WindowTypeMeta via value registry
+        if (scalar && Size > 0) {
+            size_t window_key = value::hash_combine(0x57494E44, reinterpret_cast<size_t>(scalar));
+            window_key = value::hash_combine(window_key, static_cast<size_t>(Size));
+
+            auto& value_registry = value::TypeRegistry::global();
+            if (auto* existing_window = value_registry.lookup_by_key(window_key)) {
+                meta->window_value_type = existing_window;
+            } else {
+                auto window_meta = value::WindowTypeBuilder()
+                    .element_type(scalar)
+                    .fixed_count(static_cast<size_t>(Size))
+                    .build();
+                meta->window_value_type = value_registry.register_by_key(window_key, std::move(window_meta));
+            }
+        }
+
         return registry.register_by_key(key, std::move(meta));
     }
 };
@@ -565,6 +604,26 @@ struct TSW_Time {
         meta->scalar_type = scalar;
         meta->size = -duration_us;  // Negative indicates time-based, value is duration in microseconds
         meta->min_size = min_size;
+
+        // Build WindowTypeMeta via value registry (time-based)
+        if (scalar && duration_us > 0) {
+            size_t window_key = value::hash_combine(0x57494E44, reinterpret_cast<size_t>(scalar));
+            window_key = value::hash_combine(window_key, 0x54494D45);  // "TIME" marker
+            window_key = value::hash_combine(window_key, static_cast<size_t>(duration_us));
+
+            auto& value_registry = value::TypeRegistry::global();
+            if (auto* existing_window = value_registry.lookup_by_key(window_key)) {
+                meta->window_value_type = existing_window;
+            } else {
+                // Convert microseconds to nanoseconds for engine_time_delta_t
+                engine_time_delta_t duration_ns{duration_us * 1000};
+                auto window_meta = value::WindowTypeBuilder()
+                    .element_type(scalar)
+                    .time_duration(duration_ns)
+                    .build();
+                meta->window_value_type = value_registry.register_by_key(window_key, std::move(window_meta));
+            }
+        }
 
         return registry.register_by_key(key, std::move(meta));
     }
@@ -890,6 +949,27 @@ namespace runtime {
         meta->key_type = key_type;
         meta->value_ts_type = value_ts_type;
 
+        // Build DictTypeMeta via value registry
+        // Dict uses key_type and the value_ts_type's value_schema
+        if (key_type && value_ts_type) {
+            const value::TypeMeta* value_schema = value_ts_type->value_schema();
+            if (value_schema) {
+                size_t dict_key = value::hash_combine(0x44494354, reinterpret_cast<size_t>(key_type));
+                dict_key = value::hash_combine(dict_key, reinterpret_cast<size_t>(value_schema));
+
+                auto& value_registry = value::TypeRegistry::global();
+                if (auto* existing_dict = value_registry.lookup_by_key(dict_key)) {
+                    meta->dict_value_type = existing_dict;
+                } else {
+                    auto dict_meta = value::DictTypeBuilder()
+                        .key_type(key_type)
+                        .value_type(value_schema)
+                        .build();
+                    meta->dict_value_type = value_registry.register_by_key(dict_key, std::move(dict_meta));
+                }
+            }
+        }
+
         return registry.register_by_key(key, std::move(meta));
     }
 
@@ -1018,6 +1098,23 @@ namespace runtime {
         meta->size = size;
         meta->min_size = min_size;
 
+        // Build WindowTypeMeta via value registry
+        if (scalar_type && size > 0) {
+            size_t window_key = value::hash_combine(0x57494E44, reinterpret_cast<size_t>(scalar_type));
+            window_key = value::hash_combine(window_key, static_cast<size_t>(size));
+
+            auto& value_registry = value::TypeRegistry::global();
+            if (auto* existing_window = value_registry.lookup_by_key(window_key)) {
+                meta->window_value_type = existing_window;
+            } else {
+                auto window_meta = value::WindowTypeBuilder()
+                    .element_type(scalar_type)
+                    .fixed_count(static_cast<size_t>(size))
+                    .build();
+                meta->window_value_type = value_registry.register_by_key(window_key, std::move(window_meta));
+            }
+        }
+
         return registry.register_by_key(key, std::move(meta));
     }
 
@@ -1046,6 +1143,26 @@ namespace runtime {
         meta->scalar_type = scalar_type;
         meta->size = -duration_us;  // Negative indicates time-based
         meta->min_size = min_size;
+
+        // Build WindowTypeMeta via value registry (time-based)
+        if (scalar_type && duration_us > 0) {
+            size_t window_key = value::hash_combine(0x57494E44, reinterpret_cast<size_t>(scalar_type));
+            window_key = value::hash_combine(window_key, 0x54494D45);  // "TIME" marker
+            window_key = value::hash_combine(window_key, static_cast<size_t>(duration_us));
+
+            auto& value_registry = value::TypeRegistry::global();
+            if (auto* existing_window = value_registry.lookup_by_key(window_key)) {
+                meta->window_value_type = existing_window;
+            } else {
+                // Convert microseconds to nanoseconds for engine_time_delta_t
+                engine_time_delta_t duration_ns{duration_us * 1000};
+                auto window_meta = value::WindowTypeBuilder()
+                    .element_type(scalar_type)
+                    .time_duration(duration_ns)
+                    .build();
+                meta->window_value_type = value_registry.register_by_key(window_key, std::move(window_meta));
+            }
+        }
 
         return registry.register_by_key(key, std::move(meta));
     }
