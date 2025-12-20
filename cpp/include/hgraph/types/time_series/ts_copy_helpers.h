@@ -28,7 +28,7 @@ namespace hgraph::ts
 inline bool copy_from_view(TSOutput* output, const value::ConstValueView& source, engine_time_t time) {
     if (!output || !source.valid()) return false;
 
-    // view is already a TimeSeriesValueView
+    // view is already a TSView
     auto view = output->view();
     auto* dest_schema = view.schema();
 
@@ -60,7 +60,7 @@ inline bool copy_from_input_view(TSOutput* output, const TSInputView& source, en
 }
 
 /**
- * Copy value from a TimeSeriesValueView to a TSOutput.
+ * Copy value from a TSView to a TSOutput.
  *
  * Convenience wrapper for output-to-output copy.
  *
@@ -69,9 +69,9 @@ inline bool copy_from_input_view(TSOutput* output, const TSInputView& source, en
  * @param time Engine time for marking modification
  * @return true if copy succeeded, false if schema mismatch or invalid input
  */
-inline bool copy_from_output_view(TSOutput* output, const value::TimeSeriesValueView& source, engine_time_t time) {
+inline bool copy_from_output_view(TSOutput* output, const value::TSView& source, engine_time_t time) {
     if (!source.valid()) return false;
-    // TimeSeriesValueView::value_view() returns a ValueView that we can use directly
+    // TSView::value_view() returns a ValueView that we can use directly
     auto value_view = source.value_view();
     // Create ConstValueView from ValueView
     return copy_from_view(output, value::ConstValueView(value_view.data(), value_view.schema()), time);

@@ -11,8 +11,8 @@
 namespace hgraph {
     PushQueueNode::PushQueueNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature,
                                  nb::dict scalars, nb::callable eval_fn,
-                                 const TimeSeriesTypeMeta* input_meta, const TimeSeriesTypeMeta* output_meta,
-                                 const TimeSeriesTypeMeta* error_output_meta, const TimeSeriesTypeMeta* recordable_state_meta)
+                                 const TSMeta* input_meta, const TSMeta* output_meta,
+                                 const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
         : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
                input_meta, output_meta, error_output_meta, recordable_state_meta),
           _eval_fn{std::move(eval_fn)} {}

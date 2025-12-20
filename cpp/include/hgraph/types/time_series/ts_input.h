@@ -46,7 +46,7 @@ class TSInputBindableView;
  * Features:
  * - Read-only access to the bound output's value
  * - Chainable navigation: view.field("price").element(0)
- * - Path tracking for debugging (uses ValuePath like TimeSeriesValueView)
+ * - Path tracking for debugging (uses ValuePath like TSView)
  * - NEVER materialized - always goes to source for fresh data
  *
  * Views hold a pointer to the AccessStrategy and navigate on demand.
@@ -59,19 +59,19 @@ public:
     /**
      * Create a view rooted at an AccessStrategy
      */
-    explicit TSInputView(AccessStrategy* source, const TimeSeriesTypeMeta* meta)
+    explicit TSInputView(AccessStrategy* source, const TSMeta* meta)
         : _source(source), _meta(meta), _path() {}
 
     /**
-     * Create a view with a navigation path (for debugging and consistency with TimeSeriesValueView)
+     * Create a view with a navigation path (for debugging and consistency with TSView)
      */
-    TSInputView(AccessStrategy* source, const TimeSeriesTypeMeta* meta, value::ValuePath path)
+    TSInputView(AccessStrategy* source, const TSMeta* meta, value::ValuePath path)
         : _source(source), _meta(meta), _path(std::move(path)) {}
 
     // === Validity and type queries ===
     [[nodiscard]] bool valid() const { return _source != nullptr; }
-    [[nodiscard]] const TimeSeriesTypeMeta* meta() const { return _meta; }
-    [[nodiscard]] const TimeSeriesTypeMeta* ts_meta() const { return _meta; }
+    [[nodiscard]] const TSMeta* meta() const { return _meta; }
+    [[nodiscard]] const TSMeta* ts_meta() const { return _meta; }
     [[nodiscard]] const value::TypeMeta* value_schema() const {
         return _meta ? _meta->value_schema() : nullptr;
     }
@@ -79,7 +79,7 @@ public:
         auto v = value_view();
         return v.valid() ? v.kind() : value::TypeKind::Scalar;
     }
-    [[nodiscard]] TimeSeriesKind ts_kind() const { return _meta ? _meta->ts_kind : TimeSeriesKind::TS; }
+    [[nodiscard]] TSKind ts_kind() const { return _meta ? _meta->ts_kind : TSKind::TS; }
 
     // === Path tracking ===
     [[nodiscard]] const value::ValuePath& path() const { return _path; }
@@ -257,7 +257,7 @@ public:
 
 private:
     AccessStrategy* _source{nullptr};
-    const TimeSeriesTypeMeta* _meta{nullptr};
+    const TSMeta* _meta{nullptr};
     value::ValuePath _path;
 };
 
@@ -294,12 +294,12 @@ public:
     /**
      * Create a bindable view at a specific path within an input
      */
-    TSInputBindableView(TSInput* root, std::vector<size_t> path, const TimeSeriesTypeMeta* meta);
+    TSInputBindableView(TSInput* root, std::vector<size_t> path, const TSMeta* meta);
 
     // === Validity and type information ===
 
     [[nodiscard]] bool valid() const { return _root != nullptr && _meta != nullptr; }
-    [[nodiscard]] const TimeSeriesTypeMeta* meta() const { return _meta; }
+    [[nodiscard]] const TSMeta* meta() const { return _meta; }
     [[nodiscard]] const std::vector<size_t>& path() const { return _path; }
     [[nodiscard]] TSInput* root() const { return _root; }
 
@@ -341,7 +341,7 @@ public:
 private:
     TSInput* _root{nullptr};           // The root input
     std::vector<size_t> _path;         // Path from root to this position (field indices)
-    const TimeSeriesTypeMeta* _meta{nullptr};  // Metadata at this position
+    const TSMeta* _meta{nullptr};  // Metadata at this position
 };
 
 // ============================================================================
@@ -365,7 +365,7 @@ private:
  * The strategy tree is built at bind time by comparing input/output schemas.
  *
  * Construction:
- * - Use TimeSeriesTypeMeta::make_input() to create instances
+ * - Use TSMeta::make_input() to create instances
  */
 class TSInput : public Notifiable {
 public:
@@ -377,7 +377,7 @@ public:
     /**
      * Construct from type metadata and owning node
      */
-    TSInput(const TimeSeriesTypeMeta* meta, node_ptr owning_node)
+    TSInput(const TSMeta* meta, node_ptr owning_node)
         : _meta(meta)
         , _owning_node(owning_node) {}
 
@@ -389,8 +389,8 @@ public:
 
     // === Validity and type information ===
     [[nodiscard]] bool valid() const { return _meta != nullptr; }
-    [[nodiscard]] const TimeSeriesTypeMeta* meta() const { return _meta; }
-    [[nodiscard]] TimeSeriesKind ts_kind() const { return _meta ? _meta->ts_kind : TimeSeriesKind::TS; }
+    [[nodiscard]] const TSMeta* meta() const { return _meta; }
+    [[nodiscard]] TSKind ts_kind() const { return _meta ? _meta->ts_kind : TSKind::TS; }
 
     // === Node parentage ===
     [[nodiscard]] node_ptr owning_node() const { return _owning_node; }
@@ -550,7 +550,7 @@ public:
      * Check if this input is a bundle type
      */
     [[nodiscard]] bool is_bundle() const {
-        return _meta && _meta->ts_kind == TimeSeriesKind::TSB;
+        return _meta && _meta->ts_kind == TSKind::TSB;
     }
 
     /**
@@ -577,7 +577,7 @@ public:
     CollectionAccessStrategy* ensure_collection_strategy_at_path(const std::vector<size_t>& path);
 
 private:
-    const TimeSeriesTypeMeta* _meta{nullptr};
+    const TSMeta* _meta{nullptr};
     node_ptr _owning_node{nullptr};
     std::unique_ptr<AccessStrategy> _strategy;
     bool _active{false};

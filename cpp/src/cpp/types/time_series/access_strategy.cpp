@@ -555,7 +555,7 @@ void ElementAccessStrategy::make_passive() {
     }
 }
 
-value::TimeSeriesValueView ElementAccessStrategy::get_element_view() const {
+value::TSView ElementAccessStrategy::get_element_view() const {
     if (!_parent_output) return {};
 
     auto view = _parent_output->view();
@@ -602,12 +602,12 @@ namespace {
 /**
  * Check if a type is a collection (TSL, TSB, TSD)
  */
-bool is_collection(const TimeSeriesTypeMeta* meta) {
+bool is_collection(const TSMeta* meta) {
     if (!meta) return false;
     switch (meta->ts_kind) {
-        case TimeSeriesKind::TSL:
-        case TimeSeriesKind::TSB:
-        case TimeSeriesKind::TSD:
+        case TSKind::TSL:
+        case TSKind::TSB:
+        case TSKind::TSD:
             return true;
         default:
             return false;
@@ -617,7 +617,7 @@ bool is_collection(const TimeSeriesTypeMeta* meta) {
 /**
  * Get the inner type of a REF type
  */
-const TimeSeriesTypeMeta* get_ref_inner_type(const TimeSeriesTypeMeta* meta) {
+const TSMeta* get_ref_inner_type(const TSMeta* meta) {
     if (!meta || !meta->is_reference()) return nullptr;
     auto* ref_meta = static_cast<const REFTypeMeta*>(meta);
     return ref_meta->value_ts_type;
@@ -626,15 +626,15 @@ const TimeSeriesTypeMeta* get_ref_inner_type(const TimeSeriesTypeMeta* meta) {
 /**
  * Get element count for collections
  */
-size_t get_element_count(const TimeSeriesTypeMeta* meta) {
+size_t get_element_count(const TSMeta* meta) {
     if (!meta) return 0;
 
     switch (meta->ts_kind) {
-        case TimeSeriesKind::TSL: {
+        case TSKind::TSL: {
             auto* tsl_meta = static_cast<const TSLTypeMeta*>(meta);
             return tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : 0;
         }
-        case TimeSeriesKind::TSB: {
+        case TSKind::TSB: {
             auto* tsb_meta = static_cast<const TSBTypeMeta*>(meta);
             return tsb_meta->fields.size();
         }
@@ -646,19 +646,19 @@ size_t get_element_count(const TimeSeriesTypeMeta* meta) {
 /**
  * Get element type metadata for collections
  */
-const TimeSeriesTypeMeta* get_element_meta(const TimeSeriesTypeMeta* meta, size_t index) {
+const TSMeta* get_element_meta(const TSMeta* meta, size_t index) {
     if (!meta) return nullptr;
 
     switch (meta->ts_kind) {
-        case TimeSeriesKind::TSL: {
+        case TSKind::TSL: {
             auto* tsl_meta = static_cast<const TSLTypeMeta*>(meta);
             return tsl_meta->element_ts_type;
         }
-        case TimeSeriesKind::TSB: {
+        case TSKind::TSB: {
             auto* tsb_meta = static_cast<const TSBTypeMeta*>(meta);
             return index < tsb_meta->fields.size() ? tsb_meta->fields[index].type : nullptr;
         }
-        case TimeSeriesKind::TSD: {
+        case TSKind::TSD: {
             auto* tsd_meta = static_cast<const TSDTypeMeta*>(meta);
             return tsd_meta->value_ts_type;
         }
@@ -670,8 +670,8 @@ const TimeSeriesTypeMeta* get_element_meta(const TimeSeriesTypeMeta* meta, size_
 } // anonymous namespace
 
 std::unique_ptr<AccessStrategy> build_access_strategy(
-    const TimeSeriesTypeMeta* input_meta,
-    const TimeSeriesTypeMeta* output_meta,
+    const TSMeta* input_meta,
+    const TSMeta* output_meta,
     TSInput* owner)
 {
     if (!input_meta || !output_meta) {
@@ -699,7 +699,7 @@ std::unique_ptr<AccessStrategy> build_access_strategy(
         auto strategy = std::make_unique<CollectionAccessStrategy>(owner, count);
 
         // Determine navigation kind based on collection type
-        auto nav_kind = (input_meta->ts_kind == TimeSeriesKind::TSL)
+        auto nav_kind = (input_meta->ts_kind == TSKind::TSL)
             ? ElementAccessStrategy::NavigationKind::ListElement
             : ElementAccessStrategy::NavigationKind::BundleField;
 

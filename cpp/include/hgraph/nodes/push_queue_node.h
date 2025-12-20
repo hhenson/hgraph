@@ -26,8 +26,8 @@ namespace hgraph {
     struct PushQueueNode final : Node {
         PushQueueNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature,
                       nb::dict scalars, nb::callable eval_fn,
-                      const TimeSeriesTypeMeta* input_meta = nullptr, const TimeSeriesTypeMeta* output_meta = nullptr,
-                      const TimeSeriesTypeMeta* error_output_meta = nullptr, const TimeSeriesTypeMeta* recordable_state_meta = nullptr);
+                      const TSMeta* input_meta = nullptr, const TSMeta* output_meta = nullptr,
+                      const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         static void register_with_nanobind(nb::module_ &m);
 

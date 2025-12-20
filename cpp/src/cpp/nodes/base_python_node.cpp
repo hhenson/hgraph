@@ -13,8 +13,8 @@ namespace hgraph
 {
     BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                                    nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn,
-                                   const TimeSeriesTypeMeta* input_meta, const TimeSeriesTypeMeta* output_meta,
-                                   const TimeSeriesTypeMeta* error_output_meta, const TimeSeriesTypeMeta* recordable_state_meta)
+                                   const TSMeta* input_meta, const TSMeta* output_meta,
+                                   const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
         : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
                input_meta, output_meta, error_output_meta, recordable_state_meta),
           _eval_fn{std::move(eval_fn)}, _start_fn{std::move(start_fn)}, _stop_fn{std::move(stop_fn)} {}

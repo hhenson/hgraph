@@ -39,12 +39,12 @@ namespace hgraph {
 
         static void register_with_nanobind(nb::module_ &m);
 
-        // Helper methods to extract TimeSeriesTypeMeta* from builders
+        // Helper methods to extract TSMeta* from builders
         // These extract the schema from the builders for passing to Node constructors
-        [[nodiscard]] const TimeSeriesTypeMeta* input_meta() const;
-        [[nodiscard]] const TimeSeriesTypeMeta* output_meta() const;
-        [[nodiscard]] const TimeSeriesTypeMeta* error_output_meta() const;
-        [[nodiscard]] const TimeSeriesTypeMeta* recordable_state_meta() const;
+        [[nodiscard]] const TSMeta* input_meta() const;
+        [[nodiscard]] const TSMeta* output_meta() const;
+        [[nodiscard]] const TSMeta* error_output_meta() const;
+        [[nodiscard]] const TSMeta* recordable_state_meta() const;
 
         node_signature_s_ptr signature;
         nb::dict scalars;

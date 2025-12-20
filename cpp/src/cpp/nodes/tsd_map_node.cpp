@@ -37,8 +37,8 @@ namespace hgraph
                               nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
                               const std::unordered_map<std::string, int64_t> &input_node_ids, int64_t output_node_id,
                               const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg,
-                              const TimeSeriesTypeMeta* input_meta, const TimeSeriesTypeMeta* output_meta,
-                              const TimeSeriesTypeMeta* error_output_meta, const TimeSeriesTypeMeta* recordable_state_meta)
+                              const TSMeta* input_meta, const TSMeta* output_meta,
+                              const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
         : NestedNode(node_ndx, owning_graph_id, signature, scalars,
                      input_meta, output_meta, error_output_meta, recordable_state_meta),
           nested_graph_builder_(nested_graph_builder),

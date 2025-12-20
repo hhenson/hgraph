@@ -12,7 +12,7 @@ namespace hgraph
     // PyTimeSeriesType - Base class implementation
     // =========================================================================
 
-    PyTimeSeriesType::PyTimeSeriesType(node_s_ptr node, const TimeSeriesTypeMeta* meta)
+    PyTimeSeriesType::PyTimeSeriesType(node_s_ptr node, const TSMeta* meta)
         : _node(std::move(node)), _meta(meta) {}
 
     nb::object PyTimeSeriesType::owning_node() const {
@@ -34,7 +34,7 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesType::is_reference() const {
-        return nb::bool_(_meta && _meta->ts_kind == TimeSeriesKind::REF);
+        return nb::bool_(_meta && _meta->ts_kind == TSKind::REF);
     }
 
     void PyTimeSeriesType::register_with_nanobind(nb::module_ &m) {
@@ -54,7 +54,7 @@ namespace hgraph
     // PyTimeSeriesOutput - Output wrapper implementation
     // =========================================================================
 
-    PyTimeSeriesOutput::PyTimeSeriesOutput(node_s_ptr node, value::TimeSeriesValueView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta)
+    PyTimeSeriesOutput::PyTimeSeriesOutput(node_s_ptr node, value::TSView view, ts::TSOutput* output, const TSMeta* meta)
         : PyTimeSeriesType(std::move(node), meta), _view(std::move(view)), _output(output) {}
 
     nb::object PyTimeSeriesOutput::value() const {
@@ -77,9 +77,9 @@ namespace hgraph
         // These types don't have native C++ storage, so we cache the Python result
         if (_output && _meta) {
             auto ts_kind = _meta->ts_kind;
-            if (ts_kind == TimeSeriesKind::TSD ||
-                ts_kind == TimeSeriesKind::TSL ||
-                ts_kind == TimeSeriesKind::TSS) {
+            if (ts_kind == TSKind::TSD ||
+                ts_kind == TSKind::TSL ||
+                ts_kind == TSKind::TSS) {
                 // Try to get cached delta - this also consumes (clears) it
                 auto cached = ts::get_cached_delta(_output, eval_time);
                 if (!cached.is_none()) {
@@ -187,10 +187,10 @@ namespace hgraph
     // PyTimeSeriesInput - Input wrapper implementation
     // =========================================================================
 
-    PyTimeSeriesInput::PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TimeSeriesTypeMeta* meta)
+    PyTimeSeriesInput::PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TSMeta* meta)
         : PyTimeSeriesType(std::move(node), meta), _view(std::move(view)), _input(input) {}
 
-    PyTimeSeriesInput::PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, const TimeSeriesTypeMeta* meta)
+    PyTimeSeriesInput::PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, const TSMeta* meta)
         : PyTimeSeriesType(std::move(node), meta), _view(std::move(view)), _input(nullptr) {}
 
     nb::object PyTimeSeriesInput::value() const {
@@ -220,9 +220,9 @@ namespace hgraph
         // on the bound output. These types don't have native C++ storage.
         if (_meta) {
             auto ts_kind = _meta->ts_kind;
-            if (ts_kind == TimeSeriesKind::TSD ||
-                ts_kind == TimeSeriesKind::TSL ||
-                ts_kind == TimeSeriesKind::TSS) {
+            if (ts_kind == TSKind::TSD ||
+                ts_kind == TSKind::TSL ||
+                ts_kind == TSKind::TSS) {
                 // Get the bound output and check its cache
                 auto* bound_output = _view.bound_output();
                 if (bound_output) {

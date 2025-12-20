@@ -200,8 +200,8 @@ namespace hgraph
 
         // Constructor - takes type metas and constructs input/output as value members
         Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars,
-             const TimeSeriesTypeMeta* input_meta = nullptr, const TimeSeriesTypeMeta* output_meta = nullptr,
-             const TimeSeriesTypeMeta* error_output_meta = nullptr, const TimeSeriesTypeMeta* recordable_state_meta = nullptr);
+             const TSMeta* input_meta = nullptr, const TSMeta* output_meta = nullptr,
+             const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         virtual void eval();
 

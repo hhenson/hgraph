@@ -258,17 +258,17 @@ template<typename T>
 struct TS {
     using scalar_type = T;
 
-    static const TimeSeriesTypeMeta* get() {
+    static const TSMeta* get() {
         const auto* scalar = type_of<T>();
         size_t key = detail::hash_combine(detail::TS_SEED, reinterpret_cast<size_t>(scalar));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
-        auto meta = std::make_unique<TSTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TS;
+        auto meta = std::make_unique<TSValueMeta>();
+        meta->ts_kind = TSKind::TS;
         meta->scalar_type = scalar;
 
         return registry.register_by_key(key, std::move(meta));
@@ -285,17 +285,17 @@ template<typename T>
 struct TSS {
     using element_type = T;
 
-    static const TimeSeriesTypeMeta* get() {
+    static const TSMeta* get() {
         const auto* element = type_of<T>();
         size_t key = detail::hash_combine(detail::TSS_SEED, reinterpret_cast<size_t>(element));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSSTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSS;
+        meta->ts_kind = TSKind::TSS;
         meta->element_type = element;
 
         // Build and register SetTypeMeta via value registry
@@ -327,20 +327,20 @@ struct TSD {
     using key_type = K;
     using value_ts_type = V;
 
-    static const TimeSeriesTypeMeta* get() {
+    static const TSMeta* get() {
         const auto* key_meta = type_of<K>();
         const auto* value_ts = V::get();
 
         size_t key = detail::hash_combine(detail::TSD_SEED, reinterpret_cast<size_t>(key_meta));
         key = detail::hash_combine(key, reinterpret_cast<size_t>(value_ts));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSDTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSD;
+        meta->ts_kind = TSKind::TSD;
         meta->key_type = key_meta;
         meta->value_ts_type = value_ts;
 
@@ -382,19 +382,19 @@ struct TSL {
     using element_ts_type = V;
     static constexpr int64_t size = Size;
 
-    static const TimeSeriesTypeMeta* get() {
+    static const TSMeta* get() {
         const auto* element_ts = V::get();
 
         size_t key = detail::hash_combine(detail::TSL_SEED, reinterpret_cast<size_t>(element_ts));
         key = detail::hash_combine(key, static_cast<size_t>(Size + 1));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSLTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSL;
+        meta->ts_kind = TSKind::TSL;
         meta->element_ts_type = element_ts;
         meta->size = Size;
 
@@ -510,20 +510,20 @@ struct TSW {
     static constexpr int64_t min_size = MinSize;
     static constexpr bool is_time_based = false;
 
-    static const TimeSeriesTypeMeta* get() {
+    static const TSMeta* get() {
         const auto* scalar = type_of<T>();
 
         size_t key = detail::hash_combine(detail::TSW_SEED, reinterpret_cast<size_t>(scalar));
         key = detail::hash_combine(key, static_cast<size_t>(Size + 1));
         key = detail::hash_combine(key, static_cast<size_t>(MinSize + 1));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSWTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSW;
+        meta->ts_kind = TSKind::TSW;
         meta->scalar_type = scalar;
         meta->size = Size;
         meta->min_size = MinSize;
@@ -563,7 +563,7 @@ struct TSW_Count {
     static constexpr int64_t size = SizeSpec::value;
     static constexpr int64_t min_size = MinSizeSpec::value;
 
-    static const TimeSeriesTypeMeta* get() {
+    static const TSMeta* get() {
         return TSW<T, size, min_size>::get();
     }
 };
@@ -585,7 +585,7 @@ struct TSW_Time {
     static constexpr int64_t duration_us = DurationSpec::microseconds();
     static constexpr int64_t min_size = MinSizeSpec::value;
 
-    static const TimeSeriesTypeMeta* get() {
+    static const TSMeta* get() {
         const auto* scalar = type_of<T>();
 
         // Use negative duration to indicate time-based, encode duration in key
@@ -594,13 +594,13 @@ struct TSW_Time {
         key = detail::hash_combine(key, 0x54494D45);  // "TIME" marker
         key = detail::hash_combine(key, static_cast<size_t>(min_size + 1));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSWTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSW;
+        meta->ts_kind = TSKind::TSW;
         meta->scalar_type = scalar;
         meta->size = -duration_us;  // Negative indicates time-based, value is duration in microseconds
         meta->min_size = min_size;
@@ -641,18 +641,18 @@ struct REF {
 
     using value_ts_type = V;
 
-    static const TimeSeriesTypeMeta* get() {
+    static const TSMeta* get() {
         const auto* value_ts = V::get();
 
         size_t key = detail::hash_combine(detail::REF_SEED, reinterpret_cast<size_t>(value_ts));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<REFTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::REF;
+        meta->ts_kind = TSKind::REF;
         meta->value_ts_type = value_ts;
 
         // Build RefTypeMeta via value registry
@@ -695,7 +695,7 @@ struct Field {
         return stored_name.c_str();
     }
 
-    static const TimeSeriesTypeMeta* field_type() {
+    static const TSMeta* field_type() {
         return TSType::get();
     }
 };
@@ -806,18 +806,18 @@ struct TSB {
     static_assert(sizeof...(Args) > 0, "TSB requires at least one field");
     static_assert(detail::TSBHelper<Args...>::field_count > 0, "TSB requires at least one Field");
 
-    static const TimeSeriesTypeMeta* get() {
+    static const TSMeta* get() {
         using Helper = detail::TSBHelper<Args...>;
 
         size_t key = Helper::compute_key();
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSBTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSB;
+        meta->ts_kind = TSKind::TSB;
         meta->fields = Helper::build_fields();
         meta->name = Helper::get_name();
 
@@ -854,7 +854,7 @@ struct TSB {
 // ============================================================================
 
 /**
- * ts_type<T>() - Get the TimeSeriesTypeMeta for a time-series type descriptor
+ * ts_type<T>() - Get the TSMeta for a time-series type descriptor
  *
  * This is the main entry point for obtaining time-series type metadata.
  * The type is automatically interned in the global registry.
@@ -865,7 +865,7 @@ struct TSB {
  *   auto* point = ts_type<TSB<Field<"x", TS<int>>, Field<"y", TS<float>>, Name<"Point">>>();
  */
 template<typename T>
-const TimeSeriesTypeMeta* ts_type() {
+const TSMeta* ts_type() {
     static_assert(detail::is_ts_type_v<T>, "ts_type<T>() requires a time-series type descriptor");
     return T::get();
 }
@@ -886,16 +886,16 @@ namespace runtime {
     /**
      * Get or create a TS[scalar_type] metadata.
      */
-    inline const TimeSeriesTypeMeta* ts(const value::TypeMeta* scalar_type) {
+    inline const TSMeta* ts(const value::TypeMeta* scalar_type) {
         size_t key = detail::hash_combine(detail::TS_SEED, reinterpret_cast<size_t>(scalar_type));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
-        auto meta = std::make_unique<TSTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TS;
+        auto meta = std::make_unique<TSValueMeta>();
+        meta->ts_kind = TSKind::TS;
         meta->scalar_type = scalar_type;
 
         return registry.register_by_key(key, std::move(meta));
@@ -904,16 +904,16 @@ namespace runtime {
     /**
      * Get or create a TSS[element_type] metadata.
      */
-    inline const TimeSeriesTypeMeta* tss(const value::TypeMeta* element_type) {
+    inline const TSMeta* tss(const value::TypeMeta* element_type) {
         size_t key = detail::hash_combine(detail::TSS_SEED, reinterpret_cast<size_t>(element_type));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSSTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSS;
+        meta->ts_kind = TSKind::TSS;
         meta->element_type = element_type;
 
         // Build and register SetTypeMeta
@@ -934,18 +934,18 @@ namespace runtime {
     /**
      * Get or create a TSD[key_type, value_ts_type] metadata.
      */
-    inline const TimeSeriesTypeMeta* tsd(const value::TypeMeta* key_type,
-                                          const TimeSeriesTypeMeta* value_ts_type) {
+    inline const TSMeta* tsd(const value::TypeMeta* key_type,
+                                          const TSMeta* value_ts_type) {
         size_t key = detail::hash_combine(detail::TSD_SEED, reinterpret_cast<size_t>(key_type));
         key = detail::hash_combine(key, reinterpret_cast<size_t>(value_ts_type));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSDTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSD;
+        meta->ts_kind = TSKind::TSD;
         meta->key_type = key_type;
         meta->value_ts_type = value_ts_type;
 
@@ -977,18 +977,18 @@ namespace runtime {
      * Get or create a TSL[element_ts_type, size] metadata.
      * Use size=-1 for dynamic/unresolved size.
      */
-    inline const TimeSeriesTypeMeta* tsl(const TimeSeriesTypeMeta* element_ts_type,
+    inline const TSMeta* tsl(const TSMeta* element_ts_type,
                                           int64_t size) {
         size_t key = detail::hash_combine(detail::TSL_SEED, reinterpret_cast<size_t>(element_ts_type));
         key = detail::hash_combine(key, static_cast<size_t>(size + 1));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSLTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSL;
+        meta->ts_kind = TSKind::TSL;
         meta->element_ts_type = element_ts_type;
         meta->size = size;
 
@@ -1019,8 +1019,8 @@ namespace runtime {
      * @param fields Vector of (name, type) pairs
      * @param type_name Optional type name (nullptr for anonymous)
      */
-    inline const TimeSeriesTypeMeta* tsb(
-            const std::vector<std::pair<std::string, const TimeSeriesTypeMeta*>>& fields,
+    inline const TSMeta* tsb(
+            const std::vector<std::pair<std::string, const TSMeta*>>& fields,
             const char* type_name = nullptr) {
 
         // Compute key
@@ -1030,13 +1030,13 @@ namespace runtime {
             key = detail::hash_combine(key, reinterpret_cast<size_t>(type));
         }
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSBTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSB;
+        meta->ts_kind = TSKind::TSB;
 
         // Store field definitions
         for (const auto& [name, type] : fields) {
@@ -1080,20 +1080,20 @@ namespace runtime {
     /**
      * Get or create a count-based TSW[scalar_type, size, min_size] metadata.
      */
-    inline const TimeSeriesTypeMeta* tsw(const value::TypeMeta* scalar_type,
+    inline const TSMeta* tsw(const value::TypeMeta* scalar_type,
                                           int64_t size,
                                           int64_t min_size = 0) {
         size_t key = detail::hash_combine(detail::TSW_SEED, reinterpret_cast<size_t>(scalar_type));
         key = detail::hash_combine(key, static_cast<size_t>(size + 1));
         key = detail::hash_combine(key, static_cast<size_t>(min_size + 1));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSWTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSW;
+        meta->ts_kind = TSKind::TSW;
         meta->scalar_type = scalar_type;
         meta->size = size;
         meta->min_size = min_size;
@@ -1125,7 +1125,7 @@ namespace runtime {
      * @param duration_us Window duration in microseconds
      * @param min_size Minimum number of values required (0 = no minimum)
      */
-    inline const TimeSeriesTypeMeta* tsw_time(const value::TypeMeta* scalar_type,
+    inline const TSMeta* tsw_time(const value::TypeMeta* scalar_type,
                                                int64_t duration_us,
                                                int64_t min_size = 0) {
         size_t key = detail::hash_combine(detail::TSW_SEED, reinterpret_cast<size_t>(scalar_type));
@@ -1133,13 +1133,13 @@ namespace runtime {
         key = detail::hash_combine(key, 0x54494D45);  // "TIME" marker
         key = detail::hash_combine(key, static_cast<size_t>(min_size + 1));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSWTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSW;
+        meta->ts_kind = TSKind::TSW;
         meta->scalar_type = scalar_type;
         meta->size = -duration_us;  // Negative indicates time-based
         meta->min_size = min_size;
@@ -1170,16 +1170,16 @@ namespace runtime {
     /**
      * Get or create a REF[value_ts_type] metadata.
      */
-    inline const TimeSeriesTypeMeta* ref(const TimeSeriesTypeMeta* value_ts_type) {
+    inline const TSMeta* ref(const TSMeta* value_ts_type) {
         size_t key = detail::hash_combine(detail::REF_SEED, reinterpret_cast<size_t>(value_ts_type));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<REFTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::REF;
+        meta->ts_kind = TSKind::REF;
         meta->value_ts_type = value_ts_type;
 
         // Build RefTypeMeta
@@ -1221,23 +1221,23 @@ namespace runtime_python {
      * Get or create a TS[scalar_type] metadata.
      * (Same as runtime::ts - TS doesn't need special Python handling)
      */
-    inline const TimeSeriesTypeMeta* ts(const value::TypeMeta* scalar_type) {
+    inline const TSMeta* ts(const value::TypeMeta* scalar_type) {
         return runtime::ts(scalar_type);
     }
 
     /**
      * Get or create a TSS[element_type] metadata with Python conversion support.
      */
-    inline const TimeSeriesTypeMeta* tss(const value::TypeMeta* element_type) {
+    inline const TSMeta* tss(const value::TypeMeta* element_type) {
         size_t key = detail::hash_combine(detail::TSS_SEED, reinterpret_cast<size_t>(element_type));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSSTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSS;
+        meta->ts_kind = TSKind::TSS;
         meta->element_type = element_type;
 
         // Use Python-aware builder
@@ -1259,26 +1259,26 @@ namespace runtime_python {
      * Get or create a TSD[key_type, value_ts_type] metadata.
      * (Same as runtime::tsd - TSD doesn't need special Python handling for the container)
      */
-    inline const TimeSeriesTypeMeta* tsd(const value::TypeMeta* key_type,
-                                          const TimeSeriesTypeMeta* value_ts_type) {
+    inline const TSMeta* tsd(const value::TypeMeta* key_type,
+                                          const TSMeta* value_ts_type) {
         return runtime::tsd(key_type, value_ts_type);
     }
 
     /**
      * Get or create a TSL[element_ts_type, size] metadata with Python conversion support.
      */
-    inline const TimeSeriesTypeMeta* tsl(const TimeSeriesTypeMeta* element_ts_type,
+    inline const TSMeta* tsl(const TSMeta* element_ts_type,
                                           int64_t size) {
         size_t key = detail::hash_combine(detail::TSL_SEED, reinterpret_cast<size_t>(element_ts_type));
         key = detail::hash_combine(key, static_cast<size_t>(size + 1));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSLTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSL;
+        meta->ts_kind = TSKind::TSL;
         meta->element_ts_type = element_ts_type;
         meta->size = size;
 
@@ -1306,8 +1306,8 @@ namespace runtime_python {
     /**
      * Get or create a TSB metadata with Python conversion support.
      */
-    inline const TimeSeriesTypeMeta* tsb(
-            const std::vector<std::pair<std::string, const TimeSeriesTypeMeta*>>& fields,
+    inline const TSMeta* tsb(
+            const std::vector<std::pair<std::string, const TSMeta*>>& fields,
             const char* type_name = nullptr) {
 
         size_t key = detail::TSB_SEED;
@@ -1316,13 +1316,13 @@ namespace runtime_python {
             key = detail::hash_combine(key, reinterpret_cast<size_t>(type));
         }
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<TSBTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::TSB;
+        meta->ts_kind = TSKind::TSB;
 
         for (const auto& [name, type] : fields) {
             meta->fields.push_back({name, type});
@@ -1365,7 +1365,7 @@ namespace runtime_python {
      * Get or create a count-based TSW metadata.
      * (Same as runtime::tsw - TSW doesn't need special Python handling)
      */
-    inline const TimeSeriesTypeMeta* tsw(const value::TypeMeta* scalar_type,
+    inline const TSMeta* tsw(const value::TypeMeta* scalar_type,
                                           int64_t size,
                                           int64_t min_size = 0) {
         return runtime::tsw(scalar_type, size, min_size);
@@ -1375,7 +1375,7 @@ namespace runtime_python {
      * Get or create a time-based TSW metadata.
      * (Same as runtime::tsw_time - TSW doesn't need special Python handling)
      */
-    inline const TimeSeriesTypeMeta* tsw_time(const value::TypeMeta* scalar_type,
+    inline const TSMeta* tsw_time(const value::TypeMeta* scalar_type,
                                                int64_t duration_us,
                                                int64_t min_size = 0) {
         return runtime::tsw_time(scalar_type, duration_us, min_size);
@@ -1384,16 +1384,16 @@ namespace runtime_python {
     /**
      * Get or create a REF[value_ts_type] metadata with Python conversion support.
      */
-    inline const TimeSeriesTypeMeta* ref(const TimeSeriesTypeMeta* value_ts_type) {
+    inline const TSMeta* ref(const TSMeta* value_ts_type) {
         size_t key = detail::hash_combine(detail::REF_SEED, reinterpret_cast<size_t>(value_ts_type));
 
-        auto& registry = TimeSeriesTypeRegistry::global();
+        auto& registry = TSTypeRegistry::global();
         if (auto* existing = registry.lookup_by_key(key)) {
             return existing;
         }
 
         auto meta = std::make_unique<REFTypeMeta>();
-        meta->ts_kind = TimeSeriesKind::REF;
+        meta->ts_kind = TSKind::REF;
         meta->value_ts_type = value_ts_type;
 
         // Use Python-aware ops

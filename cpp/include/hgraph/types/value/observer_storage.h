@@ -15,7 +15,7 @@
 namespace hgraph::value {
 
     /**
-     * ObserverStorage - Hierarchical observer storage for TimeSeriesValue
+     * ObserverStorage - Hierarchical observer storage for TSValue
      *
      * Mirrors the type structure to allow subscriptions at any level:
      * - Root level: notified for any change

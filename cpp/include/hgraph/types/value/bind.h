@@ -215,7 +215,7 @@ namespace hgraph::value {
     }
 
     // Forward declaration for recursive binding
-    BoundValue bind_view(const TypeMeta* input_schema, TimeSeriesValueView output_view, engine_time_t current_time);
+    BoundValue bind_view(const TypeMeta* input_schema, TSView output_view, engine_time_t current_time);
 
     /**
      * Create a binding from input schema to output value
@@ -227,11 +227,11 @@ namespace hgraph::value {
      * - Composite for TSB/TSL with mixed bindings
      *
      * @param input_schema What the input expects
-     * @param output_value The output providing the value (TimeSeriesValue&)
+     * @param output_value The output providing the value (TSValue&)
      * @param current_time Current evaluation time (for initializing deref bindings)
      * @return BoundValue representing the binding
      */
-    inline BoundValue bind(const TypeMeta* input_schema, TimeSeriesValue& output_value, engine_time_t current_time = MIN_DT) {
+    inline BoundValue bind(const TypeMeta* input_schema, TSValue& output_value, engine_time_t current_time = MIN_DT) {
         auto match = match_schemas(input_schema, output_value.schema());
 
         switch (match) {
@@ -241,7 +241,7 @@ namespace hgraph::value {
             case SchemaMatchKind::Deref: {
                 // Create deref wrapper
                 auto view = output_value.view(current_time);
-                auto deref = std::make_unique<DerefTimeSeriesValue>(view, input_schema);
+                auto deref = std::make_unique<DerefTSValue>(view, input_schema);
                 return BoundValue::make_deref(std::move(deref), input_schema);
             }
 
@@ -258,7 +258,7 @@ namespace hgraph::value {
     }
 
     /**
-     * Create a binding from a TimeSeriesValueView
+     * Create a binding from a TSView
      *
      * Used for recursive binding of composite types (TSB/TSL).
      *
@@ -267,7 +267,7 @@ namespace hgraph::value {
      * @param current_time Current evaluation time
      * @return BoundValue representing the binding
      */
-    inline BoundValue bind_view(const TypeMeta* input_schema, TimeSeriesValueView output_view, engine_time_t current_time) {
+    inline BoundValue bind_view(const TypeMeta* input_schema, TSView output_view, engine_time_t current_time) {
         if (!output_view.valid()) {
             return BoundValue{};
         }
@@ -276,14 +276,14 @@ namespace hgraph::value {
 
         switch (match) {
             case SchemaMatchKind::Peer:
-                // For view-based peer binding, we don't have a TimeSeriesValue*
+                // For view-based peer binding, we don't have a TSValue*
                 // This is a limitation - peer bindings from views need special handling
                 // In practice, peer bindings should come from the top-level bind()
                 return BoundValue{};  // Can't create peer from view alone
 
             case SchemaMatchKind::Deref: {
                 // Create deref wrapper from view
-                auto deref = std::make_unique<DerefTimeSeriesValue>(output_view, input_schema);
+                auto deref = std::make_unique<DerefTSValue>(output_view, input_schema);
                 return BoundValue::make_deref(std::move(deref), input_schema);
             }
 

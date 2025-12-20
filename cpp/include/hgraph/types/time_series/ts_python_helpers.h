@@ -124,7 +124,7 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         return;
     }
 
-    // view is already a TimeSeriesValueView
+    // view is already a TSView
     auto view = output->view();
     auto* schema = view.schema();
 
@@ -135,7 +135,7 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
 
         // For TSB types, also mark individual fields as modified
         auto* meta = output->meta();
-        if (meta && meta->ts_kind == TimeSeriesKind::TSB && nb::isinstance<nb::dict>(py_value)) {
+        if (meta && meta->ts_kind == TSKind::TSB && nb::isinstance<nb::dict>(py_value)) {
             nb::dict d = nb::cast<nb::dict>(py_value);
             auto* tsb_meta = static_cast<const TSBTypeMeta*>(meta);
             auto tracker = view.tracker();
@@ -210,7 +210,7 @@ inline bool can_apply_python_result(TSOutput* output, nb::object py_value) {
 inline nb::object get_python_value(const TSOutput* output) {
     if (!output || !output->has_value()) return nb::none();
 
-    // view is already a TimeSeriesValueView
+    // view is already a TSView
     auto view = const_cast<TSOutput*>(output)->view();
     auto* schema = view.schema();
 

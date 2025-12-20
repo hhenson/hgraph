@@ -25,7 +25,7 @@ namespace hgraph::ts {
 /**
  * Convert a DeltaView to its Python representation.
  *
- * Returns the appropriate Python object based on TimeSeriesKind:
+ * Returns the appropriate Python object based on TSKind:
  * - TS: The scalar value
  * - TSB: dict of {field_name: delta_value} for modified fields
  * - TSL: dict of {index: delta_value} for modified elements

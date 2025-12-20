@@ -263,7 +263,7 @@ public:
 private:
     TSOutput* _output{nullptr};
     std::vector<std::unique_ptr<AccessStrategy>> _children;
-    std::optional<value::TimeSeriesValue> _storage;
+    std::optional<value::TSValue> _storage;
 };
 
 // ============================================================================
@@ -369,7 +369,7 @@ public:
 
 private:
     TSOutput* _wrapped_output{nullptr};
-    value::TimeSeriesValue _storage;  // Holds the REF value
+    value::TSValue _storage;  // Holds the REF value
     engine_time_t _bind_time{MIN_DT};
 };
 
@@ -420,7 +420,7 @@ private:
     /**
      * Navigate to the element's output view
      */
-    [[nodiscard]] value::TimeSeriesValueView get_element_view() const;
+    [[nodiscard]] value::TSView get_element_view() const;
 
     TSOutput* _parent_output{nullptr};
     size_t _index;
@@ -443,8 +443,8 @@ private:
  * @return Root access strategy (may have children)
  */
 std::unique_ptr<AccessStrategy> build_access_strategy(
-    const TimeSeriesTypeMeta* input_meta,
-    const TimeSeriesTypeMeta* output_meta,
+    const TSMeta* input_meta,
+    const TSMeta* output_meta,
     TSInput* owner);
 
 /**

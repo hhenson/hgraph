@@ -1,9 +1,9 @@
 //
 // Created by Claude on 15/12/2025.
 //
-// Unified time-series builders using TimeSeriesTypeMeta.
+// Unified time-series builders using TSMeta.
 //
-// The TimeSeriesTypeMeta itself acts as the builder - it knows how to
+// The TSMeta itself acts as the builder - it knows how to
 // efficiently construct instances of the time-series type it represents.
 // This file provides thin wrappers for integration with the existing
 // builder infrastructure.
@@ -75,26 +75,26 @@ size_t CppTimeSeriesInputBuilder::memory_size() const {
 
 void cpp_time_series_output_builder_register_with_nanobind(nb::module_ &m) {
     nb::class_<CppTimeSeriesOutputBuilder, OutputBuilder>(m, "CppTimeSeriesOutputBuilder")
-        .def(nb::init<const TimeSeriesTypeMeta*>(), "ts_type_meta"_a)
+        .def(nb::init<const TSMeta*>(), "ts_type_meta"_a)
         .def("has_reference", &CppTimeSeriesOutputBuilder::has_reference);
 
-    // Expose make_output directly on TimeSeriesTypeMeta for convenience
-    m.def("make_output_builder", [](const TimeSeriesTypeMeta* meta) -> OutputBuilder::ptr {
+    // Expose make_output directly on TSMeta for convenience
+    m.def("make_output_builder", [](const TSMeta* meta) -> OutputBuilder::ptr {
         return OutputBuilder::ptr(new CppTimeSeriesOutputBuilder(meta));
     }, nb::rv_policy::reference, "ts_type_meta"_a,
-       "Create an output builder from TimeSeriesTypeMeta");
+       "Create an output builder from TSMeta");
 }
 
 void cpp_time_series_input_builder_register_with_nanobind(nb::module_ &m) {
     nb::class_<CppTimeSeriesInputBuilder, InputBuilder>(m, "CppTimeSeriesInputBuilder")
-        .def(nb::init<const TimeSeriesTypeMeta*>(), "ts_type_meta"_a)
+        .def(nb::init<const TSMeta*>(), "ts_type_meta"_a)
         .def("has_reference", &CppTimeSeriesInputBuilder::has_reference);
 
-    // Expose make_input directly on TimeSeriesTypeMeta for convenience
-    m.def("make_input_builder", [](const TimeSeriesTypeMeta* meta) -> InputBuilder::ptr {
+    // Expose make_input directly on TSMeta for convenience
+    m.def("make_input_builder", [](const TSMeta* meta) -> InputBuilder::ptr {
         return InputBuilder::ptr(new CppTimeSeriesInputBuilder(meta));
     }, nb::rv_policy::reference, "ts_type_meta"_a,
-       "Create an input builder from TimeSeriesTypeMeta");
+       "Create an input builder from TSMeta");
 }
 
 } // namespace hgraph

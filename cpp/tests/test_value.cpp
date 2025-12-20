@@ -1968,12 +1968,12 @@ TEST_CASE("ModificationTrackerStorage - move semantics", "[modification][storage
 }
 
 // ============================================================================
-// TimeSeriesValue Tests
+// TSValue Tests
 // ============================================================================
 
-TEST_CASE("TimeSeriesValue - scalar construction and basic operations", "[timeseries][scalar]") {
+TEST_CASE("TSValue - scalar construction and basic operations", "[timeseries][scalar]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     REQUIRE(ts.valid());
     REQUIRE(ts.schema() == int_meta);
@@ -1986,9 +1986,9 @@ TEST_CASE("TimeSeriesValue - scalar construction and basic operations", "[timese
     REQUIRE(ts.last_modified_time() == MIN_DT);
 }
 
-TEST_CASE("TimeSeriesValue - scalar set_value", "[timeseries][scalar]") {
+TEST_CASE("TSValue - scalar set_value", "[timeseries][scalar]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     auto t1 = make_time(100);
     auto t2 = make_time(200);
@@ -2012,9 +2012,9 @@ TEST_CASE("TimeSeriesValue - scalar set_value", "[timeseries][scalar]") {
     REQUIRE(ts.last_modified_time() == t2);
 }
 
-TEST_CASE("TimeSeriesValue - scalar view access", "[timeseries][scalar]") {
+TEST_CASE("TSValue - scalar view access", "[timeseries][scalar]") {
     const TypeMeta* double_meta = scalar_type_meta<double>();
-    TimeSeriesValue ts(double_meta);
+    TSValue ts(double_meta);
 
     auto t1 = make_time(100);
 
@@ -2029,26 +2029,26 @@ TEST_CASE("TimeSeriesValue - scalar view access", "[timeseries][scalar]") {
     REQUIRE(view.as<double>() == Catch::Approx(3.14));
 }
 
-TEST_CASE("TimeSeriesValue - bundle construction", "[timeseries][bundle]") {
+TEST_CASE("TSValue - bundle construction", "[timeseries][bundle]") {
     auto point_meta = BundleTypeBuilder()
         .add_field<int>("x")
         .add_field<int>("y")
         .build("Point");
 
-    TimeSeriesValue ts(point_meta.get());
+    TSValue ts(point_meta.get());
 
     REQUIRE(ts.valid());
     REQUIRE(ts.kind() == TypeKind::Bundle);
     REQUIRE_FALSE(ts.has_value());
 }
 
-TEST_CASE("TimeSeriesValue - bundle field modification via view", "[timeseries][bundle]") {
+TEST_CASE("TSValue - bundle field modification via view", "[timeseries][bundle]") {
     auto point_meta = BundleTypeBuilder()
         .add_field<int>("x")
         .add_field<int>("y")
         .build("Point");
 
-    TimeSeriesValue ts(point_meta.get());
+    TSValue ts(point_meta.get());
 
     auto t1 = make_time(100);
     auto t2 = make_time(200);
@@ -2078,14 +2078,14 @@ TEST_CASE("TimeSeriesValue - bundle field modification via view", "[timeseries][
     REQUIRE_FALSE(view2.field_modified_at(0, t2));
 }
 
-TEST_CASE("TimeSeriesValue - bundle field access by index", "[timeseries][bundle]") {
+TEST_CASE("TSValue - bundle field access by index", "[timeseries][bundle]") {
     auto meta = BundleTypeBuilder()
         .add_field<int>("first")
         .add_field<double>("second")
         .add_field<std::string>("third")
         .build();
 
-    TimeSeriesValue ts(meta.get());
+    TSValue ts(meta.get());
     auto t1 = make_time(100);
 
     auto view = ts.view(t1);
@@ -2105,25 +2105,25 @@ TEST_CASE("TimeSeriesValue - bundle field access by index", "[timeseries][bundle
     REQUIRE(view.field_modified_at(2, t1));
 }
 
-TEST_CASE("TimeSeriesValue - list construction", "[timeseries][list]") {
+TEST_CASE("TSValue - list construction", "[timeseries][list]") {
     auto list_meta = ListTypeBuilder()
         .element<int>()
         .count(5)
         .build();
 
-    TimeSeriesValue ts(list_meta.get());
+    TSValue ts(list_meta.get());
 
     REQUIRE(ts.valid());
     REQUIRE(ts.kind() == TypeKind::List);
 }
 
-TEST_CASE("TimeSeriesValue - list element modification", "[timeseries][list]") {
+TEST_CASE("TSValue - list element modification", "[timeseries][list]") {
     auto list_meta = ListTypeBuilder()
         .element<int>()
         .count(3)
         .build();
 
-    TimeSeriesValue ts(list_meta.get());
+    TSValue ts(list_meta.get());
 
     auto t1 = make_time(100);
     auto t2 = make_time(200);
@@ -2152,12 +2152,12 @@ TEST_CASE("TimeSeriesValue - list element modification", "[timeseries][list]") {
     REQUIRE(ts.value().element(2).as<int>() == 30);
 }
 
-TEST_CASE("TimeSeriesValue - set atomic operations", "[timeseries][set]") {
+TEST_CASE("TSValue - set atomic operations", "[timeseries][set]") {
     auto set_meta = SetTypeBuilder()
         .element<int>()
         .build();
 
-    TimeSeriesValue ts(set_meta.get());
+    TSValue ts(set_meta.get());
 
     auto t1 = make_time(100);
     auto t2 = make_time(200);
@@ -2193,13 +2193,13 @@ TEST_CASE("TimeSeriesValue - set atomic operations", "[timeseries][set]") {
     REQUIRE_FALSE(view2.contains(20));
 }
 
-TEST_CASE("TimeSeriesValue - dict operations", "[timeseries][dict]") {
+TEST_CASE("TSValue - dict operations", "[timeseries][dict]") {
     auto dict_meta = DictTypeBuilder()
         .key<std::string>()
         .value<int>()
         .build();
 
-    TimeSeriesValue ts(dict_meta.get());
+    TSValue ts(dict_meta.get());
 
     auto t1 = make_time(100);
     auto t2 = make_time(200);
@@ -2232,7 +2232,7 @@ TEST_CASE("TimeSeriesValue - dict operations", "[timeseries][dict]") {
     REQUIRE(view2.dict_size() == 1);
 }
 
-TEST_CASE("TimeSeriesValue - nested bundle", "[timeseries][nested]") {
+TEST_CASE("TSValue - nested bundle", "[timeseries][nested]") {
     auto inner_meta = BundleTypeBuilder()
         .add_field<int>("x")
         .add_field<int>("y")
@@ -2243,7 +2243,7 @@ TEST_CASE("TimeSeriesValue - nested bundle", "[timeseries][nested]") {
         .add_field("point", inner_meta.get())
         .build("Outer");
 
-    TimeSeriesValue ts(outer_meta.get());
+    TSValue ts(outer_meta.get());
 
     auto t1 = make_time(100);
 
@@ -2267,9 +2267,9 @@ TEST_CASE("TimeSeriesValue - nested bundle", "[timeseries][nested]") {
     REQUIRE(ts.value().field("point").field("y").as<int>() == 20);
 }
 
-TEST_CASE("TimeSeriesValue - mark_invalid", "[timeseries][invalid]") {
+TEST_CASE("TSValue - mark_invalid", "[timeseries][invalid]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     auto t1 = make_time(100);
 
@@ -2282,17 +2282,17 @@ TEST_CASE("TimeSeriesValue - mark_invalid", "[timeseries][invalid]") {
     REQUIRE_FALSE(ts.has_value());
 }
 
-TEST_CASE("TimeSeriesValue - move semantics", "[timeseries][move]") {
+TEST_CASE("TSValue - move semantics", "[timeseries][move]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
 
-    TimeSeriesValue ts1(int_meta);
+    TSValue ts1(int_meta);
     ts1.set_value(42, make_time(100));
 
     REQUIRE(ts1.valid());
     REQUIRE(ts1.as<int>() == 42);
 
     // Move construct
-    TimeSeriesValue ts2(std::move(ts1));
+    TSValue ts2(std::move(ts1));
 
     REQUIRE_FALSE(ts1.valid());  // NOLINT(bugprone-use-after-move)
     REQUIRE(ts2.valid());
@@ -2300,7 +2300,7 @@ TEST_CASE("TimeSeriesValue - move semantics", "[timeseries][move]") {
     REQUIRE(ts2.modified_at(make_time(100)));
 
     // Move assign
-    TimeSeriesValue ts3;
+    TSValue ts3;
     ts3 = std::move(ts2);
 
     REQUIRE_FALSE(ts2.valid());  // NOLINT(bugprone-use-after-move)
@@ -2308,14 +2308,14 @@ TEST_CASE("TimeSeriesValue - move semantics", "[timeseries][move]") {
     REQUIRE(ts3.as<int>() == 42);
 }
 
-TEST_CASE("TimeSeriesValue - view field_count and list_size", "[timeseries][size]") {
+TEST_CASE("TSValue - view field_count and list_size", "[timeseries][size]") {
     auto bundle_meta = BundleTypeBuilder()
         .add_field<int>("a")
         .add_field<int>("b")
         .add_field<int>("c")
         .build();
 
-    TimeSeriesValue ts_bundle(bundle_meta.get());
+    TSValue ts_bundle(bundle_meta.get());
     auto view_bundle = ts_bundle.view(make_time(100));
     REQUIRE(view_bundle.field_count() == 3);
 
@@ -2324,13 +2324,13 @@ TEST_CASE("TimeSeriesValue - view field_count and list_size", "[timeseries][size
         .count(5)
         .build();
 
-    TimeSeriesValue ts_list(list_meta.get());
+    TSValue ts_list(list_meta.get());
     auto view_list = ts_list.view(make_time(100));
     REQUIRE(view_list.list_size() == 5);
 }
 
-TEST_CASE("TimeSeriesValue - invalid view operations", "[timeseries][edge]") {
-    TimeSeriesValueView invalid_view;
+TEST_CASE("TSValue - invalid view operations", "[timeseries][edge]") {
+    TSView invalid_view;
 
     REQUIRE_FALSE(invalid_view.valid());
 
@@ -2340,9 +2340,9 @@ TEST_CASE("TimeSeriesValue - invalid view operations", "[timeseries][edge]") {
     REQUIRE_FALSE(invalid_view.element(0).valid());
 }
 
-TEST_CASE("TimeSeriesValue - view raw access", "[timeseries][raw]") {
+TEST_CASE("TSValue - view raw access", "[timeseries][raw]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     auto t1 = make_time(100);
     auto view = ts.view(t1);
@@ -2353,9 +2353,9 @@ TEST_CASE("TimeSeriesValue - view raw access", "[timeseries][raw]") {
     REQUIRE(view.current_time() == t1);
 }
 
-TEST_CASE("TimeSeriesValue - underlying access", "[timeseries][underlying]") {
+TEST_CASE("TSValue - underlying access", "[timeseries][underlying]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     // Access underlying storage
     Value& val = ts.underlying_value();
@@ -2365,14 +2365,14 @@ TEST_CASE("TimeSeriesValue - underlying access", "[timeseries][underlying]") {
     REQUIRE(tracker.valid());
 
     // Const versions
-    const TimeSeriesValue& const_ts = ts;
+    const TSValue& const_ts = ts;
     REQUIRE(const_ts.underlying_value().valid());
     REQUIRE(const_ts.underlying_tracker().valid());
 }
 
-TEST_CASE("TimeSeriesValue - time monotonicity", "[timeseries][time]") {
+TEST_CASE("TSValue - time monotonicity", "[timeseries][time]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     auto t100 = make_time(100);
     auto t200 = make_time(200);
@@ -2394,10 +2394,10 @@ TEST_CASE("TimeSeriesValue - time monotonicity", "[timeseries][time]") {
     REQUIRE(ts.last_modified_time() == t200);
 }
 
-TEST_CASE("TimeSeriesValue - const view access", "[timeseries][const]") {
+TEST_CASE("TSValue - const view access", "[timeseries][const]") {
     // Test const as<T>() on scalar
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts_scalar(int_meta);
+    TSValue ts_scalar(int_meta);
     ts_scalar.set_value(42, make_time(100));
 
     // Get const view and read using const as<T>()
@@ -2411,7 +2411,7 @@ TEST_CASE("TimeSeriesValue - const view access", "[timeseries][const]") {
         .add_field<double>("b")
         .build();
 
-    TimeSeriesValue ts_bundle(meta.get());
+    TSValue ts_bundle(meta.get());
     ts_bundle.view(make_time(100)).field("a").set(100);
     ts_bundle.view(make_time(100)).field("b").set(3.14);
 
@@ -2423,12 +2423,12 @@ TEST_CASE("TimeSeriesValue - const view access", "[timeseries][const]") {
     REQUIRE(field_view_b.as<double>() == Catch::Approx(3.14));
 }
 
-TEST_CASE("TimeSeriesValue - set duplicate add no modification", "[timeseries][set]") {
+TEST_CASE("TSValue - set duplicate add no modification", "[timeseries][set]") {
     auto set_meta = SetTypeBuilder()
         .element<int>()
         .build();
 
-    TimeSeriesValue ts(set_meta.get());
+    TSValue ts(set_meta.get());
 
     auto t1 = make_time(100);
     auto t2 = make_time(200);
@@ -2445,13 +2445,13 @@ TEST_CASE("TimeSeriesValue - set duplicate add no modification", "[timeseries][s
     REQUIRE(ts.last_modified_time() == t1);  // Still t1
 }
 
-TEST_CASE("TimeSeriesValue - dict update existing key", "[timeseries][dict]") {
+TEST_CASE("TSValue - dict update existing key", "[timeseries][dict]") {
     auto dict_meta = DictTypeBuilder()
         .key<int>()
         .value<double>()
         .build();
 
-    TimeSeriesValue ts(dict_meta.get());
+    TSValue ts(dict_meta.get());
 
     auto t1 = make_time(100);
     auto t2 = make_time(200);
@@ -2473,14 +2473,14 @@ TEST_CASE("TimeSeriesValue - dict update existing key", "[timeseries][dict]") {
     // This test documents current behavior
 }
 
-TEST_CASE("TimeSeriesValue - list of scalars modification", "[timeseries][list][nested]") {
+TEST_CASE("TSValue - list of scalars modification", "[timeseries][list][nested]") {
     // Test list of scalars (simpler case that works correctly)
     auto list_meta = ListTypeBuilder()
         .element<int>()
         .count(3)
         .build();
 
-    TimeSeriesValue ts(list_meta.get());
+    TSValue ts(list_meta.get());
 
     auto t1 = make_time(100);
     auto t2 = make_time(200);
@@ -2509,7 +2509,7 @@ TEST_CASE("TimeSeriesValue - list of scalars modification", "[timeseries][list][
     REQUIRE(ts.value().element(2).as<int>() == 30);
 }
 
-TEST_CASE("TimeSeriesValue - list of bundles value access", "[timeseries][list][bundle]") {
+TEST_CASE("TSValue - list of bundles value access", "[timeseries][list][bundle]") {
     // For lists of bundles, values can be set but modification tracking
     // is at element level only (not field level within elements)
     auto point_meta = BundleTypeBuilder()
@@ -2522,7 +2522,7 @@ TEST_CASE("TimeSeriesValue - list of bundles value access", "[timeseries][list][
         .count(3)
         .build();
 
-    TimeSeriesValue ts(list_meta.get());
+    TSValue ts(list_meta.get());
 
     // Set values through value layer (no tracking)
     ts.underlying_value().view().element(0).field("x").as<int>() = 10;
@@ -2535,19 +2535,19 @@ TEST_CASE("TimeSeriesValue - list of bundles value access", "[timeseries][list][
     REQUIRE(ts.value().element(1).field("x").as<int>() == 30);
 }
 
-TEST_CASE("TimeSeriesValue - default construction", "[timeseries][default]") {
-    TimeSeriesValue ts;  // Default constructed
+TEST_CASE("TSValue - default construction", "[timeseries][default]") {
+    TSValue ts;  // Default constructed
 
     REQUIRE_FALSE(ts.valid());
 
-    // Operations on invalid TimeSeriesValue should be safe
+    // Operations on invalid TSValue should be safe
     REQUIRE_FALSE(ts.has_value());
     REQUIRE(ts.last_modified_time() == MIN_DT);
 }
 
-TEST_CASE("TimeSeriesValue - string values", "[timeseries][string]") {
+TEST_CASE("TSValue - string values", "[timeseries][string]") {
     const TypeMeta* str_meta = scalar_type_meta<std::string>();
-    TimeSeriesValue ts(str_meta);
+    TSValue ts(str_meta);
 
     auto t1 = make_time(100);
 
@@ -2588,7 +2588,7 @@ public:
 
 TEST_CASE("Observer - lazy allocation", "[observer][lazy]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     // No observers allocated initially
     REQUIRE(ts.underlying_observers() == nullptr);
@@ -2609,7 +2609,7 @@ TEST_CASE("Observer - lazy allocation", "[observer][lazy]") {
 
 TEST_CASE("Observer - basic notification", "[observer][basic]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     TestObserver observer;
     ts.subscribe(&observer);
@@ -2630,7 +2630,7 @@ TEST_CASE("Observer - basic notification", "[observer][basic]") {
 
 TEST_CASE("Observer - view set notification", "[observer][view]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     TestObserver observer;
     ts.subscribe(&observer);
@@ -2647,7 +2647,7 @@ TEST_CASE("Observer - view set notification", "[observer][view]") {
 
 TEST_CASE("Observer - multiple subscribers", "[observer][multiple]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     TestObserver obs1, obs2, obs3;
     ts.subscribe(&obs1);
@@ -2679,7 +2679,7 @@ TEST_CASE("Observer - bundle field notification with propagation", "[observer][b
         .add_field<int>("y")
         .build();
 
-    TimeSeriesValue ts(bundle_meta.get());
+    TSValue ts(bundle_meta.get());
 
     TestObserver root_observer;
     ts.subscribe(&root_observer);
@@ -2706,7 +2706,7 @@ TEST_CASE("Observer - list element notification with propagation", "[observer][l
         .count(3)
         .build();
 
-    TimeSeriesValue ts(list_meta.get());
+    TSValue ts(list_meta.get());
 
     TestObserver root_observer;
     ts.subscribe(&root_observer);
@@ -2731,7 +2731,7 @@ TEST_CASE("Observer - set add/remove notification", "[observer][set]") {
         .element_type(scalar_type_meta<int>())
         .build();
 
-    TimeSeriesValue ts(set_meta.get());
+    TSValue ts(set_meta.get());
 
     TestObserver observer;
     ts.subscribe(&observer);
@@ -2766,7 +2766,7 @@ TEST_CASE("Observer - dict insert/remove notification", "[observer][dict]") {
         .value<int>()
         .build();
 
-    TimeSeriesValue ts(dict_meta.get());
+    TSValue ts(dict_meta.get());
 
     TestObserver observer;
     ts.subscribe(&observer);
@@ -2848,7 +2848,7 @@ TEST_CASE("Observer - nested bundle propagation", "[observer][nested]") {
         .add_field("point", inner_meta.get())
         .build("Outer");
 
-    TimeSeriesValue ts(outer_meta.get());
+    TSValue ts(outer_meta.get());
 
     TestObserver root_observer;
     ts.subscribe(&root_observer);
@@ -2870,7 +2870,7 @@ TEST_CASE("Observer - nested bundle propagation", "[observer][nested]") {
 
 TEST_CASE("Observer - no notification when no observers", "[observer][performance]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
 
     // No observers
     REQUIRE(ts.underlying_observers() == nullptr);
@@ -3172,13 +3172,13 @@ TEST_CASE("Window via Value and ValueView", "[value][window]") {
     REQUIRE(view.window_get(1).as<int>() == 20);
 }
 
-TEST_CASE("TimeSeriesValue - window basic operations", "[ts][window]") {
+TEST_CASE("TSValue - window basic operations", "[ts][window]") {
     auto meta = WindowTypeBuilder()
         .element<int>()
         .fixed_count(3)
         .build();
 
-    TimeSeriesValue ts(meta.get());
+    TSValue ts(meta.get());
     REQUIRE(ts.valid());
 
     auto current_time = make_time(1000);
@@ -3198,13 +3198,13 @@ TEST_CASE("TimeSeriesValue - window basic operations", "[ts][window]") {
     REQUIRE(view.window_get(1).as<int>() == 20);
 }
 
-TEST_CASE("TimeSeriesValue - window with observer", "[ts][window][observer]") {
+TEST_CASE("TSValue - window with observer", "[ts][window][observer]") {
     auto meta = WindowTypeBuilder()
         .element<int>()
         .fixed_count(5)
         .build();
 
-    TimeSeriesValue ts(meta.get());
+    TSValue ts(meta.get());
     TestObserver observer;
     ts.subscribe(&observer);
 
@@ -3222,13 +3222,13 @@ TEST_CASE("TimeSeriesValue - window with observer", "[ts][window][observer]") {
     REQUIRE(view.window_empty());
 }
 
-TEST_CASE("TimeSeriesValue - window compact on read", "[ts][window]") {
+TEST_CASE("TSValue - window compact on read", "[ts][window]") {
     auto meta = WindowTypeBuilder()
         .element<int>()
         .fixed_count(3)
         .build();
 
-    TimeSeriesValue ts(meta.get());
+    TSValue ts(meta.get());
     auto current_time = make_time(1000);
     auto view = ts.view(current_time);
 
@@ -3252,14 +3252,14 @@ TEST_CASE("TimeSeriesValue - window compact on read", "[ts][window]") {
     REQUIRE(view.window_get(2).as<int>() == 40);
 }
 
-TEST_CASE("TimeSeriesValue - variable window evict", "[ts][window]") {
+TEST_CASE("TSValue - variable window evict", "[ts][window]") {
     using namespace std::chrono;
     auto meta = WindowTypeBuilder()
         .element<int>()
         .time_duration(minutes(5))
         .build();
 
-    TimeSeriesValue ts(meta.get());
+    TSValue ts(meta.get());
     auto base_time = engine_time_t{} + hours(1);
 
     // Push values at different times
@@ -3323,7 +3323,7 @@ TEST_CASE("Window modification tracking - atomic", "[ts][window][tracker]") {
         .fixed_count(5)
         .build();
 
-    TimeSeriesValue ts(meta.get());
+    TSValue ts(meta.get());
 
     auto t1 = make_time(100);
     auto t2 = make_time(200);
@@ -3644,13 +3644,13 @@ TEST_CASE("ModificationTracker - composite ref item tracking", "[modification][r
     REQUIRE(tracker.modified_at(t2));
 }
 
-TEST_CASE("TimeSeriesValue - atomic ref", "[timeseries][ref]") {
+TEST_CASE("TSValue - atomic ref", "[timeseries][ref]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
     auto ref_meta = RefTypeBuilder()
         .value_type(int_meta)
         .build("RefInt");
 
-    TimeSeriesValue ts(ref_meta.get());
+    TSValue ts(ref_meta.get());
 
     REQUIRE(ts.valid());
     REQUIRE(ts.kind() == TypeKind::Ref);
@@ -3671,14 +3671,14 @@ TEST_CASE("TimeSeriesValue - atomic ref", "[timeseries][ref]") {
     REQUIRE(view.ref_target()->data == &target);
 }
 
-TEST_CASE("TimeSeriesValue - composite ref", "[timeseries][ref]") {
+TEST_CASE("TSValue - composite ref", "[timeseries][ref]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
     auto ref_meta = RefTypeBuilder()
         .value_type(int_meta)
         .item_count(3)
         .build("RefList3");
 
-    TimeSeriesValue ts(ref_meta.get());
+    TSValue ts(ref_meta.get());
 
     auto t1 = make_time(100);
     auto t2 = make_time(200);
@@ -3702,13 +3702,13 @@ TEST_CASE("TimeSeriesValue - composite ref", "[timeseries][ref]") {
     REQUIRE_FALSE(view2.ref_item_modified_at(1, t2));
 }
 
-TEST_CASE("TimeSeriesValue - ref with observer", "[timeseries][ref][observer]") {
+TEST_CASE("TSValue - ref with observer", "[timeseries][ref][observer]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
     auto ref_meta = RefTypeBuilder()
         .value_type(int_meta)
         .build("RefInt");
 
-    TimeSeriesValue ts(ref_meta.get());
+    TSValue ts(ref_meta.get());
 
     TestObserver observer;
     ts.subscribe(&observer);
@@ -3858,7 +3858,7 @@ TEST_CASE("match_schemas - list with ref elements", "[bind][schema][list]") {
 TEST_CASE("BoundValue - peer binding", "[bind][peer]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
 
-    TimeSeriesValue ts(int_meta);
+    TSValue ts(int_meta);
     auto t1 = make_time(100);
     ts.set_value(42, t1);
 
@@ -3880,7 +3880,7 @@ TEST_CASE("BoundValue - peer binding", "[bind][peer]") {
     REQUIRE_FALSE(bound.modified_at(make_time(200)));
 }
 
-TEST_CASE("DerefTimeSeriesValue - basic deref", "[bind][deref]") {
+TEST_CASE("DerefTSValue - basic deref", "[bind][deref]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
 
     auto ref_meta = RefTypeBuilder()
@@ -3893,14 +3893,14 @@ TEST_CASE("DerefTimeSeriesValue - basic deref", "[bind][deref]") {
     target_tracker.tracker().mark_modified(make_time(50));
 
     // Create ref pointing to target
-    TimeSeriesValue ref_ts(ref_meta.get());
+    TSValue ref_ts(ref_meta.get());
     auto t1 = make_time(100);
 
     ValueRef target_ref{&target_data, target_tracker.storage(), int_meta};
     ref_ts.view(t1).ref_bind(target_ref);
 
     // Create deref wrapper
-    DerefTimeSeriesValue deref(ref_ts.view(t1), int_meta);
+    DerefTSValue deref(ref_ts.view(t1), int_meta);
 
     REQUIRE(deref.valid());
 
@@ -3922,7 +3922,7 @@ TEST_CASE("DerefTimeSeriesValue - basic deref", "[bind][deref]") {
     deref.end_evaluation();
 }
 
-TEST_CASE("DerefTimeSeriesValue - ref change with previous", "[bind][deref][previous]") {
+TEST_CASE("DerefTSValue - ref change with previous", "[bind][deref][previous]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
 
     auto ref_meta = RefTypeBuilder()
@@ -3934,13 +3934,13 @@ TEST_CASE("DerefTimeSeriesValue - ref change with previous", "[bind][deref][prev
     int target_b = 20;
 
     // Create ref
-    TimeSeriesValue ref_ts(ref_meta.get());
+    TSValue ref_ts(ref_meta.get());
 
     // Cycle 1: bind to A
     auto t1 = make_time(100);
     ref_ts.view(t1).ref_bind(ValueRef{&target_a, nullptr, int_meta});
 
-    DerefTimeSeriesValue deref(ref_ts.view(t1), int_meta);
+    DerefTSValue deref(ref_ts.view(t1), int_meta);
     deref.begin_evaluation(t1);
 
     REQUIRE(deref.current_target().data == &target_a);
@@ -3954,15 +3954,15 @@ TEST_CASE("DerefTimeSeriesValue - ref change with previous", "[bind][deref][prev
     ref_ts.view(t2).ref_bind(ValueRef{&target_b, nullptr, int_meta});
 
     // Update deref view for new time
-    deref = DerefTimeSeriesValue(ref_ts.view(t2), int_meta);
+    deref = DerefTSValue(ref_ts.view(t2), int_meta);
     // Need to manually set the current_target to A first to simulate state
     // Actually, let's create a new deref and properly track state
 
     // Better approach: keep deref and update manually
-    TimeSeriesValue ref_ts2(ref_meta.get());
+    TSValue ref_ts2(ref_meta.get());
     ref_ts2.view(t1).ref_bind(ValueRef{&target_a, nullptr, int_meta});
 
-    DerefTimeSeriesValue deref2(ref_ts2.view(t1), int_meta);
+    DerefTSValue deref2(ref_ts2.view(t1), int_meta);
     deref2.begin_evaluation(t1);
     REQUIRE(deref2.current_target().data == &target_a);
     deref2.end_evaluation();
@@ -3971,7 +3971,7 @@ TEST_CASE("DerefTimeSeriesValue - ref change with previous", "[bind][deref][prev
     ref_ts2.view(t2).ref_bind(ValueRef{&target_b, nullptr, int_meta});
 
     // New view for t2 (keeping same deref would require updating internal view)
-    // Since DerefTimeSeriesValue takes a view, we need to recreate
+    // Since DerefTSValue takes a view, we need to recreate
     // But the current_target state is lost. Let me think about this...
 
     // Actually the test needs to simulate the stateful deref usage pattern
@@ -3992,7 +3992,7 @@ TEST_CASE("BoundValue - deref binding", "[bind][deref]") {
     target_tracker.tracker().mark_modified(t0);
 
     // Create ref pointing to target
-    TimeSeriesValue ref_ts(ref_meta.get());
+    TSValue ref_ts(ref_meta.get());
     auto t1 = make_time(100);
 
     ValueRef target_ref{&target_data, target_tracker.storage(), int_meta};
@@ -4038,7 +4038,7 @@ TEST_CASE("BoundValue - deref modification from underlying", "[bind][deref][modi
     target_tracker.tracker().mark_modified(t1);
 
     // Create ref pointing to target (bound before t1)
-    TimeSeriesValue ref_ts(ref_meta.get());
+    TSValue ref_ts(ref_meta.get());
     auto t0 = make_time(50);
 
     ValueRef target_ref{&target_data, target_tracker.storage(), int_meta};
@@ -4082,7 +4082,7 @@ TEST_CASE("BoundValue - composite bundle binding", "[bind][composite][bundle]") 
         .build("OutputPoint");
 
     // Create output value
-    TimeSeriesValue output_ts(output_bundle.get());
+    TSValue output_ts(output_bundle.get());
     auto t1 = make_time(100);
 
     // Set up x (REF to target)
@@ -4108,7 +4108,7 @@ TEST_CASE("BoundValue - composite bundle binding", "[bind][composite][bundle]") 
     REQUIRE(child0 != nullptr);
     REQUIRE(child0->kind() == BoundValueKind::Deref);
 
-    // Child 1 is peer (would need TimeSeriesValue* which we don't have from view)
+    // Child 1 is peer (would need TSValue* which we don't have from view)
     // Actually bind_view returns empty for peer... let's check
 
     bound.begin_evaluation(t1);
@@ -4124,7 +4124,7 @@ TEST_CASE("BoundValue - composite bundle binding", "[bind][composite][bundle]") 
     bound.end_evaluation();
 }
 
-TEST_CASE("DerefTimeSeriesValue - unified modification tracking", "[bind][deref][modification]") {
+TEST_CASE("DerefTSValue - unified modification tracking", "[bind][deref][modification]") {
     const TypeMeta* int_meta = scalar_type_meta<int>();
 
     auto ref_meta = RefTypeBuilder()
@@ -4140,12 +4140,12 @@ TEST_CASE("DerefTimeSeriesValue - unified modification tracking", "[bind][deref]
     auto t3 = make_time(300);
 
     // Bind ref at t1
-    TimeSeriesValue ref_ts(ref_meta.get());
+    TSValue ref_ts(ref_meta.get());
     ValueRef target_ref{&target_data, target_tracker.storage(), int_meta};
     ref_ts.view(t1).ref_bind(target_ref);
 
     // Create deref
-    DerefTimeSeriesValue deref(ref_ts.view(t1), int_meta);
+    DerefTSValue deref(ref_ts.view(t1), int_meta);
 
     // Cycle t1: ref was bound
     deref.begin_evaluation(t1);
@@ -4178,7 +4178,7 @@ TEST_CASE("BoundValue - lifecycle management", "[bind][lifecycle]") {
         .build("RefInt");
 
     int target = 42;
-    TimeSeriesValue ref_ts(ref_meta.get());
+    TSValue ref_ts(ref_meta.get());
 
     auto t1 = make_time(100);
     ref_ts.view(t1).ref_bind(ValueRef{&target, nullptr, int_meta});
@@ -4204,7 +4204,7 @@ TEST_CASE("BoundValue - null/invalid cases", "[bind][edge]") {
     const TypeMeta* double_meta = scalar_type_meta<double>();
 
     // Mismatched schemas
-    TimeSeriesValue int_ts(int_meta);
+    TSValue int_ts(int_meta);
     auto bound = hgraph::value::bind(double_meta, int_ts);
 
     REQUIRE_FALSE(bound.valid());

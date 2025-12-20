@@ -64,8 +64,8 @@ namespace hgraph {
                           const std::unordered_map<std::string, int64_t> &input_node_ids,
                           int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args,
                           const std::string &key_arg, const std::string &context_path,
-                          const TimeSeriesTypeMeta* input_meta, const TimeSeriesTypeMeta* output_meta,
-                          const TimeSeriesTypeMeta* error_output_meta, const TimeSeriesTypeMeta* recordable_state_meta)
+                          const TSMeta* input_meta, const TSMeta* output_meta,
+                          const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
         : TsdMapNode<K>(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
                         std::move(nested_graph_builder), input_node_ids, output_node_id, multiplexed_args, key_arg,
                         input_meta, output_meta, error_output_meta, recordable_state_meta) {

@@ -1,7 +1,7 @@
 //
 // Created by Claude on 20/12/2025.
 //
-// Implementation of Python bindings for TSOutput and TimeSeriesValueView (exposed as TSOutputView in Python).
+// Implementation of Python bindings for TSOutput and TSView (exposed as TSOutputView in Python).
 //
 
 #include <hgraph/types/time_series/py_ts_output.h>
@@ -22,7 +22,7 @@ void register_py_ts_output_with_nanobind(nb::module_& m) {
                      "True if this view has valid storage.")
 
         .def_prop_ro("meta", &PyTSOutputView::meta, nb::rv_policy::reference,
-                     "The TimeSeriesTypeMeta for this view.")
+                     "The TSMeta for this view.")
 
         .def_prop_ro("value_schema", &PyTSOutputView::value_schema, nb::rv_policy::reference,
                      "The underlying value TypeMeta schema.")
@@ -31,7 +31,7 @@ void register_py_ts_output_with_nanobind(nb::module_& m) {
                      "The TypeKind of this view (Scalar, List, Set, Dict, Bundle, etc.).")
 
         .def_prop_ro("ts_kind", &PyTSOutputView::ts_kind,
-                     "The TimeSeriesKind of this view (TS, TSS, TSD, TSL, TSB, TSW, REF).")
+                     "The TSKind of this view (TS, TSS, TSD, TSL, TSB, TSW, REF).")
 
         .def_prop_ro("type_name", &PyTSOutputView::type_name,
                      "The type name string for this view.")
@@ -152,15 +152,15 @@ void register_py_ts_output_with_nanobind(nb::module_& m) {
     // =========================================================================
     nb::class_<PyTSOutput>(m, "TSOutput")
         // Constructor
-        .def(nb::init<const TimeSeriesTypeMeta*>(), "meta"_a,
-             "Create a TSOutput with the given TimeSeriesTypeMeta. Node is nullptr for testing.")
+        .def(nb::init<const TSMeta*>(), "meta"_a,
+             "Create a TSOutput with the given TSMeta. Node is nullptr for testing.")
 
         // Basic properties
         .def_prop_ro("valid", &PyTSOutput::valid,
                      "True if this output has valid storage.")
 
         .def_prop_ro("meta", &PyTSOutput::meta, nb::rv_policy::reference,
-                     "The TimeSeriesTypeMeta for this output.")
+                     "The TSMeta for this output.")
 
         .def_prop_ro("value_schema", &PyTSOutput::value_schema, nb::rv_policy::reference,
                      "The underlying value TypeMeta schema.")
@@ -169,7 +169,7 @@ void register_py_ts_output_with_nanobind(nb::module_& m) {
                      "The TypeKind of this output (Scalar, List, Set, Dict, Bundle, etc.).")
 
         .def_prop_ro("ts_kind", &PyTSOutput::ts_kind,
-                     "The TimeSeriesKind of this output (TS, TSS, TSD, TSL, TSB, TSW, REF).")
+                     "The TSKind of this output (TS, TSS, TSD, TSL, TSB, TSW, REF).")
 
         .def_prop_ro("type_name", &PyTSOutput::type_name,
                      "The type name string for this output.")

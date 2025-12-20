@@ -25,8 +25,8 @@ namespace hgraph {
     struct BasePythonNode : Node {
         BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                        nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn,
-                       const TimeSeriesTypeMeta* input_meta = nullptr, const TimeSeriesTypeMeta* output_meta = nullptr,
-                       const TimeSeriesTypeMeta* error_output_meta = nullptr, const TimeSeriesTypeMeta* recordable_state_meta = nullptr);
+                       const TSMeta* input_meta = nullptr, const TSMeta* output_meta = nullptr,
+                       const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         void _initialise_kwargs();
 

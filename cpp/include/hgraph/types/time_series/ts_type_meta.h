@@ -1,7 +1,7 @@
 //
 // Created by Claude on 15/12/2025.
 //
-// TimeSeriesTypeMeta - Type metadata for time-series types (TS, TSS, TSD, TSL, TSB, TSW)
+// TSMeta - Type metadata for time-series types (TS, TSS, TSD, TSL, TSB, TSW)
 //
 // This is separate from value::TypeMeta which handles value types.
 // The type meta itself acts as a builder - it can efficiently construct instances
@@ -20,9 +20,9 @@
 namespace hgraph {
 
 /**
- * TimeSeriesKind - Classification of time-series types
+ * TSKind - Classification of time-series types
  */
-enum class TimeSeriesKind : uint8_t {
+enum class TSKind : uint8_t {
     TS,      // Single scalar time-series: TS[T]
     TSS,     // Time-series set: TSS[T]
     TSD,     // Time-series dict: TSD[K, V]
@@ -33,17 +33,17 @@ enum class TimeSeriesKind : uint8_t {
 };
 
 /**
- * TimeSeriesTypeMeta - Base structure for all time-series type metadata
+ * TSMeta - Base structure for all time-series type metadata
  *
  * The type meta acts as both a type descriptor and a builder.
  * Each concrete type implements make_output/make_input to efficiently
  * construct instances of the time-series type.
  */
-struct TimeSeriesTypeMeta {
-    TimeSeriesKind ts_kind;
+struct TSMeta {
+    TSKind ts_kind;
     const char* name{nullptr};
 
-    virtual ~TimeSeriesTypeMeta() = default;
+    virtual ~TSMeta() = default;
 
     /**
      * Generate a type name string (e.g., "TS[int]", "TSD[str, TS[float]]")
@@ -77,7 +77,7 @@ struct TimeSeriesTypeMeta {
     /**
      * Returns true if this type represents a reference type (REF[...])
      */
-    [[nodiscard]] bool is_reference() const { return ts_kind == TimeSeriesKind::REF; }
+    [[nodiscard]] bool is_reference() const { return ts_kind == TSKind::REF; }
 
     /**
      * Return the memory size required for output instances of this type.
@@ -93,7 +93,7 @@ struct TimeSeriesTypeMeta {
 
     /**
      * Get the underlying value::TypeMeta schema for the value storage.
-     * Used by TSOutput to construct the TimeSeriesValue.
+     * Used by TSOutput to construct the TSValue.
      */
     [[nodiscard]] virtual const value::TypeMeta* value_schema() const { return nullptr; }
 
@@ -103,33 +103,33 @@ struct TimeSeriesTypeMeta {
      * Get the metadata for a field by index (TSB only).
      * Returns nullptr for non-bundle types or invalid index.
      */
-    [[nodiscard]] virtual const TimeSeriesTypeMeta* field_meta(size_t /*index*/) const { return nullptr; }
+    [[nodiscard]] virtual const TSMeta* field_meta(size_t /*index*/) const { return nullptr; }
 
     /**
      * Get the metadata for a field by name (TSB only).
      * Returns nullptr for non-bundle types or unknown field name.
      */
-    [[nodiscard]] virtual const TimeSeriesTypeMeta* field_meta(const std::string& /*name*/) const { return nullptr; }
+    [[nodiscard]] virtual const TSMeta* field_meta(const std::string& /*name*/) const { return nullptr; }
 
     /**
      * Get the metadata for list elements (TSL only).
      * Returns nullptr for non-list types.
      */
-    [[nodiscard]] virtual const TimeSeriesTypeMeta* element_meta() const { return nullptr; }
+    [[nodiscard]] virtual const TSMeta* element_meta() const { return nullptr; }
 
     /**
      * Get the metadata for dict values (TSD only).
      * Returns nullptr for non-dict types.
      */
-    [[nodiscard]] virtual const TimeSeriesTypeMeta* value_meta() const { return nullptr; }
+    [[nodiscard]] virtual const TSMeta* value_meta() const { return nullptr; }
 };
 
 /**
- * TSTypeMeta - TS[T] single scalar time-series
+ * TSValueMeta - TS[T] single scalar time-series
  *
  * Represents a time-series that holds a single scalar value of type T.
  */
-struct TSTypeMeta : TimeSeriesTypeMeta {
+struct TSValueMeta : TSMeta {
     const value::TypeMeta* scalar_type;
 
     [[nodiscard]] std::string type_name_str() const override;
@@ -145,7 +145,7 @@ struct TSTypeMeta : TimeSeriesTypeMeta {
  *
  * Represents a time-series that tracks additions and removals of elements of type T.
  */
-struct TSSTypeMeta : TimeSeriesTypeMeta {
+struct TSSTypeMeta : TSMeta {
     const value::TypeMeta* element_type;
 
     // The value schema - a SetTypeMeta with element_type as the set's element type
@@ -166,9 +166,9 @@ struct TSSTypeMeta : TimeSeriesTypeMeta {
  * Represents a time-series dictionary with scalar keys K and time-series values V.
  * The value type is itself a time-series (typically TS[T]).
  */
-struct TSDTypeMeta : TimeSeriesTypeMeta {
+struct TSDTypeMeta : TSMeta {
     const value::TypeMeta* key_type;
-    const TimeSeriesTypeMeta* value_ts_type;
+    const TSMeta* value_ts_type;
 
     // The value schema - a DictTypeMeta for tracking keys and their value schemas
     const value::TypeMeta* dict_value_type{nullptr};
@@ -178,7 +178,7 @@ struct TSDTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
-    [[nodiscard]] const TimeSeriesTypeMeta* value_meta() const override { return value_ts_type; }
+    [[nodiscard]] const TSMeta* value_meta() const override { return value_ts_type; }
 
     [[nodiscard]] const value::TypeMeta* value_schema() const override { return dict_value_type; }
 };
@@ -189,8 +189,8 @@ struct TSDTypeMeta : TimeSeriesTypeMeta {
  * Represents a fixed-size list of time-series elements.
  * Size is -1 for unresolved/dynamic size.
  */
-struct TSLTypeMeta : TimeSeriesTypeMeta {
-    const TimeSeriesTypeMeta* element_ts_type;
+struct TSLTypeMeta : TSMeta {
+    const TSMeta* element_ts_type;
     int64_t size;  // -1 = dynamic/unresolved
 
     // The value schema - a ListTypeMeta with element_ts_type's value_schema as element type
@@ -201,7 +201,7 @@ struct TSLTypeMeta : TimeSeriesTypeMeta {
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
-    [[nodiscard]] const TimeSeriesTypeMeta* element_meta() const override { return element_ts_type; }
+    [[nodiscard]] const TSMeta* element_meta() const override { return element_ts_type; }
 
     [[nodiscard]] const value::TypeMeta* value_schema() const override { return list_value_type; }
 };
@@ -211,10 +211,10 @@ struct TSLTypeMeta : TimeSeriesTypeMeta {
  *
  * Represents a structured bundle of named time-series fields.
  */
-struct TSBTypeMeta : TimeSeriesTypeMeta {
+struct TSBTypeMeta : TSMeta {
     struct Field {
         std::string name;
-        const TimeSeriesTypeMeta* type;
+        const TSMeta* type;
     };
     std::vector<Field> fields;
 
@@ -229,11 +229,11 @@ struct TSBTypeMeta : TimeSeriesTypeMeta {
 
     [[nodiscard]] const value::TypeMeta* value_schema() const override { return bundle_value_type; }
 
-    [[nodiscard]] const TimeSeriesTypeMeta* field_meta(size_t index) const override {
+    [[nodiscard]] const TSMeta* field_meta(size_t index) const override {
         return index < fields.size() ? fields[index].type : nullptr;
     }
 
-    [[nodiscard]] const TimeSeriesTypeMeta* field_meta(const std::string& name) const override {
+    [[nodiscard]] const TSMeta* field_meta(const std::string& name) const override {
         for (const auto& field : fields) {
             if (field.name == name) return field.type;
         }
@@ -253,7 +253,7 @@ struct TSBTypeMeta : TimeSeriesTypeMeta {
  *
  * Represents a windowed view of scalar values, either by count or by time duration.
  */
-struct TSWTypeMeta : TimeSeriesTypeMeta {
+struct TSWTypeMeta : TSMeta {
     const value::TypeMeta* scalar_type;
     int64_t size;       // count for fixed, negative for time-based (duration in microseconds)
     int64_t min_size;   // min count, -1 for unspecified
@@ -276,8 +276,8 @@ struct TSWTypeMeta : TimeSeriesTypeMeta {
  * Represents a reference to another time-series type.
  * Used for lazy/deferred evaluation patterns.
  */
-struct REFTypeMeta : TimeSeriesTypeMeta {
-    const TimeSeriesTypeMeta* value_ts_type;
+struct REFTypeMeta : TSMeta {
+    const TSMeta* value_ts_type;
     const value::TypeMeta* ref_value_type{nullptr};  // Value layer schema for RefStorage
 
     [[nodiscard]] std::string type_name_str() const override;

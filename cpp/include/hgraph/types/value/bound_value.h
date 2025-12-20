@@ -35,7 +35,7 @@ namespace hgraph::value {
      *    No transformation needed - just points to the source value.
      *
      * 2. Deref: Output is REF[X] and input expects X.
-     *    Creates a DerefTimeSeriesValue wrapper for transparent dereferencing.
+     *    Creates a DerefTSValue wrapper for transparent dereferencing.
      *
      * 3. Composite: Output is TSB/TSL with some fields requiring binding.
      *    Creates child BoundValues for each field/element.
@@ -63,7 +63,7 @@ namespace hgraph::value {
         /**
          * Create a peer binding (direct match)
          */
-        static BoundValue make_peer(TimeSeriesValue* source) {
+        static BoundValue make_peer(TSValue* source) {
             BoundValue bv;
             bv._kind = BoundValueKind::Peer;
             bv._schema = source ? source->schema() : nullptr;
@@ -74,7 +74,7 @@ namespace hgraph::value {
         /**
          * Create a deref binding (REF dereferencing)
          */
-        static BoundValue make_deref(std::unique_ptr<DerefTimeSeriesValue> deref, const TypeMeta* schema) {
+        static BoundValue make_deref(std::unique_ptr<DerefTSValue> deref, const TypeMeta* schema) {
             BoundValue bv;
             bv._kind = BoundValueKind::Deref;
             bv._schema = schema;
@@ -108,11 +108,11 @@ namespace hgraph::value {
         [[nodiscard]] ConstValueView value() const {
             switch (_kind) {
                 case BoundValueKind::Peer: {
-                    auto* source = std::get<TimeSeriesValue*>(_data);
+                    auto* source = std::get<TSValue*>(_data);
                     return source ? source->value() : ConstValueView{};
                 }
                 case BoundValueKind::Deref: {
-                    auto& deref = std::get<std::unique_ptr<DerefTimeSeriesValue>>(_data);
+                    auto& deref = std::get<std::unique_ptr<DerefTSValue>>(_data);
                     return deref ? deref->target_value() : ConstValueView{};
                 }
                 case BoundValueKind::Composite: {
@@ -134,11 +134,11 @@ namespace hgraph::value {
         [[nodiscard]] bool modified_at(engine_time_t time) const {
             switch (_kind) {
                 case BoundValueKind::Peer: {
-                    auto* source = std::get<TimeSeriesValue*>(_data);
+                    auto* source = std::get<TSValue*>(_data);
                     return source && source->modified_at(time);
                 }
                 case BoundValueKind::Deref: {
-                    auto& deref = std::get<std::unique_ptr<DerefTimeSeriesValue>>(_data);
+                    auto& deref = std::get<std::unique_ptr<DerefTSValue>>(_data);
                     return deref && deref->modified_at(time);
                 }
                 case BoundValueKind::Composite: {
@@ -158,11 +158,11 @@ namespace hgraph::value {
         [[nodiscard]] bool has_value() const {
             switch (_kind) {
                 case BoundValueKind::Peer: {
-                    auto* source = std::get<TimeSeriesValue*>(_data);
+                    auto* source = std::get<TSValue*>(_data);
                     return source && source->has_value();
                 }
                 case BoundValueKind::Deref: {
-                    auto& deref = std::get<std::unique_ptr<DerefTimeSeriesValue>>(_data);
+                    auto& deref = std::get<std::unique_ptr<DerefTSValue>>(_data);
                     return deref && deref->current_target().valid();
                 }
                 case BoundValueKind::Composite: {
@@ -199,26 +199,26 @@ namespace hgraph::value {
 
         // Deref-specific access
 
-        [[nodiscard]] DerefTimeSeriesValue* deref() {
+        [[nodiscard]] DerefTSValue* deref() {
             if (_kind != BoundValueKind::Deref) return nullptr;
-            return std::get<std::unique_ptr<DerefTimeSeriesValue>>(_data).get();
+            return std::get<std::unique_ptr<DerefTSValue>>(_data).get();
         }
 
-        [[nodiscard]] const DerefTimeSeriesValue* deref() const {
+        [[nodiscard]] const DerefTSValue* deref() const {
             if (_kind != BoundValueKind::Deref) return nullptr;
-            return std::get<std::unique_ptr<DerefTimeSeriesValue>>(_data).get();
+            return std::get<std::unique_ptr<DerefTSValue>>(_data).get();
         }
 
         // Peer-specific access
 
-        [[nodiscard]] TimeSeriesValue* peer_source() {
+        [[nodiscard]] TSValue* peer_source() {
             if (_kind != BoundValueKind::Peer) return nullptr;
-            return std::get<TimeSeriesValue*>(_data);
+            return std::get<TSValue*>(_data);
         }
 
-        [[nodiscard]] const TimeSeriesValue* peer_source() const {
+        [[nodiscard]] const TSValue* peer_source() const {
             if (_kind != BoundValueKind::Peer) return nullptr;
-            return std::get<TimeSeriesValue*>(_data);
+            return std::get<TSValue*>(_data);
         }
 
         // Lifecycle management
@@ -234,7 +234,7 @@ namespace hgraph::value {
                     // Peer bindings don't need special handling
                     break;
                 case BoundValueKind::Deref: {
-                    auto& deref = std::get<std::unique_ptr<DerefTimeSeriesValue>>(_data);
+                    auto& deref = std::get<std::unique_ptr<DerefTSValue>>(_data);
                     if (deref) deref->begin_evaluation(time);
                     break;
                 }
@@ -259,7 +259,7 @@ namespace hgraph::value {
                     // Peer bindings don't need special handling
                     break;
                 case BoundValueKind::Deref: {
-                    auto& deref = std::get<std::unique_ptr<DerefTimeSeriesValue>>(_data);
+                    auto& deref = std::get<std::unique_ptr<DerefTSValue>>(_data);
                     if (deref) deref->end_evaluation();
                     break;
                 }
@@ -279,8 +279,8 @@ namespace hgraph::value {
 
         // Data storage using variant
         std::variant<
-            TimeSeriesValue*,                       // Peer
-            std::unique_ptr<DerefTimeSeriesValue>,  // Deref
+            TSValue*,                       // Peer
+            std::unique_ptr<DerefTSValue>,  // Deref
             std::vector<BoundValue>                 // Composite
         > _data;
     };

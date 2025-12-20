@@ -58,7 +58,7 @@ namespace hgraph
         }
 
         // Start with the root view
-        value::TimeSeriesValueView view = output->view();
+        value::TSView view = output->view();
 
         // If no path, return the root view directly
         // Don't check view.valid() - collection types may have null value schema
@@ -192,7 +192,7 @@ namespace hgraph
         return TimeSeriesReference(std::move(items));
     }
 
-    TimeSeriesReference TimeSeriesReference::make(const value::TimeSeriesValueView& view) {
+    TimeSeriesReference TimeSeriesReference::make(const value::TSView& view) {
         // For TimeSeriesReference, we don't need view.valid() (which checks value/schema).
         // Collection types (TSL, TSD, etc.) have null schema but can still be referenced.
         // We just need to be able to navigate back to the owning node via the path.

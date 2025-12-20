@@ -42,8 +42,8 @@ namespace hgraph
                  graph_builder_s_ptr nested_graph_builder, const std::unordered_map<std::string, int64_t> &input_node_ids,
                  int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg,
                  const std::string &context_path,
-                 const TimeSeriesTypeMeta* input_meta = nullptr, const TimeSeriesTypeMeta* output_meta = nullptr,
-                 const TimeSeriesTypeMeta* error_output_meta = nullptr, const TimeSeriesTypeMeta* recordable_state_meta = nullptr);
+                 const TSMeta* input_meta = nullptr, const TSMeta* output_meta = nullptr,
+                 const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         // Public wrappers for Python to manage dependencies (mirror Python API)
         bool _add_graph_dependency(const K &key, const K &depends_on) { return add_graph_dependency(key, depends_on); }

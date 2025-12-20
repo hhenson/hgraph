@@ -29,7 +29,7 @@ namespace hgraph::ts {
 /**
  * DeltaView - Non-owning view for accessing delta values from time-series
  *
- * Provides type-erased access to delta information based on TimeSeriesKind:
+ * Provides type-erased access to delta information based on TSKind:
  * - Scalar (TS): Returns the current value
  * - Bundle (TSB): Iterates only modified fields
  * - List (TSL): Iterates only modified elements
@@ -40,7 +40,7 @@ namespace hgraph::ts {
  * Memory layout: ~48 bytes
  * - ConstValueView: 16 bytes (data ptr + schema ptr)
  * - ModificationTracker: ~16 bytes
- * - TimeSeriesTypeMeta*: 8 bytes
+ * - TSMeta*: 8 bytes
  * - engine_time_t: 8 bytes
  */
 class DeltaView {
@@ -49,7 +49,7 @@ public:
 
     DeltaView(value::ConstValueView value_view,
               value::ModificationTracker tracker,
-              const TimeSeriesTypeMeta* meta,
+              const TSMeta* meta,
               engine_time_t time)
         : _value_view(value_view)
         , _tracker(tracker)
@@ -62,10 +62,10 @@ public:
         return _value_view.valid() && _meta != nullptr;
     }
 
-    [[nodiscard]] const TimeSeriesTypeMeta* meta() const { return _meta; }
+    [[nodiscard]] const TSMeta* meta() const { return _meta; }
 
-    [[nodiscard]] TimeSeriesKind ts_kind() const {
-        return _meta ? _meta->ts_kind : TimeSeriesKind::TS;
+    [[nodiscard]] TSKind ts_kind() const {
+        return _meta ? _meta->ts_kind : TSKind::TS;
     }
 
     [[nodiscard]] engine_time_t time() const { return _time; }
@@ -78,7 +78,7 @@ public:
     // For scalars, delta_value IS the current value
 
     [[nodiscard]] value::ConstValueView scalar_delta() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TS) {
+        if (!valid() || ts_kind() != TSKind::TS) {
             return {};
         }
         return _value_view;
@@ -87,25 +87,25 @@ public:
     // === Bundle modified fields (TSB) ===
 
     [[nodiscard]] size_t bundle_field_count() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSB) return 0;
+        if (!valid() || ts_kind() != TSKind::TSB) return 0;
         auto* bundle_meta = static_cast<const TSBTypeMeta*>(_meta);
         return bundle_meta->fields.size();
     }
 
     [[nodiscard]] bool bundle_field_modified(size_t index) const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSB) return false;
+        if (!valid() || ts_kind() != TSKind::TSB) return false;
         return _tracker.field_modified_at(index, _time);
     }
 
     [[nodiscard]] std::string_view bundle_field_name(size_t index) const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSB) return {};
+        if (!valid() || ts_kind() != TSKind::TSB) return {};
         auto* bundle_meta = static_cast<const TSBTypeMeta*>(_meta);
         if (index >= bundle_meta->fields.size()) return {};
         return bundle_meta->fields[index].name;
     }
 
     [[nodiscard]] DeltaView bundle_field(size_t index) const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSB) {
+        if (!valid() || ts_kind() != TSKind::TSB) {
             return {};
         }
 
@@ -131,7 +131,7 @@ public:
 
     // Count of modified fields (O(n))
     [[nodiscard]] size_t bundle_modified_count() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSB) return 0;
+        if (!valid() || ts_kind() != TSKind::TSB) return 0;
         size_t count = 0;
         size_t n = bundle_field_count();
         for (size_t i = 0; i < n; ++i) {
@@ -143,18 +143,18 @@ public:
     // === List modified elements (TSL) ===
 
     [[nodiscard]] size_t list_element_count() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSL) return 0;
+        if (!valid() || ts_kind() != TSKind::TSL) return 0;
         auto* list_meta = static_cast<const TSLTypeMeta*>(_meta);
         return list_meta->size;
     }
 
     [[nodiscard]] bool list_element_modified(size_t index) const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSL) return false;
+        if (!valid() || ts_kind() != TSKind::TSL) return false;
         return _tracker.element_modified_at(index, _time);
     }
 
     [[nodiscard]] DeltaView list_element(size_t index) const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSL) {
+        if (!valid() || ts_kind() != TSKind::TSL) {
             return {};
         }
 
@@ -180,7 +180,7 @@ public:
 
     // Count of modified elements (O(n))
     [[nodiscard]] size_t list_modified_count() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSL) return 0;
+        if (!valid() || ts_kind() != TSKind::TSL) return 0;
         size_t count = 0;
         size_t n = list_element_count();
         for (size_t i = 0; i < n; ++i) {
@@ -192,51 +192,51 @@ public:
     // === Set delta (TSS) ===
 
     [[nodiscard]] size_t set_added_count() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSS) return 0;
+        if (!valid() || ts_kind() != TSKind::TSS) return 0;
         return _tracker.set_added_count(_time);
     }
 
     [[nodiscard]] size_t set_removed_count() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSS) return 0;
+        if (!valid() || ts_kind() != TSKind::TSS) return 0;
         return _tracker.set_removed_count();
     }
 
     [[nodiscard]] value::ConstTypedPtr set_removed_element(size_t i) const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSS) return {};
+        if (!valid() || ts_kind() != TSKind::TSS) return {};
         return _tracker.set_removed_element(i);
     }
 
     // Access to the set storage for iterating added elements
     [[nodiscard]] const value::SetStorage* set_storage() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSS) return nullptr;
+        if (!valid() || ts_kind() != TSKind::TSS) return nullptr;
         return static_cast<const value::SetStorage*>(_value_view.data());
     }
 
     // === Dict delta (TSD) ===
 
     [[nodiscard]] size_t dict_entry_count() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSD) return 0;
+        if (!valid() || ts_kind() != TSKind::TSD) return 0;
         return static_cast<const value::DictStorage*>(_value_view.data())->size();
     }
 
     [[nodiscard]] bool dict_entry_modified(size_t index) const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSD) return false;
+        if (!valid() || ts_kind() != TSKind::TSD) return false;
         return _tracker.dict_entry_modified_at(index, _time);
     }
 
     [[nodiscard]] size_t dict_removed_count() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSD) return 0;
+        if (!valid() || ts_kind() != TSKind::TSD) return 0;
         return _tracker.dict_removed_count();
     }
 
     [[nodiscard]] value::ConstTypedPtr dict_removed_key(size_t i) const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSD) return {};
+        if (!valid() || ts_kind() != TSKind::TSD) return {};
         return _tracker.dict_removed_key(i);
     }
 
     // Access to the dict storage for iterating entries
     [[nodiscard]] const value::DictStorage* dict_storage() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::TSD) return nullptr;
+        if (!valid() || ts_kind() != TSKind::TSD) return nullptr;
         return static_cast<const value::DictStorage*>(_value_view.data());
     }
 
@@ -244,7 +244,7 @@ public:
     // For refs, delta_value IS the reference value
 
     [[nodiscard]] value::ConstValueView ref_delta() const {
-        if (!valid() || ts_kind() != TimeSeriesKind::REF) {
+        if (!valid() || ts_kind() != TSKind::REF) {
             return {};
         }
         return _value_view;
@@ -263,7 +263,7 @@ public:
 private:
     value::ConstValueView _value_view;
     value::ModificationTracker _tracker;
-    const TimeSeriesTypeMeta* _meta{nullptr};
+    const TSMeta* _meta{nullptr};
     engine_time_t _time{MIN_DT};
 };
 

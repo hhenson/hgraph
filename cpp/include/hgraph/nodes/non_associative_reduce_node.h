@@ -21,8 +21,8 @@ namespace hgraph {
                                     NodeSignature::s_ptr signature,
                                     nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
                                     const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id,
-                                    const TimeSeriesTypeMeta* input_meta = nullptr, const TimeSeriesTypeMeta* output_meta = nullptr,
-                                    const TimeSeriesTypeMeta* error_output_meta = nullptr, const TimeSeriesTypeMeta* recordable_state_meta = nullptr);
+                                    const TSMeta* input_meta = nullptr, const TSMeta* output_meta = nullptr,
+                                    const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         std::unordered_map<int, graph_s_ptr> nested_graphs();
 

@@ -13,8 +13,8 @@ namespace hgraph
      *
      * Implementation:
      * - Holds shared_ptr<Node> for lifetime management
-     * - Holds const TimeSeriesTypeMeta* for type info and navigation
-     * - Derived classes hold TimeSeriesValueView or TSInputView
+     * - Holds const TSMeta* for type info and navigation
+     * - Derived classes hold TSView or TSInputView
      */
     struct HGRAPH_EXPORT PyTimeSeriesType
     {
@@ -64,10 +64,10 @@ namespace hgraph
 
       protected:
         PyTimeSeriesType() = default;
-        PyTimeSeriesType(node_s_ptr node, const TimeSeriesTypeMeta* meta);
+        PyTimeSeriesType(node_s_ptr node, const TSMeta* meta);
 
         node_s_ptr _node;
-        const TimeSeriesTypeMeta* _meta{nullptr};
+        const TSMeta* _meta{nullptr};
     };
 
     struct PyTimeSeriesInput;
@@ -75,7 +75,7 @@ namespace hgraph
     /**
      * PyTimeSeriesOutput - Python wrapper for time-series outputs
      *
-     * Holds TimeSeriesValueView for value access and mutation.
+     * Holds TSView for value access and mutation.
      * Inherits node_s_ptr and meta from base class.
      */
     struct HGRAPH_EXPORT PyTimeSeriesOutput : PyTimeSeriesType
@@ -122,15 +122,15 @@ namespace hgraph
         static void register_with_nanobind(nb::module_ &m);
 
         // Access to underlying view and output
-        [[nodiscard]] value::TimeSeriesValueView& view() { return _view; }
-        [[nodiscard]] const value::TimeSeriesValueView& view() const { return _view; }
+        [[nodiscard]] value::TSView& view() { return _view; }
+        [[nodiscard]] const value::TSView& view() const { return _view; }
         [[nodiscard]] ts::TSOutput* output() const { return _output; }
 
         // Constructor
-        PyTimeSeriesOutput(node_s_ptr node, value::TimeSeriesValueView view, ts::TSOutput* output, const TimeSeriesTypeMeta* meta);
+        PyTimeSeriesOutput(node_s_ptr node, value::TSView view, ts::TSOutput* output, const TSMeta* meta);
 
       protected:
-        value::TimeSeriesValueView _view;
+        value::TSView _view;
         ts::TSOutput* _output{nullptr};
     };
 
@@ -202,10 +202,10 @@ namespace hgraph
         [[nodiscard]] ts::TSInput* input() const { return _input; }
 
         // Constructor for direct input wrappers (with TSInput for binding operations)
-        PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TimeSeriesTypeMeta* meta);
+        PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TSMeta* meta);
 
         // Constructor for field wrappers (view only, no TSInput)
-        PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, const TimeSeriesTypeMeta* meta);
+        PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, const TSMeta* meta);
 
       private:
         ts::TSInputView _view;

@@ -33,7 +33,7 @@ struct TypeCollectorVisitor : TimeSeriesOutputVisitorCRTP<TypeCollectorVisitor> 
 
     // TS types
     template<typename T>
-    void visit(TimeSeriesValueOutput<T>& output) {
+    void visit(TSValueOutput<T>& output) {
         type_names.push_back("TS<" + std::string(typeid(T).name()) + ">");
     }
 
@@ -71,7 +71,7 @@ struct TypeCollectorVisitor : TimeSeriesOutputVisitorCRTP<TypeCollectorVisitor> 
     }
 
     // REF types
-    void visit(TimeSeriesReferenceOutput& output) {
+    void visit(TSRefOutput& output) {
         type_names.push_back("REF");
     }
 };
@@ -84,7 +84,7 @@ struct InputTypeCollectorVisitor : TimeSeriesInputVisitorCRTP<InputTypeCollector
 
     // TS types
     template<typename T>
-    void visit(TimeSeriesValueInput<T>& input) {
+    void visit(TSValueInput<T>& input) {
         type_names.push_back("TS_Input<" + std::string(typeid(T).name()) + ">");
     }
 
@@ -117,7 +117,7 @@ struct InputTypeCollectorVisitor : TimeSeriesInputVisitorCRTP<InputTypeCollector
     }
 
     // REF types
-    void visit(TimeSeriesReferenceInput& input) {
+    void visit(TSRefInput& input) {
         type_names.push_back("REF_Input");
     }
 
@@ -140,7 +140,7 @@ struct CountingVisitor : TimeSeriesOutputVisitorCRTP<CountingVisitor> {
 };
 
 TEST_CASE("CRTP Visitor - Basic TS Output", "[visitor][crtp][ts]") {
-    auto ts_output = TimeSeriesValueOutput<int>();
+    auto ts_output = TSValueOutput<int>();
     TypeCollectorVisitor visitor;
 
     ts_output.accept(visitor);
@@ -150,7 +150,7 @@ TEST_CASE("CRTP Visitor - Basic TS Output", "[visitor][crtp][ts]") {
 }
 
 TEST_CASE("CRTP Visitor - Basic TS Input", "[visitor][crtp][ts]") {
-    auto ts_input = TimeSeriesValueInput<double>();
+    auto ts_input = TSValueInput<double>();
     InputTypeCollectorVisitor visitor;
 
     ts_input.accept(visitor);
@@ -220,7 +220,7 @@ TEST_CASE("CRTP Visitor - TSW Time Window Output", "[visitor][crtp][tsw]") {
 }
 
 TEST_CASE("CRTP Visitor - REF Output", "[visitor][crtp][ref]") {
-    auto ref_output = TimeSeriesReferenceOutput();
+    auto ref_output = TSRefOutput();
     TypeCollectorVisitor visitor;
 
     ref_output.accept(visitor);
@@ -242,8 +242,8 @@ TEST_CASE("CRTP Visitor - Signal Input", "[visitor][crtp][signal]") {
 TEST_CASE("CRTP Visitor - Counting multiple types", "[visitor][crtp][multiple]") {
     CountingVisitor visitor;
 
-    auto ts_int = TimeSeriesValueOutput<int>();
-    auto ts_double = TimeSeriesValueOutput<double>();
+    auto ts_int = TSValueOutput<int>();
+    auto ts_double = TSValueOutput<double>();
     auto tsb = TimeSeriesBundleOutput();
 
     ts_int.accept(visitor);
@@ -261,15 +261,15 @@ TEST_CASE("CRTP Visitor - Counting multiple types", "[visitor][crtp][multiple]")
  * Test acyclic visitor for specific types
  */
 struct IntegerTSVisitor : TimeSeriesVisitor,
-                          TimeSeriesOutputVisitor<TimeSeriesValueOutput<int>>,
-                          TimeSeriesOutputVisitor<TimeSeriesValueOutput<long>> {
+                          TimeSeriesOutputVisitor<TSValueOutput<int>>,
+                          TimeSeriesOutputVisitor<TSValueOutput<long>> {
     std::vector<std::string> visited;
 
-    void visit(TimeSeriesValueOutput<int>& output) override {
+    void visit(TSValueOutput<int>& output) override {
         visited.push_back("int");
     }
 
-    void visit(TimeSeriesValueOutput<long>& output) override {
+    void visit(TSValueOutput<long>& output) override {
         visited.push_back("long");
     }
 };
@@ -309,7 +309,7 @@ struct CollectionVisitor : TimeSeriesVisitor,
 };
 
 TEST_CASE("Acyclic Visitor - Specific type int", "[visitor][acyclic][ts]") {
-    auto ts_int = TimeSeriesValueOutput<int>();
+    auto ts_int = TSValueOutput<int>();
     IntegerTSVisitor visitor;
 
     ts_int.accept(visitor);
@@ -319,7 +319,7 @@ TEST_CASE("Acyclic Visitor - Specific type int", "[visitor][acyclic][ts]") {
 }
 
 TEST_CASE("Acyclic Visitor - Specific type long", "[visitor][acyclic][ts]") {
-    auto ts_long = TimeSeriesValueOutput<long>();
+    auto ts_long = TSValueOutput<long>();
     IntegerTSVisitor visitor;
 
     ts_long.accept(visitor);
@@ -329,7 +329,7 @@ TEST_CASE("Acyclic Visitor - Specific type long", "[visitor][acyclic][ts]") {
 }
 
 TEST_CASE("Acyclic Visitor - Unsupported type ignored", "[visitor][acyclic][ts]") {
-    auto ts_double = TimeSeriesValueOutput<double>();
+    auto ts_double = TSValueOutput<double>();
     IntegerTSVisitor visitor;
 
     // Should not throw, just silently ignore
@@ -374,7 +374,7 @@ struct ConstTypeCollector : ConstTimeSeriesOutputVisitorCRTP<ConstTypeCollector>
     std::vector<std::string> type_names;
 
     template<typename T>
-    void visit(const TimeSeriesValueOutput<T>& output) {
+    void visit(const TSValueOutput<T>& output) {
         type_names.push_back("const_TS");
     }
 
@@ -387,16 +387,16 @@ struct ConstTypeCollector : ConstTimeSeriesOutputVisitorCRTP<ConstTypeCollector>
  * Const acyclic visitor
  */
 struct ConstIntVisitor : TimeSeriesVisitor,
-                         ConstTimeSeriesOutputVisitor<TimeSeriesValueOutput<int>> {
+                         ConstTimeSeriesOutputVisitor<TSValueOutput<int>> {
     bool visited = false;
 
-    void visit(const TimeSeriesValueOutput<int>& output) override {
+    void visit(const TSValueOutput<int>& output) override {
         visited = true;
     }
 };
 
 TEST_CASE("Const CRTP Visitor - TS", "[visitor][crtp][const]") {
-    const auto ts_int = TimeSeriesValueOutput<int>();
+    const auto ts_int = TSValueOutput<int>();
     ConstTypeCollector visitor;
 
     ts_int.accept(visitor);
@@ -416,7 +416,7 @@ TEST_CASE("Const CRTP Visitor - TSB", "[visitor][crtp][const]") {
 }
 
 TEST_CASE("Const Acyclic Visitor - TS", "[visitor][acyclic][const]") {
-    const auto ts_int = TimeSeriesValueOutput<int>();
+    const auto ts_int = TSValueOutput<int>();
     ConstIntVisitor visitor;
 
     ts_int.accept(visitor);
@@ -429,12 +429,12 @@ TEST_CASE("Const Acyclic Visitor - TS", "[visitor][acyclic][const]") {
 // ============================================================================
 
 struct InputCountingVisitor : TimeSeriesVisitor,
-                              TimeSeriesInputVisitor<TimeSeriesValueInput<int>>,
+                              TimeSeriesInputVisitor<TSValueInput<int>>,
                               TimeSeriesInputVisitor<TimeSeriesBundleInput>,
                               TimeSeriesInputVisitor<TimeSeriesSignalInput> {
     int count = 0;
 
-    void visit(TimeSeriesValueInput<int>& input) override { count++; }
+    void visit(TSValueInput<int>& input) override { count++; }
     void visit(TimeSeriesBundleInput& input) override { count++; }
     void visit(TimeSeriesSignalInput& input) override { count++; }
 };
@@ -442,7 +442,7 @@ struct InputCountingVisitor : TimeSeriesVisitor,
 TEST_CASE("Acyclic Visitor - Input types", "[visitor][acyclic][input]") {
     InputCountingVisitor visitor;
 
-    auto ts_input = TimeSeriesValueInput<int>();
+    auto ts_input = TSValueInput<int>();
     auto tsb_input = TimeSeriesBundleInput();
     auto signal_input = TimeSeriesSignalInput();
 
@@ -460,7 +460,7 @@ TEST_CASE("Acyclic Visitor - Input types", "[visitor][acyclic][input]") {
 TEST_CASE("Polymorphic CRTP Visitor via TimeSeriesOutput*", "[visitor][crtp][polymorphic]") {
     TypeCollectorVisitor visitor;
 
-    TimeSeriesOutput* ts_base = new TimeSeriesValueOutput<int>();
+    TimeSeriesOutput* ts_base = new TSValueOutput<int>();
     TimeSeriesOutput* tsb_base = new TimeSeriesBundleOutput();
 
     ts_base->accept(visitor);
@@ -475,8 +475,8 @@ TEST_CASE("Polymorphic CRTP Visitor via TimeSeriesOutput*", "[visitor][crtp][pol
 TEST_CASE("Polymorphic Acyclic Visitor via TimeSeriesOutput*", "[visitor][acyclic][polymorphic]") {
     IntegerTSVisitor visitor;
 
-    TimeSeriesOutput* ts_int = new TimeSeriesValueOutput<int>();
-    TimeSeriesOutput* ts_double = new TimeSeriesValueOutput<double>();
+    TimeSeriesOutput* ts_int = new TSValueOutput<int>();
+    TimeSeriesOutput* ts_double = new TSValueOutput<double>();
 
     ts_int->accept(visitor);
     ts_double->accept(visitor);  // Should be ignored
@@ -514,7 +514,7 @@ struct MixedPatternVisitor : TimeSeriesOutputVisitorCRTP<MixedPatternVisitor>,
 
 TEST_CASE("Mixed Pattern - CRTP generic", "[visitor][mixed]") {
     MixedPatternVisitor visitor;
-    auto ts_int = TimeSeriesValueOutput<int>();
+    auto ts_int = TSValueOutput<int>();
 
     // Should use CRTP path
     ts_int.accept(visitor);
@@ -560,7 +560,7 @@ struct SelectiveAcyclicVisitor : TimeSeriesVisitor,
 
 TEST_CASE("Edge Case - Visitor with no implementations", "[visitor][edge]") {
     EmptyVisitor visitor;
-    auto ts_int = TimeSeriesValueOutput<int>();
+    auto ts_int = TSValueOutput<int>();
 
     // Should compile but do nothing
     REQUIRE_NOTHROW(ts_int.accept(visitor));
@@ -569,7 +569,7 @@ TEST_CASE("Edge Case - Visitor with no implementations", "[visitor][edge]") {
 TEST_CASE("Edge Case - Selective visitor ignores unsupported types", "[visitor][edge]") {
     SelectiveAcyclicVisitor visitor;
 
-    auto ts_int = TimeSeriesValueOutput<int>();
+    auto ts_int = TSValueOutput<int>();
     auto tsb = TimeSeriesBundleOutput();
 
     ts_int.accept(visitor);  // Ignored

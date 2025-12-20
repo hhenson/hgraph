@@ -1,7 +1,7 @@
 //
 // Created by Claude on 15/12/2025.
 //
-// TimeSeriesTypeRegistry - Caches TimeSeriesTypeMeta instances
+// TSTypeRegistry - Caches TSMeta instances
 //
 
 #ifndef HGRAPH_TS_TYPE_REGISTRY_H
@@ -15,7 +15,7 @@
 namespace hgraph {
 
 /**
- * TimeSeriesTypeRegistry - Central registry for time-series type metadata
+ * TSTypeRegistry - Central registry for time-series type metadata
  *
  * Provides:
  * - Registration of types by hash key
@@ -24,31 +24,31 @@ namespace hgraph {
  * - Thread-safe registration
  *
  * Usage:
- *   auto& registry = TimeSeriesTypeRegistry::global();
+ *   auto& registry = TSTypeRegistry::global();
  *   size_t key = ts_hash_combine(TS_SEED, ptr_hash);
  *   if (auto* existing = registry.lookup_by_key(key)) {
  *       return existing;
  *   }
  *   return registry.register_by_key(key, std::move(meta));
  */
-class TimeSeriesTypeRegistry {
+class TSTypeRegistry {
 public:
     /**
      * Get the global singleton instance
      */
-    static TimeSeriesTypeRegistry& global();
+    static TSTypeRegistry& global();
 
     /**
      * Register a type by hash key (for caching)
      * Thread-safe, returns existing if key already registered
      */
-    const TimeSeriesTypeMeta* register_by_key(size_t key,
-                                               std::unique_ptr<TimeSeriesTypeMeta> meta);
+    const TSMeta* register_by_key(size_t key,
+                                               std::unique_ptr<TSMeta> meta);
 
     /**
      * Lookup by hash key (returns nullptr if not found)
      */
-    [[nodiscard]] const TimeSeriesTypeMeta* lookup_by_key(size_t key) const;
+    [[nodiscard]] const TSMeta* lookup_by_key(size_t key) const;
 
     /**
      * Check if hash key exists
@@ -61,9 +61,9 @@ public:
     [[nodiscard]] size_t cache_size() const;
 
 private:
-    TimeSeriesTypeRegistry() = default;
+    TSTypeRegistry() = default;
     mutable std::mutex _mutex;
-    std::unordered_map<size_t, std::unique_ptr<TimeSeriesTypeMeta>> _types;
+    std::unordered_map<size_t, std::unique_ptr<TSMeta>> _types;
 };
 
 /**

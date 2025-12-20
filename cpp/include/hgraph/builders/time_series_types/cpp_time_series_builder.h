@@ -1,8 +1,8 @@
 //
 // Created by Claude on 15/12/2025.
 //
-// Unified time-series builders that use TimeSeriesTypeMeta for type-driven construction.
-// These builders dispatch to the appropriate specialized builder based on TimeSeriesKind.
+// Unified time-series builders that use TSMeta for type-driven construction.
+// These builders dispatch to the appropriate specialized builder based on TSKind.
 //
 
 #ifndef CPP_TIME_SERIES_BUILDER_H
@@ -15,15 +15,15 @@
 namespace hgraph {
 
 /**
- * CppTimeSeriesOutputBuilder - Unified output builder using TimeSeriesTypeMeta
+ * CppTimeSeriesOutputBuilder - Unified output builder using TSMeta
  *
- * This builder takes a TimeSeriesTypeMeta pointer and creates the appropriate
+ * This builder takes a TSMeta pointer and creates the appropriate
  * output time-series type based on the ts_kind field.
  */
 struct HGRAPH_EXPORT CppTimeSeriesOutputBuilder : OutputBuilder {
-    const TimeSeriesTypeMeta* ts_type_meta;
+    const TSMeta* ts_type_meta;
 
-    explicit CppTimeSeriesOutputBuilder(const TimeSeriesTypeMeta* meta)
+    explicit CppTimeSeriesOutputBuilder(const TSMeta* meta)
         : ts_type_meta(meta) {}
 
     time_series_output_s_ptr make_instance(node_ptr owning_node) const override;
@@ -34,15 +34,15 @@ struct HGRAPH_EXPORT CppTimeSeriesOutputBuilder : OutputBuilder {
 };
 
 /**
- * CppTimeSeriesInputBuilder - Unified input builder using TimeSeriesTypeMeta
+ * CppTimeSeriesInputBuilder - Unified input builder using TSMeta
  *
- * This builder takes a TimeSeriesTypeMeta pointer and creates the appropriate
+ * This builder takes a TSMeta pointer and creates the appropriate
  * input time-series type based on the ts_kind field.
  */
 struct HGRAPH_EXPORT CppTimeSeriesInputBuilder : InputBuilder {
-    const TimeSeriesTypeMeta* ts_type_meta;
+    const TSMeta* ts_type_meta;
 
-    explicit CppTimeSeriesInputBuilder(const TimeSeriesTypeMeta* meta)
+    explicit CppTimeSeriesInputBuilder(const TSMeta* meta)
         : ts_type_meta(meta) {}
 
     time_series_input_s_ptr make_instance(node_ptr owning_node) const override;

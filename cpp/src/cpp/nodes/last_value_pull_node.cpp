@@ -49,16 +49,16 @@ namespace hgraph {
 
         // Use ts_kind from meta to determine combine function
         switch (meta->ts_kind) {
-            case TimeSeriesKind::TSS:
+            case TSKind::TSS:
                 _delta_combine_fn = _combine_tss_delta;
                 break;
-            case TimeSeriesKind::TSD:
+            case TSKind::TSD:
                 _delta_combine_fn = _combine_tsd_delta;
                 break;
-            case TimeSeriesKind::TSB:
+            case TSKind::TSB:
                 _delta_combine_fn = _combine_tsb_delta;
                 break;
-            case TimeSeriesKind::TSL:
+            case TSKind::TSL:
                 _delta_combine_fn = _combine_tsl_delta_value;
                 break;
             default:
@@ -93,7 +93,7 @@ namespace hgraph {
 
     void LastValuePullNode::copy_from_output(const ts::TSOutput &output) {
         // Get value from output view and convert to Python
-        // view is already a TimeSeriesValueView
+        // view is already a TSView
         auto view = const_cast<ts::TSOutput&>(output).view();
         if (!view.valid() || !view.has_value()) {
             return;  // Nothing to copy

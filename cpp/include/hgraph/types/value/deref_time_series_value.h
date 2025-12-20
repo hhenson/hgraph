@@ -1,7 +1,7 @@
 //
 // Created by Howard Henson on 13/12/2025.
 //
-// DerefTimeSeriesValue - Wrapper that dereferences REF values transparently
+// DerefTSValue - Wrapper that dereferences REF values transparently
 //
 
 #ifndef HGRAPH_VALUE_DEREF_TIME_SERIES_VALUE_H
@@ -15,7 +15,7 @@
 namespace hgraph::value {
 
     /**
-     * DerefTimeSeriesValue - Wraps a REF value and provides transparent access
+     * DerefTSValue - Wraps a REF value and provides transparent access
      *
      * This class manages dereferencing of REF types, providing:
      * - Transparent access to the referenced value
@@ -29,7 +29,7 @@ namespace hgraph::value {
      * - end_evaluation(): Clear previous target
      *
      * Usage:
-     *   DerefTimeSeriesValue deref(ref_view, target_schema);
+     *   DerefTSValue deref(ref_view, target_schema);
      *
      *   // Each evaluation cycle:
      *   deref.begin_evaluation(current_time);
@@ -43,24 +43,24 @@ namespace hgraph::value {
      *   }
      *   deref.end_evaluation();
      */
-    class DerefTimeSeriesValue {
+    class DerefTSValue {
     public:
-        DerefTimeSeriesValue() = default;
+        DerefTSValue() = default;
 
         /**
          * Construct a deref wrapper
          *
-         * @param ref_view View to the REF value (TimeSeriesValueView pointing to RefStorage)
+         * @param ref_view View to the REF value (TSView pointing to RefStorage)
          * @param target_schema Schema of the dereferenced type (what the input expects)
          */
-        DerefTimeSeriesValue(TimeSeriesValueView ref_view, const TypeMeta* target_schema)
+        DerefTSValue(TSView ref_view, const TypeMeta* target_schema)
             : _ref_view(ref_view), _target_schema(target_schema) {}
 
         // Move only (contains view references)
-        DerefTimeSeriesValue(DerefTimeSeriesValue&&) noexcept = default;
-        DerefTimeSeriesValue& operator=(DerefTimeSeriesValue&&) noexcept = default;
-        DerefTimeSeriesValue(const DerefTimeSeriesValue&) = delete;
-        DerefTimeSeriesValue& operator=(const DerefTimeSeriesValue&) = delete;
+        DerefTSValue(DerefTSValue&&) noexcept = default;
+        DerefTSValue& operator=(DerefTSValue&&) noexcept = default;
+        DerefTSValue(const DerefTSValue&) = delete;
+        DerefTSValue& operator=(const DerefTSValue&) = delete;
 
         [[nodiscard]] bool valid() const {
             return _ref_view.valid() && _target_schema != nullptr;
@@ -197,8 +197,8 @@ namespace hgraph::value {
         }
 
     private:
-        // Source REF value (view to RefStorage in a TimeSeriesValue)
-        TimeSeriesValueView _ref_view;
+        // Source REF value (view to RefStorage in a TSValue)
+        TSView _ref_view;
 
         // Schema of the target type (what we're dereferencing to)
         const TypeMeta* _target_schema{nullptr};

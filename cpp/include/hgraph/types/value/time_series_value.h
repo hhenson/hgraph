@@ -23,15 +23,15 @@ namespace hgraph::ts {
 
 // Forward declarations in hgraph namespace (where they're actually defined)
 namespace hgraph {
-    struct TimeSeriesTypeMeta;
-    enum class TimeSeriesKind : uint8_t;
+    struct TSMeta;
+    enum class TSKind : uint8_t;
 }
 
 namespace hgraph::value {
 
     // Forward declarations
-    class TimeSeriesValue;
-    class TimeSeriesValueView;
+    class TSValue;
+    class TSView;
     class ObserverStorage;
 
     // ============================================================================
@@ -50,7 +50,7 @@ namespace hgraph::value {
      * - Paths with depth ≤ 4 use inline storage (no heap allocation)
      * - Deeper paths fall back to heap allocation
      *
-     * Memory: ~48 bytes fixed (fits in cache line with TimeSeriesValueView)
+     * Memory: ~48 bytes fixed (fits in cache line with TSView)
      */
     struct ValuePath {
         const ts::TSOutput* root{nullptr};
@@ -230,7 +230,7 @@ namespace hgraph::value {
     };
 
     /**
-     * TimeSeriesValueView - Mutable view with explicit time parameters
+     * TSView - Mutable view with explicit time parameters
      *
      * Time is passed to mutation methods, not stored in the view.
      * This avoids stale time issues and enables explicit control over
@@ -245,25 +245,25 @@ namespace hgraph::value {
      * - Subscribe/unsubscribe available for hierarchical subscriptions
      *
      * Time-Series Metadata Support:
-     * - Optionally holds TimeSeriesTypeMeta for ts_kind() queries
+     * - Optionally holds TSMeta for ts_kind() queries
      * - Optionally holds ValuePath for root/path tracking (REF creation)
      * - delta_view() method when meta is provided
      *
      * This class replaces the previous TSOutputView, consolidating all
      * time-series output view functionality into a single type.
      */
-    class TimeSeriesValueView {
+    class TSView {
     public:
-        TimeSeriesValueView() = default;
+        TSView() = default;
 
         // Basic construction (no TS metadata) - for internal/lower-level use
-        TimeSeriesValueView(ValueView value_view, ModificationTracker tracker,
+        TSView(ValueView value_view, ModificationTracker tracker,
                             ObserverStorage* observer = nullptr)
             : _value_view(value_view), _tracker(tracker), _observer(observer) {}
 
         // Full construction (with TS metadata) - for TSOutput::view()
-        TimeSeriesValueView(ValueView value_view, ModificationTracker tracker,
-                            ObserverStorage* observer, const TimeSeriesTypeMeta* ts_meta,
+        TSView(ValueView value_view, ModificationTracker tracker,
+                            ObserverStorage* observer, const TSMeta* ts_meta,
                             ValuePath path = {})
             : _value_view(value_view), _tracker(tracker), _observer(observer),
               _ts_meta(ts_meta), _path(std::move(path)) {}
@@ -274,8 +274,8 @@ namespace hgraph::value {
         [[nodiscard]] TypeKind kind() const { return _value_view.kind(); }
 
         // === Time-Series type queries ===
-        [[nodiscard]] const TimeSeriesTypeMeta* ts_meta() const { return _ts_meta; }
-        [[nodiscard]] TimeSeriesKind ts_kind() const;  // Defined after TimeSeriesKind is complete
+        [[nodiscard]] const TSMeta* ts_meta() const { return _ts_meta; }
+        [[nodiscard]] TSKind ts_kind() const;  // Defined after TSKind is complete
 
         // === Path tracking (for REF creation) ===
         [[nodiscard]] const ValuePath& path() const { return _path; }
@@ -345,18 +345,18 @@ namespace hgraph::value {
         // Returns sub-view. If no specific child observer exists, we pass the parent
         // observer so that notifications still propagate up through the hierarchy.
         // Also propagates ts_meta (field metadata) and extends path.
-        [[nodiscard]] TimeSeriesValueView field(size_t index) {
+        [[nodiscard]] TSView field(size_t index) {
             if (!valid() || kind() != TypeKind::Bundle) {
                 return {};
             }
             ObserverStorage* child_observer = _observer ? _observer->child(index) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            const TimeSeriesTypeMeta* field_meta = _ts_meta ? field_meta_at(index) : nullptr;
+            const TSMeta* field_meta = _ts_meta ? field_meta_at(index) : nullptr;
             return {_value_view.field(index), _tracker.field(index), effective_observer,
                     field_meta, _path.with(index)};
         }
 
-        [[nodiscard]] TimeSeriesValueView field(const std::string& name) {
+        [[nodiscard]] TSView field(const std::string& name) {
             if (!valid() || kind() != TypeKind::Bundle) {
                 return {};
             }
@@ -375,7 +375,7 @@ namespace hgraph::value {
                 }
             }
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            const TimeSeriesTypeMeta* field_meta = _ts_meta ? field_meta_at(field_index) : nullptr;
+            const TSMeta* field_meta = _ts_meta ? field_meta_at(field_index) : nullptr;
             return {field_view, field_tracker, effective_observer, field_meta, _path.with(field_index)};
         }
 
@@ -389,13 +389,13 @@ namespace hgraph::value {
 
         // === List element navigation ===
         // Also propagates ts_meta (element metadata) and extends path.
-        [[nodiscard]] TimeSeriesValueView element(size_t index) {
+        [[nodiscard]] TSView element(size_t index) {
             if (!valid() || kind() != TypeKind::List) {
                 return {};
             }
             ObserverStorage* child_observer = _observer ? _observer->child(index) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            const TimeSeriesTypeMeta* elem_meta = _ts_meta ? element_meta_at() : nullptr;
+            const TSMeta* elem_meta = _ts_meta ? element_meta_at() : nullptr;
             return {_value_view.element(index), _tracker.element(index), effective_observer,
                     elem_meta, _path.with(index)};
         }
@@ -476,7 +476,7 @@ namespace hgraph::value {
         // Dict entry navigation - returns sub-view for a specific entry
         // Also propagates ts_meta (value metadata) and extends path.
         template<typename K>
-        [[nodiscard]] TimeSeriesValueView entry(const K& key) {
+        [[nodiscard]] TSView entry(const K& key) {
             if (!valid() || kind() != TypeKind::Dict) {
                 return {};
             }
@@ -491,7 +491,7 @@ namespace hgraph::value {
             }
             ObserverStorage* child_observer = _observer ? _observer->child(*idx) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            const TimeSeriesTypeMeta* value_meta = _ts_meta ? value_meta_at() : nullptr;
+            const TSMeta* value_meta = _ts_meta ? value_meta_at() : nullptr;
             return {entry_view, _tracker, effective_observer, value_meta, _path.with(*idx)};
         }
 
@@ -514,7 +514,7 @@ namespace hgraph::value {
 
         // Dict entry navigation using ConstValueView as key
         // Also propagates ts_meta (value metadata) and extends path.
-        [[nodiscard]] TimeSeriesValueView entry(ConstValueView key) {
+        [[nodiscard]] TSView entry(ConstValueView key) {
             if (!valid() || kind() != TypeKind::Dict || !key.valid()) {
                 return {};
             }
@@ -528,7 +528,7 @@ namespace hgraph::value {
             }
             ObserverStorage* child_observer = _observer ? _observer->child(*idx) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
-            const TimeSeriesTypeMeta* valu_meta = _ts_meta ? value_meta_at() : nullptr;
+            const TSMeta* valu_meta = _ts_meta ? value_meta_at() : nullptr;
             return {entry_view, _tracker, effective_observer, valu_meta, _path.with(*idx)};
         }
 
@@ -556,7 +556,7 @@ namespace hgraph::value {
          * enabling subscriptions at this level.
          * Also propagates ts_meta (field metadata) and extends path.
          */
-        [[nodiscard]] TimeSeriesValueView field_with_observer(size_t index) {
+        [[nodiscard]] TSView field_with_observer(size_t index) {
             if (!valid() || kind() != TypeKind::Bundle) {
                 return {};
             }
@@ -565,11 +565,11 @@ namespace hgraph::value {
                 return {};
             }
             ObserverStorage* child_observer = ensure_child_observer(index, field_value.schema());
-            const TimeSeriesTypeMeta* field_meta = _ts_meta ? field_meta_at(index) : nullptr;
+            const TSMeta* field_meta = _ts_meta ? field_meta_at(index) : nullptr;
             return {field_value, _tracker.field(index), child_observer, field_meta, _path.with(index)};
         }
 
-        [[nodiscard]] TimeSeriesValueView field_with_observer(const std::string& name) {
+        [[nodiscard]] TSView field_with_observer(const std::string& name) {
             if (!valid() || kind() != TypeKind::Bundle) {
                 return {};
             }
@@ -585,7 +585,7 @@ namespace hgraph::value {
          * Navigate to an element with child observer ensured.
          * Also propagates ts_meta (element metadata) and extends path.
          */
-        [[nodiscard]] TimeSeriesValueView element_with_observer(size_t index) {
+        [[nodiscard]] TSView element_with_observer(size_t index) {
             if (!valid() || kind() != TypeKind::List) {
                 return {};
             }
@@ -594,7 +594,7 @@ namespace hgraph::value {
                 return {};
             }
             ObserverStorage* child_observer = ensure_child_observer(index, elem_value.schema());
-            const TimeSeriesTypeMeta* elem_meta = _ts_meta ? element_meta_at() : nullptr;
+            const TSMeta* elem_meta = _ts_meta ? element_meta_at() : nullptr;
             return {elem_value, _tracker.element(index), child_observer, elem_meta, _path.with(index)};
         }
 
@@ -604,7 +604,7 @@ namespace hgraph::value {
          * Uses ConstValueView for type-safe key passing.
          * Also propagates ts_meta (value metadata) and extends path.
          */
-        [[nodiscard]] TimeSeriesValueView entry_with_observer(ConstValueView key) {
+        [[nodiscard]] TSView entry_with_observer(ConstValueView key) {
             if (!valid() || kind() != TypeKind::Dict || !key.valid()) {
                 return {};
             }
@@ -618,7 +618,7 @@ namespace hgraph::value {
             }
             auto* dict_meta = static_cast<const DictTypeMeta*>(schema());
             ObserverStorage* child_observer = ensure_child_observer(*idx, dict_meta->value_type);
-            const TimeSeriesTypeMeta* valu_meta = _ts_meta ? value_meta_at() : nullptr;
+            const TSMeta* valu_meta = _ts_meta ? value_meta_at() : nullptr;
             return {entry_view, _tracker, child_observer, valu_meta, _path.with(*idx)};
         }
 
@@ -757,7 +757,7 @@ namespace hgraph::value {
         }
 
         // Ref navigation for unbound refs
-        [[nodiscard]] TimeSeriesValueView ref_item(size_t index) {
+        [[nodiscard]] TSView ref_item(size_t index) {
             if (!valid() || kind() != TypeKind::Ref || !ref_is_unbound()) {
                 return {};
             }
@@ -835,17 +835,17 @@ namespace hgraph::value {
         ValueView _value_view;
         ModificationTracker _tracker;
         ObserverStorage* _observer{nullptr};
-        const TimeSeriesTypeMeta* _ts_meta{nullptr};  // Optional TS type metadata
+        const TSMeta* _ts_meta{nullptr};  // Optional TS type metadata
         ValuePath _path;  // Path from root TSOutput (for REF creation)
 
-        // Helper methods for navigation - defined in ts_output.h where TimeSeriesTypeMeta is complete
-        [[nodiscard]] const TimeSeriesTypeMeta* field_meta_at(size_t index) const;
-        [[nodiscard]] const TimeSeriesTypeMeta* element_meta_at() const;
-        [[nodiscard]] const TimeSeriesTypeMeta* value_meta_at() const;
+        // Helper methods for navigation - defined in ts_output.h where TSMeta is complete
+        [[nodiscard]] const TSMeta* field_meta_at(size_t index) const;
+        [[nodiscard]] const TSMeta* element_meta_at() const;
+        [[nodiscard]] const TSMeta* value_meta_at() const;
     };
 
     /**
-     * TimeSeriesValue - Owning container for time-series value
+     * TSValue - Owning container for time-series value
      *
      * Combines Value (data storage) with ModificationTrackerStorage
      * (modification tracking) into a unified time-series value.
@@ -856,18 +856,18 @@ namespace hgraph::value {
      * - Hierarchical propagation (field change → bundle modified)
      * - Observer/notification support (lazy allocation)
      */
-    class TimeSeriesValue {
+    class TSValue {
     public:
-        TimeSeriesValue() = default;
+        TSValue() = default;
 
-        explicit TimeSeriesValue(const TypeMeta* schema)
+        explicit TSValue(const TypeMeta* schema)
             : _value(schema), _tracker(schema) {}
 
         // Move only
-        TimeSeriesValue(TimeSeriesValue&&) noexcept = default;
-        TimeSeriesValue& operator=(TimeSeriesValue&&) noexcept = default;
-        TimeSeriesValue(const TimeSeriesValue&) = delete;
-        TimeSeriesValue& operator=(const TimeSeriesValue&) = delete;
+        TSValue(TSValue&&) noexcept = default;
+        TSValue& operator=(TSValue&&) noexcept = default;
+        TSValue(const TSValue&) = delete;
+        TSValue& operator=(const TSValue&) = delete;
 
         // Schema access
         [[nodiscard]] const TypeMeta* schema() const { return _value.schema(); }
@@ -895,7 +895,7 @@ namespace hgraph::value {
         }
 
         // Mutable access - returns view without stored time
-        [[nodiscard]] TimeSeriesValueView view() {
+        [[nodiscard]] TSView view() {
             return {_value.view(), _tracker.tracker(), _observers.get()};
         }
 
@@ -975,6 +975,10 @@ namespace hgraph::value {
         ModificationTrackerStorage _tracker;
         std::unique_ptr<ObserverStorage> _observers;  // Lazy: nullptr until first subscribe
     };
+
+    // Alias for backward compatibility
+    using TimeSeriesValueView = TSView;
+    using TimeSeriesValue = TSValue;
 
 } // namespace hgraph::value
 

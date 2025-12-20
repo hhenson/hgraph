@@ -16,7 +16,7 @@ namespace hgraph {
             // Do NOT replace the inner node's output pointer.
             // TODO: Needs proper bundle field navigation
             auto* output_ptr = output();
-            if (output_ptr && output_ptr->meta() && output_ptr->meta()->ts_kind == TimeSeriesKind::TSB) {
+            if (output_ptr && output_ptr->meta() && output_ptr->meta()->ts_kind == TSKind::TSB) {
                 // Bundle case - need to navigate to 'out' field
                 // TODO: Implement bundle field access via view navigation
             } else {
@@ -46,7 +46,7 @@ namespace hgraph {
             auto eval_time = graph()->evaluation_time();
 
             auto* output_ptr = output();
-            if (output_ptr && output_ptr->meta() && output_ptr->meta()->ts_kind == TimeSeriesKind::TSB) {
+            if (output_ptr && output_ptr->meta() && output_ptr->meta()->ts_kind == TSKind::TSB) {
                 // Bundle case - write to 'exception' field
                 // TODO: Implement bundle field access via view navigation
                 // For now, try setting on the whole output

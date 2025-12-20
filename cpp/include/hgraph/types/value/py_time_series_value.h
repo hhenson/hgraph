@@ -1,8 +1,8 @@
 //
 // Created by Claude on 20/12/2025.
 //
-// Python wrapper for the hgraph TimeSeriesValue class.
-// Exposes TimeSeriesValue as HgTimeSeriesValue to Python for testing.
+// Python wrapper for the hgraph TSValue class.
+// Exposes TSValue as HgTSValue to Python for testing.
 //
 
 #ifndef HGRAPH_VALUE_PY_TIME_SERIES_VALUE_H
@@ -23,8 +23,8 @@ namespace nb = nanobind;
 namespace hgraph::value {
 
     // Forward declarations
-    class PyHgTimeSeriesValue;
-    class PyHgTimeSeriesValueView;
+    class PyHgTSValue;
+    class PyHgTSView;
 
     /**
      * CallableNotifiable - Internal wrapper for Python callables as Notifiable
@@ -51,7 +51,7 @@ namespace hgraph::value {
     /**
      * SubscriptionManager - Manages lifetime of CallableNotifiable wrappers
      *
-     * Shared between PyHgTimeSeriesValue and its views to ensure proper cleanup.
+     * Shared between PyHgTSValue and its views to ensure proper cleanup.
      */
     class SubscriptionManager {
     public:
@@ -117,21 +117,21 @@ namespace hgraph::value {
     };
 
     /**
-     * PyHgTimeSeriesValueView - Fluent view for navigating and subscribing to time-series values
+     * PyHgTSView - Fluent view for navigating and subscribing to time-series values
      *
      * Provides a fluent API for hierarchical navigation and subscription:
      *   ts_value.view().field(0).subscribe(callback)
      *   ts_value.view().field("name").set_value("Alice", time=T100)
      *   ts_value.view().key("a").subscribe(callback)
      *
-     * Views maintain a reference to the owning PyHgTimeSeriesValue for subscription management.
+     * Views maintain a reference to the owning PyHgTSValue for subscription management.
      */
-    class PyHgTimeSeriesValueView {
+    class PyHgTSView {
     public:
-        PyHgTimeSeriesValueView() = default;
+        PyHgTSView() = default;
 
         // Construct with view, observer, and subscription manager
-        PyHgTimeSeriesValueView(TimeSeriesValueView view, ObserverStorage* observer,
+        PyHgTSView(TSView view, ObserverStorage* observer,
                                  std::shared_ptr<SubscriptionManager> sub_mgr)
             : _view(view), _observer(observer), _sub_mgr(std::move(sub_mgr)) {}
 
@@ -188,7 +188,7 @@ namespace hgraph::value {
         // Navigation - Bundle fields (fluent API)
         // =========================================================================
 
-        [[nodiscard]] PyHgTimeSeriesValueView field(size_t index) {
+        [[nodiscard]] PyHgTSView field(size_t index) {
             if (!valid() || kind() != TypeKind::Bundle) {
                 throw std::runtime_error("field() requires a valid Bundle type");
             }
@@ -201,7 +201,7 @@ namespace hgraph::value {
             return {field_view, field_view.observer(), _sub_mgr};
         }
 
-        [[nodiscard]] PyHgTimeSeriesValueView field(const std::string& name) {
+        [[nodiscard]] PyHgTSView field(const std::string& name) {
             if (!valid() || kind() != TypeKind::Bundle) {
                 throw std::runtime_error("field() requires a valid Bundle type");
             }
@@ -218,7 +218,7 @@ namespace hgraph::value {
         // Navigation - List elements (fluent API)
         // =========================================================================
 
-        [[nodiscard]] PyHgTimeSeriesValueView element(size_t index) {
+        [[nodiscard]] PyHgTSView element(size_t index) {
             if (!valid() || kind() != TypeKind::List) {
                 throw std::runtime_error("element() requires a valid List type");
             }
@@ -235,7 +235,7 @@ namespace hgraph::value {
         // Navigation - Dict entries (fluent API with Python key)
         // =========================================================================
 
-        [[nodiscard]] PyHgTimeSeriesValueView key(nb::object py_key) {
+        [[nodiscard]] PyHgTSView key(nb::object py_key) {
             if (!valid() || kind() != TypeKind::Dict) {
                 throw std::runtime_error("key() requires a valid Dict type");
             }
@@ -270,7 +270,7 @@ namespace hgraph::value {
         // Subscription (fluent API)
         // =========================================================================
 
-        PyHgTimeSeriesValueView& subscribe(nb::callable callback) {
+        PyHgTSView& subscribe(nb::callable callback) {
             if (!valid()) {
                 throw std::runtime_error("Cannot subscribe on invalid view");
             }
@@ -285,7 +285,7 @@ namespace hgraph::value {
             return *this;
         }
 
-        PyHgTimeSeriesValueView& unsubscribe(nb::callable callback) {
+        PyHgTSView& unsubscribe(nb::callable callback) {
             if (!valid() || !_observer || !callback) {
                 return *this;
             }
@@ -331,15 +331,15 @@ namespace hgraph::value {
         }
 
     private:
-        TimeSeriesValueView _view;
+        TSView _view;
         ObserverStorage* _observer{nullptr};
         std::shared_ptr<SubscriptionManager> _sub_mgr;
     };
 
     /**
-     * PyHgTimeSeriesValue - Python wrapper for the TimeSeriesValue class
+     * PyHgTSValue - Python wrapper for the TSValue class
      *
-     * Provides a Python-accessible wrapper around the TimeSeriesValue class,
+     * Provides a Python-accessible wrapper around the TSValue class,
      * which combines Value storage with modification tracking.
      *
      * Key features:
@@ -349,7 +349,7 @@ namespace hgraph::value {
      *
      * Example Python usage:
      *   schema = _hgraph.get_scalar_type_meta(int)
-     *   ts_value = _hgraph.HgTimeSeriesValue(schema)
+     *   ts_value = _hgraph.HgTSValue(schema)
      *
      *   # Set value with time
      *   ts_value.set_value(42, time=T100)
@@ -359,22 +359,22 @@ namespace hgraph::value {
      *   ts_value.view().field(0).subscribe(callback)  # Subscribe at field level
      *   ts_value.view().field("name").set_value("Alice", time=T100)
      */
-    class PyHgTimeSeriesValue {
+    class PyHgTSValue {
     public:
         // Default constructor - invalid value
-        PyHgTimeSeriesValue() : _sub_mgr(std::make_shared<SubscriptionManager>()) {}
+        PyHgTSValue() : _sub_mgr(std::make_shared<SubscriptionManager>()) {}
 
         // Construct from schema - allocates and default-constructs value
-        explicit PyHgTimeSeriesValue(const TypeMeta* schema)
+        explicit PyHgTSValue(const TypeMeta* schema)
             : _ts_value(schema), _sub_mgr(std::make_shared<SubscriptionManager>()) {}
 
         // Move constructor
-        PyHgTimeSeriesValue(PyHgTimeSeriesValue&&) = default;
-        PyHgTimeSeriesValue& operator=(PyHgTimeSeriesValue&&) = default;
+        PyHgTSValue(PyHgTSValue&&) = default;
+        PyHgTSValue& operator=(PyHgTSValue&&) = default;
 
-        // No copy - TimeSeriesValue is move-only
-        PyHgTimeSeriesValue(const PyHgTimeSeriesValue&) = delete;
-        PyHgTimeSeriesValue& operator=(const PyHgTimeSeriesValue&) = delete;
+        // No copy - TSValue is move-only
+        PyHgTSValue(const PyHgTSValue&) = delete;
+        PyHgTSValue& operator=(const PyHgTSValue&) = delete;
 
         // =========================================================================
         // Basic properties
@@ -424,7 +424,7 @@ namespace hgraph::value {
 
         void set_value(nb::object py_obj, engine_time_t time) {
             if (!valid()) {
-                throw std::runtime_error("Cannot set value on invalid HgTimeSeriesValue");
+                throw std::runtime_error("Cannot set value on invalid HgTSValue");
             }
             if (py_obj.is_none()) {
                 return;
@@ -446,9 +446,9 @@ namespace hgraph::value {
          *   ts_value.view().field(0).subscribe(callback)  # Field subscription
          *   ts_value.view().field("x").set_value(42, time=T100)
          */
-        [[nodiscard]] PyHgTimeSeriesValueView view() {
+        [[nodiscard]] PyHgTSView view() {
             if (!valid()) {
-                throw std::runtime_error("Cannot get view of invalid HgTimeSeriesValue");
+                throw std::runtime_error("Cannot get view of invalid HgTSValue");
             }
 
             // Ensure observer storage exists
@@ -468,7 +468,7 @@ namespace hgraph::value {
 
         [[nodiscard]] bool field_modified_at(size_t index, engine_time_t time) const {
             if (!valid() || kind() != TypeKind::Bundle) return false;
-            return const_cast<TimeSeriesValue&>(_ts_value).view().field_modified_at(index, time);
+            return const_cast<TSValue&>(_ts_value).view().field_modified_at(index, time);
         }
 
         [[nodiscard]] nb::object get_field(size_t index) const {
@@ -518,7 +518,7 @@ namespace hgraph::value {
 
         [[nodiscard]] bool element_modified_at(size_t index, engine_time_t time) const {
             if (!valid() || kind() != TypeKind::List) return false;
-            return const_cast<TimeSeriesValue&>(_ts_value).view().element_modified_at(index, time);
+            return const_cast<TSValue&>(_ts_value).view().element_modified_at(index, time);
         }
 
         [[nodiscard]] nb::object get_element(size_t index) const {
@@ -586,11 +586,11 @@ namespace hgraph::value {
         }
 
         // =========================================================================
-        // Access to underlying TimeSeriesValue
+        // Access to underlying TSValue
         // =========================================================================
 
-        [[nodiscard]] TimeSeriesValue& ts_value() { return _ts_value; }
-        [[nodiscard]] const TimeSeriesValue& ts_value() const { return _ts_value; }
+        [[nodiscard]] TSValue& ts_value() { return _ts_value; }
+        [[nodiscard]] const TSValue& ts_value() const { return _ts_value; }
 
     private:
         void ensure_observers() {
@@ -605,12 +605,12 @@ namespace hgraph::value {
             }
         }
 
-        TimeSeriesValue _ts_value;
+        TSValue _ts_value;
         std::shared_ptr<SubscriptionManager> _sub_mgr;
     };
 
     /**
-     * Register PyHgTimeSeriesValue and PyHgTimeSeriesValueView with nanobind
+     * Register PyHgTSValue and PyHgTSView with nanobind
      */
     void register_py_time_series_value_with_nanobind(nb::module_& m);
 

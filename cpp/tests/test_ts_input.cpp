@@ -30,9 +30,9 @@ inline engine_time_t make_time(int64_t us) {
 namespace {
 
 // Simple TS[int] metadata for testing
-struct TestTSIntMeta : TSTypeMeta {
+struct TestTSIntMeta : TSValueMeta {
     TestTSIntMeta() {
-        ts_kind = TimeSeriesKind::TS;
+        ts_kind = TSKind::TS;
         name = "TS[int]";
         scalar_type = scalar_type_meta<int>();
     }
@@ -45,9 +45,9 @@ struct TestTSIntMeta : TSTypeMeta {
 };
 
 // Simple TS[string] metadata for testing
-struct TestTSStringMeta : TSTypeMeta {
+struct TestTSStringMeta : TSValueMeta {
     TestTSStringMeta() {
-        ts_kind = TimeSeriesKind::TS;
+        ts_kind = TSKind::TS;
         name = "TS[string]";
         scalar_type = scalar_type_meta<std::string>();
     }
@@ -64,7 +64,7 @@ struct TestREFTSIntMeta : REFTypeMeta {
     TestTSIntMeta inner_meta;
 
     TestREFTSIntMeta() {
-        ts_kind = TimeSeriesKind::REF;
+        ts_kind = TSKind::REF;
         name = "REF[TS[int]]";
         value_ts_type = &inner_meta;
     }
@@ -81,7 +81,7 @@ struct TestTSLMeta : TSLTypeMeta {
     TestTSIntMeta element_meta_instance;
 
     TestTSLMeta() {
-        ts_kind = TimeSeriesKind::TSL;
+        ts_kind = TSKind::TSL;
         name = "TSL[TS[int], Size[2]]";
         element_ts_type = &element_meta_instance;
         size = 2;
@@ -100,7 +100,7 @@ struct TestTSBMeta : TSBTypeMeta {
     TestTSStringMeta y_meta;
 
     TestTSBMeta() {
-        ts_kind = TimeSeriesKind::TSB;
+        ts_kind = TSKind::TSB;
         name = "TSB[x: TS[int], y: TS[string]]";
         fields = {
             {"x", &x_meta},
@@ -120,7 +120,7 @@ struct TestTSLOfRefMeta : TSLTypeMeta {
     TestREFTSIntMeta element_meta_instance;
 
     TestTSLOfRefMeta() {
-        ts_kind = TimeSeriesKind::TSL;
+        ts_kind = TSKind::TSL;
         name = "TSL[REF[TS[int]], Size[2]]";
         element_ts_type = &element_meta_instance;
         size = 2;
@@ -138,7 +138,7 @@ struct TestREFTSLMeta : REFTypeMeta {
     TestTSLMeta inner_meta;
 
     TestREFTSLMeta() {
-        ts_kind = TimeSeriesKind::REF;
+        ts_kind = TSKind::REF;
         name = "REF[TSL[TS[int], Size[2]]]";
         value_ts_type = &inner_meta;
     }
@@ -155,7 +155,7 @@ struct TestTSDMeta : TSDTypeMeta {
     TestTSIntMeta value_meta_instance;
 
     TestTSDMeta() {
-        ts_kind = TimeSeriesKind::TSD;
+        ts_kind = TSKind::TSD;
         name = "TSD[str, TS[int]]";
         key_type = scalar_type_meta<std::string>();
         value_ts_type = &value_meta_instance;
@@ -173,7 +173,7 @@ struct TestTSDOfRefTSLMeta : TSDTypeMeta {
     TestREFTSLMeta value_meta_instance;
 
     TestTSDOfRefTSLMeta() {
-        ts_kind = TimeSeriesKind::TSD;
+        ts_kind = TSKind::TSD;
         name = "TSD[str, REF[TSL[TS[int], Size[2]]]]";
         key_type = scalar_type_meta<std::string>();
         value_ts_type = &value_meta_instance;
@@ -191,7 +191,7 @@ struct TestTSDOfTSLMeta : TSDTypeMeta {
     TestTSLMeta value_meta_instance;
 
     TestTSDOfTSLMeta() {
-        ts_kind = TimeSeriesKind::TSD;
+        ts_kind = TSKind::TSD;
         name = "TSD[str, TSL[TS[int], Size[2]]]";
         key_type = scalar_type_meta<std::string>();
         value_ts_type = &value_meta_instance;
@@ -209,7 +209,7 @@ struct TestTSDOfTSLOfRefMeta : TSDTypeMeta {
     TestTSLOfRefMeta value_meta_instance;
 
     TestTSDOfTSLOfRefMeta() {
-        ts_kind = TimeSeriesKind::TSD;
+        ts_kind = TSKind::TSD;
         name = "TSD[str, TSL[REF[TS[int]], Size[2]]]";
         key_type = scalar_type_meta<std::string>();
         value_ts_type = &value_meta_instance;
@@ -262,7 +262,7 @@ TEST_CASE("TSOutput - creation and basic properties", "[ts][output]") {
 
     REQUIRE(output.valid());
     REQUIRE(output.meta() == &g_ts_int_meta);
-    REQUIRE(output.ts_kind() == TimeSeriesKind::TS);
+    REQUIRE(output.ts_kind() == TSKind::TS);
     REQUIRE_FALSE(output.has_value());
 }
 
@@ -305,7 +305,7 @@ TEST_CASE("TSInput - creation and basic properties", "[ts][input]") {
 
     REQUIRE(input.valid());
     REQUIRE(input.meta() == &g_ts_int_meta);
-    REQUIRE(input.ts_kind() == TimeSeriesKind::TS);
+    REQUIRE(input.ts_kind() == TSKind::TS);
     REQUIRE_FALSE(input.bound());
     REQUIRE_FALSE(input.active());
 }
@@ -892,7 +892,7 @@ TEST_CASE("copy_from_view - schema mismatch returns false", "[ts][copy][error]")
     TSOutput dest(&g_ts_string_meta, nullptr);
     auto time2 = make_time(2000);
 
-    // Get source as ConstValueView - source.view() is a TimeSeriesValueView
+    // Get source as ConstValueView - source.view() is a TSView
     // and value_view() returns the inner ValueView
     auto ts_view = source.view();
     auto source_view = ts_view.value_view();
@@ -935,7 +935,7 @@ TEST_CASE("copy_from_output_view - invalid view returns false", "[ts][copy][erro
     auto time = make_time(1000);
 
     // Create an invalid output view (default constructed)
-    value::TimeSeriesValueView invalid_view;
+    value::TSView invalid_view;
 
     bool result = copy_from_output_view(&dest, invalid_view, time);
 

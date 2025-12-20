@@ -25,8 +25,8 @@ namespace hgraph {
                    graph_builder_s_ptr default_graph_builder = nullptr,
                    const std::unordered_map<std::string, int> &default_input_node_ids = {},
                    int default_output_node_id = -1,
-                   const TimeSeriesTypeMeta* input_meta = nullptr, const TimeSeriesTypeMeta* output_meta = nullptr,
-                   const TimeSeriesTypeMeta* error_output_meta = nullptr, const TimeSeriesTypeMeta* recordable_state_meta = nullptr);
+                   const TSMeta* input_meta = nullptr, const TSMeta* output_meta = nullptr,
+                   const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         void initialise() override;
 

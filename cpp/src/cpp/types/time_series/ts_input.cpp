@@ -117,7 +117,7 @@ TSInputView TSInputView::field(size_t index) const {
 }
 
 TSInputView TSInputView::field(const std::string& name) const {
-    if (!valid() || !_meta || _meta->ts_kind != TimeSeriesKind::TSB) {
+    if (!valid() || !_meta || _meta->ts_kind != TSKind::TSB) {
         return {};
     }
 
@@ -151,7 +151,7 @@ TSInputView TSInputView::element(size_t index) const {
 }
 
 size_t TSInput::field_count_from_meta() const {
-    if (!_meta || _meta->ts_kind != TimeSeriesKind::TSB) {
+    if (!_meta || _meta->ts_kind != TSKind::TSB) {
         return 0;
     }
     auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
@@ -167,7 +167,7 @@ TSInputBindableView TSInput::field(size_t index) const {
         return {};  // Invalid view
     }
 
-    const TimeSeriesTypeMeta* field_meta = tsb_meta->fields[index].type;
+    const TSMeta* field_meta = tsb_meta->fields[index].type;
     return TSInputBindableView(const_cast<TSInput*>(this), {index}, field_meta);
 }
 
@@ -180,7 +180,7 @@ TSInputBindableView TSInput::field(const std::string& name) const {
     // Find field by name
     for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
         if (tsb_meta->fields[i].name == name) {
-            const TimeSeriesTypeMeta* field_meta = tsb_meta->fields[i].type;
+            const TSMeta* field_meta = tsb_meta->fields[i].type;
             return TSInputBindableView(const_cast<TSInput*>(this), {i}, field_meta);
         }
     }
@@ -219,14 +219,14 @@ CollectionAccessStrategy* TSInput::ensure_collection_strategy_at_path(const std:
 
     // Start from root collection strategy
     CollectionAccessStrategy* current = ensure_collection_strategy();
-    const TimeSeriesTypeMeta* current_meta = _meta;
+    const TSMeta* current_meta = _meta;
 
     // Walk the path, creating CollectionAccessStrategies as needed
     for (size_t depth = 0; depth < path.size(); ++depth) {
         size_t index = path[depth];
 
         // Get metadata for this level
-        if (!current_meta || current_meta->ts_kind != TimeSeriesKind::TSB) {
+        if (!current_meta || current_meta->ts_kind != TSKind::TSB) {
             throw std::runtime_error(
                 fmt::format("Path navigation error at depth {}: expected bundle type", depth));
         }
@@ -237,7 +237,7 @@ CollectionAccessStrategy* TSInput::ensure_collection_strategy_at_path(const std:
                             depth, index, tsb_meta->fields.size() - 1));
         }
 
-        const TimeSeriesTypeMeta* field_meta = tsb_meta->fields[index].type;
+        const TSMeta* field_meta = tsb_meta->fields[index].type;
 
         // Get or create child strategy at this index
         AccessStrategy* child = current->child(index);
@@ -246,7 +246,7 @@ CollectionAccessStrategy* TSInput::ensure_collection_strategy_at_path(const std:
             // Create a CollectionAccessStrategy for this field (if it's a bundle)
             if (depth < path.size() - 1) {
                 // Not the last element - need a collection for further navigation
-                if (!field_meta || field_meta->ts_kind != TimeSeriesKind::TSB) {
+                if (!field_meta || field_meta->ts_kind != TSKind::TSB) {
                     throw std::runtime_error(
                         fmt::format("Path navigation error at depth {}: expected bundle type for nested navigation",
                                     depth));
@@ -284,7 +284,7 @@ TSInputBindableView::TSInputBindableView(TSInput* root)
     : _root(root)
     , _meta(root ? root->meta() : nullptr) {}
 
-TSInputBindableView::TSInputBindableView(TSInput* root, std::vector<size_t> path, const TimeSeriesTypeMeta* meta)
+TSInputBindableView::TSInputBindableView(TSInput* root, std::vector<size_t> path, const TSMeta* meta)
     : _root(root)
     , _path(std::move(path))
     , _meta(meta) {}
@@ -294,7 +294,7 @@ TSInputBindableView TSInputBindableView::field(size_t index) const {
         return {};
     }
 
-    if (!_meta || _meta->ts_kind != TimeSeriesKind::TSB) {
+    if (!_meta || _meta->ts_kind != TSKind::TSB) {
         return {};  // Not a bundle type
     }
 
@@ -315,7 +315,7 @@ TSInputBindableView TSInputBindableView::field(const std::string& name) const {
         return {};
     }
 
-    if (!_meta || _meta->ts_kind != TimeSeriesKind::TSB) {
+    if (!_meta || _meta->ts_kind != TSKind::TSB) {
         return {};  // Not a bundle type
     }
 
@@ -352,7 +352,7 @@ void TSInputBindableView::bind(TSOutput* output) {
     CollectionAccessStrategy* parent_strategy = _root->ensure_collection_strategy_at_path(parent_path);
 
     // Build a child strategy for binding to the output
-    const TimeSeriesTypeMeta* output_meta = output ? output->meta() : nullptr;
+    const TSMeta* output_meta = output ? output->meta() : nullptr;
     auto child_strategy = build_access_strategy(_meta, output_meta, _root);
 
     if (output) {

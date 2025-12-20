@@ -118,7 +118,7 @@ namespace hgraph {
      * Helper function to construct an object either in-place (arena allocation) or on the heap.
      * This reduces duplication in make_instance methods.
      *
-     * @tparam ConcreteType The concrete type to construct (e.g., TimeSeriesValueInput<T>)
+     * @tparam ConcreteType The concrete type to construct (e.g., TSValueInput<T>)
      * @tparam BaseType The base type to cast to (e.g., TimeSeriesInput)
      * @tparam Args Constructor argument types
      * @param buffer Arena buffer (nullptr for heap allocation)

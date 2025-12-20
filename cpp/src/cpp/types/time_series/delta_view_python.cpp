@@ -104,7 +104,7 @@ static nb::object set_delta_to_python(const DeltaView& view) {
 
     // Get the set meta for element type
     auto* meta = view.meta();
-    if (!meta || meta->ts_kind != TimeSeriesKind::TSS) return nb::none();
+    if (!meta || meta->ts_kind != TSKind::TSS) return nb::none();
     auto* tss_meta = static_cast<const TSSTypeMeta*>(meta);
     auto* element_type = tss_meta->element_type;
 
@@ -157,13 +157,13 @@ static nb::object dict_delta_to_python(const DeltaView& view) {
 
     // Get the dict meta for key/value types
     auto* meta = view.meta();
-    if (!meta || meta->ts_kind != TimeSeriesKind::TSD) return nb::none();
+    if (!meta || meta->ts_kind != TSKind::TSD) return nb::none();
     auto* tsd_meta = static_cast<const TSDTypeMeta*>(meta);
     auto* key_type = tsd_meta->key_type;
     auto* value_ts_meta = tsd_meta->value_ts_type;
 
     // Get the value schema from the value TS meta
-    // For TSD[K, TS[V]], value_ts_meta is TSTypeMeta with scalar_type pointing to V
+    // For TSD[K, TS[V]], value_ts_meta is TSValueMeta with scalar_type pointing to V
     auto* value_schema = value_ts_meta->value_schema();
     if (!value_schema) return nb::none();
 
@@ -217,17 +217,17 @@ static nb::object delta_to_python_impl(const DeltaView& view) {
     if (!view.valid()) return nb::none();
 
     switch (view.ts_kind()) {
-        case TimeSeriesKind::TS:
+        case TSKind::TS:
             return scalar_delta_to_python(view);
-        case TimeSeriesKind::TSB:
+        case TSKind::TSB:
             return bundle_delta_to_python(view);
-        case TimeSeriesKind::TSL:
+        case TSKind::TSL:
             return list_delta_to_python(view);
-        case TimeSeriesKind::TSS:
+        case TSKind::TSS:
             return set_delta_to_python(view);
-        case TimeSeriesKind::TSD:
+        case TSKind::TSD:
             return dict_delta_to_python(view);
-        case TimeSeriesKind::REF:
+        case TSKind::REF:
             return ref_delta_to_python(view);
         default:
             // For signal and other types, return the value

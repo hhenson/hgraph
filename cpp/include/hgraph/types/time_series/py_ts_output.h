@@ -1,7 +1,7 @@
 //
 // Created by Claude on 20/12/2025.
 //
-// Python wrapper for TSOutput and TimeSeriesValueView.
+// Python wrapper for TSOutput and TSView.
 // Exposes TSOutput functionality to Python for testing.
 //
 
@@ -103,7 +103,7 @@ private:
 };
 
 /**
- * PyTSOutputView - Python wrapper for TimeSeriesValueView
+ * PyTSOutputView - Python wrapper for TSView
  *
  * Provides fluent navigation API and value access with explicit time parameters.
  * Supports hierarchical subscriptions at any navigation level.
@@ -113,25 +113,25 @@ public:
     PyTSOutputView() = default;
 
     // Full constructor with observer and subscription manager
-    PyTSOutputView(value::TimeSeriesValueView view,
+    PyTSOutputView(value::TSView view,
                    value::ObserverStorage* observer,
                    std::shared_ptr<SubscriptionManagerForOutput> sub_mgr)
         : _view(std::move(view)), _observer(observer), _sub_mgr(std::move(sub_mgr)) {}
 
     // Constructor without observer (for backward compatibility, subscriptions won't work)
-    explicit PyTSOutputView(value::TimeSeriesValueView view)
+    explicit PyTSOutputView(value::TSView view)
         : _view(std::move(view)), _observer(nullptr), _sub_mgr(nullptr) {}
 
     // === Validity and type queries ===
     [[nodiscard]] bool valid() const { return _view.valid(); }
 
-    [[nodiscard]] const TimeSeriesTypeMeta* meta() const { return _view.ts_meta(); }
+    [[nodiscard]] const TSMeta* meta() const { return _view.ts_meta(); }
 
     [[nodiscard]] const value::TypeMeta* value_schema() const { return _view.value_schema(); }
 
     [[nodiscard]] value::TypeKind kind() const { return _view.kind(); }
 
-    [[nodiscard]] TimeSeriesKind ts_kind() const { return _view.ts_kind(); }
+    [[nodiscard]] TSKind ts_kind() const { return _view.ts_kind(); }
 
     [[nodiscard]] std::string type_name() const {
         if (auto* m = meta()) {
@@ -345,11 +345,11 @@ public:
     }
 
     // Access underlying view for internal use
-    value::TimeSeriesValueView& underlying() { return _view; }
-    const value::TimeSeriesValueView& underlying() const { return _view; }
+    value::TSView& underlying() { return _view; }
+    const value::TSView& underlying() const { return _view; }
 
 private:
-    value::TimeSeriesValueView _view;
+    value::TSView _view;
     value::ObserverStorage* _observer{nullptr};
     std::shared_ptr<SubscriptionManagerForOutput> _sub_mgr;
 };
@@ -365,17 +365,17 @@ public:
     PyTSOutput() = default;
 
     /**
-     * Construct from TimeSeriesTypeMeta.
+     * Construct from TSMeta.
      * Node is optional (nullptr for testing).
      */
-    explicit PyTSOutput(const TimeSeriesTypeMeta* meta)
+    explicit PyTSOutput(const TSMeta* meta)
         : _output(std::make_unique<TSOutput>(meta, nullptr))
         , _sub_mgr(std::make_shared<SubscriptionManagerForOutput>()) {}
 
     // === Validity and type queries ===
     [[nodiscard]] bool valid() const { return _output && _output->valid(); }
 
-    [[nodiscard]] const TimeSeriesTypeMeta* meta() const {
+    [[nodiscard]] const TSMeta* meta() const {
         return _output ? _output->meta() : nullptr;
     }
 
@@ -387,8 +387,8 @@ public:
         return _output ? _output->kind() : value::TypeKind::Scalar;
     }
 
-    [[nodiscard]] TimeSeriesKind ts_kind() const {
-        return _output ? _output->ts_kind() : TimeSeriesKind::TS;
+    [[nodiscard]] TSKind ts_kind() const {
+        return _output ? _output->ts_kind() : TSKind::TS;
     }
 
     [[nodiscard]] std::string type_name() const {

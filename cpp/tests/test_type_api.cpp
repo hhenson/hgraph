@@ -38,7 +38,7 @@ void test_ts_types() {
     assert(ts_int != nullptr);
     assert(ts_float != nullptr);
     assert(ts_int != ts_float);
-    assert(ts_int->ts_kind == TimeSeriesKind::TS);
+    assert(ts_int->ts_kind == TSKind::TS);
 
     // Interning check
     assert(ts_type<TS<int>>() == ts_int);
@@ -54,7 +54,7 @@ void test_tss_types() {
     auto* tss_int = ts_type<TSS<int>>();
 
     assert(tss_int != nullptr);
-    assert(tss_int->ts_kind == TimeSeriesKind::TSS);
+    assert(tss_int->ts_kind == TSKind::TSS);
     assert(ts_type<TSS<int>>() == tss_int);  // Interning
 
     std::cout << "  TSS<int>: " << tss_int->type_name_str() << std::endl;
@@ -70,7 +70,7 @@ void test_tsl_types() {
     assert(tsl_3 != nullptr);
     assert(tsl_5 != nullptr);
     assert(tsl_3 != tsl_5);  // Different sizes
-    assert(tsl_3->ts_kind == TimeSeriesKind::TSL);
+    assert(tsl_3->ts_kind == TSKind::TSL);
 
     // Interning check
     auto* tsl_3_check = ts_type<TSL<TS<int>, 3>>();
@@ -87,7 +87,7 @@ void test_tsd_types() {
     auto* tsd = ts_type<TSD<int, TS<float>>>();
 
     assert(tsd != nullptr);
-    assert(tsd->ts_kind == TimeSeriesKind::TSD);
+    assert(tsd->ts_kind == TSKind::TSD);
     auto* tsd_check = ts_type<TSD<int, TS<float>>>();
     assert(tsd_check == tsd);  // Interning
 
@@ -101,7 +101,7 @@ void test_tsw_types() {
     // Count-based window (legacy form)
     auto* tsw_count = ts_type<TSW<float, 10, 1>>();
     assert(tsw_count != nullptr);
-    assert(tsw_count->ts_kind == TimeSeriesKind::TSW);
+    assert(tsw_count->ts_kind == TSKind::TSW);
     auto* tsw_count2 = ts_type<TSW<float, 10, 1>>();
     assert(tsw_count2 == tsw_count);  // Interning
 
@@ -110,7 +110,7 @@ void test_tsw_types() {
     // Time-based window (60 seconds)
     auto* tsw_time = ts_type<TSW_Time<float, Seconds<60>>>();
     assert(tsw_time != nullptr);
-    assert(tsw_time->ts_kind == TimeSeriesKind::TSW);
+    assert(tsw_time->ts_kind == TSKind::TSW);
     auto* tsw_time_check = ts_type<TSW_Time<float, Seconds<60>>>();
     assert(tsw_time_check == tsw_time);  // Interning
 
@@ -119,7 +119,7 @@ void test_tsw_types() {
     // Time-based window with min count (5 minutes, min 3 values)
     auto* tsw_min = ts_type<TSW_Time<float, Minutes<5>, Count<3>>>();
     assert(tsw_min != nullptr);
-    assert(tsw_min->ts_kind == TimeSeriesKind::TSW);
+    assert(tsw_min->ts_kind == TSKind::TSW);
 
     std::cout << "  TSW_Time<float, Minutes<5>, Count<3>>: " << tsw_min->type_name_str() << std::endl;
 
@@ -141,7 +141,7 @@ void test_ref_types() {
     auto* ref = ts_type<REF<TS<int>>>();
 
     assert(ref != nullptr);
-    assert(ref->ts_kind == TimeSeriesKind::REF);
+    assert(ref->ts_kind == TSKind::REF);
     assert(ts_type<REF<TS<int>>>() == ref);  // Interning
 
     std::cout << "  REF<TS<int>>: " << ref->type_name_str() << std::endl;
@@ -158,7 +158,7 @@ void test_tsb_types() {
     >>();
 
     assert(point_unnamed != nullptr);
-    assert(point_unnamed->ts_kind == TimeSeriesKind::TSB);
+    assert(point_unnamed->ts_kind == TSKind::TSB);
 
     std::cout << "  TSB<Field<x, TS<int>>, Field<y, TS<int>>>: "
               << point_unnamed->type_name_str() << std::endl;
@@ -171,7 +171,7 @@ void test_tsb_types() {
     >>();
 
     assert(point_named != nullptr);
-    assert(point_named->ts_kind == TimeSeriesKind::TSB);
+    assert(point_named->ts_kind == TSKind::TSB);
     assert(point_named->name != nullptr);
 
     std::cout << "  TSB<..., Name<Point2D>>: " << point_named->type_name_str()
@@ -194,7 +194,7 @@ void test_nested_types() {
     >>();
 
     assert(nested != nullptr);
-    assert(nested->ts_kind == TimeSeriesKind::TSL);
+    assert(nested->ts_kind == TSKind::TSL);
 
     std::cout << "  TSL<TSB<Field<value, TS<int>>>, 2>: " << nested->type_name_str() << std::endl;
 
@@ -205,7 +205,7 @@ void test_nested_types() {
     >>();
 
     assert(dict_of_bundles != nullptr);
-    assert(dict_of_bundles->ts_kind == TimeSeriesKind::TSD);
+    assert(dict_of_bundles->ts_kind == TSKind::TSD);
 
     std::cout << "  TSD<int, TSB<...>>: " << dict_of_bundles->type_name_str() << std::endl;
 
@@ -223,7 +223,7 @@ void test_runtime_ts() {
     auto* ts_int = runtime::ts(int_meta);
 
     assert(ts_int != nullptr);
-    assert(ts_int->ts_kind == TimeSeriesKind::TS);
+    assert(ts_int->ts_kind == TSKind::TS);
 
     // Should match compile-time version
     assert(ts_int == ts_type<TS<int>>());
@@ -240,7 +240,7 @@ void test_runtime_tss() {
     auto* tss_int = runtime::tss(int_meta);
 
     assert(tss_int != nullptr);
-    assert(tss_int->ts_kind == TimeSeriesKind::TSS);
+    assert(tss_int->ts_kind == TSKind::TSS);
 
     // Should match compile-time version
     assert(tss_int == ts_type<TSS<int>>());
@@ -256,7 +256,7 @@ void test_runtime_tsl() {
     auto* tsl_3 = runtime::tsl(ts_int, 3);
 
     assert(tsl_3 != nullptr);
-    assert(tsl_3->ts_kind == TimeSeriesKind::TSL);
+    assert(tsl_3->ts_kind == TSKind::TSL);
 
     // Should match compile-time version
     auto* ct_tsl_3 = ts_type<TSL<TS<int>, 3>>();
@@ -273,7 +273,7 @@ void test_runtime_tsd() {
     auto* tsd_type = runtime::tsd(type_of<int>(), ts_float);
 
     assert(tsd_type != nullptr);
-    assert(tsd_type->ts_kind == TimeSeriesKind::TSD);
+    assert(tsd_type->ts_kind == TSKind::TSD);
 
     // Should match compile-time version
     auto* ct_tsd_type = ts_type<TSD<int, TS<float>>>();
@@ -289,7 +289,7 @@ void test_runtime_tsb() {
     auto* ts_int = runtime::ts(type_of<int>());
     auto* ts_float = runtime::ts(type_of<float>());
 
-    std::vector<std::pair<std::string, const TimeSeriesTypeMeta*>> fields = {
+    std::vector<std::pair<std::string, const TSMeta*>> fields = {
         {"x", ts_int},
         {"y", ts_float}
     };
@@ -297,7 +297,7 @@ void test_runtime_tsb() {
     auto* point = runtime::tsb(fields, "RuntimePoint");
 
     assert(point != nullptr);
-    assert(point->ts_kind == TimeSeriesKind::TSB);
+    assert(point->ts_kind == TSKind::TSB);
     assert(point->name != nullptr);
     assert(std::string(point->name) == "RuntimePoint");
 
@@ -316,7 +316,7 @@ void test_runtime_tsw() {
     // Count-based window
     auto* tsw_count = runtime::tsw(type_of<float>(), 10, 1);
     assert(tsw_count != nullptr);
-    assert(tsw_count->ts_kind == TimeSeriesKind::TSW);
+    assert(tsw_count->ts_kind == TSKind::TSW);
 
     // Should match compile-time version
     auto* ct_tsw_count = ts_type<TSW<float, 10, 1>>();
@@ -327,7 +327,7 @@ void test_runtime_tsw() {
     // Time-based window (60 seconds = 60,000,000 microseconds)
     auto* tsw_time = runtime::tsw_time(type_of<float>(), 60'000'000, 0);
     assert(tsw_time != nullptr);
-    assert(tsw_time->ts_kind == TimeSeriesKind::TSW);
+    assert(tsw_time->ts_kind == TSKind::TSW);
 
     // Should match compile-time version
     auto* ct_tsw_time = ts_type<TSW_Time<float, Seconds<60>>>();
@@ -345,7 +345,7 @@ void test_runtime_ref() {
     auto* ref_type = runtime::ref(ts_int);
 
     assert(ref_type != nullptr);
-    assert(ref_type->ts_kind == TimeSeriesKind::REF);
+    assert(ref_type->ts_kind == TSKind::REF);
 
     // Should match compile-time version
     assert(ref_type == ts_type<REF<TS<int>>>());

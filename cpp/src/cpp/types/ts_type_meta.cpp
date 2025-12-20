@@ -1,7 +1,7 @@
 //
 // Created by Claude on 15/12/2025.
 //
-// TimeSeriesTypeMeta implementations
+// TSMeta implementations
 //
 
 #include <hgraph/types/time_series/ts_type_meta.h>
@@ -14,45 +14,45 @@
 namespace hgraph {
 
 // ============================================================================
-// TimeSeriesTypeMeta - Base class default implementations
+// TSMeta - Base class default implementations
 // ============================================================================
 
-time_series_output_s_ptr TimeSeriesTypeMeta::make_output(time_series_output_ptr owning_output) const {
+time_series_output_s_ptr TSMeta::make_output(time_series_output_ptr owning_output) const {
     // Default: create using the parent's owning node
     // This creates time-series with node parentage rather than time-series parentage
     // Concrete types may override this if they need different behavior
     return make_output(owning_output->owning_node());
 }
 
-time_series_input_s_ptr TimeSeriesTypeMeta::make_input(time_series_input_ptr owning_input) const {
+time_series_input_s_ptr TSMeta::make_input(time_series_input_ptr owning_input) const {
     // Default: create using the parent's owning node
     return make_input(owning_input->owning_node());
 }
 
 // ============================================================================
-// TSTypeMeta - TS[T]
+// TSValueMeta - TS[T]
 // ============================================================================
 
-std::string TSTypeMeta::type_name_str() const {
+std::string TSValueMeta::type_name_str() const {
     if (name) return name;
     return "TS[" + scalar_type->type_name_str() + "]";
 }
 
-time_series_output_s_ptr TSTypeMeta::make_output(node_ptr owning_node) const {
+time_series_output_s_ptr TSValueMeta::make_output(node_ptr owning_node) const {
     // Not yet implemented - falls back to Python implementation
     return {};
 }
 
-time_series_input_s_ptr TSTypeMeta::make_input(node_ptr owning_node) const {
+time_series_input_s_ptr TSValueMeta::make_input(node_ptr owning_node) const {
     // Not yet implemented - falls back to Python implementation
     return {};
 }
 
-size_t TSTypeMeta::output_memory_size() const {
+size_t TSValueMeta::output_memory_size() const {
     return 0;  // Not yet implemented
 }
 
-size_t TSTypeMeta::input_memory_size() const {
+size_t TSValueMeta::input_memory_size() const {
     return 0;  // Not yet implemented
 }
 
@@ -238,16 +238,16 @@ size_t REFTypeMeta::input_memory_size() const {
 }
 
 // ============================================================================
-// TimeSeriesTypeRegistry
+// TSTypeRegistry
 // ============================================================================
 
-TimeSeriesTypeRegistry& TimeSeriesTypeRegistry::global() {
-    static TimeSeriesTypeRegistry instance;
+TSTypeRegistry& TSTypeRegistry::global() {
+    static TSTypeRegistry instance;
     return instance;
 }
 
-const TimeSeriesTypeMeta* TimeSeriesTypeRegistry::register_by_key(
-    size_t key, std::unique_ptr<TimeSeriesTypeMeta> meta) {
+const TSMeta* TSTypeRegistry::register_by_key(
+    size_t key, std::unique_ptr<TSMeta> meta) {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _types.find(key);
     if (it != _types.end()) {
@@ -258,18 +258,18 @@ const TimeSeriesTypeMeta* TimeSeriesTypeRegistry::register_by_key(
     return ptr;
 }
 
-const TimeSeriesTypeMeta* TimeSeriesTypeRegistry::lookup_by_key(size_t key) const {
+const TSMeta* TSTypeRegistry::lookup_by_key(size_t key) const {
     std::lock_guard<std::mutex> lock(_mutex);
     auto it = _types.find(key);
     return it != _types.end() ? it->second.get() : nullptr;
 }
 
-bool TimeSeriesTypeRegistry::contains_key(size_t key) const {
+bool TSTypeRegistry::contains_key(size_t key) const {
     std::lock_guard<std::mutex> lock(_mutex);
     return _types.contains(key);
 }
 
-size_t TimeSeriesTypeRegistry::cache_size() const {
+size_t TSTypeRegistry::cache_size() const {
     std::lock_guard<std::mutex> lock(_mutex);
     return _types.size();
 }

@@ -606,8 +606,8 @@ namespace hgraph
 
     // Constructor - takes type metas and constructs input/output as value members
     Node::Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars,
-               const TimeSeriesTypeMeta* input_meta, const TimeSeriesTypeMeta* output_meta,
-               const TimeSeriesTypeMeta* error_output_meta, const TimeSeriesTypeMeta* recordable_state_meta)
+               const TSMeta* input_meta, const TSMeta* output_meta,
+               const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
         : _node_ndx{node_ndx}, _owning_graph_id{std::move(owning_graph_id)}, _signature{std::move(signature)},
           _scalars{std::move(scalars)} {
         // Construct time-series as value members if metas are provided

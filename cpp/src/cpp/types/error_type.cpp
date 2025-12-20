@@ -196,8 +196,8 @@ namespace hgraph {
                                   const std::string &input_name, bool capture_values, int64_t depth) -> void {
         nb::gil_scoped_acquire gil; // Ensure Python API calls below are protected by the GIL
         // TODO: Implement proper back trace capture using TSInput view-based navigation
-        // The old implementation used dynamic_cast to TimeSeriesBundleInput and TimeSeriesReferenceInput
-        // which no longer exist. The new system uses TSInput with TimeSeriesTypeMeta and views.
+        // The old implementation used dynamic_cast to TimeSeriesBundleInput and TSRefInput
+        // which no longer exist. The new system uses TSInput with TSMeta and views.
         // For now, this is a stub that doesn't capture nested backtraces.
         (void)active_inputs;
         (void)input;

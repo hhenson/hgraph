@@ -129,7 +129,7 @@ namespace hgraph {
         last_value_pull_node_builder_register_with_nanobind(m);
     }
 
-    const TimeSeriesTypeMeta* NodeBuilder::input_meta() const {
+    const TSMeta* NodeBuilder::input_meta() const {
         if (!input_builder.has_value()) {
             return nullptr;
         }
@@ -141,7 +141,7 @@ namespace hgraph {
         return nullptr;
     }
 
-    const TimeSeriesTypeMeta* NodeBuilder::output_meta() const {
+    const TSMeta* NodeBuilder::output_meta() const {
         if (!output_builder.has_value()) {
             return nullptr;
         }
@@ -152,7 +152,7 @@ namespace hgraph {
         return nullptr;
     }
 
-    const TimeSeriesTypeMeta* NodeBuilder::error_output_meta() const {
+    const TSMeta* NodeBuilder::error_output_meta() const {
         if (!error_builder.has_value()) {
             return nullptr;
         }
@@ -163,7 +163,7 @@ namespace hgraph {
         return nullptr;
     }
 
-    const TimeSeriesTypeMeta* NodeBuilder::recordable_state_meta() const {
+    const TSMeta* NodeBuilder::recordable_state_meta() const {
         if (!recordable_state_builder.has_value()) {
             return nullptr;
         }
