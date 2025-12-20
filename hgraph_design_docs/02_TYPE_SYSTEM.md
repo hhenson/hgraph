@@ -14,7 +14,6 @@ The HGraph type system provides:
 - **Static type checking** at graph construction (wiring) time
 - **Generic type resolution** for polymorphic nodes
 - **Type metadata** for runtime introspection
-- **C++ interoperability** via type-erased representations
 
 ### 1.2 Type Hierarchy
 
@@ -560,41 +559,9 @@ Scalar parsers (tried in order):
 
 ---
 
-## 7. C++ Type Integration
+## 7. Schema System
 
-### 7.1 cpp_type_meta Property
-
-**Reference:** `hgraph/_types/_ts_meta_data.py:94-108`
-
-Each resolved type can provide C++ type metadata:
-
-```python
-@property
-def cpp_type_meta(self):
-    if not is_feature_enabled("use_cpp"):
-        return None
-    if not self.is_resolved:
-        return None
-    import hgraph._hgraph as _hgraph
-    return _hgraph.get_ts_type_meta(self.value_scalar_tp.cpp_type_meta)
-```
-
-### 7.2 C++ Type Meta Functions
-
-| Function | Purpose |
-|----------|---------|
-| `get_scalar_type_meta(py_type)` | Atomic scalar types |
-| `get_ts_type_meta(scalar_meta)` | TS[T] |
-| `get_tsl_type_meta(element_meta, size)` | TSL[T, Size] |
-| `get_tss_type_meta(element_meta)` | TSS[T] |
-| `get_ref_type_meta(value_meta)` | REF[T] |
-| `get_bundle_type_meta(fields, name)` | TSB[Schema] |
-
----
-
-## 8. Schema System
-
-### 8.1 AbstractSchema
+### 7.1 AbstractSchema
 
 **Reference:** `hgraph/_types/_schema_type.py:33-100`
 
@@ -607,7 +574,7 @@ class AbstractSchema:
     __parameters__: tuple[TypeVar, ...]
 ```
 
-### 8.2 TimeSeriesSchema
+### 7.2 TimeSeriesSchema
 
 **Reference:** `hgraph/_types/_tsb_type.py:70-150`
 
@@ -626,7 +593,7 @@ __meta_data_schema__ = {
 }
 ```
 
-### 8.3 Schema ↔ Scalar Conversion
+### 7.3 Schema ↔ Scalar Conversion
 
 ```python
 # Schema to scalar type
@@ -635,6 +602,41 @@ MySchema.scalar_type()  # Returns corresponding CompoundScalar
 # Scalar to schema type
 TimeSeriesSchema.from_scalar_schema(MyCompoundScalar)
 ```
+
+---
+
+## 8. Implementation Notes
+
+### 8.1 Output Type Variants
+
+Each time-series type has a corresponding output variant used internally:
+
+| Input Type | Output Type | Purpose |
+|------------|-------------|---------|
+| TS[T] | TS_OUT[T] | Writable time-series |
+| TSL[T, Size] | TSL_OUT[T, Size] | Writable list |
+| TSD[K, V] | TSD_OUT[K, V] | Writable dictionary |
+| TSS[T] | TSS_OUT[T] | Writable set |
+| TSW[T, Size] | TSW_OUT[T, Size] | Writable window |
+| REF[T] | REF_OUT[T] | Writable reference |
+
+These are used by node implementations to write output values; users typically interact with input types.
+
+### 8.2 Special Types
+
+**SIGNAL Type:**
+- A specialized time-series type representing a tick without a value
+- `is_context_wired = True`
+- Used for triggering without data transfer
+
+**CONTEXT Type:**
+- Context-wired time-series for accessing context outputs
+- `is_context_wired = True`
+- Used in conjunction with `set_context` / `get_context` patterns
+
+**TimeSeriesReference:**
+- The scalar form of `REF[T]`
+- Allows storing a reference to a time-series in scalar variables
 
 ---
 

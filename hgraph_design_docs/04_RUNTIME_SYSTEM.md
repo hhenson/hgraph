@@ -623,7 +623,80 @@ graph TB
 
 ---
 
-## 16. Reference Locations
+## 16. Implementation Notes
+
+### 16.1 Push Source Node Processing Phase
+
+Push source nodes have special handling in the evaluation loop that occurs BEFORE normal compute nodes:
+
+```mermaid
+sequenceDiagram
+    participant EQ as Event Queue
+    participant EN as Engine
+    participant PN as Push Nodes
+    participant CN as Compute Nodes
+
+    Note over EQ,CN: Evaluation Tick Start
+    EQ->>EN: Dequeue push messages
+    EN->>PN: Apply messages to push nodes
+    Note over PN: push_source_nodes_end boundary
+    EN->>CN: Evaluate compute nodes
+    Note over EQ,CN: Evaluation Tick End
+```
+
+If message application fails, messages are re-queued with backpressure signaling.
+
+### 16.2 Field-Level Modification Tracking (TSB)
+
+Time-series bundles support field-level modification tracking:
+
+```python
+# When a bundle field is modified:
+field_output.set(new_value)
+
+# This triggers parent chain notification:
+self._parent_or_node.mark_child_modified(self, modified_time)
+```
+
+This enables:
+- Downstream node scheduling when individual TSB fields change (not just the bundle)
+- Efficient delta tracking for nested structures
+- Parent chain notification for TSD and nested bundles
+
+### 16.3 Node Evaluation Guard Conditions
+
+Nodes evaluate only when ALL of the following are satisfied:
+
+| Condition | Description |
+|-----------|-------------|
+| Required inputs valid | All non-optional inputs have valid values |
+| Collection completeness | For `all_valid=True`, all collection elements valid |
+| Trigger present | Either input modified OR scheduler triggered |
+| Scheduler verification | For scheduler-using nodes, something actually triggered scheduling |
+
+### 16.4 Node-Level Scheduling (NodeSchedulerImpl)
+
+Each node can access its own scheduler via `_scheduler: SCHEDULER` injectable:
+
+```python
+@compute_node
+def my_node(ts: TS[int], _scheduler: SCHEDULER = None) -> TS[int]:
+    if ts.modified:
+        _scheduler.schedule(MIN_TD * 5, tag="delayed")  # Schedule future tick
+        return ts.value
+    if _scheduler.is_scheduled_now:
+        return -1  # Handle scheduled tick
+```
+
+**Features:**
+- Sorted event list with optional tags
+- Alarm support with callbacks
+- `is_scheduled_now` property for checking current tick
+- Wall clock scheduling for real-time mode
+
+---
+
+## 17. Reference Locations
 
 | Component | Python Location | C++ Location |
 |-----------|-----------------|--------------|

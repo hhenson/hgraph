@@ -74,7 +74,50 @@ def add_generic(lhs: TS[SCALAR], rhs: TS[SCALAR]) -> TS[SCALAR]:
     return lhs.value + rhs.value  # Fallback for any scalar
 ```
 
-### 2.3 Overload Resolution
+### 2.3 Complete Working Example
+
+```python
+from hgraph import operator, compute_node, graph, TS, TIME_SERIES_TYPE, SIZE, TSL
+
+# Step 1: Define the operator signature
+@operator
+def add(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """Generic addition operator."""
+    ...
+
+# Step 2: Register type-specific overloads
+@compute_node(overloads=add)
+def add_default(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    """Fallback implementation for any type."""
+    return lhs.value + rhs.value
+
+@compute_node(overloads=add)
+def add_ints(lhs: TS[int], rhs: TS[int]) -> TS[int]:
+    """Specialized for integers - adds extra 1."""
+    return lhs.value + rhs.value + 1
+
+@compute_node(overloads=add)
+def add_strs(lhs: TS[str], rhs: TS[str]) -> TS[str]:
+    """Specialized for strings - adds suffix."""
+    return lhs.value + rhs.value + "~"
+
+@graph(overloads=add)
+def add_tsls(lhs: TSL[TIME_SERIES_TYPE, SIZE], rhs: TSL[TIME_SERIES_TYPE, SIZE]) -> TSL[TIME_SERIES_TYPE, SIZE]:
+    """Specialized for time-series lists."""
+    return TSL.from_ts(*[a + b for a, b in zip(lhs, rhs)])
+
+# Step 3: Use the operator - correct overload selected automatically
+@graph
+def test_add(lhs: TIME_SERIES_TYPE, rhs: TIME_SERIES_TYPE) -> TIME_SERIES_TYPE:
+    return add(lhs, rhs)
+
+# Results:
+# add(TS[int](1), TS[int](2))     -> 4    (uses add_ints: 1+2+1)
+# add(TS[float](1.0), TS[float](2.0)) -> 3.0  (uses add_default)
+# add(TS[str]("a"), TS[str]("b")) -> "ab~" (uses add_strs)
+```
+
+### 2.4 Overload Resolution
 
 ```mermaid
 sequenceDiagram
@@ -105,7 +148,7 @@ sequenceDiagram
 | Multiple same rank | Raise ambiguity error |
 | No candidates | Raise "no overload found" error |
 
-### 2.4 Generic Rank System
+### 2.5 Generic Rank System
 
 The rank quantifies type specificity. Lower rank = more specific = preferred.
 
@@ -151,7 +194,48 @@ def _calc_rank(signature: WiringNodeSignature) -> float:
 | `TIME_SERIES_TYPE` | ~1.0 | Generic |
 | Nested generics | Scaled | Combines inner ranks |
 
-### 2.5 Python Operator Mapping
+### 2.6 Real-World Example: Number Operators
+
+From `hgraph/_impl/_operators/_number_operators.py`:
+
+```python
+from hgraph import add_, sub_, mul_, div_, compute_node, TS, NUMBER, NUMBER_2
+from hgraph._operators._operators import DivideByZero
+
+@compute_node(overloads=add_)
+def add_float_to_int(lhs: TS[int], rhs: TS[float]) -> TS[float]:
+    """Adds a timeseries of float to a timeseries of int."""
+    return lhs.value + rhs.value
+
+@compute_node(overloads=add_)
+def add_int_to_float(lhs: TS[float], rhs: TS[int]) -> TS[float]:
+    """Adds a timeseries of int to a timeseries of float."""
+    return lhs.value + rhs.value
+
+@compute_node(overloads=div_)
+def div_numbers(
+    lhs: TS[NUMBER],
+    rhs: TS[NUMBER_2],
+    divide_by_zero: DivideByZero = DivideByZero.ERROR
+) -> TS[float]:
+    """Divides numeric timeseries with configurable zero handling."""
+    try:
+        return lhs.value / rhs.value
+    except ZeroDivisionError:
+        match divide_by_zero:
+            case DivideByZero.NAN:
+                return float("NaN")
+            case DivideByZero.INF:
+                return float("inf")
+            case DivideByZero.NONE:
+                return None  # No output
+            case DivideByZero.ZERO:
+                return 0.0
+            case _:
+                raise
+```
+
+### 2.7 Python Operator Mapping
 
 Operators are mapped to Python special methods:
 
@@ -160,6 +244,20 @@ WiringPort.__add__ = lambda x, y: add_(x, y)
 WiringPort.__sub__ = lambda x, y: sub_(x, y)
 WiringPort.__mul__ = lambda x, y: mul_(x, y)
 # ... etc
+```
+
+### 2.8 Import Requirements
+
+Overloads must be imported before use. The typical pattern:
+
+```python
+# In package __init__.py
+from my_package._impl._operators import (
+    add_ints,
+    add_floats,
+    add_strings,
+    # ... all overloads
+)
 ```
 
 ---
@@ -189,20 +287,22 @@ def my_node(ts: TS[SCALAR], _tp: type[SCALAR] = AUTO_RESOLVE) -> TS[SCALAR]:
 The `resolvers` parameter provides custom type resolution logic:
 
 ```python
-@compute_node(resolvers={SCALAR: lambda mapping, attr: mapping[COMPOUND_SCALAR].meta_data_schema[attr].py_type})
+@compute_node(
+    resolvers={SCALAR: lambda mapping, attr: mapping[COMPOUND_SCALAR].meta_data_schema[attr].py_type}
+)
 def getattr_cs(ts: TS[COMPOUND_SCALAR], attr: str, default: TS[SCALAR] = None) -> TS[SCALAR]:
     return getattr(ts.value, attr, default.value)
 ```
 
 ### 3.3 Resolver Function Signatures
 
-**Style 1: Single Parameter**
+**Style 1: Single Parameter (Mapping Only)**
 ```python
 lambda mapping: resolved_type
 ```
 Resolver receives only the resolution mapping dictionary.
 
-**Style 2: Multiple Parameters**
+**Style 2: Multiple Parameters (Mapping + Scalars)**
 ```python
 lambda mapping, param1, param2: resolved_type
 ```
@@ -228,37 +328,109 @@ sequenceDiagram
 
 ### 3.5 Resolver Examples
 
-**Attribute Type Resolution:**
+**Example 1: Attribute Type Resolution**
+
+From `hgraph/_impl/_operators/_getattr.py`:
+
 ```python
 @compute_node(
-    resolvers={SCALAR: lambda mapping, attr: mapping[COMPOUND_SCALAR].meta_data_schema[attr].py_type}
+    overloads=getattr_,
+    resolvers={SCALAR: lambda mapping, attr: mapping[COMPOUND_SCALAR].meta_data_schema[attr].py_type},
 )
-def getattr_cs(ts: TS[COMPOUND_SCALAR], attr: str) -> TS[SCALAR]:
-    return getattr(ts.value, attr)
+def getattr_cs(ts: TS[COMPOUND_SCALAR], attr: str, default_value: TS[SCALAR] = None) -> TS[SCALAR]:
+    """Get attribute from compound scalar, resolving output type from schema."""
+    attr_value = getattr(ts.value, attr, default_value.value)
+    return default_value.value if attr_value is None else attr_value
+
+@compute_node(
+    overloads=setattr_,
+    resolvers={SCALAR: lambda mapping, attr: mapping[COMPOUND_SCALAR].meta_data_schema[attr].py_type},
+)
+def setattr_cs(ts: TS[COMPOUND_SCALAR], attr: str, value: TS[SCALAR]) -> TS[COMPOUND_SCALAR]:
+    """Set attribute on compound scalar."""
+    v = copy(ts.value)
+    setattr(v, attr, value.value)
+    return v
 ```
 
-**Function Return Type:**
+**Example 2: Tuple Element Type Resolution**
+
+From `hgraph/_impl/_operators/_tuple_operators.py`:
+
+```python
+def _item_type(tuple_tp: Type[TUPLE], index: int) -> Type:
+    """Resolve the type of a tuple element at given index."""
+    if isinstance(tuple_tp, HgTupleFixedScalarType):
+        return tuple_tp.element_types[index]
+    elif isinstance(tuple_tp, HgTupleCollectionScalarType):
+        return tuple_tp.element_type
+    raise IncorrectTypeBinding(TUPLE, tuple_tp)
+
+@compute_node(
+    overloads=getitem_,
+    resolvers={SCALAR: lambda mapping, key: _item_type(mapping[TUPLE], key)}
+)
+def getitem_tuple_fixed(ts: TS[TUPLE], key: int) -> TS[SCALAR]:
+    """Get element from tuple at index, with type resolution."""
+    return ts.value[key]
+```
+
+**Example 3: DataFrame Schema Resolution**
+
+From `hgraph/_impl/_operators/_data_frame_operators.py`:
+
+```python
+def _cs_from_frame(mapping, df: pl.DataFrame) -> COMPOUND_SCALAR:
+    """Create compound scalar type from DataFrame schema."""
+    schema = df.schema
+    return compound_scalar(**{k: _convert_type(v) for k, v in schema.items()})
+
+def _extract_scalar(mapping, df, value_col) -> SCALAR:
+    """Extract scalar type from DataFrame column."""
+    schema = df.schema
+    return _convert_type(schema[value_col])
+
+@generator(
+    overloads=from_data_frame,
+    resolvers={SCALAR: _extract_scalar, COMPOUND_SCALAR: _cs_from_frame},
+)
+def from_data_frame_ts(
+    df: Frame[COMPOUND_SCALAR],
+    dt_col: str = "date",
+    value_col: str = "value",
+    _df_tp: type[COMPOUND_SCALAR] = AUTO_RESOLVE,
+) -> TS[SCALAR]:
+    """Generate time-series from DataFrame column."""
+    # ... implementation
+```
+
+**Example 4: Function Return Type Resolution**
+
 ```python
 @compute_node(
+    valid=("fn",),
     resolvers={TIME_SERIES_TYPE: lambda m, fn: TS[fn.__annotations__["return"]]}
 )
-def apply(fn: TS[Callable], *args) -> DEFAULT[TIME_SERIES_TYPE]:
-    return fn.value(*args)
+def apply(fn: TS[Callable], *args: TSB[TS_SCHEMA]) -> DEFAULT[TIME_SERIES_TYPE]:
+    """Apply callable, resolving output type from function annotation."""
+    fn_ = fn.value
+    return fn_(*args)
 ```
 
-**Array Dimension Reduction:**
-```python
-def _get_item_resolver(m, idx):
-    arr = m[ARRAY].py_type
-    dimensions = extract_dimensions_from_array(arr)
-    if len(dimensions) == len(idx):
-        return TS[extract_scalar(arr)]  # Full index → scalar
-    else:
-        return TS[Array[scalar, *remaining_dims]]  # Partial → smaller array
+### 3.6 Unit Test Example
 
-@compute_node(overloads=get_item, resolvers={OUT: _get_item_resolver})
-def get_item_int(ts: TS[ARRAY], idx: int) -> OUT:
-    return ts.value[idx]
+```python
+def test_func_resolve():
+    def x(x) -> str:
+        return str(x)
+
+    @compute_node(
+        resolvers={SCALAR_1: lambda mapping, f: f.__annotations__["return"]}
+    )
+    def call(ts: TS[SCALAR], f: type(x)) -> TS[SCALAR_1]:
+        return f(ts.value)
+
+    assert eval_node(call[SCALAR:int], [1, 2], f=x) == ["1", "2"]
 ```
 
 ---
@@ -289,23 +461,56 @@ A streaming service where clients subscribe with keys and receive ongoing update
 **Definition:**
 ```python
 @subscription_service
-def price_feed(path: str | None, symbol: TS[str]) -> TS[float]:
-    """Subscribe to price updates for a symbol."""
+def my_subs_service(path: str, subscription: TS[str]) -> TS[str]:
+    """The service description."""
 ```
 
 **Implementation:**
 ```python
-@service_impl(interface=price_feed)
-def price_feed_impl(symbol: TSD[RequesterId, TS[str]]) -> TSD[RequesterId, TS[float]]:
-    """Implementation receives multiplexed requests, returns multiplexed responses."""
-    # Requests keyed by RequesterId
-    # Responses keyed by same RequesterId
+@service_impl(interfaces=my_subs_service)
+def my_subs_service_impl(subscription: TSS[str]) -> TSD[str, TS[str]]:
+    """Implementation receives set of subscriptions, returns dict of results."""
+    return map_(pass_through_node, __keys__=subscription, __key_arg__="ts")
+```
+
+**Complete Working Example:**
+
+```python
+from hgraph import (
+    subscription_service, service_impl, graph, register_service,
+    default_path, TS, TSS, TSD, TSL, SIZE, map_, pass_through
+)
+
+@subscription_service
+def my_subs_service(path: str, subscription: TS[str]) -> TS[str]:
+    """Subscribe to receive string updates."""
+
+@graph
+def subscription_instance(key: TS[str]) -> TS[str]:
+    return key
+
+@service_impl(interfaces=my_subs_service)
+def my_subs_service_impl(subscription: TSS[str]) -> TSD[str, TS[str]]:
+    return map_(pass_through_node, __keys__=subscription, __key_arg__="ts")
+
+@graph
+def main(sub1: TS[str], sub2: TS[str], sub3: TS[str]) -> TSL[TS[str], SIZE]:
+    register_service(default_path, my_subs_service_impl)
+    return TSL.from_ts(
+        pass_through_node(my_subs_service(default_path, sub1)),
+        pass_through_node(my_subs_service(default_path, sub2)),
+        pass_through_node(my_subs_service(default_path, sub3)),
+    )
+
+# Usage:
+# eval_node(main, ["topic1", None, None], ["topic2", None, None], [None, None, "topic1"])
+# Result: [None, {0: "topic1", 1: "topic2"}, {2: "topic1"}]
 ```
 
 **Characteristics:**
-- Clients identified by `RequesterId`
-- Inputs multiplexed as `TSD[RequesterId, TS[input_type]]`
-- Outputs multiplexed as `TSD[RequesterId, TS[output_type]]`
+- Input: Individual `TS[T]` per client
+- Implementation receives: `TSS[T]` (set of subscriptions)
+- Implementation returns: `TSD[T, TS[Result]]` (keyed results)
 
 ### 4.3 Reference Service
 
@@ -314,8 +519,40 @@ A service producing a single shared value independent of requesters.
 **Definition:**
 ```python
 @reference_service
-def config_service(path: str | None) -> TS[Config]:
+def my_service(path: str = None) -> TSD[str, TS[str]]:
+    """The service description."""
+```
+
+**Implementation:**
+```python
+@service_impl(interfaces=my_service)
+def my_service_impl() -> TSD[str, TS[str]]:
+    return const(frozendict({"test": "a value"}), TSD[str, TS[str]])
+```
+
+**Complete Working Example:**
+
+```python
+from hgraph import (
+    reference_service, service_impl, graph, register_service,
+    default_path, TS, TSD, const, frozendict
+)
+
+@reference_service
+def config_service(path: str = None) -> TSD[str, TS[str]]:
     """Get shared configuration."""
+
+@service_impl(interfaces=config_service)
+def config_service_impl() -> TSD[str, TS[str]]:
+    return const(frozendict({"api_key": "secret", "endpoint": "https://api.example.com"}))
+
+@graph
+def main() -> TS[str]:
+    register_service(default_path, config_service_impl)
+    config = config_service()
+    return config["api_key"]
+
+# Usage: eval_node(main) == ["secret"]
 ```
 
 **Characteristics:**
@@ -330,8 +567,40 @@ A synchronous request-response pattern with timeout handling.
 **Definition:**
 ```python
 @request_reply_service
-def calculate(path: str | None, request: TS[CalcRequest]) -> TS[CalcResult]:
-    """Submit calculation request, get result."""
+def add_one_service(path: str, ts: TS[int]) -> TS[int]:
+    """The service description."""
+```
+
+**Implementation:**
+```python
+@service_impl(interfaces=add_one_service)
+def add_one_service_impl(ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+    return map_(lambda x: x + 1, ts)
+```
+
+**Complete Working Example:**
+
+```python
+from hgraph import (
+    request_reply_service, service_impl, graph, register_service,
+    default_path, TS, TSD, map_
+)
+
+@request_reply_service
+def add_service(path: str, ts: TS[int], ts1: TS[int]) -> TS[int]:
+    """Add two numbers via service."""
+
+@service_impl(interfaces=add_service)
+def add_service_impl(ts: TSD[int, TS[int]], ts1: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+    return map_(lambda x, y: x + y, ts, ts1)
+
+@graph
+def main(x: TS[int], y: TS[int]) -> TS[int]:
+    register_service(default_path, add_service_impl)
+    return add_service(default_path, x, y)
+
+# Usage: eval_node(main, [1], [2]) == [None, None, 3]
+# Note: Two None ticks for service setup latency
 ```
 
 **Response Type:**
@@ -343,7 +612,50 @@ TSB[ReqRepResponse[TIME_SERIES_TYPE_1]]
 #   error: TS[str]
 ```
 
-### 4.5 Service Registration
+### 4.5 Multi-Service Implementation
+
+A single implementation can serve multiple service interfaces:
+
+```python
+from hgraph import (
+    request_reply_service, reference_service, subscription_service,
+    service_impl, get_service_inputs, set_service_output
+)
+
+@request_reply_service
+def submit(path: str, ts: TS[int]): ...
+
+@reference_service
+def receive(path: str) -> TSS[int]: ...
+
+@subscription_service
+def subscribe(path: str, ts: TS[int]) -> TS[bool]: ...
+
+@service_impl(interfaces=(submit, receive, subscribe))
+def impl(path: str):
+    """Single implementation handles all three service interfaces."""
+    submissions: TSD[int, TS[int]] = get_service_inputs(path, submit).ts
+    items = flip(submissions).key_set
+    set_service_output(path, receive, items)
+    set_service_output(
+        path,
+        subscribe,
+        map_(
+            lambda key, i: contains_(i, key),
+            __keys__=subscribe.wire_impl_inputs_stub(path).ts,
+            i=pass_through_node(items),
+        ),
+    )
+```
+
+**Helper Functions:**
+
+| Function | Purpose |
+|----------|---------|
+| `get_service_inputs(path, service)` | Retrieve the combined inputs for a service interface (returns struct with input fields) |
+| `set_service_output(path, service, output)` | Set the output for a service interface to broadcast to clients |
+
+### 4.6 Service Registration
 
 ```python
 from hgraph import register_service, default_path
@@ -370,24 +682,69 @@ For point-to-point external communication.
 **Interface Definition:**
 ```python
 @adaptor
-def external_connection(data_out: TS[bytes]) -> TS[bytes]:
+def my_adaptor(path: str, ts: TS[int]) -> TS[int]:
     """Send data out, receive data in."""
 ```
 
 **Implementation:**
 ```python
-@adaptor_impl(external_connection)
-def tcp_adaptor(data_out: TS[bytes]) -> TS[bytes]:
-    """TCP socket implementation."""
+@adaptor_impl(interfaces=my_adaptor)
+def my_adaptor_impl(path: str, ts: TS[int]) -> TS[int]:
+    queue_sink(path, ts)      # Send to external
+    return queue_source(path)  # Receive from external
 ```
 
-**Usage:**
-```python
-# Send to external system
-external_connection.from_graph(path="tcp://host:port")(my_output)
+**Complete Working Example:**
 
-# Receive from external system
-incoming = external_connection.to_graph(path="tcp://host:port")()
+```python
+from hgraph import (
+    adaptor, adaptor_impl, graph, register_adaptor,
+    TS, queue_sink, queue_source, count, schedule,
+    stop_on_value, evaluate_graph, GraphConfiguration, EvaluationMode
+)
+from datetime import timedelta
+
+@adaptor
+def my_adaptor(path: str, ts: TS[int]) -> TS[int]:
+    """Echo adaptor - sends and receives integers."""
+
+@adaptor_impl(interfaces=my_adaptor)
+def my_adaptor_impl(path: str, ts: TS[int]) -> TS[int]:
+    queue_sink(path, ts)
+    return queue_source(path)
+
+@graph
+def g() -> TS[int]:
+    register_adaptor("test_adaptor", my_adaptor_impl)
+    result = my_adaptor(
+        "test_adaptor",
+        count(schedule(timedelta(milliseconds=10), max_ticks=10))
+    )
+    stop_on_value(result, 10)
+    return result
+
+# Execute in real-time mode
+result = evaluate_graph(
+    g,
+    GraphConfiguration(
+        run_mode=EvaluationMode.REAL_TIME,
+        end_time=timedelta(milliseconds=1000)
+    )
+)
+# result: [(t1, 1), (t2, 2), ..., (t10, 10)]
+```
+
+**With Parameters:**
+
+```python
+@adaptor
+def my_adaptor(path: str, b: bool, ts: TS[int]) -> TS[int]: ...
+
+@adaptor_impl(interfaces=my_adaptor)
+def my_adaptor_impl(path: str, b: bool, ts: TS[int]) -> TS[int]:
+    path = f"{path}_{b}"  # Use parameter to customize path
+    queue_sink(path, ts if b else ts + 1)
+    return queue_source(path)
 ```
 
 ### 5.2 Multi-Client Service Adaptor
@@ -397,21 +754,64 @@ For multiple concurrent client connections.
 **Interface Definition:**
 ```python
 @service_adaptor
-def client_handler(request: TS[Request]) -> TS[Response]:
+def my_adaptor(path: str, ts: TS[int]) -> TS[int]:
     """Handle multiple client requests."""
 ```
 
 **Implementation:**
 ```python
-@service_adaptor_impl(client_handler)
-def client_handler_impl(request: TSD[ClientId, TS[Request]]) -> TSD[ClientId, TS[Response]]:
+@service_adaptor_impl(interfaces=my_adaptor)
+def my_adaptor_impl(path: str, ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
     """Implementation receives multiplexed by ClientId."""
+    tsd_queue_sink(path, ts)
+    return tsd_queue_source(path)
+```
+
+**Complete Working Example:**
+
+```python
+from hgraph import (
+    service_adaptor, service_adaptor_impl, graph, register_adaptor,
+    TS, TSD, TSL, Size, tsd_queue_sink, tsd_queue_source, map_,
+    count, schedule, combine, stop_on_tsl_values, evaluate_graph
+)
+from datetime import timedelta
+
+@service_adaptor
+def my_adaptor(path: str, ts: TS[int]) -> TS[int]: ...
+
+@service_adaptor_impl(interfaces=my_adaptor)
+def my_adaptor_impl(path: str, b: bool, ts: TSD[int, TS[int]]) -> TSD[int, TS[int]]:
+    path = f"{path}_{b}"
+    tsd_queue_sink(path, ts if b else map_(lambda x: x + 1, ts))
+    return tsd_queue_source(path)
+
+@graph
+def g() -> TSL[TS[int], Size[2]]:
+    register_adaptor(None, my_adaptor_impl, b=False)
+    a1 = my_adaptor("test", ts=count(schedule(timedelta(milliseconds=10), max_ticks=10)))
+    a2 = my_adaptor("test", ts=count(schedule(timedelta(milliseconds=11), max_ticks=10)))
+    result = combine(a1, a2)
+    stop_on_tsl_values(result, 11, 11)
+    return result
 ```
 
 **Characteristics:**
 - Each client gets unique integer `ClientId`
 - Requests combined as `TSD[ClientId, Request]`
 - Responses multiplexed as `TSD[ClientId, Response]`
+
+**Sink-Only Adaptor:**
+
+```python
+@service_adaptor
+def my_adaptor(path: str, ts: TS[int]):
+    """Sink-only - no return value."""
+
+@service_adaptor_impl(interfaces=my_adaptor)
+def my_adaptor_impl(path: str, ts: TSD[int, TS[int]]):
+    log_(f"{path}: {{}}", ts)
+```
 
 ---
 
@@ -423,13 +823,59 @@ Components are reusable graph building blocks with record/replay support.
 
 ```python
 @component
-def my_component(input1: TS[int], input2: TS[float]) -> TS[float]:
+def my_component(ts: TS[float], key: str) -> TS[float]:
     """A reusable computation component."""
-    processed = process(input1)
-    return combine(processed, input2)
+    return ts + 1.0
+
+# Usage:
+# eval_node(my_component, ts=[1.0, 2.0, 3.0], key="key_1") == [2.0, 3.0, 4.0]
 ```
 
-### 6.2 Characteristics
+### 6.2 With Dynamic Recordable ID
+
+```python
+@component(recordable_id="Test_{key}")
+def my_component(ts: TS[float], key: TS[str]) -> TS[float]:
+    """Component with dynamic recordable ID based on key parameter."""
+    return ts + 1.0
+
+# The recordable_id supports format strings from time-series string (TS[str]) parameters
+```
+
+### 6.3 Complete Record/Replay Example
+
+```python
+from hgraph import (
+    component, graph, TS, TSD, map_, add_,
+    RecordReplayContext, RecordReplayEnum, set_record_replay_model,
+    IN_MEMORY, GlobalState, frozendict as fd
+)
+
+@component
+def my_component(a: TSD[str, TS[float]], b: TSD[str, TS[float]]) -> TSD[str, TS[float]]:
+    """Component that adds two TSDs element-wise."""
+    return map_(add_[TS[float]], a, b)
+
+def test_record_replay():
+    with GlobalState() as gs:
+        set_record_replay_model(IN_MEMORY)
+
+        # Record execution
+        with RecordReplayContext(mode=RecordReplayEnum.RECORD):
+            result = eval_node(
+                my_component,
+                a=[fd(a=1.0, b=2.0), fd(a=2.0)],
+                b=[fd(a=3.0, b=2.0), fd(b=1.0)]
+            )
+            assert result == [fd(a=4.0, b=4.0), fd(a=5.0, b=3.0)]
+
+        # Replay recorded data
+        with RecordReplayContext(mode=RecordReplayEnum.REPLAY):
+            result = eval_node(my_component, a=[], b=[])
+            assert result == [fd(a=4.0, b=4.0), fd(a=5.0, b=3.0)]
+```
+
+### 6.4 Characteristics
 
 | Property | Description |
 |----------|-------------|
@@ -439,7 +885,7 @@ def my_component(input1: TS[int], input2: TS[float]) -> TS[float]:
 | References | Inputs/outputs converted to reference form |
 | Nesting | `has_nested_graphs = True` |
 
-### 6.3 Record/Replay Integration
+### 6.5 Record/Replay Integration
 
 ```mermaid
 graph LR
@@ -461,27 +907,108 @@ graph LR
 Wraps graphs with exception catching:
 
 ```python
-from hgraph import try_except
+from hgraph import try_except, TSB, TryExceptResult
 
 result = try_except(risky_node, input_ts, __trace_back_depth__=2)
 # result: TSB[TryExceptResult[output_type]]
 ```
 
-**Result Schema:**
+### 7.2 Complete Working Examples
+
+**Basic try_except:**
+
 ```python
-class TryExceptResult(TimeSeriesSchema):
-    exception: TS[NodeError]
-    out: TIME_SERIES_TYPE
+from hgraph import graph, TS, TSB, TryExceptResult, try_except, div_
+
+@graph
+def main(lhs: TS[float], rhs: TS[float]) -> TSB[TryExceptResult[TS[float]]]:
+    return try_except(div_[TS[float]], lhs, rhs)
+
+result = eval_node(main, [1.0, 2.0, 3.0], [1.0, 2.0, 0.0])
+# result[0] == {"out": 1.0}
+# result[1] == {"out": 1.0}
+# result[2].keys() == {"exception"}  # Division by zero caught
 ```
 
-### 7.2 Parameters
+**try_except with Graph:**
+
+```python
+@graph
+def error_prone(lhs: TS[float], rhs: TS[float]) -> TS[float]:
+    return lhs / rhs
+
+@graph
+def main(lhs: TS[float], rhs: TS[float]) -> TSB[TryExceptResult[TS[float]]]:
+    return try_except(error_prone, lhs, rhs)
+
+result = eval_node(main, [1.0, 2.0], [2.0, 0.0])
+# result[0]["out"] == 0.5
+# result[1]["exception"] is not None
+```
+
+**try_except with Map (Multi-client errors):**
+
+```python
+from hgraph import TryExceptTsdMapResult, REF
+
+schema = ts_schema(out=TSD[int, REF[TS[float]]], error=TSD[int, TS[NodeError]])
+
+@graph
+def main(lhs: TSD[int, TS[float]], rhs: TSD[int, TS[float]]) -> TSB[TryExceptTsdMapResult[int, TSD[int, TS[float]]]]:
+    return try_except(map_, div_[TS[float]], lhs, rhs)
+
+result = eval_node(main, [{0: 1.0}, {1: 2.0}, {2: 3.0}], [{0: 1.0}, {1: 2.0}, {2: 0.0}])
+# result[0] == {"out": frozendict({0: 1.0})}
+# result[1] == {"out": frozendict({1: 1.0})}
+# result[2] contains "exception" for key 2
+```
+
+**try_except with Sink Nodes:**
+
+```python
+from hgraph import sink_node, NodeError
+
+@sink_node
+def risky_sink(ts: TS[float]):
+    if ts.value == 2.0:
+        raise RuntimeError("Test error")
+
+@graph
+def main(ts: TS[float]) -> TS[NodeError]:
+    return try_except(risky_sink, ts)
+
+result = eval_node(main, [1.0, 2.0])
+# result[0] is None  # No error
+# result[1].error_msg.endswith("Test error")  # Error captured
+```
+
+### 7.3 exception_time_series
+
+Lightweight error extraction for single nodes:
+
+```python
+from hgraph import exception_time_series, ts_schema, NodeError
+
+schema = ts_schema(out=TS[float], error=TS[NodeError])
+
+@graph
+def main(lhs: TS[float], rhs: TS[float]) -> TSB[schema]:
+    out = lhs / rhs
+    return TSB[schema].from_ts(out=out, error=exception_time_series(out))
+
+result = eval_node(main, [1.0, 2.0, 3.0], [1.0, 2.0, 0.0])
+# result[0:2] == [{"out": 1.0}, {"out": 1.0}]
+# result[2].keys() == {"error"}
+```
+
+### 7.4 Parameters
 
 | Parameter | Description |
 |-----------|-------------|
 | `__trace_back_depth__` | Stack frames to capture (default: 1) |
 | `__capture_values__` | Capture input values in traceback (default: False) |
 
-### 7.3 Exception Output by Node Type
+### 7.5 Exception Output by Node Type
 
 | Node Type | Exception Output |
 |-----------|------------------|
@@ -489,7 +1016,7 @@ class TryExceptResult(TimeSeriesSchema):
 | sink_node | `TS[NodeError]` |
 | TSD map | `TSB[TryExceptTsdMapResult]` |
 
-### 7.4 NodeError Type
+### 7.6 NodeError Type
 
 ```python
 class NodeError:

@@ -734,7 +734,62 @@ graph LR
 
 ---
 
-## 13. Reference Locations
+## 13. Implementation Notes
+
+### 13.1 Additional Decorators
+
+**@const_fn Decorator:**
+Wraps constant functions that accept scalar inputs and produce constant values:
+
+```python
+@const_fn
+def calculate(a: int, b: int) -> TS[int]:
+    return a + b
+
+# Can be called both inside and outside graphs
+result_in_graph = calculate(1, 2)    # Returns TS[int]
+result_outside = calculate(1, 2)      # Returns scalar int (3)
+```
+
+### 13.2 Complete WiringNodeType Enum
+
+| Value | Name | Description |
+|-------|------|-------------|
+| 1 | `COMPUTE_NODE` | Standard computation node |
+| 2 | `SINK_NODE` | Node with no output (side effects only) |
+| 3 | `GRAPH` | Nested graph container |
+| 4 | `PUSH_SOURCE_NODE` | Asynchronous push source |
+| 5 | `PULL_SOURCE_NODE` | Scheduled pull source |
+| 6 | `REF_SVC` | Reference service interface |
+| 7 | `SUBS_SVC` | Subscription service interface |
+| 8 | `REQ_REP_SVC` | Request-reply service interface |
+| 9 | `SVC_IMPL` | Service implementation |
+| 10 | `OPERATOR` | Operator signature (no implementation) |
+| 11 | `ADAPTOR` | Single-client adaptor interface |
+| 12 | `ADAPTOR_IMPL` | Single-client adaptor implementation |
+| 13 | `SERVICE_ADAPTOR` | Multi-client service adaptor interface |
+| 14 | `SERVICE_ADAPTOR_IMPL` | Multi-client service adaptor implementation |
+| 15 | `COMPONENT` | Graph with record/replay constraints |
+| 16 | `CONST_FN` | Constant function wrapper |
+
+### 13.3 WiringNodeInstanceContext
+
+The `WiringNodeInstanceContext` provides caching infrastructure for node instances:
+
+- Maintains a stack-based context for caching `WiringNodeInstance` objects
+- Uses an `InputsKey` wrapper for hashable caching
+- Tracks graph nesting depth
+- Prevents duplicate node creation
+
+```python
+with WiringNodeInstanceContext():
+    # Node instances are cached within this context
+    instance = create_wiring_node_instance(...)
+```
+
+---
+
+## 14. Reference Locations
 
 | Component | Location |
 |-----------|----------|
