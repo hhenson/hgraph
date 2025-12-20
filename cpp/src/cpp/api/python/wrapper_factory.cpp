@@ -182,21 +182,27 @@ namespace
             return nb::none();
         }
 
+        // Get the field's meta from the bundle meta (always available even if field is optional/null)
+        auto* bundle_meta = static_cast<const TSBTypeMeta*>(meta);
+        auto* field_meta = bundle_meta->field_meta(field_name);
+
         // Get the root view - it points to the strategy and navigates to child strategies
         auto root_view = input->view();
         if (!root_view.valid()) {
-            return nb::none();
+            // Even if root view is invalid, create a wrapper with invalid view
+            // so Python code can check .valid property
+            ts::TSInputView invalid_view{};
+            return create_field_wrapper(node, std::move(invalid_view), field_meta);
         }
 
         // Navigate to the field - this returns a view pointing to the child strategy
         // The view handles all the navigation and fetches fresh data on each access
         auto field_view = root_view.field(field_name);
-        if (!field_view.valid()) {
-            return nb::none();
-        }
 
-        // Create a field wrapper (view only, no TSInput)
-        return create_field_wrapper(node, std::move(field_view), field_view.meta());
+        // IMPORTANT: Even if field_view is invalid (optional input not wired),
+        // still create a wrapper. Python code expects to call .valid on it.
+        // The wrapper's .valid will correctly return False for invalid views.
+        return create_field_wrapper(node, std::move(field_view), field_meta);
     }
 
     // =========================================================================
