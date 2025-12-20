@@ -200,6 +200,10 @@ public:
     [[nodiscard]] value::TimeSeriesValueView& value_view() { return _value_view; }
     [[nodiscard]] const value::TimeSeriesValueView& value_view() const { return _value_view; }
 
+    // === Observer access ===
+    [[nodiscard]] value::ObserverStorage* observer() { return _value_view.observer(); }
+    [[nodiscard]] const value::ObserverStorage* observer() const { return _value_view.observer(); }
+
     // === Scalar value access ===
     template<typename T>
     [[nodiscard]] T& as() {
@@ -289,6 +293,28 @@ public:
         return _value_view.field_count();
     }
 
+    // Observer-enabled field navigation (for subscription at nested levels)
+    [[nodiscard]] TSOutputView field_with_observer(size_t index) {
+        if (!valid() || kind() != value::TypeKind::Bundle) {
+            return {};
+        }
+        auto field_view = _value_view.field_with_observer(index);
+        auto field_meta = _meta ? _meta->field_meta(index) : nullptr;
+        return {field_view, field_meta, NavigationPath(_path, PathSegment::field(index, field_meta))};
+    }
+
+    [[nodiscard]] TSOutputView field_with_observer(const std::string& name) {
+        if (!valid() || kind() != value::TypeKind::Bundle) {
+            return {};
+        }
+        auto field_view = _value_view.field_with_observer(name);
+        if (!field_view.valid()) {
+            return {};
+        }
+        auto field_meta = _meta ? _meta->field_meta(name) : nullptr;
+        return {field_view, field_meta, NavigationPath(_path, PathSegment::field(name, field_meta))};
+    }
+
     // === List element navigation (chainable) ===
 
     // Lvalue path
@@ -317,6 +343,16 @@ public:
 
     [[nodiscard]] size_t list_size() const {
         return _value_view.list_size();
+    }
+
+    // Observer-enabled element navigation (for subscription at nested levels)
+    [[nodiscard]] TSOutputView element_with_observer(size_t index) {
+        if (!valid() || kind() != value::TypeKind::List) {
+            return {};
+        }
+        auto elem_view = _value_view.element_with_observer(index);
+        auto elem_meta = _meta ? _meta->element_meta() : nullptr;
+        return {elem_view, elem_meta, NavigationPath(_path, PathSegment::at_index(index, elem_meta))};
     }
 
     // === Set operations ===

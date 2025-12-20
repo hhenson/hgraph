@@ -1796,3 +1796,322 @@ def test_edge_mixed_types_in_bundle():
     assert ts_output.view().field(3).py_value is True
     assert ts_output.view().field(4).set_size == 0
     assert ts_output.view().field(5).list_size == 2
+
+
+# =============================================================================
+# Observer Notification Tests
+# =============================================================================
+
+
+def test_observer_subscribe_at_root():
+    """Test subscribing to notifications at the root level."""
+    int_meta = _hgraph.get_scalar_type_meta(int)
+    ts_meta = _hgraph.get_ts_type_meta(int_meta)
+    ts_output = _hgraph.TSOutput(ts_meta)
+
+    notifications = []
+    def on_notify(time):
+        notifications.append(time)
+
+    ts_output.subscribe(on_notify)
+
+    # Trigger notification manually
+    ts_output.notify(T100)
+
+    assert len(notifications) == 1
+    assert notifications[0] == T100
+
+
+def test_observer_subscribe_at_bundle_field():
+    """Test subscribing to notifications at a specific bundle field."""
+    int_meta = _hgraph.get_scalar_type_meta(int)
+    float_meta = _hgraph.get_scalar_type_meta(float)
+    ts_int = _hgraph.get_ts_type_meta(int_meta)
+    ts_float = _hgraph.get_ts_type_meta(float_meta)
+
+    tsb_meta = _hgraph.get_tsb_type_meta([
+        ("x", ts_int),
+        ("y", ts_float),
+    ], "Point")
+
+    ts_output = _hgraph.TSOutput(tsb_meta)
+
+    x_notifications = []
+    y_notifications = []
+
+    def on_x_notify(time):
+        x_notifications.append(time)
+
+    def on_y_notify(time):
+        y_notifications.append(time)
+
+    # Subscribe to specific fields
+    x_view = ts_output.view().field(0)
+    y_view = ts_output.view().field(1)
+
+    x_view.subscribe(on_x_notify)
+    y_view.subscribe(on_y_notify)
+
+    # Notify x field
+    x_view.notify(T100)
+
+    assert len(x_notifications) == 1
+    assert x_notifications[0] == T100
+    assert len(y_notifications) == 0  # y should not be notified
+
+    # Notify y field
+    y_view.notify(T200)
+
+    assert len(x_notifications) == 1  # x should not get more notifications
+    assert len(y_notifications) == 1
+    assert y_notifications[0] == T200
+
+
+def test_observer_notification_propagates_upward():
+    """Test that notifications at child level propagate to parent subscribers."""
+    int_meta = _hgraph.get_scalar_type_meta(int)
+    float_meta = _hgraph.get_scalar_type_meta(float)
+    ts_int = _hgraph.get_ts_type_meta(int_meta)
+    ts_float = _hgraph.get_ts_type_meta(float_meta)
+
+    tsb_meta = _hgraph.get_tsb_type_meta([
+        ("x", ts_int),
+        ("y", ts_float),
+    ], "Point")
+
+    ts_output = _hgraph.TSOutput(tsb_meta)
+
+    root_notifications = []
+    x_notifications = []
+
+    def on_root_notify(time):
+        root_notifications.append(time)
+
+    def on_x_notify(time):
+        x_notifications.append(time)
+
+    # Subscribe at root
+    root_view = ts_output.view()
+    root_view.subscribe(on_root_notify)
+
+    # Subscribe at field x
+    x_view = ts_output.view().field(0)
+    x_view.subscribe(on_x_notify)
+
+    # Notify at x level - should propagate to root
+    x_view.notify(T100)
+
+    assert len(x_notifications) == 1
+    assert len(root_notifications) == 1  # Root should also be notified
+
+
+def test_observer_isolation_between_siblings():
+    """Test that notifications don't incorrectly propagate to sibling fields."""
+    int_meta = _hgraph.get_scalar_type_meta(int)
+    float_meta = _hgraph.get_scalar_type_meta(float)
+    ts_int = _hgraph.get_ts_type_meta(int_meta)
+    ts_float = _hgraph.get_ts_type_meta(float_meta)
+
+    tsb_meta = _hgraph.get_tsb_type_meta([
+        ("x", ts_int),
+        ("y", ts_float),
+        ("z", ts_int),
+    ], "ThreeFields")
+
+    ts_output = _hgraph.TSOutput(tsb_meta)
+
+    x_notifications = []
+    y_notifications = []
+    z_notifications = []
+
+    def on_x(time): x_notifications.append(time)
+    def on_y(time): y_notifications.append(time)
+    def on_z(time): z_notifications.append(time)
+
+    # Subscribe to each field
+    ts_output.view().field(0).subscribe(on_x)
+    ts_output.view().field(1).subscribe(on_y)
+    ts_output.view().field(2).subscribe(on_z)
+
+    # Notify only field 0 (x)
+    ts_output.view().field(0).notify(T100)
+
+    assert len(x_notifications) == 1
+    assert len(y_notifications) == 0  # y should NOT be notified
+    assert len(z_notifications) == 0  # z should NOT be notified
+
+
+def test_observer_nested_bundle_isolation():
+    """Test observer isolation in nested bundles (bundle within bundle)."""
+    int_meta = _hgraph.get_scalar_type_meta(int)
+    float_meta = _hgraph.get_scalar_type_meta(float)
+    ts_int = _hgraph.get_ts_type_meta(int_meta)
+    ts_float = _hgraph.get_ts_type_meta(float_meta)
+
+    inner_tsb = _hgraph.get_tsb_type_meta([
+        ("a", ts_int),
+        ("b", ts_float),
+    ], "Inner")
+
+    outer_tsb = _hgraph.get_tsb_type_meta([
+        ("inner1", inner_tsb),
+        ("inner2", inner_tsb),
+    ], "Outer")
+
+    ts_output = _hgraph.TSOutput(outer_tsb)
+
+    inner1_a_notifications = []
+    inner1_b_notifications = []
+    inner2_a_notifications = []
+
+    def on_inner1_a(time): inner1_a_notifications.append(time)
+    def on_inner1_b(time): inner1_b_notifications.append(time)
+    def on_inner2_a(time): inner2_a_notifications.append(time)
+
+    # Subscribe to nested fields
+    ts_output.view().field(0).field(0).subscribe(on_inner1_a)  # inner1.a
+    ts_output.view().field(0).field(1).subscribe(on_inner1_b)  # inner1.b
+    ts_output.view().field(1).field(0).subscribe(on_inner2_a)  # inner2.a
+
+    # Notify only inner1.a
+    ts_output.view().field(0).field(0).notify(T100)
+
+    assert len(inner1_a_notifications) == 1
+    assert len(inner1_b_notifications) == 0  # sibling should NOT be notified
+    assert len(inner2_a_notifications) == 0  # different parent should NOT be notified
+
+
+def test_observer_list_element_isolation():
+    """Test observer isolation between list elements."""
+    int_meta = _hgraph.get_scalar_type_meta(int)
+    ts_int = _hgraph.get_ts_type_meta(int_meta)
+    tsl_meta = _hgraph.get_tsl_type_meta(ts_int, 3)
+
+    ts_output = _hgraph.TSOutput(tsl_meta)
+
+    elem0_notifications = []
+    elem1_notifications = []
+    elem2_notifications = []
+
+    def on_elem0(time): elem0_notifications.append(time)
+    def on_elem1(time): elem1_notifications.append(time)
+    def on_elem2(time): elem2_notifications.append(time)
+
+    # Subscribe to each element
+    ts_output.view().element(0).subscribe(on_elem0)
+    ts_output.view().element(1).subscribe(on_elem1)
+    ts_output.view().element(2).subscribe(on_elem2)
+
+    # Notify only element 1
+    ts_output.view().element(1).notify(T100)
+
+    assert len(elem0_notifications) == 0
+    assert len(elem1_notifications) == 1
+    assert len(elem2_notifications) == 0
+
+
+def test_observer_unsubscribe():
+    """Test that unsubscribe properly removes callbacks."""
+    int_meta = _hgraph.get_scalar_type_meta(int)
+    ts_meta = _hgraph.get_ts_type_meta(int_meta)
+    ts_output = _hgraph.TSOutput(ts_meta)
+
+    notifications = []
+    def on_notify(time):
+        notifications.append(time)
+
+    view = ts_output.view()
+    view.subscribe(on_notify)
+
+    # First notification
+    view.notify(T100)
+    assert len(notifications) == 1
+
+    # Unsubscribe
+    view.unsubscribe(on_notify)
+
+    # This should not trigger the callback
+    view.notify(T200)
+    assert len(notifications) == 1  # Still 1, not 2
+
+
+def test_observer_has_observer_property():
+    """Test the has_observer property on views."""
+    int_meta = _hgraph.get_scalar_type_meta(int)
+    float_meta = _hgraph.get_scalar_type_meta(float)
+    ts_int = _hgraph.get_ts_type_meta(int_meta)
+    ts_float = _hgraph.get_ts_type_meta(float_meta)
+
+    tsb_meta = _hgraph.get_tsb_type_meta([
+        ("x", ts_int),
+        ("y", ts_float),
+    ], "Point")
+
+    ts_output = _hgraph.TSOutput(tsb_meta)
+
+    # Root view should have observer
+    root_view = ts_output.view()
+    assert root_view.has_observer
+
+    # Field views should have observer after navigation
+    x_view = ts_output.view().field(0)
+    assert x_view.has_observer
+
+
+def test_observer_multiple_subscribers():
+    """Test that multiple subscribers can receive notifications."""
+    int_meta = _hgraph.get_scalar_type_meta(int)
+    ts_meta = _hgraph.get_ts_type_meta(int_meta)
+    ts_output = _hgraph.TSOutput(ts_meta)
+
+    notifications_1 = []
+    notifications_2 = []
+
+    def on_notify_1(time):
+        notifications_1.append(time)
+
+    def on_notify_2(time):
+        notifications_2.append(time)
+
+    view = ts_output.view()
+    view.subscribe(on_notify_1)
+    view.subscribe(on_notify_2)
+
+    view.notify(T100)
+
+    assert len(notifications_1) == 1
+    assert len(notifications_2) == 1
+
+
+def test_observer_mixed_bundle_and_list():
+    """Test observer isolation in bundle containing list."""
+    int_meta = _hgraph.get_scalar_type_meta(int)
+    ts_int = _hgraph.get_ts_type_meta(int_meta)
+    tsl_meta = _hgraph.get_tsl_type_meta(ts_int, 2)
+
+    tsb_meta = _hgraph.get_tsb_type_meta([
+        ("items", tsl_meta),
+        ("count", ts_int),
+    ], "Container")
+
+    ts_output = _hgraph.TSOutput(tsb_meta)
+
+    item0_notifications = []
+    item1_notifications = []
+    count_notifications = []
+
+    def on_item0(time): item0_notifications.append(time)
+    def on_item1(time): item1_notifications.append(time)
+    def on_count(time): count_notifications.append(time)
+
+    # Subscribe to nested list elements and sibling field
+    ts_output.view().field(0).element(0).subscribe(on_item0)
+    ts_output.view().field(0).element(1).subscribe(on_item1)
+    ts_output.view().field(1).subscribe(on_count)
+
+    # Notify only items[0]
+    ts_output.view().field(0).element(0).notify(T100)
+
+    assert len(item0_notifications) == 1
+    assert len(item1_notifications) == 0  # sibling element should NOT be notified
+    assert len(count_notifications) == 0  # sibling field should NOT be notified

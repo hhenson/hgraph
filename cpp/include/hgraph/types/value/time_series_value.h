@@ -693,13 +693,18 @@ namespace hgraph::value {
             return result;
         }
 
-    private:
+        // Ensure observer storage exists (for subscription at nested levels)
         void ensure_observers() {
             if (!_observers) {
                 _observers = std::make_unique<ObserverStorage>(_value.schema());
             }
         }
 
+        // Access observer storage directly (may be null if never subscribed)
+        [[nodiscard]] ObserverStorage* observers() { return _observers.get(); }
+        [[nodiscard]] const ObserverStorage* observers() const { return _observers.get(); }
+
+    private:
         Value _value;
         ModificationTrackerStorage _tracker;
         std::unique_ptr<ObserverStorage> _observers;  // Lazy: nullptr until first subscribe

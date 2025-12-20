@@ -11,24 +11,115 @@
 #include <nanobind/nanobind.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/value/python_conversion.h>
+#include <hgraph/types/value/observer_storage.h>
 #include <hgraph/util/date_time.h>
 #include <memory>
+#include <unordered_map>
 
 namespace nb = nanobind;
 
 namespace hgraph::ts {
 
+// Forward declaration
+class PyTSOutput;
+class PyTSOutputView;
+
+/**
+ * CallableNotifiableForOutput - Wrapper for Python callables as Notifiable
+ * Similar to CallableNotifiable in py_time_series_value.h but for TSOutput testing.
+ */
+class CallableNotifiableForOutput : public hgraph::Notifiable {
+public:
+    explicit CallableNotifiableForOutput(nb::callable callback)
+        : _callback(std::move(callback)) {}
+
+    void notify(engine_time_t time) override {
+        if (_callback) {
+            nb::gil_scoped_acquire gil;
+            _callback(time);
+        }
+    }
+
+private:
+    nb::callable _callback;
+};
+
+/**
+ * SubscriptionManagerForOutput - Manages Python callable subscriptions
+ *
+ * Maps (observer, callback) pairs to CallableNotifiable instances.
+ * Similar to SubscriptionManager in py_time_series_value.h but for TSOutput.
+ */
+class SubscriptionManagerForOutput {
+public:
+    SubscriptionManagerForOutput() = default;
+
+    void subscribe(value::ObserverStorage* observer, nb::callable callback) {
+        if (!observer || !callback) return;
+
+        auto key = make_key(observer, callback);
+        if (_subscriptions.find(key) != _subscriptions.end()) {
+            return;  // Already subscribed
+        }
+
+        auto notifiable = std::make_unique<CallableNotifiableForOutput>(std::move(callback));
+        observer->subscribe(notifiable.get());
+        _subscriptions[key] = std::move(notifiable);
+    }
+
+    void unsubscribe(value::ObserverStorage* observer, nb::callable callback) {
+        if (!observer || !callback) return;
+
+        auto key = make_key(observer, callback);
+        auto it = _subscriptions.find(key);
+        if (it != _subscriptions.end()) {
+            observer->unsubscribe(it->second.get());
+            _subscriptions.erase(it);
+        }
+    }
+
+    [[nodiscard]] bool empty() const { return _subscriptions.empty(); }
+    [[nodiscard]] size_t size() const { return _subscriptions.size(); }
+
+private:
+    // Use a pair-based key to avoid XOR collisions
+    using SubscriptionKey = std::pair<uintptr_t, uintptr_t>;
+
+    struct PairHash {
+        size_t operator()(const SubscriptionKey& key) const {
+            size_t h1 = std::hash<uintptr_t>{}(key.first);
+            size_t h2 = std::hash<uintptr_t>{}(key.second);
+            return h1 ^ (h2 * 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
+        }
+    };
+
+    static SubscriptionKey make_key(value::ObserverStorage* observer, const nb::callable& callback) {
+        return {reinterpret_cast<uintptr_t>(observer),
+                reinterpret_cast<uintptr_t>(callback.ptr())};
+    }
+
+    std::unordered_map<SubscriptionKey, std::unique_ptr<CallableNotifiableForOutput>, PairHash> _subscriptions;
+};
+
 /**
  * PyTSOutputView - Python wrapper for TSOutputView
  *
  * Provides fluent navigation API and value access with explicit time parameters.
+ * Supports hierarchical subscriptions at any navigation level.
  */
 class PyTSOutputView {
 public:
     PyTSOutputView() = default;
 
+    // Full constructor with observer and subscription manager
+    PyTSOutputView(TSOutputView view,
+                   value::ObserverStorage* observer,
+                   std::shared_ptr<SubscriptionManagerForOutput> sub_mgr)
+        : _view(std::move(view)), _observer(observer), _sub_mgr(std::move(sub_mgr)) {}
+
+    // Constructor without observer (for backward compatibility, subscriptions won't work)
     explicit PyTSOutputView(TSOutputView view)
-        : _view(std::move(view)) {}
+        : _view(std::move(view)), _observer(nullptr), _sub_mgr(nullptr) {}
 
     // === Validity and type queries ===
     [[nodiscard]] bool valid() const { return _view.valid(); }
@@ -99,18 +190,22 @@ public:
         if (index >= _view.field_count()) {
             throw std::runtime_error("Invalid field index");
         }
-        return PyTSOutputView(std::move(_view).field(index));
+        // Use field_with_observer to ensure child observer exists for subscriptions
+        auto field_view = _view.field_with_observer(index);
+        auto* observer = field_view.observer();
+        return PyTSOutputView(std::move(field_view), observer, _sub_mgr);
     }
 
     [[nodiscard]] PyTSOutputView field_by_name(const std::string& name) {
         if (!valid() || kind() != value::TypeKind::Bundle) {
             throw std::runtime_error("field() requires a valid Bundle type");
         }
-        auto field_view = std::move(_view).field(name);
+        auto field_view = _view.field_with_observer(name);
         if (!field_view.valid()) {
             throw std::runtime_error("Invalid field name: " + name);
         }
-        return PyTSOutputView(std::move(field_view));
+        auto* observer = field_view.observer();
+        return PyTSOutputView(std::move(field_view), observer, _sub_mgr);
     }
 
     [[nodiscard]] bool field_modified_at(size_t index, engine_time_t time) const {
@@ -129,7 +224,10 @@ public:
         if (index >= _view.list_size()) {
             throw std::runtime_error("Invalid element index");
         }
-        return PyTSOutputView(std::move(_view).element(index));
+        // Use element_with_observer to ensure child observer exists for subscriptions
+        auto elem_view = _view.element_with_observer(index);
+        auto* observer = elem_view.observer();
+        return PyTSOutputView(std::move(elem_view), observer, _sub_mgr);
     }
 
     [[nodiscard]] bool element_modified_at(size_t index, engine_time_t time) const {
@@ -189,6 +287,43 @@ public:
         _view.ref_clear(time);
     }
 
+    // === Subscription support ===
+    PyTSOutputView& subscribe(nb::callable callback) {
+        if (!valid()) {
+            throw std::runtime_error("Cannot subscribe on invalid view");
+        }
+        if (!callback) {
+            throw std::runtime_error("Cannot subscribe with null callback");
+        }
+        if (!_observer) {
+            throw std::runtime_error("View has no observer for subscription");
+        }
+        if (!_sub_mgr) {
+            throw std::runtime_error("View has no subscription manager");
+        }
+        _sub_mgr->subscribe(_observer, std::move(callback));
+        return *this;
+    }
+
+    PyTSOutputView& unsubscribe(nb::callable callback) {
+        if (!valid() || !_observer || !callback || !_sub_mgr) {
+            return *this;
+        }
+        _sub_mgr->unsubscribe(_observer, std::move(callback));
+        return *this;
+    }
+
+    [[nodiscard]] bool has_observer() const {
+        return _observer != nullptr;
+    }
+
+    // === Notify observers (for testing) ===
+    void notify(engine_time_t time) {
+        if (_observer) {
+            _observer->notify(time);
+        }
+    }
+
     // === String representation ===
     [[nodiscard]] std::string to_string() const {
         return _view.to_string();
@@ -204,6 +339,8 @@ public:
 
 private:
     TSOutputView _view;
+    value::ObserverStorage* _observer{nullptr};
+    std::shared_ptr<SubscriptionManagerForOutput> _sub_mgr;
 };
 
 /**
@@ -221,7 +358,8 @@ public:
      * Node is optional (nullptr for testing).
      */
     explicit PyTSOutput(const TimeSeriesTypeMeta* meta)
-        : _output(std::make_unique<TSOutput>(meta, nullptr)) {}
+        : _output(std::make_unique<TSOutput>(meta, nullptr))
+        , _sub_mgr(std::make_shared<SubscriptionManagerForOutput>()) {}
 
     // === Validity and type queries ===
     [[nodiscard]] bool valid() const { return _output && _output->valid(); }
@@ -254,7 +392,12 @@ public:
         if (!valid()) {
             throw std::runtime_error("Cannot create view from invalid TSOutput");
         }
-        return PyTSOutputView(_output->view());
+        // Ensure root observer exists
+        auto& underlying = _output->underlying();
+        underlying.ensure_observers();
+        auto ts_view = _output->view();
+        auto* observer = ts_view.observer();
+        return PyTSOutputView(std::move(ts_view), observer, _sub_mgr);
     }
 
     // === Modification tracking ===
@@ -300,6 +443,37 @@ public:
         return _output && _output->has_observers();
     }
 
+    void subscribe(nb::callable callback) {
+        if (!valid()) {
+            throw std::runtime_error("Cannot subscribe on invalid TSOutput");
+        }
+        if (!callback) {
+            throw std::runtime_error("Cannot subscribe with null callback");
+        }
+        // Ensure observers exist and subscribe at root level
+        auto& underlying = _output->underlying();
+        underlying.ensure_observers();
+        _sub_mgr->subscribe(underlying.observers(), std::move(callback));
+    }
+
+    void unsubscribe(nb::callable callback) {
+        if (!valid() || !callback) return;
+        auto& underlying = _output->underlying();
+        if (underlying.observers()) {
+            _sub_mgr->unsubscribe(underlying.observers(), std::move(callback));
+        }
+    }
+
+    // === Notify observers (for testing) ===
+    void notify(engine_time_t time) {
+        if (valid()) {
+            auto& underlying = _output->underlying();
+            if (underlying.observers()) {
+                underlying.observers()->notify(time);
+            }
+        }
+    }
+
     // === String representation ===
     [[nodiscard]] std::string to_string() const {
         return _output ? _output->to_string() : "TSOutput(invalid)";
@@ -315,6 +489,7 @@ public:
 
 private:
     std::unique_ptr<TSOutput> _output;
+    std::shared_ptr<SubscriptionManagerForOutput> _sub_mgr;
 };
 
 // Registration function

@@ -126,6 +126,19 @@ void register_py_ts_output_with_nanobind(nb::module_& m) {
         .def("ref_clear", &PyTSOutputView::ref_clear, "time"_a,
              "Clear the REF binding at the given time.")
 
+        // Subscription support
+        .def("subscribe", &PyTSOutputView::subscribe, "callback"_a,
+             "Subscribe a callback to be notified when this view is modified. Returns self for chaining.")
+
+        .def("unsubscribe", &PyTSOutputView::unsubscribe, "callback"_a,
+             "Unsubscribe a previously registered callback. Returns self for chaining.")
+
+        .def_prop_ro("has_observer", &PyTSOutputView::has_observer,
+                     "True if this view has an observer attached for subscriptions.")
+
+        .def("notify", &PyTSOutputView::notify, "time"_a,
+             "Manually trigger notification of observers at the given time (for testing).")
+
         // String representation
         .def("__str__", &PyTSOutputView::to_string)
         .def("__repr__", [](const PyTSOutputView& self) {
@@ -188,6 +201,15 @@ void register_py_ts_output_with_nanobind(nb::module_& m) {
         // Observer support
         .def_prop_ro("has_observers", &PyTSOutput::has_observers,
                      "True if this output has any observers registered.")
+
+        .def("subscribe", &PyTSOutput::subscribe, "callback"_a,
+             "Subscribe a callback to be notified when this output is modified at root level.")
+
+        .def("unsubscribe", &PyTSOutput::unsubscribe, "callback"_a,
+             "Unsubscribe a previously registered callback.")
+
+        .def("notify", &PyTSOutput::notify, "time"_a,
+             "Manually trigger notification of observers at the given time (for testing).")
 
         // String representation
         .def("__str__", &PyTSOutput::to_string)
