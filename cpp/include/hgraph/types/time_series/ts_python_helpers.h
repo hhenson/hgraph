@@ -13,7 +13,6 @@
 #define HGRAPH_TS_PYTHON_HELPERS_H
 
 #include <nanobind/nanobind.h>
-#include <fmt/format.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_python_cache.h>
@@ -454,6 +453,62 @@ inline nb::object get_python_value(const TSInput* input) {
     if (!value_view.valid() || !schema) return nb::none();
 
     return value::value_to_python(value_view.data(), schema);
+}
+
+/**
+ * Get the Python delta value from a TSOutput.
+ *
+ * For collection types (TSS, TSD, TSL), returns the cached delta.
+ * For scalar types (TS) and bundles (TSB), uses DeltaView.
+ *
+ * @param output The output to get delta from
+ * @param eval_time The current evaluation time
+ * @param meta Optional type metadata (uses output->meta() if null)
+ * @return The Python delta object, or None if not modified
+ */
+inline nb::object get_python_delta(const TSOutput* output, engine_time_t eval_time, const TSMeta* meta = nullptr) {
+    if (!output) return nb::none();
+    if (!meta) meta = output->meta();
+
+    // Check if modified at current time
+    auto view = const_cast<TSOutput*>(output)->view();
+    if (!view.modified_at(eval_time)) {
+        return nb::none();
+    }
+
+    // For collection types (TSD, TSL, TSS), check for cached delta
+    if (meta) {
+        auto ts_kind = meta->ts_kind;
+        if (ts_kind == TSKind::TSD ||
+            ts_kind == TSKind::TSL ||
+            ts_kind == TSKind::TSS) {
+            auto cached = get_cached_delta(output);
+            if (!cached.is_none()) {
+                return cached;
+            }
+        }
+    }
+
+    // For TS and TSB types, use DeltaView-based conversion
+    // The view was already retrieved above
+    auto delta = view.delta_view(eval_time);
+    if (!delta.valid()) {
+        return nb::none();
+    }
+
+    // For simple scalar types, just return the value
+    if (!meta || meta->ts_kind == TSKind::TS) {
+        auto value_view = delta.scalar_delta();
+        if (!value_view.valid()) return nb::none();
+        return value::value_to_python(value_view.data(), value_view.schema());
+    }
+
+    // For TSB, we'd need to recursively build the delta dict
+    // But this function is mainly used for child outputs which are typically TS[T]
+    // For complex types, just return the value for now
+    auto value_view = view.value_view();
+    if (!value_view.valid()) return nb::none();
+    return value::value_to_python(value_view.data(), view.schema());
 }
 
 } // namespace hgraph::ts

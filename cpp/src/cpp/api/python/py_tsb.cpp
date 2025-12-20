@@ -1,8 +1,10 @@
 #include <hgraph/api/python/py_tsb.h>
+#include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
-#include <fmt/format.h>
+#include <hgraph/types/time_series/access_strategy.h>
+#include <hgraph/types/time_series/ts_python_helpers.h>
 
 namespace hgraph
 {
@@ -136,6 +138,80 @@ namespace hgraph
     }
 
     // PyTimeSeriesBundleInput implementations
+
+    // Helper to check if the input strategy has children (unpeered mode)
+    static ts::CollectionAccessStrategy* get_collection_strategy(const ts::TSInputView& view) {
+        auto* source = view.source();
+        return dynamic_cast<ts::CollectionAccessStrategy*>(source);
+    }
+
+    nb::object PyTimeSeriesBundleInput::value() const {
+        // Check if we're in unpeered mode (CollectionAccessStrategy with children)
+        auto* coll_strategy = get_collection_strategy(view());
+        if (coll_strategy && coll_strategy->child_count() > 0) {
+            // Unpeered mode: iterate over children
+            auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+            if (!tsb_meta) return nb::none();
+
+            nb::dict result;
+            for (size_t i = 0; i < coll_strategy->child_count(); ++i) {
+                auto* child = coll_strategy->child(i);
+                if (child && child->has_value()) {
+                    // Get field name from meta
+                    const std::string& field_name = tsb_meta->fields[i].name;
+                    // Get value from child strategy
+                    auto value_view = child->value();
+                    if (value_view.valid()) {
+                        auto* field_meta = tsb_meta->fields[i].type;
+                        auto* value_schema = field_meta ? field_meta->value_schema() : value_view.schema();
+                        result[nb::cast(field_name)] = value::value_to_python(value_view.data(), value_schema);
+                    }
+                }
+            }
+            return result;
+        }
+
+        // Peered mode: delegate to parent implementation
+        return PyTimeSeriesInput::value();
+    }
+
+    nb::object PyTimeSeriesBundleInput::delta_value() const {
+        if (!_node) return nb::none();
+        auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+
+        // Check if we're in unpeered mode (CollectionAccessStrategy with children)
+        auto* coll_strategy = get_collection_strategy(view());
+        if (coll_strategy && coll_strategy->child_count() > 0) {
+            // Unpeered mode: iterate over children, return dict of modified fields' delta_value
+            auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+            if (!tsb_meta) return nb::none();
+
+            nb::dict result;
+            for (size_t i = 0; i < coll_strategy->child_count(); ++i) {
+                auto* child = coll_strategy->child(i);
+                if (child && child->modified_at(eval_time) && child->has_value()) {
+                    // Get field name from meta
+                    const std::string& field_name = tsb_meta->fields[i].name;
+
+                    // Get the child's bound output to access its delta
+                    auto* child_output = child->bound_output();
+                    if (child_output) {
+                        // Get delta value from child output
+                        auto* field_meta = tsb_meta->fields[i].type;
+                        nb::object field_delta = ts::get_python_delta(child_output, eval_time, field_meta);
+                        if (!field_delta.is_none()) {
+                            result[nb::cast(field_name)] = field_delta;
+                        }
+                    }
+                }
+            }
+            return result;
+        }
+
+        // Peered mode: delegate to parent implementation
+        return PyTimeSeriesInput::delta_value();
+    }
+
     nb::object PyTimeSeriesBundleInput::get_item(const nb::handle &key) const {
         return nb::none();
     }

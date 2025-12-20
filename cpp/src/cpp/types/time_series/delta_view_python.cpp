@@ -8,7 +8,6 @@
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/value/set_type.h>
 #include <hgraph/types/value/dict_type.h>
-#include <fmt/format.h>
 
 namespace hgraph::ts {
 
@@ -61,6 +60,7 @@ static nb::object bundle_delta_to_python(const DeltaView& view) {
     nb::dict result;
 
     size_t count = view.bundle_field_count();
+
     for (size_t i = 0; i < count; ++i) {
         if (view.bundle_field_modified(i)) {
             auto field_view = view.bundle_field(i);

@@ -1389,9 +1389,7 @@ namespace hgraph::value {
      * The to_python function was set at type construction time based on element types.
      */
     inline nb::object value_to_python(const void* v, const TypeMeta* meta) {
-        if (!v || !meta) {
-            return nb::none();
-        }
+        if (!v || !meta) return nb::none();
 
         // Use the type's registered to_python function
         if (meta->ops && meta->ops->to_python) {

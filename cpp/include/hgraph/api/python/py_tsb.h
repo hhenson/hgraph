@@ -61,6 +61,10 @@ namespace hgraph
      *
      * Provides field access via view navigation.
      * Fields are accessed by name or index, returning wrapped sub-views.
+     *
+     * Supports two modes:
+     * - Peered: Single bound output with bundled storage (uses DeltaView)
+     * - Unpeered (from_ts): Each field is a separate child output
      */
     struct PyTimeSeriesBundleInput : PyTimeSeriesInput
     {
@@ -78,6 +82,10 @@ namespace hgraph
 
         PyTimeSeriesBundleInput(const PyTimeSeriesBundleInput&) = delete;
         PyTimeSeriesBundleInput& operator=(const PyTimeSeriesBundleInput&) = delete;
+
+        // Override value and delta_value to handle unpeered mode
+        [[nodiscard]] nb::object value() const override;
+        [[nodiscard]] nb::object delta_value() const override;
 
         // Field access - __getitem__ and __getattr__
         [[nodiscard]] nb::object get_item(const nb::handle &key) const;
