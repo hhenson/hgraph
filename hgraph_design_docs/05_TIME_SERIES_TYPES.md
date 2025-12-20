@@ -650,9 +650,378 @@ tsd["a"] = 3
 
 ---
 
-## 12. Type Conversion
+## 12. Input/Output Architecture
 
-### 12.1 Scalar to Time-Series
+### 12.1 Overview
+
+Each time-series type has distinct Input and Output implementations:
+
+```mermaid
+graph TD
+    subgraph "Output (Writer)"
+        O[TimeSeriesOutput]
+        O --> OV[value setter]
+        O --> OM[mark_modified]
+        O --> OS[subscribers]
+    end
+
+    subgraph "Input (Reader)"
+        I[TimeSeriesInput]
+        I --> IV[value getter]
+        I --> IA[active/passive]
+        I --> IB[bound output]
+    end
+
+    O --> |"notify"| I
+    I --> |"delegates to"| O
+```
+
+### 12.2 Input Properties
+
+Inputs are readers that delegate to their bound output:
+
+| Property | Description |
+|----------|-------------|
+| `value` | Returns `output.value` if bound |
+| `delta_value` | Returns `output.delta_value` if bound |
+| `modified` | True if output modified OR input was sampled (rebound) |
+| `valid` | True if bound AND output is valid |
+| `bound` | True if connected to an output |
+| `active` | True if subscribed to output changes |
+
+**Sampling Semantics:**
+
+When an input is bound during node execution, it records a "sample time":
+
+```python
+# If a node rebinds an input during execution:
+input.bind_output(new_output)
+# Then input.modified returns True (even if output not modified)
+# This ensures the node sees the binding change
+```
+
+### 12.3 Output Properties
+
+Outputs are writers that hold actual values and notify subscribers:
+
+| Property | Description |
+|----------|-------------|
+| `value` | Current point-in-time value (settable) |
+| `delta_value` | Change/event this tick |
+| `modified` | True if `last_modified_time == current_evaluation_time` |
+| `valid` | True if `last_modified_time > MIN_DT` |
+| `last_modified_time` | Datetime of last modification |
+
+### 12.4 Active vs Passive Subscriptions
+
+```python
+@compute_node
+def my_node(
+    price: TS[float],           # Active by default - triggers node
+    quantity: TS[int] = None,   # Optional, passive
+) -> TS[float]:
+    # Node evaluates when price changes
+    # quantity is available but doesn't trigger evaluation
+    qty = quantity.value if quantity.valid else 1
+    return price.value * qty
+```
+
+**State Transitions:**
+
+```mermaid
+stateDiagram-v2
+    [*] --> Passive: created
+    Passive --> Active: make_active()
+    Active --> Passive: make_passive()
+    Active --> Active: output.notify()
+    note right of Active: Node scheduled on change
+```
+
+---
+
+## 13. Setting Values on Outputs
+
+### 13.1 Scalar Time-Series (TS[T])
+
+For simple scalar types, setting value directly marks the output as modified:
+
+```python
+@compute_node
+def process(ts: TS[int]) -> TS[int]:
+    return ts.value * 2  # Return value sets output.value
+```
+
+**Direct value setting:**
+
+```python
+output.value = 42           # Sets value, marks modified
+output.value = None         # Invalidates the output
+output.apply_result(value)  # Sets if value is not None
+```
+
+**Delta behavior:** For TS[T], `delta_value` equals `value` (the change IS the value).
+
+### 13.2 Time-Series Bundle (TSB)
+
+TSB values can be set field-by-field or as a whole:
+
+**Method 1: Return Dictionary (Recommended)**
+
+```python
+@compute_node(valid=[])  # valid=[] means node runs even without all inputs valid
+def create_bundle(x: TS[int], y: TS[str]) -> TSB[MySchema]:
+    out = {}
+    if x.modified:
+        out["x"] = x.value
+    if y.modified:
+        out["y"] = y.value
+    return out  # Only modified fields in dict
+```
+
+**Method 2: Return CompoundScalar**
+
+```python
+@dataclass
+class MyScalar(CompoundScalar):
+    x: int
+    y: str
+
+@compute_node
+def create_from_scalar(x: TS[int], y: TS[str]) -> TSB[MyScalar]:
+    return MyScalar(x=x.value, y=y.value)
+```
+
+**Delta behavior:** `delta_value` returns dict of only modified fields:
+
+```python
+# If only 'x' was set this tick:
+tsb.delta_value  # {"x": 42}  - 'y' not included
+
+# Full value includes all valid fields:
+tsb.value  # {"x": 42, "y": "hello"} or MyScalar(x=42, y="hello")
+```
+
+### 13.3 Time-Series Dictionary (TSD)
+
+TSD supports dynamic key addition, update, and removal:
+
+**Adding/Updating Keys:**
+
+```python
+@compute_node
+def update_prices(symbol: TS[str], price: TS[float]) -> TSD[str, TS[float]]:
+    return {symbol.value: price.value}  # Adds or updates key
+```
+
+**Removing Keys with REMOVE:**
+
+```python
+from hgraph import REMOVE, REMOVE_IF_EXISTS
+
+@compute_node
+def manage_positions(
+    symbol: TS[str],
+    action: TS[str],
+    qty: TS[int]
+) -> TSD[str, TS[int]]:
+    if action.value == "close":
+        return {symbol.value: REMOVE}  # Remove key (error if missing)
+    elif action.value == "close_if_exists":
+        return {symbol.value: REMOVE_IF_EXISTS}  # Safe removal
+    else:
+        return {symbol.value: qty.value}  # Add/update
+```
+
+**REMOVE Sentinel Behavior:**
+
+| Sentinel | Key Exists | Key Missing |
+|----------|------------|-------------|
+| `REMOVE` | Removes key | Raises error |
+| `REMOVE_IF_EXISTS` | Removes key | No-op |
+
+**Delta behavior:**
+
+```python
+# After adding "a": 10, updating "b": 20, removing "c":
+tsd.delta_value  # frozendict({"a": 10, "b": 20, "c": REMOVE})
+```
+
+### 13.4 Time-Series List (TSL)
+
+TSL uses index-based assignment with fixed size:
+
+```python
+@compute_node
+def create_coords(x: TS[float], y: TS[float], z: TS[float]) -> TSL[TS[float], Size[3]]:
+    out = {}
+    if x.modified:
+        out[0] = x.value
+    if y.modified:
+        out[1] = y.value
+    if z.modified:
+        out[2] = z.value
+    return out  # Dict with modified indices only
+```
+
+**Alternative: Tuple/List assignment (all elements):**
+
+```python
+return (x.value, y.value, z.value)  # Sets all three
+```
+
+**Delta behavior:**
+
+```python
+# If only index 0 was modified:
+tsl.delta_value  # {0: 1.5}  - Only modified indices
+```
+
+### 13.5 Time-Series Set (TSS)
+
+TSS tracks set membership with add/remove delta tracking:
+
+**Method 1: SetDelta (Explicit)**
+
+```python
+from hgraph import set_delta
+
+@compute_node
+def manage_tags(add_tag: TS[str], remove_tag: TS[str]) -> TSS[str]:
+    added = {add_tag.value} if add_tag.modified else frozenset()
+    removed = {remove_tag.value} if remove_tag.modified else frozenset()
+    return set_delta(added=added, removed=removed, tp=str)
+```
+
+**Method 2: Removed Marker**
+
+```python
+from hgraph import Removed
+
+@compute_node
+def update_tags(tag: TS[str], active: TS[bool]) -> TSS[str]:
+    if active.value:
+        return [tag.value]           # Add element
+    else:
+        return [Removed(tag.value)]  # Remove element
+```
+
+**Method 3: Full Set Replacement**
+
+```python
+@compute_node
+def set_all_tags(tags: TS[tuple[str, ...]]) -> TSS[str]:
+    return frozenset(tags.value)  # Computes delta automatically
+```
+
+**Delta behavior:**
+
+```python
+# SetDelta contains added and removed sets:
+tss.delta_value.added    # Elements added this tick
+tss.delta_value.removed  # Elements removed this tick
+```
+
+---
+
+## 14. Delta Value Creation
+
+### 14.1 How Delta Values Are Computed
+
+Each type computes delta values differently:
+
+**TS[T] (Scalar):**
+```python
+@property
+def delta_value(self):
+    return self._value  # Delta IS the value
+```
+
+**TSB (Bundle):**
+```python
+@property
+def delta_value(self):
+    # Only modified AND valid fields
+    return {k: ts.delta_value for k, ts in self.items() if ts.modified and ts.valid}
+```
+
+**TSD (Dictionary):**
+```python
+@property
+def delta_value(self):
+    return frozendict(chain(
+        # Modified values
+        ((k, v.delta_value) for k, v in self.items() if v.modified and v.valid),
+        # Removed keys
+        ((k, REMOVE) for k in self.removed_keys()),
+    ))
+```
+
+**TSL (List):**
+```python
+@property
+def delta_value(self):
+    # Dict of modified indices
+    return {i: ts.delta_value for i, ts in enumerate(self._ts_values) if ts.modified}
+```
+
+**TSS (Set):**
+```python
+@property
+def delta_value(self):
+    # SetDelta with added/removed
+    return set_delta(self._added, self._removed, self._tp)
+```
+
+### 14.2 Delta Composition for Nested Types
+
+For nested structures (e.g., `TSD[str, TSB[Schema]]`), deltas compose recursively:
+
+```python
+# Outer TSD delta:
+{
+    "key1": {"field_a": 10},  # Inner TSB delta (only modified fields)
+    "key2": REMOVE,           # Key removed
+}
+```
+
+### 14.3 Modification Tracking
+
+Modification is tracked via timestamp comparison:
+
+```python
+# Output marks modification:
+def mark_modified(self, modified_time=None):
+    if modified_time is None:
+        modified_time = self.owning_graph.evaluation_clock.evaluation_time
+    self._last_modified_time = modified_time
+    self._notify(modified_time)  # Notify subscribers
+
+# Modified check:
+@property
+def modified(self) -> bool:
+    return self._last_modified_time == self.evaluation_clock.evaluation_time
+```
+
+### 14.4 Parent Chain Notification
+
+For nested outputs (bundle fields, collection elements), modifications propagate up:
+
+```python
+# Child output marks parent as modified:
+def mark_modified(self, modified_time=None):
+    # ... set own modified time ...
+    if self.has_parent_output:
+        self._parent_or_node.mark_child_modified(self, modified_time)
+    self._notify(modified_time)
+```
+
+This enables fine-grained tracking where only the specific modified paths trigger downstream nodes.
+
+---
+
+## 15. Type Conversion
+
+### 15.1 Scalar to Time-Series
 
 ```python
 const(5)                # int -> TS[int]
@@ -660,7 +1029,7 @@ const("hello")          # str -> TS[str]
 const(MyData(...))      # MyData -> TS[MyData]
 ```
 
-### 12.2 Collection to Time-Series
+### 15.2 Collection to Time-Series
 
 ```python
 const({"a": 1, "b": 2}, TSD[str, TS[int]])   # dict -> TSD
@@ -668,7 +1037,7 @@ const([1, 2, 3], TSL[TS[int], Size[3]])      # list -> TSL
 const({1, 2, 3}, TSS[int])                   # set -> TSS
 ```
 
-### 12.3 Time-Series Unwrapping
+### 15.3 Time-Series Unwrapping
 
 ```python
 collect(tsd, max_size=100)   # TSD -> TS[dict]
@@ -678,7 +1047,7 @@ to_set(tss)                  # TSS -> TS[frozenset]
 
 ---
 
-## 13. Reference Locations
+## 16. Reference Locations
 
 | Type | Python Location | C++ Location |
 |------|-----------------|--------------|
@@ -692,7 +1061,7 @@ to_set(tss)                  # TSS -> TS[frozenset]
 
 ---
 
-## 14. Next Steps
+## 17. Next Steps
 
 Continue to:
 - [06_NODE_TYPES.md](06_NODE_TYPES.md) - Node specifications
