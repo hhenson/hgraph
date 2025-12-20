@@ -165,6 +165,27 @@ public:
         return result;
     }
 
+    // === Delta reset callback registration ===
+
+    /**
+     * Register callback to clear delta tracking at end of evaluation tick.
+     *
+     * For Set and Dict types, the delta (added/removed elements) needs to be
+     * cleared after each evaluation tick. This method registers a callback
+     * with the evaluation engine to do this cleanup.
+     *
+     * Should be called once when the output is first modified.
+     *
+     * Note: This is const because the flag is mutable - registration is a
+     * caching mechanism that doesn't affect the logical state.
+     */
+    void register_delta_reset_callback() const;
+
+    /**
+     * Check if delta reset callback is already registered.
+     */
+    [[nodiscard]] bool delta_reset_registered() const { return _delta_reset_registered; }
+
     // TODO: Register with visitor system
     // VISITOR_SUPPORT()
 
@@ -172,6 +193,7 @@ private:
     const TSMeta* _meta{nullptr};
     node_ptr _owning_node{nullptr};
     value::TSValue _value;
+    mutable bool _delta_reset_registered{false};  // mutable: registration is a caching mechanism
 };
 
 } // namespace hgraph::ts

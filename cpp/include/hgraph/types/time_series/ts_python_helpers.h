@@ -151,6 +151,12 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         }
 
         view.mark_modified(time);
+
+        // For TSS and TSD types, register callback to clear delta at tick end
+        // (reusing meta from the TSB check above)
+        if (meta && (meta->ts_kind == TSKind::TSS || meta->ts_kind == TSKind::TSD)) {
+            output->register_delta_reset_callback();
+        }
     } else {
         // For collection types without value schema (TSL, TSD, TSS),
         // we can't store the value directly in C++ storage, but we should
@@ -158,6 +164,12 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         // Cache the Python value so delta_value() can return it later.
         cache_delta(output, py_value, time);
         view.mark_modified(time);
+
+        // For TSS and TSD types, register callback to clear delta at tick end
+        auto* meta = output->meta();
+        if (meta && (meta->ts_kind == TSKind::TSS || meta->ts_kind == TSKind::TSD)) {
+            output->register_delta_reset_callback();
+        }
     }
 }
 

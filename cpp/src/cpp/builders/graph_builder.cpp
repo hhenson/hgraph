@@ -82,10 +82,11 @@ namespace hgraph
                 // Direct input binding (empty path - bind to whole input)
                 dst_input->bind_output(src_output);
             } else {
-                // Non-empty path - use view-based navigation for any depth
-                auto view = dst_input->field(static_cast<size_t>(edge.input_path[0]));
+                // Non-empty path - use element-based navigation for any depth
+                // element() works for both TSB (by field index) and TSL (by list index)
+                auto view = dst_input->element(static_cast<size_t>(edge.input_path[0]));
                 for (size_t i = 1; i < edge.input_path.size(); ++i) {
-                    view = view.field(static_cast<size_t>(edge.input_path[i]));
+                    view = view.element(static_cast<size_t>(edge.input_path[i]));
                 }
                 view.bind(src_output);
             }

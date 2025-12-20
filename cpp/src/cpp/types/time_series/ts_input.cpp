@@ -99,7 +99,7 @@ TSInputView TSInput::view() const {
 // TSInputView navigation implementation
 // ============================================================================
 
-TSInputView TSInputView::field(size_t index) const {
+TSInputView TSInputView::element(size_t index) const {
     if (!valid()) {
         return {};
     }
@@ -107,8 +107,18 @@ TSInputView TSInputView::field(size_t index) const {
     // Check if source is a CollectionAccessStrategy with a child at this index
     if (auto* collection = dynamic_cast<CollectionAccessStrategy*>(_source)) {
         if (auto* child = collection->child(index)) {
-            auto field_meta = _meta ? _meta->field_meta(index) : nullptr;
-            return TSInputView(child, field_meta, _path.with(index));
+            // Get appropriate metadata based on type
+            const TSMeta* child_meta = nullptr;
+            if (_meta) {
+                if (_meta->ts_kind == TSKind::TSB) {
+                    // For bundles, use field_meta at index
+                    child_meta = _meta->field_meta(index);
+                } else {
+                    // For lists and other collections, use element_meta
+                    child_meta = _meta->element_meta();
+                }
+            }
+            return TSInputView(child, child_meta, _path.with(index));
         }
     }
 
@@ -123,30 +133,13 @@ TSInputView TSInputView::field(const std::string& name) const {
 
     auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
 
-    // Find field index by name
+    // Find field index by name and use element() for navigation
     for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
         if (tsb_meta->fields[i].name == name) {
-            return field(i);
+            return element(i);
         }
     }
 
-    return {};
-}
-
-TSInputView TSInputView::element(size_t index) const {
-    if (!valid()) {
-        return {};
-    }
-
-    // Check if source is a CollectionAccessStrategy with a child at this index
-    if (auto* collection = dynamic_cast<CollectionAccessStrategy*>(_source)) {
-        if (auto* child = collection->child(index)) {
-            auto elem_meta = _meta ? _meta->element_meta() : nullptr;
-            return TSInputView(child, elem_meta, _path.with(index));
-        }
-    }
-
-    // No child strategy - return invalid view
     return {};
 }
 
@@ -158,30 +151,41 @@ size_t TSInput::field_count_from_meta() const {
     return tsb_meta->fields.size();
 }
 
-TSInputBindableView TSInput::field(size_t index) const {
-    if (!is_bundle()) {
-        return {};  // Invalid view
-    }
-    auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
-    if (index >= tsb_meta->fields.size()) {
+TSInputBindableView TSInput::element(size_t index) const {
+    if (!_meta) {
         return {};  // Invalid view
     }
 
-    const TSMeta* field_meta = tsb_meta->fields[index].type;
-    return TSInputBindableView(const_cast<TSInput*>(this), {index}, field_meta);
+    // Get child metadata based on type
+    const TSMeta* child_meta = nullptr;
+
+    if (_meta->ts_kind == TSKind::TSB) {
+        // For bundles, get field metadata at index
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (index >= tsb_meta->fields.size()) {
+            return {};  // Index out of range
+        }
+        child_meta = tsb_meta->fields[index].type;
+    } else if (_meta->ts_kind == TSKind::TSL) {
+        // For lists, get element metadata
+        child_meta = _meta->element_meta();
+    } else {
+        return {};  // Not a navigable type
+    }
+
+    return TSInputBindableView(const_cast<TSInput*>(this), {index}, child_meta);
 }
 
 TSInputBindableView TSInput::field(const std::string& name) const {
     if (!is_bundle()) {
-        return {};  // Invalid view
+        return {};  // Invalid view - only bundles support name-based lookup
     }
     auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
 
-    // Find field by name
+    // Find field by name and use element() for navigation
     for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
         if (tsb_meta->fields[i].name == name) {
-            const TSMeta* field_meta = tsb_meta->fields[i].type;
-            return TSInputBindableView(const_cast<TSInput*>(this), {i}, field_meta);
+            return element(i);
         }
     }
 
@@ -189,15 +193,28 @@ TSInputBindableView TSInput::field(const std::string& name) const {
 }
 
 CollectionAccessStrategy* TSInput::ensure_collection_strategy() {
-    if (!is_bundle()) {
-        throw std::runtime_error("ensure_collection_strategy called on non-bundle input");
+    if (!_meta) {
+        throw std::runtime_error("ensure_collection_strategy called on input with no metadata");
     }
 
-    auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+    // Determine capacity based on type
+    size_t capacity = 0;
+    if (_meta->ts_kind == TSKind::TSB) {
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        capacity = tsb_meta->fields.size();
+    } else if (_meta->ts_kind == TSKind::TSL) {
+        // TSL has dynamic size - start with reasonable capacity
+        // The strategy will grow as needed
+        capacity = 8;  // Initial capacity, can be expanded
+    } else {
+        throw std::runtime_error(
+            fmt::format("ensure_collection_strategy called on non-collection input (kind={})",
+                        static_cast<int>(_meta->ts_kind)));
+    }
 
     if (!_strategy) {
         // Create a new CollectionAccessStrategy at root
-        auto new_strategy = std::make_unique<CollectionAccessStrategy>(this, tsb_meta->fields.size());
+        auto new_strategy = std::make_unique<CollectionAccessStrategy>(this, capacity);
         auto* result = new_strategy.get();
         _strategy = std::move(new_strategy);
         return result;
@@ -225,34 +242,50 @@ CollectionAccessStrategy* TSInput::ensure_collection_strategy_at_path(const std:
     for (size_t depth = 0; depth < path.size(); ++depth) {
         size_t index = path[depth];
 
-        // Get metadata for this level
-        if (!current_meta || current_meta->ts_kind != TSKind::TSB) {
-            throw std::runtime_error(
-                fmt::format("Path navigation error at depth {}: expected bundle type", depth));
-        }
-        auto* tsb_meta = static_cast<const TSBTypeMeta*>(current_meta);
-        if (index >= tsb_meta->fields.size()) {
-            throw std::runtime_error(
-                fmt::format("Path navigation error at depth {}: index {} out of range (max {})",
-                            depth, index, tsb_meta->fields.size() - 1));
-        }
+        // Get child metadata based on current type
+        const TSMeta* child_meta = nullptr;
 
-        const TSMeta* field_meta = tsb_meta->fields[index].type;
+        if (current_meta->ts_kind == TSKind::TSB) {
+            // For bundles, get field metadata at index
+            auto* tsb_meta = static_cast<const TSBTypeMeta*>(current_meta);
+            if (index >= tsb_meta->fields.size()) {
+                throw std::runtime_error(
+                    fmt::format("Path navigation error at depth {}: index {} out of range (max {})",
+                                depth, index, tsb_meta->fields.size() - 1));
+            }
+            child_meta = tsb_meta->fields[index].type;
+        } else if (current_meta->ts_kind == TSKind::TSL) {
+            // For lists, all elements have the same type
+            child_meta = current_meta->element_meta();
+        } else {
+            throw std::runtime_error(
+                fmt::format("Path navigation error at depth {}: expected bundle or list type, got kind {}",
+                            depth, static_cast<int>(current_meta->ts_kind)));
+        }
 
         // Get or create child strategy at this index
         AccessStrategy* child = current->child(index);
 
         if (!child) {
-            // Create a CollectionAccessStrategy for this field (if it's a bundle)
+            // Create a CollectionAccessStrategy for this child (if it's a bundle or list)
             if (depth < path.size() - 1) {
                 // Not the last element - need a collection for further navigation
-                if (!field_meta || field_meta->ts_kind != TSKind::TSB) {
+                if (!child_meta ||
+                    (child_meta->ts_kind != TSKind::TSB && child_meta->ts_kind != TSKind::TSL)) {
                     throw std::runtime_error(
-                        fmt::format("Path navigation error at depth {}: expected bundle type for nested navigation",
-                                    depth));
+                        fmt::format("Path navigation error at depth {}: expected bundle or list type for nested navigation, got kind {}",
+                                    depth, child_meta ? static_cast<int>(child_meta->ts_kind) : -1));
                 }
-                auto* field_tsb = static_cast<const TSBTypeMeta*>(field_meta);
-                auto new_child = std::make_unique<CollectionAccessStrategy>(this, field_tsb->fields.size());
+
+                size_t child_capacity = 0;
+                if (child_meta->ts_kind == TSKind::TSB) {
+                    auto* child_tsb = static_cast<const TSBTypeMeta*>(child_meta);
+                    child_capacity = child_tsb->fields.size();
+                } else {
+                    child_capacity = 8;  // Initial capacity for list
+                }
+
+                auto new_child = std::make_unique<CollectionAccessStrategy>(this, child_capacity);
                 child = new_child.get();
                 current->set_child(index, std::move(new_child));
             } else {
@@ -269,7 +302,7 @@ CollectionAccessStrategy* TSInput::ensure_collection_strategy_at_path(const std:
                     fmt::format("Path navigation error at depth {}: child is not a collection strategy", depth));
             }
             current = child_collection;
-            current_meta = field_meta;
+            current_meta = child_meta;
         }
     }
 
@@ -289,25 +322,33 @@ TSInputBindableView::TSInputBindableView(TSInput* root, std::vector<size_t> path
     , _path(std::move(path))
     , _meta(meta) {}
 
-TSInputBindableView TSInputBindableView::field(size_t index) const {
-    if (!valid()) {
+TSInputBindableView TSInputBindableView::element(size_t index) const {
+    if (!valid() || !_meta) {
         return {};
     }
 
-    if (!_meta || _meta->ts_kind != TSKind::TSB) {
-        return {};  // Not a bundle type
-    }
+    // Get child metadata based on type
+    const TSMeta* child_meta = nullptr;
 
-    auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
-    if (index >= tsb_meta->fields.size()) {
-        return {};  // Index out of range
+    if (_meta->ts_kind == TSKind::TSB) {
+        // For bundles, get field metadata at index
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (index >= tsb_meta->fields.size()) {
+            return {};  // Index out of range
+        }
+        child_meta = tsb_meta->fields[index].type;
+    } else if (_meta->ts_kind == TSKind::TSL) {
+        // For lists, get element metadata
+        child_meta = _meta->element_meta();
+    } else {
+        return {};  // Not a navigable type
     }
 
     // Build new path
     std::vector<size_t> new_path = _path;
     new_path.push_back(index);
 
-    return TSInputBindableView(_root, std::move(new_path), tsb_meta->fields[index].type);
+    return TSInputBindableView(_root, std::move(new_path), child_meta);
 }
 
 TSInputBindableView TSInputBindableView::field(const std::string& name) const {
@@ -316,17 +357,15 @@ TSInputBindableView TSInputBindableView::field(const std::string& name) const {
     }
 
     if (!_meta || _meta->ts_kind != TSKind::TSB) {
-        return {};  // Not a bundle type
+        return {};  // Not a bundle type - only bundles support name lookup
     }
 
     auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
 
-    // Find field by name
+    // Find field by name and use element() for navigation
     for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
         if (tsb_meta->fields[i].name == name) {
-            std::vector<size_t> new_path = _path;
-            new_path.push_back(i);
-            return TSInputBindableView(_root, std::move(new_path), tsb_meta->fields[i].type);
+            return element(i);
         }
     }
 

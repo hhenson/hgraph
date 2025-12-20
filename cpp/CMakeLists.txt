@@ -360,9 +360,6 @@ set(HGRAPH_INCLUDES
         include/hgraph/util/sender_receiver_state.h
         include/hgraph/util/stack_trace.h
         include/hgraph/util/string_utils.h
-
-        # Visitor headers
-        include/hgraph/visitors/example_visitors.h
 )
 list(TRANSFORM HGRAPH_INCLUDES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 

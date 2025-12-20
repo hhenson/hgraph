@@ -109,39 +109,31 @@ public:
         return _source ? _source->last_modified_time() : MIN_DT;
     }
 
-    // === Bundle field navigation (chainable, read-only) ===
+    // === Index-based navigation (chainable, read-only) ===
 
     /**
-     * Navigate to a bundle field by index.
+     * Navigate to an element by index (for TSL or TSB types)
+     *
+     * Works for:
+     * - TSL (list types): navigates to element at index, uses element_meta()
+     * - TSB (bundle types): navigates to field at index, uses field_meta()
+     *
      * Returns a new view pointing to the child strategy if available.
      */
-    [[nodiscard]] TSInputView field(size_t index) const;
+    [[nodiscard]] TSInputView element(size_t index) const;
 
     /**
-     * Navigate to a bundle field by name.
+     * Navigate to a bundle field by name (TSB only).
      */
     [[nodiscard]] TSInputView field(const std::string& name) const;
 
-    [[nodiscard]] bool field_modified_at(size_t index, engine_time_t time) const {
-        auto child = field(index);
+    [[nodiscard]] bool element_modified_at(size_t index, engine_time_t time) const {
+        auto child = element(index);
         return child.valid() && child.modified_at(time);
     }
 
     [[nodiscard]] size_t field_count() const {
         return value_view().field_count();
-    }
-
-    // === List element navigation (chainable, read-only) ===
-
-    /**
-     * Navigate to a list element by index.
-     * Returns a new view pointing to the child strategy if available.
-     */
-    [[nodiscard]] TSInputView element(size_t index) const;
-
-    [[nodiscard]] bool element_modified_at(size_t index, engine_time_t time) const {
-        auto child = element(index);
-        return child.valid() && child.modified_at(time);
     }
 
     [[nodiscard]] size_t list_size() const {
@@ -306,17 +298,22 @@ public:
     // === Navigation (chainable) ===
 
     /**
-     * Navigate to a bundle field by index
+     * Navigate to an element by index (for TSL or TSB types)
+     *
+     * This is the standard method for index-based navigation during binding.
+     * Works for:
+     * - TSL (list types): navigates to element at index
+     * - TSB (bundle types): navigates to field at index
      *
      * Returns an invalid view if:
      * - This view is invalid
-     * - The metadata is not a bundle type
+     * - The metadata is not a TSL or TSB type
      * - The index is out of range
      */
-    [[nodiscard]] TSInputBindableView field(size_t index) const;
+    [[nodiscard]] TSInputBindableView element(size_t index) const;
 
     /**
-     * Navigate to a bundle field by name
+     * Navigate to a bundle field by name (TSB only)
      *
      * Returns an invalid view if:
      * - This view is invalid
@@ -475,30 +472,28 @@ public:
         return _strategy ? _strategy->value() : value::ConstValueView{};
     }
 
-    // Element access for collections (use value().element() for more options)
-    [[nodiscard]] value::ConstValueView element(size_t index) const {
-        auto v = value();
-        return v.valid() ? v.element(index) : value::ConstValueView{};
-    }
-
-    // === Field navigation (returns bindable view for binding during construction) ===
+    // === Element/Field navigation (returns bindable view for binding during construction) ===
 
     /**
-     * Get a bindable view at a specific field
+     * Get a bindable view at a specific index (for TSL or TSB types)
      *
-     * Use this to bind different fields of a bundle input to different outputs:
-     *   input->field(0).bind(output1);
-     *   input->field(1).field(0).bind(output2);  // Nested binding
+     * Use this to bind different elements of a collection or bundle input:
+     *   input->element(0).bind(output1);
+     *   input->element(1).element(0).bind(output2);  // Nested binding
      *
-     * For runtime value access, use value().field() or view().field() instead.
+     * Works for:
+     * - TSL (list types): navigates to element at index
+     * - TSB (bundle types): navigates to field at index
      *
-     * @param index Field index within the bundle
-     * @return Bindable view at the specified field (invalid if not a bundle or out of range)
+     * For runtime value access, use value().element() or view().element() instead.
+     *
+     * @param index Index within the collection/bundle
+     * @return Bindable view at the specified index (invalid if out of range)
      */
-    [[nodiscard]] TSInputBindableView field(size_t index) const;
+    [[nodiscard]] TSInputBindableView element(size_t index) const;
 
     /**
-     * Get a bindable view by field name
+     * Get a bindable view by field name (TSB only)
      *
      * @param name Field name within the bundle
      * @return Bindable view at the specified field (invalid if not a bundle or name not found)
