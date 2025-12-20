@@ -1,10 +1,12 @@
 #include <hgraph/api/python/py_tsb.h>
+#include <hgraph/api/python/py_ts.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/time_series/access_strategy.h>
 #include <hgraph/types/time_series/ts_python_helpers.h>
+#include <optional>
 
 namespace hgraph
 {
@@ -68,8 +70,58 @@ namespace hgraph
         _view.mark_modified(eval_time);
     }
 
+    // Helper to get field index from key (int or string)
+    static std::optional<size_t> get_field_index(const TSBTypeMeta* tsb_meta, const nb::handle& key) {
+        if (!tsb_meta) return std::nullopt;
+
+        if (nb::isinstance<nb::int_>(key)) {
+            size_t index = nb::cast<size_t>(key);
+            if (index < tsb_meta->fields.size()) {
+                return index;
+            }
+        } else if (nb::isinstance<nb::str>(key)) {
+            std::string name = nb::cast<std::string>(key);
+            size_t index = tsb_meta->field_index(name);
+            if (index != SIZE_MAX) {
+                return index;
+            }
+        }
+        return std::nullopt;
+    }
+
+    // Helper to create output wrapper from a view (for field access)
+    static nb::object create_output_wrapper_from_view(
+            const node_s_ptr& node,
+            value::TSView view,
+            const TSMeta* meta) {
+        if (!view.valid()) return nb::none();
+
+        // For bundle fields, we pass nullptr for TSOutput* since we're wrapping a view
+        if (!meta) {
+            return nb::cast(PyTimeSeriesOutput(node, std::move(view), nullptr, meta));
+        }
+
+        switch (meta->ts_kind) {
+            case TSKind::TS:
+                return nb::cast(PyTimeSeriesValueOutput(node, std::move(view), nullptr, meta));
+            case TSKind::TSB:
+                return nb::cast(PyTimeSeriesBundleOutput(node, std::move(view), nullptr, meta));
+            default:
+                return nb::cast(PyTimeSeriesOutput(node, std::move(view), nullptr, meta));
+        }
+    }
+
     nb::object PyTimeSeriesBundleOutput::get_item(const nb::handle &key) const {
-        // TODO: Implement via view field navigation
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        auto field_idx = get_field_index(tsb_meta, key);
+        if (!field_idx) return nb::none();
+
+        // Navigate to field via view (const_cast needed as field() is not const)
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        auto field_view = mutable_view.field(*field_idx);
+        if (field_view.valid()) {
+            return create_output_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[*field_idx].type);
+        }
         return nb::none();
     }
 
@@ -78,7 +130,8 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesBundleOutput::contains(const nb::handle &key) const {
-        return nb::bool_(false);
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        return nb::bool_(get_field_index(tsb_meta, key).has_value());
     }
 
     nb::object PyTimeSeriesBundleOutput::iter() const {
@@ -86,47 +139,150 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesBundleOutput::keys() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        nb::list result;
+        for (const auto& field : tsb_meta->fields) {
+            result.append(nb::cast(field.name));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleOutput::values() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        nb::list result;
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = mutable_view.field(i);
+            if (field_view.valid()) {
+                result.append(create_output_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleOutput::items() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        nb::list result;
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = mutable_view.field(i);
+            if (field_view.valid()) {
+                auto wrapped = create_output_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type);
+                result.append(nb::make_tuple(nb::cast(tsb_meta->fields[i].name), wrapped));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleOutput::valid_keys() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        nb::list result;
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = mutable_view.field(i);
+            if (field_view.valid() && field_view.has_value()) {
+                result.append(nb::cast(tsb_meta->fields[i].name));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleOutput::valid_values() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        nb::list result;
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = mutable_view.field(i);
+            if (field_view.valid() && field_view.has_value()) {
+                result.append(create_output_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleOutput::valid_items() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        nb::list result;
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = mutable_view.field(i);
+            if (field_view.valid() && field_view.has_value()) {
+                auto wrapped = create_output_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type);
+                result.append(nb::make_tuple(nb::cast(tsb_meta->fields[i].name), wrapped));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleOutput::modified_keys() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta || !_node) return nb::list();
+
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = mutable_view.field(i);
+            if (field_view.valid() && field_view.modified_at(eval_time)) {
+                result.append(nb::cast(tsb_meta->fields[i].name));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleOutput::modified_values() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta || !_node) return nb::list();
+
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = mutable_view.field(i);
+            if (field_view.valid() && field_view.modified_at(eval_time)) {
+                result.append(create_output_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleOutput::modified_items() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta || !_node) return nb::list();
+
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = mutable_view.field(i);
+            if (field_view.valid() && field_view.modified_at(eval_time)) {
+                auto wrapped = create_output_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type);
+                result.append(nb::make_tuple(nb::cast(tsb_meta->fields[i].name), wrapped));
+            }
+        }
+        return result;
     }
 
     nb::int_ PyTimeSeriesBundleOutput::len() const {
-        return nb::int_(view().field_count());
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        return nb::int_(tsb_meta ? tsb_meta->fields.size() : 0);
     }
 
     nb::bool_ PyTimeSeriesBundleOutput::empty() const {
-        return nb::bool_(view().field_count() == 0);
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        return nb::bool_(!tsb_meta || tsb_meta->fields.empty());
     }
 
     nb::str PyTimeSeriesBundleOutput::py_str() const {
@@ -212,7 +368,63 @@ namespace hgraph
         return PyTimeSeriesInput::delta_value();
     }
 
+    // Helper for creating input wrappers from views
+    static nb::object create_input_wrapper_from_view(
+            const node_s_ptr& node,
+            ts::TSInputView view,
+            const TSMeta* meta) {
+        if (!view.valid()) return nb::none();
+
+        // Create a PyTimeSeriesInput wrapper (view-only, no TSInput)
+        // Use the wrapper factory for proper type dispatch
+        if (!meta) {
+            return nb::cast(PyTimeSeriesInput(node, std::move(view), meta));
+        }
+
+        switch (meta->ts_kind) {
+            case TSKind::TS:
+                return nb::cast(PyTimeSeriesValueInput(node, std::move(view), nullptr, meta));
+            case TSKind::TSB:
+                return nb::cast(PyTimeSeriesBundleInput(node, std::move(view), nullptr, meta));
+            default:
+                return nb::cast(PyTimeSeriesInput(node, std::move(view), meta));
+        }
+    }
+
+    // Helper to wrap a field input from the strategy's child
+    static nb::object wrap_field_input_from_strategy(
+            const node_s_ptr& node,
+            ts::AccessStrategy* child_strategy,
+            const TSMeta* field_meta) {
+        if (!child_strategy) return nb::none();
+
+        // Create a TSInputView from the child strategy
+        ts::TSInputView field_view(child_strategy, field_meta);
+        // Use the field wrapper factory
+        return create_input_wrapper_from_view(node, std::move(field_view), field_meta);
+    }
+
     nb::object PyTimeSeriesBundleInput::get_item(const nb::handle &key) const {
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        auto field_idx = get_field_index(tsb_meta, key);
+        if (!field_idx) return nb::none();
+
+        // Check for unpeered mode first (CollectionAccessStrategy with children)
+        auto* coll_strategy = get_collection_strategy(view());
+        if (coll_strategy && coll_strategy->child_count() > 0) {
+            // Unpeered mode: get child strategy
+            auto* child_strategy = coll_strategy->child(*field_idx);
+            if (child_strategy) {
+                return wrap_field_input_from_strategy(_node, child_strategy, tsb_meta->fields[*field_idx].type);
+            }
+        }
+
+        // Peered mode: navigate via view
+        auto field_view = view().element(*field_idx);
+        if (field_view.valid()) {
+            return create_input_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[*field_idx].type);
+        }
+
         return nb::none();
     }
 
@@ -221,7 +433,8 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesBundleInput::contains(const nb::handle &key) const {
-        return nb::bool_(false);
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        return nb::bool_(get_field_index(tsb_meta, key).has_value());
     }
 
     nb::object PyTimeSeriesBundleInput::iter() const {
@@ -229,47 +442,243 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesBundleInput::keys() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        nb::list result;
+        for (const auto& field : tsb_meta->fields) {
+            result.append(nb::cast(field.name));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleInput::values() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        nb::list result;
+        auto* coll_strategy = get_collection_strategy(view());
+
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            nb::object wrapped;
+            if (coll_strategy && coll_strategy->child_count() > 0) {
+                // Unpeered mode
+                auto* child_strategy = coll_strategy->child(i);
+                wrapped = wrap_field_input_from_strategy(_node, child_strategy, tsb_meta->fields[i].type);
+            } else {
+                // Peered mode
+                auto field_view = view().element(i);
+                wrapped = create_input_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type);
+            }
+            result.append(wrapped);
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleInput::items() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        nb::list result;
+        auto* coll_strategy = get_collection_strategy(view());
+
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            nb::object wrapped;
+            if (coll_strategy && coll_strategy->child_count() > 0) {
+                // Unpeered mode
+                auto* child_strategy = coll_strategy->child(i);
+                wrapped = wrap_field_input_from_strategy(_node, child_strategy, tsb_meta->fields[i].type);
+            } else {
+                // Peered mode
+                auto field_view = view().element(i);
+                wrapped = create_input_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type);
+            }
+            result.append(nb::make_tuple(nb::cast(tsb_meta->fields[i].name), wrapped));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleInput::valid_keys() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        nb::list result;
+        auto* coll_strategy = get_collection_strategy(view());
+
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            bool is_valid = false;
+            if (coll_strategy && coll_strategy->child_count() > 0) {
+                auto* child_strategy = coll_strategy->child(i);
+                is_valid = child_strategy && child_strategy->has_value();
+            } else {
+                auto field_view = view().element(i);
+                is_valid = field_view.valid() && field_view.has_value();
+            }
+            if (is_valid) {
+                result.append(nb::cast(tsb_meta->fields[i].name));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleInput::valid_values() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        nb::list result;
+        auto* coll_strategy = get_collection_strategy(view());
+
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            bool is_valid = false;
+            nb::object wrapped;
+
+            if (coll_strategy && coll_strategy->child_count() > 0) {
+                auto* child_strategy = coll_strategy->child(i);
+                is_valid = child_strategy && child_strategy->has_value();
+                if (is_valid) {
+                    wrapped = wrap_field_input_from_strategy(_node, child_strategy, tsb_meta->fields[i].type);
+                }
+            } else {
+                auto field_view = view().element(i);
+                is_valid = field_view.valid() && field_view.has_value();
+                if (is_valid) {
+                    wrapped = create_input_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type);
+                }
+            }
+            if (is_valid) {
+                result.append(wrapped);
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleInput::valid_items() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::list();
+
+        nb::list result;
+        auto* coll_strategy = get_collection_strategy(view());
+
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            bool is_valid = false;
+            nb::object wrapped;
+
+            if (coll_strategy && coll_strategy->child_count() > 0) {
+                auto* child_strategy = coll_strategy->child(i);
+                is_valid = child_strategy && child_strategy->has_value();
+                if (is_valid) {
+                    wrapped = wrap_field_input_from_strategy(_node, child_strategy, tsb_meta->fields[i].type);
+                }
+            } else {
+                auto field_view = view().element(i);
+                is_valid = field_view.valid() && field_view.has_value();
+                if (is_valid) {
+                    wrapped = create_input_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type);
+                }
+            }
+            if (is_valid) {
+                result.append(nb::make_tuple(nb::cast(tsb_meta->fields[i].name), wrapped));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleInput::modified_keys() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta || !_node) return nb::list();
+
+        auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto* coll_strategy = get_collection_strategy(view());
+
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            bool is_modified = false;
+            if (coll_strategy && coll_strategy->child_count() > 0) {
+                auto* child_strategy = coll_strategy->child(i);
+                is_modified = child_strategy && child_strategy->modified_at(eval_time);
+            } else {
+                auto field_view = view().element(i);
+                is_modified = field_view.valid() && field_view.modified_at(eval_time);
+            }
+            if (is_modified) {
+                result.append(nb::cast(tsb_meta->fields[i].name));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleInput::modified_values() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta || !_node) return nb::list();
+
+        auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto* coll_strategy = get_collection_strategy(view());
+
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            bool is_modified = false;
+            nb::object wrapped;
+
+            if (coll_strategy && coll_strategy->child_count() > 0) {
+                auto* child_strategy = coll_strategy->child(i);
+                is_modified = child_strategy && child_strategy->modified_at(eval_time);
+                if (is_modified) {
+                    wrapped = wrap_field_input_from_strategy(_node, child_strategy, tsb_meta->fields[i].type);
+                }
+            } else {
+                auto field_view = view().element(i);
+                is_modified = field_view.valid() && field_view.modified_at(eval_time);
+                if (is_modified) {
+                    wrapped = create_input_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type);
+                }
+            }
+            if (is_modified) {
+                result.append(wrapped);
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesBundleInput::modified_items() const {
-        return nb::list();
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta || !_node) return nb::list();
+
+        auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto* coll_strategy = get_collection_strategy(view());
+
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            bool is_modified = false;
+            nb::object wrapped;
+
+            if (coll_strategy && coll_strategy->child_count() > 0) {
+                auto* child_strategy = coll_strategy->child(i);
+                is_modified = child_strategy && child_strategy->modified_at(eval_time);
+                if (is_modified) {
+                    wrapped = wrap_field_input_from_strategy(_node, child_strategy, tsb_meta->fields[i].type);
+                }
+            } else {
+                auto field_view = view().element(i);
+                is_modified = field_view.valid() && field_view.modified_at(eval_time);
+                if (is_modified) {
+                    wrapped = create_input_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[i].type);
+                }
+            }
+            if (is_modified) {
+                result.append(nb::make_tuple(nb::cast(tsb_meta->fields[i].name), wrapped));
+            }
+        }
+        return result;
     }
 
     nb::int_ PyTimeSeriesBundleInput::len() const {
-        return nb::int_(view().field_count());
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        return nb::int_(tsb_meta ? tsb_meta->fields.size() : 0);
     }
 
     nb::bool_ PyTimeSeriesBundleInput::empty() const {
-        return nb::bool_(view().field_count() == 0);
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        return nb::bool_(!tsb_meta || tsb_meta->fields.empty());
     }
 
     nb::str PyTimeSeriesBundleInput::py_str() const {
