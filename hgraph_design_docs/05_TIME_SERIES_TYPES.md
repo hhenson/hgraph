@@ -1019,9 +1019,383 @@ This enables fine-grained tracking where only the specific modified paths trigge
 
 ---
 
-## 15. Type Conversion
+## 15. REF Operations and Binding Semantics
 
-### 15.1 Scalar to Time-Series
+### 15.1 Reference Types
+
+The REF system uses three fundamental reference kinds:
+
+```mermaid
+classDiagram
+    class TimeSeriesReference {
+        <<abstract>>
+        +is_empty: bool
+        +is_valid: bool
+        +has_output: bool
+        +bind_input(input)
+    }
+
+    class BoundTimeSeriesReference {
+        +output: TimeSeriesOutput
+        +is_empty = False
+        +is_valid = output.valid
+    }
+
+    class UnBoundTimeSeriesReference {
+        +items: list[TimeSeriesReference]
+        +is_empty = False
+        +is_valid = any(item.is_valid)
+    }
+
+    class EmptyTimeSeriesReference {
+        +is_empty = True
+        +is_valid = False
+    }
+
+    TimeSeriesReference <|-- BoundTimeSeriesReference
+    TimeSeriesReference <|-- UnBoundTimeSeriesReference
+    TimeSeriesReference <|-- EmptyTimeSeriesReference
+```
+
+| Reference Type | Description | Valid When |
+|----------------|-------------|------------|
+| `BoundTimeSeriesReference` | Points to a specific output | Referenced output is valid |
+| `UnBoundTimeSeriesReference` | Collection of references (for TSL, TSB) | Any item reference is valid |
+| `EmptyTimeSeriesReference` | No reference (unset state) | Never valid |
+
+### 15.2 Binding Operations
+
+#### REF → REF Binding (Peered)
+
+When a REF input binds to a REF output, a **peered** relationship is established:
+
+```python
+# REF[TS[int]] output → REF[TS[int]] input
+# The input observes the output for reference changes
+
+@compute_node
+def pass_ref(ref: REF[TS[int]]) -> REF[TS[int]]:
+    return ref.value  # Returns the TimeSeriesReference
+```
+
+**Mechanism:**
+1. Input registers as an observer via `output.observe_reference(input)`
+2. Input's `_output` points directly to the REF output
+3. When output's reference value changes, all observers are rebound
+
+```mermaid
+sequenceDiagram
+    participant RO as REF Output
+    participant RI as REF Input
+    participant TS as TS[int] Output
+
+    RI->>RO: observe_reference(self)
+    RO->>RO: value = ref_to_TS
+    RO->>RI: ref.bind_input(self)
+    RI->>TS: bind_output(ts_output)
+    Note over RI: Now reads from TS
+```
+
+#### TS → REF Binding (Non-Peered)
+
+When a non-reference output binds to a REF input, the output is **wrapped**:
+
+```python
+@graph
+def g(ts: TS[int]) -> REF[TS[int]]:
+    return passthrough_ref(ts)  # TS[int] wrapped in BoundTimeSeriesReference
+```
+
+**Mechanism:**
+1. Input creates `BoundTimeSeriesReference(output)` wrapper
+2. Input's `_output` is set to `None` (non-peered)
+3. Input's `_value` holds the wrapped reference
+4. Input is scheduled for notification at node start
+
+```python
+# Simplified binding logic
+def do_bind_output(self, output: TimeSeriesOutput) -> bool:
+    if isinstance(output, TimeSeriesReferenceOutput):
+        return super().do_bind_output(output)  # Peered
+    else:
+        self._value = TimeSeriesReference.make(output)  # Wrap
+        self._output = None  # Non-peered
+        return False
+```
+
+#### REF → TS Binding (Dereferencing)
+
+When a REF provides its value to a regular TS input, the reference is **dereferenced**:
+
+```python
+@graph
+def use_ref(ref: REF[TS[int]]) -> TS[int]:
+    return add_(ref, const(1))  # REF[TS[int]] dereferenced to TS[int]
+```
+
+**Mechanism:**
+1. Reference's `bind_input()` method is called
+2. The wrapped output is extracted and bound to the input
+3. Input now reads directly from the original output
+
+```python
+class BoundTimeSeriesReference:
+    def bind_input(self, input_: TimeSeriesInput):
+        # Unbind if previously bound
+        if input_.bound and not input_.has_peer:
+            input_.un_bind_output()
+
+        # Bind input to the wrapped output
+        input_.bind_output(self.output)
+```
+
+### 15.3 Peer vs Non-Peer Semantics
+
+**Peering** determines whether an input delegates directly to its output or aggregates from multiple outputs.
+
+**Peered Binding (has_peer = True):**
+
+A single output binds to a single input with direct state delegation.
+
+```
+┌─────────────────────────────────┐
+│         TSL Output              │
+│  ┌─────────┬─────────┐          │
+│  │ [0]: 10 │ [1]: 20 │          │
+│  └────┬────┴────┬────┘          │
+└───────┼─────────┼───────────────┘
+        │         │
+        ▼         ▼  (values flow down)
+┌───────┼─────────┼───────────────┐
+│  ┌────┴────┬────┴────┐          │
+│  │ [0]     │ [1]     │          │
+│  └─────────┴─────────┘          │
+│         TSL Input               │
+│   has_peer = True               │
+│   (delegates to output)         │
+└─────────────────────────────────┘
+
+input.valid    = output.valid
+input.modified = output.modified
+input.value    = output.value
+```
+
+**Non-Peered Binding (has_peer = False):**
+
+Multiple independent outputs bind to a composite input. The input aggregates state from its bound outputs.
+
+```
+┌──────────────┐    ┌──────────────┐
+│   Output A   │    │   Output B   │
+│   (Node 1)   │    │   (Node 2)   │
+│   value: 10  │    │   value: 20  │
+└──────┬───────┘    └──────┬───────┘
+       │                   │
+       ▼                   ▼  (values flow down)
+┌──────┴───────────────────┴──────┐
+│  ┌─────────┬─────────┐          │
+│  │ [0]     │ [1]     │          │
+│  └─────────┴─────────┘          │
+│         TSL Input               │
+│   has_peer = False              │
+│   (aggregates from outputs)     │
+└─────────────────────────────────┘
+
+input.valid    = any(output.valid for output in bound_outputs)
+input.modified = any(output.modified for output in bound_outputs)
+input.value    = (output_a.value, output_b.value)
+```
+
+#### State Delegation Differences
+
+| Property | Peered | Non-Peered |
+|----------|--------|------------|
+| `valid` | `output.valid` | `any(child.valid for child in items)` |
+| `modified` | `output.modified` | `any(child.modified for child in items)` |
+| `value` | `output.value` | Computed from children |
+| `last_modified_time` | `output.last_modified_time` | `max(child.last_modified_time)` |
+
+#### Peering Rules for Collections
+
+Collections are peered **if and only if** ALL children are peered:
+
+```python
+# TSL binding logic
+def do_bind_output(self, output: TimeSeriesOutput) -> bool:
+    peer = True
+    for ts_input, ts_output in zip(self.values(), output.values()):
+        peer &= ts_input.bind_output(ts_output)  # ALL must be peered
+
+    super().do_bind_output(output if peer else None)
+    return peer
+```
+
+**Example: Peered TSL**
+```
+TSL[TS[int], 2] input bound to TSL[TS[int], 2] output:
+├── child[0]: TS[int] → output[0]: TS[int]  (peered)
+└── child[1]: TS[int] → output[1]: TS[int]  (peered)
+Result: has_peer = True
+```
+
+**Example: Non-Peered TSL**
+```
+TSL[TS[int], 2] input bound to independent outputs:
+├── child[0]: TS[int] → output_A: TS[int]  (peered)
+└── child[1]: TS[int] → output_B: TS[int]  (different node - non-peered)
+Result: has_peer = False (mixed sources)
+```
+
+### 15.4 REF Input State Properties
+
+```python
+@property
+def value(self):
+    if self._output is not None:
+        return super().value              # Peered: delegate to output
+    elif self._value:
+        return self._value                # Non-peered: cached reference
+    elif self._items:
+        # Collection: build from items
+        self._value = TimeSeriesReference.make(from_items=[i.value for i in self._items])
+        return self._value
+    else:
+        return None
+
+@property
+def modified(self) -> bool:
+    if self._sampled:
+        return True                       # Just sampled (rebound)
+    elif self._output is not None:
+        return self.output.modified       # Peered: check output
+    elif self._items:
+        return any(i.modified for i in self._items)  # Collection
+    else:
+        return False                      # Non-peered cached: not modified
+
+@property
+def valid(self) -> bool:
+    return (self._value is not None or
+            (self._items and any(i.valid for i in self._items)) or
+            (self._output is not None and self._output.valid))
+```
+
+### 15.5 Reference Observer Pattern
+
+REF outputs maintain a registry of observer inputs that are automatically rebound when the reference changes:
+
+```python
+class TimeSeriesReferenceOutput:
+    def __init__(self):
+        self._reference_observers: dict[int, TimeSeriesInput] = {}
+
+    @value.setter
+    def value(self, v: TimeSeriesReference):
+        if v is None:
+            self.invalidate()
+            return
+        self._value = v
+        self.mark_modified()
+        # Rebind all observers to new reference
+        for observer in self._reference_observers.values():
+            self._value.bind_input(observer)
+
+    def observe_reference(self, input_: TimeSeriesInput):
+        self._reference_observers[id(input_)] = input_
+
+    def stop_observing_reference(self, input_: TimeSeriesInput):
+        self._reference_observers.pop(id(input_), None)
+```
+
+### 15.6 Dynamic Reference Switching
+
+REF enables dynamic routing by switching which output an input reads from:
+
+```python
+@compute_node
+def merge_ref(index: TS[int], ts: TSL[REF[TIME_SERIES_TYPE], SIZE]) -> REF[TIME_SERIES_TYPE]:
+    """Select one reference from a list based on index."""
+    return cast(REF, ts[index.value].value)
+
+@graph
+def switch_source(selector: TS[int], a: TS[int], b: TS[int]) -> TS[int]:
+    # When selector changes, the output switches which input it reads
+    ref = merge_ref(selector, TSL.from_ts(a, b))
+    return sample(selector, ref)  # Dereference and sample
+```
+
+**Execution flow:**
+```
+selector=0: ref → a (value=1)
+selector=1: ref → b (value=-1)  # Reference switches, downstream recomputes
+selector=0: ref → a (value=2)   # Switch back
+```
+
+### 15.7 UnBound References for Collections
+
+When a REF wraps multiple independent outputs (e.g., from different nodes), an `UnBoundTimeSeriesReference` is created:
+
+```python
+@graph
+def g(ts1: TS[int], ts2: TS[int]) -> REF[TSL[TS[int], Size[2]]]:
+    return make_ref(TSL.from_ts(ts1, ts2))
+```
+
+**Structure:**
+```
+UnBoundTimeSeriesReference:
+├── items[0]: BoundTimeSeriesReference(ts1.output)
+└── items[1]: BoundTimeSeriesReference(ts2.output)
+```
+
+When this reference binds to a TSL input, each item binds to the corresponding element:
+
+```python
+class UnBoundTimeSeriesReference:
+    def bind_input(self, input_: TimeSeriesInput):
+        for item, r in zip(input_, self.items):
+            if r:
+                r.bind_input(item)      # Each item binds its element
+            elif item.bound:
+                item.un_bind_output()   # Unbind if no reference
+```
+
+### 15.8 Empty References
+
+Empty references represent the "no reference" state:
+
+```python
+@compute_node
+def conditional_ref(condition: TS[bool], ts: TS[int]) -> REF[TS[int]]:
+    if condition.value:
+        return ts.value  # BoundTimeSeriesReference
+    else:
+        return TimeSeriesReference.make()  # EmptyTimeSeriesReference
+```
+
+**Properties of EmptyTimeSeriesReference:**
+- `is_empty = True`
+- `is_valid = False`
+- `has_output = False`
+- Binding to an input unbinds it
+
+### 15.9 Binding Summary Table
+
+| Source | Target | Peered | Mechanism |
+|--------|--------|--------|-----------|
+| `REF[T]` output | `REF[T]` input | Yes | Observer registration, direct delegation |
+| `TS[T]` output | `REF[T]` input | No | Wrapped in `BoundTimeSeriesReference` |
+| `REF[T]` reference | `TS[T]` input | Yes* | Dereferenced via `bind_input()` |
+| `TSL[T]` outputs | `REF[TSL[T]]` input | No | `UnBoundTimeSeriesReference` with items |
+| Empty reference | Any input | N/A | Unbinds the input |
+
+*The resulting binding between TS input and TS output is peered.
+
+---
+
+## 16. Type Conversion
+
+### 16.1 Scalar to Time-Series
 
 ```python
 const(5)                # int -> TS[int]
@@ -1029,7 +1403,7 @@ const("hello")          # str -> TS[str]
 const(MyData(...))      # MyData -> TS[MyData]
 ```
 
-### 15.2 Collection to Time-Series
+### 16.2 Collection to Time-Series
 
 ```python
 const({"a": 1, "b": 2}, TSD[str, TS[int]])   # dict -> TSD
@@ -1037,7 +1411,7 @@ const([1, 2, 3], TSL[TS[int], Size[3]])      # list -> TSL
 const({1, 2, 3}, TSS[int])                   # set -> TSS
 ```
 
-### 15.3 Time-Series Unwrapping
+### 16.3 Time-Series Unwrapping
 
 ```python
 collect(tsd, max_size=100)   # TSD -> TS[dict]
@@ -1047,7 +1421,7 @@ to_set(tss)                  # TSS -> TS[frozenset]
 
 ---
 
-## 16. Reference Locations
+## 17. Reference Locations
 
 | Type | Python Location | C++ Location |
 |------|-----------------|--------------|
@@ -1061,7 +1435,7 @@ to_set(tss)                  # TSS -> TS[frozenset]
 
 ---
 
-## 17. Next Steps
+## 18. Next Steps
 
 Continue to:
 - [06_NODE_TYPES.md](06_NODE_TYPES.md) - Node specifications
