@@ -650,3 +650,329 @@ def test_unsubscribe_unknown_callback_is_safe():
     # Unsubscribing an unknown callback should silently succeed
     ts_value.unsubscribe(callback2)
     assert ts_value.subscriber_count == 1  # Still have the original subscriber
+
+
+# =============================================================================
+# Fluent View API Tests
+# =============================================================================
+
+def test_view_basic():
+    """Test basic view access."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    ts_value = _hgraph.HgTimeSeriesValue(schema)
+
+    view = ts_value.view()
+    assert view.valid
+    assert view.kind == _hgraph.TypeKind.Scalar
+
+
+def test_view_set_value():
+    """Test setting value through a view."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    ts_value = _hgraph.HgTimeSeriesValue(schema)
+
+    ts_value.view().set_value(42, time=T100)
+    assert ts_value.py_value == 42
+    assert ts_value.modified_at(T100)
+
+
+def test_view_field_navigation():
+    """Test navigating to a field using view."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    bundle_schema = _hgraph.get_bundle_type_meta(
+        [("x", int_schema), ("y", int_schema)],
+        "Point"
+    )
+    ts_value = _hgraph.HgTimeSeriesValue(bundle_schema)
+
+    field_view = ts_value.view().field(0)
+    assert field_view.valid
+    assert field_view.kind == _hgraph.TypeKind.Scalar
+
+
+def test_view_field_by_name():
+    """Test navigating to a field by name using view."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    bundle_schema = _hgraph.get_bundle_type_meta(
+        [("x", int_schema), ("y", int_schema)],
+        "Point"
+    )
+    ts_value = _hgraph.HgTimeSeriesValue(bundle_schema)
+
+    field_view = ts_value.view().field("x")
+    assert field_view.valid
+    field_view.set_value(42, time=T100)
+    assert ts_value.get_field_by_name("x") == 42
+
+
+# =============================================================================
+# Hierarchical Notification Tests (Fluent API)
+# =============================================================================
+
+def test_subscribe_field_basic():
+    """Test subscribing to a specific field using fluent API."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    bundle_schema = _hgraph.get_bundle_type_meta(
+        [("x", int_schema), ("y", int_schema)],
+        "Point"
+    )
+    ts_value = _hgraph.HgTimeSeriesValue(bundle_schema)
+
+    field_notifications = []
+    field_callback = lambda t: field_notifications.append(("field_x", t))
+
+    # Subscribe using fluent API
+    ts_value.view().field(0).subscribe(field_callback)
+
+    # Modify field x using the view - should notify field subscriber
+    ts_value.view().field(0).set_value(10, time=T100)
+
+    assert len(field_notifications) == 1
+    assert field_notifications[0] == ("field_x", T100)
+
+
+def test_hierarchical_notification_field_and_root():
+    """Test that modifying a field notifies both field and root subscribers."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    bundle_schema = _hgraph.get_bundle_type_meta(
+        [("x", int_schema), ("y", int_schema)],
+        "Point"
+    )
+    ts_value = _hgraph.HgTimeSeriesValue(bundle_schema)
+
+    root_notifications = []
+    field_notifications = []
+
+    root_callback = lambda t: root_notifications.append(("root", t))
+    field_callback = lambda t: field_notifications.append(("field_x", t))
+
+    ts_value.view().subscribe(root_callback)
+    ts_value.view().field(0).subscribe(field_callback)
+
+    # Modify field x using the view - should notify both field AND root
+    ts_value.view().field(0).set_value(10, time=T100)
+
+    assert len(field_notifications) == 1
+    assert len(root_notifications) == 1
+    assert field_notifications[0] == ("field_x", T100)
+    assert root_notifications[0] == ("root", T100)
+
+
+def test_hierarchical_notification_other_field_not_notified():
+    """Test that modifying one field doesn't notify subscribers to other fields."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    bundle_schema = _hgraph.get_bundle_type_meta(
+        [("x", int_schema), ("y", int_schema)],
+        "Point"
+    )
+    ts_value = _hgraph.HgTimeSeriesValue(bundle_schema)
+
+    field_x_notifications = []
+    field_y_notifications = []
+
+    callback_x = lambda t: field_x_notifications.append(("field_x", t))
+    callback_y = lambda t: field_y_notifications.append(("field_y", t))
+
+    ts_value.view().field(0).subscribe(callback_x)
+    ts_value.view().field(1).subscribe(callback_y)
+
+    # Modify field x only
+    ts_value.view().field(0).set_value(10, time=T100)
+
+    assert len(field_x_notifications) == 1
+    assert len(field_y_notifications) == 0
+
+    # Modify field y only
+    ts_value.view().field(1).set_value(20, time=T200)
+
+    assert len(field_x_notifications) == 1  # Still 1
+    assert len(field_y_notifications) == 1  # Now 1
+
+
+def test_hierarchical_nested_bundle_notifications():
+    """Test notification propagation through nested bundles."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+
+    # Create inner bundle: Point {x, y}
+    inner_bundle = _hgraph.get_bundle_type_meta(
+        [("x", int_schema), ("y", int_schema)],
+        "Point"
+    )
+
+    str_schema = _hgraph.get_scalar_type_meta(str)
+
+    # Create outer bundle: NamedPoint {name, location}
+    outer_bundle = _hgraph.get_bundle_type_meta(
+        [("name", str_schema), ("location", inner_bundle)],
+        "NamedPoint"
+    )
+
+    ts_value = _hgraph.HgTimeSeriesValue(outer_bundle)
+
+    outer_notifications = []
+    location_notifications = []
+
+    outer_callback = lambda t: outer_notifications.append(("outer", t))
+    location_callback = lambda t: location_notifications.append(("location", t))
+
+    ts_value.view().subscribe(outer_callback)
+    ts_value.view().field(1).subscribe(location_callback)  # field 1 is "location"
+
+    # Set the whole location at once using the view
+    ts_value.view().field(1).set_value({"x": 10, "y": 20}, time=T100)
+
+    # Both outer and location should be notified
+    assert len(outer_notifications) == 1
+    assert len(location_notifications) == 1
+
+
+def test_unsubscribe_field():
+    """Test unsubscribing from a specific field using fluent API."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    bundle_schema = _hgraph.get_bundle_type_meta(
+        [("x", int_schema), ("y", int_schema)],
+        "Point"
+    )
+    ts_value = _hgraph.HgTimeSeriesValue(bundle_schema)
+
+    notifications = []
+    callback = lambda t: notifications.append(t)
+
+    ts_value.view().field(0).subscribe(callback)
+    ts_value.view().field(0).set_value(10, time=T100)
+    assert len(notifications) == 1
+
+    ts_value.view().field(0).unsubscribe(callback)
+    ts_value.view().field(0).set_value(20, time=T200)
+    assert len(notifications) == 1  # No new notification
+
+
+def test_dict_entry_subscription():
+    """Test subscribing to a specific dict entry using fluent API."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+
+    ts_value = _hgraph.HgTimeSeriesValue(dict_schema)
+
+    # First set the dict so entries exist
+    ts_value.set_value({"a": 1, "b": 2}, time=T100)
+
+    root_notifications = []
+    entry_notifications = []
+
+    root_callback = lambda t: root_notifications.append(("root", t))
+    entry_callback = lambda t: entry_notifications.append(("entry_a", t))
+
+    ts_value.view().subscribe(root_callback)
+    ts_value.view().key("a").subscribe(entry_callback)
+
+    # Modify the entry using the view
+    ts_value.view().key("a").set_value(10, time=T200)
+
+    # Both root and entry should be notified
+    assert len(root_notifications) == 1
+    assert len(entry_notifications) == 1
+
+
+def test_subscribe_field_requires_bundle():
+    """Test that field() on view raises error for non-bundle types."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    ts_value = _hgraph.HgTimeSeriesValue(schema)
+
+    callback = lambda t: None
+
+    with pytest.raises(RuntimeError, match="requires a valid Bundle type"):
+        ts_value.view().field(0).subscribe(callback)
+
+
+def test_subscribe_field_invalid_index():
+    """Test that field() on view raises error for invalid index."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    bundle_schema = _hgraph.get_bundle_type_meta(
+        [("x", int_schema)],
+        "Single"
+    )
+    ts_value = _hgraph.HgTimeSeriesValue(bundle_schema)
+
+    callback = lambda t: None
+
+    with pytest.raises(RuntimeError, match="Invalid field index"):
+        ts_value.view().field(5).subscribe(callback)
+
+
+def test_subscribe_entry_requires_dict():
+    """Test that key() on view raises error for non-dict types."""
+    schema = _hgraph.get_scalar_type_meta(int)
+    ts_value = _hgraph.HgTimeSeriesValue(schema)
+
+    callback = lambda t: None
+
+    with pytest.raises(RuntimeError, match="requires a valid Dict type"):
+        ts_value.view().key("key").subscribe(callback)
+
+
+def test_subscribe_entry_missing_key():
+    """Test that key() on view raises error for missing key."""
+    str_schema = _hgraph.get_scalar_type_meta(str)
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    dict_schema = _hgraph.get_dict_type_meta(str_schema, int_schema)
+
+    ts_value = _hgraph.HgTimeSeriesValue(dict_schema)
+    ts_value.set_value({"a": 1}, time=T100)
+
+    callback = lambda t: None
+
+    with pytest.raises(RuntimeError, match="Key not found"):
+        ts_value.view().key("missing").subscribe(callback)
+
+
+def test_multiple_field_subscribers():
+    """Test that multiple subscribers can subscribe to the same field."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    bundle_schema = _hgraph.get_bundle_type_meta(
+        [("x", int_schema)],
+        "Single"
+    )
+    ts_value = _hgraph.HgTimeSeriesValue(bundle_schema)
+
+    notifications1 = []
+    notifications2 = []
+
+    callback1 = lambda t: notifications1.append(t)
+    callback2 = lambda t: notifications2.append(t)
+
+    ts_value.view().field(0).subscribe(callback1)
+    ts_value.view().field(0).subscribe(callback2)
+
+    ts_value.view().field(0).set_value(42, time=T100)
+
+    assert len(notifications1) == 1
+    assert len(notifications2) == 1
+
+
+def test_field_subscription_with_root_modify():
+    """Test that setting root value notifies root but not field subscribers."""
+    int_schema = _hgraph.get_scalar_type_meta(int)
+    bundle_schema = _hgraph.get_bundle_type_meta(
+        [("x", int_schema), ("y", int_schema)],
+        "Point"
+    )
+    ts_value = _hgraph.HgTimeSeriesValue(bundle_schema)
+
+    root_notifications = []
+    field_notifications = []
+
+    root_callback = lambda t: root_notifications.append(t)
+    field_callback = lambda t: field_notifications.append(t)
+
+    ts_value.view().subscribe(root_callback)
+    ts_value.view().field(0).subscribe(field_callback)
+
+    # Set the whole bundle at once (at root level)
+    ts_value.set_value({"x": 10, "y": 20}, time=T100)
+
+    # Root should be notified
+    assert len(root_notifications) == 1
+    # Field subscriptions are only notified when modifying through field view
+    # When modifying at root, only root observers are notified

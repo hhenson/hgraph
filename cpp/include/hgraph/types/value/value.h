@@ -187,6 +187,30 @@ namespace hgraph::value {
             return val ? ConstValueView{val, dict_meta->value_type} : ConstValueView{};
         }
 
+        // Dict access using a ConstValueView as key - type-safe and self-describing
+        [[nodiscard]] ConstValueView dict_get(ConstValueView key) const {
+            if (!is_dict() || !key.valid()) return {};
+            auto* dict_meta = static_cast<const DictTypeMeta*>(_schema);
+            // Verify key type matches (optional runtime check)
+            if (key.schema() != dict_meta->key_type()) {
+                return {};  // Type mismatch
+            }
+            auto* storage = static_cast<const DictStorage*>(_data);
+            const void* val = storage->get(key.data());
+            return val ? ConstValueView{val, dict_meta->value_type} : ConstValueView{};
+        }
+
+        // Get dict entry index for a key
+        [[nodiscard]] std::optional<size_t> dict_find_index(ConstValueView key) const {
+            if (!is_dict() || !key.valid()) return std::nullopt;
+            auto* dict_meta = static_cast<const DictTypeMeta*>(_schema);
+            if (key.schema() != dict_meta->key_type()) {
+                return std::nullopt;
+            }
+            auto* storage = static_cast<const DictStorage*>(_data);
+            return storage->find_index(key.data());
+        }
+
         [[nodiscard]] const TypeMeta* key_type() const {
             if (!is_dict()) return nullptr;
             return static_cast<const DictTypeMeta*>(_schema)->key_type();
@@ -447,6 +471,18 @@ namespace hgraph::value {
             auto* dict_meta = static_cast<const DictTypeMeta*>(_schema);
             auto* storage = static_cast<DictStorage*>(_mutable_data);
             void* val = storage->get(&key);
+            return val ? ValueView{val, dict_meta->value_type} : ValueView{};
+        }
+
+        // Dict access using a ConstValueView as key - type-safe and self-describing
+        [[nodiscard]] ValueView dict_get(ConstValueView key) {
+            if (!is_dict() || !key.valid()) return {};
+            auto* dict_meta = static_cast<const DictTypeMeta*>(_schema);
+            if (key.schema() != dict_meta->key_type()) {
+                return {};  // Type mismatch
+            }
+            auto* storage = static_cast<DictStorage*>(_mutable_data);
+            void* val = storage->get(key.data());
             return val ? ValueView{val, dict_meta->value_type} : ValueView{};
         }
 

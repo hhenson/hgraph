@@ -260,6 +260,108 @@ namespace hgraph::value {
             return _value_view.dict_size();
         }
 
+        // Dict entry navigation using ConstValueView as key
+        [[nodiscard]] TimeSeriesValueView entry(ConstValueView key) {
+            if (!valid() || kind() != TypeKind::Dict || !key.valid()) {
+                return {};
+            }
+            auto entry_view = _value_view.dict_get(key);
+            if (!entry_view.valid()) {
+                return {};
+            }
+            auto idx = _value_view.dict_find_index(key);
+            if (!idx) {
+                return {};
+            }
+            ObserverStorage* child_observer = _observer ? _observer->child(*idx) : nullptr;
+            ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
+            return {entry_view, _tracker, effective_observer};
+        }
+
+        // === Child observer management ===
+
+        /**
+         * Ensure a child observer exists at the given index.
+         *
+         * This is used when you want to subscribe at a child level before navigation.
+         * Returns the child observer, creating it if necessary.
+         *
+         * @param index The child index (field index for bundles, element index for lists, etc.)
+         * @param child_meta Optional type metadata for the child (for proper initialization)
+         * @return Pointer to the child observer, or nullptr if no observer exists at all
+         */
+        [[nodiscard]] ObserverStorage* ensure_child_observer(size_t index, const TypeMeta* child_meta = nullptr) {
+            if (!_observer) return nullptr;
+            return _observer->ensure_child(index, child_meta);
+        }
+
+        /**
+         * Navigate to a field with child observer ensured.
+         *
+         * Unlike field(), this ensures a child observer exists for the field,
+         * enabling subscriptions at this level.
+         */
+        [[nodiscard]] TimeSeriesValueView field_with_observer(size_t index) {
+            if (!valid() || kind() != TypeKind::Bundle) {
+                return {};
+            }
+            auto field_value = _value_view.field(index);
+            if (!field_value.valid()) {
+                return {};
+            }
+            ObserverStorage* child_observer = ensure_child_observer(index, field_value.schema());
+            return {field_value, _tracker.field(index), child_observer};
+        }
+
+        [[nodiscard]] TimeSeriesValueView field_with_observer(const std::string& name) {
+            if (!valid() || kind() != TypeKind::Bundle) {
+                return {};
+            }
+            auto* bundle_meta = static_cast<const BundleTypeMeta*>(schema());
+            auto it = bundle_meta->name_to_index.find(name);
+            if (it == bundle_meta->name_to_index.end()) {
+                return {};
+            }
+            return field_with_observer(it->second);
+        }
+
+        /**
+         * Navigate to an element with child observer ensured.
+         */
+        [[nodiscard]] TimeSeriesValueView element_with_observer(size_t index) {
+            if (!valid() || kind() != TypeKind::List) {
+                return {};
+            }
+            auto elem_value = _value_view.element(index);
+            if (!elem_value.valid()) {
+                return {};
+            }
+            ObserverStorage* child_observer = ensure_child_observer(index, elem_value.schema());
+            return {elem_value, _tracker.element(index), child_observer};
+        }
+
+        /**
+         * Navigate to a dict entry with child observer ensured.
+         *
+         * Uses ConstValueView for type-safe key passing.
+         */
+        [[nodiscard]] TimeSeriesValueView entry_with_observer(ConstValueView key) {
+            if (!valid() || kind() != TypeKind::Dict || !key.valid()) {
+                return {};
+            }
+            auto entry_view = _value_view.dict_get(key);
+            if (!entry_view.valid()) {
+                return {};
+            }
+            auto idx = _value_view.dict_find_index(key);
+            if (!idx) {
+                return {};
+            }
+            auto* dict_meta = static_cast<const DictTypeMeta*>(schema());
+            ObserverStorage* child_observer = ensure_child_observer(*idx, dict_meta->value_type);
+            return {entry_view, _tracker, child_observer};
+        }
+
         // === Window operations (time as parameter) ===
         // Note: timestamp is the value's timestamp, eval_time is for modification tracking
         template<typename T>

@@ -1,7 +1,7 @@
 //
 // Created by Claude on 20/12/2025.
 //
-// Implementation of Python bindings for HgTimeSeriesValue.
+// Implementation of Python bindings for HgTimeSeriesValue and HgTimeSeriesValueView.
 //
 
 #include <hgraph/types/value/py_time_series_value.h>
@@ -13,8 +13,119 @@ using namespace nb::literals;
 namespace hgraph::value {
 
 void register_py_time_series_value_with_nanobind(nb::module_& m) {
-    // Note: CallableNotifiable is an internal implementation detail, not exposed to Python.
-    // Users interact with subscribe/unsubscribe using Python callables directly.
+    // Register HgTimeSeriesValueView first (since HgTimeSeriesValue returns it)
+    nb::class_<PyHgTimeSeriesValueView>(m, "HgTimeSeriesValueView")
+        // =====================================================================
+        // Basic properties
+        // =====================================================================
+        .def_prop_ro("valid", &PyHgTimeSeriesValueView::valid,
+                     "True if this view has a valid schema and storage.")
+
+        .def_prop_ro("schema", &PyHgTimeSeriesValueView::schema, nb::rv_policy::reference,
+                     "The TypeMeta schema for this view.")
+
+        .def_prop_ro("kind", &PyHgTimeSeriesValueView::kind,
+                     "The TypeKind of this view (Scalar, List, Set, Dict, Bundle, etc.).")
+
+        .def_prop_ro("type_name", &PyHgTimeSeriesValueView::type_name,
+                     "The type name string for this view's schema.")
+
+        // =====================================================================
+        // Modification tracking
+        // =====================================================================
+        .def("modified_at", &PyHgTimeSeriesValueView::modified_at, "time"_a,
+             "Returns True if this view was modified at the given time.")
+
+        .def_prop_ro("last_modified_time", &PyHgTimeSeriesValueView::last_modified_time,
+                     "The engine time when this view was last modified.")
+
+        .def_prop_ro("has_value", &PyHgTimeSeriesValueView::has_value,
+                     "True if this view has been set (modified at least once).")
+
+        // =====================================================================
+        // Value access
+        // =====================================================================
+        .def_prop_ro("py_value", &PyHgTimeSeriesValueView::py_value,
+                     "Get the current value as a Python object.")
+
+        .def("set_value", &PyHgTimeSeriesValueView::set_value, "value"_a, "time"_a,
+             "Set the value from a Python object at the given time.")
+
+        // =====================================================================
+        // Navigation - Bundle fields (fluent API)
+        // =====================================================================
+        .def("field", nb::overload_cast<size_t>(&PyHgTimeSeriesValueView::field),
+             "index"_a,
+             "Navigate to a bundle field by index. Returns a view for that field.\n\n"
+             "Example:\n"
+             "    field_view = ts_value.view().field(0)\n"
+             "    field_view.set_value(42, time=T100)")
+
+        .def("field", nb::overload_cast<const std::string&>(&PyHgTimeSeriesValueView::field),
+             "name"_a,
+             "Navigate to a bundle field by name. Returns a view for that field.\n\n"
+             "Example:\n"
+             "    field_view = ts_value.view().field('x')\n"
+             "    field_view.subscribe(callback)")
+
+        // =====================================================================
+        // Navigation - List elements (fluent API)
+        // =====================================================================
+        .def("element", &PyHgTimeSeriesValueView::element, "index"_a,
+             "Navigate to a list element by index. Returns a view for that element.\n\n"
+             "Example:\n"
+             "    elem_view = ts_value.view().element(0)\n"
+             "    elem_view.subscribe(callback)")
+
+        // =====================================================================
+        // Navigation - Dict entries (fluent API)
+        // =====================================================================
+        .def("key", &PyHgTimeSeriesValueView::key, "key"_a,
+             "Navigate to a dict entry by key. Returns a view for that entry.\n\n"
+             "The key can be any Python value matching the dict's key type.\n\n"
+             "Example:\n"
+             "    entry_view = ts_value.view().key('a')\n"
+             "    entry_view.subscribe(callback)")
+
+        // =====================================================================
+        // Subscription (fluent API)
+        // =====================================================================
+        .def("subscribe", &PyHgTimeSeriesValueView::subscribe, "callback"_a,
+             nb::rv_policy::reference,
+             "Subscribe a callable to receive notifications when this view is modified.\n\n"
+             "Returns self for fluent chaining.\n\n"
+             "Example:\n"
+             "    ts_value.view().field(0).subscribe(callback).set_value(42, time=T100)")
+
+        .def("unsubscribe", &PyHgTimeSeriesValueView::unsubscribe, "callback"_a,
+             nb::rv_policy::reference,
+             "Unsubscribe a callable from receiving notifications.\n\n"
+             "Returns self for fluent chaining.")
+
+        // =====================================================================
+        // Size queries
+        // =====================================================================
+        .def_prop_ro("field_count", &PyHgTimeSeriesValueView::field_count,
+                     "Number of fields in a Bundle type (0 for non-bundles).")
+
+        .def_prop_ro("list_size", &PyHgTimeSeriesValueView::list_size,
+                     "Number of elements in a List type (0 for non-lists).")
+
+        .def_prop_ro("dict_size", &PyHgTimeSeriesValueView::dict_size,
+                     "Number of entries in a Dict type (0 for non-dicts).")
+
+        .def_prop_ro("set_size", &PyHgTimeSeriesValueView::set_size,
+                     "Number of elements in a Set type (0 for non-sets).")
+
+        // =====================================================================
+        // String representation
+        // =====================================================================
+        .def("__str__", &PyHgTimeSeriesValueView::to_string)
+        .def("__repr__", [](const PyHgTimeSeriesValueView& self) {
+            return "HgTimeSeriesValueView(" + self.type_name() + ", " + self.to_string() + ")";
+        })
+        .def("to_debug_string", &PyHgTimeSeriesValueView::to_debug_string, "time"_a,
+             "Get a debug string including modification status at the given time.");
 
     // Register HgTimeSeriesValue
     nb::class_<PyHgTimeSeriesValue>(m, "HgTimeSeriesValue")
@@ -62,7 +173,17 @@ void register_py_time_series_value_with_nanobind(nb::module_& m) {
              "Set the value from a Python object at the given time.")
 
         // =====================================================================
-        // Bundle field operations
+        // Fluent View API
+        // =====================================================================
+        .def("view", &PyHgTimeSeriesValue::view,
+             "Get a view for fluent navigation and subscription.\n\n"
+             "Example:\n"
+             "    ts_value.view().subscribe(callback)  # Root subscription\n"
+             "    ts_value.view().field(0).subscribe(callback)  # Field subscription\n"
+             "    ts_value.view().field('x').set_value(42, time=T100)")
+
+        // =====================================================================
+        // Bundle field operations (legacy API)
         // =====================================================================
         .def_prop_ro("field_count", &PyHgTimeSeriesValue::field_count,
                      "Number of fields in a Bundle type (0 for non-bundles).")
@@ -86,7 +207,7 @@ void register_py_time_series_value_with_nanobind(nb::module_& m) {
              "Set the value of a field by name at the given time.")
 
         // =====================================================================
-        // List element operations
+        // List element operations (legacy API)
         // =====================================================================
         .def_prop_ro("list_size", &PyHgTimeSeriesValue::list_size,
                      "Number of elements in a List type (0 for non-lists).")
@@ -125,20 +246,14 @@ void register_py_time_series_value_with_nanobind(nb::module_& m) {
              "Get a debug string including modification status at the given time.")
 
         // =====================================================================
-        // Observer/Subscription API
+        // Observer/Subscription API (legacy, for backwards compatibility)
         // =====================================================================
         .def("subscribe", &PyHgTimeSeriesValue::subscribe, "callback"_a,
              "Subscribe a callable to receive notifications when this value is modified.\n\n"
-             "The callable receives a single argument: the engine time (datetime) of the modification.\n\n"
-             "Example:\n"
-             "    notifications = []\n"
-             "    ts_value.subscribe(lambda t: notifications.append(t))\n"
-             "    ts_value.set_value(42, time=some_time)\n"
-             "    assert len(notifications) == 1")
+             "Equivalent to: ts_value.view().subscribe(callback)")
 
         .def("unsubscribe", &PyHgTimeSeriesValue::unsubscribe, "callback"_a,
-             "Unsubscribe a callable from receiving notifications.\n\n"
-             "The callable must be the same object that was passed to subscribe().")
+             "Unsubscribe a callable from receiving notifications.")
 
         .def_prop_ro("has_subscribers", &PyHgTimeSeriesValue::has_subscribers,
                      "True if this value has any subscribers registered.")
