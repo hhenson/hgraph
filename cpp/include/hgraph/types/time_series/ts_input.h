@@ -245,6 +245,13 @@ public:
         return _source ? _source->bound_output() : nullptr;
     }
 
+    // === Access to REF output for REF-observing inputs ===
+    // For REF-observing inputs, returns the REF output (not the dereferenced target).
+    // Used to retrieve cached TimeSeriesReference that preserves path info.
+    [[nodiscard]] TSOutput* ref_bound_output() const {
+        return _source ? _source->ref_bound_output() : nullptr;
+    }
+
 private:
     AccessStrategy* _source{nullptr};
     const TSMeta* _meta{nullptr};

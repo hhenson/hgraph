@@ -172,6 +172,13 @@ public:
         return view.valid() ? const_cast<TSOutput*>(view.root_output()) : nullptr;
     }
 
+    /**
+     * Get the REF output for REF-observing strategies.
+     * For RefObserverAccessStrategy, returns the REF output (not the dereferenced target).
+     * For other strategies, returns nullptr.
+     */
+    [[nodiscard]] virtual TSOutput* ref_bound_output() const { return nullptr; }
+
 protected:
     TSInput* _owner;
 };
@@ -336,6 +343,14 @@ public:
     [[nodiscard]] value::TSView target_view() const { return _target_view; }
     [[nodiscard]] value::TSView bound_view() const override { return _target_view; }
     [[nodiscard]] AccessStrategy* child_strategy() const { return _child.get(); }
+
+    /**
+     * Get the REF output (not the dereferenced target).
+     * Used to retrieve cached TimeSeriesReference that preserves path info.
+     */
+    [[nodiscard]] TSOutput* ref_bound_output() const override {
+        return _ref_view.valid() ? const_cast<TSOutput*>(_ref_view.root_output()) : nullptr;
+    }
 
 private:
     /**

@@ -403,8 +403,14 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
 
         view.mark_modified(time);
 
-        // For REF types, notify reference observers so they can rebind immediately
+        // For REF types, cache the value and notify reference observers so they can rebind immediately
+        // The RefStorage loses path information during from_python conversion, so we cache
+        // the original TimeSeriesReference for delta_value() to return later
         if (meta && meta->ts_kind == TSKind::REF) {
+            fprintf(stderr, "[TRACE] set_python_value REF: caching py_value=%s\n",
+                    nb::str(py_value).c_str());
+            cache_delta(output, py_value);
+            output->register_delta_reset_callback();
             output->notify_reference_observers(time);
         }
 
@@ -543,13 +549,19 @@ inline nb::object get_python_delta(const TSOutput* output, engine_time_t eval_ti
         return nb::none();
     }
 
-    // For collection types (TSD, TSL, TSS), check for cached delta
+    // For collection types (TSD, TSL, TSS) and REF, check for cached delta
+    // REF is included because RefStorage loses path information during conversion
     if (meta) {
         auto ts_kind = meta->ts_kind;
         if (ts_kind == TSKind::TSD ||
             ts_kind == TSKind::TSL ||
-            ts_kind == TSKind::TSS) {
+            ts_kind == TSKind::TSS ||
+            ts_kind == TSKind::REF) {
             auto cached = get_cached_delta(output);
+            if (ts_kind == TSKind::REF) {
+                fprintf(stderr, "[TRACE] get_python_delta REF: cached=%s\n",
+                        cached.is_none() ? "None" : nb::str(cached).c_str());
+            }
             if (!cached.is_none()) {
                 return cached;
             }

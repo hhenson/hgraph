@@ -8,8 +8,10 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/ts_python_helpers.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/types/ref.h>
 
 namespace hgraph::ts {
 
@@ -344,9 +346,21 @@ void RefObserverAccessStrategy::on_notify(engine_time_t time) {
     // Check if the reference target has changed (polling fallback)
     // This is kept as a fallback in case push notifications are missed
     auto new_target = resolve_ref_target(_ref_view);
-    // Compare by root output and path - if both are valid and have same root, they point to same thing
-    bool same_target = (_target_view.valid() == new_target.valid()) &&
-                       (!new_target.valid() || (new_target.root_output() == _target_view.root_output()));
+
+    // Compare targets by ts_kind and value data pointers - this uniquely identifies
+    // the specific element being referenced, even within the same collection
+    bool same_target = (_target_view.valid() == new_target.valid());
+    if (same_target && new_target.valid()) {
+        // First compare ts_kind - a TSL and its first element have the same data pointer
+        // but different ts_kinds, so they're different targets
+        if (new_target.ts_kind() != _target_view.ts_kind()) {
+            same_target = false;
+        } else {
+            // Same kind, compare by actual value data pointer - different elements have different pointers
+            same_target = (new_target.value_view().data() == _target_view.value_view().data());
+        }
+    }
+
     if (!same_target) {
         // Use the internal rebind helper (same logic as on_reference_changed)
         handle_target_change(new_target, time);
@@ -390,16 +404,15 @@ bool RefObserverAccessStrategy::modified_at(engine_time_t time) const {
         return true;
     }
 
-    // For Python-managed collections, C++ can't track modifications via TSOutput.
-    // Use the notification time we tracked in on_notify()
-    if (_last_notify_time == time) {
-        return true;
-    }
-
-    // Also check target view directly
+    // Check target view directly - this is the primary check
+    // for whether the referenced value was modified
     if (_target_view.valid() && _target_view.modified_at(time)) {
         return true;
     }
+
+    // Note: _last_notify_time is NOT checked here
+    // Receiving a notification doesn't mean the target value changed
+    // Only the target's modification status matters
 
     return false;
 }
@@ -415,9 +428,20 @@ void RefObserverAccessStrategy::on_reference_changed(value::TSView new_ref_view,
     // Push notification from the REF output - resolve the new target and rebind if changed
     auto new_target = resolve_ref_target(new_ref_view);
 
-    // Compare to see if target actually changed
-    bool same_target = (_target_view.valid() == new_target.valid()) &&
-                       (!new_target.valid() || (new_target.root_output() == _target_view.root_output()));
+    // Compare targets by ts_kind and value data pointers - this uniquely identifies
+    // the specific element being referenced, even within the same collection
+    bool same_target = (_target_view.valid() == new_target.valid());
+    if (same_target && new_target.valid()) {
+        // First compare ts_kind - a TSL and its first element have the same data pointer
+        // but different ts_kinds, so they're different targets
+        if (new_target.ts_kind() != _target_view.ts_kind()) {
+            same_target = false;
+        } else {
+            // Same kind, compare by actual value data pointer - different elements have different pointers
+            same_target = (new_target.value_view().data() == _target_view.value_view().data());
+        }
+    }
+
     if (same_target) {
         return;  // No actual change
     }
@@ -449,7 +473,33 @@ void RefObserverAccessStrategy::handle_target_change(value::TSView new_target_vi
 value::TSView RefObserverAccessStrategy::resolve_ref_target(const value::TSView& ref_view) const {
     if (!ref_view.valid()) return {};
 
-    // Get the REF value from the view
+    // Try to use the cached Python TimeSeriesReference which preserves path information
+    // The cached object is a C++ TimeSeriesReference that has a resolve() method
+    // which navigates the path to get the correct target view
+    auto* ref_output = const_cast<TSOutput*>(ref_view.root_output());
+    if (ref_output) {
+        auto cached = ts::get_cached_delta(ref_output);
+        if (!cached.is_none()) {
+            try {
+                // Cast to C++ TimeSeriesReference
+                auto& ts_ref = nb::cast<TimeSeriesReference&>(cached);
+                if (ts_ref.is_bound()) {
+                    // Use the C++ resolve() which navigates the path
+                    auto resolved_view = ts_ref.resolve();
+                    if (resolved_view.valid()) {
+                        return resolved_view;
+                    }
+                }
+            } catch (const std::exception& e) {
+                // Fall through to RefStorage-based resolution
+            } catch (...) {
+                // Fall through to RefStorage-based resolution
+            }
+        }
+    }
+
+    // Fallback: Get the REF value from the view and use RefStorage's owner
+    // This path loses path information for nested types
     auto ref_value = ref_view.value_view();
     if (!ref_value.valid() || !ref_value.ref_is_bound()) {
         return {};

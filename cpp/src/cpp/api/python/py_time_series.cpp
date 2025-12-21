@@ -215,6 +215,41 @@ namespace hgraph
         // The view points to the AccessStrategy and fetches fresh data on each call
         // This works for both direct inputs and field wrappers
         if (!_view.valid()) return nb::none();
+
+        // Special case for REF inputs: return the TimeSeriesReference from the bound REF output
+        // This preserves path information and empty reference state
+        if (_meta && _meta->ts_kind == TSKind::REF) {
+            // Try ref_bound_output() first (for RefObserver case - non-REF input to REF output)
+            ts::TSOutput* output_to_check = _view.ref_bound_output();
+
+            // For direct REF-to-REF binding, check if bound_output is a REF output
+            if (!output_to_check) {
+                auto* bound = _view.bound_output();
+                // Only use bound_output if it's actually a REF output
+                if (bound && bound->ts_kind() == TSKind::REF) {
+                    output_to_check = bound;
+                }
+            }
+
+            if (output_to_check) {
+                auto cached = ts::get_cached_delta(output_to_check);
+                if (!cached.is_none()) {
+                    return cached;
+                }
+            }
+
+            // Fall back to creating TimeSeriesReference from bound view
+            auto* source = _view.source();
+            if (source) {
+                auto bound_view = source->bound_view();
+                if (bound_view.valid()) {
+                    auto ref = TimeSeriesReference::make(bound_view);
+                    return nb::cast(ref);
+                }
+            }
+            return nb::none();
+        }
+
         auto value_view = _view.value_view();
         if (!value_view.valid()) return nb::none();
         // Get schema from meta if available, fall back to value_view schema

@@ -8,6 +8,8 @@
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/value/set_type.h>
 #include <hgraph/types/value/dict_type.h>
+#include <hgraph/types/value/ref_type.h>
+#include <hgraph/types/time_series/ts_output.h>
 
 namespace hgraph::ts {
 
@@ -204,12 +206,22 @@ static nb::object dict_delta_to_python(const DeltaView& view) {
     return result;
 }
 
-// Ref delta - just return the value (same as scalar)
+// Ref delta - return the TimeSeriesReference object itself
+// In Python, delta_value for a REF returns the TimeSeriesReference, not the dereferenced value
 static nb::object ref_delta_to_python(const DeltaView& view) {
     auto value_view = view.ref_delta();
     if (!value_view.valid()) return nb::none();
 
-    return value::value_to_python(value_view.data(), value_view.schema());
+    // Get the schema from the meta - should be a RefTypeMeta
+    auto* meta = view.meta();
+    if (!meta) return nb::none();
+
+    // Convert the RefStorage to a Python TimeSeriesReference
+    // This uses the standard value_to_python with the ref schema
+    auto* ref_schema = meta->value_schema();
+    if (!ref_schema) return nb::none();
+
+    return value::value_to_python(value_view.data(), ref_schema);
 }
 
 // Main dispatch function
