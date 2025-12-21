@@ -810,6 +810,28 @@ namespace hgraph::value {
             }
         }
 
+        /**
+         * Dereference a bound REF view to get the target output's view.
+         *
+         * For REF types, this follows the reference to the target TSOutput
+         * and returns its view. This abstracts the common pattern of:
+         *   1. Get RefStorage from value_view
+         *   2. Check if bound
+         *   3. Get target ValueRef
+         *   4. Cast owner to TSOutput
+         *   5. Return target's view
+         *
+         * @return TSView of the target output, or invalid view if not bound
+         */
+        [[nodiscard]] TSView dereference_ref() const;  // Defined in ts_output.h
+
+        /**
+         * Get the target TSOutput for a bound REF view.
+         *
+         * @return Pointer to target TSOutput, or nullptr if not bound
+         */
+        [[nodiscard]] ts::TSOutput* ref_target_output() const;  // Defined in ts_output.h
+
         // === String representation ===
         [[nodiscard]] std::string to_string() const {
             return _value_view.to_string();

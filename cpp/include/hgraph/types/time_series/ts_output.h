@@ -303,6 +303,27 @@ inline const TSMeta* TSView::value_meta_at() const {
     return _ts_meta ? _ts_meta->value_meta() : nullptr;
 }
 
+// TSView::ref_target_output() - get the TSOutput that a bound REF points to
+inline ts::TSOutput* TSView::ref_target_output() const {
+    if (!valid() || kind() != TypeKind::Ref || !ref_is_bound()) {
+        return nullptr;
+    }
+    const auto* target = ref_target();
+    if (!target || !target->valid() || !target->has_owner()) {
+        return nullptr;
+    }
+    return static_cast<ts::TSOutput*>(target->owner);
+}
+
+// TSView::dereference_ref() - follow a REF to get the target's view
+inline TSView TSView::dereference_ref() const {
+    auto* target_output = ref_target_output();
+    if (!target_output) {
+        return {};
+    }
+    return target_output->view();
+}
+
 } // namespace hgraph::value
 
 #endif // HGRAPH_TS_OUTPUT_H

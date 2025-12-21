@@ -436,33 +436,17 @@ namespace hgraph
             // For REF fields in the output, we need to dereference to get the target value's delta
             // This matches Python behavior where bundle input fields are dereferenced
             if (view_kind == TSKind::REF) {
-                // Get the reference value from the field
-                // REF types store RefStorage, not TimeSeriesReference
-                auto ref_value_view = field_view.value_view();
-                if (!ref_value_view.valid()) continue;
+                // Use the new abstraction to dereference the REF field
+                auto target_view = field_view.dereference_ref();
+                if (!target_view.valid() || !target_view.has_value()) continue;
 
                 // Check if the REF field itself was modified (new binding)
                 bool ref_field_modified = field_view.modified_at(eval_time);
-
-                // Cast to RefStorage (the actual type stored for REF values)
-                auto* ref_storage = static_cast<const value::RefStorage*>(ref_value_view.data());
-                if (!ref_storage || !ref_storage->is_bound()) continue;
-
-                // Get the target ValueRef from the bound reference
-                const auto& target_ref = ref_storage->target();
-                if (!target_ref.valid()) continue;
-
-                // The owner is the TSOutput that contains this value
-                auto* target_output = static_cast<ts::TSOutput*>(target_ref.owner);
-                if (!target_output) continue;
-
-                auto target_view = target_output->view();
                 bool target_modified = target_view.modified_at(eval_time);
 
                 // Include delta if:
                 // 1. The REF field was modified (new binding) - return target's current value
                 // 2. The target itself was modified - return target's delta
-                if (!target_view.valid() || !target_view.has_value()) continue;
                 if (!ref_field_modified && !target_modified) continue;
 
                 // Get delta from the target (dereferenced) view

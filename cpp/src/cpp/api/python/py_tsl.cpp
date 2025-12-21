@@ -6,6 +6,8 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/access_strategy.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
 
 namespace hgraph
 {
@@ -108,39 +110,167 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesListOutput::keys() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = v.list_size();
+
+        nb::list result;
+        for (size_t i = 0; i < list_size; ++i) {
+            result.append(nb::int_(i));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListOutput::values() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = v.list_size();
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = mutable_view.element(i);
+            if (elem_view.valid()) {
+                result.append(create_tsl_output_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListOutput::items() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = v.list_size();
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = mutable_view.element(i);
+            if (elem_view.valid()) {
+                nb::object py_value = create_tsl_output_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type);
+                result.append(nb::make_tuple(nb::int_(i), py_value));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListOutput::valid_keys() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = v.list_size();
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = mutable_view.element(i);
+            if (elem_view.valid() && elem_view.has_value()) {
+                result.append(nb::int_(i));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListOutput::valid_values() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = v.list_size();
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = mutable_view.element(i);
+            if (elem_view.valid() && elem_view.has_value()) {
+                result.append(create_tsl_output_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListOutput::valid_items() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = v.list_size();
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = mutable_view.element(i);
+            if (elem_view.valid() && elem_view.has_value()) {
+                nb::object py_value = create_tsl_output_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type);
+                result.append(nb::make_tuple(nb::int_(i), py_value));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListOutput::modified_keys() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = v.list_size();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = mutable_view.element(i);
+            if (elem_view.valid() && elem_view.modified_at(eval_time)) {
+                result.append(nb::int_(i));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListOutput::modified_values() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = v.list_size();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = mutable_view.element(i);
+            if (elem_view.valid() && elem_view.modified_at(eval_time)) {
+                result.append(create_tsl_output_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListOutput::modified_items() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = v.list_size();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = mutable_view.element(i);
+            if (elem_view.valid() && elem_view.modified_at(eval_time)) {
+                nb::object py_value = create_tsl_output_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type);
+                result.append(nb::make_tuple(nb::int_(i), py_value));
+            }
+        }
+        return result;
     }
 
     nb::int_ PyTimeSeriesListOutput::len() const {
@@ -216,39 +346,245 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesListInput::keys() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : v.list_size();
+
+        nb::list result;
+        for (size_t i = 0; i < list_size; ++i) {
+            result.append(nb::int_(i));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListInput::values() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : v.list_size();
+
+        nb::list result;
+
+        // Check for unpeered mode first
+        auto* coll_strategy = get_tsl_collection_strategy(v);
+        if (has_tsl_unpeered_children(coll_strategy)) {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto* child_strategy = coll_strategy->child(i);
+                if (child_strategy) {
+                    result.append(wrap_tsl_input_from_strategy(_node, child_strategy, tsl_meta->element_ts_type));
+                }
+            }
+        } else {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto elem_view = v.element(i);
+                if (elem_view.valid()) {
+                    result.append(create_tsl_input_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type));
+                }
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListInput::items() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : v.list_size();
+
+        nb::list result;
+
+        auto* coll_strategy = get_tsl_collection_strategy(v);
+        if (has_tsl_unpeered_children(coll_strategy)) {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto* child_strategy = coll_strategy->child(i);
+                if (child_strategy) {
+                    nb::object py_value = wrap_tsl_input_from_strategy(_node, child_strategy, tsl_meta->element_ts_type);
+                    result.append(nb::make_tuple(nb::int_(i), py_value));
+                }
+            }
+        } else {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto elem_view = v.element(i);
+                if (elem_view.valid()) {
+                    nb::object py_value = create_tsl_input_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type);
+                    result.append(nb::make_tuple(nb::int_(i), py_value));
+                }
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListInput::valid_keys() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : v.list_size();
+
+        nb::list result;
+        auto* coll_strategy = get_tsl_collection_strategy(v);
+        if (has_tsl_unpeered_children(coll_strategy)) {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto* child_strategy = coll_strategy->child(i);
+                if (child_strategy && child_strategy->has_value()) {
+                    result.append(nb::int_(i));
+                }
+            }
+        } else {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto elem_view = v.element(i);
+                if (elem_view.valid() && elem_view.has_value()) {
+                    result.append(nb::int_(i));
+                }
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListInput::valid_values() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : v.list_size();
+
+        nb::list result;
+        auto* coll_strategy = get_tsl_collection_strategy(v);
+        if (has_tsl_unpeered_children(coll_strategy)) {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto* child_strategy = coll_strategy->child(i);
+                if (child_strategy && child_strategy->has_value()) {
+                    result.append(wrap_tsl_input_from_strategy(_node, child_strategy, tsl_meta->element_ts_type));
+                }
+            }
+        } else {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto elem_view = v.element(i);
+                if (elem_view.valid() && elem_view.has_value()) {
+                    result.append(create_tsl_input_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type));
+                }
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListInput::valid_items() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : v.list_size();
+
+        nb::list result;
+        auto* coll_strategy = get_tsl_collection_strategy(v);
+        if (has_tsl_unpeered_children(coll_strategy)) {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto* child_strategy = coll_strategy->child(i);
+                if (child_strategy && child_strategy->has_value()) {
+                    nb::object py_value = wrap_tsl_input_from_strategy(_node, child_strategy, tsl_meta->element_ts_type);
+                    result.append(nb::make_tuple(nb::int_(i), py_value));
+                }
+            }
+        } else {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto elem_view = v.element(i);
+                if (elem_view.valid() && elem_view.has_value()) {
+                    nb::object py_value = create_tsl_input_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type);
+                    result.append(nb::make_tuple(nb::int_(i), py_value));
+                }
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListInput::modified_keys() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : v.list_size();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto* coll_strategy = get_tsl_collection_strategy(v);
+        if (has_tsl_unpeered_children(coll_strategy)) {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto* child_strategy = coll_strategy->child(i);
+                if (child_strategy && child_strategy->modified_at(eval_time)) {
+                    result.append(nb::int_(i));
+                }
+            }
+        } else {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto elem_view = v.element(i);
+                if (elem_view.valid() && elem_view.modified_at(eval_time)) {
+                    result.append(nb::int_(i));
+                }
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListInput::modified_values() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : v.list_size();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto* coll_strategy = get_tsl_collection_strategy(v);
+        if (has_tsl_unpeered_children(coll_strategy)) {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto* child_strategy = coll_strategy->child(i);
+                if (child_strategy && child_strategy->modified_at(eval_time)) {
+                    result.append(wrap_tsl_input_from_strategy(_node, child_strategy, tsl_meta->element_ts_type));
+                }
+            }
+        } else {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto elem_view = v.element(i);
+                if (elem_view.valid() && elem_view.modified_at(eval_time)) {
+                    result.append(create_tsl_input_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type));
+                }
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListInput::modified_items() const {
-        return nb::list();
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::list();
+
+        auto v = view();
+        size_t list_size = tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : v.list_size();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto* coll_strategy = get_tsl_collection_strategy(v);
+        if (has_tsl_unpeered_children(coll_strategy)) {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto* child_strategy = coll_strategy->child(i);
+                if (child_strategy && child_strategy->modified_at(eval_time)) {
+                    nb::object py_value = wrap_tsl_input_from_strategy(_node, child_strategy, tsl_meta->element_ts_type);
+                    result.append(nb::make_tuple(nb::int_(i), py_value));
+                }
+            }
+        } else {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto elem_view = v.element(i);
+                if (elem_view.valid() && elem_view.modified_at(eval_time)) {
+                    nb::object py_value = create_tsl_input_wrapper_from_view(_node, std::move(elem_view), tsl_meta->element_ts_type);
+                    result.append(nb::make_tuple(nb::int_(i), py_value));
+                }
+            }
+        }
+        return result;
     }
 
     nb::int_ PyTimeSeriesListInput::len() const {

@@ -1,56 +1,168 @@
 #include <hgraph/api/python/py_tsd.h>
+#include <hgraph/api/python/py_ts.h>
+#include <hgraph/api/python/py_tsb.h>
+#include <hgraph/api/python/py_tsl.h>
+#include <hgraph/api/python/py_tss.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/value/dict_type.h>
+#include <hgraph/types/value/python_conversion.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
 
 namespace hgraph
 {
+    // Helper to create output wrapper from a TSView for dict entry access
+    static nb::object create_tsd_output_wrapper_from_view(
+            const node_s_ptr& node,
+            value::TSView view,
+            const TSMeta* meta) {
+        if (!view.valid()) return nb::none();
+
+        if (!meta) {
+            return nb::cast(PyTimeSeriesOutput(node, std::move(view), nullptr, meta));
+        }
+
+        switch (meta->ts_kind) {
+            case TSKind::TS:
+                return nb::cast(PyTimeSeriesValueOutput(node, std::move(view), nullptr, meta));
+            case TSKind::TSB:
+                return nb::cast(PyTimeSeriesBundleOutput(node, std::move(view), nullptr, meta));
+            case TSKind::TSL:
+                return nb::cast(PyTimeSeriesListOutput(node, std::move(view), nullptr, meta));
+            case TSKind::TSS:
+                return nb::cast(PyTimeSeriesSetOutput(node, std::move(view), nullptr, meta));
+            case TSKind::TSD:
+                return nb::cast(PyTimeSeriesDictOutput(node, std::move(view), nullptr, meta));
+            case TSKind::REF:
+            default:
+                return nb::cast(PyTimeSeriesOutput(node, std::move(view), nullptr, meta));
+        }
+    }
+
+    // Helper to create input wrapper from a TSInputView for dict entry access
+    static nb::object create_tsd_input_wrapper_from_view(
+            const node_s_ptr& node,
+            ts::TSInputView view,
+            const TSMeta* meta) {
+        if (!view.valid()) return nb::none();
+
+        if (!meta) {
+            return nb::cast(PyTimeSeriesInput(node, std::move(view), meta));
+        }
+
+        switch (meta->ts_kind) {
+            case TSKind::TS:
+                return nb::cast(PyTimeSeriesValueInput(node, std::move(view), nullptr, meta));
+            case TSKind::TSB:
+                return nb::cast(PyTimeSeriesBundleInput(node, std::move(view), nullptr, meta));
+            case TSKind::TSL:
+                return nb::cast(PyTimeSeriesListInput(node, std::move(view), nullptr, meta));
+            case TSKind::TSS:
+                return nb::cast(PyTimeSeriesSetInput(node, std::move(view), nullptr, meta));
+            case TSKind::TSD:
+                return nb::cast(PyTimeSeriesDictInput(node, std::move(view), nullptr, meta));
+            case TSKind::REF:
+            default:
+                return nb::cast(PyTimeSeriesInput(node, std::move(view), meta));
+        }
+    }
     // PyTimeSeriesDictOutput implementations
     nb::object PyTimeSeriesDictOutput::get_item(const nb::object &item) const {
-        // TODO: Implement via view
-        return nb::none();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::none();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::none();
+
+        // Convert Python key to C++ storage for lookup
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), item, key_type);
+
+        // Use the view's entry() method to navigate to the value
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        auto entry_view = mutable_view.entry(value::ConstValueView(key_storage.data(), key_type));
+
+        // Destruct the temporary key storage
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        if (!entry_view.valid()) {
+            throw std::out_of_range("Key not found in TSD");
+        }
+
+        return create_tsd_output_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type);
     }
 
     nb::object PyTimeSeriesDictOutput::get(const nb::object &item, const nb::object &default_value) const {
-        // TODO: Implement via view
-        return default_value;
+        try {
+            return get_item(item);
+        } catch (const std::out_of_range&) {
+            return default_value;
+        }
     }
 
     void PyTimeSeriesDictOutput::set_item(const nb::object &key, const nb::object &value) {
-        // TODO: Implement via view
+        // TODO: Implement set_item via view - requires set_python_value on entry
     }
 
     void PyTimeSeriesDictOutput::del_item(const nb::object &key) {
-        // TODO: Implement via view
+        // TODO: Implement del_item via view
     }
 
     nb::object PyTimeSeriesDictOutput::pop(const nb::object &key, const nb::object &default_value) {
-        // TODO: Implement via view
+        // TODO: Implement pop via view
         return default_value;
     }
 
     nb::object PyTimeSeriesDictOutput::get_or_create(const nb::object &key) {
-        // TODO: Implement via view
+        // TODO: Implement get_or_create via view
         return nb::none();
     }
 
     void PyTimeSeriesDictOutput::create(const nb::object &item) {
-        // TODO: Implement via view
+        // TODO: Implement create via view
     }
 
     nb::object PyTimeSeriesDictOutput::get_ref(const nb::object &key, const nb::object &requester) {
-        // TODO: Implement via view
+        // TODO: Implement get_ref via view
         return nb::none();
     }
 
     void PyTimeSeriesDictOutput::release_ref(const nb::object &key, const nb::object &requester) {
-        // TODO: Implement via view
+        // TODO: Implement release_ref via view
     }
 
     nb::object PyTimeSeriesDictOutput::key_from_value(const nb::object &value) const {
-        // TODO: Implement via view
+        // TODO: Implement key_from_value via view
         return nb::none();
     }
 
     bool PyTimeSeriesDictOutput::contains(const nb::object &item) const {
-        return false;
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return false;
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return false;
+
+        // Convert Python key to C++ storage for lookup
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), item, key_type);
+
+        // Check if key exists in dict storage
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        bool result = storage->contains(key_storage.data());
+
+        // Destruct the temporary key storage
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        return result;
     }
 
     size_t PyTimeSeriesDictOutput::size() const {
@@ -62,86 +174,279 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::key_set() const {
-        return nb::none();
+        // Returns a frozenset of keys
+        return nb::frozenset(keys());
     }
 
     nb::object PyTimeSeriesDictOutput::keys() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        for (auto kv : *storage) {
+            nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+            result.append(py_key);
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::values() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (auto kv : *storage) {
+            // Navigate to each entry
+            auto entry_view = mutable_view.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid()) {
+                result.append(create_tsd_output_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::items() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (auto kv : *storage) {
+            nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+            auto entry_view = mutable_view.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid()) {
+                nb::object py_value = create_tsd_output_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type);
+                result.append(nb::make_tuple(py_key, py_value));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::valid_keys() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (auto kv : *storage) {
+            auto entry_view = mutable_view.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.has_value()) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+                result.append(py_key);
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::valid_values() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (auto kv : *storage) {
+            auto entry_view = mutable_view.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.has_value()) {
+                result.append(create_tsd_output_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::valid_items() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (auto kv : *storage) {
+            auto entry_view = mutable_view.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.has_value()) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+                nb::object py_value = create_tsd_output_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type);
+                result.append(nb::make_tuple(py_key, py_value));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::modified_keys() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (auto kv : *storage) {
+            auto entry_view = mutable_view.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.modified_at(eval_time)) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+                result.append(py_key);
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::modified_values() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (auto kv : *storage) {
+            auto entry_view = mutable_view.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.modified_at(eval_time)) {
+                result.append(create_tsd_output_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::modified_items() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (auto kv : *storage) {
+            auto entry_view = mutable_view.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.modified_at(eval_time)) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+                nb::object py_value = create_tsd_output_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type);
+                result.append(nb::make_tuple(py_key, py_value));
+            }
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictOutput::was_modified(const nb::object &key) const {
-        return false;
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return false;
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return false;
+
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), key, key_type);
+
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        auto entry_view = mutable_view.entry(value::ConstValueView(key_storage.data(), key_type));
+
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        if (!entry_view.valid()) return false;
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        return entry_view.modified_at(eval_time);
     }
 
     nb::object PyTimeSeriesDictOutput::added_keys() const {
+        // TODO: Implement added_keys via delta tracking
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictOutput::added_values() const {
+        // TODO: Implement added_values via delta tracking
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictOutput::added_items() const {
+        // TODO: Implement added_items via delta tracking
         return nb::list();
     }
 
     bool PyTimeSeriesDictOutput::has_added() const {
+        // TODO: Implement has_added via delta tracking
         return false;
     }
 
     bool PyTimeSeriesDictOutput::was_added(const nb::object &key) const {
+        // TODO: Implement was_added via delta tracking
         return false;
     }
 
     nb::object PyTimeSeriesDictOutput::removed_keys() const {
+        // TODO: Implement removed_keys via delta tracking
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictOutput::removed_values() const {
+        // TODO: Implement removed_values via delta tracking
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictOutput::removed_items() const {
+        // TODO: Implement removed_items via delta tracking
         return nb::list();
     }
 
     bool PyTimeSeriesDictOutput::has_removed() const {
+        // TODO: Implement has_removed via delta tracking
         return false;
     }
 
     bool PyTimeSeriesDictOutput::was_removed(const nb::object &key) const {
+        // TODO: Implement was_removed via delta tracking
         return false;
     }
 
@@ -155,37 +460,86 @@ namespace hgraph
 
     // PyTimeSeriesDictInput implementations
     nb::object PyTimeSeriesDictInput::get_item(const nb::object &item) const {
-        return nb::none();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::none();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::none();
+
+        // Convert Python key to C++ storage for lookup
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), item, key_type);
+
+        // Use the view's entry() method to navigate to the value
+        auto entry_view = v.entry(value::ConstValueView(key_storage.data(), key_type));
+
+        // Destruct the temporary key storage
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        if (!entry_view.valid()) {
+            throw std::out_of_range("Key not found in TSD");
+        }
+
+        return create_tsd_input_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type);
     }
 
     nb::object PyTimeSeriesDictInput::get(const nb::object &item, const nb::object &default_value) const {
-        return default_value;
+        try {
+            return get_item(item);
+        } catch (const std::out_of_range&) {
+            return default_value;
+        }
     }
 
     nb::object PyTimeSeriesDictInput::get_or_create(const nb::object &key) {
-        // TODO: Implement via view
+        // TODO: Implement get_or_create for inputs
         return nb::none();
     }
 
     void PyTimeSeriesDictInput::create(const nb::object &item) {
-        // TODO: Implement via view
+        // TODO: Implement create for inputs
     }
 
     void PyTimeSeriesDictInput::on_key_added(const nb::object &key) {
-        // TODO: Implement via view
+        // TODO: Implement on_key_added callback
     }
 
     void PyTimeSeriesDictInput::on_key_removed(const nb::object &key) {
-        // TODO: Implement via view
+        // TODO: Implement on_key_removed callback
     }
 
     nb::object PyTimeSeriesDictInput::key_from_value(const nb::object &value) const {
-        // TODO: Implement via view
+        // TODO: Implement key_from_value
         return nb::none();
     }
 
     bool PyTimeSeriesDictInput::contains(const nb::object &item) const {
-        return false;
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return false;
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return false;
+
+        // Convert Python key to C++ storage for lookup
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), item, key_type);
+
+        // Check if key exists in dict storage
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        bool result = storage->contains(key_storage.data());
+
+        // Destruct the temporary key storage
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        return result;
     }
 
     size_t PyTimeSeriesDictInput::size() const {
@@ -197,86 +551,268 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictInput::key_set() const {
-        return nb::none();
+        return nb::frozenset(keys());
     }
 
     nb::object PyTimeSeriesDictInput::keys() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        for (auto kv : *storage) {
+            nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+            result.append(py_key);
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::values() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        for (auto kv : *storage) {
+            auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid()) {
+                result.append(create_tsd_input_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::items() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        for (auto kv : *storage) {
+            nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+            auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid()) {
+                nb::object py_value = create_tsd_input_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type);
+                result.append(nb::make_tuple(py_key, py_value));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::valid_keys() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        for (auto kv : *storage) {
+            auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.has_value()) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+                result.append(py_key);
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::valid_values() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        for (auto kv : *storage) {
+            auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.has_value()) {
+                result.append(create_tsd_input_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::valid_items() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        nb::list result;
+        for (auto kv : *storage) {
+            auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.has_value()) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+                nb::object py_value = create_tsd_input_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type);
+                result.append(nb::make_tuple(py_key, py_value));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::modified_keys() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        for (auto kv : *storage) {
+            auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.modified_at(eval_time)) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+                result.append(py_key);
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::modified_values() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        for (auto kv : *storage) {
+            auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.modified_at(eval_time)) {
+                result.append(create_tsd_input_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::modified_items() const {
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return nb::list();
+
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = tsd_meta->key_type;
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        nb::list result;
+        for (auto kv : *storage) {
+            auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, key_type));
+            if (entry_view.valid() && entry_view.modified_at(eval_time)) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, key_type);
+                nb::object py_value = create_tsd_input_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type);
+                result.append(nb::make_tuple(py_key, py_value));
+            }
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictInput::was_modified(const nb::object &key) const {
-        return false;
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return false;
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return false;
+
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), key, key_type);
+
+        auto entry_view = v.entry(value::ConstValueView(key_storage.data(), key_type));
+
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        if (!entry_view.valid()) return false;
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        return entry_view.modified_at(eval_time);
     }
 
     nb::object PyTimeSeriesDictInput::added_keys() const {
+        // TODO: Implement added_keys via delta tracking
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictInput::added_values() const {
+        // TODO: Implement added_values via delta tracking
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictInput::added_items() const {
+        // TODO: Implement added_items via delta tracking
         return nb::list();
     }
 
     bool PyTimeSeriesDictInput::has_added() const {
+        // TODO: Implement has_added via delta tracking
         return false;
     }
 
     bool PyTimeSeriesDictInput::was_added(const nb::object &key) const {
+        // TODO: Implement was_added via delta tracking
         return false;
     }
 
     nb::object PyTimeSeriesDictInput::removed_keys() const {
+        // TODO: Implement removed_keys via delta tracking
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictInput::removed_values() const {
+        // TODO: Implement removed_values via delta tracking
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictInput::removed_items() const {
+        // TODO: Implement removed_items via delta tracking
         return nb::list();
     }
 
     bool PyTimeSeriesDictInput::has_removed() const {
+        // TODO: Implement has_removed via delta tracking
         return false;
     }
 
     bool PyTimeSeriesDictInput::was_removed(const nb::object &key) const {
+        // TODO: Implement was_removed via delta tracking
         return false;
     }
 

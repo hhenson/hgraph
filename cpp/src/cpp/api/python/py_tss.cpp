@@ -5,11 +5,6 @@
 
 namespace hgraph
 {
-    // Helper to check if an object is a SetDelta (has 'added' and 'removed' attributes)
-    static bool is_set_delta(const nb::object& obj) {
-        return nb::hasattr(obj, "added") && nb::hasattr(obj, "removed");
-    }
-
     // PyTimeSeriesSetOutput implementations
     bool PyTimeSeriesSetOutput::contains(const nb::object &item) const {
         // TODO: Implement via view
@@ -32,17 +27,6 @@ namespace hgraph
         // TODO: Implement via view with proper type conversion
     }
 
-    // Helper to check if an object is a set or frozenset
-    static bool is_python_set(const nb::object& obj) {
-        return nb::isinstance<nb::set>(obj) || nb::isinstance<nb::frozenset>(obj);
-    }
-
-    // Helper to check if an object is a Removed marker
-    static bool is_removed_marker(const nb::object& obj) {
-        return nb::hasattr(obj, "item") &&
-               nb::str(obj.type().attr("__name__")).c_str() == std::string("Removed");
-    }
-
     void PyTimeSeriesSetOutput::set_value(nb::object py_value) {
         if (py_value.is_none()) {
             _view.mark_invalid();
@@ -60,7 +44,7 @@ namespace hgraph
         }
 
         // Check if this is a SetDelta object
-        if (is_set_delta(py_value)) {
+        if (ts::is_set_delta(py_value)) {
             nb::set new_set;
             if (!current_value.is_none()) {
                 new_set = nb::set(current_value);
@@ -115,7 +99,7 @@ namespace hgraph
         }
 
         // Handle plain set/frozenset - may contain Removed markers
-        if (is_python_set(py_value)) {
+        if (ts::is_python_set(py_value)) {
             nb::set input_set(py_value);
 
             // Separate Removed markers from regular elements
@@ -134,7 +118,7 @@ namespace hgraph
             for (auto item : input_set) {
                 nb::object item_obj = nb::cast<nb::object>(item);
 
-                if (is_removed_marker(item_obj)) {
+                if (ts::is_removed_marker(item_obj)) {
                     // Extract the actual item from Removed(item)
                     nb::object actual_item = item_obj.attr("item");
                     // Only add to removed if it's currently in the set

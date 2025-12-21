@@ -419,10 +419,6 @@ namespace hgraph::value {
             , _storage(storage ? storage->storage() : nullptr)
             , _value_meta(storage ? storage->value_meta() : nullptr) {}
 
-        // Legacy constructor for compatibility (used internally)
-        ModificationTracker(void* storage, const TypeMeta* value_meta)
-            : _owner(nullptr), _storage(storage), _value_meta(value_meta) {}
-
         [[nodiscard]] bool valid() const { return _storage && _value_meta; }
         [[nodiscard]] const TypeMeta* value_schema() const { return _value_meta; }
         [[nodiscard]] void* storage() { return _storage; }
