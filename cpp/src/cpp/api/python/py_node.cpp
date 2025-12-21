@@ -106,7 +106,13 @@ namespace hgraph
         return nb::tuple(ids);
     }
 
-    nb::tuple PyNode::node_id() const { return nb::tuple(nb::cast(_impl->node_id())); }
+    nb::tuple PyNode::node_id() const {
+        // Convert internal vector<int64_t> to a proper Python tuple of ints
+        // (nb::cast on vector doesn't work correctly and causes memory errors)
+        nb::list ids;
+        for (auto id : _impl->node_id()) { ids.append(id); }
+        return nb::tuple(ids);
+    }
 
     const NodeSignature &PyNode::signature() const { return _impl->signature(); }
 
