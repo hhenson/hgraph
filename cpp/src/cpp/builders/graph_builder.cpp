@@ -55,6 +55,7 @@ namespace hgraph
         for (const auto &edge : edges) {
             // Get source output based on output_path
             ts::TSOutput* src_output = nullptr;
+
             if (edge.output_path.empty()) {
                 // Direct output binding
                 src_output = nodes[edge.src_node]->output();
@@ -65,8 +66,7 @@ namespace hgraph
                 // Recordable state binding
                 src_output = nodes[edge.src_node]->recordable_state();
             } else {
-                // Non-empty path - navigate into bundle fields
-                // TODO: Implement bundle field navigation for complex paths
+                // Non-empty path - get root output
                 src_output = nodes[edge.src_node]->output();
             }
 
@@ -78,17 +78,38 @@ namespace hgraph
                 continue;
             }
 
+            // Get the source view, navigating through output_path if present
+            auto src_view = src_output->view();
+            if (!edge.output_path.empty() && edge.output_path[0] >= 0) {
+                // Navigate output_path to get the appropriate view
+                for (auto idx : edge.output_path) {
+                    auto* meta = src_view.ts_meta();
+                    if (meta && meta->ts_kind == TSKind::TSL) {
+                        src_view = src_view.element(static_cast<size_t>(idx));
+                    } else {
+                        src_view = src_view.field(static_cast<size_t>(idx));
+                    }
+                    if (!src_view.valid()) break;
+                }
+            }
+
+            if (!src_view.valid()) {
+                // View navigation failed - skip this edge
+                continue;
+            }
+
             if (edge.input_path.empty()) {
                 // Direct input binding (empty path - bind to whole input)
-                dst_input->bind_output(src_output);
+                dst_input->bind_output(src_view);
             } else {
-                // Non-empty path - use element-based navigation for any depth
+                // Non-empty input path - use element-based navigation for any depth
                 // element() works for both TSB (by field index) and TSL (by list index)
-                auto view = dst_input->element(static_cast<size_t>(edge.input_path[0]));
+                auto input_view = dst_input->element(static_cast<size_t>(edge.input_path[0]));
                 for (size_t i = 1; i < edge.input_path.size(); ++i) {
-                    view = view.element(static_cast<size_t>(edge.input_path[i]));
+                    input_view = input_view.element(static_cast<size_t>(edge.input_path[i]));
                 }
-                view.bind(src_output);
+
+                input_view.bind(src_view);
             }
         }
 

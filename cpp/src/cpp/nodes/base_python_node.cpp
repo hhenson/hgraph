@@ -112,7 +112,11 @@ namespace hgraph
         if (!signature().time_series_inputs.has_value()) {
             return;
         }
-        for (const auto& [key, _] : *signature().time_series_inputs) {
+
+        // Wrap each field from the input bundle
+        // The node's input is always a bundle containing the named inputs
+        auto& ts_inputs = *signature().time_series_inputs;
+        for (const auto& [key, _] : ts_inputs) {
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
                 // Wrap the field as a Python time-series input
                 auto wrapped = wrap_input_field(input(), key, shared_from_this());

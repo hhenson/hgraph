@@ -314,7 +314,7 @@ TEST_CASE("TSInput - bind to output", "[ts][input]") {
     TSOutput output(&g_ts_int_meta, nullptr);
     TSInput input(&g_ts_int_meta, nullptr);
 
-    input.bind_output(&output);
+    input.bind_output(output.view());
 
     REQUIRE(input.bound());
     REQUIRE(input.strategy() != nullptr);
@@ -324,7 +324,7 @@ TEST_CASE("TSInput - unbind from output", "[ts][input]") {
     TSOutput output(&g_ts_int_meta, nullptr);
     TSInput input(&g_ts_int_meta, nullptr);
 
-    input.bind_output(&output);
+    input.bind_output(output.view());
     REQUIRE(input.bound());
 
     input.unbind_output();
@@ -337,7 +337,7 @@ TEST_CASE("TSInput - read value from bound output", "[ts][input]") {
     engine_time_t time = make_time(1000);
 
     output.view().set(42, time);
-    input.bind_output(&output);
+    input.bind_output(output.view());
 
     REQUIRE(input.has_value());
     REQUIRE(input.value().as<int>() == 42);
@@ -352,7 +352,7 @@ TEST_CASE("TSInput - activation subscribes to output", "[ts][input][activation]"
     TSOutput output(&g_ts_int_meta, nullptr);
     TSInput input(&g_ts_int_meta, nullptr);
 
-    input.bind_output(&output);
+    input.bind_output(output.view());
 
     REQUIRE_FALSE(input.active());
 
@@ -364,7 +364,7 @@ TEST_CASE("TSInput - make_passive unsubscribes from output", "[ts][input][activa
     TSOutput output(&g_ts_int_meta, nullptr);
     TSInput input(&g_ts_int_meta, nullptr);
 
-    input.bind_output(&output);
+    input.bind_output(output.view());
     input.make_active();
     REQUIRE(input.active());
 
@@ -377,12 +377,12 @@ TEST_CASE("TSInput - activation state preserved across rebind", "[ts][input][act
     TSOutput output2(&g_ts_int_meta, nullptr);
     TSInput input(&g_ts_int_meta, nullptr);
 
-    input.bind_output(&output1);
+    input.bind_output(output1.view());
     input.make_active();
     REQUIRE(input.active());
 
     // Rebind to different output
-    input.bind_output(&output2);
+    input.bind_output(output2.view());
 
     // Should still be active
     REQUIRE(input.active());
@@ -399,7 +399,7 @@ TEST_CASE("DirectAccessStrategy - delegates to output", "[ts][strategy][direct]"
     engine_time_t time = make_time(1000);
 
     output.view().set(42, time);
-    input.bind_output(&output);
+    input.bind_output(output.view());
 
     // DirectAccessStrategy should delegate value access to output
     REQUIRE(input.value().valid());
@@ -414,7 +414,7 @@ TEST_CASE("DirectAccessStrategy - tracks output modifications", "[ts][strategy][
     engine_time_t time1 = make_time(1000);
     engine_time_t time2 = make_time(2000);
 
-    input.bind_output(&output);
+    input.bind_output(output.view());
 
     output.view().set(42, time1);
     REQUIRE(input.modified_at(time1));
@@ -434,7 +434,7 @@ TEST_CASE("TSInputView - creation from bound input", "[ts][view]") {
     engine_time_t time = make_time(1000);
 
     output.view().set(42, time);
-    input.bind_output(&output);
+    input.bind_output(output.view());
 
     TSInputView view = input.view();
 
@@ -846,7 +846,7 @@ TEST_CASE("copy_from_input_view - copies scalar value", "[ts][copy]") {
 
     // Create input bound to source
     TSInput input(&g_ts_int_meta, nullptr);
-    input.bind_output(&source);
+    input.bind_output(source.view());
 
     // Create destination output
     TSOutput dest(&g_ts_int_meta, nullptr);

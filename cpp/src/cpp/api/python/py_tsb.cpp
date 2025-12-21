@@ -6,10 +6,29 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/time_series/access_strategy.h>
 #include <hgraph/types/time_series/ts_python_helpers.h>
+#include <fmt/format.h>
 #include <optional>
 
 namespace hgraph
 {
+    // Helper to check if a CollectionAccessStrategy has "unpeered" children
+    // Unpeered means children are DirectAccessStrategies bound to separate outputs
+    // Peered means children are ElementAccessStrategies that navigate into a common parent output
+    static bool has_unpeered_children(ts::CollectionAccessStrategy* coll_strategy) {
+        if (!coll_strategy) return false;
+        for (size_t i = 0; i < coll_strategy->child_count(); ++i) {
+            auto* child = coll_strategy->child(i);
+            if (child != nullptr) {
+                // ElementAccessStrategy children mean peered mode (navigating into parent)
+                // DirectAccessStrategy children mean unpeered mode (separate outputs)
+                if (dynamic_cast<ts::DirectAccessStrategy*>(child) != nullptr) {
+                    return true;  // Found unpeered child
+                }
+            }
+        }
+        return false;  // No unpeered children (either empty or all are ElementAccessStrategy)
+    }
+
     // PyTimeSeriesBundleOutput implementations
 
     void PyTimeSeriesBundleOutput::set_value(nb::object py_value) {
@@ -285,6 +304,22 @@ namespace hgraph
         return nb::bool_(!tsb_meta || tsb_meta->fields.empty());
     }
 
+    nb::bool_ PyTimeSeriesBundleOutput::all_valid() const {
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::bool_(false);
+
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+
+        // Check all fields for validity
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = mutable_view.field(i);
+            if (!field_view.valid() || !field_view.has_value()) {
+                return nb::bool_(false);
+            }
+        }
+        return nb::bool_(true);
+    }
+
     nb::str PyTimeSeriesBundleOutput::py_str() const {
         return nb::str("TSB{...}");
     }
@@ -304,7 +339,7 @@ namespace hgraph
     nb::object PyTimeSeriesBundleInput::value() const {
         // Check if we're in unpeered mode (CollectionAccessStrategy with children)
         auto* coll_strategy = get_collection_strategy(view());
-        if (coll_strategy && coll_strategy->child_count() > 0) {
+        if (has_unpeered_children(coll_strategy)) {
             // Unpeered mode: iterate over children
             auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
             if (!tsb_meta) return nb::none();
@@ -335,9 +370,9 @@ namespace hgraph
         if (!_node) return nb::none();
         auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
 
-        // Check if we're in unpeered mode (CollectionAccessStrategy with children)
+        // Check if we're in unpeered mode (CollectionAccessStrategy with DirectAccessStrategy children)
         auto* coll_strategy = get_collection_strategy(view());
-        if (coll_strategy && coll_strategy->child_count() > 0) {
+        if (has_unpeered_children(coll_strategy)) {
             // Unpeered mode: iterate over children, return dict of modified fields' delta_value
             auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
             if (!tsb_meta) return nb::none();
@@ -411,7 +446,7 @@ namespace hgraph
 
         // Check for unpeered mode first (CollectionAccessStrategy with children)
         auto* coll_strategy = get_collection_strategy(view());
-        if (coll_strategy && coll_strategy->child_count() > 0) {
+        if (has_unpeered_children(coll_strategy)) {
             // Unpeered mode: get child strategy
             auto* child_strategy = coll_strategy->child(*field_idx);
             if (child_strategy) {
@@ -419,8 +454,9 @@ namespace hgraph
             }
         }
 
-        // Peered mode: navigate via view
-        auto field_view = view().element(*field_idx);
+        // Navigate via view (works for both peered and unpeered modes now)
+        auto v = view();
+        auto field_view = v.element(*field_idx);
         if (field_view.valid()) {
             return create_input_wrapper_from_view(_node, std::move(field_view), tsb_meta->fields[*field_idx].type);
         }
@@ -461,7 +497,7 @@ namespace hgraph
 
         for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
             nb::object wrapped;
-            if (coll_strategy && coll_strategy->child_count() > 0) {
+            if (has_unpeered_children(coll_strategy)) {
                 // Unpeered mode
                 auto* child_strategy = coll_strategy->child(i);
                 wrapped = wrap_field_input_from_strategy(_node, child_strategy, tsb_meta->fields[i].type);
@@ -484,7 +520,7 @@ namespace hgraph
 
         for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
             nb::object wrapped;
-            if (coll_strategy && coll_strategy->child_count() > 0) {
+            if (has_unpeered_children(coll_strategy)) {
                 // Unpeered mode
                 auto* child_strategy = coll_strategy->child(i);
                 wrapped = wrap_field_input_from_strategy(_node, child_strategy, tsb_meta->fields[i].type);
@@ -507,7 +543,7 @@ namespace hgraph
 
         for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
             bool is_valid = false;
-            if (coll_strategy && coll_strategy->child_count() > 0) {
+            if (has_unpeered_children(coll_strategy)) {
                 auto* child_strategy = coll_strategy->child(i);
                 is_valid = child_strategy && child_strategy->has_value();
             } else {
@@ -532,7 +568,7 @@ namespace hgraph
             bool is_valid = false;
             nb::object wrapped;
 
-            if (coll_strategy && coll_strategy->child_count() > 0) {
+            if (has_unpeered_children(coll_strategy)) {
                 auto* child_strategy = coll_strategy->child(i);
                 is_valid = child_strategy && child_strategy->has_value();
                 if (is_valid) {
@@ -563,7 +599,7 @@ namespace hgraph
             bool is_valid = false;
             nb::object wrapped;
 
-            if (coll_strategy && coll_strategy->child_count() > 0) {
+            if (has_unpeered_children(coll_strategy)) {
                 auto* child_strategy = coll_strategy->child(i);
                 is_valid = child_strategy && child_strategy->has_value();
                 if (is_valid) {
@@ -593,7 +629,7 @@ namespace hgraph
 
         for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
             bool is_modified = false;
-            if (coll_strategy && coll_strategy->child_count() > 0) {
+            if (has_unpeered_children(coll_strategy)) {
                 auto* child_strategy = coll_strategy->child(i);
                 is_modified = child_strategy && child_strategy->modified_at(eval_time);
             } else {
@@ -619,7 +655,7 @@ namespace hgraph
             bool is_modified = false;
             nb::object wrapped;
 
-            if (coll_strategy && coll_strategy->child_count() > 0) {
+            if (has_unpeered_children(coll_strategy)) {
                 auto* child_strategy = coll_strategy->child(i);
                 is_modified = child_strategy && child_strategy->modified_at(eval_time);
                 if (is_modified) {
@@ -651,7 +687,7 @@ namespace hgraph
             bool is_modified = false;
             nb::object wrapped;
 
-            if (coll_strategy && coll_strategy->child_count() > 0) {
+            if (has_unpeered_children(coll_strategy)) {
                 auto* child_strategy = coll_strategy->child(i);
                 is_modified = child_strategy && child_strategy->modified_at(eval_time);
                 if (is_modified) {
@@ -689,6 +725,76 @@ namespace hgraph
         return py_str();
     }
 
+    nb::bool_ PyTimeSeriesBundleInput::all_valid() const {
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::bool_(false);
+
+        auto* coll_strategy = get_collection_strategy(view());
+
+        // Check all fields for validity
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            bool field_valid = false;
+
+            if (has_unpeered_children(coll_strategy)) {
+                // Unpeered mode: check child strategy
+                auto* child_strategy = coll_strategy->child(i);
+                field_valid = child_strategy && child_strategy->has_value();
+            } else {
+                // Peered mode: navigate into bound output's view to check each field
+                auto input_view = view();
+                if (input_view.valid()) {
+                    auto* strategy = input_view.source();
+                    if (strategy) {
+                        auto* bound = strategy->bound_output();
+                        if (bound) {
+                            auto output_view = bound->view();
+                            auto field_view = output_view.field(i);
+                            field_valid = field_view.valid() && field_view.has_value();
+                        }
+                    }
+                }
+            }
+
+            if (!field_valid) {
+                return nb::bool_(false);
+            }
+        }
+        return nb::bool_(true);
+    }
+
+    nb::bool_ PyTimeSeriesBundleInput::has_peer() const {
+        // has_peer is True if the TSB input is bound directly to a TSB output (peered mode)
+        // Peered: CollectionAccessStrategy has bound_output set to the source TSB output
+        // Unpeered: Each child has its own separate binding (bound via from_ts)
+
+        // Check the view's source strategy
+        auto v = view();
+        if (!v.valid()) {
+            // Fallback: check via input() if available
+            return nb::bool_(input() && input()->bound());
+        }
+
+        auto* source = v.source();
+        if (!source) {
+            return nb::bool_(false);
+        }
+
+        // If the source strategy itself has a bound_output, it's peered
+        // (the strategy delegates to the bound TSB output for value access)
+        if (source->bound_output()) {
+            return nb::bool_(true);  // Peered
+        }
+
+        // If it's a CollectionAccessStrategy but has no bound_output,
+        // it means child strategies are individually bound (unpeered/from_ts)
+        return nb::bool_(false);
+    }
+
+    nb::object PyTimeSeriesBundleInput::as_schema() const {
+        // as_schema just returns self - it's for IDE autocompletion
+        return nb::cast(this);
+    }
+
     void tsb_register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesBundleOutput, PyTimeSeriesOutput>(m, "TimeSeriesBundleOutput")
             .def("__getitem__", &PyTimeSeriesBundleOutput::get_item)
@@ -711,6 +817,7 @@ namespace hgraph
             .def("modified_values", &PyTimeSeriesBundleOutput::modified_values)
             .def("modified_items", &PyTimeSeriesBundleOutput::modified_items)
             .def_prop_ro("empty", &PyTimeSeriesBundleOutput::empty)
+            .def_prop_ro("all_valid", &PyTimeSeriesBundleOutput::all_valid)
             .def("__str__", &PyTimeSeriesBundleOutput::py_str)
             .def("__repr__", &PyTimeSeriesBundleOutput::py_repr);
 
@@ -730,6 +837,9 @@ namespace hgraph
             .def("modified_values", &PyTimeSeriesBundleInput::modified_values)
             .def("modified_items", &PyTimeSeriesBundleInput::modified_items)
             .def_prop_ro("empty", &PyTimeSeriesBundleInput::empty)
+            .def_prop_ro("all_valid", &PyTimeSeriesBundleInput::all_valid)
+            .def_prop_ro("has_peer", &PyTimeSeriesBundleInput::has_peer)
+            .def_prop_ro("as_schema", &PyTimeSeriesBundleInput::as_schema)
             .def("__str__", &PyTimeSeriesBundleInput::py_str)
             .def("__repr__", &PyTimeSeriesBundleInput::py_repr);
     }

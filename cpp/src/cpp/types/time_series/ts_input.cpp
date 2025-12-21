@@ -5,6 +5,7 @@
 //
 
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/node.h>
 #include <fmt/format.h>
@@ -15,8 +16,8 @@ namespace hgraph::ts {
 // TSInput implementation
 // ============================================================================
 
-void TSInput::bind_output(TSOutput* output) {
-    if (!output) {
+void TSInput::bind_output(value::TSView output_view) {
+    if (!output_view.valid()) {
         unbind_output();
         return;
     }
@@ -28,13 +29,13 @@ void TSInput::bind_output(TSOutput* output) {
         _active = was_active;  // Preserve activation state
     }
 
-    // Build strategy tree based on schema comparison
-    auto* output_meta = output->meta();
+    // Get output metadata from the view
+    auto* output_meta = output_view.ts_meta();
     _strategy = build_access_strategy(_meta, output_meta, this);
 
-    // Bind the strategy to the output
+    // Bind the strategy to the output view
     if (_strategy) {
-        _strategy->bind(output);
+        _strategy->bind(output_view);
 
         // If active, activate the strategy
         if (_active) {
@@ -118,12 +119,72 @@ TSInputView TSInputView::element(size_t index) const {
                     child_meta = _meta->element_meta();
                 }
             }
-            return TSInputView(child, child_meta, _path.with(index));
+            // Child strategy is at root of its own context - path should be empty
+            // The child strategy already knows how to access its bound output
+            return TSInputView(child, child_meta);
         }
+    }
+
+    // Peered mode: For TSB/TSL inputs bound directly to an output, we can still
+    // navigate by storing the field index in the path and using the parent strategy
+    // to access the bound output's fields when fetching values
+    if (_meta && (_meta->ts_kind == TSKind::TSB || _meta->ts_kind == TSKind::TSL)) {
+        const TSMeta* child_meta = nullptr;
+        if (_meta->ts_kind == TSKind::TSB) {
+            child_meta = _meta->field_meta(index);
+        } else {
+            child_meta = _meta->element_meta();
+        }
+
+        // Create a view with the same source but with updated path
+        // The source strategy's value()/has_value() methods will navigate based on the path
+        return TSInputView(_source, child_meta, _path.with(index));
     }
 
     // No child strategy - return invalid view
     return {};
+}
+
+value::ConstValueView TSInputView::value_view() const {
+    if (!_source) return {};
+
+    // If no path, return the source's value directly
+    if (_path.empty()) {
+        return _source->value();
+    }
+
+    // Navigate through the bound output's view using the path
+    auto* bound = _source->bound_output();
+    if (!bound) return {};
+
+    auto output_view = bound->view();
+    for (size_t i = 0; i < _path.depth(); ++i) {
+        output_view = output_view.field(_path[i]);
+        if (!output_view.valid()) return {};
+    }
+
+    return output_view.value_view();  // Returns ConstValueView
+}
+
+bool TSInputView::has_value() const {
+    if (!_source) return false;
+
+    // If no path, check the source's has_value directly
+    if (_path.empty()) {
+        return _source->has_value();
+    }
+
+    // Navigate through the bound output's view using the path
+    auto* bound = _source->bound_output();
+    if (!bound) return false;
+
+    auto output_view = bound->view();
+    for (size_t i = 0; i < _path.depth(); ++i) {
+        output_view = output_view.field(_path[i]);
+        if (!output_view.valid()) return false;
+    }
+
+    return output_view.has_value();
 }
 
 TSInputView TSInputView::field(const std::string& name) const {
@@ -239,6 +300,7 @@ CollectionAccessStrategy* TSInput::ensure_collection_strategy_at_path(const std:
     const TSMeta* current_meta = _meta;
 
     // Walk the path, creating CollectionAccessStrategies as needed
+    // We return the CollectionAccessStrategy AT the end of the path (not the parent)
     for (size_t depth = 0; depth < path.size(); ++depth) {
         size_t index = path[depth];
 
@@ -268,42 +330,34 @@ CollectionAccessStrategy* TSInput::ensure_collection_strategy_at_path(const std:
 
         if (!child) {
             // Create a CollectionAccessStrategy for this child (if it's a bundle or list)
-            if (depth < path.size() - 1) {
-                // Not the last element - need a collection for further navigation
-                if (!child_meta ||
-                    (child_meta->ts_kind != TSKind::TSB && child_meta->ts_kind != TSKind::TSL)) {
-                    throw std::runtime_error(
-                        fmt::format("Path navigation error at depth {}: expected bundle or list type for nested navigation, got kind {}",
-                                    depth, child_meta ? static_cast<int>(child_meta->ts_kind) : -1));
-                }
-
-                size_t child_capacity = 0;
-                if (child_meta->ts_kind == TSKind::TSB) {
-                    auto* child_tsb = static_cast<const TSBTypeMeta*>(child_meta);
-                    child_capacity = child_tsb->fields.size();
-                } else {
-                    child_capacity = 8;  // Initial capacity for list
-                }
-
-                auto new_child = std::make_unique<CollectionAccessStrategy>(this, child_capacity);
-                child = new_child.get();
-                current->set_child(index, std::move(new_child));
-            } else {
-                // Last element - caller will set the final child strategy
-                // Return current and let caller handle the final step
-            }
-        }
-
-        if (depth < path.size() - 1) {
-            // Move to next level
-            auto* child_collection = dynamic_cast<CollectionAccessStrategy*>(child);
-            if (!child_collection) {
+            if (!child_meta ||
+                (child_meta->ts_kind != TSKind::TSB && child_meta->ts_kind != TSKind::TSL)) {
                 throw std::runtime_error(
-                    fmt::format("Path navigation error at depth {}: child is not a collection strategy", depth));
+                    fmt::format("Path navigation error at depth {}: expected bundle or list type, got kind {}",
+                                depth, child_meta ? static_cast<int>(child_meta->ts_kind) : -1));
             }
-            current = child_collection;
-            current_meta = child_meta;
+
+            size_t child_capacity = 0;
+            if (child_meta->ts_kind == TSKind::TSB) {
+                auto* child_tsb = static_cast<const TSBTypeMeta*>(child_meta);
+                child_capacity = child_tsb->fields.size();
+            } else {
+                child_capacity = 8;  // Initial capacity for list
+            }
+
+            auto new_child = std::make_unique<CollectionAccessStrategy>(this, child_capacity);
+            child = new_child.get();
+            current->set_child(index, std::move(new_child));
         }
+
+        // Move to next level (including for the last element)
+        auto* child_collection = dynamic_cast<CollectionAccessStrategy*>(child);
+        if (!child_collection) {
+            throw std::runtime_error(
+                fmt::format("Path navigation error at depth {}: child is not a collection strategy", depth));
+        }
+        current = child_collection;
+        current_meta = child_meta;
     }
 
     return current;
@@ -372,14 +426,14 @@ TSInputBindableView TSInputBindableView::field(const std::string& name) const {
     return {};  // Field not found
 }
 
-void TSInputBindableView::bind(TSOutput* output) {
+void TSInputBindableView::bind(value::TSView output_view) {
     if (!valid()) {
         throw std::runtime_error("TSInputBindableView::bind() called on invalid view");
     }
 
     if (_path.empty()) {
         // Binding at root - just use normal bind_output
-        _root->bind_output(output);
+        _root->bind_output(output_view);
         return;
     }
 
@@ -390,12 +444,12 @@ void TSInputBindableView::bind(TSOutput* output) {
     // Ensure we have the collection strategy at the parent path
     CollectionAccessStrategy* parent_strategy = _root->ensure_collection_strategy_at_path(parent_path);
 
-    // Build a child strategy for binding to the output
-    const TSMeta* output_meta = output ? output->meta() : nullptr;
+    // Build a child strategy for binding to the output view
+    const TSMeta* output_meta = output_view.valid() ? output_view.ts_meta() : nullptr;
     auto child_strategy = build_access_strategy(_meta, output_meta, _root);
 
-    if (output) {
-        child_strategy->bind(output);
+    if (output_view.valid()) {
+        child_strategy->bind(output_view);
     }
 
     // If input is active, activate the new child

@@ -67,16 +67,19 @@ public:
     // === Binding lifecycle ===
 
     /**
-     * Bind to an output
+     * Bind to an output view
      * Called when the TSInput binds to an output
+     *
+     * The view can point to any level of nesting within an output.
+     * Strategies use the view for value access and subscription.
      */
-    virtual void bind(TSOutput* output) = 0;
+    virtual void bind(value::TSView output_view) = 0;
 
     /**
-     * Rebind to a different output
+     * Rebind to a different output view
      * Called by parent RefObserver when reference changes
      */
-    virtual void rebind(TSOutput* output) = 0;
+    virtual void rebind(value::TSView output_view) = 0;
 
     /**
      * Unbind from current output
@@ -142,13 +145,22 @@ public:
      */
     [[nodiscard]] engine_time_t get_evaluation_time() const;
 
-    // === Bound output access ===
+    // === Bound view access ===
     /**
-     * Get the output this strategy is bound to for value purposes
-     * For RefObserver, returns target_output (what REF points to)
-     * For others, returns the directly bound output
+     * Get the view this strategy is bound to
+     * For RefObserver, returns target view (what REF points to)
+     * For others, returns the directly bound view
      */
-    [[nodiscard]] virtual TSOutput* bound_output() const = 0;
+    [[nodiscard]] virtual value::TSView bound_view() const = 0;
+
+    /**
+     * Get the root output from the bound view (for delta cache lookup)
+     * Returns nullptr if not bound
+     */
+    [[nodiscard]] TSOutput* bound_output() const {
+        auto view = bound_view();
+        return view.valid() ? const_cast<TSOutput*>(view.root_output()) : nullptr;
+    }
 
 protected:
     TSInput* _owner;
@@ -173,8 +185,8 @@ public:
     explicit DirectAccessStrategy(TSInput* owner)
         : AccessStrategy(owner) {}
 
-    void bind(TSOutput* output) override;
-    void rebind(TSOutput* output) override;
+    void bind(value::TSView output_view) override;
+    void rebind(value::TSView output_view) override;
     void unbind() override;
 
     void make_active() override;
@@ -187,11 +199,11 @@ public:
     [[nodiscard]] bool modified_at(engine_time_t time) const override;
     [[nodiscard]] engine_time_t last_modified_time() const override;
 
-    [[nodiscard]] TSOutput* output() const { return _output; }
-    [[nodiscard]] TSOutput* bound_output() const override { return _output; }
+    [[nodiscard]] value::TSView output_view() const { return _output_view; }
+    [[nodiscard]] value::TSView bound_view() const override { return _output_view; }
 
 private:
-    TSOutput* _output{nullptr};
+    value::TSView _output_view;
 };
 
 // ============================================================================
@@ -212,8 +224,8 @@ class CollectionAccessStrategy : public AccessStrategy {
 public:
     CollectionAccessStrategy(TSInput* owner, size_t element_count);
 
-    void bind(TSOutput* output) override;
-    void rebind(TSOutput* output) override;
+    void bind(value::TSView output_view) override;
+    void rebind(value::TSView output_view) override;
     void unbind() override;
 
     void make_active() override;
@@ -257,11 +269,11 @@ public:
 
     [[nodiscard]] bool has_storage() const { return _storage.has_value(); }
 
-    [[nodiscard]] TSOutput* output() const { return _output; }
-    [[nodiscard]] TSOutput* bound_output() const override { return _output; }
+    [[nodiscard]] value::TSView output_view() const { return _output_view; }
+    [[nodiscard]] value::TSView bound_view() const override { return _output_view; }
 
 private:
-    TSOutput* _output{nullptr};
+    value::TSView _output_view;
     std::vector<std::unique_ptr<AccessStrategy>> _children;
     std::optional<value::TSValue> _storage;
 };
@@ -284,8 +296,8 @@ class RefObserverAccessStrategy : public AccessStrategy {
 public:
     RefObserverAccessStrategy(TSInput* owner, std::unique_ptr<AccessStrategy> child);
 
-    void bind(TSOutput* output) override;
-    void rebind(TSOutput* output) override;
+    void bind(value::TSView output_view) override;
+    void rebind(value::TSView output_view) override;
     void unbind() override;
 
     void make_active() override;
@@ -307,26 +319,26 @@ public:
      * Called when the reference value changes
      * Updates target and rebinds child strategy
      */
-    void on_reference_changed(TSOutput* new_target, engine_time_t time);
+    void on_reference_changed(value::TSView new_target_view, engine_time_t time);
 
-    [[nodiscard]] TSOutput* ref_output() const { return _ref_output; }
-    [[nodiscard]] TSOutput* target_output() const { return _target_output; }
-    [[nodiscard]] TSOutput* bound_output() const override { return _target_output; }
+    [[nodiscard]] value::TSView ref_view() const { return _ref_view; }
+    [[nodiscard]] value::TSView target_view() const { return _target_view; }
+    [[nodiscard]] value::TSView bound_view() const override { return _target_view; }
     [[nodiscard]] AccessStrategy* child_strategy() const { return _child.get(); }
 
 private:
     /**
-     * Resolve the target output from the REF output's value
+     * Resolve the target view from the REF view's value
      */
-    TSOutput* resolve_ref_target(TSOutput* ref_output) const;
+    value::TSView resolve_ref_target(const value::TSView& ref_view) const;
 
     /**
      * Update target and rebind child
      */
-    void update_target(TSOutput* new_target, engine_time_t time);
+    void update_target(value::TSView new_target_view, engine_time_t time);
 
-    TSOutput* _ref_output{nullptr};      // The REF output (always subscribed)
-    TSOutput* _target_output{nullptr};   // Current target (what REF points to)
+    value::TSView _ref_view;           // The REF view (always subscribed)
+    value::TSView _target_view;        // Current target view (what REF points to)
     std::unique_ptr<AccessStrategy> _child;  // Strategy for accessing target's value
     engine_time_t _sample_time{MIN_DT};  // When we last rebound
     mutable engine_time_t _last_notify_time{MIN_DT};  // Last notification time (for Python-managed types)
@@ -350,8 +362,8 @@ class RefWrapperAccessStrategy : public AccessStrategy {
 public:
     RefWrapperAccessStrategy(TSInput* owner, const value::TypeMeta* ref_schema);
 
-    void bind(TSOutput* output) override;
-    void rebind(TSOutput* output) override;
+    void bind(value::TSView output_view) override;
+    void rebind(value::TSView output_view) override;
     void unbind() override;
 
     void make_active() override;
@@ -360,15 +372,15 @@ public:
     [[nodiscard]] value::ConstValueView value() const override;
     [[nodiscard]] value::ModificationTracker tracker() const override;
 
-    [[nodiscard]] bool has_value() const override { return _wrapped_output != nullptr; }
+    [[nodiscard]] bool has_value() const override { return _wrapped_view.valid(); }
     [[nodiscard]] bool modified_at(engine_time_t time) const override;
     [[nodiscard]] engine_time_t last_modified_time() const override;
 
-    [[nodiscard]] TSOutput* wrapped_output() const { return _wrapped_output; }
-    [[nodiscard]] TSOutput* bound_output() const override { return _wrapped_output; }
+    [[nodiscard]] value::TSView wrapped_view() const { return _wrapped_view; }
+    [[nodiscard]] value::TSView bound_view() const override { return _wrapped_view; }
 
 private:
-    TSOutput* _wrapped_output{nullptr};
+    value::TSView _wrapped_view;
     value::TSValue _storage;  // Holds the REF value
     engine_time_t _bind_time{MIN_DT};
 };
@@ -398,8 +410,8 @@ public:
     ElementAccessStrategy(TSInput* owner, size_t index, NavigationKind kind)
         : AccessStrategy(owner), _index(index), _kind(kind) {}
 
-    void bind(TSOutput* output) override;
-    void rebind(TSOutput* output) override;
+    void bind(value::TSView output_view) override;
+    void rebind(value::TSView output_view) override;
     void unbind() override;
 
     void make_active() override;
@@ -412,8 +424,8 @@ public:
     [[nodiscard]] bool modified_at(engine_time_t time) const override;
     [[nodiscard]] engine_time_t last_modified_time() const override;
 
-    [[nodiscard]] TSOutput* parent_output() const { return _parent_output; }
-    [[nodiscard]] TSOutput* bound_output() const override { return _parent_output; }
+    [[nodiscard]] value::TSView parent_view() const { return _parent_view; }
+    [[nodiscard]] value::TSView bound_view() const override { return get_element_view(); }
     [[nodiscard]] size_t index() const { return _index; }
 
 private:
@@ -422,7 +434,7 @@ private:
      */
     [[nodiscard]] value::TSView get_element_view() const;
 
-    TSOutput* _parent_output{nullptr};
+    mutable value::TSView _parent_view;  // mutable to allow navigation from const methods
     size_t _index;
     NavigationKind _kind;
 };

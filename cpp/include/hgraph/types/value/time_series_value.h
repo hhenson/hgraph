@@ -831,6 +831,32 @@ namespace hgraph::value {
             return result;
         }
 
+        // === Subscription helpers (for TSInput binding) ===
+
+        /**
+         * Subscribe a notifiable to this view's observer.
+         * Used by TSInput to receive notifications when bound output changes.
+         */
+        void subscribe(hgraph::Notifiable* notifiable) {
+            if (_observer && notifiable) {
+                _observer->subscribe(notifiable);
+            }
+        }
+
+        /**
+         * Unsubscribe a notifiable from this view's observer.
+         */
+        void unsubscribe(hgraph::Notifiable* notifiable) {
+            if (_observer && notifiable) {
+                _observer->unsubscribe(notifiable);
+            }
+        }
+
+        /**
+         * Check if this view has an observer that can accept subscriptions.
+         */
+        [[nodiscard]] bool has_observer() const { return _observer != nullptr; }
+
     private:
         ValueView _value_view;
         ModificationTracker _tracker;

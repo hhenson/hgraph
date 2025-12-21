@@ -98,6 +98,8 @@ public:
      *   // price_view.path_string() == "root[0]"  (if price is field 0)
      */
     [[nodiscard]] value::TSView view() {
+        // Ensure observers exist so TSView can subscribe
+        _value.ensure_observers();
         return {_value.view().value_view(), _value.view().tracker(),
                 _value.underlying_observers(), _meta, value::ValuePath(this)};
     }

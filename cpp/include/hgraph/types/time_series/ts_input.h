@@ -86,9 +86,8 @@ public:
     [[nodiscard]] std::string path_string() const { return _path.to_string(); }
 
     // === Underlying value view access (fresh every call) ===
-    [[nodiscard]] value::ConstValueView value_view() const {
-        return _source ? _source->value() : value::ConstValueView{};
-    }
+    // When path is non-empty, navigates through bound output to get field value
+    [[nodiscard]] value::ConstValueView value_view() const;
 
     // === Scalar value access (read-only) ===
     template<typename T>
@@ -101,9 +100,8 @@ public:
         return _source && _source->modified_at(time);
     }
 
-    [[nodiscard]] bool has_value() const {
-        return _source && _source->has_value();
-    }
+    // When path is non-empty, checks if the specific field has a value
+    [[nodiscard]] bool has_value() const;
 
     [[nodiscard]] engine_time_t last_modified_time() const {
         return _source ? _source->last_modified_time() : MIN_DT;
@@ -325,15 +323,18 @@ public:
     // === Binding ===
 
     /**
-     * Bind an output at this location in the input's structure
+     * Bind an output view at this location in the input's structure
      *
      * This creates/navigates the CollectionAccessStrategy tree as needed,
-     * then creates an appropriate child strategy for binding to the output.
+     * then creates an appropriate child strategy for binding to the view.
      *
-     * @param output The output to bind at this location
+     * The view can point to any level of nesting within an output, enabling
+     * binding to specific fields or elements of a larger output structure.
+     *
+     * @param output_view The output view to bind at this location
      * @throws std::runtime_error if the view is invalid
      */
-    void bind(TSOutput* output);
+    void bind(value::TSView output_view);
 
 private:
     TSInput* _root{nullptr};           // The root input
@@ -407,7 +408,7 @@ public:
     // === Binding Operations ===
 
     /**
-     * Bind this input to an output
+     * Bind this input to an output view
      *
      * Builds a strategy tree based on schema comparison:
      * - Matching types: DirectAccess
@@ -415,9 +416,12 @@ public:
      * - REF input to non-REF output: RefWrapperAccess
      * - Collections with nested differences: CollectionAccess with children
      *
-     * @param output The output to bind to
+     * The view can point to any level of nesting within an output, enabling
+     * binding to specific fields or elements of a larger output structure.
+     *
+     * @param output_view The output view to bind to
      */
-    void bind_output(TSOutput* output);
+    void bind_output(value::TSView output_view);
 
     /**
      * Unbind this input from its current output(s)

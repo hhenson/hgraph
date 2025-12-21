@@ -122,8 +122,18 @@ namespace
         // The view points to the child strategy and fetches fresh data on each access
         switch (meta->ts_kind) {
             case TSKind::TS:
-                // For now, all field wrappers use the base PyTimeSeriesInput
-                // since specialized wrappers may need updates for view-only construction
+                return nb::cast(PyTimeSeriesValueInput(std::move(node), std::move(view), nullptr, meta));
+            case TSKind::TSB:
+                return nb::cast(PyTimeSeriesBundleInput(std::move(node), std::move(view), nullptr, meta));
+            case TSKind::TSL:
+                return nb::cast(PyTimeSeriesListInput(std::move(node), std::move(view), nullptr, meta));
+            case TSKind::TSS:
+                return nb::cast(PyTimeSeriesSetInput(std::move(node), std::move(view), nullptr, meta));
+            case TSKind::TSD:
+                return nb::cast(PyTimeSeriesDictInput(std::move(node), std::move(view), nullptr, meta));
+            case TSKind::TSW:
+                return nb::cast(PyTimeSeriesWindowInput(std::move(node), std::move(view), nullptr, meta));
+            case TSKind::REF:
             default:
                 return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), meta));
         }

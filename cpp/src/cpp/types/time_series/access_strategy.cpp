@@ -34,55 +34,53 @@ engine_time_t AccessStrategy::get_evaluation_time() const {
 // DirectAccessStrategy implementation
 // ============================================================================
 
-void DirectAccessStrategy::bind(TSOutput* output) {
-    _output = output;
+void DirectAccessStrategy::bind(value::TSView output_view) {
+    _output_view = output_view;
 }
 
-void DirectAccessStrategy::rebind(TSOutput* output) {
+void DirectAccessStrategy::rebind(value::TSView output_view) {
     // For direct access, rebind is same as bind
-    _output = output;
+    _output_view = output_view;
 }
 
 void DirectAccessStrategy::unbind() {
     // Unsubscribe if we were active
-    if (_output && _owner && _owner->active()) {
-        _output->unsubscribe(_owner);
+    if (_output_view.valid() && _owner && _owner->active()) {
+        _output_view.unsubscribe(_owner);
     }
-    _output = nullptr;
+    _output_view = value::TSView{};
 }
 
 void DirectAccessStrategy::make_active() {
-    if (_output && _owner) {
-        _output->subscribe(_owner);
+    if (_output_view.valid() && _owner) {
+        _output_view.subscribe(_owner);
     }
 }
 
 void DirectAccessStrategy::make_passive() {
-    if (_output && _owner) {
-        _output->unsubscribe(_owner);
+    if (_output_view.valid() && _owner) {
+        _output_view.unsubscribe(_owner);
     }
 }
 
 value::ConstValueView DirectAccessStrategy::value() const {
-    return _output ? _output->value() : value::ConstValueView{};
+    return _output_view.valid() ? _output_view.value_view() : value::ConstValueView{};
 }
 
 value::ModificationTracker DirectAccessStrategy::tracker() const {
-    return _output
-        ? _output->underlying().underlying_tracker().tracker()
-        : value::ModificationTracker{};
+    return _output_view.valid() ? _output_view.tracker() : value::ModificationTracker{};
 }
 
 bool DirectAccessStrategy::has_value() const {
-    return _output && _output->has_value();
+    return _output_view.valid() && _output_view.has_value();
 }
 
 bool DirectAccessStrategy::modified_at(engine_time_t time) const {
-    return _output && _output->modified_at(time);
+    return _output_view.valid() && _output_view.modified_at(time);
 }
 
 engine_time_t DirectAccessStrategy::last_modified_time() const {
-    return _output ? _output->last_modified_time() : MIN_DT;
+    return _output_view.valid() ? _output_view.last_modified_time() : MIN_DT;
 }
 
 // ============================================================================
@@ -93,24 +91,41 @@ CollectionAccessStrategy::CollectionAccessStrategy(TSInput* owner, size_t elemen
     : AccessStrategy(owner)
     , _children(element_count) {}
 
-void CollectionAccessStrategy::bind(TSOutput* output) {
-    _output = output;
+void CollectionAccessStrategy::bind(value::TSView output_view) {
+    _output_view = output_view;
 
-    // Bind child strategies to corresponding output elements
+    // Bind child strategies to corresponding elements of the output view
+    // Navigate into the view to get child views for each child strategy
     for (size_t i = 0; i < _children.size(); ++i) {
-        if (_children[i] && output) {
-            _children[i]->bind(output);
+        if (_children[i] && output_view.valid()) {
+            // Navigate to child view based on kind
+            auto ts_kind = output_view.ts_kind();
+            value::TSView child_view;
+            if (ts_kind == TSKind::TSL) {
+                child_view = output_view.element(i);
+            } else {
+                // TSB or other - use field navigation
+                child_view = output_view.field(i);
+            }
+            _children[i]->bind(child_view);
         }
     }
 }
 
-void CollectionAccessStrategy::rebind(TSOutput* output) {
-    _output = output;
+void CollectionAccessStrategy::rebind(value::TSView output_view) {
+    _output_view = output_view;
 
     // Rebind all child strategies
     for (size_t i = 0; i < _children.size(); ++i) {
-        if (_children[i] && output) {
-            _children[i]->rebind(output);
+        if (_children[i] && output_view.valid()) {
+            auto ts_kind = output_view.ts_kind();
+            value::TSView child_view;
+            if (ts_kind == TSKind::TSL) {
+                child_view = output_view.element(i);
+            } else {
+                child_view = output_view.field(i);
+            }
+            _children[i]->rebind(child_view);
         }
     }
 }
@@ -122,14 +137,14 @@ void CollectionAccessStrategy::unbind() {
             child->unbind();
         }
     }
-    _output = nullptr;
+    _output_view = value::TSView{};
 }
 
 void CollectionAccessStrategy::make_active() {
     // For dynamic collections (like TSD) that have no fixed children,
-    // subscribe directly to the output to receive notifications
-    if (_output && _owner && _children.empty()) {
-        _output->subscribe(_owner);
+    // subscribe directly to the output view to receive notifications
+    if (_output_view.valid() && _owner && _children.empty()) {
+        _output_view.subscribe(_owner);
     }
 
     // Propagate to all child strategies
@@ -142,8 +157,8 @@ void CollectionAccessStrategy::make_active() {
 
 void CollectionAccessStrategy::make_passive() {
     // Unsubscribe from direct output subscription (if we subscribed in make_active)
-    if (_output && _owner && _children.empty()) {
-        _output->unsubscribe(_owner);
+    if (_output_view.valid() && _owner && _children.empty()) {
+        _output_view.unsubscribe(_owner);
     }
 
     // Propagate to all child strategies
@@ -168,27 +183,25 @@ value::ConstValueView CollectionAccessStrategy::value() const {
     if (_storage) {
         return _storage->value();
     }
-    // Otherwise delegate to output
-    return _output ? _output->value() : value::ConstValueView{};
+    // Otherwise delegate to output view
+    return _output_view.valid() ? _output_view.value_view() : value::ConstValueView{};
 }
 
 value::ModificationTracker CollectionAccessStrategy::tracker() const {
     if (_storage) {
         return _storage->underlying_tracker().tracker();
     }
-    return _output
-        ? _output->underlying().underlying_tracker().tracker()
-        : value::ModificationTracker{};
+    return _output_view.valid() ? _output_view.tracker() : value::ModificationTracker{};
 }
 
 bool CollectionAccessStrategy::has_value() const {
-    // For Python-managed collections (no C++ storage), check the bound output directly
+    // For Python-managed collections (no C++ storage), check the bound view directly
     // This handles TSL, TSB, TSD where values are stored in Python
-    if (_output) {
-        if (_output->has_value()) return true;
+    if (_output_view.valid()) {
+        if (_output_view.has_value()) return true;
 
-        // Fallback: Check if output was ever modified (Python-managed case)
-        if (_output->last_modified_time() != MIN_DT) {
+        // Fallback: Check if view was ever modified (Python-managed case)
+        if (_output_view.last_modified_time() != MIN_DT) {
             return true;  // Was modified at some point, so has value
         }
     }
@@ -203,8 +216,8 @@ bool CollectionAccessStrategy::has_value() const {
 }
 
 bool CollectionAccessStrategy::modified_at(engine_time_t time) const {
-    // For Python-managed collections, check the bound output directly
-    if (_output && _output->modified_at(time)) {
+    // For Python-managed collections, check the bound view directly
+    if (_output_view.valid() && _output_view.modified_at(time)) {
         return true;
     }
 
@@ -220,9 +233,9 @@ bool CollectionAccessStrategy::modified_at(engine_time_t time) const {
 engine_time_t CollectionAccessStrategy::last_modified_time() const {
     engine_time_t max_time = MIN_DT;
 
-    // For Python-managed collections, check the bound output
-    if (_output) {
-        max_time = std::max(max_time, _output->last_modified_time());
+    // For Python-managed collections, check the bound view
+    if (_output_view.valid()) {
+        max_time = std::max(max_time, _output_view.last_modified_time());
     }
 
     // Also check children's last_modified_time (for C++ storage)
@@ -254,25 +267,25 @@ RefObserverAccessStrategy::RefObserverAccessStrategy(TSInput* owner, std::unique
     : AccessStrategy(owner)
     , _child(std::move(child)) {}
 
-void RefObserverAccessStrategy::bind(TSOutput* output) {
-    _ref_output = output;
+void RefObserverAccessStrategy::bind(value::TSView output_view) {
+    _ref_view = output_view;
 
-    // Always subscribe to REF output for reference changes (regardless of active state)
-    if (_ref_output && _owner) {
-        _ref_output->subscribe(_owner);
+    // Always subscribe to REF view for reference changes (regardless of active state)
+    if (_ref_view.valid() && _owner) {
+        _ref_view.subscribe(_owner);
     }
 
     // Resolve initial target and bind child
-    if (_ref_output) {
-        auto* initial_target = resolve_ref_target(_ref_output);
+    if (_ref_view.valid()) {
+        auto initial_target = resolve_ref_target(_ref_view);
         update_target(initial_target, MIN_DT);
     }
 }
 
-void RefObserverAccessStrategy::rebind(TSOutput* output) {
+void RefObserverAccessStrategy::rebind(value::TSView output_view) {
     // Full unbind then bind for REF observer
     unbind();
-    bind(output);
+    bind(output_view);
 }
 
 void RefObserverAccessStrategy::unbind() {
@@ -281,18 +294,18 @@ void RefObserverAccessStrategy::unbind() {
         _child->unbind();
     }
 
-    // Unsubscribe from REF output (always subscribed)
-    if (_ref_output && _owner) {
-        _ref_output->unsubscribe(_owner);
+    // Unsubscribe from REF view (always subscribed)
+    if (_ref_view.valid() && _owner) {
+        _ref_view.unsubscribe(_owner);
     }
 
-    _ref_output = nullptr;
-    _target_output = nullptr;
+    _ref_view = value::TSView{};
+    _target_view = value::TSView{};
     _sample_time = MIN_DT;
 }
 
 void RefObserverAccessStrategy::make_active() {
-    // Already subscribed to _ref_output (done at bind time)
+    // Already subscribed to _ref_view (done at bind time)
     // Activate child strategy (subscribes to target)
     if (_child) {
         _child->make_active();
@@ -300,7 +313,7 @@ void RefObserverAccessStrategy::make_active() {
 }
 
 void RefObserverAccessStrategy::make_passive() {
-    // Stay subscribed to _ref_output
+    // Stay subscribed to _ref_view
     // Deactivate child strategy (unsubscribes from target)
     if (_child) {
         _child->make_passive();
@@ -312,8 +325,11 @@ void RefObserverAccessStrategy::on_notify(engine_time_t time) {
     _last_notify_time = time;
 
     // Check if the reference target has changed
-    auto* new_target = resolve_ref_target(_ref_output);
-    if (new_target != _target_output) {
+    auto new_target = resolve_ref_target(_ref_view);
+    // Compare by root output and path - if both are valid and have same root, they point to same thing
+    bool same_target = (_target_view.valid() == new_target.valid()) &&
+                       (!new_target.valid() || (new_target.root_output() == _target_view.root_output()));
+    if (!same_target) {
         on_reference_changed(new_target, time);
     }
 }
@@ -336,8 +352,8 @@ bool RefObserverAccessStrategy::has_value() const {
     }
 
     // For Python-managed collections, child may not report has_value correctly
-    // If we have a target output that was sampled, consider it as having a value
-    if (_target_output && _sample_time != MIN_DT) {
+    // If we have a target view that was sampled, consider it as having a value
+    if (_target_view.valid() && _sample_time != MIN_DT) {
         return true;
     }
 
@@ -361,8 +377,8 @@ bool RefObserverAccessStrategy::modified_at(engine_time_t time) const {
         return true;
     }
 
-    // Also check target output directly
-    if (_target_output && _target_output->modified_at(time)) {
+    // Also check target view directly
+    if (_target_view.valid() && _target_view.modified_at(time)) {
         return true;
     }
 
@@ -376,14 +392,14 @@ engine_time_t RefObserverAccessStrategy::last_modified_time() const {
     return _sample_time;
 }
 
-void RefObserverAccessStrategy::on_reference_changed(TSOutput* new_target, engine_time_t time) {
+void RefObserverAccessStrategy::on_reference_changed(value::TSView new_target_view, engine_time_t time) {
     // Deactivate child if owner is active
     if (_owner && _owner->active() && _child) {
         _child->make_passive();
     }
 
     // Update target and rebind child
-    update_target(new_target, time);
+    update_target(new_target_view, time);
 
     // Reactivate child if owner is active
     if (_owner && _owner->active() && _child) {
@@ -396,31 +412,32 @@ void RefObserverAccessStrategy::on_reference_changed(TSOutput* new_target, engin
     }
 }
 
-TSOutput* RefObserverAccessStrategy::resolve_ref_target(TSOutput* ref_output) const {
-    if (!ref_output) return nullptr;
+value::TSView RefObserverAccessStrategy::resolve_ref_target(const value::TSView& ref_view) const {
+    if (!ref_view.valid()) return {};
 
-    // Get the REF value from the output
-    auto ref_value = ref_output->value();
+    // Get the REF value from the view
+    auto ref_value = ref_view.value_view();
     if (!ref_value.valid() || !ref_value.ref_is_bound()) {
-        return nullptr;
+        return {};
     }
 
     // Extract the target TSOutput from the ValueRef's owner field
     auto* target_ref = ref_value.ref_target();
     if (!target_ref || !target_ref->has_owner()) {
-        return nullptr;
+        return {};
     }
 
     // The owner field was set when ref_bind() was called with the target TSOutput*
-    return static_cast<TSOutput*>(target_ref->owner);
+    auto* target_output = static_cast<TSOutput*>(target_ref->owner);
+    return target_output ? target_output->view() : value::TSView{};
 }
 
-void RefObserverAccessStrategy::update_target(TSOutput* new_target, engine_time_t time) {
-    _target_output = new_target;
+void RefObserverAccessStrategy::update_target(value::TSView new_target_view, engine_time_t time) {
+    _target_view = new_target_view;
     _sample_time = time;
 
-    if (_child && _target_output) {
-        _child->rebind(_target_output);
+    if (_child && _target_view.valid()) {
+        _child->rebind(_target_view);
     }
 }
 
@@ -432,46 +449,44 @@ RefWrapperAccessStrategy::RefWrapperAccessStrategy(TSInput* owner, const value::
     : AccessStrategy(owner)
     , _storage(ref_schema) {}
 
-void RefWrapperAccessStrategy::bind(TSOutput* output) {
-    _wrapped_output = output;
+void RefWrapperAccessStrategy::bind(value::TSView output_view) {
+    _wrapped_view = output_view;
     _bind_time = MIN_DT;
 
-    // Initialize storage with REF pointing to output
-    if (output) {
+    // Initialize storage with REF pointing to the view
+    if (output_view.valid()) {
         auto storage_view = _storage.view();
 
-        // Create ValueRef with output's value data, tracker, schema, and output as owner
-        auto& ts_value = output->underlying();
+        // Create ValueRef with view's value data, tracker, schema, and root output as owner
         value::ValueRef ref{
-            const_cast<void*>(ts_value.value().data()),
-            ts_value.underlying_tracker().storage(),
-            ts_value.schema(),
-            output  // owner - the TSOutput* for REF resolution
+            const_cast<void*>(output_view.value_view().data()),
+            output_view.tracker().storage(),
+            output_view.schema(),
+            const_cast<TSOutput*>(output_view.root_output())  // owner - the root TSOutput* for REF resolution
         };
         storage_view.ref_bind(ref, _bind_time);
     }
 }
 
-void RefWrapperAccessStrategy::rebind(TSOutput* output) {
-    _wrapped_output = output;
+void RefWrapperAccessStrategy::rebind(value::TSView output_view) {
+    _wrapped_view = output_view;
     _bind_time = MIN_DT;
 
-    if (output) {
+    if (output_view.valid()) {
         auto storage_view = _storage.view();
-        // Create ValueRef with output's value data, tracker, schema, and output as owner
-        auto& ts_value = output->underlying();
+        // Create ValueRef with view's value data, tracker, schema, and root output as owner
         value::ValueRef ref{
-            const_cast<void*>(ts_value.value().data()),
-            ts_value.underlying_tracker().storage(),
-            ts_value.schema(),
-            output  // owner - the TSOutput* for REF resolution
+            const_cast<void*>(output_view.value_view().data()),
+            output_view.tracker().storage(),
+            output_view.schema(),
+            const_cast<TSOutput*>(output_view.root_output())  // owner - the root TSOutput* for REF resolution
         };
         storage_view.ref_bind(ref, _bind_time);
     }
 }
 
 void RefWrapperAccessStrategy::unbind() {
-    _wrapped_output = nullptr;
+    _wrapped_view = value::TSView{};
     auto storage_view = _storage.view();
     storage_view.ref_clear(MIN_DT);
     _bind_time = MIN_DT;
@@ -487,16 +502,16 @@ value::ModificationTracker RefWrapperAccessStrategy::tracker() const {
 
 bool RefWrapperAccessStrategy::modified_at(engine_time_t time) const {
     // REF is modified if:
-    // 1. We just bound to the output at this time, OR
-    // 2. The underlying wrapped output is modified at this time
+    // 1. We just bound to the view at this time, OR
+    // 2. The underlying wrapped view is modified at this time
     if (_bind_time == time) return true;
-    return _wrapped_output && _wrapped_output->modified_at(time);
+    return _wrapped_view.valid() && _wrapped_view.modified_at(time);
 }
 
 engine_time_t RefWrapperAccessStrategy::last_modified_time() const {
-    // Return the max of bind_time and wrapped output's last modified time
-    if (_wrapped_output) {
-        return std::max(_bind_time, _wrapped_output->last_modified_time());
+    // Return the max of bind_time and wrapped view's last modified time
+    if (_wrapped_view.valid()) {
+        return std::max(_bind_time, _wrapped_view.last_modified_time());
     }
     return _bind_time;
 }
@@ -509,17 +524,17 @@ void RefWrapperAccessStrategy::make_active() {
         _bind_time = eval_time;
     }
 
-    // REF wrapper subscribes to the wrapped output so that when the output changes,
+    // REF wrapper subscribes to the wrapped view so that when the output changes,
     // the notification propagates to the owner (even though the REF value itself doesn't change,
     // dereferencing it yields a different value)
-    if (_wrapped_output && _owner) {
-        _wrapped_output->subscribe(_owner);
+    if (_wrapped_view.valid() && _owner) {
+        _wrapped_view.subscribe(_owner);
     }
 }
 
 void RefWrapperAccessStrategy::make_passive() {
-    if (_wrapped_output && _owner) {
-        _wrapped_output->unsubscribe(_owner);
+    if (_wrapped_view.valid() && _owner) {
+        _wrapped_view.unsubscribe(_owner);
     }
 }
 
@@ -527,42 +542,41 @@ void RefWrapperAccessStrategy::make_passive() {
 // ElementAccessStrategy implementation
 // ============================================================================
 
-void ElementAccessStrategy::bind(TSOutput* output) {
-    _parent_output = output;
+void ElementAccessStrategy::bind(value::TSView output_view) {
+    _parent_view = output_view;
 }
 
-void ElementAccessStrategy::rebind(TSOutput* output) {
-    _parent_output = output;
+void ElementAccessStrategy::rebind(value::TSView output_view) {
+    _parent_view = output_view;
 }
 
 void ElementAccessStrategy::unbind() {
     // Unsubscribe if we were active
-    if (_parent_output && _owner && _owner->active()) {
-        _parent_output->unsubscribe(_owner);
+    if (_parent_view.valid() && _owner && _owner->active()) {
+        _parent_view.unsubscribe(_owner);
     }
-    _parent_output = nullptr;
+    _parent_view = value::TSView{};
 }
 
 void ElementAccessStrategy::make_active() {
-    if (_parent_output && _owner) {
-        _parent_output->subscribe(_owner);
+    if (_parent_view.valid() && _owner) {
+        _parent_view.subscribe(_owner);
     }
 }
 
 void ElementAccessStrategy::make_passive() {
-    if (_parent_output && _owner) {
-        _parent_output->unsubscribe(_owner);
+    if (_parent_view.valid() && _owner) {
+        _parent_view.unsubscribe(_owner);
     }
 }
 
 value::TSView ElementAccessStrategy::get_element_view() const {
-    if (!_parent_output) return {};
+    if (!_parent_view.valid()) return {};
 
-    auto view = _parent_output->view();
     if (_kind == NavigationKind::ListElement) {
-        return view.element(_index);
+        return _parent_view.element(_index);
     } else {
-        return view.field(_index);
+        return _parent_view.field(_index);
     }
 }
 

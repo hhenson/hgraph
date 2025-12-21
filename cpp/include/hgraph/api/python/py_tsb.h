@@ -52,6 +52,9 @@ namespace hgraph
         [[nodiscard]] nb::int_ len() const;
         [[nodiscard]] nb::bool_ empty() const;
 
+        // Override all_valid to check all fields
+        [[nodiscard]] nb::bool_ all_valid() const override;
+
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
     };
@@ -108,6 +111,15 @@ namespace hgraph
 
         [[nodiscard]] nb::int_ len() const;
         [[nodiscard]] nb::bool_ empty() const;
+
+        // Override all_valid to check all fields
+        [[nodiscard]] nb::bool_ all_valid() const override;
+
+        // has_peer returns True for peered binding (direct TSB output -> input binding)
+        [[nodiscard]] nb::bool_ has_peer() const;
+
+        // as_schema returns self for attribute-based field access
+        [[nodiscard]] nb::object as_schema() const;
 
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
