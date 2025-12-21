@@ -158,7 +158,8 @@ def record_to_memory(
     """
     This node will record the values of the time series into the provided list.
     """
-    _state.record_value.append((_api.evaluation_clock.evaluation_time, ts.delta_value))
+    delta = ts.delta_value
+    _state.record_value.append((_api.evaluation_clock.evaluation_time, delta))
 
 
 @record_to_memory.start

@@ -406,6 +406,11 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
 
         view.mark_modified(time);
 
+        // For REF types, notify reference observers so they can rebind immediately
+        if (meta && meta->ts_kind == TSKind::REF) {
+            output->notify_reference_observers(time);
+        }
+
         // For TSS and TSD types, register callback to clear delta at tick end
         // (reusing meta from the TSB check above)
         if (meta && (meta->ts_kind == TSKind::TSS || meta->ts_kind == TSKind::TSD)) {

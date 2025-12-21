@@ -67,11 +67,23 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesOutput::delta_value() const {
-        if (!_view.valid()) return nb::none();
         if (!_node) return nb::none();
 
+        // IMPORTANT: Use fresh view from _output when available to ensure consistency
+        // with set_python_value which also uses output->view(). Using the stored _view
+        // can result in tracker mismatch when the output was modified through set_python_value.
+        value::TSView view_to_use;
+        if (_output) {
+            view_to_use = _output->view();
+        } else {
+            view_to_use = _view;  // Fallback for field wrappers (no _output)
+        }
+
+        if (!view_to_use.valid()) return nb::none();
+
         auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
-        if (!_view.modified_at(eval_time)) return nb::none();
+
+        if (!view_to_use.modified_at(eval_time)) return nb::none();
 
         // For collection types (TSD, TSL, TSS), check if there's a cached delta
         // These types don't have native C++ storage, so we cache the Python result
@@ -89,22 +101,28 @@ namespace hgraph
         }
 
         // Fall back to DeltaView-based conversion for types with C++ storage
-        auto delta = _view.delta_view(eval_time);
+        auto delta = view_to_use.delta_view(eval_time);
         return ts::delta_to_python(delta);
     }
 
     engine_time_t PyTimeSeriesOutput::last_modified_time() const {
-        return _view.last_modified_time();
+        // Use fresh view from _output when available for consistency
+        value::TSView view_to_use = _output ? _output->view() : _view;
+        return view_to_use.last_modified_time();
     }
 
     nb::bool_ PyTimeSeriesOutput::modified() const {
         if (!_node) return nb::bool_(false);
+        // Use fresh view from _output when available for consistency
+        value::TSView view_to_use = _output ? _output->view() : _view;
         auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
-        return nb::bool_(_view.modified_at(eval_time));
+        return nb::bool_(view_to_use.modified_at(eval_time));
     }
 
     nb::bool_ PyTimeSeriesOutput::valid() const {
-        return nb::bool_(_view.valid() && _view.has_value());
+        // Use fresh view from _output when available for consistency
+        value::TSView view_to_use = _output ? _output->view() : _view;
+        return nb::bool_(view_to_use.valid() && view_to_use.has_value());
     }
 
     nb::bool_ PyTimeSeriesOutput::all_valid() const {

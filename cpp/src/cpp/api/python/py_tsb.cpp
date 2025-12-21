@@ -4,8 +4,12 @@
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/types/ref.h>
+#include <hgraph/types/value/ref_type.h>
 #include <hgraph/types/time_series/access_strategy.h>
 #include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/delta_view_python.h>
 #include <fmt/format.h>
 #include <optional>
 
@@ -370,17 +374,22 @@ namespace hgraph
         if (!_node) return nb::none();
         auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
 
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::none();
+
         // Check if we're in unpeered mode (CollectionAccessStrategy with DirectAccessStrategy children)
         auto* coll_strategy = get_collection_strategy(view());
-        if (has_unpeered_children(coll_strategy)) {
-            // Unpeered mode: iterate over children, return dict of modified fields' delta_value
-            auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
-            if (!tsb_meta) return nb::none();
+        bool is_unpeered = has_unpeered_children(coll_strategy);
 
+
+        if (is_unpeered) {
+            // Unpeered mode: iterate over children, return dict of modified fields' delta_value
             nb::dict result;
             for (size_t i = 0; i < coll_strategy->child_count(); ++i) {
                 auto* child = coll_strategy->child(i);
-                if (child && child->modified_at(eval_time) && child->has_value()) {
+                bool child_modified = child && child->modified_at(eval_time);
+                bool child_has_value = child && child->has_value();
+                if (child_modified && child_has_value) {
                     // Get field name from meta
                     const std::string& field_name = tsb_meta->fields[i].name;
 
@@ -399,8 +408,95 @@ namespace hgraph
             return result;
         }
 
-        // Peered mode: delegate to parent implementation
-        return PyTimeSeriesInput::delta_value();
+        // Peered mode: iterate over the bound output's fields
+        // For TSB, we need to check each field's modification status
+        auto v = view();
+        if (!v.valid()) return nb::none();
+
+        auto* source = v.source();
+        if (!source) return nb::none();
+
+        auto* bound_output = source->bound_output();
+        if (!bound_output) return nb::none();
+
+        auto output_view = bound_output->view();
+        if (!output_view.valid()) return nb::none();
+
+        nb::dict result;
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = output_view.field(i);
+            if (!field_view.valid()) continue;
+
+            // Check the VIEW's ts_kind, not the meta's, because:
+            // - Meta describes the INPUT field type (dereferenced to TS for REF inputs)
+            // - View describes the OUTPUT field type (which is REF)
+            auto view_kind = field_view.ts_kind();
+            const std::string& field_name = tsb_meta->fields[i].name;
+
+            // For REF fields in the output, we need to dereference to get the target value's delta
+            // This matches Python behavior where bundle input fields are dereferenced
+            if (view_kind == TSKind::REF) {
+                // Get the reference value from the field
+                // REF types store RefStorage, not TimeSeriesReference
+                auto ref_value_view = field_view.value_view();
+                if (!ref_value_view.valid()) continue;
+
+                // Check if the REF field itself was modified (new binding)
+                bool ref_field_modified = field_view.modified_at(eval_time);
+
+                // Cast to RefStorage (the actual type stored for REF values)
+                auto* ref_storage = static_cast<const value::RefStorage*>(ref_value_view.data());
+                if (!ref_storage || !ref_storage->is_bound()) continue;
+
+                // Get the target ValueRef from the bound reference
+                const auto& target_ref = ref_storage->target();
+                if (!target_ref.valid()) continue;
+
+                // The owner is the TSOutput that contains this value
+                auto* target_output = static_cast<ts::TSOutput*>(target_ref.owner);
+                if (!target_output) continue;
+
+                auto target_view = target_output->view();
+                bool target_modified = target_view.modified_at(eval_time);
+
+                // Include delta if:
+                // 1. The REF field was modified (new binding) - return target's current value
+                // 2. The target itself was modified - return target's delta
+                if (!target_view.valid() || !target_view.has_value()) continue;
+                if (!ref_field_modified && !target_modified) continue;
+
+                // Get delta from the target (dereferenced) view
+                // If REF binding changed, target's value is the "delta" even if target wasn't modified
+                // If target changed, get its actual delta
+                nb::object field_delta;
+                if (ref_field_modified && !target_modified) {
+                    // New binding - return target's full value as the delta
+                    auto value_view = target_view.value_view();
+                    if (value_view.valid()) {
+                        auto* schema = target_view.value_schema();
+                        field_delta = value::value_to_python(value_view.data(), schema);
+                    }
+                } else {
+                    // Target modified - return actual delta
+                    auto delta = target_view.delta_view(eval_time);
+                    field_delta = ts::delta_to_python(delta);
+                }
+                if (!field_delta.is_none()) {
+                    result[nb::cast(field_name)] = field_delta;
+                }
+            } else {
+                // Non-REF field: use normal delta path
+                if (!field_view.modified_at(eval_time) || !field_view.has_value()) continue;
+
+                // Get delta from the field view
+                auto delta = field_view.delta_view(eval_time);
+                nb::object field_delta = ts::delta_to_python(delta);
+                if (!field_delta.is_none()) {
+                    result[nb::cast(field_name)] = field_delta;
+                }
+            }
+        }
+        return result;
     }
 
     // Helper for creating input wrappers from views
@@ -827,6 +923,9 @@ namespace hgraph
             .def("__iter__", &PyTimeSeriesBundleInput::iter)
             .def("__len__", &PyTimeSeriesBundleInput::len)
             .def("__contains__", &PyTimeSeriesBundleInput::contains)
+            // Override value and delta_value to use bundle-specific logic
+            .def_prop_ro("value", &PyTimeSeriesBundleInput::value)
+            .def_prop_ro("delta_value", &PyTimeSeriesBundleInput::delta_value)
             .def("keys", &PyTimeSeriesBundleInput::keys)
             .def("values", &PyTimeSeriesBundleInput::values)
             .def("items", &PyTimeSeriesBundleInput::items)

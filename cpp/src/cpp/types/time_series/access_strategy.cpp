@@ -275,6 +275,15 @@ void RefObserverAccessStrategy::bind(value::TSView output_view) {
         _ref_view.subscribe(_owner);
     }
 
+    // Register as a reference observer for push-based notifications
+    // This allows the REF output to immediately notify us when the reference changes
+    if (_ref_view.valid()) {
+        auto* root_output = const_cast<TSOutput*>(_ref_view.root_output());
+        if (root_output) {
+            root_output->observe_reference(this);
+        }
+    }
+
     // Resolve initial target and bind child
     if (_ref_view.valid()) {
         auto initial_target = resolve_ref_target(_ref_view);
@@ -297,6 +306,14 @@ void RefObserverAccessStrategy::unbind() {
     // Unsubscribe from REF view (always subscribed)
     if (_ref_view.valid() && _owner) {
         _ref_view.unsubscribe(_owner);
+    }
+
+    // Unregister as a reference observer
+    if (_ref_view.valid()) {
+        auto* root_output = const_cast<TSOutput*>(_ref_view.root_output());
+        if (root_output) {
+            root_output->stop_observing_reference(this);
+        }
     }
 
     _ref_view = value::TSView{};
@@ -324,13 +341,15 @@ void RefObserverAccessStrategy::on_notify(engine_time_t time) {
     // Track the notification time for Python-managed types
     _last_notify_time = time;
 
-    // Check if the reference target has changed
+    // Check if the reference target has changed (polling fallback)
+    // This is kept as a fallback in case push notifications are missed
     auto new_target = resolve_ref_target(_ref_view);
     // Compare by root output and path - if both are valid and have same root, they point to same thing
     bool same_target = (_target_view.valid() == new_target.valid()) &&
                        (!new_target.valid() || (new_target.root_output() == _target_view.root_output()));
     if (!same_target) {
-        on_reference_changed(new_target, time);
+        // Use the internal rebind helper (same logic as on_reference_changed)
+        handle_target_change(new_target, time);
     }
 }
 
@@ -392,7 +411,22 @@ engine_time_t RefObserverAccessStrategy::last_modified_time() const {
     return _sample_time;
 }
 
-void RefObserverAccessStrategy::on_reference_changed(value::TSView new_target_view, engine_time_t time) {
+void RefObserverAccessStrategy::on_reference_changed(value::TSView new_ref_view, engine_time_t time) {
+    // Push notification from the REF output - resolve the new target and rebind if changed
+    auto new_target = resolve_ref_target(new_ref_view);
+
+    // Compare to see if target actually changed
+    bool same_target = (_target_view.valid() == new_target.valid()) &&
+                       (!new_target.valid() || (new_target.root_output() == _target_view.root_output()));
+    if (same_target) {
+        return;  // No actual change
+    }
+
+    // Handle the target change (deactivate child, rebind, reactivate, notify)
+    handle_target_change(new_target, time);
+}
+
+void RefObserverAccessStrategy::handle_target_change(value::TSView new_target_view, engine_time_t time) {
     // Deactivate child if owner is active
     if (_owner && _owner->active() && _child) {
         _child->make_passive();

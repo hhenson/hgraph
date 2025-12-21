@@ -9,9 +9,11 @@
 
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_python_cache.h>
+#include <hgraph/types/time_series/access_strategy.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/runtime/evaluation_engine.h>
+#include <algorithm>
 
 namespace hgraph::ts {
 
@@ -29,6 +31,7 @@ TSOutput::TSOutput(TSOutput&& other) noexcept
     , _value(std::move(other._value))
     , _delta_reset_registered(other._delta_reset_registered)
     , _python_cache(other._python_cache)
+    , _reference_observers(std::move(other._reference_observers))
 {
     other._meta = nullptr;
     other._owning_node = nullptr;
@@ -45,6 +48,7 @@ TSOutput& TSOutput::operator=(TSOutput&& other) noexcept {
         _value = std::move(other._value);
         _delta_reset_registered = other._delta_reset_registered;
         _python_cache = other._python_cache;
+        _reference_observers = std::move(other._reference_observers);
 
         other._meta = nullptr;
         other._owning_node = nullptr;
@@ -143,6 +147,39 @@ void TSOutput::register_delta_reset_callback() const {
     }
 
     _delta_reset_registered = true;
+}
+
+// ============================================================================
+// Reference observer methods (for REF types)
+// ============================================================================
+
+void TSOutput::observe_reference(AccessStrategy* observer) {
+    if (!observer) return;
+
+    // Don't add duplicates
+    auto it = std::find(_reference_observers.begin(), _reference_observers.end(), observer);
+    if (it == _reference_observers.end()) {
+        _reference_observers.push_back(observer);
+    }
+}
+
+void TSOutput::stop_observing_reference(AccessStrategy* observer) {
+    if (!observer) return;
+
+    auto it = std::find(_reference_observers.begin(), _reference_observers.end(), observer);
+    if (it != _reference_observers.end()) {
+        _reference_observers.erase(it);
+    }
+}
+
+void TSOutput::notify_reference_observers(engine_time_t time) {
+    // Notify all observers that the reference has changed
+    // Each observer will rebind to the new target
+    for (auto* observer : _reference_observers) {
+        if (observer) {
+            observer->on_reference_changed(view(), time);
+        }
+    }
 }
 
 } // namespace hgraph::ts

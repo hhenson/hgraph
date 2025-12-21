@@ -106,6 +106,16 @@ public:
      */
     virtual void on_notify(engine_time_t time) {}
 
+    /**
+     * Handle reference change notification from REF output.
+     * Called by TSOutput::notify_reference_observers() when a REF value changes.
+     * Default implementation does nothing - only RefObserverAccessStrategy overrides.
+     *
+     * @param new_ref_view The updated REF output view (use to resolve new target)
+     * @param time The time at which the reference changed
+     */
+    virtual void on_reference_changed(value::TSView new_ref_view, engine_time_t time) {}
+
     // === Value access ===
 
     /**
@@ -304,9 +314,16 @@ public:
     void make_passive() override;
 
     /**
-     * Handle notification - detect reference changes
+     * Handle notification - detect reference changes (fallback for polling)
      */
     void on_notify(engine_time_t time) override;
+
+    /**
+     * Handle reference change notification from REF output (push-based).
+     * Called by TSOutput::notify_reference_observers() when REF value changes.
+     * This is the preferred path - more efficient than polling in on_notify().
+     */
+    void on_reference_changed(value::TSView new_ref_view, engine_time_t time) override;
 
     [[nodiscard]] value::ConstValueView value() const override;
     [[nodiscard]] value::ModificationTracker tracker() const override;
@@ -314,12 +331,6 @@ public:
     [[nodiscard]] bool has_value() const override;
     [[nodiscard]] bool modified_at(engine_time_t time) const override;
     [[nodiscard]] engine_time_t last_modified_time() const override;
-
-    /**
-     * Called when the reference value changes
-     * Updates target and rebinds child strategy
-     */
-    void on_reference_changed(value::TSView new_target_view, engine_time_t time);
 
     [[nodiscard]] value::TSView ref_view() const { return _ref_view; }
     [[nodiscard]] value::TSView target_view() const { return _target_view; }
@@ -336,6 +347,12 @@ private:
      * Update target and rebind child
      */
     void update_target(value::TSView new_target_view, engine_time_t time);
+
+    /**
+     * Handle a target change - deactivate child, rebind, reactivate, notify owner.
+     * Shared implementation for both push (on_reference_changed) and poll (on_notify).
+     */
+    void handle_target_change(value::TSView new_target_view, engine_time_t time);
 
     value::TSView _ref_view;           // The REF view (always subscribed)
     value::TSView _target_view;        // Current target view (what REF points to)

@@ -19,12 +19,14 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/delta_view.h>
 #include <string>
+#include <vector>
 
 namespace hgraph::ts {
 
 // Forward declarations
 class TSOutput;
 class DeltaView;
+class AccessStrategy;  // For reference observers
 struct PythonCache;  // Defined in cpp file with nanobind - holds cached Python conversions
 
 // ============================================================================
@@ -150,6 +152,28 @@ public:
         return _value.has_observers();
     }
 
+    // === Reference observer support (for REF types) ===
+    // These are called by RefObserverAccessStrategy to register for immediate
+    // notification when the reference target changes.
+
+    /**
+     * Register an access strategy as a reference observer.
+     * When this REF output's value changes, the observer will be notified
+     * immediately via on_reference_changed().
+     */
+    void observe_reference(AccessStrategy* observer);
+
+    /**
+     * Unregister a reference observer.
+     */
+    void stop_observing_reference(AccessStrategy* observer);
+
+    /**
+     * Notify all reference observers that the reference has changed.
+     * Called when a new TimeSeriesReference value is set on this output.
+     */
+    void notify_reference_observers(engine_time_t time);
+
     // === Underlying storage access (for advanced use) ===
     [[nodiscard]] value::TSValue& underlying() { return _value; }
     [[nodiscard]] const value::TSValue& underlying() const { return _value; }
@@ -234,6 +258,7 @@ private:
     value::TSValue _value;
     mutable bool _delta_reset_registered{false};  // mutable: registration is a caching mechanism
     PythonCache* _python_cache{nullptr};  // Lazily created, owned by this object
+    std::vector<AccessStrategy*> _reference_observers;  // For REF types: observers to notify on reference change
 };
 
 } // namespace hgraph::ts
