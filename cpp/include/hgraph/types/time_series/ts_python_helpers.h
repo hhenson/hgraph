@@ -151,6 +151,71 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
 
     auto* meta = output->meta();
 
+    // Special handling for TSL (TimeSeriesList) types
+    // TSL doesn't store values directly - it delegates to sub-outputs for each element
+    if (meta && meta->ts_kind == TSKind::TSL) {
+        auto view = output->view();
+        size_t list_size = view.list_size();
+
+        // Handle tuple/list input
+        if (nb::isinstance<nb::tuple>(py_value) || nb::isinstance<nb::list>(py_value)) {
+            nb::dict delta;  // Build delta dict with {index: value}
+            size_t i = 0;
+            for (auto item : py_value) {
+                if (i >= list_size) break;
+                nb::object item_obj = nb::cast<nb::object>(item);
+                if (!item_obj.is_none()) {
+                    // Navigate to element and set its value recursively
+                    auto elem_view = view.element(i);
+                    if (elem_view.valid()) {
+                        auto* elem_schema = elem_view.value_schema();
+                        if (elem_schema && elem_schema->ops && elem_schema->ops->from_python) {
+                            auto elem_value_view = elem_view.value_view();
+                            elem_schema->ops->from_python(elem_value_view.data(), item_obj.ptr(), elem_schema);
+                            elem_view.mark_modified(time);
+                        }
+                    }
+                    // Add to delta dict with index as key
+                    delta[nb::cast(i)] = item_obj;
+                }
+                ++i;
+            }
+            // Cache the delta in proper format {index: value}
+            cache_delta(output, delta);
+            view.mark_modified(time);
+            return;
+        }
+
+        // Handle dict input (keyed by index)
+        if (nb::isinstance<nb::dict>(py_value)) {
+            nb::dict d = nb::cast<nb::dict>(py_value);
+            for (auto kv : d) {
+                nb::object key = nb::cast<nb::object>(kv.first);
+                nb::object val = nb::cast<nb::object>(kv.second);
+                if (val.is_none()) continue;
+
+                // Convert key to index
+                size_t idx = nb::cast<size_t>(key);
+                if (idx >= list_size) continue;
+
+                // Navigate to element and set its value
+                auto elem_view = view.element(idx);
+                if (elem_view.valid()) {
+                    auto* elem_schema = elem_view.value_schema();
+                    if (elem_schema && elem_schema->ops && elem_schema->ops->from_python) {
+                        auto elem_value_view = elem_view.value_view();
+                        elem_schema->ops->from_python(elem_value_view.data(), val.ptr(), elem_schema);
+                        elem_view.mark_modified(time);
+                    }
+                }
+            }
+            // Cache the delta for delta_value()
+            cache_delta(output, py_value);
+            view.mark_modified(time);
+            return;
+        }
+    }
+
     // Special handling for TSS (TimeSeriesSet) types
     if (meta && meta->ts_kind == TSKind::TSS) {
         auto view = output->view();
