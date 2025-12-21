@@ -1,7 +1,7 @@
 #include <hgraph/api/python/wrapper_factory.h>
 
 #include <hgraph/nodes/base_python_node.h>
-#include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/api/python/ts_python_helpers.h>
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>

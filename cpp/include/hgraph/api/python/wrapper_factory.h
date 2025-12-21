@@ -142,20 +142,11 @@ namespace hgraph
     node_s_ptr unwrap_output_node(const PyTimeSeriesOutput &output_);
 
     /**
-     * Legacy helper - wrap a time series (output) using the node context.
-     * Nodes calling this should have access to their shared_ptr via shared_from_this().
-     * For now, tries to get node from wrapper if possible.
+     * Wrap a time series output with node context.
      */
-    nb::object wrap_time_series(ts::TSOutput* output);
     inline nb::object wrap_time_series(ts::TSOutput* output, const node_s_ptr& node) {
         return wrap_output(output, node);
     }
-
-    /**
-     * Wrap a time_series_output_s_ptr in a Python wrapper.
-     * Uses the Python API wrapper classes for legacy time-series types.
-     */
-    nb::object wrap_time_series(const time_series_output_s_ptr& output);
 
     /**
      * Wrap an EvaluationEngineApi shared_ptr in a PyEvaluationEngineApi.

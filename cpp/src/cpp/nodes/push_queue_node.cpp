@@ -6,7 +6,7 @@
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/time_series/ts_output.h>
-#include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/api/python/ts_python_helpers.h>
 
 namespace hgraph {
     PushQueueNode::PushQueueNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature,

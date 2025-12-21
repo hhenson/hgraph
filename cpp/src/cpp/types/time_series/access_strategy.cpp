@@ -8,7 +8,7 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
-#include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/api/python/ts_python_helpers.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/ref.h>

@@ -1,5 +1,5 @@
 #include <hgraph/api/python/py_tss.h>
-#include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/api/python/ts_python_helpers.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 

@@ -7,7 +7,7 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/value/ref_type.h>
 #include <hgraph/types/time_series/access_strategy.h>
-#include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/api/python/ts_python_helpers.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/delta_view_python.h>
 #include <fmt/format.h>

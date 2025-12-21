@@ -6,7 +6,7 @@
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/util/lifecycle.h>
-#include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/api/python/ts_python_helpers.h>
 
 namespace hgraph {
     void TryExceptNode::wire_outputs() {

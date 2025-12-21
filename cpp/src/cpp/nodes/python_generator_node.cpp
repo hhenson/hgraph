@@ -1,7 +1,7 @@
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/time_series_type.h>
-#include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/api/python/ts_python_helpers.h>
 
 namespace hgraph {
 

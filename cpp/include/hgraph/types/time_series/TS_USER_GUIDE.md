@@ -330,7 +330,7 @@ When working with Python values in C++, use these helper functions from `ts_pyth
 Include the header:
 
 ```cpp
-#include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/api/python/ts_python_helpers.h>
 ```
 
 ### apply_python_result

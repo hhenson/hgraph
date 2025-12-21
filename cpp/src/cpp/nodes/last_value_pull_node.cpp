@@ -1,6 +1,6 @@
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/types/graph.h>
-#include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/api/python/ts_python_helpers.h>
 #include <hgraph/types/value/python_conversion.h>
 
 namespace hgraph {

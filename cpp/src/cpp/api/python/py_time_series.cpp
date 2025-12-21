@@ -4,7 +4,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/time_series/delta_view_python.h>
-#include <hgraph/types/time_series/ts_python_helpers.h>
+#include <hgraph/api/python/ts_python_helpers.h>
 
 namespace hgraph
 {

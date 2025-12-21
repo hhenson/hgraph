@@ -258,23 +258,6 @@ namespace
         return output_.output();
     }
 
-    nb::object wrap_time_series(ts::TSOutput* output) {
-        // This legacy helper is called from nodes that should have access to their node pointer.
-        // For now, return none if we can't determine the node.
-        // TODO: The caller should be updated to use wrap_output(output, node) instead.
-        if (!output) { return nb::none(); }
-        // Without a node pointer, we can't create a proper wrapper
-        // Return none - caller should be updated to use wrap_output with node
-        throw std::runtime_error("wrap_time_series(TSOutput*) requires node context - use wrap_output(output, node) instead");
-    }
-
-    nb::object wrap_time_series(const time_series_output_s_ptr& output) {
-        // Wrap a shared_ptr<TimeSeriesOutput> - this is for legacy time-series types
-        if (!output) { return nb::none(); }
-        // This function is only called from legacy types which are not actively used
-        throw std::runtime_error("wrap_time_series(shared_ptr) not supported - legacy types should not be used");
-    }
-
     nb::object wrap_evaluation_engine_api(EvaluationEngineApi::s_ptr impl) {
         if (!impl) { return nb::none(); }
         return nb::cast(PyEvaluationEngineApi(PyEvaluationEngineApi::api_ptr(std::move(impl))));
