@@ -29,7 +29,7 @@ namespace hgraph {
                    const TSMeta* input_meta = nullptr, const TSMeta* output_meta = nullptr,
                    const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
-        std::unordered_map<int, graph_s_ptr> &nested_graphs();
+        std::unordered_map<int, graph_s_ptr> nested_graphs() const;
 
         ts::TSInput* ts();
 

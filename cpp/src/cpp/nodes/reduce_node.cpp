@@ -30,10 +30,10 @@ namespace hgraph {
     }
 
     template<typename K>
-    std::unordered_map<int, graph_s_ptr> &ReduceNode<K>::nested_graphs() {
-        static std::unordered_map<int, graph_s_ptr> graphs;
-        graphs[0] = nested_graph_;
-        return graphs;
+    std::unordered_map<int, graph_s_ptr> ReduceNode<K>::nested_graphs() const {
+        return nested_graph_
+                   ? std::unordered_map<int, graph_s_ptr>{{0, nested_graph_}}
+                   : std::unordered_map<int, graph_s_ptr>();
     }
 
     template<typename K>

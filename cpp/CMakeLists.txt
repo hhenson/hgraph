@@ -299,7 +299,6 @@ set(HGRAPH_INCLUDES
         include/hgraph/runtime/observers/inspection_observer.h
 
         # Type headers
-        include/hgraph/types/base_time_series.h
         include/hgraph/types/constants.h
         include/hgraph/types/error_type.h
         include/hgraph/types/feature_extension.h
@@ -311,20 +310,13 @@ set(HGRAPH_INCLUDES
         include/hgraph/types/schema_type.h
         include/hgraph/types/time_series_type.h
         include/hgraph/types/traits.h
-        include/hgraph/types/ts.h
-        include/hgraph/types/ts_indexed.h
-        include/hgraph/types/ts_signal.h
-        include/hgraph/types/tsb.h
-        include/hgraph/types/tsd.h
-        include/hgraph/types/tsl.h
-        include/hgraph/types/tss.h
-        include/hgraph/types/tsw.h
+        include/hgraph/types/type_api.h
 
         # Time-series headers
         include/hgraph/types/time_series/access_strategy.h
         include/hgraph/types/time_series/ts_input.h
         include/hgraph/types/time_series/ts_output.h
-        include/hgraph/types/time_series/ts_python_helpers.h
+        include/hgraph/types/time_series/ts_python_cache.h
         include/hgraph/types/time_series/ts_type_meta.h
         include/hgraph/types/time_series/ts_type_meta_bindings.h
         include/hgraph/types/time_series/ts_type_registry.h
