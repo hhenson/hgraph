@@ -330,26 +330,23 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
                     }
                 }
             } else {
-                // Pure set without Removed markers - compute delta from old value
-                new_set = nb::set(py_value);
+                // Pure set without Removed markers - add new elements to current value
+                // Python logic: self._value = (self._value - removed) | added
+                // Start with current value and add new elements
+                if (!current_value.is_none()) {
+                    new_set = nb::set(current_value);
+                }
 
-                // Find added elements (in new but not in old)
+                // Find added elements (in input but not in current) and add them
                 for (auto item : py_value) {
                     nb::object item_obj = nb::cast<nb::object>(item);
-                    bool in_old = len(old_set) > 0 && nb::cast<bool>(old_set.attr("__contains__")(item_obj));
-                    if (!in_old) {
+                    bool in_current = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
+                    if (!in_current) {
                         added_set.add(item_obj);
+                        new_set.add(item_obj);
                     }
                 }
-
-                // Find removed elements (in old but not in new)
-                for (auto item : old_set) {
-                    nb::object item_obj = nb::cast<nb::object>(item);
-                    bool in_new = nb::cast<bool>(new_set.attr("__contains__")(item_obj));
-                    if (!in_new) {
-                        removed_set.add(item_obj);
-                    }
-                }
+                // No removed elements in a plain set without Removed markers
             }
 
             // Only mark as modified if there were actual changes or first tick

@@ -37,6 +37,12 @@ namespace hgraph
         return nb::isinstance<nb::set>(obj) || nb::isinstance<nb::frozenset>(obj);
     }
 
+    // Helper to check if an object is a Removed marker
+    static bool is_removed_marker(const nb::object& obj) {
+        return nb::hasattr(obj, "item") &&
+               nb::str(obj.type().attr("__name__")).c_str() == std::string("Removed");
+    }
+
     void PyTimeSeriesSetOutput::set_value(nb::object py_value) {
         if (py_value.is_none()) {
             _view.mark_invalid();
@@ -108,36 +114,49 @@ namespace hgraph
             return;
         }
 
-        // Handle plain set/frozenset - treat as full replacement
+        // Handle plain set/frozenset - may contain Removed markers
         if (is_python_set(py_value)) {
-            nb::set new_set_obj(py_value);
+            nb::set input_set(py_value);
 
-            // Compute delta: added = new - old, removed = old - new
+            // Separate Removed markers from regular elements
+            // Python implementation: self._added = {r for r in v if type(r) is not Removed and r not in self._value}
+            //                       self._removed = {r.item for r in v if type(r) is Removed and r.item in self._value}
             nb::set added_set;
             nb::set removed_set;
+            nb::set new_set;  // The resulting set value (current + added - removed)
 
-            // Find added elements (in new but not in old)
-            for (auto item : new_set_obj) {
-                nb::object item_obj = nb::cast<nb::object>(item);
-                bool in_old = len(old_set) > 0 && nb::cast<bool>(old_set.attr("__contains__")(item_obj));
-                if (!in_old) {
-                    added_set.add(item_obj);
-                }
+            // Start with current value
+            if (!current_value.is_none()) {
+                new_set = nb::set(current_value);
             }
 
-            // Find removed elements (in old but not in new)
-            for (auto item : old_set) {
+            // Process each element in the input set
+            for (auto item : input_set) {
                 nb::object item_obj = nb::cast<nb::object>(item);
-                bool in_new = nb::cast<bool>(new_set_obj.attr("__contains__")(item_obj));
-                if (!in_new) {
-                    removed_set.add(item_obj);
+
+                if (is_removed_marker(item_obj)) {
+                    // Extract the actual item from Removed(item)
+                    nb::object actual_item = item_obj.attr("item");
+                    // Only add to removed if it's currently in the set
+                    bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(actual_item));
+                    if (in_set) {
+                        removed_set.add(actual_item);
+                        new_set.discard(actual_item);
+                    }
+                } else {
+                    // Regular element - add if not already in set
+                    bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
+                    if (!in_set) {
+                        added_set.add(item_obj);
+                        new_set.add(item_obj);
+                    }
                 }
             }
 
             // Only mark as modified if there were actual changes or this is first tick
             if (len(added_set) > 0 || len(removed_set) > 0 || !_view.has_value()) {
                 // Store the new set value using the base class
-                PyTimeSeriesOutput::set_value(nb::frozenset(new_set_obj));
+                PyTimeSeriesOutput::set_value(nb::frozenset(new_set));
 
                 // Import PythonSetDelta to create the delta for caching
                 nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
