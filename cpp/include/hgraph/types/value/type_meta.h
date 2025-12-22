@@ -124,13 +124,14 @@ namespace hgraph::value {
      * TypeKind - Classification of types
      */
     enum class TypeKind : uint8_t {
-        Scalar,     // Single value (int, double, etc.)
-        List,       // Fixed or dynamic list
-        Set,        // Hash set
-        Dict,       // Hash map
-        Bundle,     // Struct-like composite
-        Ref,        // Reference to another value
-        Window,     // Time-series history (fixed or variable length)
+        Scalar,      // Single value (int, double, etc.)
+        List,        // Fixed-size list (TSL with known size)
+        DynamicList, // Variable-length list (tuple[T, ...])
+        Set,         // Hash set
+        Dict,        // Hash map
+        Bundle,      // Struct-like composite
+        Ref,         // Reference to another value
+        Window,      // Time-series history (fixed or variable length)
     };
 
     /**

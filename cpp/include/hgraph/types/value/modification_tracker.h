@@ -349,6 +349,7 @@ namespace hgraph::value {
                 case TypeKind::Scalar:
                 case TypeKind::Bundle:
                 case TypeKind::List:
+                case TypeKind::DynamicList:
                 case TypeKind::Window:
                 case TypeKind::Ref:
                     return static_cast<engine_time_t*>(_storage);
@@ -437,6 +438,7 @@ namespace hgraph::value {
                 case TypeKind::Scalar:
                 case TypeKind::Bundle:
                 case TypeKind::List:
+                case TypeKind::DynamicList:
                 case TypeKind::Window:
                 case TypeKind::Ref:
                     return *static_cast<engine_time_t*>(_storage);
@@ -464,6 +466,7 @@ namespace hgraph::value {
                 case TypeKind::Scalar:
                 case TypeKind::Bundle:
                 case TypeKind::List:
+                case TypeKind::DynamicList:
                 case TypeKind::Window:
                 case TypeKind::Ref: {
                     auto* ts = static_cast<engine_time_t*>(_storage);
@@ -497,6 +500,7 @@ namespace hgraph::value {
                 case TypeKind::Scalar:
                 case TypeKind::Bundle:
                 case TypeKind::List:
+                case TypeKind::DynamicList:
                 case TypeKind::Window:
                 case TypeKind::Ref:
                     *static_cast<engine_time_t*>(_storage) = MIN_DT;
@@ -860,6 +864,12 @@ namespace hgraph::value {
                 break;
             }
 
+            case TypeKind::DynamicList:
+                // Variable-length list (tuple[T, ...]) - just own timestamp, no children
+                // The list as a whole is marked modified when any element changes
+                _storage = new engine_time_t{MIN_DT};
+                break;
+
             case TypeKind::Dict:
                 _storage = new DictModificationStorage();
                 break;
@@ -896,6 +906,7 @@ namespace hgraph::value {
             case TypeKind::Window:
             case TypeKind::Bundle:
             case TypeKind::List:
+            case TypeKind::DynamicList:
             case TypeKind::Ref:
                 // All use single timestamp now (children are separate)
                 delete static_cast<engine_time_t*>(_storage);

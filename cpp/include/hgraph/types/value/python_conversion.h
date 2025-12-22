@@ -1733,7 +1733,7 @@ namespace hgraph::value {
             }
             meta->flags = flags;
 
-            meta->kind = TypeKind::List;  // Reuse List kind for dynamic lists
+            meta->kind = TypeKind::DynamicList;  // Variable-length list
             meta->ops = &DynamicListTypeOpsWithPython;  // With Python support
             meta->type_info = nullptr;
             meta->name = type_name;

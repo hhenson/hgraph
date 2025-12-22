@@ -12,6 +12,7 @@
 #include <hgraph/types/value/ref_type.h>
 #include <hgraph/types/value/bundle_type.h>
 #include <hgraph/types/value/list_type.h>
+#include <hgraph/types/value/dynamic_list_type.h>
 #include <hgraph/types/value/set_type.h>
 #include <hgraph/types/value/dict_type.h>
 #include <hgraph/types/value/window_type.h>
@@ -121,6 +122,19 @@ namespace hgraph::value {
                         elem_match == SchemaMatchKind::Composite) {
                         return SchemaMatchKind::Composite;
                     }
+                    return SchemaMatchKind::Peer;
+                }
+
+                case TypeKind::DynamicList: {
+                    auto* in_list = static_cast<const DynamicListTypeMeta*>(input_schema);
+                    auto* out_list = static_cast<const DynamicListTypeMeta*>(output_schema);
+
+                    // Check element type matching
+                    auto elem_match = match_schemas(in_list->element_type, out_list->element_type);
+                    if (elem_match == SchemaMatchKind::Mismatch) {
+                        return SchemaMatchKind::Mismatch;
+                    }
+                    // DynamicList is a simple value type - always peer
                     return SchemaMatchKind::Peer;
                 }
 
