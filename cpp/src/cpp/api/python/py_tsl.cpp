@@ -8,6 +8,7 @@
 #include <hgraph/types/time_series/access_strategy.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/types/value/python_conversion.h>
 
 namespace hgraph
 {
@@ -83,6 +84,39 @@ namespace hgraph
     }
 
     // PyTimeSeriesListOutput implementations
+
+    nb::object PyTimeSeriesListOutput::value() const {
+        // TSL.value returns a tuple of element values, not the raw data
+        // Python: tuple(ts.value if ts.valid else None for ts in self._ts_values)
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::none();
+
+        auto v = view();
+        size_t list_size = v.list_size();
+        if (list_size == 0 && tsl_meta->size > 0) {
+            list_size = static_cast<size_t>(tsl_meta->size);
+        }
+
+        nb::list result;
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = mutable_view.element(i);
+            if (elem_view.valid() && elem_view.has_value()) {
+                // Get the element's value
+                auto elem_vv = elem_view.value_view();
+                if (elem_vv.valid()) {
+                    auto* elem_schema = elem_view.value_schema();
+                    result.append(value::value_to_python(elem_vv.data(), elem_schema));
+                } else {
+                    result.append(nb::none());
+                }
+            } else {
+                result.append(nb::none());
+            }
+        }
+        return nb::tuple(result);
+    }
+
     nb::object PyTimeSeriesListOutput::get_item(const nb::handle &key) const {
         // Get the list metadata to access element type
         auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
@@ -306,6 +340,56 @@ namespace hgraph
     }
 
     // PyTimeSeriesListInput implementations
+
+    nb::object PyTimeSeriesListInput::value() const {
+        // TSL.value returns a tuple of element values, not the raw data
+        // Python: tuple(ts.value if ts.valid else None for ts in self.values())
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::none();
+
+        auto v = view();
+        size_t list_size = tsl_meta->size > 0 ? static_cast<size_t>(tsl_meta->size) : v.list_size();
+
+        nb::list result;
+
+        // Check for unpeered mode first
+        auto* coll_strategy = get_tsl_collection_strategy(v);
+        if (has_tsl_unpeered_children(coll_strategy)) {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto* child_strategy = coll_strategy->child(i);
+                if (child_strategy && child_strategy->has_value()) {
+                    // Create a TSInputView from the child strategy to access value methods
+                    ts::TSInputView child_view(child_strategy, tsl_meta->element_ts_type);
+                    auto child_vv = child_view.value_view();
+                    if (child_vv.valid()) {
+                        auto* schema = child_view.value_schema();
+                        result.append(value::value_to_python(child_vv.data(), schema));
+                    } else {
+                        result.append(nb::none());
+                    }
+                } else {
+                    result.append(nb::none());
+                }
+            }
+        } else {
+            for (size_t i = 0; i < list_size; ++i) {
+                auto elem_view = v.element(i);
+                if (elem_view.valid() && elem_view.has_value()) {
+                    auto elem_vv = elem_view.value_view();
+                    if (elem_vv.valid()) {
+                        auto* elem_schema = elem_view.value_schema();
+                        result.append(value::value_to_python(elem_vv.data(), elem_schema));
+                    } else {
+                        result.append(nb::none());
+                    }
+                } else {
+                    result.append(nb::none());
+                }
+            }
+        }
+        return nb::tuple(result);
+    }
+
     nb::object PyTimeSeriesListInput::get_item(const nb::handle &key) const {
         auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
         if (!tsl_meta) return nb::none();

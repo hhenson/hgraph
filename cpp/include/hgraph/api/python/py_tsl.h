@@ -26,6 +26,9 @@ namespace hgraph
         PyTimeSeriesListOutput(const PyTimeSeriesListOutput&) = delete;
         PyTimeSeriesListOutput& operator=(const PyTimeSeriesListOutput&) = delete;
 
+        // Override value() to return tuple of element values (matching Python behavior)
+        [[nodiscard]] nb::object value() const override;
+
         // Element access - __getitem__
         [[nodiscard]] nb::object get_item(const nb::handle &key) const;
 
@@ -73,6 +76,9 @@ namespace hgraph
 
         PyTimeSeriesListInput(const PyTimeSeriesListInput&) = delete;
         PyTimeSeriesListInput& operator=(const PyTimeSeriesListInput&) = delete;
+
+        // Override value() to return tuple of element values (matching Python behavior)
+        [[nodiscard]] nb::object value() const override;
 
         // Element access - __getitem__
         [[nodiscard]] nb::object get_item(const nb::handle &key) const;
