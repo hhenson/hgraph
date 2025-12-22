@@ -5,6 +5,7 @@
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/time_series/delta_view_python.h>
 #include <hgraph/api/python/ts_python_helpers.h>
+#include <cstdio>
 
 namespace hgraph
 {
@@ -214,7 +215,9 @@ namespace hgraph
     nb::object PyTimeSeriesInput::value() const {
         // The view points to the AccessStrategy and fetches fresh data on each call
         // This works for both direct inputs and field wrappers
-        if (!_view.valid()) return nb::none();
+        if (!_view.valid()) {
+            return nb::none();
+        }
 
         // Special case for REF inputs: return the TimeSeriesReference from the bound REF output
         // This preserves path information and empty reference state

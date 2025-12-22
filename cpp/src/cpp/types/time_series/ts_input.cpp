@@ -146,7 +146,9 @@ TSInputView TSInputView::element(size_t index) const {
 }
 
 value::ConstValueView TSInputView::value_view() const {
-    if (!_source) return {};
+    if (!_source) {
+        return {};
+    }
 
     // If no path, return the source's value directly
     if (_path.empty()) {
@@ -155,12 +157,23 @@ value::ConstValueView TSInputView::value_view() const {
 
     // Navigate through the bound output's view using the path
     auto* bound = _source->bound_output();
-    if (!bound) return {};
+    if (!bound) {
+        return {};
+    }
 
+    // Get the metadata from the bound output to determine navigation type at each level
     auto output_view = bound->view();
+    auto current_ts_kind = output_view.ts_kind();
+
     for (size_t i = 0; i < _path.depth(); ++i) {
-        output_view = output_view.field(_path[i]);
+        // Determine if this is a list element or bundle field
+        if (current_ts_kind == TSKind::TSL) {
+            output_view = output_view.element(_path[i]);
+        } else {
+            output_view = output_view.field(_path[i]);
+        }
         if (!output_view.valid()) return {};
+        current_ts_kind = output_view.ts_kind();
     }
 
     return output_view.value_view();  // Returns ConstValueView
@@ -179,12 +192,39 @@ bool TSInputView::has_value() const {
     if (!bound) return false;
 
     auto output_view = bound->view();
-    for (size_t i = 0; i < _path.depth(); ++i) {
-        output_view = output_view.field(_path[i]);
-        if (!output_view.valid()) return false;
+
+    // First check if the root output has a value
+    // If the root doesn't have a value, no elements can have values
+    if (!output_view.has_value()) {
+        return false;
     }
 
-    return output_view.has_value();
+    auto current_ts_kind = output_view.ts_kind();
+
+    for (size_t i = 0; i < _path.depth(); ++i) {
+        // Determine if this is a list element or bundle field
+        if (current_ts_kind == TSKind::TSL) {
+            output_view = output_view.element(_path[i]);
+        } else {
+            output_view = output_view.field(_path[i]);
+        }
+        if (!output_view.valid()) return false;
+        current_ts_kind = output_view.ts_kind();
+    }
+
+    // After navigating to the element, check its validity
+    // For simple TS elements within a list/bundle, the element may not have its own
+    // tracker set up. In this case, if we successfully navigated here and the parent
+    // had a value, we consider the element valid (it will at least have a default value).
+    // For scalar elements, check if tracker is set up - if not, trust parent validity
+    auto elem_has_value = output_view.has_value();
+    if (!elem_has_value && current_ts_kind == TSKind::TS) {
+        // For TS elements without their own tracker, if we got here the element is valid
+        // because the parent list/bundle was valid
+        return true;
+    }
+
+    return elem_has_value;
 }
 
 TSInputView TSInputView::field(const std::string& name) const {

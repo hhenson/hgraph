@@ -96,20 +96,27 @@ CollectionAccessStrategy::CollectionAccessStrategy(TSInput* owner, size_t elemen
 void CollectionAccessStrategy::bind(value::TSView output_view) {
     _output_view = output_view;
 
-    // Bind child strategies to corresponding elements of the output view
-    // Navigate into the view to get child views for each child strategy
+    // Bind child strategies to the output view
+    // For ElementAccessStrategy children, they will navigate to their element using their index
+    // For DirectAccessStrategy children, they need the element view directly
     for (size_t i = 0; i < _children.size(); ++i) {
         if (_children[i] && output_view.valid()) {
-            // Navigate to child view based on kind
-            auto ts_kind = output_view.ts_kind();
-            value::TSView child_view;
-            if (ts_kind == TSKind::TSL) {
-                child_view = output_view.element(i);
+            // Check if child is an ElementAccessStrategy - if so, pass the collection view
+            // ElementAccessStrategy navigates using its stored index
+            if (dynamic_cast<ElementAccessStrategy*>(_children[i].get())) {
+                _children[i]->bind(output_view);
             } else {
-                // TSB or other - use field navigation
-                child_view = output_view.field(i);
+                // DirectAccessStrategy and others need the actual element view
+                auto ts_kind = output_view.ts_kind();
+                value::TSView child_view;
+                if (ts_kind == TSKind::TSL) {
+                    child_view = output_view.element(i);
+                } else {
+                    // TSB or other - use field navigation
+                    child_view = output_view.field(i);
+                }
+                _children[i]->bind(child_view);
             }
-            _children[i]->bind(child_view);
         }
     }
 }
@@ -120,14 +127,20 @@ void CollectionAccessStrategy::rebind(value::TSView output_view) {
     // Rebind all child strategies
     for (size_t i = 0; i < _children.size(); ++i) {
         if (_children[i] && output_view.valid()) {
-            auto ts_kind = output_view.ts_kind();
-            value::TSView child_view;
-            if (ts_kind == TSKind::TSL) {
-                child_view = output_view.element(i);
+            // Check if child is an ElementAccessStrategy - if so, pass the collection view
+            if (dynamic_cast<ElementAccessStrategy*>(_children[i].get())) {
+                _children[i]->rebind(output_view);
             } else {
-                child_view = output_view.field(i);
+                // DirectAccessStrategy and others need the actual element view
+                auto ts_kind = output_view.ts_kind();
+                value::TSView child_view;
+                if (ts_kind == TSKind::TSL) {
+                    child_view = output_view.element(i);
+                } else {
+                    child_view = output_view.field(i);
+                }
+                _children[i]->rebind(child_view);
             }
-            _children[i]->rebind(child_view);
         }
     }
 }

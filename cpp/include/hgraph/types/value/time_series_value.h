@@ -396,7 +396,11 @@ namespace hgraph::value {
             ObserverStorage* child_observer = _observer ? _observer->child(index) : nullptr;
             ObserverStorage* effective_observer = child_observer ? child_observer : _observer;
             const TSMeta* elem_meta = _ts_meta ? element_meta_at() : nullptr;
-            return {_value_view.element(index), _tracker.element(index), effective_observer,
+            // For list elements, try to get child tracker; if not available, use parent tracker.
+            // TSL typically uses list-level tracking, not per-element tracking for simple TS elements.
+            auto child_tracker = _tracker.element(index);
+            ModificationTracker effective_tracker = child_tracker.valid() ? child_tracker : _tracker;
+            return {_value_view.element(index), effective_tracker, effective_observer,
                     elem_meta, _path.with(index)};
         }
 
