@@ -39,8 +39,8 @@ std::string TSValueMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSValueMeta::make_output(node_ptr owning_node) const {
-    // Not yet implemented - falls back to Python implementation
-    return {};
+    // Create a TSOutput that uses the scalar_type as its value schema
+    return std::make_shared<ts::TSOutput>(this, owning_node);
 }
 
 time_series_input_s_ptr TSValueMeta::make_input(node_ptr owning_node) const {

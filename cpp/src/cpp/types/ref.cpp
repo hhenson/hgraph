@@ -13,9 +13,9 @@ namespace hgraph
     // Default constructor - EMPTY
     TimeSeriesReference::TimeSeriesReference() noexcept : _kind(Kind::EMPTY) {}
 
-    // BOUND constructor - node + path
-    TimeSeriesReference::TimeSeriesReference(std::weak_ptr<Node> node, std::vector<PathKey> path)
-        : _kind(Kind::BOUND), _node_ref(std::move(node)), _path(std::move(path)) {}
+    // BOUND constructor - node + path + optional direct output
+    TimeSeriesReference::TimeSeriesReference(std::weak_ptr<Node> node, std::vector<PathKey> path, ts::TSOutput* direct_output)
+        : _kind(Kind::BOUND), _node_ref(std::move(node)), _path(std::move(path)), _direct_output(direct_output) {}
 
     // UNBOUND constructor - vector of references
     TimeSeriesReference::TimeSeriesReference(std::vector<TimeSeriesReference> items)
@@ -103,7 +103,13 @@ namespace hgraph
             return nullptr;  // Node expired
         }
 
-        return n->output();  // Return root output (path navigation via resolve())
+        // If we have a direct output pointer (for dynamically created outputs), use it
+        if (_direct_output) {
+            return _direct_output;
+        }
+
+        // Otherwise, navigate from the node's root output
+        return n->output();
     }
 
     // Get items for UNBOUND references
@@ -211,7 +217,13 @@ namespace hgraph
             path.push_back(value_path[i]);
         }
 
-        return make(node->shared_from_this(), std::move(path));
+        // Store the root output pointer directly.
+        // This is essential for dynamically created outputs (like from get_contains_output)
+        // which are not reachable via node->output() + path navigation.
+        auto* direct_output = const_cast<ts::TSOutput*>(root);
+
+        // Use the private constructor that accepts direct_output
+        return TimeSeriesReference(node->shared_from_this(), std::move(path), direct_output);
     }
 
 }  // namespace hgraph

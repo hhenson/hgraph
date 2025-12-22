@@ -1,7 +1,9 @@
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/py_time_series.h>
+#include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <fmt/format.h>
 
 namespace hgraph
 {
@@ -72,11 +74,13 @@ namespace hgraph
             .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
             .def_prop_ro("output", [](TimeSeriesReference &self) -> nb::object {
                 if (!self.has_output()) return nb::none();
-                // Return the raw output pointer (navigation through views)
+                // Get the output pointer and owning node
                 auto* output = self.output_ptr();
                 if (!output) return nb::none();
-                // TODO: wrap output when Python wrappers are complete
-                return nb::none();
+                auto node = self.node();
+                if (!node) return nb::none();
+                // Wrap the output with its owning node for proper lifetime management
+                return wrap_output(output, node);
             })
             .def_prop_ro("items", &TimeSeriesReference::items)
             .def("__getitem__", &TimeSeriesReference::operator[])
@@ -87,8 +91,19 @@ namespace hgraph
                 "make",
                 [](nb::object ts, nb::object items) -> TimeSeriesReference {
                     if (!ts.is_none()) {
-                        // TODO: handle output/input creation when views are complete
-                        throw std::runtime_error("TimeSeriesReference::make from output not yet implemented");
+                        // Try to get output and node from the Python wrapper
+                        auto* output = unwrap_output(ts);
+                        auto node = unwrap_output_node(ts);
+
+                        if (output && node) {
+                            // Get the path from the output's view
+                            auto view = output->view();
+                            if (view.valid()) {
+                                return TimeSeriesReference::make(view);
+                            }
+                        }
+                        // Fall back to empty if we can't extract the reference
+                        return TimeSeriesReference::make();
                     } else if (!items.is_none()) {
                         auto items_list = nb::cast<std::vector<TimeSeriesReference>>(items);
                         return TimeSeriesReference::make(items_list);

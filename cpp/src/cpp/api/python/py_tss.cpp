@@ -1,5 +1,8 @@
 #include <hgraph/api/python/py_tss.h>
 #include <hgraph/api/python/ts_python_helpers.h>
+#include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/builders/time_series_types/cpp_time_series_builder.h>
+#include <hgraph/types/type_api.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 
@@ -60,6 +63,11 @@ namespace hgraph
             ts::cache_delta(_output, delta);
             _output->register_delta_reset_callback();
         }
+
+        // Update contains extension for the added item
+        nb::set single_item;
+        single_item.add(item);
+        update_contains_for_keys(single_item);
     }
 
     void PyTimeSeriesSetOutput::remove(const nb::object &item) {
@@ -109,6 +117,11 @@ namespace hgraph
             ts::cache_delta(_output, delta);
             _output->register_delta_reset_callback();
         }
+
+        // Update contains extension for the removed item
+        nb::set single_item;
+        single_item.add(item);
+        update_contains_for_keys(single_item);
     }
 
     void PyTimeSeriesSetOutput::set_value(nb::object py_value) {
@@ -178,6 +191,10 @@ namespace hgraph
                     ts::cache_delta(_output, filtered_delta);
                     _output->register_delta_reset_callback();
                 }
+
+                // Update contains extension for changed keys
+                update_contains_for_keys(filtered_added);
+                update_contains_for_keys(filtered_removed);
             }
             return;
         }
@@ -283,6 +300,10 @@ namespace hgraph
                     ts::cache_delta(_output, delta);
                     _output->register_delta_reset_callback();
                 }
+
+                // Update contains extension for changed keys
+                update_contains_for_keys(added_set);
+                update_contains_for_keys(removed_set);
             }
             return;
         }
@@ -334,6 +355,106 @@ namespace hgraph
 
     nb::str PyTimeSeriesSetOutput::py_repr() const {
         return py_str();
+    }
+
+    // Feature extension helper: get singleton TSMeta for TS[bool]
+    static const TSMeta* get_bool_ts_meta() {
+        static const TSMeta* bool_ts_meta = types::ts_type<types::TS<bool>>();
+        return bool_ts_meta;
+    }
+
+    // Feature extension helper: get singleton OutputBuilder for TS[bool]
+    static output_builder_s_ptr get_bool_output_builder() {
+        // Use nb::ref with new, matching the pattern in make_output_builder
+        static output_builder_s_ptr bool_builder(new CppTimeSeriesOutputBuilder(get_bool_ts_meta()));
+        return bool_builder;
+    }
+
+    void PyTimeSeriesSetOutput::ensure_contains_extension() {
+        if (_contains_extension) return;
+
+        if (!_output) return;  // Need output to create extension
+
+        // Create the value getter function: sets output to True if key is in set
+        // We use the ts_python_helpers to safely get the value from the owning output
+        auto value_getter = [](const ts::TSOutput& owning, ts::TSOutput& result, const nb::object& key) {
+            // Get the set value from the underlying owning output
+            // Access the value view directly to avoid observer issues
+            auto& owning_ts_value = const_cast<ts::TSOutput&>(owning).underlying();
+            auto owning_view = owning_ts_value.view();
+            auto vv = owning_view.value_view();
+            nb::object set_value = value::value_to_python(vv.data(), vv.schema());
+
+            bool in_set = false;
+            if (!set_value.is_none()) {
+                in_set = nb::cast<bool>(set_value.attr("__contains__")(key));
+            }
+
+            // Set the result output to the boolean value
+            // Access the underlying TSValue directly to avoid observer issues
+            auto& result_ts_value = result.underlying();
+            auto result_view = result_ts_value.view();
+            result_view.set<bool>(in_set, owning.last_modified_time());
+        };
+
+        _contains_extension = std::make_unique<FeatureOutputExtension<nb::object>>(
+            _output,
+            get_bool_output_builder(),
+            value_getter,
+            std::nullopt  // No separate initial value getter
+        );
+    }
+
+    void PyTimeSeriesSetOutput::update_contains_for_keys(const nb::handle &keys) {
+        if (!_contains_extension || !(*_contains_extension)) return;
+        if (keys.is_none()) return;
+
+        // Iterate over the keys and update any that are being tracked
+        for (auto key : keys) {
+            _contains_extension->update(nb::borrow<nb::object>(key));
+        }
+    }
+
+    nb::object PyTimeSeriesSetOutput::get_contains_output(const nb::object &item, const nb::object &requester) {
+        ensure_contains_extension();
+        if (!_contains_extension) {
+            return nb::none();
+        }
+
+        // Get raw pointer from the requester object for tracking
+        const void* requester_ptr = requester.ptr();
+
+        auto& output = _contains_extension->create_or_increment(item, requester_ptr);
+        if (!output) {
+            return nb::none();
+        }
+
+        // Wrap the output for Python
+        return wrap_output(output.get(), _node);
+    }
+
+    void PyTimeSeriesSetOutput::release_contains_output(const nb::object &item, const nb::object &requester) {
+        if (!_contains_extension) return;
+
+        const void* requester_ptr = requester.ptr();
+        _contains_extension->release(item, requester_ptr);
+    }
+
+    nb::object PyTimeSeriesSetOutput::is_empty_output() {
+        if (!_is_empty_output) {
+            if (!_output || !_node) {
+                return nb::none();
+            }
+
+            // Create a TS[bool] output for the empty state
+            _is_empty_output = get_bool_ts_meta()->make_output(_node.get());
+
+            // Initialize with current empty state
+            bool is_empty = size() == 0;
+            _is_empty_output->view().set<bool>(is_empty, _node->graph() ? _node->graph()->evaluation_time() : MIN_DT);
+        }
+
+        return wrap_output(_is_empty_output.get(), _node);
     }
 
     // PyTimeSeriesSetInput implementations
@@ -415,6 +536,10 @@ namespace hgraph
             .def("removed", &PyTimeSeriesSetOutput::removed)
             .def("was_added", &PyTimeSeriesSetOutput::was_added)
             .def("was_removed", &PyTimeSeriesSetOutput::was_removed)
+            // Feature extension methods
+            .def("get_contains_output", &PyTimeSeriesSetOutput::get_contains_output)
+            .def("release_contains_output", &PyTimeSeriesSetOutput::release_contains_output)
+            .def("is_empty_output", &PyTimeSeriesSetOutput::is_empty_output)
             .def("__str__", &PyTimeSeriesSetOutput::py_str)
             .def("__repr__", &PyTimeSeriesSetOutput::py_repr);
 

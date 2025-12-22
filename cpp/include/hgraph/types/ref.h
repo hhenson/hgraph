@@ -138,7 +138,7 @@ namespace hgraph
 
       private:
         // Private constructors for factory use
-        TimeSeriesReference(std::weak_ptr<Node> node, std::vector<PathKey> path);
+        TimeSeriesReference(std::weak_ptr<Node> node, std::vector<PathKey> path, ts::TSOutput* direct_output = nullptr);
         explicit TimeSeriesReference(std::vector<TimeSeriesReference> items);
 
         Kind _kind{Kind::EMPTY};
@@ -146,6 +146,11 @@ namespace hgraph
         // BOUND state: node reference and path to navigate within output
         std::weak_ptr<Node> _node_ref;
         std::vector<PathKey> _path;
+
+        // Direct output pointer (for dynamically created outputs that aren't reachable via node->output())
+        // This is the output that was used to create this reference.
+        // May be nullptr if this is a standard node output (navigable via node->output() + path).
+        ts::TSOutput* _direct_output{nullptr};
 
         // UNBOUND state: collection of child references
         std::vector<TimeSeriesReference> _items;
