@@ -104,6 +104,11 @@ inline bool is_python_set(const nb::object& obj) {
     return nb::isinstance<nb::set>(obj) || nb::isinstance<nb::frozenset>(obj);
 }
 
+// Helper to check if an object is specifically a frozenset
+inline bool is_python_frozenset(const nb::object& obj) {
+    return nb::isinstance<nb::frozenset>(obj);
+}
+
 // Helper to check if an object is a Removed marker (has 'item' attribute and is from hgraph._impl._types._tss)
 inline bool is_removed_marker(const nb::object& obj) {
     // Check for the 'item' attribute which Removed has
@@ -329,24 +334,49 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
                         }
                     }
                 }
+            } else if (is_python_frozenset(py_value)) {
+                // frozenset without Removed markers - treat as REPLACEMENT
+                // Python logic for frozenset: self._value = v, added = v - old, removed = old - v
+                new_set = nb::set(py_value);  // The new value IS the input set
+
+                // Compute added = input - old (elements in input but not in old)
+                for (auto item : py_value) {
+                    nb::object item_obj = nb::cast<nb::object>(item);
+                    bool in_old = !current_value.is_none() &&
+                                  nb::cast<bool>(nb::borrow<nb::object>(current_value).attr("__contains__")(item_obj));
+                    if (!in_old) {
+                        added_set.add(item_obj);
+                    }
+                }
+
+                // Compute removed = old - input (elements in old but not in input)
+                if (!current_value.is_none()) {
+                    for (auto item : current_value) {
+                        nb::object item_obj = nb::cast<nb::object>(item);
+                        bool in_new = nb::cast<bool>(py_value.attr("__contains__")(item_obj));
+                        if (!in_new) {
+                            removed_set.add(item_obj);
+                        }
+                    }
+                }
             } else {
-                // Pure set without Removed markers - add new elements to current value
-                // Python logic: self._value = (self._value - removed) | added
-                // Start with current value and add new elements
+                // Regular set without Removed markers - treat as ADDITIONS ONLY
+                // Python logic: added = elements not in current value, no removals
+                // Start with current value
                 if (!current_value.is_none()) {
                     new_set = nb::set(current_value);
                 }
 
-                // Find added elements (in input but not in current) and add them
+                // Add all elements that are not already in the set
                 for (auto item : py_value) {
                     nb::object item_obj = nb::cast<nb::object>(item);
-                    bool in_current = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
-                    if (!in_current) {
+                    bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
+                    if (!in_set) {
                         added_set.add(item_obj);
                         new_set.add(item_obj);
                     }
                 }
-                // No removed elements in a plain set without Removed markers
+                // removed_set stays empty - no removals for regular sets
             }
 
             // Only mark as modified if there were actual changes or first tick
@@ -407,8 +437,6 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
         // The RefStorage loses path information during from_python conversion, so we cache
         // the original TimeSeriesReference for delta_value() to return later
         if (meta && meta->ts_kind == TSKind::REF) {
-            fprintf(stderr, "[TRACE] set_python_value REF: caching py_value=%s\n",
-                    nb::str(py_value).c_str());
             cache_delta(output, py_value);
             output->register_delta_reset_callback();
             output->notify_reference_observers(time);
@@ -558,10 +586,6 @@ inline nb::object get_python_delta(const TSOutput* output, engine_time_t eval_ti
             ts_kind == TSKind::TSS ||
             ts_kind == TSKind::REF) {
             auto cached = get_cached_delta(output);
-            if (ts_kind == TSKind::REF) {
-                fprintf(stderr, "[TRACE] get_python_delta REF: cached=%s\n",
-                        cached.is_none() ? "None" : nb::str(cached).c_str());
-            }
             if (!cached.is_none()) {
                 return cached;
             }

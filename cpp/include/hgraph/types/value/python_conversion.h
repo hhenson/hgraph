@@ -717,13 +717,16 @@ namespace hgraph::value {
         static void* to_python(const void* v, const TypeMeta* meta) {
             auto* set_meta = static_cast<const SetTypeMeta*>(meta);
             auto* storage = static_cast<const SetStorage*>(v);
-            nb::set result;
+            nb::set temp_set;
 
             for (auto elem : *storage) {
                 nb::object py_elem = value_to_python(elem.ptr, set_meta->element_type);
-                result.add(py_elem);
+                temp_set.add(py_elem);
             }
 
+            // Return as frozenset to preserve the immutable semantics
+            // This allows TSS to distinguish replacement (frozenset) from additions (set)
+            nb::frozenset result(temp_set);
             return result.release().ptr();
         }
 

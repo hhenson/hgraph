@@ -5,7 +5,6 @@
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/time_series/delta_view_python.h>
 #include <hgraph/api/python/ts_python_helpers.h>
-#include <cstdio>
 
 namespace hgraph
 {
@@ -212,6 +211,9 @@ namespace hgraph
     PyTimeSeriesInput::PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, const TSMeta* meta)
         : PyTimeSeriesType(std::move(node), meta), _view(std::move(view)), _input(nullptr) {}
 
+    PyTimeSeriesInput::PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::TSInput* root_input, size_t field_index, const TSMeta* meta)
+        : PyTimeSeriesType(std::move(node), meta), _view(std::move(view)), _input(nullptr), _root_input(root_input), _field_index(field_index) {}
+
     nb::object PyTimeSeriesInput::value() const {
         // The view points to the AccessStrategy and fetches fresh data on each call
         // This works for both direct inputs and field wrappers
@@ -359,6 +361,46 @@ namespace hgraph
 
     void PyTimeSeriesInput::un_bind_output(bool unbind_refs) {
         if (_input) _input->unbind_output();
+        else if (_root_input && _field_index != SIZE_MAX) {
+            // For bindable field wrappers, unbind through the root input
+            auto bindable = _root_input->element(_field_index);
+            if (bindable.valid()) {
+                bindable.bind(value::TSView());  // Bind to invalid view to unbind
+            }
+        }
+    }
+
+    void PyTimeSeriesInput::bind_output_view(value::TSView view) {
+        if (_input) {
+            // Direct input - use bind_output
+            _input->bind_output(view);
+        } else if (_root_input && _field_index != SIZE_MAX) {
+            // Check if already bound to this output to avoid creating strategies every tick
+            auto current_view = _view;
+            if (current_view.valid()) {
+                auto* bound = current_view.bound_output();
+                if (bound && view.valid()) {
+                    // Compare output pointers - if same, skip rebinding
+                    auto* target = view.root_output();
+                    if (bound == target) {
+                        return;  // Already bound to this output
+                    }
+                }
+            }
+
+            // Bindable field wrapper - use TSInputBindableView
+            auto bindable = _root_input->element(_field_index);
+            if (bindable.valid()) {
+                bindable.bind(view);
+
+                // Update our view to point to the newly bound strategy
+                // The view we have might be stale - get fresh view after binding
+                auto root_view = _root_input->view();
+                if (root_view.valid()) {
+                    _view = root_view.element(_field_index);
+                }
+            }
+        }
     }
 
     nb::object PyTimeSeriesInput::reference_output() const {

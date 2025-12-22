@@ -141,7 +141,7 @@ namespace hgraph
      * and fetches fresh data on each access (never materialized).
      *
      * Optionally holds raw pointer to TSInput for binding operations.
-     * Field wrappers don't have a TSInput, only a view.
+     * Field wrappers store root TSInput + field index for binding support.
      *
      * Inherits node_s_ptr and meta from base class.
      */
@@ -151,8 +151,12 @@ namespace hgraph
         PyTimeSeriesInput(PyTimeSeriesInput&& other) noexcept
             : PyTimeSeriesType(std::move(other))
             , _view(std::move(other._view))
-            , _input(other._input) {
+            , _input(other._input)
+            , _root_input(other._root_input)
+            , _field_index(other._field_index) {
             other._input = nullptr;
+            other._root_input = nullptr;
+            other._field_index = SIZE_MAX;
         }
 
         PyTimeSeriesInput& operator=(PyTimeSeriesInput&& other) noexcept {
@@ -160,7 +164,11 @@ namespace hgraph
                 PyTimeSeriesType::operator=(std::move(other));
                 _view = std::move(other._view);
                 _input = other._input;
+                _root_input = other._root_input;
+                _field_index = other._field_index;
                 other._input = nullptr;
+                other._root_input = nullptr;
+                other._field_index = SIZE_MAX;
             }
             return *this;
         }
@@ -190,6 +198,9 @@ namespace hgraph
         nb::bool_                bind_output(nb::object output_);
         void                     un_bind_output(bool unbind_refs);
 
+        // Bind to a TSView (for TimeSeriesReference::bind_input support)
+        void                     bind_output_view(value::TSView view);
+
         // Reference support
         [[nodiscard]] nb::object reference_output() const;
         [[nodiscard]] nb::object get_input(size_t index) const;
@@ -201,15 +212,24 @@ namespace hgraph
         [[nodiscard]] const ts::TSInputView& view() const { return _view; }
         [[nodiscard]] ts::TSInput* input() const { return _input; }
 
+        // Check if this is a bindable field wrapper
+        [[nodiscard]] bool can_bind() const { return _input != nullptr || _root_input != nullptr; }
+
         // Constructor for direct input wrappers (with TSInput for binding operations)
         PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::TSInput* input, const TSMeta* meta);
 
         // Constructor for field wrappers (view only, no TSInput)
         PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, const TSMeta* meta);
 
+        // Constructor for bindable field wrappers (with root input and field index for binding)
+        PyTimeSeriesInput(node_s_ptr node, ts::TSInputView view, ts::TSInput* root_input, size_t field_index, const TSMeta* meta);
+
       private:
         ts::TSInputView _view;
         ts::TSInput* _input{nullptr};
+        // For field wrappers that need binding support
+        ts::TSInput* _root_input{nullptr};
+        size_t _field_index{SIZE_MAX};
     };
 
 }  // namespace hgraph

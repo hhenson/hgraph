@@ -7,8 +7,10 @@ namespace hgraph
 {
     // PyTimeSeriesSetOutput implementations
     bool PyTimeSeriesSetOutput::contains(const nb::object &item) const {
-        // TODO: Implement via view
-        return false;
+        nb::object val = value();
+        if (val.is_none()) return false;
+        // Use Python's __contains__ on the value
+        return nb::cast<bool>(val.attr("__contains__")(item));
     }
 
     size_t PyTimeSeriesSetOutput::size() const {
@@ -20,11 +22,93 @@ namespace hgraph
     }
 
     void PyTimeSeriesSetOutput::add(const nb::object &item) {
-        // TODO: Implement via view with proper type conversion
+        // Get current value and add the item
+        nb::object current = value();
+        nb::set new_set;
+        if (!current.is_none()) {
+            new_set = nb::set(current);
+        }
+
+        // Check if already in set
+        bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item));
+        if (in_set) return;  // Already in set, no change
+
+        new_set.add(item);
+
+        // Store via base class
+        PyTimeSeriesOutput::set_value(nb::frozenset(new_set));
+
+        // Create SetDelta and cache it
+        nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
+        nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
+
+        if (_output) {
+            // Get or create cached delta and add to it
+            auto cached = ts::get_cached_delta(_output);
+            nb::object delta;
+            if (!cached.is_none()) {
+                // Add the item to the existing delta's added set
+                nb::object existing_added = cached.attr("added");
+                nb::set new_added(existing_added);
+                new_added.add(item);
+                delta = PythonSetDelta(nb::frozenset(new_added), cached.attr("removed"));
+            } else {
+                nb::set single;
+                single.add(item);
+                delta = PythonSetDelta(nb::frozenset(single), nb::frozenset());
+            }
+            ts::cache_delta(_output, delta);
+            _output->register_delta_reset_callback();
+        }
     }
 
     void PyTimeSeriesSetOutput::remove(const nb::object &item) {
-        // TODO: Implement via view with proper type conversion
+        // Get current value and remove the item
+        nb::object current = value();
+        if (current.is_none()) return;
+
+        nb::set new_set(current);
+
+        // Check if in set
+        bool in_set = nb::cast<bool>(new_set.attr("__contains__")(item));
+        if (!in_set) return;  // Not in set, no change
+
+        new_set.discard(item);
+
+        // Create SetDelta and apply it
+        nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
+        nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
+
+        // Store via base class and cache delta
+        auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        PyTimeSeriesOutput::set_value(nb::frozenset(new_set));
+
+        if (_output) {
+            // Get or create cached delta
+            auto cached = ts::get_cached_delta(_output);
+            nb::object delta;
+            if (!cached.is_none()) {
+                // Check if item was in the added set - if so, remove from added instead of adding to removed
+                nb::object existing_added = cached.attr("added");
+                nb::object existing_removed = cached.attr("removed");
+                nb::set new_added(existing_added);
+                nb::set new_removed(existing_removed);
+
+                bool was_added = nb::cast<bool>(new_added.attr("__contains__")(item));
+                if (was_added) {
+                    new_added.discard(item);
+                } else {
+                    new_removed.add(item);
+                }
+                delta = PythonSetDelta(nb::frozenset(new_added), nb::frozenset(new_removed));
+            } else {
+                nb::set single;
+                single.add(item);
+                delta = PythonSetDelta(nb::frozenset(), nb::frozenset(single));
+            }
+            ts::cache_delta(_output, delta);
+            _output->register_delta_reset_callback();
+        }
     }
 
     void PyTimeSeriesSetOutput::set_value(nb::object py_value) {
@@ -100,41 +184,85 @@ namespace hgraph
 
         // Handle plain set/frozenset - may contain Removed markers
         if (ts::is_python_set(py_value)) {
-            nb::set input_set(py_value);
-
-            // Separate Removed markers from regular elements
-            // Python implementation: self._added = {r for r in v if type(r) is not Removed and r not in self._value}
-            //                       self._removed = {r.item for r in v if type(r) is Removed and r.item in self._value}
             nb::set added_set;
             nb::set removed_set;
-            nb::set new_set;  // The resulting set value (current + added - removed)
+            nb::set new_set;  // The resulting set value
 
-            // Start with current value
-            if (!current_value.is_none()) {
-                new_set = nb::set(current_value);
-            }
+            // Check if set contains Removed markers
+            bool has_removed = ts::set_contains_removed_markers(py_value);
 
-            // Process each element in the input set
-            for (auto item : input_set) {
-                nb::object item_obj = nb::cast<nb::object>(item);
+            if (has_removed) {
+                // Set with Removed markers - apply delta to current value
+                // Start with current value
+                if (!current_value.is_none()) {
+                    new_set = nb::set(current_value);
+                }
 
-                if (ts::is_removed_marker(item_obj)) {
-                    // Extract the actual item from Removed(item)
-                    nb::object actual_item = item_obj.attr("item");
-                    // Only add to removed if it's currently in the set
-                    bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(actual_item));
-                    if (in_set) {
-                        removed_set.add(actual_item);
-                        new_set.discard(actual_item);
+                // Process each element
+                for (auto item : py_value) {
+                    nb::object item_obj = nb::cast<nb::object>(item);
+
+                    if (ts::is_removed_marker(item_obj)) {
+                        // Extract the actual item from Removed(item)
+                        nb::object actual_item = item_obj.attr("item");
+                        // Only add to removed if it's currently in the set
+                        bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(actual_item));
+                        if (in_set) {
+                            removed_set.add(actual_item);
+                            new_set.discard(actual_item);
+                        }
+                    } else {
+                        // Regular element - add if not already in set
+                        bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
+                        if (!in_set) {
+                            added_set.add(item_obj);
+                            new_set.add(item_obj);
+                        }
                     }
-                } else {
-                    // Regular element - add if not already in set
+                }
+            } else if (ts::is_python_frozenset(py_value)) {
+                // frozenset without Removed markers - treat as REPLACEMENT
+                // Python logic for frozenset: self._value = v, added = v - old, removed = old - v
+                new_set = nb::set(py_value);  // The new value IS the input set
+
+                // Compute added = input - old (elements in input but not in old)
+                for (auto item : py_value) {
+                    nb::object item_obj = nb::cast<nb::object>(item);
+                    bool in_old = !current_value.is_none() &&
+                                  nb::cast<bool>(nb::borrow<nb::object>(current_value).attr("__contains__")(item_obj));
+                    if (!in_old) {
+                        added_set.add(item_obj);
+                    }
+                }
+
+                // Compute removed = old - input (elements in old but not in input)
+                if (!current_value.is_none()) {
+                    for (auto item : current_value) {
+                        nb::object item_obj = nb::cast<nb::object>(item);
+                        bool in_new = nb::cast<bool>(py_value.attr("__contains__")(item_obj));
+                        if (!in_new) {
+                            removed_set.add(item_obj);
+                        }
+                    }
+                }
+            } else {
+                // Regular set without Removed markers - treat as ADDITIONS ONLY
+                // Python logic: added = elements not in current value, no removals
+                // Start with current value
+                if (!current_value.is_none()) {
+                    new_set = nb::set(current_value);
+                }
+
+                // Add all elements that are not already in the set
+                for (auto item : py_value) {
+                    nb::object item_obj = nb::cast<nb::object>(item);
                     bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
                     if (!in_set) {
                         added_set.add(item_obj);
                         new_set.add(item_obj);
                     }
                 }
+                // removed_set stays empty - no removals for regular sets
             }
 
             // Only mark as modified if there were actual changes or this is first tick
@@ -173,21 +301,31 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesSetOutput::added() const {
-        // TODO: Implement delta tracking
-        return nb::frozenset();
+        // Get from cached delta
+        if (!_output) return nb::frozenset();
+        auto cached = ts::get_cached_delta(_output);
+        if (cached.is_none()) return nb::frozenset();
+        return cached.attr("added");
     }
 
     nb::object PyTimeSeriesSetOutput::removed() const {
-        // TODO: Implement delta tracking
-        return nb::frozenset();
+        // Get from cached delta
+        if (!_output) return nb::frozenset();
+        auto cached = ts::get_cached_delta(_output);
+        if (cached.is_none()) return nb::frozenset();
+        return cached.attr("removed");
     }
 
     nb::bool_ PyTimeSeriesSetOutput::was_added(const nb::object &item) const {
-        return nb::bool_(false);
+        nb::object added_set = added();
+        if (added_set.is_none()) return nb::bool_(false);
+        return nb::bool_(nb::cast<bool>(added_set.attr("__contains__")(item)));
     }
 
     nb::bool_ PyTimeSeriesSetOutput::was_removed(const nb::object &item) const {
-        return nb::bool_(false);
+        nb::object removed_set = removed();
+        if (removed_set.is_none()) return nb::bool_(false);
+        return nb::bool_(nb::cast<bool>(removed_set.attr("__contains__")(item)));
     }
 
     nb::str PyTimeSeriesSetOutput::py_str() const {
@@ -200,8 +338,10 @@ namespace hgraph
 
     // PyTimeSeriesSetInput implementations
     bool PyTimeSeriesSetInput::contains(const nb::object &item) const {
-        // TODO: Implement via view
-        return false;
+        nb::object val = value();
+        if (val.is_none()) return false;
+        // Use Python's __contains__ on the value
+        return nb::cast<bool>(val.attr("__contains__")(item));
     }
 
     size_t PyTimeSeriesSetInput::size() const {
@@ -217,21 +357,35 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesSetInput::added() const {
-        // TODO: Implement delta tracking
+        // Get from delta_value
+        nb::object delta = delta_value();
+        if (delta.is_none()) return nb::frozenset();
+        if (nb::hasattr(delta, "added")) {
+            return delta.attr("added");
+        }
         return nb::frozenset();
     }
 
     nb::object PyTimeSeriesSetInput::removed() const {
-        // TODO: Implement delta tracking
+        // Get from delta_value
+        nb::object delta = delta_value();
+        if (delta.is_none()) return nb::frozenset();
+        if (nb::hasattr(delta, "removed")) {
+            return delta.attr("removed");
+        }
         return nb::frozenset();
     }
 
     nb::bool_ PyTimeSeriesSetInput::was_added(const nb::object &item) const {
-        return nb::bool_(false);
+        nb::object added_set = added();
+        if (added_set.is_none()) return nb::bool_(false);
+        return nb::bool_(nb::cast<bool>(added_set.attr("__contains__")(item)));
     }
 
     nb::bool_ PyTimeSeriesSetInput::was_removed(const nb::object &item) const {
-        return nb::bool_(false);
+        nb::object removed_set = removed();
+        if (removed_set.is_none()) return nb::bool_(false);
+        return nb::bool_(nb::cast<bool>(removed_set.attr("__contains__")(item)));
     }
 
     nb::str PyTimeSeriesSetInput::py_str() const {
@@ -255,9 +409,10 @@ namespace hgraph
                          &PyTimeSeriesSetOutput::set_value,
                          nb::arg("value").none())
             .def("apply_result", &PyTimeSeriesSetOutput::apply_result, nb::arg("value").none())
-            .def_prop_ro("values", &PyTimeSeriesSetOutput::values)
-            .def_prop_ro("added", &PyTimeSeriesSetOutput::added)
-            .def_prop_ro("removed", &PyTimeSeriesSetOutput::removed)
+            // These are methods, not properties - match Python API
+            .def("values", &PyTimeSeriesSetOutput::values)
+            .def("added", &PyTimeSeriesSetOutput::added)
+            .def("removed", &PyTimeSeriesSetOutput::removed)
             .def("was_added", &PyTimeSeriesSetOutput::was_added)
             .def("was_removed", &PyTimeSeriesSetOutput::was_removed)
             .def("__str__", &PyTimeSeriesSetOutput::py_str)
@@ -267,9 +422,10 @@ namespace hgraph
             .def("__contains__", &PyTimeSeriesSetInput::contains)
             .def("__len__", [](const PyTimeSeriesSetInput& self) { return self.size(); })
             .def_prop_ro("empty", &PyTimeSeriesSetInput::empty)
-            .def_prop_ro("values", &PyTimeSeriesSetInput::values)
-            .def_prop_ro("added", &PyTimeSeriesSetInput::added)
-            .def_prop_ro("removed", &PyTimeSeriesSetInput::removed)
+            // These are methods, not properties - match Python API
+            .def("values", &PyTimeSeriesSetInput::values)
+            .def("added", &PyTimeSeriesSetInput::added)
+            .def("removed", &PyTimeSeriesSetInput::removed)
             .def("was_added", &PyTimeSeriesSetInput::was_added)
             .def("was_removed", &PyTimeSeriesSetInput::was_removed)
             .def("__str__", &PyTimeSeriesSetInput::py_str)

@@ -112,29 +112,58 @@ namespace
         }
     }
 
-    // Helper to create input wrapper for field views (no TSInput, just view)
-    nb::object create_field_wrapper(node_s_ptr node, ts::TSInputView view, const TSMeta* meta) {
+    // Helper to create input wrapper for field views with binding support
+    // root_input and field_index enable binding via TSInputBindableView
+    nb::object create_field_wrapper(node_s_ptr node, ts::TSInputView view, const TSMeta* meta,
+                                     ts::TSInput* root_input = nullptr, size_t field_index = SIZE_MAX) {
+        // All field wrappers need root_input and field_index for binding support
+        // The subtype wrappers inherit from PyTimeSeriesInput which stores these
+
         if (!meta) {
+            if (root_input && field_index != SIZE_MAX) {
+                return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), root_input, field_index, meta));
+            }
             return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), meta));
         }
 
-        // Field wrappers use the view-only constructor (no TSInput)
-        // The view points to the child strategy and fetches fresh data on each access
+        // For all types, use the bindable constructor variant that includes root_input and field_index
+        // The subtype wrappers inherit constructors from PyTimeSeriesInput via "using PyTimeSeriesInput::PyTimeSeriesInput"
         switch (meta->ts_kind) {
             case TSKind::TS:
+                if (root_input && field_index != SIZE_MAX) {
+                    return nb::cast(PyTimeSeriesValueInput(std::move(node), std::move(view), root_input, field_index, meta));
+                }
                 return nb::cast(PyTimeSeriesValueInput(std::move(node), std::move(view), nullptr, meta));
             case TSKind::TSB:
+                if (root_input && field_index != SIZE_MAX) {
+                    return nb::cast(PyTimeSeriesBundleInput(std::move(node), std::move(view), root_input, field_index, meta));
+                }
                 return nb::cast(PyTimeSeriesBundleInput(std::move(node), std::move(view), nullptr, meta));
             case TSKind::TSL:
+                if (root_input && field_index != SIZE_MAX) {
+                    return nb::cast(PyTimeSeriesListInput(std::move(node), std::move(view), root_input, field_index, meta));
+                }
                 return nb::cast(PyTimeSeriesListInput(std::move(node), std::move(view), nullptr, meta));
             case TSKind::TSS:
+                if (root_input && field_index != SIZE_MAX) {
+                    return nb::cast(PyTimeSeriesSetInput(std::move(node), std::move(view), root_input, field_index, meta));
+                }
                 return nb::cast(PyTimeSeriesSetInput(std::move(node), std::move(view), nullptr, meta));
             case TSKind::TSD:
+                if (root_input && field_index != SIZE_MAX) {
+                    return nb::cast(PyTimeSeriesDictInput(std::move(node), std::move(view), root_input, field_index, meta));
+                }
                 return nb::cast(PyTimeSeriesDictInput(std::move(node), std::move(view), nullptr, meta));
             case TSKind::TSW:
+                if (root_input && field_index != SIZE_MAX) {
+                    return nb::cast(PyTimeSeriesWindowInput(std::move(node), std::move(view), root_input, field_index, meta));
+                }
                 return nb::cast(PyTimeSeriesWindowInput(std::move(node), std::move(view), nullptr, meta));
             case TSKind::REF:
             default:
+                if (root_input && field_index != SIZE_MAX) {
+                    return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), root_input, field_index, meta));
+                }
                 return nb::cast(PyTimeSeriesInput(std::move(node), std::move(view), meta));
         }
     }
@@ -192,17 +221,18 @@ namespace
             return nb::none();
         }
 
-        // Get the field's meta from the bundle meta (always available even if field is optional/null)
+        // Get the field's meta and index from the bundle meta
         auto* bundle_meta = static_cast<const TSBTypeMeta*>(meta);
         auto* field_meta = bundle_meta->field_meta(field_name);
+        size_t field_index = bundle_meta->field_index(field_name);
 
         // Get the root view - it points to the strategy and navigates to child strategies
         auto root_view = input->view();
         if (!root_view.valid()) {
             // Even if root view is invalid, create a wrapper with invalid view
-            // so Python code can check .valid property
+            // but include root_input and field_index for potential binding
             ts::TSInputView invalid_view{};
-            return create_field_wrapper(node, std::move(invalid_view), field_meta);
+            return create_field_wrapper(node, std::move(invalid_view), field_meta, input, field_index);
         }
 
         // Navigate to the field - this returns a view pointing to the child strategy
@@ -212,7 +242,8 @@ namespace
         // IMPORTANT: Even if field_view is invalid (optional input not wired),
         // still create a wrapper. Python code expects to call .valid on it.
         // The wrapper's .valid will correctly return False for invalid views.
-        return create_field_wrapper(node, std::move(field_view), field_meta);
+        // Pass root_input and field_index for binding support (used by TimeSeriesReference::bind_input)
+        return create_field_wrapper(node, std::move(field_view), field_meta, input, field_index);
     }
 
     // =========================================================================

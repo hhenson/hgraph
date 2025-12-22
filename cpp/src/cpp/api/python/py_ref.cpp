@@ -1,6 +1,7 @@
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_input.h>
 
 namespace hgraph
 {
@@ -14,6 +15,37 @@ namespace hgraph
     struct PyTimeSeriesReferenceInput : PyTimeSeriesInput {
         using PyTimeSeriesInput::PyTimeSeriesInput;
     };
+
+    // Helper function to bind input to a TimeSeriesReference
+    static void bind_input_impl(const TimeSeriesReference& ref, PyTimeSeriesInput& py_input) {
+        if (ref.is_empty()) {
+            // Empty reference - unbind the input
+            py_input.un_bind_output(false);
+            return;
+        }
+
+        if (ref.is_bound()) {
+            // Resolve the reference to get the output view
+            auto view = ref.resolve();
+            if (!view.valid()) {
+                // Invalid view - unbind
+                py_input.un_bind_output(false);
+                return;
+            }
+
+            // Check if this input can be bound
+            if (!py_input.can_bind()) {
+                return;  // Not a bindable input
+            }
+
+            // Use bind_output_view which handles both direct inputs and field wrappers
+            py_input.bind_output_view(view);
+            return;
+        }
+
+        // UNBOUND - this would be for composite references
+        // For now, not implemented - would need to iterate items
+    }
 
     // TimeSeriesReference Python bindings
     static void register_time_series_reference(nb::module_ &m) {
@@ -48,6 +80,9 @@ namespace hgraph
             })
             .def_prop_ro("items", &TimeSeriesReference::items)
             .def("__getitem__", &TimeSeriesReference::operator[])
+            .def("bind_input", [](const TimeSeriesReference& self, PyTimeSeriesInput& input) {
+                bind_input_impl(self, input);
+            }, "input_"_a)
             .def_static(
                 "make",
                 [](nb::object ts, nb::object items) -> TimeSeriesReference {
