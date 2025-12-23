@@ -45,8 +45,11 @@ namespace hgraph
                     if ((injectable & InjectableTypesEnum::NODE) != InjectableTypesEnum::NONE) {
                         wrapped_value = get_node_wrapper();
                     } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
-                        // TODO: Needs wrap_ts_output() for ts::TSOutput*
-                        wrapped_value = nb::none();  // Placeholder
+                        if (has_output()) {
+                            wrapped_value = wrap_output(output(), shared_from_this());
+                        } else {
+                            wrapped_value = nb::none();
+                        }
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
                         wrapped_value = wrap_node_scheduler(sched);
@@ -76,8 +79,7 @@ namespace hgraph
                         wrapped_value = g ? wrap_traits(&g->traits(), g->shared_from_this()) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
                         if (!has_recordable_state()) { throw std::runtime_error("Recordable state not set"); }
-                        // TODO: Needs wrap_ts_output() for ts::TSOutput*
-                        wrapped_value = nb::none();  // Placeholder
+                        wrapped_value = wrap_output(recordable_state(), shared_from_this());
                     } else {
                         // Fallback: call injector with this node (same behaviour as python impl)
                         wrapped_value = value(get_node_wrapper());
