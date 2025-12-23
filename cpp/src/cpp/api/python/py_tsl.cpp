@@ -6,6 +6,7 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/access_strategy.h>
+#include <hgraph/types/time_series/delta_view_python.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/value/python_conversion.h>
@@ -115,6 +116,41 @@ namespace hgraph
             }
         }
         return nb::tuple(result);
+    }
+
+    nb::object PyTimeSeriesListOutput::delta_value() const {
+        // TSL.delta_value returns dict[int, Any] of modified elements' deltas
+        // Python: {i: ts.delta_value for i, ts in enumerate(self._ts_values) if ts.modified}
+        if (!_node) return nb::none();
+
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return nb::none();
+
+        // Use fresh view from _output when available
+        value::TSView view_to_use = _output ? _output->view() : _view;
+        if (!view_to_use.valid()) return nb::none();
+
+        engine_time_t eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+
+        // If the TSL itself is not modified, return None
+        if (!view_to_use.modified_at(eval_time)) return nb::none();
+
+        size_t list_size = view_to_use.list_size();
+        if (list_size == 0 && tsl_meta->size > 0) {
+            list_size = static_cast<size_t>(tsl_meta->size);
+        }
+
+        nb::dict result;
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = view_to_use.element(i);
+            if (elem_view.valid() && elem_view.modified_at(eval_time)) {
+                // Get the element's delta value
+                auto delta = elem_view.delta_view(eval_time);
+                nb::object py_delta = ts::delta_to_python(delta);
+                result[nb::int_(i)] = py_delta;
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesListOutput::get_item(const nb::handle &key) const {
@@ -316,7 +352,26 @@ namespace hgraph
     }
 
     void PyTimeSeriesListOutput::clear() {
-        // TODO: Implement via view
+        // TSL.clear() calls clear() on each element
+        // Python: for v in self.values(): v.clear()
+        auto* tsl_meta = dynamic_cast<const TSLTypeMeta*>(_meta);
+        if (!tsl_meta) return;
+
+        // Use fresh view from _output when available
+        value::TSView view_to_use = _output ? _output->view() : _view;
+        if (!view_to_use.valid()) return;
+
+        size_t list_size = view_to_use.list_size();
+        if (list_size == 0 && tsl_meta->size > 0) {
+            list_size = static_cast<size_t>(tsl_meta->size);
+        }
+
+        for (size_t i = 0; i < list_size; ++i) {
+            auto elem_view = view_to_use.element(i);
+            if (elem_view.valid()) {
+                elem_view.mark_invalid();
+            }
+        }
     }
 
     nb::str PyTimeSeriesListOutput::py_str() const {

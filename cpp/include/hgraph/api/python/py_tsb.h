@@ -55,6 +55,11 @@ namespace hgraph
         // Override all_valid to check all fields
         [[nodiscard]] nb::bool_ all_valid() const override;
 
+        // Override delta_value() to return dict[str, Any] of modified fields' deltas
+        [[nodiscard]] nb::object delta_value() const override;
+
+        void clear();
+
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
     };

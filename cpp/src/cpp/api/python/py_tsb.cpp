@@ -324,6 +324,54 @@ namespace hgraph
         return nb::bool_(true);
     }
 
+    nb::object PyTimeSeriesBundleOutput::delta_value() const {
+        // TSB.delta_value returns dict[str, Any] of modified fields' deltas
+        // Python: {k: ts.delta_value for k, ts in self.items() if ts.modified and ts.valid}
+        if (!_node) return nb::none();
+
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return nb::none();
+
+        // Use fresh view from _output when available
+        value::TSView view_to_use = _output ? _output->view() : _view;
+        if (!view_to_use.valid()) return nb::none();
+
+        engine_time_t eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+
+        // If the TSB itself is not modified, return None
+        if (!view_to_use.modified_at(eval_time)) return nb::none();
+
+        nb::dict result;
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = view_to_use.field(i);
+            if (field_view.valid() && field_view.modified_at(eval_time) && field_view.has_value()) {
+                // Get the field's delta value
+                auto delta = field_view.delta_view(eval_time);
+                nb::object py_delta = ts::delta_to_python(delta);
+                result[nb::cast(tsb_meta->fields[i].name)] = py_delta;
+            }
+        }
+        return result;
+    }
+
+    void PyTimeSeriesBundleOutput::clear() {
+        // TSB.clear() calls clear() on each field
+        // Python: for v in self.values(): v.clear()
+        auto* tsb_meta = static_cast<const TSBTypeMeta*>(_meta);
+        if (!tsb_meta) return;
+
+        // Use fresh view from _output when available
+        value::TSView view_to_use = _output ? _output->view() : _view;
+        if (!view_to_use.valid()) return;
+
+        for (size_t i = 0; i < tsb_meta->fields.size(); ++i) {
+            auto field_view = view_to_use.field(i);
+            if (field_view.valid()) {
+                field_view.mark_invalid();
+            }
+        }
+    }
+
     nb::str PyTimeSeriesBundleOutput::py_str() const {
         return nb::str("TSB{...}");
     }
@@ -887,6 +935,8 @@ namespace hgraph
                 [](const PyTimeSeriesBundleOutput& self) { return self.PyTimeSeriesOutput::value(); },
                 &PyTimeSeriesBundleOutput::set_value,
                 nb::arg("value").none())
+            // Override delta_value to return dict of modified fields' deltas
+            .def_prop_ro("delta_value", &PyTimeSeriesBundleOutput::delta_value)
             .def("keys", &PyTimeSeriesBundleOutput::keys)
             .def("values", &PyTimeSeriesBundleOutput::values)
             .def("items", &PyTimeSeriesBundleOutput::items)
@@ -898,6 +948,7 @@ namespace hgraph
             .def("modified_items", &PyTimeSeriesBundleOutput::modified_items)
             .def_prop_ro("empty", &PyTimeSeriesBundleOutput::empty)
             .def_prop_ro("all_valid", &PyTimeSeriesBundleOutput::all_valid)
+            .def("clear", &PyTimeSeriesBundleOutput::clear)
             .def("__str__", &PyTimeSeriesBundleOutput::py_str)
             .def("__repr__", &PyTimeSeriesBundleOutput::py_repr);
 

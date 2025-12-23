@@ -29,6 +29,9 @@ namespace hgraph
         // Override value() to return tuple of element values (matching Python behavior)
         [[nodiscard]] nb::object value() const override;
 
+        // Override delta_value() to return dict[int, Any] of modified elements' deltas
+        [[nodiscard]] nb::object delta_value() const override;
+
         // Element access - __getitem__
         [[nodiscard]] nb::object get_item(const nb::handle &key) const;
 
