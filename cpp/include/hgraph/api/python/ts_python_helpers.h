@@ -457,6 +457,19 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
                         items_obj = py_value.attr("items")();
                     }
 
+                    // Check if empty dict on first tick - still needs to mark as modified
+                    // Python: "if not self.valid and not v: self.key_set.mark_modified()"
+                    bool is_empty = (nb::len(items_obj) == 0);
+                    if (is_empty && !view.has_value()) {
+                        view.mark_modified(time);
+                        cache_delta(output, py_value);
+                        output->register_delta_reset_callback();
+                        return;
+                    }
+
+                    // Get tracker for delta tracking
+                    auto tracker = view.tracker();
+
                     bool modified = false;
                     for (auto item : items_obj) {
                         nb::tuple kv = nb::cast<nb::tuple>(item);
@@ -475,13 +488,35 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
 
                         // Check for REMOVE sentinels using 'is' comparison
                         if (val.is(remove_sentinel)) {
-                            // REMOVE: Delete the key
-                            storage->remove(key_storage.data());
-                            modified = true;
+                            // REMOVE: Mark key for deferred removal
+                            auto opt_index = storage->keys().find_index(key_storage.data());
+                            if (opt_index) {
+                                size_t index = *opt_index;
+                                bool was_added_this_tick = tracker.dict_key_added_at(index, time);
+                                if (was_added_this_tick) {
+                                    // Add-then-remove same tick: cancel out, remove immediately
+                                    tracker.remove_dict_entry_tracking(index);
+                                    storage->remove(key_storage.data());
+                                } else {
+                                    // Mark for deferred removal
+                                    tracker.mark_dict_key_for_removal(index, time);
+                                }
+                                modified = true;
+                            }
                         } else if (val.is(remove_if_exists_sentinel)) {
-                            // REMOVE_IF_EXISTS: Only delete if key exists
-                            if (storage->contains(key_storage.data())) {
-                                storage->remove(key_storage.data());
+                            // REMOVE_IF_EXISTS: Only mark for removal if key exists
+                            auto opt_index = storage->keys().find_index(key_storage.data());
+                            if (opt_index) {
+                                size_t index = *opt_index;
+                                bool was_added_this_tick = tracker.dict_key_added_at(index, time);
+                                if (was_added_this_tick) {
+                                    // Add-then-remove same tick: cancel out, remove immediately
+                                    tracker.remove_dict_entry_tracking(index);
+                                    storage->remove(key_storage.data());
+                                } else {
+                                    // Mark for deferred removal
+                                    tracker.mark_dict_key_for_removal(index, time);
+                                }
                                 modified = true;
                             }
                         } else {
@@ -490,7 +525,13 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
                             value_schema->ops->construct(value_storage.data(), value_schema);
                             value::value_from_python(value_storage.data(), val, value_schema);
 
-                            storage->insert(key_storage.data(), value_storage.data());
+                            // Insert and track delta
+                            auto [is_new_key, idx] = storage->insert(key_storage.data(), value_storage.data());
+                            if (is_new_key) {
+                                tracker.mark_dict_key_added(idx, time);
+                            } else {
+                                tracker.mark_dict_value_modified(idx, time);
+                            }
                             modified = true;
 
                             if (value_schema->ops->destruct) {

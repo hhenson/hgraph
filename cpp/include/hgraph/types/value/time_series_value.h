@@ -444,14 +444,14 @@ namespace hgraph::value {
 
             if (was_added_this_tick) {
                 // Add-then-remove same tick: cancel out, don't record as removed
+                // Also remove from storage immediately since it was never "committed"
                 _tracker.remove_set_element_tracking(index);
+                set_storage->remove(&element);
             } else {
-                // Element existed before tick: record for delta
-                _tracker.record_set_removal(&element);
+                // Element existed before tick: mark for deferred removal
+                // Element stays in storage until end-of-cycle cleanup
+                _tracker.mark_set_for_removal(index, time);
             }
-
-            // Remove from storage
-            set_storage->remove(&element);
 
             _tracker.mark_modified(time);
             if (_observer) {
@@ -476,12 +476,21 @@ namespace hgraph::value {
         void insert(const K& key, const V& value, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Dict) return;
 
-            bool is_new_key = !_value_view.dict_contains(key);
-            _value_view.dict_insert(key, value);
+            // Access DictStorage directly to get index information
+            auto* storage = static_cast<DictStorage*>(_value_view.data());
+            auto [is_new_key, idx] = storage->insert(&key, &value);
 
             if (is_new_key) {
-                _tracker.mark_modified(time);
+                // Track key addition in modification storage
+                _tracker.mark_dict_key_added(idx, time);
+            } else {
+                // Track value modification for existing key
+                _tracker.mark_dict_value_modified(idx, time);
             }
+
+            // Always mark the dict as modified
+            _tracker.mark_modified(time);
+
             if (_observer) {
                 _observer->notify(time);
             }
@@ -524,14 +533,30 @@ namespace hgraph::value {
         template<typename K>
         bool dict_remove(const K& key, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Dict) return false;
-            bool removed = _value_view.dict_remove(key);
-            if (removed) {
-                _tracker.mark_modified(time);
-                if (_observer) {
-                    _observer->notify(time);
-                }
+
+            // Access DictStorage directly to find the key's index
+            auto* storage = static_cast<DictStorage*>(_value_view.data());
+            auto opt_index = storage->keys().find_index(&key);
+            if (!opt_index) return false;  // Key not in dict
+
+            size_t index = *opt_index;
+            bool was_added_this_tick = _tracker.dict_key_added_at(index, time);
+
+            if (was_added_this_tick) {
+                // Add-then-remove same tick: cancel out, remove immediately
+                _tracker.remove_dict_entry_tracking(index);
+                storage->remove(&key);
+            } else {
+                // Key existed before tick: mark for deferred removal
+                // Key stays in storage until end-of-cycle cleanup
+                _tracker.mark_dict_key_for_removal(index, time);
             }
-            return removed;
+
+            _tracker.mark_modified(time);
+            if (_observer) {
+                _observer->notify(time);
+            }
+            return true;
         }
 
         [[nodiscard]] size_t dict_size() const {

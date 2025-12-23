@@ -23,21 +23,21 @@ namespace hgraph::value {
     /**
      * SetModificationStorage - Dynamic storage for set modification timestamps
      *
-     * Tracks:
-     * - Structural modifications (add/remove elements)
-     * - Per-element tracking (when each element was added)
-     * - Delta tracking (removed elements copied before destruction)
+     * Tracks per-element modification times using a unified approach:
+     * - Normal time = when element was added/last modified
+     * - MAX_DT = element marked for removal (pending deletion at end of cycle)
      *
-     * This enables TSS (Time-Series Set) to track both structural changes
-     * and provide delta_value access to added/removed elements.
+     * This enables TSS (Time-Series Set) to track:
+     * - added() = elements where time == current_time
+     * - removed() = elements where time == MAX_DT
+     * - Deferred deletion allows accessing removed elements during the tick
+     *
+     * At end of evaluation cycle, finalize_removals() must be called to
+     * actually delete MAX_DT-marked elements from SetStorage.
      */
     struct SetModificationStorage {
         engine_time_t structural_modified{MIN_DT};
-        ankerl::unordered_dense::map<size_t, engine_time_t> element_added_at;
-
-        // Delta tracking for removed elements (cleared each tick by engine)
-        std::vector<char> removed_elements;
-        size_t removed_element_count{0};
+        ankerl::unordered_dense::map<size_t, engine_time_t> element_modified_at;
         const TypeMeta* element_type{nullptr};
 
         SetModificationStorage() = default;
@@ -51,76 +51,108 @@ namespace hgraph::value {
             }
         }
 
+        // Mark element as added at given time
         void mark_element_added(size_t index, engine_time_t time) {
-            element_added_at[index] = time;
+            element_modified_at[index] = time;
             mark_structural_modified(time);
         }
 
-        void record_removal(const void* elem) {
-            if (!element_type) return;
-            size_t elem_size = element_type->size;
-            size_t offset = removed_element_count * elem_size;
-            removed_elements.resize(offset + elem_size);
-            element_type->copy_construct_at(removed_elements.data() + offset, elem);
-            ++removed_element_count;
+        // Mark element for removal (deferred deletion)
+        // Element stays in SetStorage until finalize_removals() is called
+        void mark_for_removal(size_t index, engine_time_t time) {
+            element_modified_at[index] = MAX_DT;
+            mark_structural_modified(time);
         }
 
+        // Check if element is pending removal
+        [[nodiscard]] bool is_pending_removal(size_t index) const {
+            auto it = element_modified_at.find(index);
+            return it != element_modified_at.end() && it->second == MAX_DT;
+        }
+
+        // Remove tracking for an element (after actual deletion)
         void remove_element_tracking(size_t index) {
-            element_added_at.erase(index);
+            element_modified_at.erase(index);
         }
 
         [[nodiscard]] bool structurally_modified_at(engine_time_t time) const {
             return structural_modified == time;
         }
 
+        // Check if element was added at specific time (excludes pending removals)
         [[nodiscard]] bool element_added_at_time(size_t index, engine_time_t time) const {
-            auto it = element_added_at.find(index);
-            return it != element_added_at.end() && it->second == time;
+            auto it = element_modified_at.find(index);
+            return it != element_modified_at.end() && it->second == time && it->second != MAX_DT;
         }
 
         [[nodiscard]] engine_time_t element_last_modified_time(size_t index) const {
-            auto it = element_added_at.find(index);
-            return it != element_added_at.end() ? it->second : MIN_DT;
+            auto it = element_modified_at.find(index);
+            if (it == element_modified_at.end()) return MIN_DT;
+            // MAX_DT means pending removal - treat as not having a valid modification time
+            return it->second != MAX_DT ? it->second : MIN_DT;
         }
 
         [[nodiscard]] engine_time_t last_modified_time() const {
             return structural_modified;
         }
 
-        // Delta access
+        // Delta access - count of elements added at given time
         [[nodiscard]] size_t added_count(engine_time_t time) const {
             size_t count = 0;
-            for (const auto& [idx, t] : element_added_at) {
+            for (const auto& [idx, t] : element_modified_at) {
                 if (t == time) ++count;
             }
             return count;
         }
 
+        // Delta access - count of elements pending removal
         [[nodiscard]] size_t removed_count() const {
-            return removed_element_count;
-        }
-
-        [[nodiscard]] const void* removed_element(size_t i) const {
-            if (!element_type || i >= removed_element_count) return nullptr;
-            return removed_elements.data() + i * element_type->size;
-        }
-
-        // Cleanup - destructs non-trivial removed elements
-        void clear_delta() {
-            if (element_type && removed_element_count > 0) {
-                for (size_t i = 0; i < removed_element_count; ++i) {
-                    void* ptr = removed_elements.data() + i * element_type->size;
-                    element_type->destruct_at(ptr);
-                }
+            size_t count = 0;
+            for (const auto& [idx, t] : element_modified_at) {
+                if (t == MAX_DT) ++count;
             }
-            removed_elements.clear();
-            removed_element_count = 0;
+            return count;
+        }
+
+        // Get indices of elements added at given time
+        [[nodiscard]] std::vector<size_t> added_indices(engine_time_t time) const {
+            std::vector<size_t> result;
+            for (const auto& [idx, t] : element_modified_at) {
+                if (t == time) result.push_back(idx);
+            }
+            return result;
+        }
+
+        // Get indices of elements pending removal
+        [[nodiscard]] std::vector<size_t> removed_indices() const {
+            std::vector<size_t> result;
+            for (const auto& [idx, t] : element_modified_at) {
+                if (t == MAX_DT) result.push_back(idx);
+            }
+            return result;
+        }
+
+        // Finalize removals - actually delete elements from SetStorage
+        // Must be called at end of evaluation cycle
+        // Returns number of elements removed
+        size_t finalize_removals(SetStorage* storage) {
+            auto indices = removed_indices();
+            for (size_t idx : indices) {
+                storage->remove_by_index(idx);
+                element_modified_at.erase(idx);
+            }
+            return indices.size();
+        }
+
+        // Clear delta state for next tick (keeps element tracking, clears structural flag)
+        // Note: Does NOT finalize removals - that must be done separately
+        void clear_delta() {
+            // Nothing to clear with MAX_DT approach - removals stay marked until finalized
         }
 
         void clear() {
             structural_modified = MIN_DT;
-            element_added_at.clear();
-            clear_delta();
+            element_modified_at.clear();
         }
     };
 
@@ -162,13 +194,36 @@ namespace hgraph::value {
             key_tracking.mark_element_added(index, time);
         }
 
-        void record_key_removal(const void* key) {
-            key_tracking.record_removal(key);
+        // Mark key for removal (deferred deletion using MAX_DT)
+        void mark_key_for_removal(size_t index, engine_time_t time) {
+            key_tracking.mark_for_removal(index, time);
+        }
+
+        // Check if key is pending removal
+        [[nodiscard]] bool is_key_pending_removal(size_t index) const {
+            return key_tracking.is_pending_removal(index);
         }
 
         void remove_key_tracking(size_t index) {
             key_tracking.remove_element_tracking(index);
             value_modified_at.erase(index);
+        }
+
+        // Get indices of keys pending removal
+        [[nodiscard]] std::vector<size_t> removed_key_indices() const {
+            return key_tracking.removed_indices();
+        }
+
+        // Finalize key removals - actually delete keys from DictStorage
+        // Must be called at end of evaluation cycle
+        size_t finalize_key_removals(SetStorage* key_set_storage) {
+            auto indices = key_tracking.removed_indices();
+            for (size_t idx : indices) {
+                key_set_storage->remove_by_index(idx);
+                key_tracking.remove_element_tracking(idx);
+                value_modified_at.erase(idx);
+            }
+            return indices.size();
         }
 
         // Value modification tracking
@@ -636,10 +691,26 @@ namespace hgraph::value {
             if (_owner) _owner->propagate_to_parent(time);
         }
 
-        void record_set_removal(const void* elem) {
+        // Mark element for removal (deferred deletion using MAX_DT)
+        void mark_set_for_removal(size_t index, engine_time_t time) {
             if (!valid() || _value_meta->kind != TypeKind::Set) return;
             auto* storage = static_cast<SetModificationStorage*>(_storage);
-            storage->record_removal(elem);
+            storage->mark_for_removal(index, time);
+            if (_owner) _owner->propagate_to_parent(time);
+        }
+
+        // Check if element is pending removal
+        // Works for both Set tracker and Dict tracker (checks dict's key_tracking)
+        [[nodiscard]] bool is_set_pending_removal(size_t index) const {
+            if (!valid()) return false;
+            if (_value_meta->kind == TypeKind::Set) {
+                return static_cast<SetModificationStorage*>(_storage)->is_pending_removal(index);
+            }
+            if (_value_meta->kind == TypeKind::Dict) {
+                // For dict's key_set view, check the key_tracking in DictModificationStorage
+                return static_cast<DictModificationStorage*>(_storage)->is_key_pending_removal(index);
+            }
+            return false;
         }
 
         [[nodiscard]] bool set_element_added_at(size_t index, engine_time_t time) const {
@@ -663,11 +734,23 @@ namespace hgraph::value {
             return static_cast<SetModificationStorage*>(_storage)->removed_count();
         }
 
-        [[nodiscard]] ConstTypedPtr set_removed_element(size_t i) const {
+        // Get indices of elements added at given time
+        [[nodiscard]] std::vector<size_t> set_added_indices(engine_time_t time) const {
             if (!valid() || _value_meta->kind != TypeKind::Set) return {};
-            auto* storage = static_cast<SetModificationStorage*>(_storage);
-            const void* elem = storage->removed_element(i);
-            return elem ? ConstTypedPtr{elem, storage->element_type} : ConstTypedPtr{};
+            return static_cast<SetModificationStorage*>(_storage)->added_indices(time);
+        }
+
+        // Get indices of elements pending removal
+        [[nodiscard]] std::vector<size_t> set_removed_indices() const {
+            if (!valid() || _value_meta->kind != TypeKind::Set) return {};
+            return static_cast<SetModificationStorage*>(_storage)->removed_indices();
+        }
+
+        // Finalize set removals - actually delete elements from SetStorage
+        // Must be called at end of evaluation cycle
+        size_t finalize_set_removals(SetStorage* set_storage) {
+            if (!valid() || _value_meta->kind != TypeKind::Set) return 0;
+            return static_cast<SetModificationStorage*>(_storage)->finalize_removals(set_storage);
         }
 
         void clear_set_delta() {
@@ -688,9 +771,18 @@ namespace hgraph::value {
             if (_owner) _owner->propagate_to_parent(time);
         }
 
-        void record_dict_key_removal(const void* key) {
+        // Mark dict key for removal (deferred deletion using MAX_DT)
+        void mark_dict_key_for_removal(size_t entry_index, engine_time_t time) {
             if (!valid() || _value_meta->kind != TypeKind::Dict) return;
-            static_cast<DictModificationStorage*>(_storage)->record_key_removal(key);
+            auto* storage = static_cast<DictModificationStorage*>(_storage);
+            storage->mark_key_for_removal(entry_index, time);
+            if (_owner) _owner->propagate_to_parent(time);
+        }
+
+        // Check if dict key is pending removal
+        [[nodiscard]] bool is_dict_key_pending_removal(size_t entry_index) const {
+            if (!valid() || _value_meta->kind != TypeKind::Dict) return false;
+            return static_cast<DictModificationStorage*>(_storage)->is_key_pending_removal(entry_index);
         }
 
         void mark_dict_value_modified(size_t entry_index, engine_time_t time) {
@@ -741,11 +833,17 @@ namespace hgraph::value {
             return static_cast<DictModificationStorage*>(_storage)->key_tracking.removed_count();
         }
 
-        [[nodiscard]] ConstTypedPtr dict_removed_key(size_t i) const {
+        // Get indices of dict keys pending removal
+        [[nodiscard]] std::vector<size_t> dict_removed_key_indices() const {
             if (!valid() || _value_meta->kind != TypeKind::Dict) return {};
-            auto* storage = static_cast<DictModificationStorage*>(_storage);
-            const void* key = storage->key_tracking.removed_element(i);
-            return key ? ConstTypedPtr{key, storage->key_tracking.element_type} : ConstTypedPtr{};
+            return static_cast<DictModificationStorage*>(_storage)->removed_key_indices();
+        }
+
+        // Finalize dict key removals - actually delete keys from DictStorage's key set
+        // Must be called at end of evaluation cycle
+        size_t finalize_dict_key_removals(SetStorage* key_set_storage) {
+            if (!valid() || _value_meta->kind != TypeKind::Dict) return 0;
+            return static_cast<DictModificationStorage*>(_storage)->finalize_key_removals(key_set_storage);
         }
 
         [[nodiscard]] size_t dict_updated_count() const {
@@ -870,9 +968,11 @@ namespace hgraph::value {
                 _storage = new engine_time_t{MIN_DT};
                 break;
 
-            case TypeKind::Dict:
-                _storage = new DictModificationStorage();
+            case TypeKind::Dict: {
+                auto* dict_meta = static_cast<const DictTypeMeta*>(_value_meta);
+                _storage = new DictModificationStorage(dict_meta->key_type(), dict_meta->value_type);
                 break;
+            }
 
             case TypeKind::Ref: {
                 // Own timestamp + recursive children for composite refs

@@ -201,9 +201,22 @@ public:
         return _tracker.set_removed_count();
     }
 
+    // Get indices of removed elements (marked with MAX_DT)
+    [[nodiscard]] std::vector<size_t> set_removed_indices() const {
+        if (!valid() || ts_kind() != TSKind::TSS) return {};
+        return _tracker.set_removed_indices();
+    }
+
+    // Get a removed element by its index in the removed list
+    // The element is still in SetStorage (pending removal) so we can access it directly
     [[nodiscard]] value::ConstTypedPtr set_removed_element(size_t i) const {
         if (!valid() || ts_kind() != TSKind::TSS) return {};
-        return _tracker.set_removed_element(i);
+        auto indices = _tracker.set_removed_indices();
+        if (i >= indices.size()) return {};
+        size_t elem_index = indices[i];
+        auto* storage = static_cast<const value::SetStorage*>(_value_view.data());
+        const void* elem = storage->element_at_index(elem_index);
+        return elem ? value::ConstTypedPtr{elem, storage->element_type()} : value::ConstTypedPtr{};
     }
 
     // Access to the set storage for iterating added elements
@@ -229,9 +242,22 @@ public:
         return _tracker.dict_removed_count();
     }
 
+    // Get indices of removed keys (marked with MAX_DT)
+    [[nodiscard]] std::vector<size_t> dict_removed_key_indices() const {
+        if (!valid() || ts_kind() != TSKind::TSD) return {};
+        return _tracker.dict_removed_key_indices();
+    }
+
+    // Get a removed key by its index in the removed list
+    // The key is still in DictStorage's key set (pending removal) so we can access it directly
     [[nodiscard]] value::ConstTypedPtr dict_removed_key(size_t i) const {
         if (!valid() || ts_kind() != TSKind::TSD) return {};
-        return _tracker.dict_removed_key(i);
+        auto indices = _tracker.dict_removed_key_indices();
+        if (i >= indices.size()) return {};
+        size_t key_index = indices[i];
+        auto* storage = static_cast<const value::DictStorage*>(_value_view.data());
+        const void* key = storage->keys().element_at_index(key_index);
+        return key ? value::ConstTypedPtr{key, storage->keys().element_type()} : value::ConstTypedPtr{};
     }
 
     // Access to the dict storage for iterating entries

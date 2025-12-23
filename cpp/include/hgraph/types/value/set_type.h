@@ -190,6 +190,29 @@ namespace hgraph::value {
             return {true, idx};
         }
 
+        // Remove element by index (for deferred removal cleanup)
+        // Returns true if the index was valid and removed
+        bool remove_by_index(size_t idx) {
+            if (!_element_type || _index_set.empty()) return false;
+
+            auto it = _index_set.find(idx);
+            if (it == _index_set.end()) {
+                return false;
+            }
+
+            _element_type->destruct_at(element_ptr(idx));
+            _index_set.erase(it);
+            return true;
+        }
+
+        // Get element pointer by index (for deferred removal - access before cleanup)
+        [[nodiscard]] const void* element_at_index(size_t idx) const {
+            if (!_element_type || idx >= _element_count) return nullptr;
+            // Check if index is actually in the live set
+            if (_index_set.find(idx) == _index_set.end()) return nullptr;
+            return element_ptr(idx);
+        }
+
         // Check if element exists - O(1) average
         [[nodiscard]] bool contains(const void* value) const {
             if (!_element_type || _index_set.empty()) return false;

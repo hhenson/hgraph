@@ -450,53 +450,219 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::added_keys() const {
-        // TODO: Implement added_keys via delta tracking
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid()) return nb::list();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto tracker = v.tracker();
+
+        nb::list result;
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+
+        // Iterate through all entries and check which were added at current time
+        size_t idx = 0;
+        for (auto kv : *storage) {
+            if (tracker.dict_key_added_at(idx, eval_time)) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, tsd_meta->key_type);
+                result.append(py_key);
+            }
+            ++idx;
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::added_values() const {
-        // TODO: Implement added_values via delta tracking
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid()) return nb::list();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto tracker = v.tracker();
+
+        nb::list result;
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+
+        size_t idx = 0;
+        for (auto kv : *storage) {
+            if (tracker.dict_key_added_at(idx, eval_time)) {
+                auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, tsd_meta->key_type));
+                result.append(create_tsd_output_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type));
+            }
+            ++idx;
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::added_items() const {
-        // TODO: Implement added_items via delta tracking
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid()) return nb::list();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto tracker = v.tracker();
+
+        nb::list result;
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+
+        size_t idx = 0;
+        for (auto kv : *storage) {
+            if (tracker.dict_key_added_at(idx, eval_time)) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, tsd_meta->key_type);
+                auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, tsd_meta->key_type));
+                nb::tuple item = nb::make_tuple(py_key, create_tsd_output_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type));
+                result.append(item);
+            }
+            ++idx;
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictOutput::has_added() const {
-        // TODO: Implement has_added via delta tracking
-        return false;
+        auto v = view();
+        if (!v.valid()) return false;
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto tracker = v.tracker();
+        return tracker.dict_added_count(eval_time) > 0;
     }
 
     bool PyTimeSeriesDictOutput::was_added(const nb::object &key) const {
-        // TODO: Implement was_added via delta tracking
-        return false;
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return false;
+
+        auto v = view();
+        if (!v.valid()) return false;
+
+        // Convert key to C++ storage
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), key, key_type);
+
+        // Find index
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto idx = storage->find_index(key_storage.data());
+
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        if (!idx) return false;
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto tracker = v.tracker();
+        return tracker.dict_key_added_at(*idx, eval_time);
     }
 
     nb::object PyTimeSeriesDictOutput::removed_keys() const {
-        // TODO: Implement removed_keys via delta tracking
-        return nb::list();
+        auto v = view();
+        if (!v.valid()) return nb::list();
+
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto tracker = v.tracker();
+        auto removed_indices = tracker.dict_removed_key_indices();
+
+        // Get storage to access keys by index
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = storage->keys().element_type();
+
+        nb::list result;
+        for (size_t idx : removed_indices) {
+            const void* key_ptr = storage->keys().element_at_index(idx);
+            if (key_ptr) {
+                nb::object py_key = value::value_to_python(key_ptr, key_type);
+                result.append(py_key);
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::removed_values() const {
-        // TODO: Implement removed_values via delta tracking
+        // With deferred deletion, we could access values, but they're about to be removed
+        // Return empty list for now to match expected semantics
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictOutput::removed_items() const {
-        // TODO: Implement removed_items via delta tracking
-        return nb::list();
+        // Return keys only with None values (values are being removed)
+        auto v = view();
+        if (!v.valid()) return nb::list();
+
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto tracker = v.tracker();
+        auto removed_indices = tracker.dict_removed_key_indices();
+
+        // Get storage to access keys by index
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+        auto* key_type = storage->keys().element_type();
+
+        nb::list result;
+        for (size_t idx : removed_indices) {
+            const void* key_ptr = storage->keys().element_at_index(idx);
+            if (key_ptr) {
+                nb::object py_key = value::value_to_python(key_ptr, key_type);
+                nb::tuple item = nb::make_tuple(py_key, nb::none());
+                result.append(item);
+            }
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictOutput::has_removed() const {
-        // TODO: Implement has_removed via delta tracking
-        return false;
+        auto v = view();
+        if (!v.valid()) return false;
+
+        auto tracker = v.tracker();
+        return tracker.dict_removed_count() > 0;
     }
 
     bool PyTimeSeriesDictOutput::was_removed(const nb::object &key) const {
-        // TODO: Implement was_removed via delta tracking
-        return false;
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return false;
+
+        auto v = view();
+        if (!v.valid()) return false;
+
+        // Convert key to C++ storage
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), key, key_type);
+
+        // Check in removed keys by index
+        auto tracker = v.tracker();
+        auto removed_indices = tracker.dict_removed_key_indices();
+
+        // Get storage to access keys by index
+        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
+
+        bool found = false;
+        for (size_t idx : removed_indices) {
+            const void* removed_key_ptr = storage->keys().element_at_index(idx);
+            if (removed_key_ptr && key_type->ops->equals) {
+                if (key_type->ops->equals(key_storage.data(), removed_key_ptr, key_type)) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        return found;
     }
 
     nb::str PyTimeSeriesDictOutput::py_str() const {
@@ -541,6 +707,16 @@ namespace hgraph
             items_obj = nb::cast<nb::dict>(py_value).attr("items")();
         } else {
             items_obj = py_value.attr("items")();
+        }
+
+        // Check if the dict is empty - we still need to mark as modified
+        // Python: "if not self.valid and not v: self.key_set.mark_modified()"
+        // Even setting an empty dict should trigger the output as modified
+        bool is_empty = (nb::len(items_obj) == 0);
+        if (is_empty && !_view.has_value()) {
+            // Mark as modified even for empty dict when not yet valid
+            _view.mark_modified(eval_time);
+            return;
         }
 
         for (auto item : items_obj) {
@@ -942,53 +1118,274 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictInput::added_keys() const {
-        // TODO: Implement added_keys via delta tracking
-        return nb::list();
+        // Delegate to bound output's added_keys
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid()) return nb::list();
+
+        auto* bound = v.bound_output();
+        if (!bound) return nb::list();
+
+        auto output_view = bound->view();
+        if (!output_view.valid()) return nb::list();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto tracker = output_view.tracker();
+
+        nb::list result;
+        auto* storage = static_cast<const value::DictStorage*>(output_view.value_view().data());
+
+        size_t idx = 0;
+        for (auto kv : *storage) {
+            if (tracker.dict_key_added_at(idx, eval_time)) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, tsd_meta->key_type);
+                result.append(py_key);
+            }
+            ++idx;
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::added_values() const {
-        // TODO: Implement added_values via delta tracking
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid()) return nb::list();
+
+        auto* bound = v.bound_output();
+        if (!bound) return nb::list();
+
+        auto output_view = bound->view();
+        if (!output_view.valid()) return nb::list();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto tracker = output_view.tracker();
+
+        nb::list result;
+        auto* storage = static_cast<const value::DictStorage*>(output_view.value_view().data());
+
+        size_t idx = 0;
+        for (auto kv : *storage) {
+            if (tracker.dict_key_added_at(idx, eval_time)) {
+                auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, tsd_meta->key_type));
+                result.append(create_tsd_input_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type));
+            }
+            ++idx;
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::added_items() const {
-        // TODO: Implement added_items via delta tracking
-        return nb::list();
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto v = view();
+        if (!v.valid()) return nb::list();
+
+        auto* bound = v.bound_output();
+        if (!bound) return nb::list();
+
+        auto output_view = bound->view();
+        if (!output_view.valid()) return nb::list();
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto tracker = output_view.tracker();
+
+        nb::list result;
+        auto* storage = static_cast<const value::DictStorage*>(output_view.value_view().data());
+
+        size_t idx = 0;
+        for (auto kv : *storage) {
+            if (tracker.dict_key_added_at(idx, eval_time)) {
+                nb::object py_key = value::value_to_python(kv.key.ptr, tsd_meta->key_type);
+                auto entry_view = v.entry(value::ConstValueView(kv.key.ptr, tsd_meta->key_type));
+                nb::tuple item = nb::make_tuple(py_key, create_tsd_input_wrapper_from_view(_node, std::move(entry_view), tsd_meta->value_ts_type));
+                result.append(item);
+            }
+            ++idx;
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictInput::has_added() const {
-        // TODO: Implement has_added via delta tracking
-        return false;
+        auto v = view();
+        if (!v.valid()) return false;
+
+        auto* bound = v.bound_output();
+        if (!bound) return false;
+
+        auto output_view = bound->view();
+        if (!output_view.valid()) return false;
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto tracker = output_view.tracker();
+        return tracker.dict_added_count(eval_time) > 0;
     }
 
     bool PyTimeSeriesDictInput::was_added(const nb::object &key) const {
-        // TODO: Implement was_added via delta tracking
-        return false;
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return false;
+
+        auto v = view();
+        if (!v.valid()) return false;
+
+        auto* bound = v.bound_output();
+        if (!bound) return false;
+
+        auto output_view = bound->view();
+        if (!output_view.valid()) return false;
+
+        // Convert key to C++ storage
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), key, key_type);
+
+        // Find index
+        auto* storage = static_cast<const value::DictStorage*>(output_view.value_view().data());
+        auto idx = storage->find_index(key_storage.data());
+
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        if (!idx) return false;
+
+        engine_time_t eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+        auto tracker = output_view.tracker();
+        return tracker.dict_key_added_at(*idx, eval_time);
     }
 
     nb::object PyTimeSeriesDictInput::removed_keys() const {
-        // TODO: Implement removed_keys via delta tracking
-        return nb::list();
+        // For inputs, removed_keys requires accessing delta info from bound output
+        auto v = view();
+        if (!v.valid()) return nb::list();
+
+        auto* bound = v.bound_output();
+        if (!bound) return nb::list();
+
+        auto output_view = bound->view();
+        if (!output_view.valid()) return nb::list();
+
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto tracker = output_view.tracker();
+        auto removed_indices = tracker.dict_removed_key_indices();
+
+        // Get storage from output view to access keys by index
+        auto* storage = static_cast<const value::DictStorage*>(output_view.value_view().data());
+        auto* key_type = storage->keys().element_type();
+
+        nb::list result;
+        for (size_t idx : removed_indices) {
+            const void* key_ptr = storage->keys().element_at_index(idx);
+            if (key_ptr) {
+                nb::object py_key = value::value_to_python(key_ptr, key_type);
+                result.append(py_key);
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::removed_values() const {
-        // TODO: Implement removed_values via delta tracking
+        // removed_values is complex - the values are no longer in storage
+        // This would need delta tracking to record values before removal
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictInput::removed_items() const {
-        // TODO: Implement removed_items via delta tracking
-        return nb::list();
+        // For inputs, removed_items with deferred deletion
+        auto v = view();
+        if (!v.valid()) return nb::list();
+
+        auto* bound = v.bound_output();
+        if (!bound) return nb::list();
+
+        auto output_view = bound->view();
+        if (!output_view.valid()) return nb::list();
+
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return nb::list();
+
+        auto tracker = output_view.tracker();
+        auto removed_indices = tracker.dict_removed_key_indices();
+
+        // Get storage from output view to access keys by index
+        auto* storage = static_cast<const value::DictStorage*>(output_view.value_view().data());
+        auto* key_type = storage->keys().element_type();
+
+        nb::list result;
+        for (size_t idx : removed_indices) {
+            const void* key_ptr = storage->keys().element_at_index(idx);
+            if (key_ptr) {
+                nb::object py_key = value::value_to_python(key_ptr, key_type);
+                // Value is being removed - return (key, None)
+                result.append(nb::make_tuple(py_key, nb::none()));
+            }
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictInput::has_removed() const {
-        // TODO: Implement has_removed via delta tracking
-        return false;
+        auto v = view();
+        if (!v.valid()) return false;
+
+        auto* bound = v.bound_output();
+        if (!bound) return false;
+
+        auto output_view = bound->view();
+        if (!output_view.valid()) return false;
+
+        auto tracker = output_view.tracker();
+        return tracker.dict_removed_count() > 0;
     }
 
     bool PyTimeSeriesDictInput::was_removed(const nb::object &key) const {
-        // TODO: Implement was_removed via delta tracking
-        return false;
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return false;
+
+        auto v = view();
+        if (!v.valid()) return false;
+
+        auto* bound = v.bound_output();
+        if (!bound) return false;
+
+        auto output_view = bound->view();
+        if (!output_view.valid()) return false;
+
+        // Convert key to C++ storage
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), key, key_type);
+
+        // Check in removed keys by index
+        auto tracker = output_view.tracker();
+        auto removed_indices = tracker.dict_removed_key_indices();
+
+        // Get storage from output view to access keys by index
+        auto* storage = static_cast<const value::DictStorage*>(output_view.value_view().data());
+
+        bool found = false;
+        for (size_t idx : removed_indices) {
+            const void* removed_key_ptr = storage->keys().element_at_index(idx);
+            if (removed_key_ptr && key_type->ops->equals) {
+                if (key_type->ops->equals(key_storage.data(), removed_key_ptr, key_type)) {
+                    found = true;
+                    break;
+                }
+            }
+        }
+
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        return found;
     }
 
     nb::str PyTimeSeriesDictInput::py_str() const {

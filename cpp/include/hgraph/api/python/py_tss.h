@@ -32,7 +32,10 @@ namespace hgraph
         PyTimeSeriesSetOutput(const PyTimeSeriesSetOutput&) = delete;
         PyTimeSeriesSetOutput& operator=(const PyTimeSeriesSetOutput&) = delete;
 
-        // Set operations
+        // Override value() to filter out MAX_DT-marked elements (pending removal)
+        [[nodiscard]] nb::object value() const;
+
+        // Set operations (filter MAX_DT-marked elements)
         [[nodiscard]] bool contains(const nb::object &item) const;
         [[nodiscard]] size_t size() const;
         [[nodiscard]] nb::bool_ empty() const;

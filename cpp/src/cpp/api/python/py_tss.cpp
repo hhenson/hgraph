@@ -9,6 +9,41 @@
 namespace hgraph
 {
     // PyTimeSeriesSetOutput implementations
+
+    // Override value() to filter out MAX_DT-marked elements (pending removal)
+    nb::object PyTimeSeriesSetOutput::value() const {
+        if (!_view.valid()) return nb::none();
+
+        auto vv = _view.value_view();
+        if (!vv.valid()) return nb::none();
+
+        auto* storage = static_cast<const value::SetStorage*>(vv.data());
+        if (!storage) return nb::none();
+
+        auto* element_type = storage->element_type();
+        if (!element_type) return nb::none();
+
+        // Get tracker to check for MAX_DT-marked elements
+        auto tracker = _view.tracker();
+
+        // Build set excluding MAX_DT-marked elements (pending removals)
+        nb::set result_set;
+        for (auto elem : *storage) {
+            // Find element's index
+            auto opt_index = storage->find_index(elem.ptr);
+            if (opt_index) {
+                // Check if this element is pending removal (MAX_DT)
+                if (tracker.is_set_pending_removal(*opt_index)) {
+                    continue;  // Skip pending removals
+                }
+            }
+            nb::object py_elem = value::value_to_python(elem.ptr, element_type);
+            result_set.add(py_elem);
+        }
+
+        return nb::frozenset(result_set);
+    }
+
     bool PyTimeSeriesSetOutput::contains(const nb::object &item) const {
         nb::object val = value();
         if (val.is_none()) return false;
@@ -17,11 +52,26 @@ namespace hgraph
     }
 
     size_t PyTimeSeriesSetOutput::size() const {
-        return view().set_size();
+        // Count elements excluding MAX_DT-marked ones
+        if (!_view.valid()) return 0;
+        auto vv = _view.value_view();
+        if (!vv.valid()) return 0;
+        auto* storage = static_cast<const value::SetStorage*>(vv.data());
+        if (!storage) return 0;
+
+        auto tracker = _view.tracker();
+        size_t count = 0;
+        for (auto elem : *storage) {
+            auto opt_index = storage->find_index(elem.ptr);
+            if (opt_index && !tracker.is_set_pending_removal(*opt_index)) {
+                ++count;
+            }
+        }
+        return count;
     }
 
     nb::bool_ PyTimeSeriesSetOutput::empty() const {
-        return nb::bool_(view().set_size() == 0);
+        return nb::bool_(size() == 0);
     }
 
     void PyTimeSeriesSetOutput::add(const nb::object &item) {
