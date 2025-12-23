@@ -347,51 +347,28 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesInput::output() const {
-        //TODO: Not sure about this Fallback statement. The output is the output view this input is bound to.
-        //      In the case of a non-peer bound solution there is never an output and in the case of REF bound
-        //      the output is the output referred to by the TimeSeriesReference value of the bound view (unless non-peered, in whic
-        //      case see above.
-
-        auto* src = _view.source();
-        const char* strategy_type = "unknown";
-        if (dynamic_cast<ts::DirectAccessStrategy*>(src)) strategy_type = "Direct";
-        else if (dynamic_cast<ts::RefObserverAccessStrategy*>(src)) strategy_type = "RefObserver";
-        else if (dynamic_cast<ts::CollectionAccessStrategy*>(src)) strategy_type = "Collection";
-        else if (dynamic_cast<ts::ElementAccessStrategy*>(src)) strategy_type = "Element";
-        fprintf(stderr, "[DEBUG PyTimeSeriesInput::output] _view.valid()=%d, _view._source=%p (%s)\n",
-                _view.valid(), (void*)src, strategy_type);
-        fflush(stderr);
+        // The output is the output this input is bound to.
+        // For non-peer bound inputs there is no output.
+        // For REF bound inputs, the output is the one referred to by the TimeSeriesReference value.
 
         // First try via the view (works for field wrappers and direct wrappers)
-        if (auto* refobs = dynamic_cast<ts::RefObserverAccessStrategy*>(src)) {
-            auto target = refobs->target_view();
-            fprintf(stderr, "[DEBUG PyTimeSeriesInput::output] RefObserver target_view.valid=%d, root_output=%p\n",
-                    target.valid(), target.valid() ? (void*)target.root_output() : nullptr);
-            fflush(stderr);
-        }
         auto* bound_out = _view.bound_output();
-        fprintf(stderr, "[DEBUG PyTimeSeriesInput::output] _view.bound_output()=%p\n", (void*)bound_out);
-        fflush(stderr);
         if (bound_out) {
             auto out_node = bound_out->owning_node();
             node_s_ptr node_shared = out_node ? out_node->shared_from_this() : nullptr;
             return wrap_output(bound_out, node_shared);
         }
 
-        // Fallback: try via direct input (for cases where view doesn't have source)
-        fprintf(stderr, "[DEBUG PyTimeSeriesInput::output] fallback: _input=%p, strategy=%p\n",
-                (void*)_input, _input ? (void*)_input->strategy() : nullptr);
-        fflush(stderr);
-        if (_input && _input->strategy()) {
-            bound_out = _input->strategy()->bound_output();
-            fprintf(stderr, "[DEBUG PyTimeSeriesInput::output] fallback bound_out=%p\n", (void*)bound_out);
-            fflush(stderr);
-            if (bound_out) {
-                auto out_node = bound_out->owning_node();
-                node_s_ptr node_shared = out_node ? out_node->shared_from_this() : nullptr;
-                return wrap_output(bound_out, node_shared);
-            }
-        }
+        // Either this bound or not bound
+        // // Fallback: try via direct input (for cases where view doesn't have source)
+        // if (_input && _input->strategy()) {
+        //     bound_out = _input->strategy()->bound_output();
+        //     if (bound_out) {
+        //         auto out_node = bound_out->owning_node();
+        //         node_s_ptr node_shared = out_node ? out_node->shared_from_this() : nullptr;
+        //         return wrap_output(bound_out, node_shared);
+        //     }
+        // }
 
         return nb::none();
     }
