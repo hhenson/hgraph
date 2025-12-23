@@ -88,7 +88,6 @@ namespace hgraph
         nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
 
         // Store via base class and cache delta
-        auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
         PyTimeSeriesOutput::set_value(nb::frozenset(new_set));
 
         if (_output) {
@@ -129,9 +128,6 @@ namespace hgraph
             _view.mark_invalid();
             return;
         }
-
-        // Get evaluation time
-        auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
 
         // Get the current value as a Python set
         nb::object current_value = value();
@@ -358,11 +354,11 @@ namespace hgraph
     }
 
     // Feature extension helper: get singleton TSMeta for TS[bool]
-    // Use Python-aware bool type to ensure to_python/from_python are available
+    // Uses compile-time type API which goes through the registry for deduplication.
+    // With HGRAPH_TYPE_API_WITH_PYTHON defined (via CMake), type_of<T>() returns
+    // Python-aware TypeMeta, ensuring consistency with runtime APIs.
     static const TSMeta* get_bool_ts_meta() {
-        //TODO: Could we not use the Cool static typing solution here? i.e. TS[bool]?
-        static const TSMeta* bool_ts_meta = types::runtime::ts(value::bool_type());
-        return bool_ts_meta;
+        return types::ts_type<types::TS<bool>>();
     }
 
     // Feature extension helper: get singleton OutputBuilder for TS[bool]

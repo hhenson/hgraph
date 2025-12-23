@@ -51,11 +51,8 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 
-// Conditionally include Python conversion support
-// Define HGRAPH_TYPE_API_WITH_PYTHON before including to enable runtime_python namespace
-#ifdef HGRAPH_TYPE_API_WITH_PYTHON
+// Python conversion support - always included since this is a Python extension
 #include <hgraph/types/value/python_conversion.h>
-#endif
 #include <algorithm>
 #include <cstddef>
 #include <string>
@@ -238,10 +235,15 @@ namespace detail {
 /**
  * Get the TypeMeta for a scalar type T.
  * Automatically uses the global registry for interning.
+ *
+ * Returns Python-aware TypeMeta to ensure consistency with runtime APIs like
+ * value::bool_type(), value::int_type(), etc. This is critical because the
+ * registry uses TypeMeta pointers as part of the key - using different
+ * TypeMeta instances for the same logical type would create duplicate entries.
  */
 template<typename T>
 const value::TypeMeta* type_of() {
-    return value::scalar_type_meta<T>();
+    return value::scalar_type_meta_with_python<T>();
 }
 
 // ============================================================================
@@ -1203,15 +1205,11 @@ namespace runtime {
 // Runtime API with Python Conversion Support
 // ============================================================================
 
-#ifdef HGRAPH_TYPE_API_WITH_PYTHON
 /**
  * Python-aware runtime type factory functions.
  *
  * These are identical to the runtime:: functions but use builders that
  * include Python conversion ops (SetTypeBuilderWithPython, etc.).
- * Use these when types will be accessed from Python.
- *
- * To use this namespace, define HGRAPH_TYPE_API_WITH_PYTHON before including type_api.h
  */
 namespace runtime_python {
 
@@ -1447,7 +1445,6 @@ namespace runtime_python {
     }
 
 }  // namespace runtime_python
-#endif // HGRAPH_TYPE_API_WITH_PYTHON
 
 }  // namespace hgraph::types
 

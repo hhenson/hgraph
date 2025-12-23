@@ -7,8 +7,7 @@
 // It uses the runtime_python:: namespace functions for Python-aware type construction.
 //
 
-// Enable Python-aware type construction functions
-#define HGRAPH_TYPE_API_WITH_PYTHON
+// HGRAPH_TYPE_API_WITH_PYTHON is defined globally via CMakeLists.txt
 #include <hgraph/types/type_api.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
