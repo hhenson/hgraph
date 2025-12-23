@@ -488,35 +488,35 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
 
                         // Check for REMOVE sentinels using 'is' comparison
                         if (val.is(remove_sentinel)) {
-                            // REMOVE: Mark key for deferred removal
+                            // REMOVE: Remove key immediately
                             auto opt_index = storage->keys().find_index(key_storage.data());
                             if (opt_index) {
                                 size_t index = *opt_index;
                                 bool was_added_this_tick = tracker.dict_key_added_at(index, time);
                                 if (was_added_this_tick) {
-                                    // Add-then-remove same tick: cancel out, remove immediately
+                                    // Add-then-remove same tick: cancel out, don't record as removed
                                     tracker.remove_dict_entry_tracking(index);
-                                    storage->remove(key_storage.data());
                                 } else {
-                                    // Mark for deferred removal
-                                    tracker.mark_dict_key_for_removal(index, time);
+                                    // Record key for delta access before removal
+                                    tracker.record_dict_key_removal(key_storage.data(), time);
                                 }
+                                storage->remove(key_storage.data());
                                 modified = true;
                             }
                         } else if (val.is(remove_if_exists_sentinel)) {
-                            // REMOVE_IF_EXISTS: Only mark for removal if key exists
+                            // REMOVE_IF_EXISTS: Only remove if key exists
                             auto opt_index = storage->keys().find_index(key_storage.data());
                             if (opt_index) {
                                 size_t index = *opt_index;
                                 bool was_added_this_tick = tracker.dict_key_added_at(index, time);
                                 if (was_added_this_tick) {
-                                    // Add-then-remove same tick: cancel out, remove immediately
+                                    // Add-then-remove same tick: cancel out, don't record as removed
                                     tracker.remove_dict_entry_tracking(index);
-                                    storage->remove(key_storage.data());
                                 } else {
-                                    // Mark for deferred removal
-                                    tracker.mark_dict_key_for_removal(index, time);
+                                    // Record key for delta access before removal
+                                    tracker.record_dict_key_removal(key_storage.data(), time);
                                 }
+                                storage->remove(key_storage.data());
                                 modified = true;
                             }
                         } else {

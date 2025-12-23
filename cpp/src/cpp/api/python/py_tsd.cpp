@@ -569,15 +569,15 @@ namespace hgraph
         if (!tsd_meta) return nb::list();
 
         auto tracker = v.tracker();
-        auto removed_indices = tracker.dict_removed_key_indices();
+        size_t removed_count = tracker.dict_removed_count();
 
-        // Get storage to access keys by index
+        // Get storage for key type info
         auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
         auto* key_type = storage->keys().element_type();
 
         nb::list result;
-        for (size_t idx : removed_indices) {
-            const void* key_ptr = storage->keys().element_at_index(idx);
+        for (size_t i = 0; i < removed_count; ++i) {
+            const void* key_ptr = tracker.dict_removed_key(i);
             if (key_ptr) {
                 nb::object py_key = value::value_to_python(key_ptr, key_type);
                 result.append(py_key);
@@ -587,13 +587,13 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::removed_values() const {
-        // With deferred deletion, we could access values, but they're about to be removed
-        // Return empty list for now to match expected semantics
+        // Removed keys are stored in tracker's removed storage, values are gone
+        // Return empty list to match expected semantics
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictOutput::removed_items() const {
-        // Return keys only with None values (values are being removed)
+        // Return keys only with None values (values were removed)
         auto v = view();
         if (!v.valid()) return nb::list();
 
@@ -601,15 +601,15 @@ namespace hgraph
         if (!tsd_meta) return nb::list();
 
         auto tracker = v.tracker();
-        auto removed_indices = tracker.dict_removed_key_indices();
+        size_t removed_count = tracker.dict_removed_count();
 
-        // Get storage to access keys by index
+        // Get storage for key type info
         auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
         auto* key_type = storage->keys().element_type();
 
         nb::list result;
-        for (size_t idx : removed_indices) {
-            const void* key_ptr = storage->keys().element_at_index(idx);
+        for (size_t i = 0; i < removed_count; ++i) {
+            const void* key_ptr = tracker.dict_removed_key(i);
             if (key_ptr) {
                 nb::object py_key = value::value_to_python(key_ptr, key_type);
                 nb::tuple item = nb::make_tuple(py_key, nb::none());
@@ -640,23 +640,9 @@ namespace hgraph
         key_type->ops->construct(key_storage.data(), key_type);
         value::value_from_python(key_storage.data(), key, key_type);
 
-        // Check in removed keys by index
+        // Check if key was removed using tracker's was_key_removed
         auto tracker = v.tracker();
-        auto removed_indices = tracker.dict_removed_key_indices();
-
-        // Get storage to access keys by index
-        auto* storage = static_cast<const value::DictStorage*>(v.value_view().data());
-
-        bool found = false;
-        for (size_t idx : removed_indices) {
-            const void* removed_key_ptr = storage->keys().element_at_index(idx);
-            if (removed_key_ptr && key_type->ops->equals) {
-                if (key_type->ops->equals(key_storage.data(), removed_key_ptr, key_type)) {
-                    found = true;
-                    break;
-                }
-            }
-        }
+        bool found = tracker.dict_was_key_removed(key_storage.data());
 
         if (key_type->ops->destruct) {
             key_type->ops->destruct(key_storage.data(), key_type);
@@ -1274,15 +1260,15 @@ namespace hgraph
         if (!tsd_meta) return nb::list();
 
         auto tracker = output_view.tracker();
-        auto removed_indices = tracker.dict_removed_key_indices();
+        size_t removed_count = tracker.dict_removed_count();
 
-        // Get storage from output view to access keys by index
+        // Get storage from output view for key type info
         auto* storage = static_cast<const value::DictStorage*>(output_view.value_view().data());
         auto* key_type = storage->keys().element_type();
 
         nb::list result;
-        for (size_t idx : removed_indices) {
-            const void* key_ptr = storage->keys().element_at_index(idx);
+        for (size_t i = 0; i < removed_count; ++i) {
+            const void* key_ptr = tracker.dict_removed_key(i);
             if (key_ptr) {
                 nb::object py_key = value::value_to_python(key_ptr, key_type);
                 result.append(py_key);
@@ -1292,13 +1278,13 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictInput::removed_values() const {
-        // removed_values is complex - the values are no longer in storage
-        // This would need delta tracking to record values before removal
+        // Removed keys are stored in tracker's removed storage, values are gone
+        // Return empty list to match expected semantics
         return nb::list();
     }
 
     nb::object PyTimeSeriesDictInput::removed_items() const {
-        // For inputs, removed_items with deferred deletion
+        // For inputs, return removed keys with None values
         auto v = view();
         if (!v.valid()) return nb::list();
 
@@ -1312,18 +1298,18 @@ namespace hgraph
         if (!tsd_meta) return nb::list();
 
         auto tracker = output_view.tracker();
-        auto removed_indices = tracker.dict_removed_key_indices();
+        size_t removed_count = tracker.dict_removed_count();
 
-        // Get storage from output view to access keys by index
+        // Get storage from output view for key type info
         auto* storage = static_cast<const value::DictStorage*>(output_view.value_view().data());
         auto* key_type = storage->keys().element_type();
 
         nb::list result;
-        for (size_t idx : removed_indices) {
-            const void* key_ptr = storage->keys().element_at_index(idx);
+        for (size_t i = 0; i < removed_count; ++i) {
+            const void* key_ptr = tracker.dict_removed_key(i);
             if (key_ptr) {
                 nb::object py_key = value::value_to_python(key_ptr, key_type);
-                // Value is being removed - return (key, None)
+                // Value was removed - return (key, None)
                 result.append(nb::make_tuple(py_key, nb::none()));
             }
         }
@@ -1363,23 +1349,9 @@ namespace hgraph
         key_type->ops->construct(key_storage.data(), key_type);
         value::value_from_python(key_storage.data(), key, key_type);
 
-        // Check in removed keys by index
+        // Check if key was removed using tracker's was_key_removed
         auto tracker = output_view.tracker();
-        auto removed_indices = tracker.dict_removed_key_indices();
-
-        // Get storage from output view to access keys by index
-        auto* storage = static_cast<const value::DictStorage*>(output_view.value_view().data());
-
-        bool found = false;
-        for (size_t idx : removed_indices) {
-            const void* removed_key_ptr = storage->keys().element_at_index(idx);
-            if (removed_key_ptr && key_type->ops->equals) {
-                if (key_type->ops->equals(key_storage.data(), removed_key_ptr, key_type)) {
-                    found = true;
-                    break;
-                }
-            }
-        }
+        bool found = tracker.dict_was_key_removed(key_storage.data());
 
         if (key_type->ops->destruct) {
             key_type->ops->destruct(key_storage.data(), key_type);

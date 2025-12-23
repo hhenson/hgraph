@@ -112,41 +112,23 @@ static nb::object set_delta_to_python(const DeltaView& view) {
 
     engine_time_t time = view.time();
     auto& tracker = const_cast<value::ModificationTracker&>(view.tracker());
-    size_t removed_count = tracker.set_removed_count();
 
     // Build added set - elements added at current time
-    // Filter: exclude elements that were removed-then-readded (in removed_elements)
     nb::set added_set;
-    // Get removed indices (elements marked with MAX_DT for deferred removal)
-    auto removed_indices = tracker.set_removed_indices();
-
     for (auto elem : *storage) {
         // Look up the element's index in the storage
         auto opt_index = storage->find_index(elem.ptr);
         if (opt_index && tracker.set_element_added_at(*opt_index, time)) {
-            // Check if element was in removed (remove-then-add scenario)
-            // If so, it's not truly "added" - it was there before, removed, re-added
-            bool was_removed = false;
-            if (element_type->ops && element_type->ops->equals) {
-                for (size_t removed_idx : removed_indices) {
-                    const void* removed_ptr = storage->element_at_index(removed_idx);
-                    if (removed_ptr && element_type->ops->equals(elem.ptr, removed_ptr, element_type)) {
-                        was_removed = true;
-                        break;
-                    }
-                }
-            }
-            if (!was_removed) {
-                nb::object py_elem = value::value_to_python(elem.ptr, element_type);
-                added_set.add(py_elem);
-            }
+            nb::object py_elem = value::value_to_python(elem.ptr, element_type);
+            added_set.add(py_elem);
         }
     }
 
-    // Build removed set - elements marked for removal (still in storage)
+    // Build removed set - elements stored in tracker's removed storage
     nb::set removed_set;
-    for (size_t removed_idx : removed_indices) {
-        const void* removed_ptr = storage->element_at_index(removed_idx);
+    size_t removed_count = tracker.set_removed_count();
+    for (size_t i = 0; i < removed_count; ++i) {
+        const void* removed_ptr = tracker.set_removed_element(i);
         if (removed_ptr) {
             nb::object py_elem = value::value_to_python(removed_ptr, element_type);
             removed_set.add(py_elem);
@@ -202,12 +184,12 @@ static nb::object dict_delta_to_python(const DeltaView& view) {
     }
 
     // Add removed keys with REMOVE sentinel
-    // Removed keys are still in storage (marked with MAX_DT), accessible by index
-    auto removed_key_indices = view.dict_removed_key_indices();
-    for (size_t key_idx : removed_key_indices) {
-        const void* removed_key_ptr = storage->keys().element_at_index(key_idx);
-        if (removed_key_ptr) {
-            nb::object py_key = value::value_to_python(removed_key_ptr, key_type);
+    // Removed keys are stored in the tracker's removed keys storage
+    size_t removed_count = view.dict_removed_count();
+    for (size_t i = 0; i < removed_count; ++i) {
+        auto removed_key_typed = view.dict_removed_key(i);
+        if (removed_key_typed.ptr) {
+            nb::object py_key = value::value_to_python(removed_key_typed.ptr, key_type);
             if (g_types_initialized && g_remove_sentinel.is_valid()) {
                 result[py_key] = g_remove_sentinel;
             } else {

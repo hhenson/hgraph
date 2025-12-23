@@ -444,14 +444,14 @@ namespace hgraph::value {
 
             if (was_added_this_tick) {
                 // Add-then-remove same tick: cancel out, don't record as removed
-                // Also remove from storage immediately since it was never "committed"
                 _tracker.remove_set_element_tracking(index);
-                set_storage->remove(&element);
             } else {
-                // Element existed before tick: mark for deferred removal
-                // Element stays in storage until end-of-cycle cleanup
-                _tracker.mark_set_for_removal(index, time);
+                // Element existed before tick: record for delta access
+                _tracker.record_set_removal(&element, time);
             }
+
+            // Remove from storage immediately
+            set_storage->remove(&element);
 
             _tracker.mark_modified(time);
             if (_observer) {
@@ -543,14 +543,15 @@ namespace hgraph::value {
             bool was_added_this_tick = _tracker.dict_key_added_at(index, time);
 
             if (was_added_this_tick) {
-                // Add-then-remove same tick: cancel out, remove immediately
+                // Add-then-remove same tick: cancel out, don't record as removed
                 _tracker.remove_dict_entry_tracking(index);
-                storage->remove(&key);
             } else {
-                // Key existed before tick: mark for deferred removal
-                // Key stays in storage until end-of-cycle cleanup
-                _tracker.mark_dict_key_for_removal(index, time);
+                // Key existed before tick: record for delta access
+                _tracker.record_dict_key_removal(&key, time);
             }
+
+            // Remove from storage immediately
+            storage->remove(&key);
 
             _tracker.mark_modified(time);
             if (_observer) {
