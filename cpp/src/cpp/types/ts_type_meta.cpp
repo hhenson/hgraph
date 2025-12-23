@@ -8,6 +8,7 @@
 #include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/type_api.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 
@@ -86,6 +87,12 @@ size_t TSSTypeMeta::input_memory_size() const {
 // ============================================================================
 // TSDTypeMeta - TSD[K, V]
 // ============================================================================
+
+const TSMeta* TSDTypeMeta::create_key_set_type(const value::TypeMeta* key_type) {
+    if (!key_type) return nullptr;
+    // Use types::runtime::tss to create TSS[K]
+    return types::runtime::tss(key_type);
+}
 
 std::string TSDTypeMeta::type_name_str() const {
     if (name) return name;

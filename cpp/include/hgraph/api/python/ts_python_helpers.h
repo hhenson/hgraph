@@ -17,6 +17,8 @@
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_python_cache.h>
 #include <hgraph/types/value/python_conversion.h>
+#include <hgraph/types/constants.h>
+#include <hgraph/types/value/dict_type.h>
 
 namespace hgraph::ts
 {
@@ -294,6 +296,17 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
                 cache_delta(output, filtered_delta);
                 view.mark_modified(time);
                 output->register_delta_reset_callback();
+
+                // Update TSS contains extension if present
+                auto* cache = output->python_cache();
+                if (cache->tss_update_contains_for_keys) {
+                    if (len(filtered_added) > 0) {
+                        cache->tss_update_contains_for_keys(filtered_added);
+                    }
+                    if (len(filtered_removed) > 0) {
+                        cache->tss_update_contains_for_keys(filtered_removed);
+                    }
+                }
             }
             return;
         }
@@ -400,8 +413,105 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
                 cache_delta(output, delta);
                 view.mark_modified(time);
                 output->register_delta_reset_callback();
+
+                // Update TSS contains extension if present
+                auto* cache = output->python_cache();
+                if (cache->tss_update_contains_for_keys) {
+                    if (len(added_set) > 0) {
+                        cache->tss_update_contains_for_keys(added_set);
+                    }
+                    if (len(removed_set) > 0) {
+                        cache->tss_update_contains_for_keys(removed_set);
+                    }
+                }
             }
             return;
+        }
+    }
+
+    // Special handling for TSD (TimeSeriesDict) types
+    // TSD values may contain REMOVE/REMOVE_IF_EXISTS sentinels that need special handling
+    if (meta && meta->ts_kind == TSKind::TSD) {
+        // Check if it's a dict-like object
+        if (nb::isinstance<nb::dict>(py_value) || nb::hasattr(py_value, "items")) {
+            auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(meta);
+            if (tsd_meta) {
+                auto view = output->view();
+                auto* key_type = tsd_meta->key_type;
+                auto* value_ts_type = tsd_meta->value_ts_type;
+                auto* value_schema = value_ts_type ? value_ts_type->value_schema() : tsd_meta->dict_value_type;
+
+                if (key_type && value_schema) {
+                    // Get REMOVE and REMOVE_IF_EXISTS sentinels
+                    nb::object remove_sentinel = get_remove();
+                    nb::object remove_if_exists_sentinel = get_remove_if_exists();
+
+                    // Get dict storage
+                    auto* storage = static_cast<value::DictStorage*>(view.value_view().data());
+
+                    // Iterate through the dict
+                    nb::object items_obj;
+                    if (nb::isinstance<nb::dict>(py_value)) {
+                        items_obj = nb::cast<nb::dict>(py_value).attr("items")();
+                    } else {
+                        items_obj = py_value.attr("items")();
+                    }
+
+                    bool modified = false;
+                    for (auto item : items_obj) {
+                        nb::tuple kv = nb::cast<nb::tuple>(item);
+                        nb::object key = kv[0];
+                        nb::object val = kv[1];
+
+                        // Skip None values
+                        if (val.is_none()) {
+                            continue;
+                        }
+
+                        // Convert key to C++ storage
+                        std::vector<char> key_storage(key_type->size);
+                        key_type->ops->construct(key_storage.data(), key_type);
+                        value::value_from_python(key_storage.data(), key, key_type);
+
+                        // Check for REMOVE sentinels using 'is' comparison
+                        if (val.is(remove_sentinel)) {
+                            // REMOVE: Delete the key
+                            storage->remove(key_storage.data());
+                            modified = true;
+                        } else if (val.is(remove_if_exists_sentinel)) {
+                            // REMOVE_IF_EXISTS: Only delete if key exists
+                            if (storage->contains(key_storage.data())) {
+                                storage->remove(key_storage.data());
+                                modified = true;
+                            }
+                        } else {
+                            // Normal value - update or create the entry
+                            std::vector<char> value_storage(value_schema->size);
+                            value_schema->ops->construct(value_storage.data(), value_schema);
+                            value::value_from_python(value_storage.data(), val, value_schema);
+
+                            storage->insert(key_storage.data(), value_storage.data());
+                            modified = true;
+
+                            if (value_schema->ops->destruct) {
+                                value_schema->ops->destruct(value_storage.data(), value_schema);
+                            }
+                        }
+
+                        // Cleanup key storage
+                        if (key_type->ops->destruct) {
+                            key_type->ops->destruct(key_storage.data(), key_type);
+                        }
+                    }
+
+                    if (modified) {
+                        cache_delta(output, py_value);
+                        view.mark_modified(time);
+                        output->register_delta_reset_callback();
+                    }
+                    return;
+                }
+            }
         }
     }
 

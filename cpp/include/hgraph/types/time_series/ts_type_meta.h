@@ -173,6 +173,31 @@ struct TSDTypeMeta : TSMeta {
     // The value schema - a DictTypeMeta for tracking keys and their value schemas
     const value::TypeMeta* dict_value_type{nullptr};
 
+private:
+    // The TSS type for the key set - TSS[K] with proper delta tracking
+    // Private to ensure it's only set via constructor
+    const TSMeta* key_set_ts_type{nullptr};
+
+    // Helper to create TSS[K] type - implemented in cpp file to avoid circular deps
+    static const TSMeta* create_key_set_type(const value::TypeMeta* key_type);
+
+public:
+    /**
+     * Construct TSDTypeMeta - automatically creates TSS[K] for key_set.
+     *
+     * @param key The key type (scalar)
+     * @param value The value time-series type
+     */
+    TSDTypeMeta(const value::TypeMeta* key, const TSMeta* value)
+        : key_type(key)
+        , value_ts_type(value)
+        , key_set_ts_type(create_key_set_type(key)) {
+        ts_kind = TSKind::TSD;
+    }
+
+    // Default constructor for backward compatibility during migration
+    TSDTypeMeta() = default;
+
     [[nodiscard]] std::string type_name_str() const override;
     [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
     [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
@@ -181,6 +206,9 @@ struct TSDTypeMeta : TSMeta {
     [[nodiscard]] const TSMeta* value_meta() const override { return value_ts_type; }
 
     [[nodiscard]] const value::TypeMeta* value_schema() const override { return dict_value_type; }
+
+    // Get the key set TSMeta (TSS[K])
+    [[nodiscard]] const TSMeta* key_set_meta() const { return key_set_ts_type; }
 };
 
 /**

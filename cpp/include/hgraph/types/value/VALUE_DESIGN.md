@@ -134,7 +134,7 @@ ts_value.to_string();  // "42"
 ts_value.to_debug_string(current_time);
 // "TS[int64_t]@0x7fff5fbff8c0(value=\"42\", modified=true, last_modified=2025-01-01 12:00:00.000000)"
 
-// TimeSeriesValueView uses stored current_time
+// TSView uses stored current_time
 ts_view.to_debug_string();
 // "TS[int64_t]@0x7fff5fbff8c0(value=\"42\", modified=true)"
 ```
@@ -722,13 +722,13 @@ tracker.dict_entry_modified_at(0, time);       // Was entry 0's value changed?
 
 ## Time-Series Value
 
-The `TimeSeriesValue` combines `Value` (data storage) and `ModificationTrackerStorage` (modification tracking) into a unified time-series container. This provides the foundation for implementing TS, TSB, TSL, TSS, TSD using the type-erased value system.
+The `TSValue` combines `Value` (data storage) and `ModificationTrackerStorage` (modification tracking) into a unified time-series container. This provides the foundation for implementing TS, TSB, TSL, TSS, TSD using the type-erased value system.
 
 ### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      TimeSeriesValue                             │
+│                      TSValue                             │
 │  ┌─────────────────┐  ┌──────────────────────────────────────┐  │
 │  │     Value       │  │   ModificationTrackerStorage         │  │
 │  │  (owns data)    │  │   (owns tracking)                    │  │
@@ -739,21 +739,21 @@ The `TimeSeriesValue` combines `Value` (data storage) and `ModificationTrackerSt
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                    TimeSeriesValueView                           │
-│  (Non-owning view into TimeSeriesValue)                          │
+│                    TSView                           │
+│  (Non-owning view into TSValue)                          │
 │  - Provides field()/element() navigation with auto-tracking      │
 │  - Automatically marks modifications when values are set         │
 └─────────────────────────────────────────────────────────────────┘
 ```
 
-### TimeSeriesValue (Owner)
+### TSValue (Owner)
 
 The owning container that manages both value storage and modification tracking:
 
 ```cpp
-class TimeSeriesValue {
+class TSValue {
 public:
-    explicit TimeSeriesValue(const TypeMeta* schema);
+    explicit TSValue(const TypeMeta* schema);
 
     // Schema access
     [[nodiscard]] const TypeMeta* schema() const;
@@ -770,7 +770,7 @@ public:
     void mark_invalid();
 
     // Mutable access with tracking
-    [[nodiscard]] TimeSeriesValueView view(engine_time_t current_time);
+    [[nodiscard]] TSView view(engine_time_t current_time);
 
     // Direct scalar access (convenience)
     template<typename T> void set_value(const T& val, engine_time_t time);
@@ -778,17 +778,17 @@ public:
 };
 ```
 
-### TimeSeriesValueView (Auto-Tracking View)
+### TSView (Auto-Tracking View)
 
 Unlike raw `ValueView`, this view automatically marks modifications when values are changed:
 
 ```cpp
-class TimeSeriesValueView {
+class TSView {
 public:
     // Navigation (returns sub-views that track to parent)
-    [[nodiscard]] TimeSeriesValueView field(size_t index);
-    [[nodiscard]] TimeSeriesValueView field(const std::string& name);
-    [[nodiscard]] TimeSeriesValueView element(size_t index);
+    [[nodiscard]] TSView field(size_t index);
+    [[nodiscard]] TSView field(const std::string& name);
+    [[nodiscard]] TSView element(size_t index);
 
     // Value access - auto-marks modified on set
     template<typename T> [[nodiscard]] T& as();
@@ -836,7 +836,7 @@ auto point_meta = BundleTypeBuilder()
     .add_field<int>("y")
     .build("Point");
 
-TimeSeriesValue ts_point(point_meta.get());
+TSValue ts_point(point_meta.get());
 
 // Initial state
 assert(!ts_point.modified_at(t1));
@@ -864,23 +864,23 @@ assert(!ts_point.has_value());
 
 1. **View holds current_time**: The view needs the current evaluation time to mark modifications correctly. This is passed when creating the view via `view(current_time)`.
 
-2. **Auto-tracking on set()**: Unlike raw `ValueView`, `TimeSeriesValueView` automatically marks modifications when values are changed through `set()` or container operations.
+2. **Auto-tracking on set()**: Unlike raw `ValueView`, `TSView` automatically marks modifications when values are changed through `set()` or container operations.
 
 3. **Hierarchical propagation**: Child modifications (field, element) automatically propagate to parent containers.
 
-4. **Move-only ownership**: `TimeSeriesValue` owns both storages and uses move-only semantics.
+4. **Move-only ownership**: `TSValue` owns both storages and uses move-only semantics.
 
 5. **Const safety**: Read-only operations (`value()`, `modified_at()`, etc.) are const-correct.
 
 ## Observer/Notification System
 
-The `TimeSeriesValue` includes an observer pattern for change notification. Observers can subscribe to any level of the value hierarchy and receive notifications when values are modified.
+The `TSValue` includes an observer pattern for change notification. Observers can subscribe to any level of the value hierarchy and receive notifications when values are modified.
 
 ### Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      TimeSeriesValue                             │
+│                      TSValue                             │
 │  ┌─────────────────┐  ┌──────────────────────────────────────┐  │
 │  │     Value       │  │   ModificationTrackerStorage         │  │
 │  │  (owns data)    │  │   (owns tracking)                    │  │
@@ -992,27 +992,27 @@ Dict                             ObserverStorage (for Dict)
 
 ```
 Initial state:
-  TimeSeriesValue
+  TSValue
   └─ _observers: nullptr  ← no heap allocation
 
 After trade.subscribe(nodeA):
-  TimeSeriesValue
+  TSValue
   └─ _observers ──→ ObserverStorage
                     ├─ subscribers: {nodeA}
                     └─ children: []  ← still lazy
 
 After subscribing to a field:
-  TimeSeriesValue
+  TSValue
   └─ _observers ──→ ObserverStorage
                     ├─ subscribers: {nodeA}
                     └─ children: [nullptr, ptr ──→ ObserverStorage
                                                    └─ subscribers: {nodeB}]
 ```
 
-### TimeSeriesValue Observer API
+### TSValue Observer API
 
 ```cpp
-class TimeSeriesValue {
+class TSValue {
 public:
     // Observer/subscription API (lazy allocation)
     void subscribe(Notifiable* notifiable);
@@ -1044,7 +1044,7 @@ auto point_meta = BundleTypeBuilder()
     .add_field<int>("y")
     .build("Point");
 
-TimeSeriesValue ts_point(point_meta.get());
+TSValue ts_point(point_meta.get());
 MyObserver observer;
 
 // Subscribe at root level
@@ -1144,8 +1144,8 @@ enum class BoundValueKind {
 
 class BoundValue {
     // Factory methods
-    static BoundValue make_peer(TimeSeriesValue* source);
-    static BoundValue make_deref(std::unique_ptr<DerefTimeSeriesValue> deref, const TypeMeta* schema);
+    static BoundValue make_peer(TSValue* source);
+    static BoundValue make_deref(std::unique_ptr<DerefTSValue> deref, const TypeMeta* schema);
     static BoundValue make_composite(const TypeMeta* schema, std::vector<BoundValue> children);
 
     // Unified access
@@ -1159,7 +1159,7 @@ class BoundValue {
 };
 ```
 
-### DerefTimeSeriesValue
+### DerefTSValue
 
 Wrapper that transparently dereferences REF values:
 
@@ -1168,7 +1168,7 @@ Wrapper that transparently dereferences REF values:
 - Lifecycle: `begin_evaluation()` → use → `end_evaluation()`
 
 ```cpp
-DerefTimeSeriesValue deref(ref_view, target_schema);
+DerefTSValue deref(ref_view, target_schema);
 
 deref.begin_evaluation(current_time);
 if (deref.modified_at(current_time)) {
@@ -1289,8 +1289,8 @@ cpp/include/
         ├── value.h                    # Value, ValueView, ConstValueView
         ├── modification_tracker.h     # ModificationTrackerStorage, ModificationTracker
         ├── observer_storage.h         # ObserverStorage, Notifiable interface
-        ├── time_series_value.h        # TimeSeriesValue, TimeSeriesValueView
-        ├── deref_time_series_value.h  # DerefTimeSeriesValue (REF dereferencing wrapper)
+        ├── time_series_value.h        # TSValue, TSView
+        ├── deref_time_series_value.h  # DerefTSValue (REF dereferencing wrapper)
         ├── bound_value.h              # BoundValue (schema-driven binding result)
         ├── bind.h                     # Schema matching and binding functions
         ├── python_conversion.h        # Python conversion ops, named type instances

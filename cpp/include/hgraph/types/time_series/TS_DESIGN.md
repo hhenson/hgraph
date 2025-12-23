@@ -38,13 +38,13 @@ A fundamental concept in the value system is the distinction between **scalar va
 |-------|-------|---------|----------|
 | **Data Storage** | `Value` | Pure data storage, all TypeKinds | None |
 | **Data Views** | `ValueView` / `ConstValueView` | Navigation + type-safe access | None |
-| **Time-Series Storage** | `TimeSeriesValue` | Reactive values with change tracking | Modification + Observation |
-| **Time-Series Views** | `TimeSeriesValueView` | Auto-tracking mutations | Automatic |
+| **Time-Series Storage** | `TSValue` | Reactive values with change tracking | Modification + Observation |
+| **Time-Series Views** | `TSView` | Auto-tracking mutations | Automatic |
 
 ### 2.2 Composition Model
 
 ```
-TimeSeriesValue = Value + ModificationTrackerStorage + ObserverStorage
+TSValue = Value + ModificationTrackerStorage + ObserverStorage
 ```
 
 Both scalar values and time-series values use the **same underlying type system** (Scalar, Bundle, List, Set, Dict, Ref, Window). The distinction is whether tracking/observation is layered on top.
@@ -56,9 +56,9 @@ Both scalar values and time-series values use the **same underlying type system*
 | Function parameters | `Value` | Passing data to pure functions |
 | Intermediate results | `Value` | Temporary computations |
 | Configuration data | `Value` | Static schema definitions |
-| Node outputs | `TimeSeriesValue` | Graph node output with change propagation |
-| Node inputs | `TimeSeriesValue` | Graph node input observing output changes |
-| Reactive collections | `TimeSeriesValue` | TSD, TSS with delta tracking |
+| Node outputs | `TSValue` | Graph node output with change propagation |
+| Node inputs | `TSValue` | Graph node input observing output changes |
+| Reactive collections | `TSValue` | TSD, TSS with delta tracking |
 
 ### 2.4 Code Structure
 
@@ -70,7 +70,7 @@ class Value {
 };
 
 // time_series_value.h - Data + tracking (reactive)
-class TimeSeriesValue {
+class TSValue {
     Value _value;                              // Same underlying storage
     ModificationTrackerStorage _tracker;       // Modification times
     std::unique_ptr<ObserverStorage> _observers;  // Notification subscribers
@@ -79,7 +79,7 @@ class TimeSeriesValue {
 
 The naming is intentional:
 - `Value` → generic, can hold any type kind
-- `TimeSeriesValue` → explicitly adds time-series semantics (tracking + notification)
+- `TSValue` → explicitly adds time-series semantics (tracking + notification)
 
 ---
 
@@ -130,21 +130,21 @@ BaseTimeSeriesInput : TimeSeriesInput
 
 ## 4. Specialized Types
 
-### 4.1 TimeSeriesValue (TS) - Scalar Types
+### 4.1 TSValue (TS) - Scalar Types
 
 **File:** `ts.h`
 
 ```cpp
-TimeSeriesValueOutput<T> : TimeSeriesValueOutputBase : BaseTimeSeriesOutput
+TSValueOutput<T> : TSValueOutputBase : BaseTimeSeriesOutput
 ├── T _value{}                      # Direct value storage
 ├── value() -> const T&
 ├── set_value(const T&)
 ├── py_value() / py_delta_value()   # Python conversion
 └── py_set_value(nb::object)
 
-TimeSeriesValueInput<T> : TimeSeriesValueInputBase : BaseTimeSeriesInput
+TSValueInput<T> : TSValueInputBase : BaseTimeSeriesInput
 ├── value() -> const T&             # Delegates to output
-└── value_output() -> TimeSeriesValueOutput<T>*
+└── value_output() -> TSValueOutput<T>*
 ```
 
 **Key Points:**
@@ -211,7 +211,7 @@ SetDelta_T<T>
 └── _tp: nb::object (for nb::object keys)
 
 TimeSeriesSetOutput_T<K> : TimeSeriesSetOutput : TimeSeriesSet<BaseTimeSeriesOutput>
-├── std::unordered_map<K, TimeSeriesValueOutput<bool>::s_ptr> _contains_outputs
+├── std::unordered_map<K, TSValueOutput<bool>::s_ptr> _contains_outputs
 ├── _is_empty_output
 ├── added() / removed() -> SetDelta_T<K>
 ├── get_contains_output(key) / release_contains_output(key)
@@ -312,7 +312,7 @@ TimeSeriesReferenceInput : BaseTimeSeriesInput
 └── has_value() / raw_value()
 
 Specialized variants for each TS type:
-├── TimeSeriesValueReferenceInput/Output
+├── TSValueReferenceInput/Output
 ├── TimeSeriesListReferenceInput/Output
 ├── TimeSeriesBundleReferenceInput/Output
 ├── TimeSeriesDictReferenceInput/Output
@@ -399,8 +399,8 @@ The new value system provides a type-erased, schema-driven approach:
 | `TypeOps` | Function pointer vtable for type operations |
 | `Value` | Owning storage with schema reference |
 | `ValueView` / `ConstValueView` | Non-owning mutable/const views |
-| `TimeSeriesValue` | Value + ModificationTracker |
-| `TimeSeriesValueView` | Auto-tracking view |
+| `TSValue` | Value + ModificationTracker |
+| `TSView` | Auto-tracking view |
 
 ### 6.1.1 TypeOps Function Pointers
 
@@ -431,18 +431,18 @@ All value types support string conversion for logging and debugging:
 // Value/ValueView
 value.to_string()  // e.g., "42", "{x=1, y=2}", "[1, 2, 3]"
 
-// TimeSeriesValue/TimeSeriesValueView
+// TSValue/TSView
 ts_value.to_string()  // Same as underlying value
 ```
 
 **Debug `to_debug_string()`** - Returns detailed representation with modification status:
 ```cpp
-// TimeSeriesValueView (uses stored current_time)
+// TSView (uses stored current_time)
 ts_view.to_debug_string()
 // Format: TS[type]@addr(value="...", modified=true/false)
 // Example: TS[int64_t]@0x7fff5fbff8c0(value="42", modified=true)
 
-// TimeSeriesValue (requires current_time parameter)
+// TSValue (requires current_time parameter)
 ts_value.to_debug_string(current_time)
 // Format: TS[type]@addr(value="...", modified=true/false, last_modified=...)
 // Example: TS[int64_t]@0x7fff5fbff8c0(value="42", modified=true, last_modified=2025-01-01 12:00:00.000000)
@@ -518,7 +518,7 @@ TypeMeta (base)
 | Class | Purpose |
 |-------|---------|
 | `BoundValue` | Result of schema matching (Peer/Deref/Composite) |
-| `DerefTimeSeriesValue` | REF dereferencing wrapper |
+| `DerefTSValue` | REF dereferencing wrapper |
 | `bind()` | Schema-driven binding function |
 | `match_schemas()` | Determines binding strategy |
 
@@ -543,17 +543,17 @@ TypeMeta (base)
 
 **Current:** Each specialized type stores values directly
 ```cpp
-// TimeSeriesValueOutput<T>
+// TSValueOutput<T>
 T _value{};
 
 // TimeSeriesDictOutput_T<K>
 std::unordered_map<K, value_type> _ts_values;
 ```
 
-**New:** Use TimeSeriesValue with appropriate TypeMeta
+**New:** Use TSValue with appropriate TypeMeta
 ```cpp
 // Could become:
-TimeSeriesValue _value;  // Schema-driven storage
+TSValue _value;  // Schema-driven storage
 ```
 
 #### 7.2.2 Modification Tracking Unification
@@ -565,7 +565,7 @@ engine_time_t _last_modified_time{MIN_DT};
 
 **New:** ModificationTrackerStorage handles all cases
 ```cpp
-TimeSeriesValue _ts;  // Contains both value and tracker
+TSValue _ts;  // Contains both value and tracker
 // Access: _ts.modified_at(time), _ts.mark_modified(time)
 ```
 
@@ -604,15 +604,15 @@ Keep existing py_xxx wrappers, adapt C++ implementations to use new value system
 PyTimeSeriesOutput (unchanged)
        │
        ▼
-TimeSeriesValueOutput (adapted)
+TSValueOutput (adapted)
        │
        ▼
-TimeSeriesValue (new value system)
+TSValue (new value system)
 ```
 
 #### Strategy B: New Wrapper Layer (Clean Break)
 
-Create new wrappers that expose TimeSeriesValue directly.
+Create new wrappers that expose TSValue directly.
 
 **Pros:**
 - Clean architecture
@@ -625,10 +625,10 @@ Create new wrappers that expose TimeSeriesValue directly.
 - Requires Python-side updates
 
 ```
-PyTimeSeriesValue (new)
+PyTSValue (new)
        │
        ▼
-TimeSeriesValue (new value system)
+TSValue (new value system)
 ```
 
 #### Strategy C: Hybrid (Pragmatic)
@@ -642,7 +642,7 @@ PyTimeSeriesOutput (unchanged interface)
 TimeSeriesOutputAdapter (new)
        │
        ▼
-TimeSeriesValue (new value system)
+TSValue (new value system)
 ```
 
 ### 7.4 Specific Integration Tasks
@@ -686,7 +686,7 @@ NodeBuilder
 ├── input_builder: TimeSeriesBundleInputBuilder (always TSB)
 │   ├── schema: TimeSeriesSchema
 │   └── input_builders: vector<InputBuilder>
-│       ├── [0] TimeSeriesValueInputBuilder (TS)
+│       ├── [0] TSValueInputBuilder (TS)
 │       ├── [1] TimeSeriesListInputBuilder (TSL)
 │       └── ...
 └── output_builder: OutputBuilder (any type)
@@ -696,7 +696,7 @@ NodeBuilder
 
 Due to this constraint, **TS and TSB must be implemented together** for minimal functionality:
 
-1. **TS (TimeSeriesValue)** - For scalar inputs/outputs
+1. **TS (TSValue)** - For scalar inputs/outputs
 2. **TSB (TimeSeriesBundle)** - For node input container
 3. **TimeSeriesSchema** - For field name mapping
 
@@ -710,9 +710,9 @@ Without TSB, no nodes can have inputs. Without TS, bundles have no scalar childr
 
 | Component | Description | New Value Type |
 |-----------|-------------|----------------|
-| `TimeSeriesValueOutput<T>` | Scalar output | `TimeSeriesValue` with scalar TypeMeta |
-| `TimeSeriesValueInput<T>` | Scalar input | Delegates to output's value |
-| `TimeSeriesBundleOutput` | Bundle output | `TimeSeriesValue` with BundleTypeMeta |
+| `TSValueOutput<T>` | Scalar output | `TSValue` with scalar TypeMeta |
+| `TSValueInput<T>` | Scalar input | Delegates to output's value |
+| `TimeSeriesBundleOutput` | Bundle output | `TSValue` with BundleTypeMeta |
 | `TimeSeriesBundleInput` | Bundle input (node top-level) | Same, uses schema |
 | `TimeSeriesSchema` | Field names | Maps to BundleTypeMeta field names |
 
@@ -720,13 +720,13 @@ Without TSB, no nodes can have inputs. Without TS, bundles have no scalar childr
 
 ```cpp
 // Current: Template-based, direct storage
-class TimeSeriesValueOutput<T> : BaseTimeSeriesOutput {
+class TSValueOutput<T> : BaseTimeSeriesOutput {
     T _value{};
 };
 
 // New: Type-erased, schema-driven
-class TimeSeriesValueOutput : BaseTimeSeriesOutput {
-    TimeSeriesValue _ts;  // Holds value + tracker
+class TSValueOutput : BaseTimeSeriesOutput {
+    TSValue _ts;  // Holds value + tracker
     // TypeMeta comes from builder, passed at construction
 };
 ```
@@ -757,27 +757,27 @@ Once C++ types are integrated, update wrappers:
 
 ## 10. Detailed Phase 1 Tasks
 
-### 10.1 TimeSeriesValue (TS) Integration
+### 10.1 TSValue (TS) Integration
 
-1. **Modify `TimeSeriesValueOutput`** to use `TimeSeriesValue`:
-   - Replace `T _value{}` with `TimeSeriesValue _ts`
+1. **Modify `TSValueOutput`** to use `TSValue`:
+   - Replace `T _value{}` with `TSValue _ts`
    - Constructor takes `const TypeMeta*` instead of being templated
    - `value()` returns `ConstValueView` or typed reference
-   - `set_value()` uses `TimeSeriesValueView`
+   - `set_value()` uses `TSView`
    - `py_value()` uses `value_to_python()`
 
-2. **Modify `TimeSeriesValueInput`**:
+2. **Modify `TSValueInput`**:
    - Delegates to output's new storage
    - No storage of its own (current design)
 
-3. **Update `TimeSeriesValueInputBuilder` / `TimeSeriesValueOutputBuilder`**:
+3. **Update `TSValueInputBuilder` / `TSValueOutputBuilder`**:
    - Accept `const TypeMeta*` instead of type template
    - Pass TypeMeta to constructed instances
 
 ### 10.2 TimeSeriesBundle (TSB) Integration
 
 1. **Modify `TimeSeriesBundleOutput`**:
-   - Replace indexed storage with `TimeSeriesValue` using BundleTypeMeta
+   - Replace indexed storage with `TSValue` using BundleTypeMeta
    - Child outputs stored via BundleTypeMeta field layout
    - Schema maps field names to indices
 
@@ -823,13 +823,13 @@ NodeBuilder
 ├── input_builder: InputBuilder (abstract)
 │   └── TimeSeriesBundleInputBuilder
 │       └── input_builders: vector<InputBuilder>
-│           ├── TimeSeriesValueInputBuilder<bool>
-│           ├── TimeSeriesValueInputBuilder<int64_t>
+│           ├── TSValueInputBuilder<bool>
+│           ├── TSValueInputBuilder<int64_t>
 │           └── ... (explicit template instantiations)
 │
 └── output_builder: OutputBuilder (abstract)
-    └── TimeSeriesValueOutputBuilder<T>
-        └── make_instance() → TimeSeriesValueOutput<T>
+    └── TSValueOutputBuilder<T>
+        └── make_instance() → TSValueOutput<T>
 ```
 
 ### 11.2 Current Template Instantiations
@@ -838,13 +838,13 @@ From `time_series_value_output_builder.cpp`:
 
 ```cpp
 // Explicit template instantiations - these are the only supported types
-template struct TimeSeriesValueOutputBuilder<bool>;
-template struct TimeSeriesValueOutputBuilder<int64_t>;
-template struct TimeSeriesValueOutputBuilder<double>;
-template struct TimeSeriesValueOutputBuilder<engine_date_t>;
-template struct TimeSeriesValueOutputBuilder<engine_time_t>;
-template struct TimeSeriesValueOutputBuilder<engine_time_delta_t>;
-template struct TimeSeriesValueOutputBuilder<nb::object>;  // Catch-all for Python objects
+template struct TSValueOutputBuilder<bool>;
+template struct TSValueOutputBuilder<int64_t>;
+template struct TSValueOutputBuilder<double>;
+template struct TSValueOutputBuilder<engine_date_t>;
+template struct TSValueOutputBuilder<engine_time_t>;
+template struct TSValueOutputBuilder<engine_time_delta_t>;
+template struct TSValueOutputBuilder<nb::object>;  // Catch-all for Python objects
 ```
 
 Python bindings expose these as separate classes:
@@ -865,8 +865,8 @@ virtual time_series_output_s_ptr make_instance(time_series_output_ptr owning_out
 
 // Current implementation (templated)
 template<typename T>
-time_series_output_s_ptr TimeSeriesValueOutputBuilder<T>::make_instance(node_ptr owning_node) const {
-    return arena_make_shared_as<TimeSeriesValueOutput<T>, TimeSeriesOutput>(owning_node);
+time_series_output_s_ptr TSValueOutputBuilder<T>::make_instance(node_ptr owning_node) const {
+    return arena_make_shared_as<TSValueOutput<T>, TimeSeriesOutput>(owning_node);
 }
 ```
 
@@ -877,7 +877,7 @@ Since `TypeMeta::kind` identifies the type category, a **single builder class** 
 ```cpp
 // TypeKind → Time-Series Type mapping
 enum class TypeKind : uint8_t {
-    Scalar,  // → TS (TimeSeriesValue)
+    Scalar,  // → TS (TSValue)
     List,    // → TSL (TimeSeriesList)
     Set,     // → TSS (TimeSeriesSet)
     Dict,    // → TSD (TimeSeriesDict)
@@ -947,10 +947,10 @@ struct TimeSeriesInputBuilder : InputBuilder {
 
 **Current:** One builder class per time-series type × per value type
 ```
-TimeSeriesValueOutputBuilder<bool>
-TimeSeriesValueOutputBuilder<int64_t>
-TimeSeriesValueOutputBuilder<double>
-TimeSeriesValueOutputBuilder<nb::object>
+TSValueOutputBuilder<bool>
+TSValueOutputBuilder<int64_t>
+TSValueOutputBuilder<double>
+TSValueOutputBuilder<nb::object>
 TimeSeriesBundleOutputBuilder
 TimeSeriesListOutputBuilder
 TimeSeriesSetOutputBuilder
@@ -1059,12 +1059,12 @@ auto node_input = input_builder.make_instance(owning_node);
 │           NEW Implementation Classes (types/value/)          │
 │  ValueTimeSeriesOutput, ValueTimeSeriesInput,                │
 │  ValueTimeSeriesList, ValueTimeSeriesBundle...               │
-│  (New type-erased implementations using TimeSeriesValue)     │
+│  (New type-erased implementations using TSValue)     │
 └─────────────────────────────┬───────────────────────────────┘
                               │ Uses
 ┌─────────────────────────────▼───────────────────────────────┐
 │              Value System (types/value/)                     │
-│  TimeSeriesValue, TypeMeta, TypeRegistry,                    │
+│  TSValue, TypeMeta, TypeRegistry,                    │
 │  SetStorage, DictStorage, etc.                               │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -1098,15 +1098,15 @@ api/python/
 The PyXXX wrappers currently hold `ApiPtr<TimeSeriesType>`. They will be updated to wrap the new implementations:
 
 ```cpp
-// Current: wraps template-based TimeSeriesValueOutput<T>
-class PyTimeSeriesValueOutput : public PyTimeSeriesOutput {
-    // impl() returns TimeSeriesValueOutput<T>*
+// Current: wraps template-based TSValueOutput<T>
+class PyTSValueOutput : public PyTimeSeriesOutput {
+    // impl() returns TSValueOutput<T>*
 };
 
 // New: wraps type-erased ValueTimeSeriesOutput
-class PyTimeSeriesValueOutput : public PyTimeSeriesOutput {
+class PyTSValueOutput : public PyTimeSeriesOutput {
     // impl() returns ValueTimeSeriesOutput*
-    // ValueTimeSeriesOutput uses TimeSeriesValue internally
+    // ValueTimeSeriesOutput uses TSValue internally
 };
 ```
 
@@ -1114,7 +1114,7 @@ class PyTimeSeriesValueOutput : public PyTimeSeriesOutput {
 
 Each new implementation class in `types/value/` will:
 1. Implement the same interface as the existing type (for wrapper compatibility)
-2. Use `TimeSeriesValue` for storage instead of direct member storage
+2. Use `TSValue` for storage instead of direct member storage
 3. Use `TypeMeta` for type information
 4. Use `TypeOps` for Python conversion
 
@@ -1128,7 +1128,7 @@ class ValueTimeSeriesOutput {
 public:
     ValueTimeSeriesOutput(node_ptr owning_node, const TypeMeta* value_type);
 
-    // Interface matching existing TimeSeriesValueOutput
+    // Interface matching existing TSValueOutput
     ConstValueView value() const;
     void set_value(const nb::object& py_value);  // Uses TypeOps::from_python
     nb::object py_value() const;                  // Uses TypeOps::to_python
@@ -1140,7 +1140,7 @@ public:
     // ... other methods
 
 private:
-    TimeSeriesValue _ts;           // Type-erased storage + tracker
+    TSValue _ts;           // Type-erased storage + tracker
     node_ptr _owning_node;
     // ... other members for subscription, etc.
 };
@@ -1305,7 +1305,7 @@ private:
 | `cpp/include/hgraph/types/value/window_type.h` | Window types + storage |
 | `cpp/include/hgraph/types/value/ref_type.h` | Ref types + RefStorage |
 | `cpp/include/hgraph/types/value/value.h` | Value, ValueView classes |
-| `cpp/include/hgraph/types/value/time_series_value.h` | TimeSeriesValue |
+| `cpp/include/hgraph/types/value/time_series_value.h` | TSValue |
 | `cpp/include/hgraph/types/value/modification_tracker.h` | Tracking |
 | `cpp/include/hgraph/types/value/bind.h` | Schema binding + delta |
 | `cpp/include/hgraph/types/value/python_conversion.h` | Python ops |
@@ -1348,8 +1348,8 @@ class TSOutput {
 public:
     TSOutput(const TimeSeriesTypeMeta* meta, node_ptr owning_node);
 
-    // Owns a TimeSeriesValue (type-erased storage + modification tracking)
-    value::TimeSeriesValue _value;
+    // Owns a TSValue (type-erased storage + modification tracking)
+    value::TSValue _value;
 
     // View creation with path tracking
     TSOutputView view();
@@ -1409,7 +1409,7 @@ class NavigationPath {
 
 // Output view (mutable)
 class TSOutputView {
-    value::TimeSeriesValueView _value_view;
+    value::TSView _value_view;
     NavigationPath _path;
 
     // Chainable navigation
@@ -1582,7 +1582,7 @@ cmake --build cmake-build-test --target hgraph_ts_input_tests
 
 ### 14.10 Design Principles
 
-1. **Output owns data, input reads it** - TSOutput has TimeSeriesValue storage; TSInput delegates to its bound output via AccessStrategy
+1. **Output owns data, input reads it** - TSOutput has TSValue storage; TSInput delegates to its bound output via AccessStrategy
 
 2. **Time as explicit parameter** - All mutation methods take `engine_time_t` as a parameter, avoiding stale time issues
 

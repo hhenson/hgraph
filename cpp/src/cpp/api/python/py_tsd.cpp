@@ -8,6 +8,7 @@
 #include <hgraph/types/value/python_conversion.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/types/constants.h>
 
 namespace hgraph
 {
@@ -109,7 +110,34 @@ namespace hgraph
     }
 
     void PyTimeSeriesDictOutput::del_item(const nb::object &key) {
-        // TODO: Implement del_item via view
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return;
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) return;
+
+        auto* key_type = tsd_meta->key_type;
+        std::vector<char> key_storage(key_type->size);
+        key_type->ops->construct(key_storage.data(), key_type);
+        value::value_from_python(key_storage.data(), key, key_type);
+
+        // Get the dict storage and remove the key
+        auto* storage = static_cast<value::DictStorage*>(v.value_view().data());
+        auto [removed, idx] = storage->remove(key_storage.data());
+
+        // Destruct the temporary key storage
+        if (key_type->ops->destruct) {
+            key_type->ops->destruct(key_storage.data(), key_type);
+        }
+
+        if (removed) {
+            // Mark the dict as modified
+            auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+            _view.mark_modified(eval_time);
+
+            // TODO: Update key_set delta tracking (removed set)
+            // TODO: Notify key observers
+        }
     }
 
     nb::object PyTimeSeriesDictOutput::pop(const nb::object &key, const nb::object &default_value) {
@@ -174,8 +202,29 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::key_set() const {
-        // Returns a frozenset of keys
-        return nb::frozenset(keys());
+        // Return a TSS view to the internal key set
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta || !tsd_meta->key_set_meta()) {
+            // Fallback to frozenset if metadata not available
+            return nb::frozenset(keys());
+        }
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) {
+            return nb::frozenset(keys());
+        }
+
+        // Get the key_set TSView from the TSD view
+        auto& mutable_view = const_cast<value::TSView&>(_view);
+        auto key_set_view = mutable_view.key_set();
+        if (!key_set_view.valid()) {
+            return nb::frozenset(keys());
+        }
+
+        // Create a PyTimeSeriesSetOutput wrapper for the key_set
+        // The key_set shares the node and uses the TSSTypeMeta
+        return nb::cast(PyTimeSeriesSetOutput(_node, std::move(key_set_view), nullptr,
+                                               tsd_meta->key_set_meta()));
     }
 
     nb::object PyTimeSeriesDictOutput::keys() const {
@@ -458,6 +507,104 @@ namespace hgraph
         return py_str();
     }
 
+    void PyTimeSeriesDictOutput::set_value(nb::object py_value) {
+        if (!_view.valid() || !_meta) return;
+
+        auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+
+        if (py_value.is_none()) {
+            _view.mark_invalid();
+            return;
+        }
+
+        // Check if it's a dict-like object
+        if (!nb::isinstance<nb::dict>(py_value) && !nb::hasattr(py_value, "items")) {
+            // Fall back to base class behavior for non-dict types
+            PyTimeSeriesOutput::set_value(std::move(py_value));
+            return;
+        }
+
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) {
+            PyTimeSeriesOutput::set_value(std::move(py_value));
+            return;
+        }
+
+        // Get REMOVE and REMOVE_IF_EXISTS sentinels
+        nb::object remove_sentinel = get_remove();
+        nb::object remove_if_exists_sentinel = get_remove_if_exists();
+
+        // Iterate through the dict and handle each key-value pair
+        // Use items() to get key-value pairs
+        nb::object items_obj;
+        if (nb::isinstance<nb::dict>(py_value)) {
+            items_obj = nb::cast<nb::dict>(py_value).attr("items")();
+        } else {
+            items_obj = py_value.attr("items")();
+        }
+
+        for (auto item : items_obj) {
+            nb::tuple kv = nb::cast<nb::tuple>(item);
+            nb::object key = kv[0];
+            nb::object val = kv[1];
+
+            // Skip None values
+            if (val.is_none()) {
+                continue;
+            }
+
+            // Check for REMOVE sentinels using 'is' comparison
+            if (val.is(remove_sentinel)) {
+                // REMOVE: Always delete (raises error if key doesn't exist in Python, but we'll just skip)
+                del_item(key);
+            } else if (val.is(remove_if_exists_sentinel)) {
+                // REMOVE_IF_EXISTS: Only delete if key exists
+                if (contains(key)) {
+                    del_item(key);
+                }
+            } else {
+                // Normal value - update or create the entry
+                // For now use set_item (TODO: implement set_item properly)
+                // Fall back to creating/updating via the underlying storage
+                auto* key_type = tsd_meta->key_type;
+                auto* value_ts_type = tsd_meta->value_ts_type;
+                auto* value_schema = value_ts_type ? value_ts_type->value_schema() : tsd_meta->dict_value_type;
+
+                if (!value_schema) continue;
+
+                // Convert key to C++ storage
+                std::vector<char> key_storage(key_type->size);
+                key_type->ops->construct(key_storage.data(), key_type);
+                value::value_from_python(key_storage.data(), key, key_type);
+
+                // Convert value to C++ storage
+                std::vector<char> value_storage(value_schema->size);
+                value_schema->ops->construct(value_storage.data(), value_schema);
+                value::value_from_python(value_storage.data(), val, value_schema);
+
+                // Get dict storage and insert
+                auto* storage = static_cast<value::DictStorage*>(_view.value_view().data());
+                storage->insert(key_storage.data(), value_storage.data());
+
+                // Mark as modified
+                _view.mark_modified(eval_time);
+
+                // Cleanup
+                if (key_type->ops->destruct) {
+                    key_type->ops->destruct(key_storage.data(), key_type);
+                }
+                if (value_schema->ops->destruct) {
+                    value_schema->ops->destruct(value_storage.data(), value_schema);
+                }
+            }
+        }
+    }
+
+    void PyTimeSeriesDictOutput::apply_result(nb::object value) {
+        if (value.is_none()) return;
+        set_value(std::move(value));
+    }
+
     // PyTimeSeriesDictInput implementations
     nb::object PyTimeSeriesDictInput::get_item(const nb::object &item) const {
         auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
@@ -551,7 +698,35 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictInput::key_set() const {
-        return nb::frozenset(keys());
+        // Return a TSS view to the internal key set
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta || !tsd_meta->key_set_meta()) {
+            // Fallback to frozenset if metadata not available
+            return nb::frozenset(keys());
+        }
+
+        auto v = view();
+        if (!v.valid() || v.kind() != value::TypeKind::Dict) {
+            return nb::frozenset(keys());
+        }
+
+        // For inputs, get the bound output and access its key_set view
+        auto* bound = v.bound_output();
+        if (!bound) {
+            return nb::frozenset(keys());
+        }
+
+        // Get the output's view and navigate to key_set
+        auto output_view = bound->view();
+        auto key_set_view = output_view.key_set();
+        if (!key_set_view.valid()) {
+            return nb::frozenset(keys());
+        }
+
+        // Create a PyTimeSeriesSetOutput wrapper for the key_set (read-only access)
+        // Note: inputs expose the bound output's key_set, which is read-only
+        return nb::cast(PyTimeSeriesSetOutput(_node, std::move(key_set_view), nullptr,
+                                               tsd_meta->key_set_meta()));
     }
 
     nb::object PyTimeSeriesDictInput::keys() const {
@@ -861,7 +1036,13 @@ namespace hgraph
             .def_prop_ro("has_removed", &PyTimeSeriesDictOutput::has_removed)
             .def("was_removed", &PyTimeSeriesDictOutput::was_removed)
             .def("__str__", &PyTimeSeriesDictOutput::py_str)
-            .def("__repr__", &PyTimeSeriesDictOutput::py_repr);
+            .def("__repr__", &PyTimeSeriesDictOutput::py_repr)
+            // Override value property to use TSD-aware set_value that handles REMOVE
+            .def_prop_rw("value",
+                [](const PyTimeSeriesDictOutput& self) { return self.PyTimeSeriesOutput::value(); },
+                &PyTimeSeriesDictOutput::set_value,
+                nb::arg("value").none())
+            .def("apply_result", &PyTimeSeriesDictOutput::apply_result, nb::arg("value").none());
 
         nb::class_<PyTimeSeriesDictInput, PyTimeSeriesInput>(m, "TimeSeriesDictInput")
             .def("__contains__", &PyTimeSeriesDictInput::contains)

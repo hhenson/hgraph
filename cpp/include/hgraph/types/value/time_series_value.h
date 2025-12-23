@@ -416,9 +416,12 @@ namespace hgraph::value {
         template<typename T>
         bool add(const T& element, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Set) return false;
-            bool added = _value_view.set_add(element);
+
+            auto* set_storage = static_cast<SetStorage*>(_value_view.data());
+            auto [added, index] = set_storage->add_with_index(&element);
+
             if (added) {
-                _tracker.mark_modified(time);
+                _tracker.mark_set_element_added(index, time);
                 if (_observer) {
                     _observer->notify(time);
                 }
@@ -429,14 +432,33 @@ namespace hgraph::value {
         template<typename T>
         bool remove(const T& element, engine_time_t time) {
             if (!valid() || kind() != TypeKind::Set) return false;
-            bool removed = _value_view.set_remove(element);
-            if (removed) {
-                _tracker.mark_modified(time);
-                if (_observer) {
-                    _observer->notify(time);
-                }
+
+            auto* set_storage = static_cast<SetStorage*>(_value_view.data());
+
+            // Find element's index before removal
+            auto opt_index = set_storage->find_index(&element);
+            if (!opt_index) return false;  // Not in set
+
+            size_t index = *opt_index;
+            bool was_added_this_tick = _tracker.set_element_added_at(index, time);
+
+            if (was_added_this_tick) {
+                // Add-then-remove same tick: cancel out, don't record as removed
+                _tracker.remove_set_element_tracking(index);
+            } else {
+                // Element existed before tick: record for delta
+                _tracker.record_set_removal(&element);
             }
-            return removed;
+
+            // Remove from storage
+            set_storage->remove(&element);
+
+            _tracker.mark_modified(time);
+            if (_observer) {
+                _observer->notify(time);
+            }
+
+            return true;
         }
 
         template<typename T>
@@ -514,6 +536,32 @@ namespace hgraph::value {
 
         [[nodiscard]] size_t dict_size() const {
             return _value_view.dict_size();
+        }
+
+        /**
+         * Get a TSS view to the key set of a dictionary.
+         *
+         * Returns a TSView that wraps the internal SetStorage of the DictStorage.
+         * The returned view has the TSSTypeMeta for proper TSS operations.
+         */
+        [[nodiscard]] TSView key_set() {
+            if (!valid() || kind() != TypeKind::Dict) {
+                return {};
+            }
+
+            //TODO: This code is incorrect as we need to return a view that points to the invalid code key.
+            //      i.e. once this becomes valid the set should become valid, if this means we need to enforce values being create
+            //      then that is what we ned to do, but the corrent code is incorrect.
+
+            // Get a view to the internal key set storage
+            auto key_set_view = _value_view.dict_key_set();
+            if (!key_set_view.valid()) {
+                return {};
+            }
+            // Use the key_set_ts_type from TSDTypeMeta if available
+            const TSMeta* tss_meta = _ts_meta ? key_set_meta_at() : nullptr;
+            // The key_set shares the parent's modification tracker and observer
+            return {key_set_view, _tracker, _observer, tss_meta, _path};
         }
 
         // Dict entry navigation using ConstValueView as key
@@ -894,6 +942,7 @@ namespace hgraph::value {
         [[nodiscard]] const TSMeta* field_meta_at(size_t index) const;
         [[nodiscard]] const TSMeta* element_meta_at() const;
         [[nodiscard]] const TSMeta* value_meta_at() const;
+        [[nodiscard]] const TSMeta* key_set_meta_at() const;
     };
 
     /**
@@ -1027,10 +1076,6 @@ namespace hgraph::value {
         ModificationTrackerStorage _tracker;
         std::unique_ptr<ObserverStorage> _observers;  // Lazy: nullptr until first subscribe
     };
-
-    // Alias for backward compatibility
-    using TimeSeriesValueView = TSView;
-    using TimeSeriesValue = TSValue;
 
 } // namespace hgraph::value
 

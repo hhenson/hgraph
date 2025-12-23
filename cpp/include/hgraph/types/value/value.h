@@ -221,6 +221,18 @@ namespace hgraph::value {
             return static_cast<const DictTypeMeta*>(_schema)->value_type;
         }
 
+        /**
+         * Get a view to the key set of a dictionary.
+         * Returns a ConstValueView to the internal SetStorage with the key_set_meta.
+         */
+        [[nodiscard]] ConstValueView dict_key_set() const {
+            if (!is_dict()) return {};
+            auto* dict_meta = static_cast<const DictTypeMeta*>(_schema);
+            auto* storage = static_cast<const DictStorage*>(_data);
+            // Return a view to the internal key set storage with the key_set_meta
+            return ConstValueView{&storage->keys(), dict_meta->key_set_type()};
+        }
+
         // Window operations (read-only)
         [[nodiscard]] size_t window_size() const {
             if (!is_window()) return 0;
@@ -494,6 +506,21 @@ namespace hgraph::value {
                 static_cast<DictStorage*>(_mutable_data)->clear();
             }
         }
+
+        /**
+         * Get a mutable view to the key set of a dictionary.
+         * Returns a ValueView to the internal SetStorage with the key_set_meta.
+         */
+        [[nodiscard]] ValueView dict_key_set() {
+            if (!is_dict()) return {};
+            auto* dict_meta = static_cast<const DictTypeMeta*>(_schema);
+            auto* storage = static_cast<DictStorage*>(_mutable_data);
+            // Return a view to the internal key set storage with the key_set_meta
+            return ValueView{&storage->keys(), dict_meta->key_set_type()};
+        }
+
+        // Bring in ConstValueView::dict_key_set for const access
+        using ConstValueView::dict_key_set;
 
         // Window operations (mutable)
         template<typename T>

@@ -621,18 +621,15 @@ void RefWrapperAccessStrategy::make_active() {
         _bind_time = eval_time;
     }
 
-    // REF wrapper subscribes to the wrapped view so that when the output changes,
-    // the notification propagates to the owner (even though the REF value itself doesn't change,
-    // dereferencing it yields a different value)
-    if (_wrapped_view.valid() && _owner) {
-        _wrapped_view.subscribe(_owner);
-    }
+    // NOTE: We intentionally do NOT subscribe to the wrapped view.
+    // The REF value is the reference itself, not the referenced value.
+    // The REF should only be "modified" when the reference changes (points to a different output),
+    // not when the referenced output's value changes. This matches Python behavior where
+    // PythonTimeSeriesReferenceInput sets _output = None when bound to a non-REF output.
 }
 
 void RefWrapperAccessStrategy::make_passive() {
-    if (_wrapped_view.valid() && _owner) {
-        _wrapped_view.unsubscribe(_owner);
-    }
+    // No subscription to manage since we don't subscribe in make_active()
 }
 
 // ============================================================================

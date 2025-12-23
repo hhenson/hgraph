@@ -75,6 +75,10 @@ namespace hgraph
 
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
+
+        // Override set_value to handle REMOVE sentinels
+        void set_value(nb::object py_value);
+        void apply_result(nb::object value);
     };
 
     /**

@@ -303,6 +303,12 @@ inline const TSMeta* TSView::value_meta_at() const {
     return _ts_meta ? _ts_meta->value_meta() : nullptr;
 }
 
+inline const TSMeta* TSView::key_set_meta_at() const {
+    // Cast to TSDTypeMeta and get key_set_ts_type
+    auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_ts_meta);
+    return tsd_meta ? tsd_meta->key_set_meta() : nullptr;
+}
+
 // TSView::ref_target_output() - get the TSOutput that a bound REF points to
 inline ts::TSOutput* TSView::ref_target_output() const {
     if (!valid() || kind() != TypeKind::Ref || !ref_is_bound()) {

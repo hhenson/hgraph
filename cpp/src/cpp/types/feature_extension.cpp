@@ -20,13 +20,11 @@ namespace hgraph {
     template<typename T>
     time_series_output_s_ptr& FeatureOutputExtension<T>::create_or_increment(const T &key, const void *requester) {
         auto it = _outputs.find(key);
-        if (it == _outputs.end()) {
+        bool created = (it == _outputs.end());
+        if (created) {
             auto new_output{output_builder->make_instance(owning_output->owning_node())};
-
             auto [inserted_it, success] = _outputs.emplace(key, FeatureOutputRequestTracker(new_output));
-
             (initial_value_getter ? *initial_value_getter : value_getter)(*owning_output, *new_output, key);
-
             it = inserted_it;
         }
 
@@ -38,7 +36,9 @@ namespace hgraph {
     void FeatureOutputExtension<T>::release(const T &key, const void *requester) {
         if (auto it{_outputs.find(key)}; it != _outputs.end()) {
             it->second.requesters.erase(requester);
-            if (it->second.requesters.empty()) { _outputs.erase(it); }
+            if (it->second.requesters.empty()) {
+                _outputs.erase(it);
+            }
         }
     }
 

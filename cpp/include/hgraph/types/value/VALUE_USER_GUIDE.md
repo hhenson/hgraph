@@ -410,12 +410,12 @@ window.to_string();  // "Window[size=3, newest=42]"
 ref.to_string();  // "REF[bound: 42]" or "REF[empty]" or "REF[unbound: 3 items]"
 ```
 
-### TimeSeriesValue String Representation
+### TSValue String Representation
 
 Time-series values support both simple and debug formats:
 
 ```cpp
-TimeSeriesValue ts(int_meta);
+TSValue ts(int_meta);
 ts.set_value(42, current_time);
 
 // Simple: just the value
@@ -425,7 +425,7 @@ ts.to_string();  // "42"
 ts.to_debug_string(current_time);
 // "TS[int64_t]@0x7fff5fbff8c0(value=\"42\", modified=true, last_modified=2025-01-01 12:00:00.000000)"
 
-// TimeSeriesValueView uses stored current_time
+// TSView uses stored current_time
 auto view = ts.view(current_time);
 view.to_string();        // "42"
 view.to_debug_string();  // "TS[int64_t]@0x...(value=\"42\", modified=true)"
@@ -938,7 +938,7 @@ ModificationTrackerStorage storage2 = std::move(storage1);
 
 ## Time-Series Values
 
-The `TimeSeriesValue` combines value storage and modification tracking into a unified container with automatic modification propagation. This is the foundation for implementing TS, TSB, TSL, TSS, TSD.
+The `TSValue` combines value storage and modification tracking into a unified container with automatic modification propagation. This is the foundation for implementing TS, TSB, TSL, TSS, TSD.
 
 ### Basic Usage
 
@@ -949,7 +949,7 @@ using namespace hgraph::value;
 
 // Create a time-series scalar
 const TypeMeta* int_meta = scalar_type_meta<int>();
-TimeSeriesValue ts(int_meta);
+TSValue ts(int_meta);
 
 // Initial state - no value, never modified
 assert(!ts.has_value());
@@ -968,12 +968,12 @@ ConstValueView val = ts.value();
 int x = val.as<int>();  // 42
 ```
 
-### Using TimeSeriesValueView
+### Using TSView
 
-The `TimeSeriesValueView` provides auto-tracking - modifications are automatically recorded:
+The `TSView` provides auto-tracking - modifications are automatically recorded:
 
 ```cpp
-TimeSeriesValue ts(int_meta);
+TSValue ts(int_meta);
 auto t1 = make_time(100);
 
 // Get view with current time
@@ -996,7 +996,7 @@ auto point_meta = BundleTypeBuilder()
     .add_field<int>("y")
     .build("Point");
 
-TimeSeriesValue ts_point(point_meta.get());
+TSValue ts_point(point_meta.get());
 
 auto t1 = make_time(100);
 auto t2 = make_time(200);
@@ -1036,7 +1036,7 @@ auto meta = BundleTypeBuilder()
     .add_field<std::string>("third") // index 2
     .build();
 
-TimeSeriesValue ts(meta.get());
+TSValue ts(meta.get());
 auto view = ts.view(current_time);
 
 // By name
@@ -1060,7 +1060,7 @@ auto list_meta = ListTypeBuilder()
     .count(5)
     .build();
 
-TimeSeriesValue ts_list(list_meta.get());
+TSValue ts_list(list_meta.get());
 
 auto t1 = make_time(100);
 auto view = ts_list.view(t1);
@@ -1086,7 +1086,7 @@ auto set_meta = SetTypeBuilder()
     .element<int>()
     .build();
 
-TimeSeriesValue ts_set(set_meta.get());
+TSValue ts_set(set_meta.get());
 auto view = ts_set.view(current_time);
 
 // add() returns true if element was added
@@ -1120,7 +1120,7 @@ auto dict_meta = DictTypeBuilder()
     .value<int>()
     .build();
 
-TimeSeriesValue ts_dict(dict_meta.get());
+TSValue ts_dict(dict_meta.get());
 auto view = ts_dict.view(current_time);
 
 // Insert new key - structural modification
@@ -1162,7 +1162,7 @@ auto outer_meta = BundleTypeBuilder()
     .add_field("point", inner_meta.get())
     .build("Outer");
 
-TimeSeriesValue ts(outer_meta.get());
+TSValue ts(outer_meta.get());
 auto view = ts.view(current_time);
 
 // Set outer field
@@ -1187,7 +1187,7 @@ assert(ts.value().field("point").field("x").as<int>() == 10);
 Mark a value as invalid (no longer has a valid value):
 
 ```cpp
-TimeSeriesValue ts(int_meta);
+TSValue ts(int_meta);
 ts.set_value(42, current_time);
 assert(ts.has_value());
 
@@ -1197,14 +1197,14 @@ assert(!ts.has_value());
 
 ### Move Semantics
 
-`TimeSeriesValue` is move-only:
+`TSValue` is move-only:
 
 ```cpp
-TimeSeriesValue ts1(int_meta);
+TSValue ts1(int_meta);
 ts1.set_value(42, current_time);
 
 // Move construct
-TimeSeriesValue ts2 = std::move(ts1);
+TSValue ts2 = std::move(ts1);
 // ts1 is now invalid
 // ts2 has the value and modification history
 
@@ -1218,7 +1218,7 @@ assert(ts2.as<int>() == 42);
 For advanced use cases, access underlying components:
 
 ```cpp
-TimeSeriesValue ts(point_meta.get());
+TSValue ts(point_meta.get());
 auto view = ts.view(current_time);
 
 // View internals
@@ -1226,7 +1226,7 @@ ValueView raw_value = view.value_view();
 ModificationTracker raw_tracker = view.tracker();
 engine_time_t time = view.current_time();
 
-// TimeSeriesValue internals
+// TSValue internals
 Value& underlying_val = ts.underlying_value();
 ModificationTrackerStorage& underlying_tracker = ts.underlying_tracker();
 ```
@@ -1241,7 +1241,7 @@ auto view = ts.view(current_time);
 view.set(42);
 
 // BAD - no time context
-// (TimeSeriesValue::set_value() exists for convenience)
+// (TSValue::set_value() exists for convenience)
 ts.set_value(42, current_time);
 ```
 
@@ -1260,24 +1260,24 @@ if (ts.has_value()) {
    - Set: Atomic when you track structural changes only
    - Dict: Structural + entry when you need both
 
-4. **Views are non-owning**: Ensure the `TimeSeriesValue` outlives any views:
+4. **Views are non-owning**: Ensure the `TSValue` outlives any views:
 
 ```cpp
 // GOOD
-TimeSeriesValue ts(meta);
+TSValue ts(meta);
 auto view = ts.view(current_time);
 process(view);  // ts still alive
 
 // BAD - dangling view
 auto get_view() {
-    TimeSeriesValue temp(meta);
+    TSValue temp(meta);
     return temp.view(current_time);  // temp destroyed!
 }
 ```
 
 ## Observer/Notification System
 
-The `TimeSeriesValue` supports an observer pattern for change notification. When values are modified, subscribed observers are notified.
+The `TSValue` supports an observer pattern for change notification. When values are modified, subscribed observers are notified.
 
 ### Creating an Observer
 
@@ -1300,10 +1300,10 @@ struct MyObserver : Notifiable {
 
 ### Basic Subscription
 
-Subscribe an observer to a `TimeSeriesValue`:
+Subscribe an observer to a `TSValue`:
 
 ```cpp
-TimeSeriesValue ts(int_meta);
+TSValue ts(int_meta);
 MyObserver observer;
 
 // Subscribe at root level
@@ -1330,10 +1330,10 @@ assert(observer.notification_count == 2);  // Unchanged
 
 ### Using View for Notifications
 
-Notifications are also triggered through `TimeSeriesValueView`:
+Notifications are also triggered through `TSView`:
 
 ```cpp
-TimeSeriesValue ts(int_meta);
+TSValue ts(int_meta);
 MyObserver observer;
 ts.subscribe(&observer);
 
@@ -1350,7 +1350,7 @@ assert(observer.notification_count == 1);
 Multiple observers can subscribe to the same value:
 
 ```cpp
-TimeSeriesValue ts(int_meta);
+TSValue ts(int_meta);
 MyObserver observer1, observer2;
 
 ts.subscribe(&observer1);
@@ -1373,7 +1373,7 @@ auto point_meta = BundleTypeBuilder()
     .add_field<int>("y")
     .build("Point");
 
-TimeSeriesValue ts(point_meta.get());
+TSValue ts(point_meta.get());
 MyObserver observer;
 ts.subscribe(&observer);
 
@@ -1397,7 +1397,7 @@ auto list_meta = ListTypeBuilder()
     .count(5)
     .build();
 
-TimeSeriesValue ts(list_meta.get());
+TSValue ts(list_meta.get());
 MyObserver observer;
 ts.subscribe(&observer);
 
@@ -1419,7 +1419,7 @@ auto set_meta = SetTypeBuilder()
     .element<int>()
     .build();
 
-TimeSeriesValue ts(set_meta.get());
+TSValue ts(set_meta.get());
 MyObserver observer;
 ts.subscribe(&observer);
 
@@ -1452,7 +1452,7 @@ auto dict_meta = DictTypeBuilder()
     .value<double>()
     .build();
 
-TimeSeriesValue ts(dict_meta.get());
+TSValue ts(dict_meta.get());
 MyObserver observer;
 ts.subscribe(&observer);
 
@@ -1486,7 +1486,7 @@ auto outer_meta = BundleTypeBuilder()
     .add_field("point", inner_meta.get())
     .build("Outer");
 
-TimeSeriesValue ts(outer_meta.get());
+TSValue ts(outer_meta.get());
 MyObserver observer;
 ts.subscribe(&observer);
 
@@ -1509,7 +1509,7 @@ assert(observer.notification_count == 3);
 Observer storage is only allocated when first subscription is made:
 
 ```cpp
-TimeSeriesValue ts(int_meta);
+TSValue ts(int_meta);
 
 // No overhead - _observers is nullptr
 assert(!ts.has_observers());
@@ -1528,7 +1528,7 @@ assert(ts.has_observers());
 2. **Unsubscribe when done**: Always unsubscribe observers to prevent memory leaks and unwanted notifications.
 
 ```cpp
-void process(TimeSeriesValue& ts) {
+void process(TSValue& ts) {
     MyObserver observer;
     ts.subscribe(&observer);
 
@@ -1558,7 +1558,7 @@ void process(TimeSeriesValue& ts) {
 }
 ```
 
-4. **Avoid re-entrancy**: Don't modify the same `TimeSeriesValue` from within a `notify()` callback, as this may cause recursive notifications.
+4. **Avoid re-entrancy**: Don't modify the same `TSValue` from within a `notify()` callback, as this may cause recursive notifications.
 
 ---
 
@@ -1672,12 +1672,12 @@ view.window_compact(current_time);  // Reorganizes to linear layout
 view.window_evict_expired(current_time);  // Explicit expiration
 ```
 
-### Window with TimeSeriesValue
+### Window with TSValue
 
 Windows integrate with the time-series system for modification tracking and observers:
 
 ```cpp
-TimeSeriesValue ts(fixed_window_meta.get());
+TSValue ts(fixed_window_meta.get());
 
 // Subscribe to changes
 MyObserver observer;

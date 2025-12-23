@@ -41,8 +41,8 @@ namespace hgraph
         return _node_ref.lock();
     }
 
-    // Resolve to TimeSeriesValueView
-    value::TimeSeriesValueView TimeSeriesReference::resolve() const {
+    // Resolve to TSView
+    value::TSView TimeSeriesReference::resolve() const {
         if (_kind != Kind::BOUND) {
             return {};  // Invalid view
         }
@@ -52,7 +52,9 @@ namespace hgraph
             return {};  // Node expired
         }
 
-        ts::TSOutput* output = n->output();
+        // Use direct output if available (for dynamically created outputs like get_contains_output)
+        // Otherwise, use the node's main output
+        ts::TSOutput* output = _direct_output ? _direct_output : n->output();
         if (!output) {
             return {};  // No output on node
         }

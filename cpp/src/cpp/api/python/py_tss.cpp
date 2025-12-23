@@ -358,8 +358,10 @@ namespace hgraph
     }
 
     // Feature extension helper: get singleton TSMeta for TS[bool]
+    // Use Python-aware bool type to ensure to_python/from_python are available
     static const TSMeta* get_bool_ts_meta() {
-        static const TSMeta* bool_ts_meta = types::ts_type<types::TS<bool>>();
+        //TODO: Could we not use the Cool static typing solution here? i.e. TS[bool]?
+        static const TSMeta* bool_ts_meta = types::runtime::ts(value::bool_type());
         return bool_ts_meta;
     }
 
@@ -371,9 +373,20 @@ namespace hgraph
     }
 
     void PyTimeSeriesSetOutput::ensure_contains_extension() {
-        if (_contains_extension) return;
-
         if (!_output) return;  // Need output to create extension
+
+        // Check if extension already exists (either on wrapper or in cache)
+        auto* cache = _output->python_cache();
+        if (cache->tss_contains_extension) {
+            // Extension already exists in cache - retrieve it for wrapper if needed
+            if (!_contains_extension) {
+                _contains_extension.reset(static_cast<FeatureOutputExtension<nb::object>*>(
+                    cache->tss_contains_extension.get()));
+                // Don't take ownership - the cache owns it
+                _contains_extension.release();
+            }
+            return;
+        }
 
         // Create the value getter function: sets output to True if key is in set
         // We use the ts_python_helpers to safely get the value from the owning output
@@ -390,41 +403,104 @@ namespace hgraph
                 in_set = nb::cast<bool>(set_value.attr("__contains__")(key));
             }
 
-            // Set the result output to the boolean value
-            // Access the underlying TSValue directly to avoid observer issues
-            auto& result_ts_value = result.underlying();
-            auto result_view = result_ts_value.view();
-            result_view.set<bool>(in_set, owning.last_modified_time());
+            // Get the underlying TSValue from the result output directly
+            // Use the modification time as the source of truth for whether there's a current value
+            auto& result_value = result.underlying();
+            bool has_val = result_value.has_value();
+
+            // Read current value from the last known state if available
+            // Note: Due to an issue with value storage pointer changes, we track
+            // the value state through the modification tracker instead
+            bool old_value = false;
+            if (has_val) {
+                // If we have a previous value, try to read it
+                auto result_view = result_value.view();
+                auto result_vv = result_view.value_view();
+                if (result_vv.valid() && result_vv.data()) {
+                    old_value = *static_cast<bool*>(result_vv.data());
+                }
+            }
+
+            bool value_changed = (old_value != in_set) || !has_val;
+
+            if (value_changed) {
+                // Get a fresh view for writing
+                auto result_view = result_value.view();
+                auto result_vv = result_view.value_view();
+
+                if (result_vv.valid() && result_vv.data()) {
+                    // Write value directly
+                    *static_cast<bool*>(result_vv.data()) = in_set;
+                    // Mark modified via the view's tracker
+                    result_view.mark_modified(owning.last_modified_time());
+                }
+            }
         };
 
-        _contains_extension = std::make_unique<FeatureOutputExtension<nb::object>>(
+        // Create the extension as a shared_ptr so it can be stored in the cache
+        auto ext = std::make_shared<FeatureOutputExtension<nb::object>>(
             _output,
             get_bool_output_builder(),
             value_getter,
             std::nullopt  // No separate initial value getter
         );
+
+        // Store in cache for set_python_value to access
+        cache->tss_contains_extension = ext;
+
+        // Create callback for set_python_value to use
+        cache->tss_update_contains_for_keys = [ext](const nb::handle& keys) {
+            if (!ext || keys.is_none()) return;
+            for (auto key : keys) {
+                ext->update(nb::borrow<nb::object>(key));
+            }
+        };
+
+        // Store raw pointer for wrapper (doesn't own)
+        _contains_extension = std::make_unique<FeatureOutputExtension<nb::object>>(
+            _output,
+            get_bool_output_builder(),
+            value_getter,
+            std::nullopt
+        );
+        // Actually, just use the shared one directly - we'll access through the cache
+        _contains_extension.reset();
     }
 
     void PyTimeSeriesSetOutput::update_contains_for_keys(const nb::handle &keys) {
-        if (!_contains_extension || !(*_contains_extension)) return;
-        if (keys.is_none()) return;
+        if (!_output) return;
 
-        // Iterate over the keys and update any that are being tracked
-        for (auto key : keys) {
-            _contains_extension->update(nb::borrow<nb::object>(key));
+        // Use the callback stored in the cache
+        auto* cache = _output->python_cache();
+
+        if (!cache->tss_update_contains_for_keys) {
+            return;
         }
+        if (keys.is_none()) {
+            return;
+        }
+
+        // Use the cached callback to update
+        cache->tss_update_contains_for_keys(keys);
     }
 
     nb::object PyTimeSeriesSetOutput::get_contains_output(const nb::object &item, const nb::object &requester) {
         ensure_contains_extension();
-        if (!_contains_extension) {
+
+        if (!_output) return nb::none();
+
+        // Get the extension from the cache
+        auto* cache = _output->python_cache();
+        if (!cache->tss_contains_extension) {
             return nb::none();
         }
+
+        auto* ext = static_cast<FeatureOutputExtension<nb::object>*>(cache->tss_contains_extension.get());
 
         // Get raw pointer from the requester object for tracking
         const void* requester_ptr = requester.ptr();
 
-        auto& output = _contains_extension->create_or_increment(item, requester_ptr);
+        auto& output = ext->create_or_increment(item, requester_ptr);
         if (!output) {
             return nb::none();
         }
@@ -434,10 +510,16 @@ namespace hgraph
     }
 
     void PyTimeSeriesSetOutput::release_contains_output(const nb::object &item, const nb::object &requester) {
-        if (!_contains_extension) return;
+        if (!_output) return;
+
+        // Get the extension from the cache
+        auto* cache = _output->python_cache();
+        if (!cache->tss_contains_extension) return;
+
+        auto* ext = static_cast<FeatureOutputExtension<nb::object>*>(cache->tss_contains_extension.get());
 
         const void* requester_ptr = requester.ptr();
-        _contains_extension->release(item, requester_ptr);
+        ext->release(item, requester_ptr);
     }
 
     nb::object PyTimeSeriesSetOutput::is_empty_output() {

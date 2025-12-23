@@ -944,10 +944,8 @@ namespace runtime {
             return existing;
         }
 
-        auto meta = std::make_unique<TSDTypeMeta>();
-        meta->ts_kind = TSKind::TSD;
-        meta->key_type = key_type;
-        meta->value_ts_type = value_ts_type;
+        // Constructor automatically creates TSS[key_type] for key set
+        auto meta = std::make_unique<TSDTypeMeta>(key_type, value_ts_type);
 
         // Build DictTypeMeta via value registry
         // Dict uses key_type and the value_ts_type's value_schema
@@ -1256,12 +1254,46 @@ namespace runtime_python {
     }
 
     /**
-     * Get or create a TSD[key_type, value_ts_type] metadata.
-     * (Same as runtime::tsd - TSD doesn't need special Python handling for the container)
+     * Get or create a TSD[key_type, value_ts_type] metadata with Python conversion support.
+     * Uses DictTypeBuilderWithPython to ensure from_python/to_python are available.
+     * The constructor automatically creates the key_set_ts_type (TSS[key_type]).
      */
     inline const TSMeta* tsd(const value::TypeMeta* key_type,
                                           const TSMeta* value_ts_type) {
-        return runtime::tsd(key_type, value_ts_type);
+        size_t key = detail::hash_combine(detail::TSD_SEED, reinterpret_cast<size_t>(key_type));
+        key = detail::hash_combine(key, reinterpret_cast<size_t>(value_ts_type));
+
+        auto& registry = TSTypeRegistry::global();
+        if (auto* existing = registry.lookup_by_key(key)) {
+            return existing;
+        }
+
+        // Constructor automatically creates TSS[key_type] for key set
+        auto meta = std::make_unique<TSDTypeMeta>(key_type, value_ts_type);
+
+        // Build DictTypeMeta with Python conversion support
+        // Dict uses key_type and the value_ts_type's value_schema
+        if (key_type && value_ts_type) {
+            const value::TypeMeta* value_schema = value_ts_type->value_schema();
+            if (value_schema) {
+                size_t dict_key = value::hash_combine(0x44494354, reinterpret_cast<size_t>(key_type));
+                dict_key = value::hash_combine(dict_key, reinterpret_cast<size_t>(value_schema));
+
+                auto& value_registry = value::TypeRegistry::global();
+                if (auto* existing_dict = value_registry.lookup_by_key(dict_key)) {
+                    meta->dict_value_type = existing_dict;
+                } else {
+                    // Use DictTypeBuilderWithPython for proper from_python/to_python support
+                    auto dict_meta = value::DictTypeBuilderWithPython()
+                        .key_type(key_type)
+                        .value_type(value_schema)
+                        .build();
+                    meta->dict_value_type = value_registry.register_by_key(dict_key, std::move(dict_meta));
+                }
+            }
+        }
+
+        return registry.register_by_key(key, std::move(meta));
     }
 
     /**

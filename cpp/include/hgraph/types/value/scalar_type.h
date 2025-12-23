@@ -241,7 +241,11 @@ namespace hgraph::value {
         }
 
         static bool invert(void* dest, const void* src, const TypeMeta*) {
-            if constexpr (std::is_integral_v<T>) {
+            if constexpr (std::is_same_v<T, bool>) {
+                // For bool, use logical negation (not bitwise)
+                *static_cast<T*>(dest) = !(*static_cast<const T*>(src));
+                return true;
+            } else if constexpr (std::is_integral_v<T>) {
                 *static_cast<T*>(dest) = ~(*static_cast<const T*>(src));
                 return true;
             } else {

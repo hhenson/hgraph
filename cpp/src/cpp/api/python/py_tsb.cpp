@@ -63,7 +63,7 @@ namespace hgraph
 
         nb::dict d = nb::cast<nb::dict>(py_value);
 
-        // _view is already a TimeSeriesValueView - get its inner ValueView
+        // _view is already a TSView - get its inner ValueView
         auto bundle_data = _view.value_view().data();
 
         // Get the tracker for field modification

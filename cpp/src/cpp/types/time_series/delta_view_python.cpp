@@ -112,24 +112,39 @@ static nb::object set_delta_to_python(const DeltaView& view) {
 
     engine_time_t time = view.time();
     auto& tracker = const_cast<value::ModificationTracker&>(view.tracker());
+    size_t removed_count = tracker.set_removed_count();
 
     // Build added set - elements added at current time
+    // Filter: exclude elements that were removed-then-readded (in removed_elements)
     nb::set added_set;
     for (auto elem : *storage) {
         // Look up the element's index in the storage
         auto opt_index = storage->find_index(elem.ptr);
         if (opt_index && tracker.set_element_added_at(*opt_index, time)) {
-            nb::object py_elem = value::value_to_python(elem.ptr, element_type);
-            added_set.add(py_elem);
+            // Check if element was in removed (remove-then-add scenario)
+            // If so, it's not truly "added" - it was there before, removed, re-added
+            bool was_removed = false;
+            if (element_type->ops && element_type->ops->equals) {
+                for (size_t i = 0; i < removed_count && !was_removed; ++i) {
+                    auto removed = tracker.set_removed_element(i);
+                    if (removed.ptr && element_type->ops->equals(elem.ptr, removed.ptr, element_type)) {
+                        was_removed = true;
+                    }
+                }
+            }
+            if (!was_removed) {
+                nb::object py_elem = value::value_to_python(elem.ptr, element_type);
+                added_set.add(py_elem);
+            }
         }
     }
 
-    // Build removed set - from tracker's removed elements
+    // Build removed set - elements that were removed and NOT re-added
+    // Filter: exclude if element is currently in the set (was re-added)
     nb::set removed_set;
-    size_t removed_count = tracker.set_removed_count();
     for (size_t i = 0; i < removed_count; ++i) {
         auto removed = tracker.set_removed_element(i);
-        if (removed.ptr) {
+        if (removed.ptr && !storage->contains(removed.ptr)) {
             nb::object py_elem = value::value_to_python(removed.ptr, element_type);
             removed_set.add(py_elem);
         }
