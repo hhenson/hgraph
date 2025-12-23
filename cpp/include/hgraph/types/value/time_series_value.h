@@ -545,19 +545,16 @@ namespace hgraph::value {
          * The returned view has the TSSTypeMeta for proper TSS operations.
          */
         [[nodiscard]] TSView key_set() {
-            if (!valid() || kind() != TypeKind::Dict) {
+            if (kind() != TypeKind::Dict) {
                 return {};
             }
 
-            //TODO: This code is incorrect as we need to return a view that points to the invalid code key.
-            //      i.e. once this becomes valid the set should become valid, if this means we need to enforce values being create
-            //      then that is what we ned to do, but the corrent code is incorrect.
-
-            // Get a view to the internal key set storage
+            // Get a view to the internal key set storage.
+            // Don't check key_set_view.valid() - we want to return a TSView that
+            // tracks validity along with the parent TSD. The caller can hold onto
+            // this view and it will become valid when the TSD becomes valid.
             auto key_set_view = _value_view.dict_key_set();
-            if (!key_set_view.valid()) {
-                return {};
-            }
+
             // Use the key_set_ts_type from TSDTypeMeta if available
             const TSMeta* tss_meta = _ts_meta ? key_set_meta_at() : nullptr;
             // The key_set shares the parent's modification tracker and observer
