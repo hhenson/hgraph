@@ -618,18 +618,16 @@ value::ModificationTracker RefWrapperAccessStrategy::tracker() const {
 }
 
 bool RefWrapperAccessStrategy::modified_at(engine_time_t time) const {
-    // REF is modified if:
-    // 1. We just bound to the view at this time, OR
-    // 2. The underlying wrapped view is modified at this time
-    if (_bind_time == time) return true;
-    return _wrapped_view.valid() && _wrapped_view.modified_at(time);
+    // REF is modified ONLY when the reference itself changes (bind_time),
+    // NOT when the referenced value changes.
+    // This matches Python behavior where PythonTimeSeriesReferenceInput.modified
+    // returns False for wrapped REFs (only _sampled matters, not the wrapped view).
+    return _bind_time == time;
 }
 
 engine_time_t RefWrapperAccessStrategy::last_modified_time() const {
-    // Return the max of bind_time and wrapped view's last modified time
-    if (_wrapped_view.valid()) {
-        return std::max(_bind_time, _wrapped_view.last_modified_time());
-    }
+    // For a wrapped REF, the last_modified_time is when the reference was bound,
+    // not when the referenced value changed.
     return _bind_time;
 }
 

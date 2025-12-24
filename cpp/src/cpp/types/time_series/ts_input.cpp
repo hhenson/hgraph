@@ -550,10 +550,12 @@ void TSInputBindableView::bind(value::TSView output_view) {
         child_strategy->bind(output_view);
     }
 
-    // If input is active, activate the new child
-    if (_root->active() && child_strategy) {
-        child_strategy->make_active();
-    }
+    // NOTE: We do NOT auto-activate the child strategy here.
+    // In Python, binding an input doesn't automatically make it active.
+    // The caller (Python code) should explicitly call make_active() if needed.
+    // This is important for injectable inputs that are not in active_inputs -
+    // they should remain passive even after binding.
+    // See: PythonBoundTimeSeriesInput.bind_output() which doesn't call make_active().
 
     // Set the child strategy in the parent
     parent_strategy->set_child(final_index, std::move(child_strategy));

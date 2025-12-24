@@ -474,6 +474,12 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesInput::bound() const {
+        // First check via view (works for field wrappers and dynamically bound inputs)
+        // This handles cases where bind_output_view() was used to bind via the view
+        if (_view.valid() && _view.bound_output()) {
+            return nb::bool_(true);
+        }
+        // Fallback: direct input binding
         return nb::bool_(_input && _input->bound());
     }
 
