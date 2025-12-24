@@ -462,15 +462,48 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesInput::active() const {
-        return nb::bool_(_input && _input->active());
+        // First try direct input
+        if (_input) {
+            return nb::bool_(_input->active());
+        }
+        // For field wrappers, check if child strategy is active
+        if (_root_input && _field_index != SIZE_MAX) {
+            auto* root_strategy = _root_input->strategy();
+            if (auto* coll = dynamic_cast<ts::CollectionAccessStrategy*>(root_strategy)) {
+                if (auto* child = coll->child(_field_index)) {
+                    return nb::bool_(child->is_active());
+                }
+            }
+        }
+        return nb::bool_(false);
     }
 
     void PyTimeSeriesInput::make_active() {
-        if (_input) _input->make_active();
+        if (_input) {
+            _input->make_active();
+        } else if (_root_input && _field_index != SIZE_MAX) {
+            // For field wrappers, activate the child strategy
+            auto* root_strategy = _root_input->strategy();
+            if (auto* coll = dynamic_cast<ts::CollectionAccessStrategy*>(root_strategy)) {
+                if (auto* child = coll->child(_field_index)) {
+                    child->make_active();
+                }
+            }
+        }
     }
 
     void PyTimeSeriesInput::make_passive() {
-        if (_input) _input->make_passive();
+        if (_input) {
+            _input->make_passive();
+        } else if (_root_input && _field_index != SIZE_MAX) {
+            // For field wrappers, deactivate the child strategy
+            auto* root_strategy = _root_input->strategy();
+            if (auto* coll = dynamic_cast<ts::CollectionAccessStrategy*>(root_strategy)) {
+                if (auto* child = coll->child(_field_index)) {
+                    child->make_passive();
+                }
+            }
+        }
     }
 
     nb::bool_ PyTimeSeriesInput::bound() const {

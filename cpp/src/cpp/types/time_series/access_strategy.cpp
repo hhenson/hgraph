@@ -54,6 +54,7 @@ void DirectAccessStrategy::unbind() {
 }
 
 void DirectAccessStrategy::make_active() {
+    _is_active = true;
     if (_output_view.valid() && _owner) {
         _output_view.subscribe(_owner);
 
@@ -71,6 +72,7 @@ void DirectAccessStrategy::make_active() {
 }
 
 void DirectAccessStrategy::make_passive() {
+    _is_active = false;
     if (_output_view.valid() && _owner) {
         _output_view.unsubscribe(_owner);
     }
@@ -167,6 +169,7 @@ void CollectionAccessStrategy::unbind() {
 }
 
 void CollectionAccessStrategy::make_active() {
+    _is_active = true;
     // For dynamic collections (like TSD) that have no fixed children,
     // subscribe directly to the output view to receive notifications
     if (_output_view.valid() && _owner && _children.empty()) {
@@ -191,6 +194,7 @@ void CollectionAccessStrategy::make_active() {
 }
 
 void CollectionAccessStrategy::make_passive() {
+    _is_active = false;
     // Unsubscribe from direct output subscription (if we subscribed in make_active)
     if (_output_view.valid() && _owner && _children.empty()) {
         _output_view.unsubscribe(_owner);
@@ -357,6 +361,7 @@ void RefObserverAccessStrategy::unbind() {
 }
 
 void RefObserverAccessStrategy::make_active() {
+    _is_active = true;
     // Already subscribed to _ref_view (done at bind time)
     // Activate child strategy (subscribes to target)
     if (_child) {
@@ -365,6 +370,7 @@ void RefObserverAccessStrategy::make_active() {
 }
 
 void RefObserverAccessStrategy::make_passive() {
+    _is_active = false;
     // Stay subscribed to _ref_view
     // Deactivate child strategy (unsubscribes from target)
     if (_child) {
@@ -632,17 +638,20 @@ engine_time_t RefWrapperAccessStrategy::last_modified_time() const {
 }
 
 void RefWrapperAccessStrategy::make_active() {
-    // Set bind time to current evaluation time - this marks the REF as "modified"
-    // at the first tick after activation, which is when the REF becomes available
+    _is_active = true;
+
+    // Set bind time if not already set - this marks when the REF becomes available
     auto eval_time = get_evaluation_time();
-    if (eval_time != MIN_DT && _bind_time == MIN_DT) {
-        _bind_time = eval_time;
+    if (_bind_time == MIN_DT) {
+        // If eval_time is MIN_DT (during init), set bind_time to MIN_ST (first schedulable time)
+        // Otherwise set to current eval_time
+        _bind_time = (eval_time == MIN_DT) ? MIN_ST : eval_time;
 
         // Notify owner that the REF input is now available
         // This matches Python behavior where PythonTimeSeriesReferenceInput.start()
         // calls notify() to schedule the owning node when the REF becomes active
         if (_owner) {
-            _owner->notify(eval_time);
+            _owner->notify(_bind_time);
         }
     }
 
@@ -654,6 +663,7 @@ void RefWrapperAccessStrategy::make_active() {
 }
 
 void RefWrapperAccessStrategy::make_passive() {
+    _is_active = false;
     // No subscription to manage since we don't subscribe in make_active()
 }
 
@@ -678,6 +688,7 @@ void ElementAccessStrategy::unbind() {
 }
 
 void ElementAccessStrategy::make_active() {
+    _is_active = true;
     if (_parent_view.valid() && _owner) {
         _parent_view.subscribe(_owner);
 
@@ -694,6 +705,7 @@ void ElementAccessStrategy::make_active() {
 }
 
 void ElementAccessStrategy::make_passive() {
+    _is_active = false;
     if (_parent_view.valid() && _owner) {
         _parent_view.unsubscribe(_owner);
     }

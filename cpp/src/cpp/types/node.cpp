@@ -766,15 +766,51 @@ namespace hgraph
     }
 
     void Node::_initialise_inputs() {
-        if (signature().time_series_inputs.has_value()) {
+        if (signature().time_series_inputs.has_value() && has_input()) {
             // Note: _start_inputs handling is a legacy feature for reference inputs.
             // In the new system, reference inputs are just regular TSInput objects.
             // The start() call was used to begin tracking the referenced output.
             // TODO: Implement proper reference input tracking in the new system if needed.
 
-            // Make the input active
-            if (has_input()) {
+            const auto& active_inputs = signature().active_inputs;
+
+            if (!active_inputs.has_value()) {
+                // No active_inputs specified - all inputs are active
                 input()->make_active();
+            } else {
+                // Only activate inputs that are in the active_inputs set
+                // Map field names to indices using the args vector
+                auto* root_strategy = input()->strategy();
+                auto* collection = dynamic_cast<ts::CollectionAccessStrategy*>(root_strategy);
+
+                if (collection) {
+                    const auto& args = signature().args;
+                    const auto& ts_inputs = *signature().time_series_inputs;
+
+                    // Set root input's _active flag FIRST so notifications can propagate
+                    // We do this directly rather than calling input()->make_active()
+                    // to avoid activating all child strategies
+                    input()->set_active_flag(true);
+
+                    // Child indices are for time series inputs only - scalars don't have children
+                    size_t ts_input_index = 0;
+                    for (const auto& field_name : args) {
+                        // Only process if this is a time series input
+                        if (ts_inputs.find(field_name) != ts_inputs.end()) {
+                            bool is_active = active_inputs->count(field_name) > 0;
+                            if (is_active) {
+                                if (auto* child = collection->child(ts_input_index)) {
+                                    child->make_active();
+                                }
+                            }
+                            ts_input_index++;  // Increment only for time series inputs
+                        }
+                    }
+                } else {
+                    // Root strategy is not a collection - just activate it if the input name is active
+                    // This handles single-input nodes
+                    input()->make_active();
+                }
             }
         }
     }

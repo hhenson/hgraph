@@ -55,8 +55,13 @@ class TSInput;
  */
 class AccessStrategy {
 public:
-    explicit AccessStrategy(TSInput* owner) : _owner(owner) {}
+    explicit AccessStrategy(TSInput* owner) : _owner(owner), _is_active(false) {}
     virtual ~AccessStrategy() = default;
+
+    /**
+     * Check if this strategy is active (subscribed to outputs)
+     */
+    [[nodiscard]] bool is_active() const { return _is_active; }
 
     // Non-copyable, movable
     AccessStrategy(const AccessStrategy&) = delete;
@@ -181,6 +186,7 @@ public:
 
 protected:
     TSInput* _owner;
+    bool _is_active;
 };
 
 // ============================================================================

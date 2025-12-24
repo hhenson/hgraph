@@ -458,6 +458,12 @@ public:
 
     [[nodiscard]] bool active() const { return _active; }
 
+    /**
+     * Set the active flag directly (without activating the strategy).
+     * Used when selectively activating child strategies based on active_inputs.
+     */
+    void set_active_flag(bool value) { _active = value; }
+
     // === Notification (from Notifiable interface) ===
 
     /**
