@@ -106,38 +106,84 @@ namespace hgraph
     }
 
     void PyTimeSeriesDictOutput::set_item(const nb::object &key, const nb::object &value) {
-        // TODO: Implement set_item via view - requires set_python_value on entry
+        auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
+        if (!tsd_meta) return;
+
+        if (!_view.valid() || _view.kind() != value::TypeKind::Dict) return;
+
+        auto* key_type = tsd_meta->key_type;
+        auto* value_ts_type = tsd_meta->value_ts_type;
+        auto* value_schema = value_ts_type ? value_ts_type->value_schema() : tsd_meta->dict_value_type;
+        if (!value_schema) return;
+
+        auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+
+        // Convert key to C++ using Value for proper lifecycle
+        value::Value key_value(key_type);
+        if (key_type->ops && key_type->ops->from_python) {
+            key_type->ops->from_python(key_value.data(), key.ptr(), key_type);
+        }
+
+        // Convert value to C++ using Value for proper lifecycle
+        value::Value val_value(value_schema);
+        if (value_schema->ops && value_schema->ops->from_python) {
+            value_schema->ops->from_python(val_value.data(), value.ptr(), value_schema);
+        }
+
+        // Get dict storage and insert
+        auto* storage = static_cast<value::DictStorage*>(_view.value_view().data());
+        auto [is_new_key, idx] = storage->insert(key_value.data(), val_value.data());
+
+        // Update tracker based on whether key is new or existing
+        if (is_new_key) {
+            _view.tracker().mark_dict_key_added(idx, eval_time);
+        } else {
+            _view.tracker().mark_dict_value_modified(idx, eval_time);
+        }
+
+        _view.mark_modified(eval_time);
     }
 
     void PyTimeSeriesDictOutput::del_item(const nb::object &key) {
         auto* tsd_meta = dynamic_cast<const TSDTypeMeta*>(_meta);
         if (!tsd_meta) return;
 
-        auto v = view();
-        if (!v.valid() || v.kind() != value::TypeKind::Dict) return;
+        if (!_view.valid() || _view.kind() != value::TypeKind::Dict) return;
 
         auto* key_type = tsd_meta->key_type;
-        std::vector<char> key_storage(key_type->size);
-        key_type->ops->construct(key_storage.data(), key_type);
-        value::value_from_python(key_storage.data(), key, key_type);
+        auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
 
-        // Get the dict storage and remove the key
-        auto* storage = static_cast<value::DictStorage*>(v.value_view().data());
-        auto [removed, idx] = storage->remove(key_storage.data());
-
-        // Destruct the temporary key storage
-        if (key_type->ops->destruct) {
-            key_type->ops->destruct(key_storage.data(), key_type);
+        // Convert key to C++ using Value for proper lifecycle management
+        value::Value key_value(key_type);
+        if (key_type->ops && key_type->ops->from_python) {
+            key_type->ops->from_python(key_value.data(), key.ptr(), key_type);
         }
 
-        if (removed) {
-            // Mark the dict as modified
-            auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
-            _view.mark_modified(eval_time);
+        // Get the dict storage
+        auto* storage = static_cast<value::DictStorage*>(_view.value_view().data());
 
-            // TODO: Update key_set delta tracking (removed set)
-            // TODO: Notify key observers
+        // Find key's index before removal for tracker update
+        auto opt_index = storage->find_index(key_value.data());
+        if (!opt_index) return;  // Key not in dict
+
+        size_t index = *opt_index;
+
+        // Check if key was added this tick - handle add-then-remove cancellation
+        bool was_added_this_tick = _view.tracker().dict_key_added_at(index, eval_time);
+
+        if (was_added_this_tick) {
+            // Add-then-remove same tick: cancel out, don't record as removed
+            _view.tracker().remove_dict_entry_tracking(index);
+        } else {
+            // Key existed before tick: record for delta access
+            _view.tracker().record_dict_key_removal(key_value.data(), eval_time);
         }
+
+        // Remove from storage
+        storage->remove(key_value.data());
+
+        // Mark the dict as modified
+        _view.mark_modified(eval_time);
     }
 
     nb::object PyTimeSeriesDictOutput::pop(const nb::object &key, const nb::object &default_value) {
@@ -682,12 +728,25 @@ namespace hgraph
             return;
         }
 
+        if (_view.kind() != value::TypeKind::Dict) {
+            PyTimeSeriesOutput::set_value(std::move(py_value));
+            return;
+        }
+
+        // Get type metadata
+        auto* key_type = tsd_meta->key_type;
+        auto* value_ts_type = tsd_meta->value_ts_type;
+        auto* value_schema = value_ts_type ? value_ts_type->value_schema() : tsd_meta->dict_value_type;
+        if (!value_schema) {
+            PyTimeSeriesOutput::set_value(std::move(py_value));
+            return;
+        }
+
         // Get REMOVE and REMOVE_IF_EXISTS sentinels
         nb::object remove_sentinel = get_remove();
         nb::object remove_if_exists_sentinel = get_remove_if_exists();
 
         // Iterate through the dict and handle each key-value pair
-        // Use items() to get key-value pairs
         nb::object items_obj;
         if (nb::isinstance<nb::dict>(py_value)) {
             items_obj = nb::cast<nb::dict>(py_value).attr("items")();
@@ -696,14 +755,15 @@ namespace hgraph
         }
 
         // Check if the dict is empty - we still need to mark as modified
-        // Python: "if not self.valid and not v: self.key_set.mark_modified()"
-        // Even setting an empty dict should trigger the output as modified
         bool is_empty = (nb::len(items_obj) == 0);
         if (is_empty && !_view.has_value()) {
-            // Mark as modified even for empty dict when not yet valid
             _view.mark_modified(eval_time);
             return;
         }
+
+        // Get dict storage
+        auto* storage = static_cast<value::DictStorage*>(_view.value_view().data());
+        bool had_changes = false;
 
         for (auto item : items_obj) {
             nb::tuple kv = nb::cast<nb::tuple>(item);
@@ -717,48 +777,45 @@ namespace hgraph
 
             // Check for REMOVE sentinels using 'is' comparison
             if (val.is(remove_sentinel)) {
-                // REMOVE: Always delete (raises error if key doesn't exist in Python, but we'll just skip)
                 del_item(key);
+                had_changes = true;
             } else if (val.is(remove_if_exists_sentinel)) {
-                // REMOVE_IF_EXISTS: Only delete if key exists
                 if (contains(key)) {
                     del_item(key);
+                    had_changes = true;
                 }
             } else {
-                // Normal value - update or create the entry
-                // For now use set_item (TODO: implement set_item properly)
-                // Fall back to creating/updating via the underlying storage
-                auto* key_type = tsd_meta->key_type;
-                auto* value_ts_type = tsd_meta->value_ts_type;
-                auto* value_schema = value_ts_type ? value_ts_type->value_schema() : tsd_meta->dict_value_type;
+                // Normal value - insert or update entry using core storage with tracker
 
-                if (!value_schema) continue;
-
-                // Convert key to C++ storage
-                std::vector<char> key_storage(key_type->size);
-                key_type->ops->construct(key_storage.data(), key_type);
-                value::value_from_python(key_storage.data(), key, key_type);
-
-                // Convert value to C++ storage
-                std::vector<char> value_storage(value_schema->size);
-                value_schema->ops->construct(value_storage.data(), value_schema);
-                value::value_from_python(value_storage.data(), val, value_schema);
-
-                // Get dict storage and insert
-                auto* storage = static_cast<value::DictStorage*>(_view.value_view().data());
-                storage->insert(key_storage.data(), value_storage.data());
-
-                // Mark as modified
-                _view.mark_modified(eval_time);
-
-                // Cleanup
-                if (key_type->ops->destruct) {
-                    key_type->ops->destruct(key_storage.data(), key_type);
+                // Convert key to C++ using Value for proper lifecycle
+                value::Value key_value(key_type);
+                if (key_type->ops && key_type->ops->from_python) {
+                    key_type->ops->from_python(key_value.data(), key.ptr(), key_type);
                 }
-                if (value_schema->ops->destruct) {
-                    value_schema->ops->destruct(value_storage.data(), value_schema);
+
+                // Convert value to C++ using Value for proper lifecycle
+                value::Value val_value(value_schema);
+                if (value_schema->ops && value_schema->ops->from_python) {
+                    value_schema->ops->from_python(val_value.data(), val.ptr(), value_schema);
                 }
+
+                // Insert into storage and get index info
+                auto [is_new_key, idx] = storage->insert(key_value.data(), val_value.data());
+
+                // Update tracker based on whether key is new or existing
+                if (is_new_key) {
+                    _view.tracker().mark_dict_key_added(idx, eval_time);
+                } else {
+                    _view.tracker().mark_dict_value_modified(idx, eval_time);
+                }
+
+                had_changes = true;
             }
+        }
+
+        // Mark as modified if there were changes
+        if (had_changes) {
+            _view.mark_modified(eval_time);
         }
     }
 
