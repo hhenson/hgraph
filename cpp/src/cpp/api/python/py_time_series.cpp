@@ -3,6 +3,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/value/python_conversion.h>
+#include <hgraph/types/value/window_type.h>
 #include <hgraph/types/time_series/delta_view_python.h>
 #include <hgraph/types/time_series/access_strategy.h>
 #include <hgraph/api/python/ts_python_helpers.h>
@@ -64,6 +65,21 @@ namespace hgraph
         auto vv = _view.value_view();
         if (!vv.valid()) return nb::none();
         auto* schema = _view.value_schema();
+
+        // Special case for TSW (Window) types:
+        // C++ value_to_python returns {"values": [...], "timestamps": [...]}
+        // but Python TSW.value property returns just the values array
+        if (_meta && _meta->ts_kind == TSKind::TSW) {
+            auto result = value::value_to_python(vv.data(), schema);
+            if (nb::isinstance<nb::dict>(result)) {
+                nb::dict d = nb::cast<nb::dict>(result);
+                if (d.contains("values")) {
+                    return d["values"];
+                }
+            }
+            return result;
+        }
+
         return value::value_to_python(vv.data(), schema);
     }
 
@@ -97,6 +113,32 @@ namespace hgraph
                 auto cached = ts::get_cached_delta(_output);
                 if (!cached.is_none()) {
                     return cached;
+                }
+            }
+
+            // Special handling for TSW (TimeSeriesWindow) types
+            // delta_value returns the most recently added element (if added this tick)
+            if (ts_kind == TSKind::TSW) {
+                auto* schema = view_to_use.value_schema();
+                if (schema && schema->kind == value::TypeKind::Window) {
+                    auto* window_meta = static_cast<const value::WindowTypeMeta*>(schema);
+                    auto* elem_type = window_meta->element_type;
+                    auto vv = view_to_use.value_view();
+                    auto* storage = static_cast<const value::WindowStorage*>(vv.data());
+
+                    if (storage && storage->size() > 0) {
+                        // Get the newest element's timestamp
+                        auto newest_ts = storage->timestamp(storage->size() - 1);
+                        // Only return if it was added in this tick
+                        if (newest_ts == eval_time) {
+                            const void* newest_ptr = storage->get(storage->size() - 1);
+                            if (elem_type && elem_type->ops && elem_type->ops->to_python) {
+                                auto* result = static_cast<PyObject*>(elem_type->ops->to_python(newest_ptr, elem_type));
+                                return nb::steal(nb::handle(result));
+                            }
+                        }
+                    }
+                    return nb::none();
                 }
             }
         }
@@ -150,21 +192,16 @@ namespace hgraph
     void PyTimeSeriesOutput::set_value(nb::object py_value) {
         if (!_view.valid() || !_meta) return;
 
-        auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
-
         if (py_value.is_none()) {
             _view.mark_invalid();
             return;
         }
 
-        // _view is already a TSView - use it directly
-        auto* schema = _view.schema();
-        if (schema && schema->ops && schema->ops->from_python) {
-            // Get the underlying ValueView which has the data() method
-            auto vv = _view.value_view();
-            schema->ops->from_python(vv.data(), py_value.ptr(), schema);
-            _view.mark_modified(eval_time);
-        }
+        // Get evaluation time for modification tracking
+        auto eval_time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+
+        // Use ts::set_python_value which handles special cases like TSW (window types)
+        ts::set_python_value(_output, py_value, eval_time);
     }
 
     void PyTimeSeriesOutput::copy_from_output(const PyTimeSeriesOutput& other) {
@@ -268,6 +305,21 @@ namespace hgraph
         if (!value_view.valid()) return nb::none();
         // Get schema from meta if available, fall back to value_view schema
         auto* schema = _meta ? _meta->value_schema() : value_view.schema();
+
+        // Special case for TSW (Window) types:
+        // C++ value_to_python returns {"values": [...], "timestamps": [...]}
+        // but Python TSW.value property returns just the values array
+        if (_meta && _meta->ts_kind == TSKind::TSW) {
+            auto result = value::value_to_python(value_view.data(), schema);
+            if (nb::isinstance<nb::dict>(result)) {
+                nb::dict d = nb::cast<nb::dict>(result);
+                if (d.contains("values")) {
+                    return d["values"];
+                }
+            }
+            return result;
+        }
+
         return value::value_to_python(value_view.data(), schema);
     }
 
@@ -302,6 +354,32 @@ namespace hgraph
                     if (!cached.is_none()) {
                         return cached;
                     }
+                }
+            }
+
+            // Special handling for TSW (TimeSeriesWindow) types
+            // delta_value returns the most recently added element (if added this tick)
+            if (ts_kind == TSKind::TSW) {
+                auto* schema = _view.value_schema();
+                if (schema && schema->kind == value::TypeKind::Window) {
+                    auto* window_meta = static_cast<const value::WindowTypeMeta*>(schema);
+                    auto* elem_type = window_meta->element_type;
+                    auto vv = _view.value_view();
+                    auto* storage = static_cast<const value::WindowStorage*>(vv.data());
+
+                    if (storage && storage->size() > 0) {
+                        // Get the newest element's timestamp
+                        auto newest_ts = storage->timestamp(storage->size() - 1);
+                        // Only return if it was added in this tick
+                        if (newest_ts == eval_time) {
+                            const void* newest_ptr = storage->get(storage->size() - 1);
+                            if (elem_type && elem_type->ops && elem_type->ops->to_python) {
+                                auto* result = static_cast<PyObject*>(elem_type->ops->to_python(newest_ptr, elem_type));
+                                return nb::steal(nb::handle(result));
+                            }
+                        }
+                    }
+                    return nb::none();
                 }
             }
         }

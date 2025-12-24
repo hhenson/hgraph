@@ -71,6 +71,9 @@ namespace hgraph
         [[nodiscard]] nb::bool_ has_removed_value() const;
         [[nodiscard]] nb::object removed_value() const;
 
+        // Override all_valid to check min_size
+        [[nodiscard]] nb::bool_ all_valid() const;
+
         [[nodiscard]] nb::int_ len() const;
 
         [[nodiscard]] nb::str py_str() const;

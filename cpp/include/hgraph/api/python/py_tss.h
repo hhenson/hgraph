@@ -71,6 +71,9 @@ namespace hgraph
         // Helper to update contains extension after set changes
         void update_contains_for_keys(const nb::handle &keys);
 
+        // Helper to update contains extension for a single item
+        void update_contains_for_item(const nb::object &item, bool added);
+
         // Ensure contains extension is initialized
         void ensure_contains_extension();
     };

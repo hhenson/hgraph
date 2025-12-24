@@ -33,102 +33,141 @@ namespace hgraph
     }
 
     void PyTimeSeriesSetOutput::add(const nb::object &item) {
-        // Get current value and add the item
-        nb::object current = value();
-        nb::set new_set;
-        if (!current.is_none()) {
-            new_set = nb::set(current);
+        if (!_view.valid() || _view.kind() != value::TypeKind::Set) return;
+
+        // Get element schema from set type
+        auto* set_meta = static_cast<const value::SetTypeMeta*>(_view.schema());
+        auto* elem_schema = set_meta->element_type;
+
+        // Create typed Value for element and convert from Python
+        value::Value elem_value(elem_schema);
+        if (elem_schema->ops && elem_schema->ops->from_python) {
+            elem_schema->ops->from_python(elem_value.data(), item.ptr(), elem_schema);
         }
 
-        // Check if already in set
-        bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item));
-        if (in_set) return;  // Already in set, no change
+        // Add to set storage - core handles storage update
+        auto* set_storage = static_cast<value::SetStorage*>(_view.value_view().data());
+        auto [added, index] = set_storage->add_with_index(elem_value.data());
 
-        new_set.add(item);
+        if (added) {
+            // Use core modification tracking
+            auto time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+            _view.tracker().mark_set_element_added(index, time);
+            _view.mark_modified(time);
 
-        // Store via base class
-        PyTimeSeriesOutput::set_value(nb::frozenset(new_set));
+            if (_output) {
+                _output->register_delta_reset_callback();
 
-        // Create SetDelta and cache it
-        nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
-        nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
+                // Update Python delta cache - add to 'added' set
+                nb::set added_set;
+                nb::set removed_set;
 
-        if (_output) {
-            // Get or create cached delta and add to it
-            auto cached = ts::get_cached_delta(_output);
-            nb::object delta;
-            if (!cached.is_none()) {
-                // Add the item to the existing delta's added set
-                nb::object existing_added = cached.attr("added");
-                nb::set new_added(existing_added);
-                new_added.add(item);
-                delta = PythonSetDelta(nb::frozenset(new_added), cached.attr("removed"));
-            } else {
-                nb::set single;
-                single.add(item);
-                delta = PythonSetDelta(nb::frozenset(single), nb::frozenset());
+                auto cached = ts::get_cached_delta(_output);
+                if (!cached.is_none()) {
+                    // Create mutable sets from the frozensets in the cached delta
+                    for (auto elem : cached.attr("added")) {
+                        added_set.add(nb::borrow<nb::object>(elem));
+                    }
+                    for (auto elem : cached.attr("removed")) {
+                        removed_set.add(nb::borrow<nb::object>(elem));
+                    }
+                }
+
+                added_set.add(item);
+
+                // Create updated delta and cache it
+                nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
+                nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
+                nb::object delta = PythonSetDelta(
+                    nb::frozenset(added_set),
+                    nb::frozenset(removed_set)
+                );
+                ts::cache_delta(_output, delta);
             }
-            ts::cache_delta(_output, delta);
-            _output->register_delta_reset_callback();
-        }
 
-        // Update contains extension for the added item
-        nb::set single_item;
-        single_item.add(item);
-        update_contains_for_keys(single_item);
+            // Update contains extension (wrapper feature for Python API)
+            update_contains_for_item(item, true);
+        }
     }
 
     void PyTimeSeriesSetOutput::remove(const nb::object &item) {
-        // Get current value and remove the item
-        nb::object current = value();
-        if (current.is_none()) return;
+        if (!_view.valid() || _view.kind() != value::TypeKind::Set) return;
 
-        nb::set new_set(current);
+        // Get element schema from set type
+        auto* set_meta = static_cast<const value::SetTypeMeta*>(_view.schema());
+        auto* elem_schema = set_meta->element_type;
 
-        // Check if in set
-        bool in_set = nb::cast<bool>(new_set.attr("__contains__")(item));
-        if (!in_set) return;  // Not in set, no change
-
-        new_set.discard(item);
-
-        // Create SetDelta and apply it
-        nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
-        nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
-
-        // Store via base class and cache delta
-        PyTimeSeriesOutput::set_value(nb::frozenset(new_set));
-
-        if (_output) {
-            // Get or create cached delta
-            auto cached = ts::get_cached_delta(_output);
-            nb::object delta;
-            if (!cached.is_none()) {
-                // Check if item was in the added set - if so, remove from added instead of adding to removed
-                nb::object existing_added = cached.attr("added");
-                nb::object existing_removed = cached.attr("removed");
-                nb::set new_added(existing_added);
-                nb::set new_removed(existing_removed);
-
-                bool was_added = nb::cast<bool>(new_added.attr("__contains__")(item));
-                if (was_added) {
-                    new_added.discard(item);
-                } else {
-                    new_removed.add(item);
-                }
-                delta = PythonSetDelta(nb::frozenset(new_added), nb::frozenset(new_removed));
-            } else {
-                nb::set single;
-                single.add(item);
-                delta = PythonSetDelta(nb::frozenset(), nb::frozenset(single));
-            }
-            ts::cache_delta(_output, delta);
-            _output->register_delta_reset_callback();
+        // Create typed Value for element and convert from Python
+        value::Value elem_value(elem_schema);
+        if (elem_schema->ops && elem_schema->ops->from_python) {
+            elem_schema->ops->from_python(elem_value.data(), item.ptr(), elem_schema);
         }
 
-        // Update contains extension for the removed item
-        nb::set single_item;
-        single_item.add(item);
-        update_contains_for_keys(single_item);
+        // Find element's index before removal
+        auto* set_storage = static_cast<value::SetStorage*>(_view.value_view().data());
+        auto opt_index = set_storage->find_index(elem_value.data());
+        if (!opt_index) return;  // Not in set
+
+        size_t index = *opt_index;
+        auto time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+
+        // Check if element was added this tick - core handles add-then-remove cancellation
+        bool was_added_this_tick = _view.tracker().set_element_added_at(index, time);
+
+        if (was_added_this_tick) {
+            // Add-then-remove same tick: cancel out, don't record as removed
+            _view.tracker().remove_set_element_tracking(index);
+        } else {
+            // Element existed before tick: record for delta access
+            _view.tracker().record_set_removal(elem_value.data(), time);
+        }
+
+        // Remove from storage
+        set_storage->remove(elem_value.data());
+
+        _view.mark_modified(time);
+        if (_output) {
+            _output->register_delta_reset_callback();
+
+            // Update Python delta cache
+            nb::set added_set;
+            nb::set removed_set;
+
+            auto cached = ts::get_cached_delta(_output);
+            if (!cached.is_none()) {
+                // Create mutable sets from the frozensets in the cached delta
+                for (auto elem : cached.attr("added")) {
+                    added_set.add(nb::borrow<nb::object>(elem));
+                }
+                for (auto elem : cached.attr("removed")) {
+                    removed_set.add(nb::borrow<nb::object>(elem));
+                }
+            }
+
+            if (was_added_this_tick) {
+                // Add-then-remove same tick: remove from 'added', don't add to 'removed'
+                // Use Python's discard to handle the case where item might not be in set
+                bool in_added = len(added_set) > 0 && nb::cast<bool>(added_set.attr("__contains__")(item));
+                if (in_added) {
+                    added_set.discard(item);
+                }
+            } else {
+                // Element existed before tick: add to 'removed'
+                removed_set.add(item);
+            }
+
+            // Create updated delta and cache it
+            nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
+            nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
+            nb::object delta = PythonSetDelta(
+                nb::frozenset(added_set),
+                nb::frozenset(removed_set)
+            );
+            ts::cache_delta(_output, delta);
+        }
+
+        // Update contains extension (wrapper feature for Python API)
+        update_contains_for_item(item, false);
     }
 
     void PyTimeSeriesSetOutput::set_value(nb::object py_value) {
@@ -137,183 +176,174 @@ namespace hgraph
             return;
         }
 
-        // Get the current value as a Python set
-        nb::object current_value = value();
-        nb::set old_set;
-        if (!current_value.is_none()) {
-            old_set = nb::set(current_value);
-        }
-
-        // Check if this is a SetDelta object
-        if (ts::is_set_delta(py_value)) {
-            nb::set new_set;
-            if (!current_value.is_none()) {
-                new_set = nb::set(current_value);
-            }
-
-            // Get added and removed from the delta
-            nb::object added = py_value.attr("added");
-            nb::object removed = py_value.attr("removed");
-
-            // Build filtered added set (only elements not already in set)
-            nb::set filtered_added;
-            for (auto item : added) {
-                nb::object item_obj = nb::cast<nb::object>(item);
-                bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
-                if (!in_set) {
-                    filtered_added.add(item_obj);
-                    new_set.add(item_obj);
-                }
-            }
-
-            // Build filtered removed set (only elements that are in set)
-            nb::set filtered_removed;
-            for (auto item : removed) {
-                nb::object item_obj = nb::cast<nb::object>(item);
-                bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
-                if (in_set) {
-                    filtered_removed.add(item_obj);
-                    new_set.discard(item_obj);
-                }
-            }
-
-            // Only mark as modified if there were actual changes
-            if (len(filtered_added) > 0 || len(filtered_removed) > 0 || !_view.has_value()) {
-                // Store the new set value using the base class
-                PyTimeSeriesOutput::set_value(nb::frozenset(new_set));
-
-                // Import PythonSetDelta to create the filtered delta for caching
-                nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
-                nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
-                nb::object filtered_delta = PythonSetDelta(
-                    nb::frozenset(filtered_added),
-                    nb::frozenset(filtered_removed)
-                );
-
-                // Cache the filtered delta for delta_value() to return
-                if (_output) {
-                    ts::cache_delta(_output, filtered_delta);
-                    _output->register_delta_reset_callback();
-                }
-
-                // Update contains extension for changed keys
-                update_contains_for_keys(filtered_added);
-                update_contains_for_keys(filtered_removed);
-            }
+        if (!_view.valid() || _view.kind() != value::TypeKind::Set) {
+            // Fall back to base class for non-set types
+            PyTimeSeriesOutput::set_value(std::move(py_value));
             return;
         }
 
-        // Handle plain set/frozenset - may contain Removed markers
-        if (ts::is_python_set(py_value)) {
-            nb::set added_set;
-            nb::set removed_set;
-            nb::set new_set;  // The resulting set value
+        // Get element schema for Python-to-C++ conversion
+        auto* set_meta = static_cast<const value::SetTypeMeta*>(_view.schema());
+        auto* elem_schema = set_meta->element_type;
+        auto* set_storage = static_cast<value::SetStorage*>(_view.value_view().data());
 
-            // Check if set contains Removed markers
+        auto time = _node && _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+
+        // Get current value as Python set for delta computation
+        nb::object current_value = value();
+
+        // Track what was added and removed for Python delta
+        nb::set py_added;
+        nb::set py_removed;
+        bool had_changes = false;
+
+        // Helper lambda to add element using core storage
+        auto add_element = [&](const nb::object& item) -> bool {
+            value::Value elem_value(elem_schema);
+            if (elem_schema->ops && elem_schema->ops->from_python) {
+                elem_schema->ops->from_python(elem_value.data(), item.ptr(), elem_schema);
+            }
+            auto [added, index] = set_storage->add_with_index(elem_value.data());
+            if (added) {
+                _view.tracker().mark_set_element_added(index, time);
+                py_added.add(item);
+                return true;
+            }
+            return false;
+        };
+
+        // Helper lambda to remove element using core storage
+        auto remove_element = [&](const nb::object& item) -> bool {
+            value::Value elem_value(elem_schema);
+            if (elem_schema->ops && elem_schema->ops->from_python) {
+                elem_schema->ops->from_python(elem_value.data(), item.ptr(), elem_schema);
+            }
+            auto opt_index = set_storage->find_index(elem_value.data());
+            if (!opt_index) return false;
+
+            size_t index = *opt_index;
+            bool was_added_this_tick = _view.tracker().set_element_added_at(index, time);
+
+            if (was_added_this_tick) {
+                _view.tracker().remove_set_element_tracking(index);
+                // Remove from py_added if it was added this tick
+                bool in_added = len(py_added) > 0 && nb::cast<bool>(py_added.attr("__contains__")(item));
+                if (in_added) {
+                    py_added.discard(item);
+                }
+            } else {
+                _view.tracker().record_set_removal(elem_value.data(), time);
+                py_removed.add(item);
+            }
+
+            set_storage->remove(elem_value.data());
+            return true;
+        };
+
+        // Handle SetDelta object
+        if (ts::is_set_delta(py_value)) {
+            nb::object added = py_value.attr("added");
+            nb::object removed = py_value.attr("removed");
+
+            // Process added elements
+            for (auto item : added) {
+                nb::object item_obj = nb::borrow<nb::object>(item);
+                if (add_element(item_obj)) {
+                    had_changes = true;
+                }
+            }
+
+            // Process removed elements
+            for (auto item : removed) {
+                nb::object item_obj = nb::borrow<nb::object>(item);
+                if (remove_element(item_obj)) {
+                    had_changes = true;
+                }
+            }
+        }
+        // Handle plain set/frozenset
+        else if (ts::is_python_set(py_value)) {
             bool has_removed = ts::set_contains_removed_markers(py_value);
 
             if (has_removed) {
-                // Set with Removed markers - apply delta to current value
-                // Start with current value
-                if (!current_value.is_none()) {
-                    new_set = nb::set(current_value);
-                }
-
-                // Process each element
+                // Set with Removed markers - apply as delta
                 for (auto item : py_value) {
-                    nb::object item_obj = nb::cast<nb::object>(item);
+                    nb::object item_obj = nb::borrow<nb::object>(item);
 
                     if (ts::is_removed_marker(item_obj)) {
-                        // Extract the actual item from Removed(item)
                         nb::object actual_item = item_obj.attr("item");
-                        // Only add to removed if it's currently in the set
-                        bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(actual_item));
-                        if (in_set) {
-                            removed_set.add(actual_item);
-                            new_set.discard(actual_item);
+                        if (remove_element(actual_item)) {
+                            had_changes = true;
                         }
                     } else {
-                        // Regular element - add if not already in set
-                        bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
-                        if (!in_set) {
-                            added_set.add(item_obj);
-                            new_set.add(item_obj);
+                        if (add_element(item_obj)) {
+                            had_changes = true;
                         }
                     }
                 }
             } else if (ts::is_python_frozenset(py_value)) {
-                // frozenset without Removed markers - treat as REPLACEMENT
-                // Python logic for frozenset: self._value = v, added = v - old, removed = old - v
-                new_set = nb::set(py_value);  // The new value IS the input set
-
-                // Compute added = input - old (elements in input but not in old)
-                for (auto item : py_value) {
-                    nb::object item_obj = nb::cast<nb::object>(item);
-                    bool in_old = !current_value.is_none() &&
-                                  nb::cast<bool>(nb::borrow<nb::object>(current_value).attr("__contains__")(item_obj));
-                    if (!in_old) {
-                        added_set.add(item_obj);
-                    }
-                }
-
-                // Compute removed = old - input (elements in old but not in input)
+                // frozenset - REPLACEMENT semantics
+                // First, remove elements not in new set
                 if (!current_value.is_none()) {
+                    // Collect elements to remove (can't modify while iterating)
+                    std::vector<nb::object> to_remove;
                     for (auto item : current_value) {
-                        nb::object item_obj = nb::cast<nb::object>(item);
+                        nb::object item_obj = nb::borrow<nb::object>(item);
                         bool in_new = nb::cast<bool>(py_value.attr("__contains__")(item_obj));
                         if (!in_new) {
-                            removed_set.add(item_obj);
+                            to_remove.push_back(item_obj);
+                        }
+                    }
+                    for (const auto& item : to_remove) {
+                        if (remove_element(item)) {
+                            had_changes = true;
                         }
                     }
                 }
-            } else {
-                // Regular set without Removed markers - treat as ADDITIONS ONLY
-                // Python logic: added = elements not in current value, no removals
-                // Start with current value
-                if (!current_value.is_none()) {
-                    new_set = nb::set(current_value);
-                }
 
-                // Add all elements that are not already in the set
+                // Then add new elements
                 for (auto item : py_value) {
-                    nb::object item_obj = nb::cast<nb::object>(item);
-                    bool in_set = len(new_set) > 0 && nb::cast<bool>(new_set.attr("__contains__")(item_obj));
-                    if (!in_set) {
-                        added_set.add(item_obj);
-                        new_set.add(item_obj);
+                    nb::object item_obj = nb::borrow<nb::object>(item);
+                    if (add_element(item_obj)) {
+                        had_changes = true;
                     }
                 }
-                // removed_set stays empty - no removals for regular sets
-            }
-
-            // Only mark as modified if there were actual changes or this is first tick
-            if (len(added_set) > 0 || len(removed_set) > 0 || !_view.has_value()) {
-                // Store the new set value using the base class
-                PyTimeSeriesOutput::set_value(nb::frozenset(new_set));
-
-                // Import PythonSetDelta to create the delta for caching
-                nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
-                nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
-                nb::object delta = PythonSetDelta(
-                    nb::frozenset(added_set),
-                    nb::frozenset(removed_set)
-                );
-
-                // Cache the delta for delta_value() to return
-                if (_output) {
-                    ts::cache_delta(_output, delta);
-                    _output->register_delta_reset_callback();
+            } else {
+                // Regular set - ADDITIONS ONLY
+                for (auto item : py_value) {
+                    nb::object item_obj = nb::borrow<nb::object>(item);
+                    if (add_element(item_obj)) {
+                        had_changes = true;
+                    }
                 }
-
-                // Update contains extension for changed keys
-                update_contains_for_keys(added_set);
-                update_contains_for_keys(removed_set);
             }
+        } else {
+            // Unknown type - fall back to base class
+            PyTimeSeriesOutput::set_value(std::move(py_value));
             return;
         }
 
-        // Fall back to base class behavior for other types
-        PyTimeSeriesOutput::set_value(std::move(py_value));
+        // Mark as modified if there were changes or this is first value
+        if (had_changes || !_view.has_value()) {
+            _view.mark_modified(time);
+
+            if (_output) {
+                _output->register_delta_reset_callback();
+
+                // Cache Python delta for delta_value()
+                nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
+                nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
+                nb::object delta = PythonSetDelta(
+                    nb::frozenset(py_added),
+                    nb::frozenset(py_removed)
+                );
+                ts::cache_delta(_output, delta);
+            }
+
+            // Update contains extension for changed keys
+            update_contains_for_keys(py_added);
+            update_contains_for_keys(py_removed);
+        }
     }
 
     void PyTimeSeriesSetOutput::apply_result(nb::object value) {
@@ -486,6 +516,17 @@ namespace hgraph
 
         // Use the cached callback to update
         cache->tss_update_contains_for_keys(keys);
+    }
+
+    void PyTimeSeriesSetOutput::update_contains_for_item(const nb::object &item, bool added) {
+        if (!_output) return;
+
+        // Get the extension from the cache
+        auto* cache = _output->python_cache();
+        if (!cache->tss_contains_extension) return;
+
+        auto* ext = static_cast<FeatureOutputExtension<nb::object>*>(cache->tss_contains_extension.get());
+        ext->update(item);
     }
 
     nb::object PyTimeSeriesSetOutput::get_contains_output(const nb::object &item, const nb::object &requester) {

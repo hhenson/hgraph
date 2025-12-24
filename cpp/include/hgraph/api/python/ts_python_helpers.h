@@ -17,6 +17,7 @@
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_python_cache.h>
 #include <hgraph/types/value/python_conversion.h>
+#include <hgraph/types/value/window_type.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/value/dict_type.h>
 
@@ -552,6 +553,40 @@ inline void set_python_value(TSOutput* output, nb::object py_value, engine_time_
                     }
                     return;
                 }
+            }
+        }
+    }
+
+    // Special handling for TSW (TimeSeriesWindow) types
+    // TSW stores values in a circular buffer (WindowStorage) - we push the scalar value
+    if (meta && meta->ts_kind == TSKind::TSW) {
+        auto view = output->view();
+        auto* schema = view.value_schema();
+
+        if (schema && schema->kind == value::TypeKind::Window) {
+            auto* window_meta = static_cast<const value::WindowTypeMeta*>(schema);
+            auto* elem_type = window_meta->element_type;
+
+            if (elem_type && elem_type->ops && elem_type->ops->from_python) {
+                // Get the WindowStorage from the view
+                auto value_view = view.value_view();
+                auto* storage = static_cast<value::WindowStorage*>(value_view.data());
+
+                // Convert the Python value to C++ element
+                std::vector<char> elem_storage(elem_type->size);
+                elem_type->ops->construct(elem_storage.data(), elem_type);
+                elem_type->ops->from_python(elem_storage.data(), py_value.ptr(), elem_type);
+
+                // Push to window with current timestamp
+                storage->push(elem_storage.data(), time);
+
+                // Cleanup element
+                if (elem_type->ops->destruct) {
+                    elem_type->ops->destruct(elem_storage.data(), elem_type);
+                }
+
+                view.mark_modified(time);
+                return;
             }
         }
     }

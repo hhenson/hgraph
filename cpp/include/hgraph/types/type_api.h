@@ -1392,23 +1392,95 @@ namespace runtime_python {
     }
 
     /**
-     * Get or create a count-based TSW metadata.
-     * (Same as runtime::tsw - TSW doesn't need special Python handling)
+     * Get or create a count-based TSW metadata with Python conversion support.
      */
     inline const TSMeta* tsw(const value::TypeMeta* scalar_type,
                                           int64_t size,
                                           int64_t min_size = 0) {
-        return runtime::tsw(scalar_type, size, min_size);
+        // Use a different key seed to avoid collision with runtime::tsw
+        size_t key = detail::hash_combine(detail::TSW_SEED, reinterpret_cast<size_t>(scalar_type));
+        key = detail::hash_combine(key, static_cast<size_t>(size + 1));
+        key = detail::hash_combine(key, static_cast<size_t>(min_size + 1));
+        key = detail::hash_combine(key, 0x5059);  // "PY" marker for Python-aware
+
+        auto& registry = TSTypeRegistry::global();
+        if (auto* existing = registry.lookup_by_key(key)) {
+            return existing;
+        }
+
+        auto meta = std::make_unique<TSWTypeMeta>();
+        meta->ts_kind = TSKind::TSW;
+        meta->scalar_type = scalar_type;
+        meta->size = size;
+        meta->min_size = min_size;
+
+        // Build WindowTypeMeta with Python conversion ops
+        if (scalar_type && size > 0) {
+            size_t window_key = value::hash_combine(0x57494E44, reinterpret_cast<size_t>(scalar_type));
+            window_key = value::hash_combine(window_key, static_cast<size_t>(size));
+            window_key = value::hash_combine(window_key, 0x5059);  // "PY" marker
+
+            auto& value_registry = value::TypeRegistry::global();
+            if (auto* existing_window = value_registry.lookup_by_key(window_key)) {
+                meta->window_value_type = existing_window;
+            } else {
+                // Use Python-enabled builder
+                auto window_meta = value::WindowTypeBuilderWithPython()
+                    .element_type(scalar_type)
+                    .fixed_count(static_cast<size_t>(size))
+                    .build();
+                meta->window_value_type = value_registry.register_by_key(window_key, std::move(window_meta));
+            }
+        }
+
+        return registry.register_by_key(key, std::move(meta));
     }
 
     /**
-     * Get or create a time-based TSW metadata.
-     * (Same as runtime::tsw_time - TSW doesn't need special Python handling)
+     * Get or create a time-based TSW metadata with Python conversion support.
      */
     inline const TSMeta* tsw_time(const value::TypeMeta* scalar_type,
                                                int64_t duration_us,
                                                int64_t min_size = 0) {
-        return runtime::tsw_time(scalar_type, duration_us, min_size);
+        size_t key = detail::hash_combine(detail::TSW_SEED, reinterpret_cast<size_t>(scalar_type));
+        key = detail::hash_combine(key, static_cast<size_t>(duration_us));
+        key = detail::hash_combine(key, 0x54494D45);  // "TIME" marker
+        key = detail::hash_combine(key, static_cast<size_t>(min_size + 1));
+        key = detail::hash_combine(key, 0x5059);  // "PY" marker for Python-aware
+
+        auto& registry = TSTypeRegistry::global();
+        if (auto* existing = registry.lookup_by_key(key)) {
+            return existing;
+        }
+
+        auto meta = std::make_unique<TSWTypeMeta>();
+        meta->ts_kind = TSKind::TSW;
+        meta->scalar_type = scalar_type;
+        meta->size = -duration_us;  // Negative indicates time-based
+        meta->min_size = min_size;
+
+        // Build WindowTypeMeta with Python conversion ops (time-based)
+        if (scalar_type && duration_us > 0) {
+            size_t window_key = value::hash_combine(0x57494E44, reinterpret_cast<size_t>(scalar_type));
+            window_key = value::hash_combine(window_key, 0x54494D45);  // "TIME" marker
+            window_key = value::hash_combine(window_key, static_cast<size_t>(duration_us));
+            window_key = value::hash_combine(window_key, 0x5059);  // "PY" marker
+
+            auto& value_registry = value::TypeRegistry::global();
+            if (auto* existing_window = value_registry.lookup_by_key(window_key)) {
+                meta->window_value_type = existing_window;
+            } else {
+                // Convert microseconds to nanoseconds for engine_time_delta_t
+                engine_time_delta_t duration_ns{duration_us * 1000};
+                auto window_meta = value::WindowTypeBuilderWithPython()
+                    .element_type(scalar_type)
+                    .time_duration(duration_ns)
+                    .build();
+                meta->window_value_type = value_registry.register_by_key(window_key, std::move(window_meta));
+            }
+        }
+
+        return registry.register_by_key(key, std::move(meta));
     }
 
     /**

@@ -200,13 +200,13 @@ std::string TSWTypeMeta::type_name_str() const {
 }
 
 time_series_output_s_ptr TSWTypeMeta::make_output(node_ptr owning_node) const {
-    // Not yet implemented
-    return {};
+    // Create a TSOutput for TSW type with WindowStorage value schema
+    return std::make_shared<ts::TSOutput>(this, owning_node);
 }
 
 time_series_input_s_ptr TSWTypeMeta::make_input(node_ptr owning_node) const {
-    // Not yet implemented
-    return {};
+    // Create a TSInput for TSW type
+    return std::make_shared<ts::TSInput>(this, owning_node);
 }
 
 size_t TSWTypeMeta::output_memory_size() const {

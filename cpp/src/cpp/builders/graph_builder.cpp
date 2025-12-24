@@ -101,6 +101,11 @@ namespace hgraph
             if (edge.input_path.empty()) {
                 // Direct input binding (empty path - bind to whole input)
                 dst_input->bind_output(src_view);
+            } else if (dst_input->ts_kind() == TSKind::SIGNAL) {
+                // SIGNAL inputs don't support element navigation - they just track ticks
+                // When binding SIGNAL to a collection (TSB/TSL), bind directly to the
+                // source output at the current output_path position
+                dst_input->bind_output(src_view);
             } else {
                 // Non-empty input path - use element-based navigation for any depth
                 // element() works for both TSB (by field index) and TSL (by list index)
@@ -109,6 +114,10 @@ namespace hgraph
                     input_view = input_view.element(static_cast<size_t>(edge.input_path[i]));
                 }
 
+                if (!input_view.valid()) {
+                    // Skip binding if view is invalid (e.g., SIGNAL inputs don't support element access)
+                    continue;
+                }
                 input_view.bind(src_view);
             }
         }

@@ -69,6 +69,7 @@ namespace hgraph::value {
 
         ~CyclicWindowStorage() {
             clear();
+            clear_removed();
         }
 
         CyclicWindowStorage(CyclicWindowStorage&& other) noexcept
@@ -77,24 +78,33 @@ namespace hgraph::value {
             , _timestamps(std::move(other._timestamps))
             , _max_count(other._max_count)
             , _head(other._head)
-            , _count(other._count) {
+            , _count(other._count)
+            , _removed_value(std::move(other._removed_value))
+            , _removed_timestamp(other._removed_timestamp)
+            , _has_removed_value(other._has_removed_value) {
             other._element_type = nullptr;
             other._head = 0;
             other._count = 0;
+            other._has_removed_value = false;
         }
 
         CyclicWindowStorage& operator=(CyclicWindowStorage&& other) noexcept {
             if (this != &other) {
                 clear();
+                clear_removed();
                 _element_type = other._element_type;
                 _elements = std::move(other._elements);
                 _timestamps = std::move(other._timestamps);
                 _max_count = other._max_count;
                 _head = other._head;
                 _count = other._count;
+                _removed_value = std::move(other._removed_value);
+                _removed_timestamp = other._removed_timestamp;
+                _has_removed_value = other._has_removed_value;
                 other._element_type = nullptr;
                 other._head = 0;
                 other._count = 0;
+                other._has_removed_value = false;
             }
             return *this;
         }
@@ -108,21 +118,46 @@ namespace hgraph::value {
         [[nodiscard]] bool empty() const { return _count == 0; }
         [[nodiscard]] bool full() const { return _count == _max_count; }
 
+        // Removed value tracking
+        [[nodiscard]] bool has_removed_value() const { return _has_removed_value; }
+        [[nodiscard]] const void* removed_value() const {
+            return _has_removed_value ? _removed_value.data() : nullptr;
+        }
+        [[nodiscard]] engine_time_t removed_timestamp() const { return _removed_timestamp; }
+        void clear_removed() {
+            if (_has_removed_value && _element_type && _element_type->ops && _element_type->ops->destruct) {
+                _element_type->ops->destruct(_removed_value.data(), _element_type);
+            }
+            _has_removed_value = false;
+        }
+
         /**
          * Push a new value with timestamp
-         * If full, overwrites the oldest entry
+         * If full, overwrites the oldest entry and captures the removed value
          */
         void push(const void* value, engine_time_t timestamp) {
             if (!_element_type) return;
 
             if (_count < _max_count) {
-                // Not full - add at next position
+                // Not full - add at next position, clear any previous removed tracking
+                clear_removed();
                 size_t pos = (_head + _count) % _max_count;
                 _element_type->copy_construct_at(element_ptr(pos), value);
                 _timestamps[pos] = timestamp;
                 ++_count;
             } else {
-                // Full - overwrite oldest (at head)
+                // Full - capture removed value before overwriting
+                clear_removed();  // Clear previous removed value
+                // Allocate storage for removed value if needed
+                if (_removed_value.size() < _element_type->size) {
+                    _removed_value.resize(_element_type->size);
+                }
+                // Copy the value that's about to be removed
+                _element_type->copy_construct_at(_removed_value.data(), element_ptr(_head));
+                _removed_timestamp = _timestamps[_head];
+                _has_removed_value = true;
+
+                // Overwrite oldest (at head)
                 _element_type->destruct_at(element_ptr(_head));
                 _element_type->copy_construct_at(element_ptr(_head), value);
                 _timestamps[_head] = timestamp;
@@ -282,6 +317,10 @@ namespace hgraph::value {
         size_t _max_count{0};
         size_t _head{0};
         size_t _count{0};
+        // Removed value tracking (for TSW delta operations)
+        std::vector<char> _removed_value;
+        engine_time_t _removed_timestamp{MIN_DT};
+        bool _has_removed_value{false};
     };
 
     /**
@@ -572,6 +611,26 @@ namespace hgraph::value {
 
         [[nodiscard]] bool full() const {
             return _is_fixed && _fixed.full();
+        }
+
+        // Removed value tracking
+        [[nodiscard]] bool has_removed_value() const {
+            // Only fixed-length windows track removed values on overflow
+            return _is_fixed && _fixed.has_removed_value();
+        }
+
+        [[nodiscard]] const void* removed_value() const {
+            return _is_fixed ? _fixed.removed_value() : nullptr;
+        }
+
+        [[nodiscard]] engine_time_t removed_timestamp() const {
+            return _is_fixed ? _fixed.removed_timestamp() : MIN_DT;
+        }
+
+        void clear_removed() {
+            if (_is_fixed) {
+                _fixed.clear_removed();
+            }
         }
 
         void push(const void* value, engine_time_t timestamp) {
