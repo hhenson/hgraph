@@ -32,6 +32,7 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
         .value("TSB", TSKind::TSB)
         .value("TSW", TSKind::TSW)
         .value("REF", TSKind::REF)
+        .value("SIGNAL", TSKind::SIGNAL)
         .export_values();
 
     // ========================================================================
@@ -125,6 +126,13 @@ void register_ts_type_meta_with_nanobind(nb::module_ &m) {
         return runtime_python::ref(value_ts_type);
     }, nb::rv_policy::reference, "value_ts_type"_a,
        "Get or create a REF[TS_TYPE] TypeMeta for the given time-series type.");
+
+    // Factory: get_signal_type_meta() -> SignalTypeMeta*
+    // Gets the singleton SIGNAL type metadata
+    m.def("get_signal_type_meta", []() -> const TSMeta* {
+        return runtime_python::signal();
+    }, nb::rv_policy::reference,
+       "Get the singleton SIGNAL TypeMeta. SIGNAL is input-only.");
 }
 
 } // namespace hgraph

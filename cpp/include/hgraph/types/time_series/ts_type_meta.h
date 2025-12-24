@@ -30,6 +30,7 @@ enum class TSKind : uint8_t {
     TSB,     // Time-series bundle: TSB[Schema]
     TSW,     // Time-series window: TSW[T, Size]
     REF,     // Time-series reference: REF[TS_TYPE]
+    SIGNAL,  // Signal type: input-only, no value, just ticked
 };
 
 /**
@@ -314,6 +315,31 @@ struct REFTypeMeta : TSMeta {
     [[nodiscard]] size_t output_memory_size() const override;
     [[nodiscard]] size_t input_memory_size() const override;
     [[nodiscard]] const value::TypeMeta* value_schema() const override { return ref_value_type; }
+};
+
+/**
+ * SignalTypeMeta - SIGNAL type (input-only)
+ *
+ * Represents a signal type which is used for inputs that only care about
+ * being ticked, not about the actual value. SIGNAL is input-only and
+ * matches any time-series type. It has no value schema.
+ */
+struct SignalTypeMeta : TSMeta {
+    SignalTypeMeta() { ts_kind = TSKind::SIGNAL; }
+
+    [[nodiscard]] std::string type_name_str() const override { return "SIGNAL"; }
+
+    // SIGNAL is input-only, so make_output throws
+    [[nodiscard]] time_series_output_s_ptr make_output(node_ptr owning_node) const override;
+
+    // SIGNAL inputs use a minimal input that just tracks ticked state
+    [[nodiscard]] time_series_input_s_ptr make_input(node_ptr owning_node) const override;
+
+    [[nodiscard]] size_t output_memory_size() const override { return 0; }  // No output
+    [[nodiscard]] size_t input_memory_size() const override;
+
+    // SIGNAL has no value - it's just about being ticked
+    [[nodiscard]] const value::TypeMeta* value_schema() const override { return nullptr; }
 };
 
 } // namespace hgraph

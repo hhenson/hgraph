@@ -1444,7 +1444,35 @@ namespace runtime_python {
         return registry.register_by_key(key, std::move(meta));
     }
 
+    /**
+     * Get the singleton SIGNAL type metadata.
+     * SIGNAL is a singleton - there's only one instance, registered on first access.
+     */
+    inline const TSMeta* signal() {
+        static const TSMeta* instance = []() {
+            static constexpr size_t SIGNAL_KEY = 0x5349474E414C0000ULL;  // "SIGNAL\0\0"
+            auto& registry = TSTypeRegistry::global();
+            if (auto* existing = registry.lookup_by_key(SIGNAL_KEY)) {
+                return existing;
+            }
+            auto meta = std::make_unique<SignalTypeMeta>();
+            return registry.register_by_key(SIGNAL_KEY, std::move(meta));
+        }();
+        return instance;
+    }
+
 }  // namespace runtime_python
+
+/**
+ * Get the singleton SIGNAL type metadata.
+ * Usage: hgraph::types::SIGNAL()
+ *
+ * SIGNAL is input-only and matches any time-series type.
+ * It has no value schema - it just indicates "something ticked".
+ */
+inline const TSMeta* SIGNAL() {
+    return runtime_python::signal();
+}
 
 }  // namespace hgraph::types
 

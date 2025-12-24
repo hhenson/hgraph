@@ -245,6 +245,25 @@ size_t REFTypeMeta::input_memory_size() const {
 }
 
 // ============================================================================
+// SignalTypeMeta - SIGNAL (input-only)
+// ============================================================================
+
+time_series_output_s_ptr SignalTypeMeta::make_output(node_ptr owning_node) const {
+    // SIGNAL is input-only, cannot create outputs
+    throw std::runtime_error("SIGNAL is input-only and cannot have an output");
+}
+
+time_series_input_s_ptr SignalTypeMeta::make_input(node_ptr owning_node) const {
+    // SIGNAL inputs don't need special handling - they just check if ticked
+    // The actual input will be bound to whatever output is wired to it
+    return std::make_shared<ts::TSInput>(this, owning_node);
+}
+
+size_t SignalTypeMeta::input_memory_size() const {
+    return 0;  // Minimal - just tracks binding
+}
+
+// ============================================================================
 // TSTypeRegistry
 // ============================================================================
 
