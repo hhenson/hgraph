@@ -80,15 +80,22 @@ namespace hgraph
 
             // Get the source view, navigating through output_path if present
             auto src_view = src_output->view();
-            if (!edge.output_path.empty() && edge.output_path[0] >= 0) {
+            if (!edge.output_path.empty()) {
                 // Navigate output_path to get the appropriate view
+                // Handle special negative path IDs (KEY_SET, etc.) and positive indices
                 for (auto idx : edge.output_path) {
-                    auto* meta = src_view.ts_meta();
-                    if (meta && meta->ts_kind == TSKind::TSL) {
-                        src_view = src_view.element(static_cast<size_t>(idx));
-                    } else {
-                        src_view = src_view.field(static_cast<size_t>(idx));
+                    if (idx == KEY_SET) {
+                        // Navigate to TSD's key_set (TSS)
+                        src_view = src_view.key_set();
+                    } else if (idx >= 0) {
+                        auto* meta = src_view.ts_meta();
+                        if (meta && meta->ts_kind == TSKind::TSL) {
+                            src_view = src_view.element(static_cast<size_t>(idx));
+                        } else {
+                            src_view = src_view.field(static_cast<size_t>(idx));
+                        }
                     }
+                    // Other negative indices (ERROR_PATH, STATE_PATH) are handled above
                     if (!src_view.valid()) break;
                 }
             }

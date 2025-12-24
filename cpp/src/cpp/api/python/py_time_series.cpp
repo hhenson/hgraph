@@ -350,6 +350,51 @@ namespace hgraph
                 // Get the bound output and check its cache
                 auto* bound_output = _view.bound_output();
                 if (bound_output) {
+                    // Special case: TSS input bound to TSD output = key_set binding
+                    // Need to compute SetDelta from TSD's tracker, not use TSD's dict delta
+                    auto* bound_meta = bound_output->meta();
+                    if (ts_kind == TSKind::TSS && bound_meta && bound_meta->ts_kind == TSKind::TSD) {
+                        // Get the TSD's view and tracker
+                        auto tsd_view = bound_output->view();
+                        auto tracker = tsd_view.tracker();
+                        auto* tsd_meta = static_cast<const TSDTypeMeta*>(bound_meta);
+                        auto* key_type = tsd_meta->key_type;
+
+                        // Get the DictStorage to access keys by index
+                        auto value_view = tsd_view.value_view();
+                        auto* storage = static_cast<const value::DictStorage*>(value_view.data());
+
+                        // Build added and removed sets
+                        nb::set added_set;
+                        nb::set removed_set;
+
+                        // Added keys: iterate storage looking for keys added at eval_time
+                        for (size_t idx = 0; idx < storage->size() + 100; ++idx) {  // Check a bit beyond size for sparse indices
+                            if (tracker.dict_key_added_at(idx, eval_time)) {
+                                const void* key_ptr = storage->keys().element_at_index(idx);
+                                if (key_ptr && key_type && key_type->ops && key_type->ops->to_python) {
+                                    auto* py_key = static_cast<PyObject*>(key_type->ops->to_python(key_ptr, key_type));
+                                    added_set.add(nb::steal(nb::handle(py_key)));
+                                }
+                            }
+                        }
+
+                        // Removed keys: get from tracker's removed key storage
+                        size_t removed_count = tracker.dict_removed_count();
+                        for (size_t i = 0; i < removed_count; ++i) {
+                            const void* key_ptr = tracker.dict_removed_key(i);
+                            if (key_ptr && key_type && key_type->ops && key_type->ops->to_python) {
+                                auto* py_key = static_cast<PyObject*>(key_type->ops->to_python(key_ptr, key_type));
+                                removed_set.add(nb::steal(nb::handle(py_key)));
+                            }
+                        }
+
+                        // Create PythonSetDelta
+                        nb::module_ tss_module = nb::module_::import_("hgraph._impl._types._tss");
+                        nb::object PythonSetDelta = tss_module.attr("PythonSetDelta");
+                        return PythonSetDelta(nb::frozenset(added_set), nb::frozenset(removed_set));
+                    }
+
                     auto cached = ts::get_cached_delta(bound_output);
                     if (!cached.is_none()) {
                         return cached;
