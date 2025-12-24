@@ -619,6 +619,13 @@ void RefWrapperAccessStrategy::make_active() {
     auto eval_time = get_evaluation_time();
     if (eval_time != MIN_DT && _bind_time == MIN_DT) {
         _bind_time = eval_time;
+
+        // Notify owner that the REF input is now available
+        // This matches Python behavior where PythonTimeSeriesReferenceInput.start()
+        // calls notify() to schedule the owning node when the REF becomes active
+        if (_owner) {
+            _owner->notify(eval_time);
+        }
     }
 
     // NOTE: We intentionally do NOT subscribe to the wrapped view.

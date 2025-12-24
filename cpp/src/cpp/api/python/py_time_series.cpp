@@ -222,6 +222,14 @@ namespace hgraph
             return nb::none();
         }
 
+        // Special case for SIGNAL inputs: value is True when modified, False otherwise
+        // SIGNAL is an input-only type that ignores the actual value and just tracks ticked state
+        if (_meta && _meta->ts_kind == TSKind::SIGNAL) {
+            if (!_node) return nb::bool_(false);
+            auto eval_time = _node->graph() ? _node->graph()->evaluation_time() : MIN_DT;
+            return nb::bool_(_view.modified_at(eval_time));
+        }
+
         // Special case for REF inputs: return the TimeSeriesReference from the bound REF output
         // This preserves path information and empty reference state
         if (_meta && _meta->ts_kind == TSKind::REF) {
@@ -273,6 +281,11 @@ namespace hgraph
         }
         if (!_view.modified_at(eval_time)) {
             return nb::none();
+        }
+
+        // Special case for SIGNAL inputs: delta_value is always True when modified
+        if (_meta && _meta->ts_kind == TSKind::SIGNAL) {
+            return nb::bool_(true);
         }
 
         // For collection types (TSD, TSL, TSS), check if there's a cached delta
