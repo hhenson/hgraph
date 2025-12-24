@@ -135,6 +135,14 @@ public:
         return _value.has_value();
     }
 
+    /**
+     * Check if this output satisfies all validity constraints.
+     * For most types, this is equivalent to has_value().
+     * For TSW (window) types, this also checks that the window
+     * size >= min_size constraint is satisfied.
+     */
+    [[nodiscard]] bool all_valid() const;
+
     void mark_invalid() {
         _value.mark_invalid();
     }

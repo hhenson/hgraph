@@ -83,6 +83,42 @@ void TSOutput::clear_cached_value() {
 }
 
 // ============================================================================
+// Validity queries
+// ============================================================================
+
+bool TSOutput::all_valid() const {
+    // First check basic validity - must have a value
+    if (!has_value()) {
+        return false;
+    }
+
+    // Check type-specific constraints
+    if (!_meta) {
+        return true;  // No meta means no extra constraints
+    }
+
+    if (_meta->ts_kind == TSKind::TSW) {
+        // For window types, check that size >= min_size
+        auto* tsw_meta = static_cast<const TSWTypeMeta*>(_meta);
+        int64_t min_size = tsw_meta->min_size;
+        if (min_size <= 0) {
+            // No min_size constraint (defaults to 0)
+            return true;
+        }
+        // Get current window size from the value
+        auto val_view = _value.value();
+        if (!val_view.valid() || val_view.kind() != value::TypeKind::Window) {
+            return false;
+        }
+        size_t current_size = val_view.window_size();
+        return static_cast<int64_t>(current_size) >= min_size;
+    }
+
+    // For other types (TS, TSB, TSL, TSS, TSD, REF), all_valid == has_value
+    return true;
+}
+
+// ============================================================================
 // Delta reset callback
 // ============================================================================
 

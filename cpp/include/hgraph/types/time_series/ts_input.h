@@ -103,6 +103,15 @@ public:
     // When path is non-empty, checks if the specific field has a value
     [[nodiscard]] bool has_value() const;
 
+    /**
+     * Check if this input satisfies all validity constraints.
+     *
+     * For most types, this is equivalent to has_value().
+     * For TSW (window) types, this also checks that the window
+     * size >= min_size constraint is satisfied.
+     */
+    [[nodiscard]] bool all_valid() const;
+
     [[nodiscard]] engine_time_t last_modified_time() const {
         return _source ? _source->last_modified_time() : MIN_DT;
     }
@@ -523,6 +532,17 @@ public:
 
     [[nodiscard]] bool has_value() const {
         return _strategy && _strategy->has_value();
+    }
+
+    /**
+     * Check if this input satisfies all validity constraints.
+     *
+     * For bundles, checks all constituent inputs.
+     * For TSW, checks window size >= min_size.
+     * For others, equivalent to has_value().
+     */
+    [[nodiscard]] bool all_valid() const {
+        return view().all_valid();
     }
 
     // === String representation ===

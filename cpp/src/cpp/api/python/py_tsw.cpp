@@ -107,19 +107,31 @@ namespace hgraph
         if (!v.valid()) {
             return nb::bool_(false);
         }
-        // Get the TSWTypeMeta from _meta (stored in PyTimeSeriesType base class)
-        if (!_meta) {
+
+        // Get the TSWTypeMeta from the BOUND OUTPUT, not the input's _meta!
+        // The input's _meta may just be TSW[int] without size/min_size.
+        // The OUTPUT has the actual min_size from to_window(ts, size, min_size).
+        // See Python: PythonBoundTimeSeriesInput.all_valid returns self._output.all_valid
+
+        // Use view's bound_output() directly (goes through the strategy)
+        auto* bound = v.bound_output();
+        if (!bound) {
             return nb::bool_(v.valid());  // Fallback to valid()
         }
-        if (_meta->ts_kind != TSKind::TSW) {
+
+        // Get the output's meta (which has the actual min_size)
+        auto* output_meta = bound->meta();
+        if (!output_meta || output_meta->ts_kind != TSKind::TSW) {
             return nb::bool_(v.valid());  // Fallback to valid()
         }
-        auto* tsw_meta = static_cast<const TSWTypeMeta*>(_meta);
+
+        auto* tsw_meta = static_cast<const TSWTypeMeta*>(output_meta);
         int64_t min_size = tsw_meta->min_size;
         if (min_size <= 0) {
-            // No min_size constraint, valid is sufficient
+            // No min_size constraint (defaults to 0)
             return nb::bool_(v.valid());
         }
+
         // Get the current window size
         auto* storage = static_cast<const value::WindowStorage*>(v.value_view().data());
         if (!storage) {

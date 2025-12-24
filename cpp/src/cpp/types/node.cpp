@@ -787,6 +787,19 @@ namespace hgraph
             // Check validity using the input's has_value() method
             should_eval = input()->has_value();
 
+            // Check all_valid_inputs constraint (e.g., for TSW inputs that need min_size)
+            if (should_eval && _signature->all_valid_inputs.has_value()) {
+                const auto& all_valid_inputs = *_signature->all_valid_inputs;
+                for (const auto& input_name : all_valid_inputs) {
+                    // Navigate to the field and check its all_valid property
+                    auto field_view = input()->view().field(input_name);
+                    if (!field_view.all_valid()) {
+                        should_eval = false;
+                        break;
+                    }
+                }
+            }
+
             // Check scheduler state - if uses scheduler and not scheduled, check if input is modified
             if (should_eval && _signature->uses_scheduler() && !scheduled) {
                 // Use node's cached evaluation time pointer

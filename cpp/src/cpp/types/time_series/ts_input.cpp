@@ -227,6 +227,64 @@ bool TSInputView::has_value() const {
     return elem_has_value;
 }
 
+bool TSInputView::all_valid() const {
+    if (!_source) return false;
+
+    // Delegate to the bound output's all_valid() method
+    // This is the key insight: the OUTPUT has the actual type constraints
+    // (e.g., TSW min_size), not the INPUT which may just have TSW[int].
+    // See Python: PythonBoundTimeSeriesInput.all_valid returns self._output.all_valid
+
+    auto* bound = _source->bound_output();
+    if (!bound) return false;
+
+    // If we have a path (navigating to a field/element), we need to delegate
+    // to the element's output's all_valid
+    if (_path.empty()) {
+        return bound->all_valid();
+    }
+
+    // Navigate to the element in the bound output
+    auto output_view = bound->view();
+    if (!output_view.valid()) return false;
+
+    auto current_ts_kind = output_view.ts_kind();
+    for (size_t i = 0; i < _path.depth(); ++i) {
+        if (current_ts_kind == TSKind::TSL) {
+            output_view = output_view.element(_path[i]);
+        } else {
+            output_view = output_view.field(_path[i]);
+        }
+        if (!output_view.valid()) return false;
+        current_ts_kind = output_view.ts_kind();
+    }
+
+    // The output view doesn't have all_valid, but we can check its meta
+    // For TSW, we need to check the output's meta (which has min_size) against its size
+    auto* output_meta = output_view.ts_meta();
+    if (!output_meta) {
+        return output_view.has_value();
+    }
+
+    if (output_meta->ts_kind == TSKind::TSW) {
+        if (!output_view.has_value()) return false;
+        auto* tsw_meta = static_cast<const TSWTypeMeta*>(output_meta);
+        int64_t min_size = tsw_meta->min_size;
+        if (min_size <= 0) {
+            return true;
+        }
+        auto val_view = output_view.value_view();
+        if (!val_view.valid() || val_view.kind() != value::TypeKind::Window) {
+            return false;
+        }
+        size_t current_size = val_view.window_size();
+        return static_cast<int64_t>(current_size) >= min_size;
+    }
+
+    // For other types, just check has_value
+    return output_view.has_value();
+}
+
 TSInputView TSInputView::field(const std::string& name) const {
     if (!valid() || !_meta || _meta->ts_kind != TSKind::TSB) {
         return {};
