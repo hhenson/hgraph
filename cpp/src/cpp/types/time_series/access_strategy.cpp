@@ -56,6 +56,17 @@ void DirectAccessStrategy::unbind() {
 void DirectAccessStrategy::make_active() {
     if (_output_view.valid() && _owner) {
         _output_view.subscribe(_owner);
+
+        // Check if output is already modified at current time
+        // This handles late subscription - if an upstream node already output a value
+        // during its start() method, we should still notify our owning node
+        // Matches Python behavior: PythonBoundTimeSeriesInput.make_active()
+        if (_output_view.has_value()) {
+            auto eval_time = get_evaluation_time();
+            if (eval_time != MIN_DT && _output_view.modified_at(eval_time)) {
+                _owner->notify(_output_view.last_modified_time());
+            }
+        }
     }
 }
 
@@ -160,6 +171,15 @@ void CollectionAccessStrategy::make_active() {
     // subscribe directly to the output view to receive notifications
     if (_output_view.valid() && _owner && _children.empty()) {
         _output_view.subscribe(_owner);
+
+        // Check if output is already modified at current time
+        // This handles late subscription - same as DirectAccessStrategy
+        if (_output_view.has_value()) {
+            auto eval_time = get_evaluation_time();
+            if (eval_time != MIN_DT && _output_view.modified_at(eval_time)) {
+                _owner->notify(_output_view.last_modified_time());
+            }
+        }
     }
 
     // Propagate to all child strategies
@@ -662,6 +682,16 @@ void ElementAccessStrategy::unbind() {
 void ElementAccessStrategy::make_active() {
     if (_parent_view.valid() && _owner) {
         _parent_view.subscribe(_owner);
+
+        // Check if element is already modified at current time
+        // This handles late subscription - same as DirectAccessStrategy
+        auto elem_view = get_element_view();
+        if (elem_view.valid() && elem_view.has_value()) {
+            auto eval_time = get_evaluation_time();
+            if (eval_time != MIN_DT && elem_view.modified_at(eval_time)) {
+                _owner->notify(elem_view.last_modified_time());
+            }
+        }
     }
 }
 
