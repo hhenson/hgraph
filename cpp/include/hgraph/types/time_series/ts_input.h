@@ -69,7 +69,11 @@ public:
         : _source(source), _meta(meta), _path(std::move(path)) {}
 
     // === Validity and type queries ===
+    // Check if this view is usable (has a valid source)
     [[nodiscard]] bool valid() const { return _source != nullptr; }
+
+    // Check if view is bound (same as valid() for views)
+    [[nodiscard]] bool bound() const { return _source != nullptr; }
     [[nodiscard]] const TSMeta* meta() const { return _meta; }
     [[nodiscard]] const TSMeta* ts_meta() const { return _meta; }
     [[nodiscard]] const value::TypeMeta* value_schema() const {

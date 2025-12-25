@@ -820,8 +820,31 @@ namespace hgraph
         bool should_eval{true};
 
         if (has_input()) {
-            // Check validity using the input's has_value() method
-            should_eval = input()->has_value();
+            // Check validity of inputs - matching Python: all(self.input[k].valid for k in args)
+            // where args = valid_inputs if specified, else all time_series_inputs
+            // Python input.valid = view.valid() && view.has_value() (bound AND modified_time > MIN_DT)
+            if (_signature->valid_inputs.has_value()) {
+                // Only check the inputs listed in valid_inputs
+                const auto& valid_inputs = *_signature->valid_inputs;
+                for (const auto& input_name : valid_inputs) {
+                    auto field_view = input()->view().field(input_name);
+                    // Match Python: input.valid = bound AND has_value
+                    if (!(field_view.valid() && field_view.has_value())) {
+                        should_eval = false;
+                        break;
+                    }
+                }
+            } else if (_signature->time_series_inputs.has_value()) {
+                // Check all time series inputs
+                const auto& ts_inputs = *_signature->time_series_inputs;
+                for (const auto& [input_name, _] : ts_inputs) {
+                    auto field_view = input()->view().field(input_name);
+                    if (!(field_view.valid() && field_view.has_value())) {
+                        should_eval = false;
+                        break;
+                    }
+                }
+            }
 
             // Check all_valid_inputs constraint (e.g., for TSW inputs that need min_size)
             if (should_eval && _signature->all_valid_inputs.has_value()) {
