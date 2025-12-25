@@ -422,22 +422,14 @@ namespace hgraph
             return BaseTimeSeriesInput::do_bind_output(output_);
         }
         // We are binding directly to a concrete output: wrap it as a reference value
-        // IMPORTANT: avoid infinite recursion.
-        // `TimeSeriesReference::bind_input()` calls `bind_output()` on the provided input.
-        // For `TimeSeriesReferenceInput`, `bind_output()` re-enters this `do_bind_output()` which would
-        // wrap again and call `bind_input()` again, causing unbounded recursion and eventual segfault.
-        //
-        // Instead, store the reference value and bind the concrete output directly via the Base
-        // implementation (no virtual dispatch back into `TimeSeriesReferenceInput::do_bind_output()`).
-        _value = TimeSeriesReference::make(output_);
-        BaseTimeSeriesInput::do_bind_output(std::move(output_));
-
-        // Preserve existing start-up behavior for reference inputs.
-        if (!owning_node()->is_started()) {
+        // Get shared_ptr to keep the output alive while this reference holds it
+        _value = TimeSeriesReference::make(std::move(output_));
+        if (owning_node()->is_started()) {
+            set_sample_time(owning_graph()->evaluation_time());
+            notify(sample_time());
+        } else {
             owning_node()->add_start_input(std::dynamic_pointer_cast<TimeSeriesReferenceInput>(shared_from_this()));
         }
-
-        // This is not a peer binding in the Python sense (the reference input owns the reference value).
         return false;
     }
 

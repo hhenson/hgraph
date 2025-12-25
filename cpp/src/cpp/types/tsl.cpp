@@ -95,11 +95,6 @@ namespace hgraph {
         py_set_value(value);
     }
 
-    void TimeSeriesListOutput::clear() {
-        for (auto &ts : ts_values()) { ts->clear(); }
-        mark_invalid();
-    }
-
     bool TimeSeriesListOutput::is_same_type(const TimeSeriesType *other) const {
         auto other_list = dynamic_cast<const TimeSeriesListOutput *>(other);
         if (!other_list) { return false; }
