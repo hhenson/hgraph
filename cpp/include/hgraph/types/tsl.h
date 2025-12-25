@@ -74,6 +74,8 @@ namespace hgraph {
 
         void py_set_value(const nb::object& value) override;
 
+        void clear() override;
+
         VISITOR_SUPPORT()
 
     protected:

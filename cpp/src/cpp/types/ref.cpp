@@ -424,6 +424,7 @@ namespace hgraph
         // We are binding directly to a concrete output: wrap it as a reference value
         // Get shared_ptr to keep the output alive while this reference holds it
         _value = TimeSeriesReference::make(std::move(output_));
+        _value->bind_input(*this);
         if (owning_node()->is_started()) {
             set_sample_time(owning_graph()->evaluation_time());
             notify(sample_time());
