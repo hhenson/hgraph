@@ -15,6 +15,8 @@ namespace hgraph {
         TimeSeriesDictOutputBuilder(output_builder_s_ptr ts_builder, output_builder_s_ptr ts_ref_builder);
 
         bool has_reference() const override { return ts_builder->has_reference(); }
+
+        [[nodiscard]] size_t type_alignment() const override = 0;
     };
 
     template<typename T>
@@ -30,6 +32,8 @@ namespace hgraph {
         void release_instance(time_series_output_ptr item) const override;
 
         [[nodiscard]] size_t memory_size() const override;
+
+        [[nodiscard]] size_t type_alignment() const override;
     };
 
     void time_series_dict_output_builder_register_with_nanobind(nb::module_ & m);

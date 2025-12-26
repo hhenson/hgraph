@@ -119,6 +119,13 @@ namespace hgraph {
          */
         [[nodiscard]] virtual size_t memory_size() const = 0;
 
+        /**
+         * Get the alignment requirement of the type this builder constructs.
+         * This is used by parent builders to correctly calculate memory layout
+         * when multiple objects are allocated sequentially in an arena.
+         */
+        [[nodiscard]] virtual size_t type_alignment() const = 0;
+
         static void register_with_nanobind(nb::module_ &m);
     };
 }

@@ -37,6 +37,18 @@ namespace hgraph {
          */
         [[nodiscard]] virtual size_t node_type_size() const;
 
+        /**
+         * Returns the alignment requirement of the concrete node type this builder creates.
+         * Concrete builders should override this to return alignof(TheirNodeType).
+         */
+        [[nodiscard]] virtual size_t node_type_alignment() const;
+
+        /**
+         * Returns the alignment of the root type (uses node_type_alignment by default).
+         * This is used by the arena allocation system.
+         */
+        [[nodiscard]] size_t type_alignment() const override;
+
         static void register_with_nanobind(nb::module_ &m);
 
         node_signature_s_ptr signature;

@@ -51,7 +51,8 @@ namespace hgraph
         // Calculate and cache memory size in the same order as allocation (nodes first, then graph)
         size_t total = 0;
         for (const auto &node_builder : node_builders) {
-            total = align_size(total, alignof(Node));
+            // Use the builder's actual type alignment for correct padding calculation
+            total = align_size(total, node_builder->type_alignment());
             total += node_builder->memory_size();
         }
         total = align_size(total, alignof(Graph));
@@ -133,6 +134,10 @@ namespace hgraph
     size_t GraphBuilder::memory_size() const {
         // Return cached memory size calculated in constructor
         return _memory_size;
+    }
+
+    size_t GraphBuilder::type_alignment() const {
+        return alignof(Graph);
     }
 
     void GraphBuilder::register_with_nanobind(nb::module_ &m) {

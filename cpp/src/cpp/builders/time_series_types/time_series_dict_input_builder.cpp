@@ -45,6 +45,11 @@ namespace hgraph {
         return add_canary_size(sizeof(TimeSeriesDictInput_T<T>));
     }
 
+    template<typename T>
+    size_t TimeSeriesDictInputBuilder_T<T>::type_alignment() const {
+        return alignof(TimeSeriesDictInput_T<T>);
+    }
+
     void time_series_dict_input_builder_register_with_nanobind(nb::module_ &m) {
         nb::class_ < TimeSeriesDictInputBuilder, InputBuilder > (m, "InputBuilder_TSD")
                 .def_ro("ts_builder", &TimeSeriesDictInputBuilder::ts_builder);
