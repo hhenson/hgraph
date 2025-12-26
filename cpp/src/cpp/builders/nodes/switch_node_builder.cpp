@@ -135,6 +135,11 @@ namespace hgraph {
         return node;
     }
 
+    template<typename K>
+    size_t SwitchNodeBuilder<K>::node_type_size() const {
+        return sizeof(SwitchNode<K>);
+    }
+
     // Explicit template instantiations
     template struct SwitchNodeBuilder<bool>;
     template struct SwitchNodeBuilder<int64_t>;

@@ -16,104 +16,6 @@
 #include <fmt/format.h>
 
 namespace hgraph {
-    // Global debug flag for arena allocation debugging
-    // When enabled, adds a canary value at the end of each object to detect buffer overruns
-    extern bool arena_debug_mode;
-
-    // Canary pattern value - a distinctive pattern that's unlikely to occur naturally
-    constexpr size_t ARENA_CANARY_PATTERN = 0xDEADBEEFCAFEBABEULL;
-
-    /**
-     * Helper function to calculate aligned size.
-     * Rounds up the current size to the next alignment boundary.
-     */
-    inline size_t align_size(size_t current_size, size_t alignment) {
-        if (alignment == 0) return current_size;
-        size_t remainder = current_size % alignment;
-        return remainder == 0 ? current_size : current_size + (alignment - remainder);
-    }
-
-    /**
-     * Helper function to calculate size with alignment for a type.
-     * Returns the current size rounded up to alignof(T), then adds sizeof(T).
-     * If debug mode is enabled, also adds space for a canary value.
-     */
-    template<typename T>
-    inline size_t add_aligned_size(size_t current_size) {
-        size_t aligned = align_size(current_size, alignof(T));
-        size_t total = aligned + sizeof(T);
-        // Add canary size if debug mode is enabled
-        if (arena_debug_mode) {
-            total = align_size(total, alignof(size_t));
-            total += sizeof(size_t);
-        }
-        return total;
-    }
-
-    /**
-     * Get the size of the canary padding (0 if debug mode is off, sizeof(size_t) if on).
-     */
-    inline size_t get_canary_size() {
-        return arena_debug_mode ? sizeof(size_t) : 0;
-    }
-
-    /**
-     * Add canary size to a base size, with proper alignment.
-     * Use this for simple sizeof() calculations that need canary support.
-     */
-    inline size_t add_canary_size(size_t base_size) {
-        if (!arena_debug_mode) {
-            return base_size;
-        }
-        // Align to size_t boundary, then add canary
-        return align_size(base_size, alignof(size_t)) + sizeof(size_t);
-    }
-
-    /**
-     * Set the canary value at the end of an allocated object.
-     * @param ptr Pointer to the start of the object
-     * @param object_size Size of the object (without canary)
-     * @return Pointer to the object (for chaining)
-     */
-    inline void* set_canary(void* ptr, size_t object_size) {
-        if (arena_debug_mode && ptr != nullptr) {
-            size_t aligned_size = align_size(object_size, alignof(size_t));
-            size_t* canary_ptr = reinterpret_cast<size_t*>(static_cast<char*>(ptr) + aligned_size);
-            *canary_ptr = ARENA_CANARY_PATTERN;
-        }
-        return ptr;
-    }
-
-    /**
-     * Check the canary value at the end of an allocated object.
-     * @param ptr Pointer to the start of the object
-     * @param object_size Size of the object (without canary)
-     * @return True if canary is intact, false if it was overwritten
-     */
-    inline bool check_canary(const void* ptr, size_t object_size) {
-        if (!arena_debug_mode || ptr == nullptr) {
-            return true;  // No canary to check
-        }
-        size_t aligned_size = align_size(object_size, alignof(size_t));
-        const size_t* canary_ptr = reinterpret_cast<const size_t*>(static_cast<const char*>(ptr) + aligned_size);
-        return *canary_ptr == ARENA_CANARY_PATTERN;
-    }
-
-    /**
-     * Verify canary and throw exception if it's been overwritten.
-     * @param ptr Pointer to the start of the object
-     * @param object_size Size of the object (without canary)
-     * @param object_name Name of the object type for error message
-     */
-    inline void verify_canary(const void* ptr, size_t object_size, const char* object_name = "object") {
-        if (!check_canary(ptr, object_size)) {
-            throw std::runtime_error(
-                fmt::format("Arena allocation buffer overrun detected for {} at address {:p}. "
-                           "Canary value was overwritten, indicating memory corruption.",
-                           object_name, ptr));
-        }
-    }
-
     /**
      * Helper function to construct an object either in-place (arena allocation) or on the heap.
      * This reduces duplication in make_instance methods.
@@ -130,6 +32,8 @@ namespace hgraph {
     template<typename ConcreteType, typename BaseType, typename... Args>
     std::shared_ptr<BaseType> make_instance_impl(const std::shared_ptr<void> &buffer, size_t* offset, const char* type_name, Args&&... args) {
         if (buffer != nullptr && offset != nullptr) {
+            // Align the offset for this object
+            *offset = align_size(*offset, alignof(ConcreteType));
             // Arena allocation: construct in-place
             char* buf = static_cast<char*>(buffer.get());
             size_t obj_size = sizeof(ConcreteType);
@@ -214,6 +118,13 @@ namespace hgraph {
          * For complex builders with nested builders, this is a recursive computation.
          */
         [[nodiscard]] virtual size_t memory_size() const = 0;
+
+        /**
+         * Get the alignment requirement of the type this builder constructs.
+         * This is used by parent builders to correctly calculate memory layout
+         * when multiple objects are allocated sequentially in an arena.
+         */
+        [[nodiscard]] virtual size_t type_alignment() const = 0;
 
         static void register_with_nanobind(nb::module_ &m);
     };

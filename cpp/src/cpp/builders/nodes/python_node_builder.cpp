@@ -1,11 +1,19 @@
 #include <hgraph/builders/nodes/python_node_builder.h>
 #include <hgraph/types/node.h>
+
+#include <algorithm>
 #include <hgraph/types/tsb.h>
 #include <hgraph/nodes/python_node.h>
 #include <hgraph/nodes/push_queue_node.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
+
+    size_t PythonNodeBuilder::node_type_size() const {
+        // Use the larger of PythonNode or PushQueueNode since this builder can create either
+        return std::max(sizeof(PythonNode), sizeof(PushQueueNode));
+    }
+
     PythonNodeBuilder::PythonNodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
                                          std::optional<input_builder_s_ptr> input_builder_,
                                          std::optional<output_builder_s_ptr> output_builder_,

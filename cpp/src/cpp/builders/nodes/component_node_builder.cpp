@@ -5,6 +5,10 @@
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
+    size_t ComponentNodeBuilder::node_type_size() const {
+        return sizeof(ComponentNode);
+    }
+
     node_s_ptr ComponentNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
         auto node = arena_make_shared_as<ComponentNode, Node>(node_ndx, owning_graph_id, signature, scalars, nested_graph_builder, input_node_ids,
                               output_node_id);

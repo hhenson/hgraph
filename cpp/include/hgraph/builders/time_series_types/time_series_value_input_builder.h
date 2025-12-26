@@ -18,6 +18,8 @@ namespace hgraph {
         time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
 
         [[nodiscard]] size_t memory_size() const override;
+
+        [[nodiscard]] size_t type_alignment() const override;
     };
 
     void time_series_value_input_builder_register_with_nanobind(nb::module_ & m);

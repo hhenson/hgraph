@@ -77,6 +77,11 @@ namespace hgraph {
         return node;
     }
 
+    template<typename T>
+    size_t TsdMapNodeBuilder<T>::node_type_size() const {
+        return sizeof(TsdMapNode<T>);
+    }
+
     // Explicit template instantiations
     template struct TsdMapNodeBuilder<bool>;
     template struct TsdMapNodeBuilder<int64_t>;

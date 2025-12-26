@@ -74,6 +74,11 @@ namespace hgraph {
         return node;
     }
 
+    template<typename T>
+    size_t MeshNodeBuilder<T>::node_type_size() const {
+        return sizeof(MeshNode<T>);
+    }
+
     // Explicit template instantiations
     template struct MeshNodeBuilder<bool>;
     template struct MeshNodeBuilder<int64_t>;

@@ -18,6 +18,8 @@ namespace hgraph {
 
         node_s_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
 
+        [[nodiscard]] size_t node_type_size() const override;
+
         nb::callable eval_fn;
     };
 

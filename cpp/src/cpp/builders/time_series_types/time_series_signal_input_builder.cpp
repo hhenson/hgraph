@@ -29,6 +29,10 @@ namespace hgraph {
         return add_canary_size(sizeof(TimeSeriesSignalInput));
     }
 
+    size_t TimeSeriesSignalInputBuilder::type_alignment() const {
+        return alignof(TimeSeriesSignalInput);
+    }
+
     void TimeSeriesSignalInputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesSignalInputBuilder, InputBuilder>(m, "InputBuilder_TS_Signal").def(nb::init<>());
     }

@@ -21,6 +21,11 @@ namespace hgraph {
         return add_canary_size(sizeof(TimeSeriesWindowInput<T>));
     }
 
+    template<typename T>
+    size_t TimeSeriesWindowInputBuilder_T<T>::type_alignment() const {
+        return alignof(TimeSeriesWindowInput<T>);
+    }
+
     void time_series_window_input_builder_register_with_nanobind(nb::module_ &m) {
         // Unified window input builders
         using InputBuilder_TSW_Bool = TimeSeriesWindowInputBuilder_T<bool>;

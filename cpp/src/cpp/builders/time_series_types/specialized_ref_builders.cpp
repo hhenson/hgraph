@@ -25,6 +25,10 @@ namespace hgraph
         return add_canary_size(sizeof(TimeSeriesValueReferenceInput));
     }
 
+    size_t TimeSeriesValueRefInputBuilder::type_alignment() const {
+        return alignof(TimeSeriesValueReferenceInput);
+    }
+
     void TimeSeriesValueRefInputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesValueRefInputBuilder, InputBuilder>(m, "InputBuilder_TS_Value_Ref").def(nb::init<>());
     }
@@ -52,10 +56,14 @@ namespace hgraph
         size_t total = add_canary_size(sizeof(TimeSeriesListReferenceInput));
         // For each element, align and add its size
         for (size_t i = 0; i < size; ++i) {
-            total = align_size(total, alignof(TimeSeriesType));
+            total = align_size(total, value_builder->type_alignment());
             total += value_builder->memory_size();
         }
         return total;
+    }
+
+    size_t TimeSeriesListRefInputBuilder::type_alignment() const {
+        return alignof(TimeSeriesListReferenceInput);
     }
 
     void TimeSeriesListRefInputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -92,10 +100,14 @@ namespace hgraph
         size_t total = add_canary_size(sizeof(TimeSeriesBundleReferenceInput));
         // Align before each nested time-series input
         for (const auto &builder : field_builders) {
-            total = align_size(total, alignof(TimeSeriesType));
+            total = align_size(total, builder->type_alignment());
             total += builder->memory_size();
         }
         return total;
+    }
+
+    size_t TimeSeriesBundleRefInputBuilder::type_alignment() const {
+        return alignof(TimeSeriesBundleReferenceInput);
     }
 
     void TimeSeriesBundleRefInputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -116,6 +128,10 @@ namespace hgraph
         return add_canary_size(sizeof(TimeSeriesDictReferenceInput));
     }
 
+    size_t TimeSeriesDictRefInputBuilder::type_alignment() const {
+        return alignof(TimeSeriesDictReferenceInput);
+    }
+
     void TimeSeriesDictRefInputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesDictRefInputBuilder, InputBuilder>(m, "InputBuilder_TSD_Ref").def(nb::init<>());
     }
@@ -133,6 +149,10 @@ namespace hgraph
         return add_canary_size(sizeof(TimeSeriesSetReferenceInput));
     }
 
+    size_t TimeSeriesSetRefInputBuilder::type_alignment() const {
+        return alignof(TimeSeriesSetReferenceInput);
+    }
+
     void TimeSeriesSetRefInputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesSetRefInputBuilder, InputBuilder>(m, "InputBuilder_TSS_Ref").def(nb::init<>());
     }
@@ -148,6 +168,10 @@ namespace hgraph
 
     size_t TimeSeriesWindowRefInputBuilder::memory_size() const {
         return add_canary_size(sizeof(TimeSeriesWindowReferenceInput));
+    }
+
+    size_t TimeSeriesWindowRefInputBuilder::type_alignment() const {
+        return alignof(TimeSeriesWindowReferenceInput);
     }
 
     void TimeSeriesWindowRefInputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -169,6 +193,10 @@ namespace hgraph
 
     size_t TimeSeriesValueRefOutputBuilder::memory_size() const {
         return add_canary_size(sizeof(TimeSeriesValueReferenceOutput));
+    }
+
+    size_t TimeSeriesValueRefOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesValueReferenceOutput);
     }
 
     void TimeSeriesValueRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -198,10 +226,14 @@ namespace hgraph
         size_t total = add_canary_size(sizeof(TimeSeriesListReferenceOutput));
         // For each element, align and add its size
         for (size_t i = 0; i < size; ++i) {
-            total = align_size(total, alignof(TimeSeriesType));
+            total = align_size(total, value_builder->type_alignment());
             total += value_builder->memory_size();
         }
         return total;
+    }
+
+    size_t TimeSeriesListRefOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesListReferenceOutput);
     }
 
     void TimeSeriesListRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -238,10 +270,14 @@ namespace hgraph
         size_t total = add_canary_size(sizeof(TimeSeriesBundleReferenceOutput));
         // Align before each nested time-series output
         for (const auto &builder : field_builders) {
-            total = align_size(total, alignof(TimeSeriesType));
+            total = align_size(total, builder->type_alignment());
             total += builder->memory_size();
         }
         return total;
+    }
+
+    size_t TimeSeriesBundleRefOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesBundleReferenceOutput);
     }
 
     void TimeSeriesBundleRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
@@ -262,6 +298,10 @@ namespace hgraph
         return add_canary_size(sizeof(TimeSeriesDictReferenceOutput));
     }
 
+    size_t TimeSeriesDictRefOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesDictReferenceOutput);
+    }
+
     void TimeSeriesDictRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesDictRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSD_Ref").def(nb::init<>());
     }
@@ -279,6 +319,10 @@ namespace hgraph
         return add_canary_size(sizeof(TimeSeriesSetReferenceOutput));
     }
 
+    size_t TimeSeriesSetRefOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesSetReferenceOutput);
+    }
+
     void TimeSeriesSetRefOutputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesSetRefOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSS_Ref").def(nb::init<>());
     }
@@ -294,6 +338,10 @@ namespace hgraph
 
     size_t TimeSeriesWindowRefOutputBuilder::memory_size() const {
         return add_canary_size(sizeof(TimeSeriesWindowReferenceOutput));
+    }
+
+    size_t TimeSeriesWindowRefOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesWindowReferenceOutput);
     }
 
     void TimeSeriesWindowRefOutputBuilder::register_with_nanobind(nb::module_ &m) {

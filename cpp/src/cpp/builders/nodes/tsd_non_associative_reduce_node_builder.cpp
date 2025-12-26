@@ -59,6 +59,10 @@ namespace hgraph {
           output_node_id(output_node_id) {
     }
 
+    size_t TsdNonAssociativeReduceNodeBuilder::node_type_size() const {
+        return sizeof(TsdNonAssociativeReduceNode);
+    }
+
     node_s_ptr TsdNonAssociativeReduceNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id,
                                                                int64_t node_ndx) const {
         auto node = arena_make_shared_as<TsdNonAssociativeReduceNode, Node>(node_ndx, owning_graph_id, signature, scalars, nested_graph_builder,

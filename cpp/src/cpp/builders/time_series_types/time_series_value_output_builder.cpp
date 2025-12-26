@@ -29,6 +29,11 @@ namespace hgraph {
         return add_canary_size(sizeof(TimeSeriesValueOutput<T>));
     }
 
+    template<typename T>
+    size_t TimeSeriesValueOutputBuilder<T>::type_alignment() const {
+        return alignof(TimeSeriesValueOutput<T>);
+    }
+
     void time_series_value_output_builder_register_with_nanobind(nb::module_ &m) {
         using OutputBuilder_TS_Bool = TimeSeriesValueOutputBuilder<bool>;
         using OutputBuilder_TS_Int = TimeSeriesValueOutputBuilder<int64_t>;

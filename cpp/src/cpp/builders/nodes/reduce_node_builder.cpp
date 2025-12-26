@@ -71,6 +71,11 @@ namespace hgraph {
         return node;
     }
 
+    template<typename T>
+    size_t ReduceNodeBuilder<T>::node_type_size() const {
+        return sizeof(ReduceNode<T>);
+    }
+
     // Explicit template instantiations
     template struct ReduceNodeBuilder<bool>;
     template struct ReduceNodeBuilder<int64_t>;
