@@ -43,7 +43,7 @@ namespace hgraph {
          * Construct an instance of a graph. The id provided is the id for the graph instance to be constructed.
          */
         graph_s_ptr make_instance(const std::vector<int64_t> &graph_id, node_ptr parent_node = nullptr,
-                                  const std::string &label = "") const;
+                                  const std::string &label = "", bool use_arena = true) const;
 
         /**
          * Make the nodes described in the node builders and connect the edges as described in the edges.

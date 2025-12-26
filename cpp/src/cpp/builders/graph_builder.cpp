@@ -10,6 +10,8 @@
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/tsb.h>
 
+#include <string_view>
+
 namespace hgraph
 {
     constexpr int64_t ERROR_PATH = -1;  // The path in the wiring edges representing the error output of the node
@@ -46,27 +48,49 @@ namespace hgraph
 
     GraphBuilder::GraphBuilder(std::vector<node_builder_s_ptr> node_builders_, std::vector<Edge> edges_)
         : node_builders{std::move(node_builders_)}, edges{std::move(edges_)} {
-        // Calculate and cache memory size
-        // Start with Graph (with canary) - Traits is now a value member, so it's included in Graph's size
-        size_t total = add_canary_size(sizeof(Graph));
-        // For each node builder, align to Node alignment and add its size (Node already includes canary in memory_size)
+        // Calculate and cache memory size in the same order as allocation (nodes first, then graph)
+        size_t total = 0;
         for (const auto &node_builder : node_builders) {
             total = align_size(total, alignof(Node));
             total += node_builder->memory_size();
         }
+        total = align_size(total, alignof(Graph));
+        total += add_canary_size(sizeof(Graph));
         _memory_size = total;
     }
 
     graph_s_ptr GraphBuilder::make_instance(const std::vector<int64_t> &graph_id, node_ptr parent_node,
-                                            const std::string &label) const {
-        auto nodes = make_and_connect_nodes(graph_id, 0);
+                                            const std::string &label, bool use_arena) const {
+        auto build_graph = [&](const std::shared_ptr<void> &buffer, size_t *offset) {
+            auto nodes = make_and_connect_nodes(graph_id, 0);
+            return make_instance_impl<Graph, Graph>(
+                buffer, offset, "Graph", graph_id, std::move(nodes), parent_node, label,
+                parent_node == nullptr ? nullptr : &parent_node->graph()->traits());
+        };
 
-        // Use make_instance_impl with nullptr for buffer (heap allocation via make_shared)
-        graph_s_ptr graph = make_instance_impl<Graph, Graph>(
-            nullptr, nullptr, "Graph", graph_id, std::move(nodes), parent_node, label,
-            parent_node == nullptr ? nullptr : &parent_node->graph()->traits());
+        if (!use_arena) {
+            return build_graph(nullptr, nullptr);
+        }
 
-        return graph;
+        size_t buffer_size = _memory_size;
+        for (int attempt = 0; attempt < 3; ++attempt) {
+            try {
+                auto buffer = std::shared_ptr<void>(::operator new(buffer_size), [](void* p) { ::operator delete(p); });
+                ArenaAllocationContext ctx{buffer, 0, buffer_size};
+                ArenaAllocationGuard guard(ctx);
+
+                return build_graph(buffer, &ctx.offset);
+            } catch (const std::runtime_error &e) {
+                std::string_view msg{e.what()};
+                if (attempt < 2 && msg.find("Arena buffer overflow") != std::string_view::npos) {
+                    buffer_size = buffer_size * 2;
+                    continue;
+                }
+                throw;
+            }
+        }
+
+        return nullptr;
     }
 
     Graph::node_list GraphBuilder::make_and_connect_nodes(const std::vector<int64_t> &graph_id,
@@ -114,7 +138,7 @@ namespace hgraph
     void GraphBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<GraphBuilder, Builder>(m, "GraphBuilder")
             .def(nb::init<std::vector<node_builder_s_ptr>, std::vector<Edge>>(), "node_builders"_a, "edges"_a)
-            .def("make_instance", &GraphBuilder::make_instance, "graph_id"_a, "parent_node"_a = nullptr, "label"_a = "")
+            .def("make_instance", &GraphBuilder::make_instance, "graph_id"_a, "parent_node"_a = nullptr, "label"_a = "", "use_arena"_a = true)
             .def("make_and_connect_nodes", &GraphBuilder::make_and_connect_nodes, "graph_id"_a, "first_node_ndx"_a)
             .def("release_instance", &GraphBuilder::release_instance, "item"_a)
             .def("memory_size", &GraphBuilder::memory_size)

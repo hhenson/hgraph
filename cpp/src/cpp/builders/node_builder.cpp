@@ -63,10 +63,15 @@ namespace hgraph {
         dispose_component(*item);
     }
 
+    size_t NodeBuilder::node_type_size() const {
+        // Default implementation returns sizeof(Node)
+        // Concrete builders should override this to return the size of their specific node type
+        return sizeof(Node);
+    }
+
     size_t NodeBuilder::memory_size() const {
-        // Base size for Node - concrete node builders should override if they create different node types
-        // Add canary size to the base Node object
-        size_t total = add_canary_size(sizeof(Node));
+        // Use node_type_size() to get the correct size for the concrete node type
+        size_t total = add_canary_size(node_type_size());
         // Align and add each time-series builder's size
         if (input_builder) {
             // We don't know the exact type, so use TimeSeriesType alignment as a conservative estimate

@@ -40,6 +40,8 @@ namespace hgraph {
 
     template<typename T>
     size_t TimeSeriesDictInputBuilder_T<T>::memory_size() const {
+        // Note: The key_set (TimeSeriesSetInput_T<T>) is allocated separately via
+        // arena_make_shared_as during TSD construction, so it's not included here.
         return add_canary_size(sizeof(TimeSeriesDictInput_T<T>));
     }
 

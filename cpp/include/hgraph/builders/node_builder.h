@@ -31,6 +31,12 @@ namespace hgraph {
 
         [[nodiscard]] size_t memory_size() const override;
 
+        /**
+         * Returns the size of the concrete node type this builder creates.
+         * Concrete builders should override this to return sizeof(TheirNodeType).
+         */
+        [[nodiscard]] virtual size_t node_type_size() const;
+
         static void register_with_nanobind(nb::module_ &m);
 
         node_signature_s_ptr signature;
