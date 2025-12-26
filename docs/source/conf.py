@@ -37,7 +37,18 @@ extensions = [
     "sphinx.ext.mathjax",  # For HTML
     "sphinx.ext.imgmath",  # For PDF
     "wiring_autodoc_extension",
+    "myst_parser",
+    "sphinxcontrib.mermaid",
 ]
+
+# MyST-Parser configuration
+myst_enable_extensions = [
+    "colon_fence",
+    "deflist",
+    "fieldlist",
+    "tasklist",
+]
+myst_fence_as_directive = ["mermaid"]
 
 intersphinx_mapping = {
     "rtd": ("https://docs.readthedocs.io/en/stable/", None),

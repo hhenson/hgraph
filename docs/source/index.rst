@@ -21,3 +21,4 @@ Contents
     reference/index
     papers/index
     references
+    specification/index
