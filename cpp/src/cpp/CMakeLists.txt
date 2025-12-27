@@ -115,7 +115,7 @@ add_definitions(-Dhgraph_EXPORTS)
 nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
-target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor)
+target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddv::ddvisitor)
 
 # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
 if (HGRAPH_WITH_BACKWARD)

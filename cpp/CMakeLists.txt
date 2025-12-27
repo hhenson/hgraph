@@ -174,8 +174,6 @@ else ()
 endif ()
 
 # ddv via package or FetchContent
-# Note: ddvisitor v0.9.1 has a bug where it references cmake/ddvisitor-config.cmake.in
-# that doesn't exist. We work around this by manually including only what we need.
 find_package(ddvisitor CONFIG QUIET)
 if (NOT ddvisitor_FOUND)
     message(STATUS "ddvisitor not found via find_package, using FetchContent")
