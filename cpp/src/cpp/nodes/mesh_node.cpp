@@ -14,6 +14,7 @@
 #include <hgraph/types/tss.h>
 #include <hgraph/util/string_utils.h>
 #include <hgraph/util/scope.h>
+#include <hgraph/util/errors.h>
 
 namespace hgraph {
     // MeshNestedEngineEvaluationClock implementation
@@ -28,11 +29,8 @@ namespace hgraph {
 
     template<typename K>
     void MeshNestedEngineEvaluationClock<K>::update_next_scheduled_evaluation_time(engine_time_t next_time) {
-        // Cast nested_node_ptr to MeshNode<K> using dynamic_cast
-        auto node = dynamic_cast<MeshNode<K> *>(_nested_node);
-        if (!node) {
-            return; // Safety check - should not happen
-        }
+        // Cast nested_node_ptr to MeshNode<K>
+        auto node = *_nested_node->visit(cast_to_expected<MeshNode<K>*>);
 
         // Check if we should skip scheduling
         auto let = node->last_evaluation_time();
@@ -77,18 +75,19 @@ namespace hgraph {
 
         // Set up the reference output and register in GlobalState
         if (GlobalState::has_instance()) {
-            auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
+            auto tsb_output = *this->output()->visit(cast_to_expected<TimeSeriesBundleOutput*>);
+
             // Get the "out" and "ref" outputs from the output bundle
             auto tsd_output_ptr = (*tsb_output)["out"];
-            auto &ref_output = dynamic_cast<TimeSeriesReferenceOutput &>(*(*tsb_output)["ref"]);
+            auto ref_output = *tsd_output_ptr->visit(cast_to_expected<TimeSeriesReferenceOutput*>);
 
             // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
             // Pass the shared_ptr directly to keep the output alive
             auto reference = TimeSeriesReference::make(tsd_output_ptr);
-            ref_output.set_value(reference);
+            ref_output->set_value(std::move(reference));
 
             // Store the ref output in GlobalState using shared_ptr-based wrapping
-            GlobalState::set(full_context_path_, wrap_output(ref_output.shared_from_this()));
+            GlobalState::set(full_context_path_, wrap_output(ref_output->shared_from_this()));
         } else {
             throw std::runtime_error("GlobalState instance required for MeshNode");
         }
@@ -107,8 +106,11 @@ namespace hgraph {
         this->mark_evaluated();
 
         // 1. Process keys input (additions/removals)
-        auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
-        auto &keys = dynamic_cast<TimeSeriesSetInput_T<K> &>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
+        auto get_keys = 
+            with_expected<TimeSeriesBundleInput*>([](auto* bundle) { return (*bundle)[TsdMapNode<K>::KEYS_ARG]; })
+            >> cast_to_expected<TimeSeriesSetInput_T<K>*>;
+
+        auto &keys = **get_keys(this->input());
         if (keys.modified()) {
             for (const auto &k: keys.added()) {
                 if (this->active_graphs_.find(k) == this->active_graphs_.end()) {
@@ -204,8 +206,11 @@ namespace hgraph {
     template<typename K>
     TimeSeriesDictOutput_T<K> &MeshNode<K>::tsd_output() {
         // Access output bundle's "out" member - output() returns smart pointer to TimeSeriesBundleOutput
-        auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
-        return dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*output_bundle)["out"]);
+        auto impl =
+            with_expected<TimeSeriesBundleOutput*>([](auto* bundle) { return (*bundle)["out"]; })
+            >> cast_to_expected<TimeSeriesDictOutput_T<K>*>;
+
+        return **impl(this->output());
     }
 
     template<typename K>
@@ -260,7 +265,7 @@ namespace hgraph {
     void MeshNode<K>::remove_graph(const K &key) {
         // Remove error output if using exception capture
         if (this->signature().capture_exception) {
-            auto &error_output_ = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*this->error_output());
+            auto &error_output_ = **this->error_output()->visit(cast_to_expected<TimeSeriesDictOutput_T<K>*>);
             error_output_.erase(key);
         }
 
@@ -313,8 +318,13 @@ namespace hgraph {
 
         // Check if we should remove the dependency graph
         if (active_graphs_dependencies_[depends_on].empty()) {
-            auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
-            auto &keys = dynamic_cast<TimeSeriesSetInput_T<K> &>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
+            auto get_keys =
+                with_expected<TimeSeriesBundleInput*>(
+                    [](auto* input_bundle) { return (*input_bundle)[TsdMapNode<K>::KEYS_ARG]; }
+                )
+                >> cast_to_expected<TimeSeriesSetInput_T<K>*>;
+
+            auto& keys = **get_keys(this->input());
             if (!keys.contains(depends_on)) { graphs_to_remove_.insert(depends_on); }
         }
     }

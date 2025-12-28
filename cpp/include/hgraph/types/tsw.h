@@ -7,6 +7,7 @@
 #define TSW_H
 
 #include <hgraph/types/base_time_series.h>
+#include <hgraph/util/errors.h>
 #include <deque>
 
 namespace hgraph {
@@ -62,7 +63,8 @@ namespace hgraph {
         [[nodiscard]] engine_time_t first_modified_time() const;
 
         void copy_from_output(const TimeSeriesOutput &output) override {
-            auto &o = dynamic_cast<const TimeSeriesFixedWindowOutput<T> &>(output);
+            if (!is_same_type(&output)) throw std::bad_cast();
+            auto &o = **output.visit(cast_to_expected<const TimeSeriesFixedWindowOutput*>);
             _buffer = o._buffer;
             _times = o._times;
             _start = o._start;
@@ -75,7 +77,7 @@ namespace hgraph {
         void copy_from_input(const TimeSeriesInput &input) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            return dynamic_cast<const TimeSeriesFixedWindowOutput<T> *>(other) != nullptr;
+            return typeid(*other) == typeid(TimeSeriesFixedWindowOutput);
         }
 
         // Extra API to mirror Python TSW
@@ -113,23 +115,25 @@ namespace hgraph {
 
         // Helpers to dynamically get the output as the correct type
         [[nodiscard]] TimeSeriesFixedWindowOutput<T> *as_fixed_output() const {
-            return dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(output().get());
+            using U = TimeSeriesFixedWindowOutput<T>*;
+            return *output()->visit(ddv::identity<U>, ddv::nullptr_const<U>);
         }
 
         [[nodiscard]] TimeSeriesTimeWindowOutput<T> *as_time_output() const {
-            return dynamic_cast<TimeSeriesTimeWindowOutput<T> *>(output().get());
+            using U = TimeSeriesTimeWindowOutput<T>*;
+            return *output()->visit(ddv::identity<U>, ddv::nullptr_const<U>);
         }
 
         [[nodiscard]] nb::object py_value() const override {
             if (auto *f = as_fixed_output()) return f->py_value();
             if (auto *t = as_time_output()) return t->py_value();
-            throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
+            throw_error("TimeSeriesWindowInput: output is not a window output");
         }
 
         [[nodiscard]] nb::object py_delta_value() const override {
             if (auto *f = as_fixed_output()) return f->py_delta_value();
             if (auto *t = as_time_output()) return t->py_delta_value();
-            throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
+            throw_error("TimeSeriesWindowInput: output is not a window output");
         }
 
         [[nodiscard]] bool modified() const override { return output() != nullptr && output()->modified(); }
@@ -144,13 +148,13 @@ namespace hgraph {
         [[nodiscard]] nb::object py_value_times() const {
             if (auto *f = as_fixed_output()) return f->py_value_times();
             if (auto *t = as_time_output()) return t->py_value_times();
-            throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
+            throw_error("TimeSeriesWindowInput: output is not a window output");
         }
 
         [[nodiscard]] engine_time_t first_modified_time() const {
             if (auto *f = as_fixed_output()) return f->first_modified_time();
             if (auto *t = as_time_output()) return t->first_modified_time();
-            throw std::runtime_error("TimeSeriesWindowInput: output is not a window output");
+            throw_error("TimeSeriesWindowInput: output is not a window output");
         }
 
         [[nodiscard]] bool has_removed_value() const {
@@ -166,7 +170,7 @@ namespace hgraph {
         }
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            return dynamic_cast<const TimeSeriesWindowInput<T> *>(other) != nullptr;
+            return typeid(*other) == typeid(TimeSeriesWindowInput);
         }
 
         VISITOR_SUPPORT()
@@ -175,18 +179,18 @@ namespace hgraph {
 
     template<typename T>
     void TimeSeriesFixedWindowOutput<T>::copy_from_input(const TimeSeriesInput &input) {
-        auto &i = dynamic_cast<const TimeSeriesWindowInput<T> &>(input);
-        if (auto *src = i.as_fixed_output()) {
-            _buffer = src->_buffer;
-            _times = src->_times;
-            _start = src->_start;
-            _length = src->_length;
-            _size = src->_size;
-            _min_size = src->_min_size;
-            mark_modified();
-        } else {
-            throw std::runtime_error("TimeSeriesFixedWindowOutput::copy_from_input: input output is not fixed window");
-        }
+        input.output()->visit(
+            [this](TimeSeriesFixedWindowOutput<T>* src) {
+                _buffer = src->_buffer;
+                _times = src->_times;
+                _start = src->_start;
+                _length = src->_length;
+                _size = src->_size;
+                _min_size = src->_min_size;
+                mark_modified();
+            },
+            make_throw_error("TimeSeriesFixedWindowOutput::copy_from_input: input is not fixed window")
+        );
     }
 
     // TimeSeriesTimeWindowOutput - timedelta-based window
@@ -225,19 +229,23 @@ namespace hgraph {
         [[nodiscard]] engine_time_t first_modified_time() const;
 
         void copy_from_output(const TimeSeriesOutput &output) override {
-            auto &o = dynamic_cast<const TimeSeriesTimeWindowOutput<T> &>(output);
-            _buffer = o._buffer;
-            _times = o._times;
-            _size = o._size;
-            _min_size = o._min_size;
-            _ready = o._ready;
-            mark_modified();
+            output.visit(
+                [this](TimeSeriesTimeWindowOutput* src) {
+                    _buffer = src->_buffer;
+                    _times = src->_times;
+                    _size = src->_size;
+                    _min_size = src->_min_size;
+                    _ready = src->_ready;
+                    mark_modified();
+                },
+                make_throw_error("TimeSeriesFixedWindowOutput::copy_from_output: output is not time window")
+            );
         }
 
         void copy_from_input(const TimeSeriesInput &input) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            return dynamic_cast<const TimeSeriesTimeWindowOutput<T> *>(other) != nullptr;
+            return typeid(*other) == typeid(TimeSeriesTimeWindowOutput);
         }
 
         // Extra API to mirror Python TSW

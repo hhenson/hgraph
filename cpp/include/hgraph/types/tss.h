@@ -191,7 +191,7 @@ namespace hgraph {
         void release_contains_output(const nb::object &item, const nb::object &requester) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            return dynamic_cast<const TimeSeriesSetOutput_T<T_Key> *>(other) != nullptr;
+            return typeid(*other) == typeid(TimeSeriesSetOutput_T);
         }
 
         using TimeSeriesOutput::mark_modified;

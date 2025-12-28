@@ -4,6 +4,7 @@
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsl.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
+#include <hgraph/util/errors.h>
 
 #include <utility>
 
@@ -31,11 +32,13 @@ namespace hgraph {
 
     void TimeSeriesListOutputBuilder::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
-        auto list = dynamic_cast<TimeSeriesListOutput *>(item);
-        if (list == nullptr) {
-            throw std::runtime_error("TimeSeriesListOutputBuilder::release_instance: expected TimeSeriesListOutput but got different type");
-        }
-        for (auto &value: list->ts_values()) { output_builder->release_instance(value.get()); }
+        item->visit(
+            [this](TimeSeriesListOutput* list) {
+                for (auto &value: list->ts_values())
+                    output_builder->release_instance(value.get());
+            },
+            make_throw_error("TimeSeriesListOutputBuilder::release_instance: expected TimeSeriesListOutput but got different type")
+        );
     }
 
     time_series_output_s_ptr TimeSeriesListOutputBuilder::make_and_set_outputs(time_series_list_output_s_ptr output) const {

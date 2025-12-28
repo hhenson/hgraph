@@ -2,6 +2,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsw.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
+#include <hgraph/util/errors.h>
 
 namespace hgraph {
     template<typename T>
@@ -31,11 +32,10 @@ namespace hgraph {
     template<typename T>
     void TimeSeriesWindowOutputBuilder_T<T>::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
-        auto ts = dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(item);
-        if (ts == nullptr) {
-            throw std::runtime_error("TimeSeriesWindowOutputBuilder_T::release_instance: expected TimeSeriesFixedWindowOutput but got different type");
-        }
-        ts->reset_value();
+        item->visit(
+            [](TimeSeriesFixedWindowOutput<T>* ts) { ts->reset_value(); },
+            make_throw_error("TimeSeriesWindowOutputBuilder_T::release_instance: expected TimeSeriesFixedWindowOutput but got different type")
+        );
     }
 
     template<typename T>

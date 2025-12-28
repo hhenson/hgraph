@@ -2,6 +2,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsd.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
+#include <hgraph/util/errors.h>
 
 #include <utility>
 
@@ -31,12 +32,13 @@ namespace hgraph {
 
     template<typename T>
     void TimeSeriesDictOutputBuilder_T<T>::release_instance(time_series_output_ptr item) const {
-        auto dict = dynamic_cast<TimeSeriesDictOutput_T<T> *>(item);
-        if (dict == nullptr) {
-            throw std::runtime_error("TimeSeriesDictOutputBuilder_T::release_instance: expected TimeSeriesDictOutput_T but got different type");
-        }
-        dict->_dispose();
-        OutputBuilder::release_instance(item);
+        item->visit(
+            [this, &item](TimeSeriesDictOutput_T<T>* dict) {
+                dict->_dispose();
+                OutputBuilder::release_instance(item);
+            },
+            make_throw_error("TimeSeriesDictOutputBuilder_T::release_instance: expected TimeSeriesDictOutput_T but got different type")
+        );
     }
 
     template<typename T>

@@ -43,7 +43,7 @@ namespace hgraph
 
     bool TimeSeriesListRefInputBuilder::is_same_type(const Builder &other) const {
         if (typeid(*this) != typeid(other)) return false;
-        auto &other_builder = dynamic_cast<const TimeSeriesListRefInputBuilder &>(other);
+        auto &other_builder = static_cast<const TimeSeriesListRefInputBuilder &>(other);
         return size == other_builder.size && value_builder->is_same_type(*other_builder.value_builder);
     }
 
@@ -79,7 +79,7 @@ namespace hgraph
 
     bool TimeSeriesBundleRefInputBuilder::is_same_type(const Builder &other) const {
         if (typeid(*this) != typeid(other)) return false;
-        auto &other_builder = dynamic_cast<const TimeSeriesBundleRefInputBuilder &>(other);
+        auto &other_builder = static_cast<const TimeSeriesBundleRefInputBuilder &>(other);
         if (field_builders.size() != other_builder.field_builders.size()) return false;
         for (size_t i = 0; i < field_builders.size(); ++i) {
             if (!field_builders[i]->is_same_type(*other_builder.field_builders[i])) return false;
@@ -189,7 +189,7 @@ namespace hgraph
 
     bool TimeSeriesListRefOutputBuilder::is_same_type(const Builder &other) const {
         if (typeid(*this) != typeid(other)) return false;
-        auto &other_builder = dynamic_cast<const TimeSeriesListRefOutputBuilder &>(other);
+        auto &other_builder = static_cast<const TimeSeriesListRefOutputBuilder &>(other);
         return size == other_builder.size && value_builder->is_same_type(*other_builder.value_builder);
     }
 
@@ -225,7 +225,7 @@ namespace hgraph
 
     bool TimeSeriesBundleRefOutputBuilder::is_same_type(const Builder &other) const {
         if (typeid(*this) != typeid(other)) return false;
-        auto &other_builder = dynamic_cast<const TimeSeriesBundleRefOutputBuilder &>(other);
+        auto &other_builder = static_cast<const TimeSeriesBundleRefOutputBuilder &>(other);
         if (field_builders.size() != other_builder.field_builders.size()) return false;
         for (size_t i = 0; i < field_builders.size(); ++i) {
             if (!field_builders[i]->is_same_type(*other_builder.field_builders[i])) return false;

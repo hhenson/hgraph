@@ -143,7 +143,7 @@ namespace hgraph
         using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            return dynamic_cast<const TimeSeriesReferenceInput *>(other) != nullptr;
+            return *visit([](const TimeSeriesReferenceInput*) { return true; }, ddv::noop_false);
         }
 
         void start();

@@ -48,8 +48,10 @@ namespace hgraph
                             auto                             ts_ndx{std::dynamic_pointer_cast<IndexedTimeSeriesInput>(ts_input)};
                             items_list.reserve(ts_ndx->size());
                             for (auto &ts_ptr : ts_ndx->values()) {
-                                auto ref_input{dynamic_cast<TimeSeriesReferenceInput *>(ts_ptr.get())};
-                                items_list.emplace_back(ref_input ? ref_input->value() : TimeSeriesReference::make());
+                                ts_ptr->visit(
+                                    [&items_list](TimeSeriesReferenceInput* inp) { items_list.emplace_back(inp->value()); },
+                                    [&items_list] { items_list.emplace_back(TimeSeriesReference::make()); }
+                                );
                             }
                             return TimeSeriesReference::make(items_list);
                         }

@@ -4,6 +4,7 @@
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
+#include <hgraph/util/errors.h>
 
 #include <ranges>
 #include <utility>
@@ -41,12 +42,14 @@ namespace hgraph {
 
     void TimeSeriesBundleOutputBuilder::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
-        auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(item);
-        if (bundle == nullptr) {
-            throw std::runtime_error("TimeSeriesBundleOutputBuilder::release_instance: expected TimeSeriesBundleOutput but got different type");
-        }
-        auto &outputs = bundle->ts_values();
-        for (size_t i = 0; i < output_builders.size(); ++i) { output_builders[i]->release_instance(outputs[i].get()); }
+        item->visit(
+            [this](TimeSeriesBundleOutput* bundle) {
+                auto &outputs = bundle->ts_values();
+                for (size_t i = 0; i < output_builders.size(); ++i)
+                    output_builders[i]->release_instance(outputs[i].get());
+            },
+            make_throw_error("TimeSeriesBundleOutputBuilder::release_instance: expected TimeSeriesBundleOutput but got different type")
+        );
     }
 
     time_series_output_s_ptr TimeSeriesBundleOutputBuilder::make_and_set_outputs(time_series_bundle_output_s_ptr output) const {
