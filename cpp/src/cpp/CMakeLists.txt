@@ -15,6 +15,7 @@ set(HGRAPH_SOURCES
         api/python/py_tsl.cpp
         api/python/py_tss.cpp
         api/python/py_tsw.cpp
+        api/python/py_value.cpp
         api/python/wrapper_factory.cpp
         builders/builder.cpp
         builders/graph_builder.cpp
@@ -103,6 +104,7 @@ set(HGRAPH_SOURCES
         types/tsb.cpp
         types/tsl.cpp
         types/tsw.cpp
+        types/value/type_registry.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
