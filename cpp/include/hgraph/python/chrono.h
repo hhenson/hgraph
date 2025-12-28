@@ -179,19 +179,19 @@ public:
         std::chrono::hh_mm_ss hms{time_of_day};
 
         // 4. Extract time components
-        long long hour = hms.hours().count();
-        long long minute = hms.minutes().count();
-        long long second = hms.seconds().count();
+        auto hour = hms.hours().count();
+        auto minute = hms.minutes().count();
+        auto second = hms.seconds().count();
         auto subseconds = hms.subseconds(); // This is a duration
         auto microseconds = std::chrono::duration_cast<std::chrono::microseconds>(subseconds).count();
 
-        return pack_datetime(year,
-                             month,
-                             day,
-                             hour,
-                             minute,
-                             second,
-                             microseconds);
+        return pack_datetime(static_cast<int>(year),
+                             static_cast<int>(month),
+                             static_cast<int>(day),
+                             static_cast<int>(hour),
+                             static_cast<int>(minute),
+                             static_cast<int>(second),
+                             static_cast<int>(microseconds));
     }
 #if PY_VERSION_HEX < 0x03090000
     NB_TYPE_CASTER(type, io_name ("typing.Union[datetime.datetime, datetime.date, datetime.time]",
