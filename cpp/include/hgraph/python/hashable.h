@@ -34,7 +34,10 @@ namespace std {
     template<typename T, typename U>
     struct hash<std::tuple<T *, U *> > {
         size_t operator()(const std::tuple<T *, U *> &t) const noexcept {
-            return std::hash<T *>()(std::get < 0 > (t)) ^ (std::hash<U *>()(std::get < 1 > (t)) << 1);
+            // Use boost::hash_combine-style mixing to avoid collisions
+            size_t h1 = std::hash<T *>()(std::get<0>(t));
+            size_t h2 = std::hash<U *>()(std::get<1>(t));
+            return h1 ^ (h2 + 0x9e3779b9 + (h1 << 6) + (h1 >> 2));
         }
     };
 

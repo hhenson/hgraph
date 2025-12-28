@@ -1,6 +1,6 @@
 # AI Helper
 
-**Last Updated:** 2025-10-16
+**Last Updated:** 2025-12-19
 **Purpose:** Quick-start reference for initializing debugging/development sessions on the hgraph project.
 
 ---
@@ -49,8 +49,8 @@ rm .venv/lib/python3.12/site-packages/hgraph/_hgraph.cpython-312-darwin.so
 # 5. Create symlink for fast iteration (recommended)
 ln -s `pwd`/cmake-build-debug/cpp/src/cpp/_hgraph.cpython-312-darwin.so `pwd`/.venv/lib/python3.12/site-packages/hgraph/_hgraph.cpython-312-darwin.so
 
-# 5. Verify installation
-HGRAPH_USE_CPP=1 uv run pytest hgraph_unit_tests/_operators/test_const.py -v
+# 6. Verify installation (uses C++ by default)
+uv run pytest hgraph_unit_tests/_operators/test_const.py -v
 ```
 
 ## Feature Switches
@@ -58,17 +58,70 @@ HGRAPH_USE_CPP=1 uv run pytest hgraph_unit_tests/_operators/test_const.py -v
 The project has a concept of a feature switch to be able to turn on and off features. These can be defined in a number
 of ways, but the most useful to an agent is the environment variable.
 
-The current key feature is the use of C++ for the core runtime. This is controlled by the env var ``HGRAPH_USE_CPP=1``.
-When set, the code will use the C++ implementation; when it is off, the python implementation is used.
-This is important to check when validating re-factoring as it is easy to forget to set the env var and not test the change.
+The current key feature is the use of C++ for the core runtime. This is controlled by:
+- The ``hgraph_features.yaml`` file (``use_cpp: true`` by default)
+- The environment variable ``HGRAPH_USE_CPP`` (set to ``0`` to disable C++)
+
+**IMPORTANT - Session Startup Check:**
+At the start of each new session, verify that ``hgraph_features.yaml`` has ``use_cpp: true``. This is the expected
+default state for development. If it has been changed to ``false``, reset it to ``true`` before proceeding.
+
+```bash
+# Check the current setting
+cat hgraph_features.yaml
+
+# Should show:
+# features:
+#   use_cpp: true
+```
+
+To temporarily disable C++ for comparison testing, use the environment variable:
+```bash
+HGRAPH_USE_CPP=0 uv run pytest ...  # Run with Python implementation
+```
 
 ## Testing
 
 The tests are currently all in python and can be found in ``hgraph_unit_tests``.
 
 ```bash
-HGRAPH_USE_CPP=1 uv run pytest hgraph_unit_tests
+# Run tests (uses C++ by default via hgraph_features.yaml)
+uv run pytest hgraph_unit_tests
+
+# Run with Python implementation for comparison
+HGRAPH_USE_CPP=0 uv run pytest hgraph_unit_tests
 ```
+
+### Test Style Guidelines
+
+Tests should follow the pytest function-based style (not class-based):
+
+```python
+import pytest
+
+def test_simple_case():
+    """Test description."""
+    assert some_function() == expected
+
+@pytest.mark.parametrize("input,expected", [
+    (1, 2),
+    (2, 4),
+    (3, 6),
+])
+def test_parameterized(input, expected):
+    """Test with multiple inputs."""
+    assert double(input) == expected
+```
+
+### Test File Location
+
+Test files should mirror the source directory structure to make them easy to find:
+
+| Source Location | Test Location |
+|-----------------|---------------|
+| ``cpp/include/hgraph/types/value/`` | ``hgraph_unit_tests/_types/_value/`` |
+| ``cpp/include/hgraph/types/time_series/`` | ``hgraph_unit_tests/_types/_time_series/`` |
+| ``hgraph/_operators/`` | ``hgraph_unit_tests/_operators/`` |
 
 ## Project Structure
 
@@ -83,13 +136,14 @@ it indexes most open source projects.
 
 Techniques to apply:
 
-1. Tracing: The python code is generally speaking correct, and does make the unit tests pass. When there is a bug in 
+1. Tracing: The python code is generally speaking correct, and does make the unit tests pass. When there is a bug in
             the c++ code, putting trace code into the Python implementation and comparing it to the equivalent C++ code
             can help identify the differences in behavior.
 2. Validation: When making changes to the code, always compile the changes to make sure the code works, then run the
-               unit tests to ensure all non-xfail / skipped tests are still working (and remember to set the env var
-               ``HGRAPH_USE_CPP=1``). You can't report success if there are failing tests.
-3. Checks: Always make sure the env is set up correctly, this can be a quick spot check that the symlink for the
-           .so is in the right place and linked. Otherwise, it results in checks against an incorrect version of 
-           the code.
+               unit tests to ensure all non-xfail / skipped tests are still working. You can't report success if there
+               are failing tests.
+3. Checks: Always make sure the env is set up correctly:
+           - Verify ``hgraph_features.yaml`` has ``use_cpp: true``
+           - Check the symlink for the .so is in the right place and linked
+           Otherwise, it results in checks against an incorrect version of the code.
 

@@ -86,6 +86,7 @@ namespace hgraph
             .def_prop_rw("value", &PyTimeSeriesOutput::value, &PyTimeSeriesOutput::set_value, nb::arg("value").none())
             .def("can_apply_result", &PyTimeSeriesOutput::can_apply_result)
             .def("apply_result", &PyTimeSeriesOutput::apply_result, nb::arg("value").none())
+            .def("clear", &PyTimeSeriesOutput::clear)
             .def("invalidate", &PyTimeSeriesOutput::invalidate)
             // .def("mark_invalid", &PyTimeSeriesOutput::mark_invalid)
             // .def("mark_modified", static_cast<void (PyTimeSeriesOutput::*)()>(&PyTimeSeriesOutput::mark_modified))

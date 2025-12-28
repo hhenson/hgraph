@@ -14,6 +14,16 @@ namespace hgraph
             .def("__str__", &TimeSeriesReference::to_string)
             .def("__repr__", &TimeSeriesReference::to_string)
             .def(
+                "__eq__",
+                [](const TimeSeriesReference &self, nb::object other) {
+                    if (other.is_none()) { return false; }
+                    if (nb::isinstance<TimeSeriesReference>(other)) {
+                        return self == nb::cast<TimeSeriesReference>(other);
+                    }
+                    return false;
+                },
+                nb::arg("other"), nb::is_operator())
+            .def(
                 "bind_input",
                 [](TimeSeriesReference &self, PyTimeSeriesInput &ts_input) {
                     auto input_{unwrap_input(ts_input)};
