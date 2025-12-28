@@ -79,7 +79,7 @@ namespace hgraph {
 
             // Get the "out" and "ref" outputs from the output bundle
             auto tsd_output_ptr = (*tsb_output)["out"];
-            auto ref_output = *tsd_output_ptr->visit(cast_to_expected<TimeSeriesReferenceOutput*>);
+            auto ref_output = *(*tsb_output)["ref"]->visit(cast_to_expected<TimeSeriesReferenceOutput*>);
 
             // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
             // Pass the shared_ptr directly to keep the output alive
