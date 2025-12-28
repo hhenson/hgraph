@@ -21,6 +21,7 @@
 10. [Implementation References](#10-implementation-references)
 11. [Testing Strategy](#11-testing-strategy)
 12. [Future Work](#12-future-work)
+13. [Extension Mechanism](#13-extension-mechanism)
 
 **Appendices:**
 - [Appendix A: Comparison with Alternatives](#appendix-a-comparison-with-alternatives)
@@ -28,6 +29,7 @@
 
 **Related Documents:**
 - [Value_USER_GUIDE.md](Value_USER_GUIDE.md) - Practical usage guide with examples
+- [Value_EXAMPLES.md](Value_EXAMPLES.md) - Extended examples and patterns
 
 ---
 
@@ -516,6 +518,14 @@ struct ScalarOps {
 };
 ```
 
+### 5.4 Extending Trait Operations
+
+Trait operations can be extended without modifying TypeOps using the composition-based extension mechanism.
+See [Section 13: Extension Mechanism](#13-extension-mechanism) for details on:
+- Pre/post hooks for operations like `to_python` and `from_python`
+- `OperatorContext` for carrying hooks and state
+- Built-in extensions like `PythonCache`
+
 ---
 
 ## 6. Value and View Classes
@@ -545,8 +555,16 @@ ValueView (mutable base, extends ConstValueView)
 
 ### 6.2 Value (Owning Storage)
 
+The Value class is a template with an optional policy parameter for zero-overhead extensions.
+See [Section 13: Extension Mechanism](#13-extension-mechanism) for the full policy system.
+
 ```cpp
-class Value {
+// Forward declarations for policy system (see Section 13)
+struct NoCache {};
+struct WithPythonCache {};
+
+template<typename Policy = NoCache>
+class Value : private PolicyStorage<Policy> {
 public:
     Value() = default;
     explicit Value(const TypeMeta* schema);
@@ -569,8 +587,13 @@ public:
     [[nodiscard]] bool valid() const;
     [[nodiscard]] const TypeMeta* schema() const;
 
-    // Base views
-    [[nodiscard]] ValueView view();
+    // Base views - mutable view invalidates cache if policy has caching
+    [[nodiscard]] ValueView view() {
+        if constexpr (policy_traits<Policy>::has_python_cache) {
+            this->invalidate_cache();
+        }
+        return ValueView(data(), _schema);
+    }
     [[nodiscard]] ConstValueView view() const;
     [[nodiscard]] ConstValueView const_view() const;
 
@@ -604,10 +627,38 @@ public:
     [[nodiscard]] size_t hash() const;
     [[nodiscard]] std::string to_string() const;
 
+    // Python interop - uses policy for caching behavior (see Section 13)
+    [[nodiscard]] nb::object to_python() const {
+        if constexpr (policy_traits<Policy>::has_python_cache) {
+            if (this->_cached_python) {
+                return *this->_cached_python;
+            }
+            auto result = _schema->ops->to_python(data(), _schema);
+            this->_cached_python = result;
+            return result;
+        } else {
+            return _schema->ops->to_python(data(), _schema);
+        }
+    }
+
+    void from_python(const nb::object& src) {
+        if constexpr (policy_traits<Policy>::has_python_cache) {
+            this->invalidate_cache();
+        }
+        _schema->ops->from_python(data(), src, _schema);
+        if constexpr (policy_traits<Policy>::has_python_cache) {
+            this->_cached_python = src;
+        }
+    }
+
 private:
     ValueStorage _storage;           // EnTT basic_any or custom SBO
     const TypeMeta* _schema{nullptr};
 };
+
+// Type aliases for common configurations
+using PlainValue = Value<NoCache>;        // Default, no extensions
+using CachedValue = Value<WithPythonCache>;  // Python object caching
 ```
 
 ### 6.3 ConstValueView (Base Non-owning Const View)
@@ -695,6 +746,10 @@ public:
     [[nodiscard]] size_t hash() const;
     [[nodiscard]] std::string to_string() const;
 
+    // Python interop (see Section 13 for extended operations with hooks)
+    [[nodiscard]] nb::object to_python() const;
+    [[nodiscard]] nb::object to_python(const OperatorContext& ctx) const;
+
     // Clone: create an owning Value copy of this view's data
     [[nodiscard]] Value clone() const;
 
@@ -749,6 +804,10 @@ public:
 
     // Copy from another view
     void copy_from(const ConstValueView& other);
+
+    // Python interop (see Section 13 for extended operations with hooks)
+    void from_python(const nb::object& src);
+    void from_python(const nb::object& src, const OperatorContext& ctx);
 
     // Root tracking (for notification chains - TSValue use case)
     void set_root(Value* root) { _root = root; }
@@ -1770,6 +1829,287 @@ Native Arrow format support for zero-copy data exchange.
 
 ---
 
+## 13. Extension Mechanism
+
+The extension mechanism provides **zero-overhead composition** of value behaviors using compile-time
+dispatch. Two complementary patterns are supported:
+
+1. **Policy-Based** - Simple single-concern extensions via template parameter
+2. **CRTP Mixin** - Flexible multi-extension compositions via template chaining
+
+### 13.1 Design Principles
+
+| Principle | Description |
+|-----------|-------------|
+| **Zero Overhead** | `if constexpr` eliminates unused code paths at compile time |
+| **Same API** | `v.to_python()` works identically regardless of extensions |
+| **Composition over Inheritance** | Extensions are template parameters, not base classes |
+| **Gradual Complexity** | Simple cases stay simple; complex cases are flexible |
+
+### 13.2 Policy-Based Extensions (Simple Cases)
+
+For single-concern extensions, use a template policy parameter:
+
+```cpp
+namespace hgraph::value {
+
+// Policy tag types (empty - zero size via EBO)
+struct NoCache {};
+struct WithPythonCache {};
+
+// Policy traits - detect capabilities at compile time
+template<typename Policy>
+struct policy_traits {
+    static constexpr bool has_python_cache = false;
+    static constexpr bool has_modification_tracking = false;
+};
+
+template<>
+struct policy_traits<WithPythonCache> {
+    static constexpr bool has_python_cache = true;
+    static constexpr bool has_modification_tracking = false;
+};
+
+// Conditional storage - zero size when not needed (EBO)
+template<typename Policy, typename = void>
+struct PolicyStorage {};
+
+template<typename Policy>
+struct PolicyStorage<Policy, std::enable_if_t<policy_traits<Policy>::has_python_cache>> {
+    mutable std::optional<nb::object> _cached_python;
+
+    void invalidate_cache() { _cached_python = std::nullopt; }
+    bool has_cache() const { return _cached_python.has_value(); }
+};
+
+} // namespace hgraph::value
+```
+
+### 13.3 Value Template with Policies
+
+```cpp
+namespace hgraph::value {
+
+template<typename Policy = NoCache>
+class Value : private PolicyStorage<Policy> {
+public:
+    // ===== Constructors (unchanged) =====
+    Value() = default;
+    explicit Value(const TypeMeta* schema);
+    template<typename T> explicit Value(const T& val);
+
+    // ===== API is identical regardless of Policy =====
+
+    nb::object to_python() const {
+        if constexpr (policy_traits<Policy>::has_python_cache) {
+            if (this->_cached_python) {
+                return *this->_cached_python;
+            }
+            auto result = do_to_python();
+            this->_cached_python = result;
+            return result;
+        } else {
+            return do_to_python();
+        }
+    }
+
+    void from_python(const nb::object& src) {
+        if constexpr (policy_traits<Policy>::has_python_cache) {
+            this->invalidate_cache();
+        }
+        do_from_python(src);
+        if constexpr (policy_traits<Policy>::has_python_cache) {
+            this->_cached_python = src;
+        }
+    }
+
+    [[nodiscard]] ValueView view() {
+        if constexpr (policy_traits<Policy>::has_python_cache) {
+            this->invalidate_cache();
+        }
+        return ValueView(data(), _schema);
+    }
+
+    // ... rest of API unchanged ...
+
+private:
+    nb::object do_to_python() const {
+        return _schema->ops->to_python(data(), _schema);
+    }
+
+    void do_from_python(const nb::object& src) {
+        _schema->ops->from_python(data(), src, _schema);
+    }
+
+    ValueStorage _storage;
+    const TypeMeta* _schema{nullptr};
+};
+
+// Type aliases for convenience
+using PlainValue = Value<NoCache>;
+using CachedValue = Value<WithPythonCache>;
+
+} // namespace hgraph::value
+```
+
+### 13.4 CRTP Mixin Extensions (Complex Cases)
+
+For multiple extensions or custom behavior, use CRTP mixin chaining:
+
+```cpp
+namespace hgraph::value {
+
+// Core value data and operations
+class ValueCore {
+public:
+    void* data();
+    const void* data() const;
+    const TypeMeta* schema() const;
+protected:
+    ValueStorage _storage;
+    const TypeMeta* _schema{nullptr};
+};
+
+// Base operations via CRTP
+template<typename Derived>
+class ValueOps : public ValueCore {
+public:
+    nb::object to_python() const {
+        return static_cast<const Derived*>(this)->impl_to_python();
+    }
+
+    void from_python(const nb::object& src) {
+        static_cast<Derived*>(this)->impl_from_python(src);
+    }
+
+protected:
+    nb::object base_to_python() const {
+        return _schema->ops->to_python(data(), _schema);
+    }
+
+    void base_from_python(const nb::object& src) {
+        _schema->ops->from_python(data(), src, _schema);
+    }
+};
+
+// No-op extension (default)
+template<typename Base>
+class NoExtension : public Base {
+public:
+    using Base::Base;
+protected:
+    nb::object impl_to_python() const { return this->base_to_python(); }
+    void impl_from_python(const nb::object& src) { this->base_from_python(src); }
+};
+
+// Python cache mixin
+template<typename Base>
+class WithCache : public Base {
+public:
+    using Base::Base;
+
+protected:
+    nb::object impl_to_python() const {
+        if (_cache) return *_cache;
+        _cache = this->base_to_python();
+        return *_cache;
+    }
+
+    void impl_from_python(const nb::object& src) {
+        invalidate();
+        this->base_from_python(src);
+        _cache = src;
+    }
+
+public:
+    void invalidate() { _cache = std::nullopt; }
+
+private:
+    mutable std::optional<nb::object> _cache;
+};
+
+// Modification tracking mixin
+template<typename Base>
+class WithModTracking : public Base {
+public:
+    using Base::Base;
+
+    void impl_from_python(const nb::object& src) {
+        Base::impl_from_python(src);
+        notify_modified();
+    }
+
+    void on_modified(std::function<void()> callback) {
+        _callbacks.push_back(std::move(callback));
+    }
+
+private:
+    void notify_modified() {
+        for (auto& cb : _callbacks) cb();
+    }
+    std::vector<std::function<void()>> _callbacks;
+};
+
+// Compose via nesting (read right-to-left)
+using Value = NoExtension<ValueOps<Value>>;
+using CachedValue = WithCache<ValueOps<CachedValue>>;
+using TSValue = WithModTracking<WithCache<ValueOps<TSValue>>>;
+
+} // namespace hgraph::value
+```
+
+### 13.5 Zero-Overhead Verification
+
+```cpp
+// No extension: same size as base
+static_assert(sizeof(Value<NoCache>) == sizeof(ValueStorage) + sizeof(TypeMeta*));
+
+// With cache: adds only the optional
+static_assert(sizeof(Value<WithPythonCache>) ==
+              sizeof(ValueStorage) + sizeof(TypeMeta*) + sizeof(std::optional<nb::object>));
+```
+
+### 13.6 Usage Examples
+
+**Simple Policy-Based:**
+```cpp
+// Default - no overhead
+Value<> v1(123456789);
+v1.to_python();  // Direct call
+
+// With caching - same API
+// Note: Use large integers (>256) to avoid Python's small integer cache
+Value<WithPythonCache> v2(123456789);
+v2.to_python();  // First: convert + cache
+v2.to_python();  // Second: return cached
+
+// Using type alias
+CachedValue v3(123456789);
+v3.to_python();
+```
+
+**CRTP Mixin Chaining:**
+```cpp
+// Multiple extensions (read right-to-left)
+using TSValue = WithModTracking<WithCache<ValueOps<TSValue>>>;
+
+TSValue v(123456789);
+v.to_python();  // Uses cache
+v.on_modified([]{ std::cout << "Value changed!\n"; });
+v.from_python(nb::int_(987654321));  // Invalidates cache, triggers callback
+```
+
+### 13.7 When to Use Each Pattern
+
+| Use Case | Pattern | Example |
+|----------|---------|---------|
+| Single built-in extension | Policy | `Value<WithPythonCache>` |
+| Multiple extensions | CRTP Mixin | `WithMod<WithCache<...>>` |
+| Custom behavior/hooks | CRTP Mixin | `WithValidation<ValueOps<...>>` |
+| No extensions | Either | `Value<>` or `PlainValue` |
+
+---
+
 ## Appendix A: Comparison with Alternatives
 
 ### A.1 Why EnTT over Microsoft Proxy?
@@ -1800,8 +2140,8 @@ MS Proxy cannot provide `as<T>()` because it doesn't expose raw storage pointers
 ### B.1 Value Creation
 
 ```cpp
-// Scalar
-Value v1(42);
+// Scalar (use large integers >256 for cache identity tests)
+Value v1(123456789);
 Value v2(3.14);
 Value v3(std::string("hello"));
 

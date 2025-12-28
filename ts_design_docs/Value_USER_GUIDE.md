@@ -23,6 +23,7 @@
 13. [Python Interop](#13-python-interop)
 14. [Performance Tips](#14-performance-tips)
 15. [Error Handling](#15-error-handling)
+16. [Extending Value Operations](#16-extending-value-operations)
 
 ---
 
@@ -654,6 +655,179 @@ if (auto* p = v.try_as<double>()) {
 } else {
     // Not a double
 }
+```
+
+---
+
+## 16. Extending Value Operations
+
+Value operations can be extended using **zero-overhead composition** at compile time. Two complementary
+patterns are available:
+
+1. **Policy-Based** - Simple template parameter for single-concern extensions
+2. **CRTP Mixin** - Template chaining for multiple extensions
+
+Both patterns provide the **same API** regardless of extensions - `v.to_python()` works identically.
+
+### 16.1 Policy-Based Extensions (Simple)
+
+For single extensions like caching, use a template policy parameter:
+
+```cpp
+#include <hgraph/value/value.h>
+
+using namespace hgraph::value;
+
+// Default - no extensions, no overhead
+Value<> v1(123456789);
+v1.to_python();  // Direct call to TypeOps
+
+// With Python caching - same API
+// Note: Use large integers (>256) to avoid Python's small integer cache
+Value<WithPythonCache> v2(123456789);
+v2.to_python();  // First call: convert + cache
+v2.to_python();  // Second call: return cached object
+
+// Using type alias for convenience
+CachedValue v3(123456789);  // Same as Value<WithPythonCache>
+nb::object py1 = v3.to_python();
+nb::object py2 = v3.to_python();
+assert(py1.is(py2));  // Same Python object!
+```
+
+**Cache Invalidation:**
+
+The cache is automatically invalidated when you request a mutable view:
+
+```cpp
+CachedValue v(123456789);
+nb::object py1 = v.to_python();  // Cached
+
+// Get mutable view - automatically invalidates cache
+ValueView view = v.view();
+view.as<int64_t>() = 987654321;
+
+nb::object py2 = v.to_python();  // Re-converts (cache was invalidated)
+assert(!py1.is(py2));  // Different objects
+```
+
+### 16.2 Zero-Overhead Guarantee
+
+Policy storage uses Empty Base Optimization (EBO) - unused extensions add zero size:
+
+```cpp
+// No extension: minimal size
+static_assert(sizeof(Value<NoCache>) == sizeof(ValueStorage) + sizeof(TypeMeta*));
+
+// With cache: adds only the optional
+static_assert(sizeof(Value<WithPythonCache>) ==
+              sizeof(ValueStorage) + sizeof(TypeMeta*) + sizeof(std::optional<nb::object>));
+```
+
+The `if constexpr` dispatch eliminates unused code paths at compile time.
+
+### 16.3 CRTP Mixin Extensions (Flexible)
+
+For multiple extensions or custom behavior, use CRTP mixin chaining.
+Read the chain right-to-left: `WithModTracking<WithCache<ValueOps<...>>>` means:
+1. Start with `ValueOps` (base operations)
+2. Add `WithCache` (Python object caching)
+3. Add `WithModTracking` (modification callbacks)
+
+```cpp
+// TSValue: caching + modification tracking
+using TSValue = WithModTracking<WithCache<ValueOps<TSValue>>>;
+
+// Note: Use large integers (>256) to avoid Python's small integer cache
+TSValue v(123456789);
+
+// Register modification callback
+v.on_modified([]{ std::cout << "Value changed!\n"; });
+
+// Uses cache from WithCache
+nb::object py1 = v.to_python();
+nb::object py2 = v.to_python();
+assert(py1.is(py2));  // Cached
+
+// Modification invalidates cache and triggers callback
+v.from_python(nb::int_(987654321));
+// Output: "Value changed!"
+
+nb::object py3 = v.to_python();  // Re-converts
+assert(!py1.is(py3));  // Different object
+```
+
+### 16.4 Defining Custom Extensions
+
+Use CRTP mixins to define custom extension behavior:
+
+```cpp
+// Mixin that adds validation on from_python
+template<typename Base>
+class WithValidation : public Base {
+public:
+    using Base::Base;
+
+    void impl_from_python(const nb::object& src) {
+        // Reject None values
+        if (src.is_none()) {
+            throw std::runtime_error("Cannot convert None to Value");
+        }
+        Base::impl_from_python(src);
+    }
+};
+
+// Use the mixin
+using ValidatedValue = WithValidation<ValueOps<ValidatedValue>>;
+
+ValidatedValue v(0);
+try {
+    v.from_python(nb::none());  // Throws!
+} catch (const std::runtime_error& e) {
+    // "Cannot convert None to Value"
+}
+```
+
+### 16.5 Composing Multiple Mixins
+
+Chain multiple mixins for combined behavior:
+
+```cpp
+// Order matters: outer mixins wrap inner ones
+// Read right-to-left: ValueOps -> WithCache -> WithValidation -> WithModTracking
+using FullFeaturedValue = WithModTracking<
+                            WithValidation<
+                              WithCache<
+                                ValueOps<FullFeaturedValue>>>>;
+
+FullFeaturedValue v(123456789);
+
+// Has all features:
+v.on_modified([&]{ /* notify observers */ });    // From WithModTracking
+v.from_python(some_obj);                          // Validates (WithValidation)
+                                                  // Invalidates cache (WithCache)
+                                                  // Triggers callback (WithModTracking)
+nb::object py = v.to_python();                    // Uses cache (WithCache)
+```
+
+### 16.6 When to Use Each Pattern
+
+| Use Case | Pattern | Example |
+|----------|---------|---------|
+| Single built-in extension | Policy | `Value<WithPythonCache>` |
+| Multiple extensions | CRTP Mixin | `WithA<WithB<ValueOps<...>>>` |
+| Custom behavior/hooks | CRTP Mixin | Override `impl_to_python()` |
+| No extensions (default) | Either | `Value<>` or `PlainValue` |
+
+### 16.7 Built-in Type Aliases
+
+```cpp
+// Convenience aliases for common configurations
+using PlainValue = Value<NoCache>;           // No extensions
+using CachedValue = Value<WithPythonCache>;  // Python object caching
+
+// For time-series (via CRTP)
+using TSValue = WithModTracking<WithCache<ValueOps<TSValue>>>;
 ```
 
 ---
