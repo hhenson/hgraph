@@ -37,12 +37,12 @@ namespace hgraph {
     }
 
     // Overload (II) - direct formatting of error msg from args, only stacktrace is appended to the message
-    template<typename Error = std::runtime_error, typename... Ts>
-        requires (std::constructible_from<Error, std::string> && sizeof...(Ts) > 0)
-    [[noreturn]] constexpr auto throw_error(fmt::format_string<Ts...> fmt_str, Ts&&... xs) {
+    template<typename Error = std::runtime_error, typename T, typename... Ts>
+        requires (std::constructible_from<Error, std::string> && !std::same_as<std::remove_cvref_t<T>, std::source_location>)
+    [[noreturn]] constexpr auto throw_error(fmt::format_string<T, Ts...> fmt_str, T&& x, Ts&&... xs) {
         const std::stacktrace trace = std::stacktrace::current(1, MAX_STACKTRACE_DEPTH);
         throw Error{fmt::format(
-            "{}\nStacktrace:\n{}", fmt::format(fmt_str, std::forward<Ts>(xs)...), to_string(trace)
+            "{}\nStacktrace:\n{}", fmt::format(fmt_str, std::forward<T>(x), std::forward<Ts>(xs)...), to_string(trace)
         )};
     }
 
