@@ -165,3 +165,64 @@ if (HGRAPH_GENERATE_STUBS)
             DEPENDS ${PROJECT_NAME}
     )
 endif ()
+
+include(CheckCXXSourceCompiles)
+include(CMakePushCheckState)
+
+# Function to check for C++23 stacktrace support
+# Sets ${OUT_VAR} to TRUE/FALSE
+# Sets ${OUT_LIBS} to the required link libraries (if any)
+function(check_cxx23_stacktrace OUT_VAR OUT_LIBS)
+    cmake_push_check_state()
+    
+    # Force C++23 for the check
+    set(CMAKE_CXX_STANDARD 23)
+    set(CMAKE_CXX_STANDARD_REQUIRED ON)
+    
+    set(SOURCE_CODE "
+        #include <stacktrace>
+        #include <iostream>
+        int main() {
+            auto trace = std::stacktrace::current();
+            std::cout << trace << std::endl;
+            return 0;
+        }
+    ")
+
+    # 1. Try compiling without extra libraries (e.g. MSVC, Clang with libc++)
+    check_cxx_source_compiles("${SOURCE_CODE}" CXX23_STACKTRACE_WORKS_NO_LIB)
+    
+    if(CXX23_STACKTRACE_WORKS_NO_LIB)
+        set(${OUT_VAR} TRUE PARENT_SCOPE)
+        set(${OUT_LIBS} "" PARENT_SCOPE)
+    else()
+        # 2. Try compiling with stdc++_libbacktrace (GCC 12/13)
+        set(CMAKE_REQUIRED_LIBRARIES "stdc++_libbacktrace")
+        check_cxx_source_compiles("${SOURCE_CODE}" CXX23_STACKTRACE_WORKS_WITH_LIBBACKTRACE)
+        
+        if(CXX23_STACKTRACE_WORKS_WITH_LIBBACKTRACE)
+            set(${OUT_VAR} TRUE PARENT_SCOPE)
+            set(${OUT_LIBS} "stdc++_libbacktrace" PARENT_SCOPE)
+        else()
+            # 3. Try compiling with stdc++exp (GCC 14+)
+            set(CMAKE_REQUIRED_LIBRARIES "stdc++exp")
+            check_cxx_source_compiles("${SOURCE_CODE}" CXX23_STACKTRACE_WORKS_WITH_LIBEXP)
+            
+            if(CXX23_STACKTRACE_WORKS_WITH_LIBEXP)
+                set(${OUT_VAR} TRUE PARENT_SCOPE)
+                set(${OUT_LIBS} "stdc++exp" PARENT_SCOPE)
+            else()
+                set(${OUT_VAR} FALSE PARENT_SCOPE)
+                set(${OUT_LIBS} "" PARENT_SCOPE)
+            endif()
+        endif()
+    endif()
+
+    cmake_pop_check_state()
+endfunction()
+
+check_cxx23_stacktrace(HAS_STACKTRACE STACKTRACE_LIBS)
+if(HAS_STACKTRACE)
+    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_HAS_CXX23_STACKTRACE)
+    target_link_libraries(${PROJECT_NAME} PRIVATE ${STACKTRACE_LIBS})
+endif()

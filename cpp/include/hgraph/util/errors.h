@@ -8,8 +8,11 @@
 #include <concepts>
 #include <stdexcept>
 #include <source_location>
-#include <stacktrace>
 #include <string_view>
+
+#ifdef HGRAPH_HAS_CXX23_STACKTRACE
+#include <stacktrace>
+#endif
 
 namespace hgraph {
 
@@ -21,6 +24,7 @@ namespace hgraph {
         throw Error{std::forward<Ts>(args)...};
     }
 
+#ifdef HGRAPH_HAS_CXX23_STACKTRACE
     // Overload (I) - takes error msg and appends source location & stacktrace info
     template<typename Error = std::runtime_error>
         requires std::constructible_from<Error, std::string>
@@ -45,6 +49,28 @@ namespace hgraph {
             "{}\nStacktrace:\n{}", fmt::format(fmt_str, std::forward<T>(x), std::forward<Ts>(xs)...), to_string(trace)
         )};
     }
+#else
+    // Overload (I) - takes error msg and appends source location
+    template<typename Error = std::runtime_error>
+        requires std::constructible_from<Error, std::string>
+    [[noreturn]] constexpr auto throw_error(
+        std::string_view msg,
+        std::source_location loc = std::source_location::current()
+    ) {
+        // append location to error msg
+        throw Error{fmt::format(
+            "{}\nFile: {}({}:{}): {}", msg,
+            loc.file_name(), loc.line(), loc.column(), loc.function_name()
+        )};
+    }
+
+    // Overload (II) - direct formatting of error msg from args
+    template<typename Error = std::runtime_error, typename T, typename... Ts>
+        requires (std::constructible_from<Error, std::string> && !std::same_as<std::remove_cvref_t<T>, std::source_location>)
+    [[noreturn]] constexpr auto throw_error(fmt::format_string<T, Ts...> fmt_str, T&& x, Ts&&... xs) {
+        throw Error{fmt::format(fmt_str, std::forward<T>(x), std::forward<Ts>(xs)...)};
+    }
+#endif
 
     template<typename Error = std::runtime_error, typename... Ts>
     constexpr auto make_throw_error(Ts... xs)
