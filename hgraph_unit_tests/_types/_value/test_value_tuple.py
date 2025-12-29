@@ -319,13 +319,12 @@ def test_tuple_negative_index_raises(simple_tuple_schema):
         _ = ctv.at(-1)
 
 
-@pytest.mark.skip(reason="Typed setters don't support type mismatch testing - use at().set_int/string/etc.")
 def test_tuple_set_wrong_type_raises(simple_tuple_schema):
     """Setting element with wrong type raises error."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
 
-    # Index 0 expects int64_t, not string
+    # Index 0 expects int64_t, not string - from_python will fail
     with pytest.raises((TypeError, RuntimeError)):
         tv.set(0, "not an int")
 

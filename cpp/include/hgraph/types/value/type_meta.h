@@ -395,4 +395,68 @@ constexpr TypeFlags compute_scalar_flags() {
     return flags;
 }
 
+// ============================================================================
+// ScalarOps Specializations for DateTime Types
+// ============================================================================
+
+// Specialization for engine_date_t (year_month_day)
+template<>
+inline std::string ScalarOps<engine_date_t>::to_string(const void* obj, const TypeMeta*) {
+    const auto& ymd = *static_cast<const engine_date_t*>(obj);
+    return std::to_string(static_cast<int>(ymd.year())) + "-" +
+           (static_cast<unsigned>(ymd.month()) < 10 ? "0" : "") +
+           std::to_string(static_cast<unsigned>(ymd.month())) + "-" +
+           (static_cast<unsigned>(ymd.day()) < 10 ? "0" : "") +
+           std::to_string(static_cast<unsigned>(ymd.day()));
+}
+
+// Specialization for engine_time_t (time_point<system_clock, microseconds>)
+template<>
+inline std::string ScalarOps<engine_time_t>::to_string(const void* obj, const TypeMeta*) {
+    const auto& tp = *static_cast<const engine_time_t*>(obj);
+    auto current_day = std::chrono::floor<std::chrono::days>(tp);
+    std::chrono::year_month_day ymd{current_day};
+    auto time_of_day = tp - current_day;
+    std::chrono::hh_mm_ss hms{time_of_day};
+
+    std::string result = std::to_string(static_cast<int>(ymd.year())) + "-" +
+        (static_cast<unsigned>(ymd.month()) < 10 ? "0" : "") +
+        std::to_string(static_cast<unsigned>(ymd.month())) + "-" +
+        (static_cast<unsigned>(ymd.day()) < 10 ? "0" : "") +
+        std::to_string(static_cast<unsigned>(ymd.day())) + "T" +
+        (hms.hours().count() < 10 ? "0" : "") +
+        std::to_string(hms.hours().count()) + ":" +
+        (hms.minutes().count() < 10 ? "0" : "") +
+        std::to_string(hms.minutes().count()) + ":" +
+        (hms.seconds().count() < 10 ? "0" : "") +
+        std::to_string(hms.seconds().count());
+
+    auto us = std::chrono::duration_cast<std::chrono::microseconds>(hms.subseconds()).count();
+    if (us > 0) {
+        result += "." + std::to_string(us);
+    }
+    return result;
+}
+
+// Specialization for engine_time_delta_t (microseconds duration)
+template<>
+inline std::string ScalarOps<engine_time_delta_t>::to_string(const void* obj, const TypeMeta*) {
+    const auto& d = *static_cast<const engine_time_delta_t*>(obj);
+    auto total_us = d.count();
+    auto total_secs = total_us / 1'000'000;
+    auto remaining_us = total_us % 1'000'000;
+    auto hours = total_secs / 3600;
+    auto mins = (total_secs % 3600) / 60;
+    auto secs = total_secs % 60;
+
+    std::string result = std::to_string(hours) + ":" +
+        (mins < 10 ? "0" : "") + std::to_string(mins) + ":" +
+        (secs < 10 ? "0" : "") + std::to_string(secs);
+
+    if (remaining_us > 0) {
+        result += "." + std::to_string(remaining_us);
+    }
+    return result;
+}
+
 } // namespace hgraph::value

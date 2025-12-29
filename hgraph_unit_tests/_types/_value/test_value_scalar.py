@@ -126,7 +126,6 @@ def test_create_unicode_string_value():
     assert v.valid()
 
 
-@pytest.mark.skip(reason="Date types not yet implemented")
 def test_create_date_value():
     """Value can be created from a date."""
     from datetime import date
@@ -134,7 +133,6 @@ def test_create_date_value():
     assert v.valid()
 
 
-@pytest.mark.skip(reason="Datetime types not yet implemented")
 def test_create_datetime_value():
     """Value can be created from a datetime."""
     from datetime import datetime
@@ -142,7 +140,6 @@ def test_create_datetime_value():
     assert v.valid()
 
 
-@pytest.mark.skip(reason="Timedelta types not yet implemented")
 def test_create_timedelta_value():
     """Value can be created from a timedelta."""
     from datetime import timedelta

@@ -514,7 +514,6 @@ def test_map_operator_bracket_write(string_double_map_schema):
     assert abs(mv.at(k3.const_view()).as_double() - 2.50) < 1e-10
 
 
-@pytest.mark.skip(reason="operator[] doesn't auto-insert default for missing keys")
 def test_map_operator_bracket_inserts_default(string_double_map_schema):
     """MapView operator[] inserts default if key missing."""
     v = PlainValue(string_double_map_schema)

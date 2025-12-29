@@ -1,6 +1,7 @@
 #include <hgraph/api/python/py_value.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/type_registry.h>
+#include <hgraph/python/chrono.h>
 
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/optional.h>
@@ -103,6 +104,18 @@ static void register_scalar_type_meta_functions(nb::module_& m) {
     m.def("scalar_type_meta_string", []() { return scalar_type_meta<std::string>(); },
         nb::rv_policy::reference,
         "Get the TypeMeta for string scalar type");
+
+    m.def("scalar_type_meta_date", []() { return scalar_type_meta<engine_date_t>(); },
+        nb::rv_policy::reference,
+        "Get the TypeMeta for date scalar type");
+
+    m.def("scalar_type_meta_datetime", []() { return scalar_type_meta<engine_time_t>(); },
+        nb::rv_policy::reference,
+        "Get the TypeMeta for datetime scalar type");
+
+    m.def("scalar_type_meta_timedelta", []() { return scalar_type_meta<engine_time_delta_t>(); },
+        nb::rv_policy::reference,
+        "Get the TypeMeta for timedelta scalar type");
 }
 
 // ============================================================================
@@ -420,7 +433,33 @@ static void register_tuple_views(nb::module_& m) {
     nb::class_<TupleView, IndexedView>(m, "TupleView",
         "Mutable view for tuple types")
         .def("element_type", &TupleView::element_type, "index"_a, nb::rv_policy::reference,
-            "Get the type of element at index");
+            "Get the type of element at index")
+        // Overload: set from PlainValue (must come before generic object version)
+        .def("set", [](TupleView& self, size_t index, const PlainValue& value) {
+            if (index >= self.size()) {
+                throw std::out_of_range("Tuple index out of range");
+            }
+            // Verify type matches the expected element type
+            const TypeMeta* elem_type = self.element_type(index);
+            if (value.schema() != elem_type) {
+                throw std::runtime_error("Type mismatch: value type doesn't match tuple element type");
+            }
+            self.set(index, value.const_view());
+        }, "index"_a, "value"_a, "Set element at index from PlainValue (with type checking)")
+        // Auto-wrapping set from Python native object with type checking
+        .def("set", [](TupleView& self, size_t index, const nb::object& py_value) {
+            if (index >= self.size()) {
+                throw std::out_of_range("Tuple index out of range");
+            }
+            // Get the expected element type at this index
+            const TypeMeta* elem_type = self.element_type(index);
+            // Create a temporary Value of the correct type
+            PlainValue temp(elem_type);
+            // Convert from Python - this will throw if types are incompatible
+            temp.from_python(py_value);
+            // Set using the view
+            self.set(index, temp.const_view());
+        }, "index"_a, "value"_a, "Set element at index from Python object (with type checking)");
 }
 
 // ============================================================================
@@ -641,11 +680,20 @@ static void register_map_views(nb::module_& m) {
         .def("empty", &MapView::empty, "Check if empty")
         .def("__len__", &MapView::size)
         .def("at", static_cast<ValueView (MapView::*)(const ConstValueView&)>(&MapView::at),
-            "key"_a, "Get value by key (mutable)")
+            "key"_a, "Get value by key (mutable, throws if not found)")
         .def("at_const", static_cast<ConstValueView (MapView::*)(const ConstValueView&) const>(
-            &MapView::at), "key"_a, "Get value by key (const)")
-        .def("__getitem__", static_cast<ValueView (MapView::*)(const ConstValueView&)>(
-            &MapView::operator[]), "key"_a)
+            &MapView::at), "key"_a, "Get value by key (const, throws if not found)")
+        // __getitem__ with auto-insert behavior (like C++ std::map::operator[])
+        .def("__getitem__", [](MapView& self, const ConstValueView& key) -> ValueView {
+            // If key doesn't exist, insert default value
+            if (!self.contains(key)) {
+                // Create a default-constructed value of the value type
+                const TypeMeta* val_type = self.value_type();
+                PlainValue default_val(val_type);
+                self.set(key, default_val.const_view());
+            }
+            return self.at(key);
+        }, "key"_a, "Get value by key (auto-inserts default if missing)")
         .def("contains", static_cast<bool (MapView::*)(const ConstValueView&) const>(
             &MapView::contains), "key"_a, "Check if a key exists")
         .def("__contains__", static_cast<bool (MapView::*)(const ConstValueView&) const>(
@@ -690,6 +738,9 @@ static void register_plain_value(nb::module_& m) {
         .def(nb::init<double>(), "value"_a, "Construct from double")
         .def(nb::init<bool>(), "value"_a, "Construct from bool")
         .def(nb::init<const std::string&>(), "value"_a, "Construct from string")
+        .def(nb::init<engine_date_t>(), "value"_a, "Construct from date")
+        .def(nb::init<engine_time_t>(), "value"_a, "Construct from datetime")
+        .def(nb::init<engine_time_delta_t>(), "value"_a, "Construct from timedelta")
         // Construct from schema
         .def(nb::init<const TypeMeta*>(), "schema"_a,
             "Construct from type schema (default value)")
@@ -786,6 +837,9 @@ static void register_cached_value(nb::module_& m) {
         .def(nb::init<double>(), "value"_a, "Construct from double")
         .def(nb::init<bool>(), "value"_a, "Construct from bool")
         .def(nb::init<const std::string&>(), "value"_a, "Construct from string")
+        .def(nb::init<engine_date_t>(), "value"_a, "Construct from date")
+        .def(nb::init<engine_time_t>(), "value"_a, "Construct from datetime")
+        .def(nb::init<engine_time_delta_t>(), "value"_a, "Construct from timedelta")
         // Construct from schema
         .def(nb::init<const TypeMeta*>(), "schema"_a,
             "Construct from type schema (default value)")
@@ -883,6 +937,9 @@ static void register_ts_value(nb::module_& m) {
         .def(nb::init<double>(), "value"_a, "Construct from double")
         .def(nb::init<bool>(), "value"_a, "Construct from bool")
         .def(nb::init<const std::string&>(), "value"_a, "Construct from string")
+        .def(nb::init<engine_date_t>(), "value"_a, "Construct from date")
+        .def(nb::init<engine_time_t>(), "value"_a, "Construct from datetime")
+        .def(nb::init<engine_time_delta_t>(), "value"_a, "Construct from timedelta")
         // Construct from schema
         .def(nb::init<const TypeMeta*>(), "schema"_a,
             "Construct from type schema (default value)")
@@ -954,6 +1011,9 @@ static void register_validated_value(nb::module_& m) {
         .def(nb::init<double>(), "value"_a, "Construct from double")
         .def(nb::init<bool>(), "value"_a, "Construct from bool")
         .def(nb::init<const std::string&>(), "value"_a, "Construct from string")
+        .def(nb::init<engine_date_t>(), "value"_a, "Construct from date")
+        .def(nb::init<engine_time_t>(), "value"_a, "Construct from datetime")
+        .def(nb::init<engine_time_delta_t>(), "value"_a, "Construct from timedelta")
         // Construct from schema
         .def(nb::init<const TypeMeta*>(), "schema"_a,
             "Construct from type schema (default value)")
