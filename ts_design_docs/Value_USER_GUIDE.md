@@ -1,7 +1,7 @@
 # Value Type System - User Guide
 
-**Version**: 1.0
-**Date**: 2025-12-28
+**Version**: 1.1
+**Date**: 2025-12-29
 **Related**: [Value_DESIGN.md](Value_DESIGN.md) - Design Document
 
 ---
@@ -15,6 +15,10 @@
 5. [Working with Bundle Types](#5-working-with-bundle-types)
 6. [Working with List Types](#6-working-with-list-types)
 7. [Working with Set and Map Types](#7-working-with-set-and-map-types)
+   - [7.1 Sets](#71-sets)
+   - [7.2 Maps](#72-maps)
+   - [7.3 KeySet - Read-Only View Over Map Keys](#73-keyset---read-only-view-over-map-keys)
+   - [7.4 Set vs KeySet Comparison](#74-set-vs-keyset-comparison)
 8. [Visiting Values](#8-visiting-values)
 9. [Deep Traversal of Nested Structures](#9-deep-traversal-of-nested-structures)
 10. [Path-Based Access](#10-path-based-access)
@@ -22,6 +26,7 @@
 12. [Cloning Values](#12-cloning-values)
 13. [Python Interop](#13-python-interop)
 14. [Performance Tips](#14-performance-tips)
+    - [14.1 Set and Map Performance Characteristics](#141-set-and-map-performance-characteristics)
 15. [Error Handling](#15-error-handling)
 16. [Extending Value Operations](#16-extending-value-operations)
 
@@ -48,7 +53,8 @@ The view system provides specialized views based on type characteristics:
 | `BundleView` | Struct-like types (named) | `at(index)`, `at(name)`, `operator[]` |
 | `ListView` | Homogeneous indexed (fixed/dynamic) | `at(index)`, `operator[]`, `push_back()` |
 | `SetView` | Unique elements | `contains()`, `insert()`, `erase()` |
-| `MapView` | Key-value pairs | `at(key)`, `operator[]`, `contains()` |
+| `MapView` | Key-value pairs | `at(key)`, `operator[]`, `contains()`, `keys()` |
+| `ConstKeySetView` | Read-only view of map keys | `contains()`, `size()`, iteration |
 
 ```cpp
 // Query type and get specialized view
@@ -352,6 +358,9 @@ flv.reset(Value(-1.0));
 
 ## 7. Working with Set and Map Types
 
+Sets and Maps use **robin-hood hashing** internally, providing **O(1) average-case** performance
+for `contains()`, `insert()`, `erase()`, and key lookup operations.
+
 ### 7.1 Sets
 
 ```cpp
@@ -366,16 +375,17 @@ Value int_set(set_schema);
 SetView sv = int_set.as_set();
 
 // Templated insert - automatically wraps native types
+// O(1) amortized - uses robin-hood hashing
 sv.insert(1);   // int64_t - auto-wrapped
 sv.insert(2);
 sv.insert(3);
 bool inserted = sv.insert(2);  // false - already exists
 
-// Templated membership test
+// Templated membership test - O(1) average
 bool has_two = sv.contains(2);   // true - auto-wrapped
 bool has_ten = sv.contains(10);  // false
 
-// Templated erase
+// Templated erase - O(1) average
 sv.erase(2);  // Remove element
 
 // Explicit Value wrapping still works
@@ -407,19 +417,20 @@ Value prices(map_schema);
 MapView mv = prices.as_map();
 
 // Templated set - automatically wraps key and value
+// O(1) amortized - uses robin-hood hashing
 mv.set(std::string("apple"), 1.50);   // Both auto-wrapped
 mv.set(std::string("banana"), 0.75);
 
-// Templated access
+// Templated access - O(1) average
 double apple_price = mv.at(std::string("apple")).as<double>();
 
-// Templated membership test
+// Templated membership test - O(1) average
 bool has_apple = mv.contains(std::string("apple"));  // true
 
-// Templated insert (returns false if key exists)
+// Templated insert (returns false if key exists) - O(1) amortized
 bool inserted = mv.insert(std::string("apple"), 1.75);  // false
 
-// Templated erase
+// Templated erase - O(1) average
 mv.erase(std::string("banana"));
 
 // Explicit Value wrapping still works
@@ -438,105 +449,215 @@ for (auto [key, val] : cmv) {
 
 // Templated contains on const view
 bool has_orange = cmv.contains(std::string("orange"));  // true
+```
 
-// Iterate over just keys or values
-for (auto key : cmv.keys()) {
+### 7.3 KeySet - Read-Only View Over Map Keys
+
+The `keys()` method returns a `ConstKeySetView` - a read-only set view over the map's keys.
+This view has the **same interface as `ConstSetView`**, making it easy to work with map keys
+using familiar set operations.
+
+```cpp
+// Get a read-only set view of the keys
+ConstMapView cmv = prices.as_map();
+ConstKeySetView key_set = cmv.keys();
+
+// Same interface as ConstSetView
+size_t num_keys = key_set.size();        // Number of keys
+bool is_empty = key_set.empty();         // Check if map is empty
+const TypeMeta* kt = key_set.element_type();  // Key type (same as map's key_type)
+
+// Membership test - O(1) average (uses map's hash index)
+Value apple_key(std::string("apple"));
+bool has_apple = key_set.contains(apple_key.const_view());
+
+// Iterate over keys only
+for (ConstValueView key : key_set) {
     std::cout << key.as<std::string>() << "\n";
 }
+
+// Works on mutable MapView too
+MapView mv = prices.as_map();
+ConstKeySetView mv_keys = mv.keys();  // Still read-only
 ```
+
+**Python Usage:**
+
+```python
+# Get map view
+cmv = value.const_view().as_map()
+
+# Get key set view - same interface as ConstSetView
+key_set = cmv.keys()
+
+# Use familiar set operations
+print(f"Number of keys: {key_set.size()}")
+print(f"Is empty: {key_set.empty()}")
+
+# Membership test
+apple_key = PlainValue("apple")
+if key_set.contains(apple_key.const_view()):
+    print("Has apple!")
+
+# Iterate over keys
+for key in key_set:
+    print(f"Key: {key.as_string()}")
+
+# Works with 'in' operator
+if apple_key.const_view() in key_set:
+    print("Apple is in the key set")
+```
+
+### 7.4 Set vs KeySet Comparison
+
+| Feature | ConstSetView | ConstKeySetView |
+|---------|--------------|-----------------|
+| `size()` | ✓ | ✓ |
+| `empty()` | ✓ | ✓ |
+| `contains()` | ✓ | ✓ |
+| `element_type()` | ✓ | ✓ (returns key type) |
+| `__len__` | ✓ | ✓ |
+| `__iter__` | ✓ | ✓ |
+| `__contains__` | ✓ | ✓ |
+| `insert()` | ✓ (via SetView) | ✗ (read-only) |
+| `erase()` | ✓ (via SetView) | ✗ (read-only) |
 
 ---
 
-## 8. Visiting Values
+## 8. Deep Traversal of Nested Structures
 
-Use the visitor pattern to handle type-erased values:
+**Implementation**: `cpp/include/hgraph/types/value/traversal.h`
 
-```cpp
-// Using overloaded lambdas
-visit_with(some_value.view(),
-    [](int64_t& i) {
-        std::cout << "Integer: " << i << "\n";
-    },
-    [](double& d) {
-        std::cout << "Double: " << d << "\n";
-    },
-    [](std::string& s) {
-        std::cout << "String: " << s << "\n";
-    },
-    [](auto& other) {
-        std::cout << "Other type\n";
-    }
-);
-
-// Using a visitor class
-class PrintVisitor : public ValueVisitor<void> {
-public:
-    void visit_int64(int64_t& v) override {
-        std::cout << v;
-    }
-    void visit_double(double& v) override {
-        std::cout << v;
-    }
-    void visit_bundle(ValueView bundle, const TypeMeta* schema) override {
-        std::cout << "{";
-        for (size_t i = 0; i < schema->field_count; ++i) {
-            if (i > 0) std::cout << ", ";
-            std::cout << schema->fields[i].name << ": ";
-            visit(bundle.get_at(i), *this);
-        }
-        std::cout << "}";
-    }
-};
-
-PrintVisitor printer;
-visit(value.view(), printer);
-```
-
----
-
-## 9. Deep Traversal of Nested Structures
+Deep traversal visits all leaf (scalar) values in a nested structure, tracking the path to each:
 
 ```cpp
-// Count all leaf values in a nested structure
-int count = 0;
-auto counter = make_deep_visitor([&count](auto&) {
-    ++count;
+#include <hgraph/types/value/traversal.h>
+
+using namespace hgraph::value;
+
+// Count all leaf values
+size_t count = count_leaves(value.const_view());
+std::cout << "Total leaves: " << count << "\n";
+
+// Visit each leaf with its path
+deep_visit(value.const_view(), [](ConstValueView leaf, const TraversalPath& path) {
+    std::cout << "At " << path_to_string(path) << ": " << leaf.to_string() << "\n";
 });
-visit(complex_value.view(), counter);
-std::cout << "Total leaf values: " << count << "\n";
 
-// Transform all numeric values
-auto doubler = make_deep_visitor([](auto& v) {
-    if constexpr (std::is_arithmetic_v<std::decay_t<decltype(v)>>) {
-        v *= 2;
+// Collect all leaf paths
+std::vector<TraversalPath> paths = collect_leaf_paths(value.const_view());
+
+// Collect leaves with their paths
+auto leaves = collect_leaves(value.const_view());
+for (const auto& [path, leaf] : leaves) {
+    std::cout << path_to_string(path) << " = " << leaf.to_string() << "\n";
+}
+
+// Transform all numeric values (mutable traversal)
+deep_visit_mut(value.view(), [](ValueView leaf, const TraversalPath&) {
+    if (leaf.is_scalar_type<int64_t>()) {
+        leaf.as<int64_t>() *= 2;
     }
 });
-visit(value.view(), doubler);
+
+// Utility transformations
+transform_int64(value.view(), [](int64_t v) { return v * 2; });
+transform_double(value.view(), [](double v) { return v + 1.0; });
+transform_string(value.view(), [](const std::string& s) { return s + "_suffix"; });
+
+// Aggregations
+double total = sum_numeric(value.const_view());
+auto max_val = max_numeric(value.const_view());  // returns std::optional<double>
+auto min_val = min_numeric(value.const_view());
 ```
 
 ---
 
-## 10. Path-Based Access
+## 9. Path-Based Access
+
+**Implementation**: `cpp/include/hgraph/types/value/path.h`
+
+Navigate through nested structures using path expressions:
 
 ```cpp
-// Navigate to deeply nested values
-ValuePath path = {
-    PathElement::field("user"),
-    PathElement::field("addresses"),
-    PathElement::index(0),
-    PathElement::field("city")
-};
+#include <hgraph/types/value/path.h>
 
+using namespace hgraph::value;
+
+// Build a path programmatically
+ValuePath path;
+path.push_back(PathElement::field("user"));      // Bundle field access
+path.push_back(PathElement::field("addresses")); // Another field
+path.push_back(PathElement::index(0));           // List/tuple index
+path.push_back(PathElement::field("city"));      // Nested field
+
+// For maps with arbitrary key types, use PathElement::key() with a ConstValueView
+Value<> map_key("config");
+path.push_back(PathElement::key(map_key.const_view()));  // Map key lookup
+
+// Navigate to nested value
 ConstValueView city = navigate(root.const_view(), path);
 std::cout << "City: " << city.as<std::string>() << "\n";
 
-// Parse path from string
+// Parse path from string (supports dot notation, bracket indexing, and map keys)
 ValuePath p = parse_path("user.addresses[0].city");
+ValuePath p2 = parse_path("items[0][1]");  // Multi-dimensional access
+ValuePath p3 = parse_path("data[\"key\"].value");  // Map string key access
+ValuePath p4 = parse_path("map['name']");  // Single-quoted key also works
+
+// Safe navigation (returns std::optional)
+auto maybe_city = try_navigate(root.const_view(), path);
+if (maybe_city) {
+    std::cout << "Found: " << maybe_city->as<std::string>() << "\n";
+}
+
+// String-based navigation
+auto city2 = navigate(root.const_view(), "user.addresses[0].city");
+
+// Mutable navigation
+ValueView mut_city = navigate_mut(root.view(), path);
+mut_city.as<std::string>() = "New City";
+
+// Convert path back to string
+std::string path_str = path_to_string(path);  // "user.addresses[0].city"
+
+// Map navigation example
+Value<> config = /* map with structure: {"database": {"host": "localhost", "port": 5432}} */;
+auto host = navigate(config.const_view(), R"(["database"].host)");
+std::cout << "Host: " << host.as<std::string>() << "\n";  // "localhost"
+
+// Map with integer keys
+Value<> lookup = /* map with structure: {1: "one", 2: "two"} */;
+auto val = navigate(lookup.const_view(), "[2]");
+std::cout << "Value: " << val.as<std::string>() << "\n";  // "two"
 ```
+
+**Path Syntax (string parsing):**
+- Field access: `user`, `address.city` (for bundles or maps with string keys)
+- Index access: `[0]`, `items[1]` (for lists, tuples, or maps with integer keys)
+- String key access: `["key"]` or `['key']` (alternative syntax for string keys)
+- Mixed: `users[0].addresses[1].city`, `data["config"].settings[0].value`
+
+**Programmatic Path Building:**
+For maps with arbitrary key types (not just string or integer), use `PathElement::key()`:
+```cpp
+// Map with tuple keys
+auto tuple_schema = registry.tuple().element(int_schema).element(string_schema).build();
+Value<> key = /* tuple value */;
+path.push_back(PathElement::key(key.const_view()));  // Arbitrary value key
+```
+
+**Type-Dependent Navigation:**
+- String elements on bundles → field access by name
+- String elements on maps with string keys → string key lookup
+- String elements on maps with non-string keys → error
+- Index elements on lists/tuples/bundles → element access by position
+- Index elements on maps with integer keys → integer key lookup
+- Value elements on maps → key lookup (key type must match)
 
 ---
 
-## 11. Comparison and Hashing
+## 10. Comparison and Hashing
 
 ```cpp
 Value a(42);
@@ -561,7 +682,7 @@ value_ordered.insert(c);
 
 ---
 
-## 12. Cloning Values
+## 11. Cloning Values
 
 Views are non-owning references. To create an owning copy of a viewed value, use `clone()`:
 
@@ -585,7 +706,7 @@ Value copy3(cv);  // Equivalent to clone()
 
 ---
 
-## 13. Python Interop
+## 12. Python Interop
 
 ```cpp
 #include <nanobind/nanobind.h>
@@ -600,9 +721,37 @@ nb::object py_list = nb::eval("[[1, 2], [3, 4]]");
 Value cpp_list = Value::from_python(py_list, list_of_lists_schema);
 ```
 
+### NumPy Integration
+
+Lists of numeric types can be converted to NumPy arrays:
+
+```python
+from hgraph._hgraph import value
+
+# Create a list of integers
+int_list = value.PlainValue(int_list_schema)
+list_view = int_list.as_list()
+for i in range(10):
+    list_view.push_back(value.PlainValue(i).const_view())
+
+# Convert to numpy array
+clv = int_list.const_view().as_list()
+if clv.is_buffer_compatible():
+    arr = clv.to_numpy()  # Returns numpy array
+    print(arr.sum())      # NumPy operations work
+
+# Supported element types:
+# - int64 -> np.int64
+# - double -> np.float64
+# - bool -> np.bool_
+```
+
+**Note:** `to_numpy()` creates a copy of the data. For true zero-copy buffer protocol support,
+future versions may implement the Python buffer protocol directly.
+
 ---
 
-## 14. Performance Tips
+## 13. Performance Tips
 
 1. **Use views for temporary access** - Views avoid copying and are lightweight.
 
@@ -617,6 +766,10 @@ Value cpp_list = Value::from_python(py_list, list_of_lists_schema);
 
 6. **Use `clone()` sparingly** - Only clone when you need ownership; prefer views otherwise.
 
+7. **Set and Map operations are O(1)** - Sets and Maps use robin-hood hashing internally
+   via `ankerl::unordered_dense`. All key operations (`contains()`, `insert()`, `erase()`,
+   `at()`, `set()`) are O(1) average-case, making them efficient for large collections.
+
 ```cpp
 // Good: Single view for multiple accesses
 ValueView v = value.view();
@@ -630,9 +783,41 @@ value.view().set_field("b", Value(2));  // New view
 value.view().set_field("c", Value(3));  // New view
 ```
 
+### 14.1 Set and Map Performance Characteristics
+
+| Operation | Time Complexity | Notes |
+|-----------|-----------------|-------|
+| `contains()` | O(1) average | Hash lookup |
+| `insert()` | O(1) amortized | May trigger rehash |
+| `erase()` | O(1) average | Uses tombstone pattern |
+| `at()` / `set()` | O(1) average | Hash lookup |
+| `size()` | O(1) | Stored count |
+| Iteration | O(n) | Linear scan of elements |
+
+**Memory Layout:**
+- Elements are stored contiguously in a vector for cache efficiency
+- A separate hash index maps keys to element indices
+- This provides both fast random access and efficient iteration
+
+```cpp
+// Large set - still O(1) lookup
+SetView sv = large_set.as_set();
+for (int i = 0; i < 10000; ++i) {
+    sv.insert(i);  // O(1) amortized each
+}
+bool found = sv.contains(9999);  // O(1) - instant lookup
+
+// Large map - same O(1) performance
+MapView mv = large_map.as_map();
+for (int i = 0; i < 10000; ++i) {
+    mv.set(std::to_string(i), double(i));  // O(1) amortized each
+}
+double val = mv.at(std::string("9999")).as<double>();  // O(1) lookup
+```
+
 ---
 
-## 15. Error Handling
+## 14. Error Handling
 
 ```cpp
 // Type mismatch
@@ -659,7 +844,7 @@ if (auto* p = v.try_as<double>()) {
 
 ---
 
-## 16. Extending Value Operations
+## 15. Extending Value Operations
 
 Value operations can be extended using **zero-overhead composition** at compile time. Two complementary
 patterns are available:

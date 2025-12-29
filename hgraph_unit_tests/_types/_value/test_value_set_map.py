@@ -737,7 +737,7 @@ def test_map_iteration_key_value_pairs(string_double_map_schema):
 
 
 def test_map_keys_iteration(string_double_map_schema):
-    """Map keys can be iterated separately."""
+    """Map keys can be iterated separately - returns ConstKeySetView."""
     v = PlainValue(string_double_map_schema)
     mv = v.as_map()
     k1 = make_string_value("apple")
@@ -749,7 +749,9 @@ def test_map_keys_iteration(string_double_map_schema):
 
     # Get const view for iteration
     cmv = v.const_view().as_map()
-    keys = list(cmv.keys())
+    key_set = cmv.keys()  # Returns ConstKeySetView
+    # Convert ConstValueView keys to Python strings for comparison
+    keys = [k.as_string() for k in key_set]
     assert sorted(keys) == ["apple", "banana"]
 
 
@@ -1089,3 +1091,254 @@ def test_map_to_string(string_double_map_schema):
     s = v.to_string()
 
     assert "key" in s
+
+
+# =============================================================================
+# ConstKeySetView Tests (Map Keys as Set)
+# =============================================================================
+
+def test_map_keys_returns_const_key_set_view(string_double_map_schema):
+    """Map.keys() returns a ConstKeySetView object."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+    k1 = make_string_value("apple")
+    v1 = make_double_value(1.50)
+    mv.set(k1.const_view(), v1.const_view())
+
+    cmv = v.const_view().as_map()
+    key_set = cmv.keys()
+
+    # Should be a ConstKeySetView, not a Python dict_keys
+    assert hasattr(key_set, 'size')
+    assert hasattr(key_set, 'empty')
+    assert hasattr(key_set, 'contains')
+    assert hasattr(key_set, 'element_type')
+
+
+def test_keyset_size(string_double_map_schema):
+    """ConstKeySetView.size() returns the number of keys."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+    k1 = make_string_value("apple")
+    v1 = make_double_value(1.50)
+    k2 = make_string_value("banana")
+    v2 = make_double_value(2.25)
+    mv.set(k1.const_view(), v1.const_view())
+    mv.set(k2.const_view(), v2.const_view())
+
+    cmv = v.const_view().as_map()
+    key_set = cmv.keys()
+
+    assert key_set.size() == 2
+    assert len(key_set) == 2
+
+
+def test_keyset_empty(string_double_map_schema):
+    """ConstKeySetView.empty() returns True for empty map."""
+    v = PlainValue(string_double_map_schema)
+    cmv = v.const_view().as_map()
+    key_set = cmv.keys()
+
+    assert key_set.empty() is True
+    assert key_set.size() == 0
+
+
+def test_keyset_contains(string_double_map_schema):
+    """ConstKeySetView.contains() checks for key existence."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+    k1 = make_string_value("apple")
+    v1 = make_double_value(1.50)
+    mv.set(k1.const_view(), v1.const_view())
+
+    cmv = v.const_view().as_map()
+    key_set = cmv.keys()
+
+    # Check with ConstValueView
+    k_apple = make_string_value("apple")
+    k_banana = make_string_value("banana")
+    assert key_set.contains(k_apple.const_view()) is True
+    assert key_set.contains(k_banana.const_view()) is False
+
+
+def test_keyset_dunder_contains(string_double_map_schema):
+    """ConstKeySetView supports 'in' operator via __contains__."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+    k1 = make_string_value("apple")
+    v1 = make_double_value(1.50)
+    mv.set(k1.const_view(), v1.const_view())
+
+    cmv = v.const_view().as_map()
+    key_set = cmv.keys()
+
+    k_apple = make_string_value("apple")
+    k_banana = make_string_value("banana")
+    assert k_apple.const_view() in key_set
+    assert k_banana.const_view() not in key_set
+
+
+def test_keyset_element_type(string_double_map_schema):
+    """ConstKeySetView.element_type() returns the key type."""
+    v = PlainValue(string_double_map_schema)
+    cmv = v.const_view().as_map()
+    key_set = cmv.keys()
+
+    # element_type should be the key type (string)
+    key_type = key_set.element_type()
+    assert key_type is not None
+    # The map key type should match the key_set element type
+    assert key_type == cmv.key_type()
+
+
+def test_keyset_iteration(string_double_map_schema):
+    """ConstKeySetView can be iterated to get keys."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+    k1 = make_string_value("x")
+    v1 = make_double_value(1.0)
+    k2 = make_string_value("y")
+    v2 = make_double_value(2.0)
+    k3 = make_string_value("z")
+    v3 = make_double_value(3.0)
+    mv.set(k1.const_view(), v1.const_view())
+    mv.set(k2.const_view(), v2.const_view())
+    mv.set(k3.const_view(), v3.const_view())
+
+    cmv = v.const_view().as_map()
+    key_set = cmv.keys()
+
+    # Collect keys via iteration
+    keys = [k.as_string() for k in key_set]
+    assert sorted(keys) == ["x", "y", "z"]
+
+
+def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map_schema):
+    """ConstKeySetView has the same interface as ConstSetView."""
+    # Create a set
+    set_v = PlainValue(int_set_schema)
+    sv = set_v.as_set()
+    e1 = make_int_value(10)
+    sv.insert(e1.const_view())
+    const_set = set_v.const_view().as_set()
+
+    # Create a map and get its key set
+    map_v = PlainValue(string_double_map_schema)
+    mv = map_v.as_map()
+    k1 = make_string_value("test")
+    v1 = make_double_value(1.0)
+    mv.set(k1.const_view(), v1.const_view())
+    key_set = map_v.const_view().as_map().keys()
+
+    # Both should have the same methods
+    set_methods = {'size', 'empty', 'contains', 'element_type', '__len__', '__iter__', '__contains__'}
+    for method in set_methods:
+        assert hasattr(const_set, method), f"ConstSetView missing {method}"
+        assert hasattr(key_set, method), f"ConstKeySetView missing {method}"
+
+
+def test_keyset_mutable_map_keys(string_double_map_schema):
+    """MapView.keys() also returns ConstKeySetView."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+    k1 = make_string_value("key1")
+    v1 = make_double_value(1.0)
+    mv.set(k1.const_view(), v1.const_view())
+
+    # keys() on mutable view should also work
+    key_set = mv.keys()
+    assert key_set.size() == 1
+    assert key_set.contains(k1.const_view())
+
+
+# =============================================================================
+# Performance Tests (O(1) verification)
+# =============================================================================
+
+def test_set_large_insert_performance(int_set_schema):
+    """Set insert remains fast with many elements (O(1) amortized)."""
+    import time
+    v = PlainValue(int_set_schema)
+    sv = v.as_set()
+
+    n = 1000
+    start = time.perf_counter()
+    for i in range(n):
+        elem = make_int_value(i)
+        sv.insert(elem.const_view())
+    elapsed = time.perf_counter() - start
+
+    assert sv.size() == n
+    # Should complete quickly - O(n) total for n insertions
+    assert elapsed < 5.0, f"Insert took {elapsed:.2f}s for {n} elements - too slow"
+
+
+def test_set_large_contains_performance(int_set_schema):
+    """Set contains remains fast with many elements (O(1))."""
+    import time
+    v = PlainValue(int_set_schema)
+    sv = v.as_set()
+
+    # Insert many elements
+    n = 1000
+    for i in range(n):
+        elem = make_int_value(i)
+        sv.insert(elem.const_view())
+
+    csv = v.const_view().as_set()
+
+    # Time contains operations
+    start = time.perf_counter()
+    for i in range(n):
+        elem = make_int_value(i)
+        assert csv.contains(elem.const_view())
+    elapsed = time.perf_counter() - start
+
+    # Should complete quickly - O(n) total for n lookups
+    assert elapsed < 5.0, f"Contains took {elapsed:.2f}s for {n} lookups - too slow"
+
+
+def test_map_large_set_performance(string_double_map_schema):
+    """Map set operations remain fast with many elements (O(1) amortized)."""
+    import time
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+
+    n = 1000
+    start = time.perf_counter()
+    for i in range(n):
+        k = make_string_value(f"key_{i}")
+        val = make_double_value(float(i))
+        mv.set(k.const_view(), val.const_view())
+    elapsed = time.perf_counter() - start
+
+    assert mv.size() == n
+    # Should complete quickly - O(n) total for n insertions
+    assert elapsed < 5.0, f"Set took {elapsed:.2f}s for {n} elements - too slow"
+
+
+def test_map_large_get_performance(string_double_map_schema):
+    """Map get operations remain fast with many elements (O(1))."""
+    import time
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+
+    # Insert many elements
+    n = 1000
+    for i in range(n):
+        k = make_string_value(f"key_{i}")
+        val = make_double_value(float(i))
+        mv.set(k.const_view(), val.const_view())
+
+    cmv = v.const_view().as_map()
+
+    # Time get operations
+    start = time.perf_counter()
+    for i in range(n):
+        k = make_string_value(f"key_{i}")
+        val = cmv.at(k.const_view())
+        assert abs(val.as_double() - float(i)) < 0.001
+    elapsed = time.perf_counter() - start
+
+    # Should complete quickly - O(n) total for n lookups
+    assert elapsed < 5.0, f"Get took {elapsed:.2f}s for {n} lookups - too slow"

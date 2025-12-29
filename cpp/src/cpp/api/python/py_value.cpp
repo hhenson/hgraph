@@ -1,11 +1,13 @@
 #include <hgraph/api/python/py_value.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/type_registry.h>
+#include <hgraph/types/value/composite_ops.h>
 #include <hgraph/python/chrono.h>
 
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/optional.h>
 #include <nanobind/stl/vector.h>
+#include <Python.h>  // For Py_buffer
 
 namespace hgraph {
 
@@ -528,6 +530,40 @@ static void register_bundle_views(nb::module_& m) {
 // List Views Binding
 // ============================================================================
 
+// Helper function to check if element type is buffer compatible
+static bool is_list_buffer_compatible(const ConstListView& list) {
+    const TypeMeta* elem = list.element_type();
+    if (!elem || elem->kind != TypeKind::Scalar) return false;
+
+    // Check for supported numeric/bool types
+    return elem == scalar_type_meta<int64_t>() ||
+           elem == scalar_type_meta<double>() ||
+           elem == scalar_type_meta<bool>();
+}
+
+// Helper to get numpy format string for element type
+static const char* get_buffer_format(const TypeMeta* elem) {
+    if (elem == scalar_type_meta<int64_t>()) return "l";  // long (int64)
+    if (elem == scalar_type_meta<double>()) return "d";   // double
+    if (elem == scalar_type_meta<bool>()) return "?";     // bool
+    return nullptr;
+}
+
+// Helper to get the data pointer from a list
+static const void* get_list_data_ptr(const ConstListView& list) {
+    if (!list.valid() || list.empty()) return nullptr;
+
+    const TypeMeta* schema = list.schema();
+    if (schema->is_fixed_size()) {
+        // Fixed list: data is stored inline
+        return list.data();
+    } else {
+        // Dynamic list: data is in DynamicListStorage
+        const auto* storage = static_cast<const DynamicListStorage*>(list.data());
+        return storage->data;
+    }
+}
+
 static void register_list_views(nb::module_& m) {
     nb::class_<ConstListView, ConstIndexedView>(m, "ConstListView",
         "Const view for list types")
@@ -535,7 +571,50 @@ static void register_list_views(nb::module_& m) {
         .def("back", &ConstListView::back, "Get the last element")
         .def("element_type", &ConstListView::element_type, nb::rv_policy::reference,
             "Get the element type")
-        .def("is_fixed", &ConstListView::is_fixed, "Check if this is a fixed-size list");
+        .def("is_fixed", &ConstListView::is_fixed, "Check if this is a fixed-size list")
+        .def("is_buffer_compatible", [](const ConstListView& self) {
+            return is_list_buffer_compatible(self);
+        }, "Check if this list supports the buffer protocol (numpy compatibility)")
+        // Provide to_numpy method for explicit conversion
+        .def("to_numpy", [](const ConstListView& self) -> nb::object {
+            if (!is_list_buffer_compatible(self)) {
+                throw std::runtime_error("List element type not buffer compatible for numpy");
+            }
+
+            // Import numpy
+            nb::module_ np = nb::module_::import_("numpy");
+
+            const TypeMeta* elem = self.element_type();
+            size_t n = self.size();
+
+            // Create appropriate numpy array and copy data
+            if (elem == scalar_type_meta<int64_t>()) {
+                auto arr = np.attr("empty")(n, "dtype"_a = "int64");
+                int64_t* ptr = reinterpret_cast<int64_t*>(
+                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                for (size_t i = 0; i < n; ++i) {
+                    ptr[i] = self[i].as<int64_t>();
+                }
+                return arr;
+            } else if (elem == scalar_type_meta<double>()) {
+                auto arr = np.attr("empty")(n, "dtype"_a = "float64");
+                double* ptr = reinterpret_cast<double*>(
+                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                for (size_t i = 0; i < n; ++i) {
+                    ptr[i] = self[i].as<double>();
+                }
+                return arr;
+            } else if (elem == scalar_type_meta<bool>()) {
+                auto arr = np.attr("empty")(n, "dtype"_a = "bool");
+                bool* ptr = reinterpret_cast<bool*>(
+                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                for (size_t i = 0; i < n; ++i) {
+                    ptr[i] = self[i].as<bool>();
+                }
+                return arr;
+            }
+            throw std::runtime_error("Unsupported element type for numpy conversion");
+        }, "Convert to a numpy array (copies data)");
 
     nb::class_<ListView, IndexedView>(m, "ListView",
         "Mutable view for list types")
@@ -636,6 +715,32 @@ static void register_set_views(nb::module_& m) {
 }
 
 // ============================================================================
+// ConstKeySetView Binding - Set View Over Map Keys
+// ============================================================================
+
+static void register_const_key_set_view(nb::module_& m) {
+    nb::class_<ConstKeySetView, ConstValueView>(m, "ConstKeySetView",
+        "Read-only set view over map keys (same interface as ConstSetView)")
+        .def("size", &ConstKeySetView::size, "Get the number of keys")
+        .def("empty", &ConstKeySetView::empty, "Check if empty")
+        .def("__len__", &ConstKeySetView::size)
+        .def("contains", static_cast<bool (ConstKeySetView::*)(const ConstValueView&) const>(
+            &ConstKeySetView::contains), "key"_a, "Check if a key is in the set")
+        .def("__contains__", static_cast<bool (ConstKeySetView::*)(const ConstValueView&) const>(
+            &ConstKeySetView::contains), "key"_a)
+        .def("element_type", &ConstKeySetView::element_type, nb::rv_policy::reference,
+            "Get the key/element type")
+        // Iteration support using ConstKeySetView::const_iterator
+        .def("__iter__", [](const ConstKeySetView& self) {
+            nb::list result;
+            for (auto it = self.begin(); it != self.end(); ++it) {
+                result.append(nb::cast(*it));
+            }
+            return nb::iter(result);
+        }, "Iterate over keys");
+}
+
+// ============================================================================
 // Map Views Binding
 // ============================================================================
 
@@ -657,14 +762,16 @@ static void register_map_views(nb::module_& m) {
         .def("value_type", &ConstMapView::value_type, nb::rv_policy::reference, "Get the value type")
         // Iteration support - iterate over keys (like Python dict)
         .def("__iter__", [](const ConstMapView& self) {
-            // Use to_python() to get dict, then iterate over keys
-            nb::object py_dict = self.to_python();
-            return nb::iter(py_dict);
+            // Use keys() to get ConstKeySetView, then iterate
+            auto keys = self.keys();
+            nb::list result;
+            for (auto it = keys.begin(); it != keys.end(); ++it) {
+                result.append(nb::cast(*it));
+            }
+            return nb::iter(result);
         }, "Iterate over keys (like dict)")
-        .def("keys", [](const ConstMapView& self) {
-            nb::object py_dict = self.to_python();
-            return py_dict.attr("keys")();
-        }, "Get view of keys")
+        .def("keys", &ConstMapView::keys,
+            "Get ConstKeySetView over map keys (same interface as ConstSetView)")
         .def("values", [](const ConstMapView& self) {
             nb::object py_dict = self.to_python();
             return py_dict.attr("values")();
@@ -709,13 +816,16 @@ static void register_map_views(nb::module_& m) {
         .def("value_type", &MapView::value_type, nb::rv_policy::reference, "Get the value type")
         // Iteration support - iterate over keys (like Python dict)
         .def("__iter__", [](MapView& self) {
-            nb::object py_dict = self.to_python();
-            return nb::iter(py_dict);
+            // Use keys() to get ConstKeySetView, then iterate
+            auto keys = self.keys();
+            nb::list result;
+            for (auto it = keys.begin(); it != keys.end(); ++it) {
+                result.append(nb::cast(*it));
+            }
+            return nb::iter(result);
         }, "Iterate over keys (like dict)")
-        .def("keys", [](MapView& self) {
-            nb::object py_dict = self.to_python();
-            return py_dict.attr("keys")();
-        }, "Get view of keys")
+        .def("keys", &MapView::keys,
+            "Get ConstKeySetView over map keys (same interface as ConstSetView)")
         .def("values", [](MapView& self) {
             nb::object py_dict = self.to_python();
             return py_dict.attr("values")();
@@ -1088,6 +1198,7 @@ void value_register_with_nanobind(nb::module_& m) {
     register_bundle_views(value_mod);
     register_list_views(value_mod);
     register_set_views(value_mod);
+    register_const_key_set_view(value_mod);  // Before map_views - ConstKeySetView returned by map.keys()
     register_map_views(value_mod);
 
     // Register Value classes

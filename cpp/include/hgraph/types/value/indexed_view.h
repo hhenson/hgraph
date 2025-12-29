@@ -19,6 +19,7 @@
  */
 
 #include <hgraph/types/value/value_view.h>
+#include <hgraph/types/value/composite_ops.h>
 
 #include <cstddef>
 #include <iterator>
@@ -855,6 +856,127 @@ public:
 };
 
 // ============================================================================
+// ConstKeySetView - Read-only Set View Over Map Keys
+// ============================================================================
+
+/**
+ * @brief Read-only set view over map keys.
+ *
+ * Provides the same interface as ConstSetView for accessing map keys.
+ * This allows unified set-like access to both actual sets and map key sets.
+ *
+ * @note This is a read-only view. Map keys cannot be modified through this view.
+ */
+class ConstKeySetView : public ConstValueView {
+public:
+    // ========== Construction ==========
+
+    using ConstValueView::ConstValueView;
+
+    /// Construct from a ConstMapView
+    explicit ConstKeySetView(const ConstValueView& map_view)
+        : ConstValueView(map_view) {
+        // Verify this is actually a map
+        assert(map_view.is_map() && "ConstKeySetView requires a map type");
+    }
+
+    // ========== Size ==========
+
+    /**
+     * @brief Get the number of keys (same as map size).
+     */
+    [[nodiscard]] size_t size() const {
+        assert(valid() && "size() on invalid view");
+        return _schema->ops->size(_data, _schema);
+    }
+
+    /**
+     * @brief Check if empty.
+     */
+    [[nodiscard]] bool empty() const {
+        return size() == 0;
+    }
+
+    // ========== Contains ==========
+
+    /**
+     * @brief Check if a key exists in the map.
+     */
+    [[nodiscard]] bool contains(const ConstValueView& key) const {
+        assert(valid() && "contains() on invalid view");
+        return _schema->ops->contains(_data, key.data(), _schema);
+    }
+
+    /**
+     * @brief Check if a typed key exists in the map.
+     */
+    template<typename K>
+    [[nodiscard]] bool contains(const K& key) const;  // Implemented after Value
+
+    // ========== Type Info ==========
+
+    /**
+     * @brief Get the key type (element type for the key set).
+     */
+    [[nodiscard]] const TypeMeta* element_type() const {
+        return _schema->key_type;
+    }
+
+    // ========== Iteration ==========
+
+    /**
+     * @brief Const iterator for key set view.
+     *
+     * Iterates over the keys stored in the underlying map.
+     */
+    class const_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = ConstValueView;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const ConstValueView*;
+        using reference = ConstValueView;
+
+        const_iterator() = default;
+        const_iterator(const ConstKeySetView* view, size_t index)
+            : _view(view), _index(index) {}
+
+        reference operator*() const;
+
+        const_iterator& operator++() {
+            ++_index;
+            return *this;
+        }
+
+        const_iterator operator++(int) {
+            const_iterator tmp = *this;
+            ++_index;
+            return tmp;
+        }
+
+        bool operator==(const const_iterator& other) const {
+            return _view == other._view && _index == other._index;
+        }
+
+        bool operator!=(const const_iterator& other) const {
+            return !(*this == other);
+        }
+
+    private:
+        const ConstKeySetView* _view{nullptr};
+        size_t _index{0};
+    };
+
+    [[nodiscard]] const_iterator begin() const {
+        return const_iterator(this, 0);
+    }
+
+    [[nodiscard]] const_iterator end() const {
+        return const_iterator(this, size());
+    }
+};
+
+// ============================================================================
 // ConstMapView - Key-Value Access
 // ============================================================================
 
@@ -921,6 +1043,17 @@ public:
      */
     [[nodiscard]] const TypeMeta* value_type() const {
         return _schema->element_type;
+    }
+
+    // ========== Key Set View ==========
+
+    /**
+     * @brief Get a read-only set view over the map's keys.
+     *
+     * @return ConstKeySetView with same interface as ConstSetView
+     */
+    [[nodiscard]] ConstKeySetView keys() const {
+        return ConstKeySetView(*this);
     }
 
     // Templated operations - implemented after Value
@@ -1056,6 +1189,17 @@ public:
      */
     [[nodiscard]] const TypeMeta* value_type() const {
         return _schema->element_type;
+    }
+
+    // ========== Key Set View ==========
+
+    /**
+     * @brief Get a read-only set view over the map's keys.
+     *
+     * @return ConstKeySetView with same interface as ConstSetView
+     */
+    [[nodiscard]] ConstKeySetView keys() const {
+        return ConstKeySetView(ConstValueView(_data, _schema));
     }
 
     // Templated operations - implemented after Value
@@ -1208,6 +1352,28 @@ inline MapView ValueView::as_map() {
         throw std::runtime_error("Not a map type");
     }
     return MapView(_mutable_data, _schema);
+}
+
+// ============================================================================
+// ConstKeySetView Iterator Implementation
+// ============================================================================
+
+inline ConstValueView ConstKeySetView::const_iterator::operator*() const {
+    // Access the MapStorage to get the key at the current iteration position
+    auto* storage = static_cast<const MapStorage*>(_view->data());
+
+    if (!storage->index_set || _index >= storage->index_set->size()) {
+        throw std::out_of_range("Key set iterator out of range");
+    }
+
+    // Get the storage index at this iteration position
+    auto it = storage->index_set->begin();
+    std::advance(it, _index);
+    size_t storage_idx = *it;
+
+    // Return a view of the key at this storage index
+    const void* key_ptr = storage->get_key_ptr(storage_idx);
+    return ConstValueView(key_ptr, _view->element_type());
 }
 
 } // namespace hgraph::value
