@@ -447,17 +447,26 @@ struct TupleOps {
  * @brief Storage structure for dynamic (variable-size) lists.
  *
  * This is the inline storage for dynamic list Values. The actual element
- * data is stored in a separately allocated buffer pointed to by `data`.
+ * data is stored in a std::vector<std::byte> that manages memory automatically.
  */
 struct DynamicListStorage {
-    void* data{nullptr};       // Pointer to element array
-    size_t size{0};            // Current number of elements
-    size_t capacity{0};        // Allocated capacity
+    std::vector<std::byte> data;  // Element storage (capacity managed by vector)
+    size_t size{0};               // Current number of valid elements
 
     DynamicListStorage() = default;
 
+    // Allow move but not copy (elements need proper construction)
+    DynamicListStorage(DynamicListStorage&&) noexcept = default;
+    DynamicListStorage& operator=(DynamicListStorage&&) noexcept = default;
     DynamicListStorage(const DynamicListStorage&) = delete;
     DynamicListStorage& operator=(const DynamicListStorage&) = delete;
+
+    /// Get raw pointer to element data
+    [[nodiscard]] void* data_ptr() { return data.data(); }
+    [[nodiscard]] const void* data_ptr() const { return data.data(); }
+
+    /// Get capacity in bytes
+    [[nodiscard]] size_t byte_capacity() const { return data.capacity(); }
 };
 
 /**
@@ -488,10 +497,10 @@ struct ListOps {
             size_t elem_size = get_element_size(schema);
             return static_cast<char*>(obj) + index * elem_size;
         } else {
-            // Dynamic list: elements in separate buffer
+            // Dynamic list: elements in vector storage
             auto* storage = static_cast<DynamicListStorage*>(obj);
             size_t elem_size = get_element_size(schema);
-            return static_cast<char*>(storage->data) + index * elem_size;
+            return static_cast<char*>(storage->data_ptr()) + index * elem_size;
         }
     }
 
@@ -502,7 +511,7 @@ struct ListOps {
         } else {
             auto* storage = static_cast<const DynamicListStorage*>(obj);
             size_t elem_size = get_element_size(schema);
-            return static_cast<const char*>(storage->data) + index * elem_size;
+            return static_cast<const char*>(storage->data_ptr()) + index * elem_size;
         }
     }
 
@@ -536,18 +545,17 @@ struct ListOps {
                 }
             }
         } else {
-            // Dynamic list: destruct elements and free buffer
+            // Dynamic list: destruct elements (vector handles memory cleanup)
             auto* storage = static_cast<DynamicListStorage*>(obj);
-            if (storage->data && elem_type) {
+            if (!storage->data.empty() && elem_type) {
                 for (size_t i = 0; i < storage->size; ++i) {
-                    void* elem_ptr = static_cast<char*>(storage->data) + i * elem_type->size;
+                    void* elem_ptr = static_cast<char*>(storage->data_ptr()) + i * elem_type->size;
                     if (elem_type->ops && elem_type->ops->destruct) {
                         elem_type->ops->destruct(elem_ptr, elem_type);
                     }
                 }
-                std::free(storage->data);
             }
-            storage->~DynamicListStorage();
+            storage->~DynamicListStorage();  // Vector destructor frees memory
         }
     }
 
@@ -574,8 +582,8 @@ struct ListOps {
             // Copy elements
             if (elem_type && elem_type->ops && elem_type->ops->copy_assign) {
                 for (size_t i = 0; i < src_storage->size; ++i) {
-                    void* dst_elem = static_cast<char*>(dst_storage->data) + i * elem_type->size;
-                    const void* src_elem = static_cast<const char*>(src_storage->data) + i * elem_type->size;
+                    void* dst_elem = static_cast<char*>(dst_storage->data_ptr()) + i * elem_type->size;
+                    const void* src_elem = static_cast<const char*>(src_storage->data_ptr()) + i * elem_type->size;
                     elem_type->ops->copy_assign(dst_elem, src_elem, elem_type);
                 }
             }
@@ -594,22 +602,19 @@ struct ListOps {
                 }
             }
         } else {
-            // Dynamic list: swap storage
+            // Dynamic list: move storage via vector move
             auto* dst_storage = static_cast<DynamicListStorage*>(dst);
             auto* src_storage = static_cast<DynamicListStorage*>(src);
 
             // First destruct dst elements
             destruct(dst, schema);
 
-            // Move ownership
-            dst_storage->data = src_storage->data;
+            // Move vector and size
+            dst_storage->data = std::move(src_storage->data);
             dst_storage->size = src_storage->size;
-            dst_storage->capacity = src_storage->capacity;
 
             // Reset source
-            src_storage->data = nullptr;
             src_storage->size = 0;
-            src_storage->capacity = 0;
         }
     }
 
@@ -691,7 +696,7 @@ struct ListOps {
             do_resize(dst, src_len, schema);
             auto* storage = static_cast<DynamicListStorage*>(dst);
             for (size_t i = 0; i < src_len; ++i) {
-                void* elem_ptr = static_cast<char*>(storage->data) + i * elem_type->size;
+                void* elem_ptr = static_cast<char*>(storage->data_ptr()) + i * elem_type->size;
                 if (elem_type && elem_type->ops && elem_type->ops->from_python) {
                     elem_type->ops->from_python(elem_ptr, seq[i], elem_type);
                 }
@@ -763,50 +768,36 @@ struct ListOps {
         if (new_size == storage->size) return;
 
         if (new_size < storage->size) {
-            // Shrinking: destruct excess elements
+            // Shrinking: destruct excess elements (keep vector capacity)
             for (size_t i = new_size; i < storage->size; ++i) {
-                void* elem_ptr = static_cast<char*>(storage->data) + i * elem_size;
+                void* elem_ptr = static_cast<char*>(storage->data_ptr()) + i * elem_size;
                 if (elem_type && elem_type->ops && elem_type->ops->destruct) {
                     elem_type->ops->destruct(elem_ptr, elem_type);
                 }
             }
             storage->size = new_size;
         } else {
-            // Growing: may need to reallocate
-            if (new_size > storage->capacity) {
-                // Calculate new capacity (at least double, or new_size)
-                size_t new_capacity = std::max(storage->capacity * 2, new_size);
-                void* new_data = std::malloc(new_capacity * elem_size);
+            // Growing: resize vector if needed, then construct new elements
+            size_t new_byte_size = new_size * elem_size;
+            size_t current_byte_capacity = storage->data.capacity();
 
-                if (!new_data) {
-                    throw std::bad_alloc();
-                }
+            if (new_byte_size > current_byte_capacity) {
+                // Need more capacity - use growth strategy (at least double)
+                size_t current_elem_capacity = elem_size > 0 ? current_byte_capacity / elem_size : 0;
+                size_t new_capacity = std::max(current_elem_capacity * 2, new_size);
 
-                // Move existing elements to new buffer
-                if (storage->data && elem_type) {
-                    for (size_t i = 0; i < storage->size; ++i) {
-                        void* dst_elem = static_cast<char*>(new_data) + i * elem_size;
-                        void* src_elem = static_cast<char*>(storage->data) + i * elem_size;
-                        if (elem_type->ops && elem_type->ops->construct) {
-                            elem_type->ops->construct(dst_elem, elem_type);
-                        }
-                        if (elem_type->ops && elem_type->ops->move_assign) {
-                            elem_type->ops->move_assign(dst_elem, src_elem, elem_type);
-                        }
-                        if (elem_type->ops && elem_type->ops->destruct) {
-                            elem_type->ops->destruct(src_elem, elem_type);
-                        }
-                    }
-                    std::free(storage->data);
-                }
+                // Reserve new capacity and resize to required size
+                storage->data.reserve(new_capacity * elem_size);
+            }
 
-                storage->data = new_data;
-                storage->capacity = new_capacity;
+            // Ensure vector has enough bytes for all elements
+            if (storage->data.size() < new_byte_size) {
+                storage->data.resize(new_byte_size);
             }
 
             // Construct new elements
             for (size_t i = storage->size; i < new_size; ++i) {
-                void* elem_ptr = static_cast<char*>(storage->data) + i * elem_size;
+                void* elem_ptr = static_cast<char*>(storage->data_ptr()) + i * elem_size;
                 if (elem_type && elem_type->ops && elem_type->ops->construct) {
                     elem_type->ops->construct(elem_ptr, elem_type);
                 }

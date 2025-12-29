@@ -766,7 +766,7 @@ static void register_list_views(nb::module_& m) {
             } else {
                 // Dynamic list: data in DynamicListStorage
                 auto* storage = static_cast<DynamicListStorage*>(const_cast<void*>(self.data()));
-                data_ptr = storage->data;
+                data_ptr = storage->data_ptr();
             }
 
             if (!data_ptr) {
