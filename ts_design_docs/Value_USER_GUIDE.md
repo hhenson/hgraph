@@ -19,6 +19,7 @@
    - [7.2 Maps](#72-maps)
    - [7.3 KeySet - Read-Only View Over Map Keys](#73-keyset---read-only-view-over-map-keys)
    - [7.4 Set vs KeySet Comparison](#74-set-vs-keyset-comparison)
+   - [7.5 CyclicBuffer and Queue Types](#75-cyclicbuffer-and-queue-types)
 8. [Visiting Values](#8-visiting-values)
 9. [Deep Traversal of Nested Structures](#9-deep-traversal-of-nested-structures)
 10. [Path-Based Access](#10-path-based-access)
@@ -55,6 +56,8 @@ The view system provides specialized views based on type characteristics:
 | `SetView` | Unique elements | `contains()`, `insert()`, `erase()` |
 | `MapView` | Key-value pairs | `at(key)`, `operator[]`, `contains()`, `keys()` |
 | `ConstKeySetView` | Read-only view of map keys | `contains()`, `size()`, iteration |
+| `CyclicBufferView` | Fixed-size circular buffer | `at(index)`, `push_back()`, `front()`, `back()` |
+| `QueueView` | FIFO queue with optional max | `at(index)`, `push_back()`, `pop_front()` |
 
 ```cpp
 // Query type and get specialized view
@@ -521,6 +524,139 @@ if apple_key.const_view() in key_set:
 | `__contains__` | ✓ | ✓ |
 | `insert()` | ✓ (via SetView) | ✗ (read-only) |
 | `erase()` | ✓ (via SetView) | ✗ (read-only) |
+
+### 7.5 CyclicBuffer and Queue Types
+
+**Implementation**: `cpp/include/hgraph/types/value/cyclic_buffer_ops.h`, `indexed_view.h`
+
+CyclicBuffer and Queue are window-like data structures for managing collections with special access patterns:
+
+| Type | Description | Capacity | When Full |
+|------|-------------|----------|-----------|
+| **CyclicBuffer** | Fixed-size circular buffer | Fixed at creation | Oldest element evicted |
+| **Queue** | FIFO queue | Optional max capacity | Acts like CyclicBuffer if bounded |
+
+#### CyclicBuffer
+
+A fixed-size circular buffer that re-centers on read. Logical index 0 always refers to the oldest element.
+
+```cpp
+// Create a cyclic buffer of integers with capacity 5
+auto cb_schema = TypeRegistry::instance()
+    .cyclic_buffer(scalar_type_meta<int64_t>(), 5)
+    .build();
+
+Value buffer(cb_schema);
+CyclicBufferView cbv = buffer.as_cyclic_buffer();
+
+// Push elements
+cbv.push_back(Value(10));  // Buffer: [10]
+cbv.push_back(Value(20));  // Buffer: [10, 20]
+cbv.push_back(Value(30));  // Buffer: [10, 20, 30]
+
+// Access elements (logical order: oldest first)
+ConstValueView oldest = cbv.front();  // 10
+ConstValueView newest = cbv.back();   // 30
+ConstValueView second = cbv[1];       // 20
+
+// Check capacity
+size_t cap = cbv.capacity();  // 5
+bool is_full = cbv.full();    // false (size=3, capacity=5)
+
+// When full, oldest element is evicted
+cbv.push_back(Value(40));
+cbv.push_back(Value(50));  // Buffer now full: [10, 20, 30, 40, 50]
+cbv.push_back(Value(60));  // Evicts 10: [20, 30, 40, 50, 60]
+
+// Logical indexing always gives oldest-first order
+cbv[0].as<int64_t>();  // 20 (oldest)
+cbv[4].as<int64_t>();  // 60 (newest)
+
+// Iterate in logical order
+for (ConstValueView elem : cbv) {
+    std::cout << elem.as<int64_t>() << " ";  // Prints: 20 30 40 50 60
+}
+
+// Clear the buffer
+cbv.clear();
+```
+
+#### Queue (Partial Implementation)
+
+A FIFO queue with optional maximum capacity. When unbounded, it can grow without limit.
+When bounded, it behaves like a CyclicBuffer when full.
+
+```cpp
+// Create an unbounded queue
+auto queue_schema = TypeRegistry::instance()
+    .queue(scalar_type_meta<int64_t>())
+    .build();
+
+// Create a bounded queue with max capacity 100
+auto bounded_schema = TypeRegistry::instance()
+    .queue(scalar_type_meta<int64_t>())
+    .max_capacity(100)
+    .build();
+
+Value q(queue_schema);
+QueueView qv = q.as_queue();
+
+// Check capacity
+size_t max = qv.max_capacity();      // 0 = unbounded
+bool bounded = qv.has_max_capacity(); // false
+
+// Note: push_back() and pop_front() are planned but not yet implemented
+// Currently Queue uses CyclicBuffer operations as a placeholder
+```
+
+#### Python Usage
+
+```python
+from hgraph._hgraph import value
+
+# Create a cyclic buffer
+int_schema = value.scalar_type_meta_int64()
+cb_schema = value.TypeRegistry.instance().cyclic_buffer(int_schema, 5).build()
+
+buf = value.PlainValue(cb_schema)
+cbv = buf.view().as_cyclic_buffer()
+
+# Push values
+for i in range(7):
+    elem = value.PlainValue(int_schema)
+    elem.set_int(i * 10)
+    cbv.push_back(elem.const_view())
+
+# Buffer contains [20, 30, 40, 50, 60] (evicted 0, 10)
+print(f"Size: {len(cbv)}, Capacity: {cbv.capacity()}, Full: {cbv.full()}")
+
+# Access elements
+print(f"Oldest: {cbv.front().as_int()}")  # 20
+print(f"Newest: {cbv.back().as_int()}")   # 60
+
+# Convert to numpy (copies in logical order)
+import numpy as np
+arr = cbv.to_numpy()  # numpy array: [20, 30, 40, 50, 60]
+print(f"Type: {arr.dtype}, Values: {arr}")
+
+# Convert to Python list
+py_list = buf.const_view().to_python()  # [20, 30, 40, 50, 60]
+
+# Iterate
+for elem in buf.const_view().as_cyclic_buffer():
+    print(elem.as_int())
+```
+
+#### CyclicBuffer vs List Comparison
+
+| Feature | CyclicBuffer | List (Dynamic) | List (Fixed) |
+|---------|--------------|----------------|--------------|
+| Size | Fixed capacity | Grows dynamically | Fixed at creation |
+| `push_back()` | Evicts oldest if full | Always appends | Not supported |
+| `pop_back()` | Not supported | Removes last | Not supported |
+| Index 0 | Oldest element | First inserted | First position |
+| Memory | Pre-allocated | May reallocate | Pre-allocated |
+| `to_numpy()` | Returns copy (re-centered) | Zero-copy possible | Zero-copy possible |
 
 ---
 

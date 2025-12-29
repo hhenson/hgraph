@@ -204,8 +204,28 @@ inline void deep_visit_impl(
             break;
         }
 
+        case TypeKind::CyclicBuffer: {
+            auto buf = view.as_cyclic_buffer();
+            for (size_t i = 0; i < buf.size(); ++i) {
+                path.push_back(i);
+                deep_visit_impl(buf[i], path, callback);
+                path.pop_back();
+            }
+            break;
+        }
+
+        case TypeKind::Queue: {
+            auto queue = view.as_queue();
+            for (size_t i = 0; i < queue.size(); ++i) {
+                path.push_back(i);
+                deep_visit_impl(queue[i], path, callback);
+                path.pop_back();
+            }
+            break;
+        }
+
         default:
-            // Window, Ref, or future types - no traversal
+            // Ref or future types - no traversal
             break;
     }
 }
@@ -354,6 +374,26 @@ inline void deep_visit_mut_impl(
                 deep_visit_mut_impl(mut_value, path, callback);
                 path.pop_back();
                 ++i;
+            }
+            break;
+        }
+
+        case TypeKind::CyclicBuffer: {
+            auto buf = view.as_cyclic_buffer();
+            for (size_t i = 0; i < buf.size(); ++i) {
+                path.push_back(i);
+                deep_visit_mut_impl(buf.at(i), path, callback);
+                path.pop_back();
+            }
+            break;
+        }
+
+        case TypeKind::Queue: {
+            auto queue = view.as_queue();
+            for (size_t i = 0; i < queue.size(); ++i) {
+                path.push_back(i);
+                deep_visit_mut_impl(queue.at(i), path, callback);
+                path.pop_back();
             }
             break;
         }

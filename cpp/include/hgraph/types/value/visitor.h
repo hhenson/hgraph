@@ -9,7 +9,7 @@
  *
  * Key design principles:
  * - No static dependency on specific scalar types
- * - Dispatch based on TypeKind (Scalar, Tuple, Bundle, List, Set, Map)
+ * - Dispatch based on TypeKind (Scalar, Tuple, Bundle, List, Set, Map, CyclicBuffer, Queue)
  * - Scalar values are passed as ConstValueView - caller can check type if needed
  * - Overloaded handlers combined into single visitor
  *
@@ -73,6 +73,8 @@ overloaded(Fs...) -> overloaded<Fs...>;
  * - List: ConstListView
  * - Set: ConstSetView
  * - Map: ConstMapView
+ * - CyclicBuffer: ConstCyclicBufferView
+ * - Queue: ConstQueueView
  *
  * A handler accepting ConstValueView can serve as a catch-all for unhandled types.
  *
@@ -98,6 +100,10 @@ auto visit(ConstValueView view, Handlers&&... handlers) {
             return visitor(view.as_set());
         case TypeKind::Map:
             return visitor(view.as_map());
+        case TypeKind::CyclicBuffer:
+            return visitor(view.as_cyclic_buffer());
+        case TypeKind::Queue:
+            return visitor(view.as_queue());
         default:
             return visitor(view);  // Fall back to ConstValueView handler
     }
@@ -123,6 +129,10 @@ auto visit(ValueView view, Handlers&&... handlers) {
             return visitor(view.as_set());
         case TypeKind::Map:
             return visitor(view.as_map());
+        case TypeKind::CyclicBuffer:
+            return visitor(view.as_cyclic_buffer());
+        case TypeKind::Queue:
+            return visitor(view.as_queue());
         default:
             return visitor(view);
     }
@@ -186,6 +196,18 @@ struct WhenCase {
                     handler(view.as_map());
                 } else {
                     result = handler(view.as_map());
+                }
+            } else if constexpr (K == TypeKind::CyclicBuffer) {
+                if constexpr (std::is_void_v<R>) {
+                    handler(view.as_cyclic_buffer());
+                } else {
+                    result = handler(view.as_cyclic_buffer());
+                }
+            } else if constexpr (K == TypeKind::Queue) {
+                if constexpr (std::is_void_v<R>) {
+                    handler(view.as_queue());
+                } else {
+                    result = handler(view.as_queue());
                 }
             }
             return true;

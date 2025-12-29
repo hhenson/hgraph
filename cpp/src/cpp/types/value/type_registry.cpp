@@ -2,6 +2,7 @@
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/composite_ops.h>
 #include <hgraph/types/value/cyclic_buffer_ops.h>
+#include <hgraph/types/value/queue_ops.h>
 
 namespace hgraph::value {
 
@@ -309,15 +310,13 @@ const TypeMeta* CyclicBufferTypeBuilder::build() {
 // ============================================================================
 
 const TypeMeta* QueueTypeBuilder::build() {
-    // For now, queue uses the same storage as cyclic buffer
-    // TODO: Implement proper QueueOps when queue_ops.h is created
     auto meta = std::make_unique<TypeMeta>();
     meta->kind = TypeKind::Queue;
     meta->flags = TypeFlags::None;
     meta->field_count = 0;
-    meta->size = sizeof(CyclicBufferStorage);  // Temporary, use queue-specific storage later
-    meta->alignment = alignof(CyclicBufferStorage);
-    meta->ops = CyclicBufferOps::ops();  // Temporary, use QueueOps later
+    meta->size = sizeof(QueueStorage);
+    meta->alignment = alignof(QueueStorage);
+    meta->ops = QueueOps::ops();
     meta->element_type = _element_type;
     meta->key_type = nullptr;
     meta->fields = nullptr;

@@ -21,6 +21,7 @@
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/composite_ops.h>
 #include <hgraph/types/value/cyclic_buffer_ops.h>
+#include <hgraph/types/value/queue_ops.h>
 
 #include <cstddef>
 #include <iterator>
@@ -1656,6 +1657,18 @@ inline QueueView ValueView::as_queue() {
 
 inline void CyclicBufferView::push_back(const ConstValueView& value) {
     CyclicBufferOps::push_back(data(), value.data(), _schema);
+}
+
+// ============================================================================
+// QueueView Operations Implementation
+// ============================================================================
+
+inline void QueueView::push_back(const ConstValueView& value) {
+    QueueOps::push_back(data(), value.data(), _schema);
+}
+
+inline void QueueView::pop_front() {
+    QueueOps::pop_front(data(), _schema);
 }
 
 // ============================================================================

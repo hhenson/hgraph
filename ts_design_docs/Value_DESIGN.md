@@ -1,7 +1,7 @@
 # Value Type System - Comprehensive Design Document
 
-**Version**: 1.0
-**Date**: 2025-12-27
+**Version**: 1.1
+**Date**: 2025-12-29
 **Branch**: `ts_value_25`
 **Status**: Design
 
@@ -43,6 +43,8 @@ runtime values in the hgraph C++ runtime, supporting:
 - Lists (indexed collections)
 - Maps (key-value pairs)
 - Sets (unique elements)
+- CyclicBuffers (fixed-size circular buffers)
+- Queues (FIFO queues with optional max capacity)
 
 The schema defines the type, operations, and memory layout. Values can be accessed at various levels of nesting through
 the View abstraction.
@@ -81,14 +83,15 @@ The schema (TypeMeta) describes the type, its size, alignment, and available ope
 namespace hgraph::value {
 
 enum class TypeKind : uint8_t {
-    Scalar,   // Atomic values: int, double, bool, string, datetime
-    Tuple,    // Indexed heterogeneous collection (unnamed, positional access only)
-    Bundle,   // Named field collection (struct-like, index + name access)
-    List,     // Indexed homogeneous collection (dynamic size)
-    Set,      // Unordered unique elements
-    Map,      // Key-value pairs
-    Window,   // Time-based sliding window (future)
-    Ref       // Reference to another time-series (future)
+    Scalar,       // Atomic values: int, double, bool, string, datetime
+    Tuple,        // Indexed heterogeneous collection (unnamed, positional access only)
+    Bundle,       // Named field collection (struct-like, index + name access)
+    List,         // Indexed homogeneous collection (dynamic size)
+    Set,          // Unordered unique elements
+    Map,          // Key-value pairs
+    CyclicBuffer, // Fixed-size circular buffer (re-centers on read)
+    Queue,        // FIFO queue with optional max capacity
+    Ref           // Reference to another time-series (future)
 };
 
 enum class TypeFlags : uint32_t {
@@ -152,6 +155,8 @@ public:
     ListTypeBuilder fixed_list(const TypeMeta* element_type, size_t size);  // Fixed size (pre-allocated)
     SetTypeBuilder set(const TypeMeta* element_type);
     MapTypeBuilder map(const TypeMeta* key_type, const TypeMeta* value_type);
+    CyclicBufferTypeBuilder cyclic_buffer(const TypeMeta* element_type, size_t capacity);  // Fixed-size circular buffer
+    QueueTypeBuilder queue(const TypeMeta* element_type);  // FIFO queue with optional max capacity
 
     // Named bundle support (tuples are always unnamed)
     // Named bundles can be retrieved by name after registration
@@ -537,20 +542,25 @@ the type kind and obtain specialized views that expose type-appropriate operatio
 
 ```
 ConstValueView (base)
-├── Type queries: is_scalar(), is_tuple(), is_bundle(), is_list(), is_set(), is_map()
-├── Conversion: as_tuple(), as_bundle(), as_list(), as_set(), as_map()
+├── Type queries: is_scalar(), is_tuple(), is_bundle(), is_list(), is_set(), is_map(),
+│                 is_cyclic_buffer(), is_queue()
+├── Conversion: as_tuple(), as_bundle(), as_list(), as_set(), as_map(),
+│               as_cyclic_buffer(), as_queue()
 │
 ├── ConstIndexedView (for positional access)
 │   ├── ConstTupleView (heterogeneous, index-only access, always unnamed)
 │   ├── ConstBundleView (struct-like, named + indexed fields)
-│   └── ConstListView (homogeneous indexed collection, fixed or dynamic size)
+│   ├── ConstListView (homogeneous indexed collection, fixed or dynamic size)
+│   ├── ConstCyclicBufferView (fixed-size circular buffer, re-centers on read)
+│   └── ConstQueueView (FIFO queue with optional max capacity)
 │
 ├── ConstSetView (unique elements)
 │
 └── ConstMapView (key-value pairs)
 
 ValueView (mutable base, extends ConstValueView)
-├── IndexedView, TupleView, BundleView, ListView, SetView, MapView (mutable versions)
+├── IndexedView, TupleView, BundleView, ListView, SetView, MapView,
+│   CyclicBufferView, QueueView (mutable versions)
 ```
 
 ### 6.2 Value (Owning Storage)
@@ -1379,6 +1389,8 @@ struct ValueVisitor {
     virtual R visit_list(ValueView list, const TypeMeta* schema) { return unhandled(); }
     virtual R visit_set(ValueView set, const TypeMeta* schema) { return unhandled(); }
     virtual R visit_map(ValueView map, const TypeMeta* schema) { return unhandled(); }
+    virtual R visit_cyclic_buffer(ValueView buf, const TypeMeta* schema) { return unhandled(); }
+    virtual R visit_queue(ValueView queue, const TypeMeta* schema) { return unhandled(); }
 
 protected:
     virtual R unhandled() {
@@ -1402,6 +1414,10 @@ R visit(ValueView view, Visitor&& visitor) {
             return visitor.visit_set(view, schema);
         case TypeKind::Map:
             return visitor.visit_map(view, schema);
+        case TypeKind::CyclicBuffer:
+            return visitor.visit_cyclic_buffer(view, schema);
+        case TypeKind::Queue:
+            return visitor.visit_queue(view, schema);
         default:
             throw std::runtime_error("Unknown type kind");
     }
@@ -1443,6 +1459,20 @@ public:
         size_t n = schema->ops->size(list.data(), schema);
         for (size_t i = 0; i < n; ++i) {
             visit(list.get_at(i), *this);
+        }
+    }
+
+    void visit_cyclic_buffer(ValueView buf, const TypeMeta* schema) override {
+        size_t n = schema->ops->size(buf.data(), schema);
+        for (size_t i = 0; i < n; ++i) {
+            visit(buf.get_at(i), *this);
+        }
+    }
+
+    void visit_queue(ValueView queue, const TypeMeta* schema) override {
+        size_t n = schema->ops->size(queue.data(), schema);
+        for (size_t i = 0; i < n; ++i) {
+            visit(queue.get_at(i), *this);
         }
     }
 
@@ -1745,7 +1775,7 @@ target_link_libraries(hgraph PRIVATE EnTT::EnTT)
 
 | Category | Tests | Coverage |
 |----------|-------|----------|
-| TypeMeta construction | 5 | Scalar, Bundle, List, Set, Map |
+| TypeMeta construction | 5 | Scalar, Bundle, List, Set, Map, CyclicBuffer, Queue |
 | Value construction | 6 | Default, scalar, composite |
 | `as<T>()` access | 7 | Read, write, type mismatch |
 | View creation | 4 | Value->View, const correctness |
@@ -1753,6 +1783,8 @@ target_link_libraries(hgraph PRIVATE EnTT::EnTT)
 | Comparison ops | 4 | equals, less_than, hash |
 | Composite navigation | 6 | Bundle fields, List indexing |
 | Python interop | 4 | to_python, from_python |
+| CyclicBuffer | 28 | Creation, push, eviction, iteration, numpy |
+| Queue | TBD | Creation, push, pop, iteration |
 
 ### 11.2 Test File Location
 
@@ -1764,7 +1796,9 @@ hgraph_unit_tests/_types/_value/
 ├── test_bundle.py
 ├── test_list.py
 ├── test_set.py
-└── test_map.py
+├── test_map.py
+├── test_value_cyclic_buffer.py
+└── test_value_queue.py
 ```
 
 ### 11.3 Example Test Cases

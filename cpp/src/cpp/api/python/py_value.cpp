@@ -1163,8 +1163,12 @@ static void register_queue_views(nb::module_& m) {
             "Get the max capacity (0 = unbounded)")
         .def("has_max_capacity", &QueueView::has_max_capacity,
             "Check if the queue has a max capacity")
+        .def("push_back", [](QueueView& self, const ConstValueView& value) {
+            self.push_back(value);
+        }, "value"_a, "Push a value to the back of the queue")
+        .def("pop_front", &QueueView::pop_front,
+            "Remove and discard the front element")
         .def("clear", &QueueView::clear, "Clear all elements");
-    // Note: push_back and pop_front are not yet implemented in QueueView
 }
 
 // ============================================================================
