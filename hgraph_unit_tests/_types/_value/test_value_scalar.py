@@ -230,17 +230,15 @@ def test_as_string_returns_correct_value(string_value):
     assert string_value.as_string() == "hello"
 
 
-@pytest.mark.skip(reason="try_as_* methods not yet implemented")
 def test_try_as_returns_value_on_match(int_value):
     """try_as_int() returns the value when types match."""
-    result = int_value.try_as_int()
+    result = int_value.const_view().try_as_int()
     assert result == 42
 
 
-@pytest.mark.skip(reason="try_as_* methods not yet implemented")
 def test_try_as_returns_none_on_mismatch(int_value):
     """try_as_double() returns None when called on int."""
-    result = int_value.try_as_double()
+    result = int_value.const_view().try_as_double()
     assert result is None
 
 
@@ -392,7 +390,6 @@ def test_hash_returns_int():
 # Section 3.6: Value Cloning
 # =============================================================================
 
-@pytest.mark.skip(reason="clone() not yet implemented on views")
 def test_clone_int_value():
     """Cloning creates a new Value with same content."""
     v = Value(42)
@@ -400,7 +397,6 @@ def test_clone_int_value():
     assert cloned.as_int() == 42
 
 
-@pytest.mark.skip(reason="clone() not yet implemented on views")
 def test_clone_is_independent():
     """Cloned value is independent of original."""
     v = Value(42)
@@ -409,15 +405,13 @@ def test_clone_is_independent():
     assert cloned.as_int() == 42  # Unchanged
 
 
-@pytest.mark.skip(reason="clone() not yet implemented on views")
 def test_clone_from_mutable_view():
     """clone() works on ValueView too."""
     v = Value(42)
-    clone = v.clone()
+    clone = v.const_view().clone()
     assert clone.as_int() == 42
 
 
-@pytest.mark.skip(reason="clone() not yet implemented on views")
 def test_clone_string_value(string_value):
     """Cloning string values works correctly."""
     clone = string_value.const_view().clone()
@@ -446,11 +440,10 @@ def test_type_mismatch_message_is_informative():
         assert "type" in str(e).lower() or "mismatch" in str(e).lower()
 
 
-@pytest.mark.skip(reason="try_as_* methods not yet implemented")
 def test_try_as_safe_on_mismatch():
     """try_as returns None instead of throwing on mismatch."""
     int_value = Value(42)
-    result = int_value.try_as_double()
+    result = int_value.const_view().try_as_double()
     assert result is None
 
 

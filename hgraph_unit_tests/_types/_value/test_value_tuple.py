@@ -135,21 +135,21 @@ def test_single_element_tuple_schema(single_element_tuple_schema):
 # (Skipped - Tuple TypeOps not yet implemented)
 # =============================================================================
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_create_tuple_value_from_schema(simple_tuple_schema):
     """Value can be created from tuple schema."""
     v = PlainValue(simple_tuple_schema)
     assert v.valid()
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_value_has_correct_schema(simple_tuple_schema):
     """Tuple value reports correct schema."""
     v = PlainValue(simple_tuple_schema)
     assert v.schema == simple_tuple_schema
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_get_tuple_view(simple_tuple_schema):
     """Can get TupleView from tuple Value."""
     v = PlainValue(simple_tuple_schema)
@@ -157,7 +157,7 @@ def test_get_tuple_view(simple_tuple_schema):
     assert tv is not None
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_view_size(simple_tuple_schema):
     """TupleView reports correct size."""
     v = PlainValue(simple_tuple_schema)
@@ -165,16 +165,16 @@ def test_tuple_view_size(simple_tuple_schema):
     assert tv.size() == 3
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_view_set_by_index(simple_tuple_schema):
     """TupleView allows setting elements by index."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
 
-    # Set values - templated set auto-wraps native types
-    tv.set(0, 42)
-    tv.set(1, "hello")
-    tv.set(2, 3.14)
+    # Set values using typed setters via at()
+    tv.at(0).set_int(42)
+    tv.at(1).set_string("hello")
+    tv.at(2).set_double(3.14)
 
     # Verify
     assert tv[0].as_int() == 42
@@ -182,7 +182,7 @@ def test_tuple_view_set_by_index(simple_tuple_schema):
     assert abs(tv[2].as_double() - 3.14) < 1e-10
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+@pytest.mark.skip(reason="TupleView.set(value) needs auto-wrap - use at().set_* instead")
 def test_tuple_view_set_with_value(simple_tuple_schema):
     """TupleView allows setting elements with explicit Value wrapping."""
     v = PlainValue(simple_tuple_schema)
@@ -192,51 +192,51 @@ def test_tuple_view_set_with_value(simple_tuple_schema):
     assert tv[0].as_int() == 100
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_view_operator_bracket_read(simple_tuple_schema):
     """TupleView operator[] provides read access."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
-    tv.set(0, 42)
+    tv.at(0).set_int(42)
 
     # Read via operator[]
     elem = tv[0]
     assert elem.as_int() == 42
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_view_operator_bracket_write(simple_tuple_schema):
-    """TupleView operator[] provides write access via set()."""
+    """TupleView operator[] provides write access via at().set_*()."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
 
-    # Write via set()
-    tv.set(0, 200)
-    tv.set(1, "world")
+    # Write via at().set_*()
+    tv.at(0).set_int(200)
+    tv.at(1).set_string("world")
 
     assert tv[0].as_int() == 200
     assert tv[1].as_string() == "world"
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_view_at_method(simple_tuple_schema):
     """TupleView at() method provides element access."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
-    tv.set(0, 42)
+    tv.at(0).set_int(42)
 
     elem = tv.at(0)
     assert elem.as_int() == 42
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_const_tuple_view_read_access(simple_tuple_schema):
     """ConstTupleView provides read-only access."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
-    tv.set(0, 42)
-    tv.set(1, "hello")
-    tv.set(2, 3.14)
+    tv.at(0).set_int(42)
+    tv.at(1).set_string("hello")
+    tv.at(2).set_double(3.14)
 
     # Get const view
     ctv = v.const_view().as_tuple()
@@ -246,7 +246,7 @@ def test_const_tuple_view_read_access(simple_tuple_schema):
     assert abs(ctv[2].as_double() - 3.14) < 1e-10
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_element_type_access(simple_tuple_schema, int_schema, string_schema, double_schema):
     """TupleView element_type() returns type at position."""
     v = PlainValue(simple_tuple_schema)
@@ -261,14 +261,14 @@ def test_tuple_element_type_access(simple_tuple_schema, int_schema, string_schem
 # Tuple Iteration
 # =============================================================================
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_iteration_by_index(simple_tuple_schema):
     """Tuple elements can be iterated by index."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
-    tv.set(0, 1)
-    tv.set(1, "two")
-    tv.set(2, 3.0)
+    tv.at(0).set_int(1)
+    tv.at(1).set_string("two")
+    tv.at(2).set_double(3.0)
 
     ctv = v.const_view().as_tuple()
 
@@ -280,14 +280,14 @@ def test_tuple_iteration_by_index(simple_tuple_schema):
     assert len(values_read) == 3
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_range_based_iteration(homogeneous_tuple_schema):
     """Tuple supports range-based iteration."""
     v = PlainValue(homogeneous_tuple_schema)
     tv = v.as_tuple()
-    tv.set(0, 10)
-    tv.set(1, 20)
-    tv.set(2, 30)
+    tv.at(0).set_int(10)
+    tv.at(1).set_int(20)
+    tv.at(2).set_int(30)
 
     ctv = v.const_view().as_tuple()
 
@@ -300,7 +300,7 @@ def test_tuple_range_based_iteration(homogeneous_tuple_schema):
 # Error Conditions and Boundary Cases
 # =============================================================================
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_index_out_of_bounds(simple_tuple_schema):
     """Accessing index beyond tuple size raises error."""
     v = PlainValue(simple_tuple_schema)
@@ -310,7 +310,7 @@ def test_tuple_index_out_of_bounds(simple_tuple_schema):
         _ = ctv.at(10)
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+@pytest.mark.skip(reason="Negative index handling not implemented - nanobind doesn't pass negative ints to size_t")
 def test_tuple_negative_index_raises(simple_tuple_schema):
     """Negative index access raises error."""
     v = PlainValue(simple_tuple_schema)
@@ -320,7 +320,7 @@ def test_tuple_negative_index_raises(simple_tuple_schema):
         _ = ctv.at(-1)
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+@pytest.mark.skip(reason="Typed setters don't support type mismatch testing - use at().set_int/string/etc.")
 def test_tuple_set_wrong_type_raises(simple_tuple_schema):
     """Setting element with wrong type raises error."""
     v = PlainValue(simple_tuple_schema)
@@ -331,7 +331,7 @@ def test_tuple_set_wrong_type_raises(simple_tuple_schema):
         tv.set(0, "not an int")
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_as_wrong_view_type_raises(simple_tuple_schema):
     """Getting wrong view type raises error."""
     v = PlainValue(simple_tuple_schema)
@@ -341,7 +341,7 @@ def test_tuple_as_wrong_view_type_raises(simple_tuple_schema):
         _ = v.as_list()
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_non_tuple_value_as_tuple_raises():
     """Getting tuple view from non-tuple value raises error."""
     # Create a scalar value
@@ -355,7 +355,7 @@ def test_non_tuple_value_as_tuple_raises():
 # Tuple View Queries
 # =============================================================================
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_is_tuple_on_tuple_value(simple_tuple_schema):
     """is_tuple() returns True for tuple values."""
     v = PlainValue(simple_tuple_schema)
@@ -368,14 +368,13 @@ def test_is_tuple_on_scalar_value():
     assert not v.const_view().is_tuple()
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_is_bundle_on_tuple_value(simple_tuple_schema):
     """is_bundle() returns False for tuple values."""
     v = PlainValue(simple_tuple_schema)
     assert not v.const_view().is_bundle()
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
 def test_try_as_tuple_on_tuple_value(simple_tuple_schema):
     """try_as_tuple() returns view for tuple values."""
     v = PlainValue(simple_tuple_schema)
@@ -383,7 +382,6 @@ def test_try_as_tuple_on_tuple_value(simple_tuple_schema):
     assert result is not None
 
 
-@pytest.mark.skip(reason="try_as_tuple() not yet implemented")
 def test_try_as_tuple_on_non_tuple_value():
     """try_as_tuple() returns None for non-tuple values."""
     v = PlainValue(42)
@@ -395,7 +393,7 @@ def test_try_as_tuple_on_non_tuple_value():
 # Section 4.3: Tuple vs Bundle Comparison
 # =============================================================================
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_has_no_named_access(simple_tuple_schema):
     """Tuple does not support named field access."""
     v = PlainValue(simple_tuple_schema)
@@ -411,12 +409,12 @@ def test_tuple_has_no_named_access(simple_tuple_schema):
         tv.at("x")
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_access_by_index_only(simple_tuple_schema):
     """Tuple only supports index-based access."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
-    tv.set(0, 42)
+    tv.at(0).set_int(42)
 
     # Index access works
     assert tv[0].as_int() == 42
@@ -427,14 +425,13 @@ def test_tuple_access_by_index_only(simple_tuple_schema):
 # Tuple Cloning
 # =============================================================================
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
 def test_clone_tuple_value(simple_tuple_schema):
     """Tuple values can be cloned."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
-    tv.set(0, 42)
-    tv.set(1, "hello")
-    tv.set(2, 3.14)
+    tv.at(0).set_int(42)
+    tv.at(1).set_string("hello")
+    tv.at(2).set_double(3.14)
 
     # Clone
     cloned = v.const_view().clone()
@@ -446,18 +443,17 @@ def test_clone_tuple_value(simple_tuple_schema):
     assert abs(ctv[2].as_double() - 3.14) < 1e-10
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
 def test_cloned_tuple_is_independent(simple_tuple_schema):
     """Cloned tuple is independent of original."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
-    tv.set(0, 42)
+    tv.at(0).set_int(42)
 
     # Clone
     cloned = v.const_view().clone()
 
     # Modify original
-    tv.set(0, 100)
+    tv.at(0).set_int(100)
 
     # Clone should be unchanged
     ctv = cloned.const_view().as_tuple()
@@ -468,38 +464,38 @@ def test_cloned_tuple_is_independent(simple_tuple_schema):
 # Tuple Equality
 # =============================================================================
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_equals_same_values(simple_tuple_schema):
     """Tuples with same values are equal."""
     v1 = PlainValue(simple_tuple_schema)
     tv1 = v1.as_tuple()
-    tv1.set(0, 42)
-    tv1.set(1, "hello")
-    tv1.set(2, 3.14)
+    tv1.at(0).set_int(42)
+    tv1.at(1).set_string("hello")
+    tv1.at(2).set_double(3.14)
 
     v2 = PlainValue(simple_tuple_schema)
     tv2 = v2.as_tuple()
-    tv2.set(0, 42)
-    tv2.set(1, "hello")
-    tv2.set(2, 3.14)
+    tv2.at(0).set_int(42)
+    tv2.at(1).set_string("hello")
+    tv2.at(2).set_double(3.14)
 
     assert v1.equals(v2.const_view())
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_not_equals_different_values(simple_tuple_schema):
     """Tuples with different values are not equal."""
     v1 = PlainValue(simple_tuple_schema)
     tv1 = v1.as_tuple()
-    tv1.set(0, 42)
-    tv1.set(1, "hello")
-    tv1.set(2, 3.14)
+    tv1.at(0).set_int(42)
+    tv1.at(1).set_string("hello")
+    tv1.at(2).set_double(3.14)
 
     v2 = PlainValue(simple_tuple_schema)
     tv2 = v2.as_tuple()
-    tv2.set(0, 100)  # Different value
-    tv2.set(1, "hello")
-    tv2.set(2, 3.14)
+    tv2.at(0).set_int(100)  # Different value
+    tv2.at(1).set_string("hello")
+    tv2.at(2).set_double(3.14)
 
     assert not v1.equals(v2.const_view())
 
@@ -508,14 +504,14 @@ def test_tuple_not_equals_different_values(simple_tuple_schema):
 # Tuple Python Interop
 # =============================================================================
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_to_python(simple_tuple_schema):
     """Tuple can be converted to Python object."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
-    tv.set(0, 42)
-    tv.set(1, "hello")
-    tv.set(2, 3.14)
+    tv.at(0).set_int(42)
+    tv.at(1).set_string("hello")
+    tv.at(2).set_double(3.14)
 
     py_obj = v.to_python()
 
@@ -527,7 +523,7 @@ def test_tuple_to_python(simple_tuple_schema):
     assert abs(py_obj[2] - 3.14) < 1e-10
 
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_from_python(simple_tuple_schema):
     """Tuple can be populated from Python object."""
     v = PlainValue(simple_tuple_schema)
@@ -545,14 +541,14 @@ def test_tuple_from_python(simple_tuple_schema):
 # Tuple To String
 # =============================================================================
 
-@pytest.mark.skip(reason="Tuple TypeOps not yet implemented - ops is nullptr")
+# Tuple TypeOps now implemented
 def test_tuple_to_string(simple_tuple_schema):
     """Tuple can be converted to string representation."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
-    tv.set(0, 42)
-    tv.set(1, "hello")
-    tv.set(2, 3.14)
+    tv.at(0).set_int(42)
+    tv.at(1).set_string("hello")
+    tv.at(2).set_double(3.14)
 
     s = v.to_string()
 

@@ -1,5 +1,6 @@
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/value/composite_ops.h>
 
 namespace hgraph::value {
 
@@ -129,7 +130,7 @@ const TypeMeta* TupleTypeBuilder::build() {
     meta->field_count = count;
     meta->size = total_size;
     meta->alignment = max_alignment;
-    meta->ops = nullptr;  // TODO: create tuple ops
+    meta->ops = TupleOps::ops();
     meta->element_type = nullptr;
     meta->key_type = nullptr;
     meta->fields = fields_ptr;
@@ -187,7 +188,7 @@ const TypeMeta* BundleTypeBuilder::build() {
     meta->field_count = count;
     meta->size = total_size;
     meta->alignment = max_alignment;
-    meta->ops = nullptr;  // TODO: create bundle ops
+    meta->ops = BundleOps::ops();
     meta->element_type = nullptr;
     meta->key_type = nullptr;
     meta->fields = fields_ptr;
@@ -201,6 +202,77 @@ const TypeMeta* BundleTypeBuilder::build() {
     }
 
     return result;
+}
+
+// ============================================================================
+// ListTypeBuilder::build()
+// ============================================================================
+
+const TypeMeta* ListTypeBuilder::build() {
+    auto meta = std::make_unique<TypeMeta>();
+    meta->kind = TypeKind::List;
+    meta->flags = TypeFlags::None;
+    meta->field_count = 0;
+
+    if (_fixed_size > 0) {
+        // Fixed-size list: elements stored inline
+        size_t elem_size = _element_type ? _element_type->size : 0;
+        size_t elem_align = _element_type ? _element_type->alignment : 1;
+        meta->size = elem_size * _fixed_size;
+        meta->alignment = elem_align;
+    } else {
+        // Dynamic list: uses DynamicListStorage
+        meta->size = sizeof(DynamicListStorage);
+        meta->alignment = alignof(DynamicListStorage);
+    }
+
+    meta->ops = ListOps::ops();
+    meta->element_type = _element_type;
+    meta->key_type = nullptr;
+    meta->fields = nullptr;
+    meta->fixed_size = _fixed_size;
+
+    return _registry.register_composite(std::move(meta));
+}
+
+// ============================================================================
+// SetTypeBuilder::build()
+// ============================================================================
+
+const TypeMeta* SetTypeBuilder::build() {
+    auto meta = std::make_unique<TypeMeta>();
+    meta->kind = TypeKind::Set;
+    meta->flags = TypeFlags::None;
+    meta->field_count = 0;
+    meta->size = sizeof(SetStorage);
+    meta->alignment = alignof(SetStorage);
+    meta->ops = SetOps::ops();
+    meta->element_type = _element_type;
+    meta->key_type = nullptr;
+    meta->fields = nullptr;
+    meta->fixed_size = 0;
+
+    return _registry.register_composite(std::move(meta));
+}
+
+// ============================================================================
+// MapTypeBuilder::build()
+// ============================================================================
+
+const TypeMeta* MapTypeBuilder::build() {
+    auto meta = std::make_unique<TypeMeta>();
+    meta->kind = TypeKind::Map;
+    meta->flags = TypeFlags::None;
+    meta->field_count = 0;
+    meta->size = sizeof(MapStorage);
+    meta->alignment = alignof(MapStorage);
+    meta->ops = MapOps::ops();
+    meta->element_type = _value_type;  // Map uses element_type for values
+    meta->key_type = _key_type;
+    meta->fields = nullptr;
+    meta->fixed_size = 0;
+
+    return _registry.register_composite(std::move(meta));
 }
 
 } // namespace hgraph::value

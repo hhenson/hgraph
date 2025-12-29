@@ -259,11 +259,26 @@ static void register_const_value_view(nb::module_& m) {
         .def("as_set", &ConstValueView::as_set, "Get as a const set view (throws if not a set)")
         .def("as_map", &ConstValueView::as_map, "Get as a const map view (throws if not a map)")
 
+        // Safe composite type access (returns None if type mismatch)
+        .def("try_as_tuple", &ConstValueView::try_as_tuple,
+            "Try to get as a const tuple view (returns None if not a tuple)")
+        .def("try_as_bundle", &ConstValueView::try_as_bundle,
+            "Try to get as a const bundle view (returns None if not a bundle)")
+        .def("try_as_list", &ConstValueView::try_as_list,
+            "Try to get as a const list view (returns None if not a list)")
+        .def("try_as_set", &ConstValueView::try_as_set,
+            "Try to get as a const set view (returns None if not a set)")
+        .def("try_as_map", &ConstValueView::try_as_map,
+            "Try to get as a const map view (returns None if not a map)")
+
         // Operations
         .def("equals", &ConstValueView::equals, "other"_a, "Check equality with another view")
         .def("hash", &ConstValueView::hash, "Compute the hash of the value")
         .def("to_string", &ConstValueView::to_string, "Convert the value to a string")
         .def("to_python", &ConstValueView::to_python, "Convert the value to a Python object")
+        .def("clone", [](const ConstValueView& self) -> PlainValue {
+            return self.clone<NoCache>();
+        }, "Create a deep copy of this value")
 
         // Python special methods
         .def("__eq__", [](const ConstValueView& self, const ConstValueView& other) {
@@ -331,7 +346,14 @@ static void register_const_indexed_view(nb::module_& m) {
         .def("empty", &ConstIndexedView::empty, "Check if empty")
         .def("at", &ConstIndexedView::at, "index"_a, "Get element at index (const)")
         .def("__getitem__", &ConstIndexedView::operator[], "index"_a)
-        .def("__len__", &ConstIndexedView::size);
+        .def("__len__", &ConstIndexedView::size)
+        .def("__iter__", [](const ConstIndexedView& self) {
+            nb::list result;
+            for (size_t i = 0; i < self.size(); ++i) {
+                result.append(nb::cast(self[i]));
+            }
+            return nb::iter(result);
+        }, "Iterate over elements");
 }
 
 // ============================================================================
@@ -349,7 +371,14 @@ static void register_indexed_view(nb::module_& m) {
             "index"_a)
         .def("__len__", &IndexedView::size)
         .def("set", static_cast<void (IndexedView::*)(size_t, const ConstValueView&)>(&IndexedView::set),
-            "index"_a, "value"_a, "Set element at index from a view");
+            "index"_a, "value"_a, "Set element at index from a view")
+        .def("__iter__", [](IndexedView& self) {
+            nb::list result;
+            for (size_t i = 0; i < self.size(); ++i) {
+                result.append(nb::cast(self[i]));
+            }
+            return nb::iter(result);
+        }, "Iterate over elements");
 }
 
 // ============================================================================
@@ -375,33 +404,48 @@ static void register_tuple_views(nb::module_& m) {
 static void register_bundle_views(nb::module_& m) {
     nb::class_<ConstBundleView, ConstIndexedView>(m, "ConstBundleView",
         "Const view for bundle types (struct-like access)")
-        // Named field access
-        .def("at_name", static_cast<ConstValueView (ConstBundleView::*)(std::string_view) const>(
-            &ConstBundleView::at), "name"_a, "Get field by name")
-        .def("__getattr__", static_cast<ConstValueView (ConstBundleView::*)(std::string_view) const>(
-            &ConstBundleView::at), "name"_a)
+        // Named field access - use lambdas for std::string to std::string_view conversion
+        .def("at_name", [](const ConstBundleView& self, const std::string& name) {
+            return self.at(name);
+        }, "name"_a, "Get field by name")
+        .def("__getitem__", [](const ConstBundleView& self, const std::string& name) {
+            return self.at(name);
+        }, "name"_a)
         // Field metadata
         .def("field_count", &ConstBundleView::field_count, "Get the number of fields")
-        .def("has_field", &ConstBundleView::has_field, "name"_a, "Check if a field exists")
-        .def("field_index", &ConstBundleView::field_index, "name"_a,
-            "Get field index by name (returns size() if not found)");
+        .def("has_field", [](const ConstBundleView& self, const std::string& name) {
+            return self.has_field(name);
+        }, "name"_a, "Check if a field exists")
+        .def("field_index", [](const ConstBundleView& self, const std::string& name) {
+            return self.field_index(name);
+        }, "name"_a, "Get field index by name (returns size() if not found)");
 
     nb::class_<BundleView, IndexedView>(m, "BundleView",
         "Mutable view for bundle types")
         // Named field access (const)
-        .def("at_name", static_cast<ConstValueView (BundleView::*)(std::string_view) const>(
-            &BundleView::at), "name"_a, "Get field by name (const)")
+        .def("at_name", [](const BundleView& self, const std::string& name) {
+            return self.at(name);
+        }, "name"_a, "Get field by name (const)")
         // Named field access (mutable)
-        .def("at_name_mut", static_cast<ValueView (BundleView::*)(std::string_view)>(
-            &BundleView::at), "name"_a, "Get field by name (mutable)")
-        // Set by name
-        .def("set_name", static_cast<void (BundleView::*)(std::string_view, const ConstValueView&)>(
-            &BundleView::set), "name"_a, "value"_a, "Set field by name")
+        .def("at_name_mut", [](BundleView& self, const std::string& name) {
+            return self.at(name);
+        }, "name"_a, "Get field by name (mutable)")
+        // Set by name with ConstValueView
+        .def("set_name", [](BundleView& self, const std::string& name, const ConstValueView& value) {
+            self.set(name, value);
+        }, "name"_a, "value"_a, "Set field by name from ConstValueView")
+        // __getitem__ for indexing
+        .def("__getitem__", [](BundleView& self, const std::string& name) {
+            return self.at(name);
+        }, "name"_a)
         // Field metadata
         .def("field_count", &BundleView::field_count, "Get the number of fields")
-        .def("has_field", &BundleView::has_field, "name"_a, "Check if a field exists")
-        .def("field_index", &BundleView::field_index, "name"_a,
-            "Get field index by name (returns size() if not found)");
+        .def("has_field", [](const BundleView& self, const std::string& name) {
+            return self.has_field(name);
+        }, "name"_a, "Check if a field exists")
+        .def("field_index", [](const BundleView& self, const std::string& name) {
+            return self.field_index(name);
+        }, "name"_a, "Get field index by name (returns size() if not found)");
 }
 
 // ============================================================================
@@ -449,7 +493,24 @@ static void register_set_views(nb::module_& m) {
         .def("__contains__", static_cast<bool (ConstSetView::*)(const ConstValueView&) const>(
             &ConstSetView::contains), "value"_a)
         .def("element_type", &ConstSetView::element_type, nb::rv_policy::reference,
-            "Get the element type");
+            "Get the element type")
+        // Index-based element access (set elements can be accessed by index)
+        .def("__getitem__", [](const ConstSetView& self, size_t index) {
+            if (index >= self.size()) {
+                throw nb::index_error("set index out of range");
+            }
+            const void* elem = self.schema()->ops->get_at(self.data(), index, self.schema());
+            return ConstValueView(elem, self.schema()->element_type);
+        }, "index"_a, "Get element at index")
+        // Iteration support using index-based access
+        .def("__iter__", [](const ConstSetView& self) {
+            nb::list result;
+            for (size_t i = 0; i < self.size(); ++i) {
+                const void* elem = self.schema()->ops->get_at(self.data(), i, self.schema());
+                result.append(nb::cast(ConstValueView(elem, self.schema()->element_type)));
+            }
+            return nb::iter(result);
+        }, "Iterate over elements");
 
     nb::class_<SetView, ValueView>(m, "SetView",
         "Mutable view for set types")
@@ -466,7 +527,24 @@ static void register_set_views(nb::module_& m) {
             "value"_a, "Remove an element (returns true if removed)")
         .def("clear", &SetView::clear, "Clear all elements")
         .def("element_type", &SetView::element_type, nb::rv_policy::reference,
-            "Get the element type");
+            "Get the element type")
+        // Index-based element access
+        .def("__getitem__", [](SetView& self, size_t index) {
+            if (index >= self.size()) {
+                throw nb::index_error("set index out of range");
+            }
+            const void* elem = self.schema()->ops->get_at(self.data(), index, self.schema());
+            return ConstValueView(elem, self.schema()->element_type);
+        }, "index"_a, "Get element at index")
+        // Iteration support
+        .def("__iter__", [](SetView& self) {
+            nb::list result;
+            for (size_t i = 0; i < self.size(); ++i) {
+                const void* elem = self.schema()->ops->get_at(self.data(), i, self.schema());
+                result.append(nb::cast(ConstValueView(elem, self.schema()->element_type)));
+            }
+            return nb::iter(result);
+        }, "Iterate over elements");
 }
 
 // ============================================================================
@@ -488,7 +566,25 @@ static void register_map_views(nb::module_& m) {
         .def("__contains__", static_cast<bool (ConstMapView::*)(const ConstValueView&) const>(
             &ConstMapView::contains), "key"_a)
         .def("key_type", &ConstMapView::key_type, nb::rv_policy::reference, "Get the key type")
-        .def("value_type", &ConstMapView::value_type, nb::rv_policy::reference, "Get the value type");
+        .def("value_type", &ConstMapView::value_type, nb::rv_policy::reference, "Get the value type")
+        // Iteration support - iterate over keys (like Python dict)
+        .def("__iter__", [](const ConstMapView& self) {
+            // Use to_python() to get dict, then iterate over keys
+            nb::object py_dict = self.to_python();
+            return nb::iter(py_dict);
+        }, "Iterate over keys (like dict)")
+        .def("keys", [](const ConstMapView& self) {
+            nb::object py_dict = self.to_python();
+            return py_dict.attr("keys")();
+        }, "Get view of keys")
+        .def("values", [](const ConstMapView& self) {
+            nb::object py_dict = self.to_python();
+            return py_dict.attr("values")();
+        }, "Get view of values")
+        .def("items", [](const ConstMapView& self) {
+            nb::object py_dict = self.to_python();
+            return py_dict.attr("items")();
+        }, "Get view of (key, value) pairs");
 
     nb::class_<MapView, ValueView>(m, "MapView",
         "Mutable view for map types")
@@ -513,7 +609,24 @@ static void register_map_views(nb::module_& m) {
             "key"_a, "Remove entry by key (returns true if removed)")
         .def("clear", &MapView::clear, "Clear all entries")
         .def("key_type", &MapView::key_type, nb::rv_policy::reference, "Get the key type")
-        .def("value_type", &MapView::value_type, nb::rv_policy::reference, "Get the value type");
+        .def("value_type", &MapView::value_type, nb::rv_policy::reference, "Get the value type")
+        // Iteration support - iterate over keys (like Python dict)
+        .def("__iter__", [](MapView& self) {
+            nb::object py_dict = self.to_python();
+            return nb::iter(py_dict);
+        }, "Iterate over keys (like dict)")
+        .def("keys", [](MapView& self) {
+            nb::object py_dict = self.to_python();
+            return py_dict.attr("keys")();
+        }, "Get view of keys")
+        .def("values", [](MapView& self) {
+            nb::object py_dict = self.to_python();
+            return py_dict.attr("values")();
+        }, "Get view of values")
+        .def("items", [](MapView& self) {
+            nb::object py_dict = self.to_python();
+            return py_dict.attr("items")();
+        }, "Get view of (key, value) pairs");
 }
 
 // ============================================================================

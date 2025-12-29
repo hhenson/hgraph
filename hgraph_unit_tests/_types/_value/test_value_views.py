@@ -157,7 +157,6 @@ def test_is_tuple_for_scalar(int_value):
 # Composite Type Queries (skipped - TypeOps not implemented)
 # =============================================================================
 
-@pytest.mark.skip(reason="Composite TypeOps not yet implemented")
 def test_is_bundle_for_bundle_value(bundle_schema):
     """is_bundle() returns True for bundle values."""
     v = Value(bundle_schema)
@@ -165,7 +164,6 @@ def test_is_bundle_for_bundle_value(bundle_schema):
     assert cv.is_bundle() is True
 
 
-@pytest.mark.skip(reason="Composite TypeOps not yet implemented")
 def test_is_scalar_for_bundle(bundle_schema):
     """is_scalar() returns False for bundle values."""
     v = Value(bundle_schema)
@@ -173,7 +171,6 @@ def test_is_scalar_for_bundle(bundle_schema):
     assert cv.is_scalar() is False
 
 
-@pytest.mark.skip(reason="Composite TypeOps not yet implemented")
 def test_is_tuple_for_tuple_value(tuple_schema):
     """is_tuple() returns True for tuple values."""
     v = Value(tuple_schema)
@@ -181,7 +178,6 @@ def test_is_tuple_for_tuple_value(tuple_schema):
     assert cv.is_tuple() is True
 
 
-@pytest.mark.skip(reason="Composite TypeOps not yet implemented")
 def test_is_list_for_list_value(list_schema):
     """is_list() returns True for list values."""
     v = Value(list_schema)
@@ -275,7 +271,6 @@ def test_to_string_returns_str(int_value):
     assert s == "42"
 
 
-@pytest.mark.skip(reason="clone() not yet implemented on views")
 def test_clone_creates_owning_copy(int_value):
     """clone() creates an owning Value copy."""
     cv = int_value.const_view()
@@ -288,7 +283,6 @@ def test_clone_creates_owning_copy(int_value):
 # Safe View Conversions (try_as_* methods)
 # =============================================================================
 
-@pytest.mark.skip(reason="try_as_bundle() not yet implemented")
 def test_try_as_bundle_returns_none_for_scalar(int_value):
     """try_as_bundle() returns None for scalar values."""
     cv = int_value.const_view()
@@ -296,7 +290,6 @@ def test_try_as_bundle_returns_none_for_scalar(int_value):
     assert result is None
 
 
-@pytest.mark.skip(reason="try_as_list() not yet implemented")
 def test_try_as_list_returns_none_for_scalar(int_value):
     """try_as_list() returns None for scalar values."""
     cv = int_value.const_view()
@@ -304,7 +297,6 @@ def test_try_as_list_returns_none_for_scalar(int_value):
     assert result is None
 
 
-@pytest.mark.skip(reason="Composite TypeOps not yet implemented")
 def test_try_as_bundle_returns_view_for_bundle(bundle_schema):
     """try_as_bundle() returns ConstBundleView for bundle values."""
     v = Value(bundle_schema)
@@ -313,7 +305,6 @@ def test_try_as_bundle_returns_view_for_bundle(bundle_schema):
     assert result is not None
 
 
-@pytest.mark.skip(reason="Composite TypeOps not yet implemented")
 def test_try_as_tuple_returns_view_for_tuple(tuple_schema):
     """try_as_tuple() returns ConstTupleView for tuple values."""
     v = Value(tuple_schema)
@@ -342,7 +333,6 @@ def test_as_list_throws_for_scalar(int_value):
         cv.as_list()
 
 
-@pytest.mark.skip(reason="Composite TypeOps not yet implemented")
 def test_as_bundle_succeeds_for_bundle(bundle_schema):
     """as_bundle() succeeds for bundle values."""
     v = Value(bundle_schema)
@@ -437,7 +427,6 @@ def test_from_python_string():
 # ValueView Mutable Conversions (skipped - composite not implemented)
 # =============================================================================
 
-@pytest.mark.skip(reason="Composite TypeOps not yet implemented")
 def test_as_bundle_mutable(bundle_schema):
     """as_bundle() returns mutable BundleView."""
     v = Value(bundle_schema)
@@ -446,7 +435,6 @@ def test_as_bundle_mutable(bundle_schema):
     assert bv is not None
 
 
-@pytest.mark.skip(reason="Composite TypeOps not yet implemented")
 def test_try_as_bundle_mutable(bundle_schema):
     """try_as_bundle() returns mutable BundleView."""
     v = Value(bundle_schema)
@@ -518,7 +506,6 @@ def test_multiple_views_same_value():
     assert v2.as_int() == 100
 
 
-@pytest.mark.skip(reason="clone() not yet implemented")
 def test_clone_is_independent():
     """Cloned value is independent of original."""
     v = Value(42)

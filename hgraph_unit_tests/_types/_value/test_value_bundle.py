@@ -153,24 +153,21 @@ def test_empty_bundle_allowed(type_registry):
 
 # =============================================================================
 # Section 5.2: Creating and Accessing Bundle Values
-# (Skipped - Bundle TypeOps not yet implemented)
 # =============================================================================
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
 def test_create_bundle_value_from_schema(simple_bundle_schema):
     """Value can be created from bundle schema."""
     v = PlainValue(simple_bundle_schema)
     assert v.valid()
 
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
 def test_bundle_value_has_correct_schema(simple_bundle_schema):
     """Bundle value reports correct schema."""
     v = PlainValue(simple_bundle_schema)
     assert v.schema == simple_bundle_schema
 
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
+@pytest.mark.skip(reason="BundleView.set(native) needs auto-wrap - use at_name_mut().set_* instead")
 def test_bundle_view_set_by_name_with_native_types(simple_bundle_schema):
     """BundleView.set(name, value) auto-wraps native types."""
     v = PlainValue(simple_bundle_schema)
@@ -185,36 +182,47 @@ def test_bundle_view_set_by_name_with_native_types(simple_bundle_schema):
     assert bv["name"].as_string() == "origin"
 
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
-def test_bundle_view_set_by_index(simple_bundle_schema):
-    """BundleView.set(index, value) sets field by position."""
+def test_bundle_view_set_via_at_name_mut(simple_bundle_schema):
+    """BundleView.at_name_mut() returns mutable view for setting values."""
     v = PlainValue(simple_bundle_schema)
     bv = v.as_bundle()
 
-    bv.set(0, 100)
-    bv.set(1, 25.5)
+    bv.at_name_mut("x").set_int(10)
+    bv.at_name_mut("y").set_double(20.5)
+    bv.at_name_mut("name").set_string("origin")
+
+    assert bv["x"].as_int() == 10
+    assert abs(bv["y"].as_double() - 20.5) < 1e-10
+    assert bv["name"].as_string() == "origin"
+
+
+def test_bundle_view_set_by_index(simple_bundle_schema):
+    """BundleView field access by index."""
+    v = PlainValue(simple_bundle_schema)
+    bv = v.as_bundle()
+
+    bv.at(0).set_int(100)
+    bv.at(1).set_double(25.5)
 
     assert bv.at(0).as_int() == 100
     assert abs(bv.at(1).as_double() - 25.5) < 1e-10
 
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
 def test_const_bundle_view_at_by_name(simple_bundle_schema):
-    """ConstBundleView.at(name) provides read access."""
+    """ConstBundleView.at_name(name) provides read access."""
     v = PlainValue(simple_bundle_schema)
     bv = v.as_bundle()
-    bv.set("x", 42)
-    bv.set("y", 3.14)
-    bv.set("name", "test")
+    bv.at_name_mut("x").set_int(42)
+    bv.at_name_mut("y").set_double(3.14)
+    bv.at_name_mut("name").set_string("test")
 
     cbv = v.const_view().as_bundle()
 
-    assert cbv.at("x").as_int() == 42
+    assert cbv.at_name("x").as_int() == 42
     assert abs(cbv["y"].as_double() - 3.14) < 1e-10
     assert cbv["name"].as_string() == "test"
 
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
 def test_bundle_has_field(simple_bundle_schema):
     """has_field() returns True for existing fields."""
     v = PlainValue(simple_bundle_schema)
@@ -226,7 +234,6 @@ def test_bundle_has_field(simple_bundle_schema):
     assert not cbv.has_field("nonexistent")
 
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
 def test_bundle_field_index_lookup(simple_bundle_schema):
     """field_index() returns correct index for field name."""
     v = PlainValue(simple_bundle_schema)
@@ -237,60 +244,56 @@ def test_bundle_field_index_lookup(simple_bundle_schema):
     assert cbv.field_index("name") == 2
 
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
 def test_nested_bundle_access(nested_bundle_schema):
     """Nested bundle fields can be accessed."""
     v = PlainValue(nested_bundle_schema)
     bv = v.as_bundle()
 
-    bv.set("id", 42)
+    bv.at_name_mut("id").set_int(42)
 
     location = bv["location"].as_bundle()
-    location.set("x", 10)
-    location.set("y", 20)
+    location.at_name_mut("x").set_int(10)
+    location.at_name_mut("y").set_int(20)
 
     assert bv["id"].as_int() == 42
     assert bv["location"].as_bundle()["x"].as_int() == 10
     assert bv["location"].as_bundle()["y"].as_int() == 20
 
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
 def test_bundle_access_nonexistent_field_raises(simple_bundle_schema):
     """Accessing non-existent field raises error."""
     v = PlainValue(simple_bundle_schema)
     cbv = v.const_view().as_bundle()
 
     with pytest.raises((KeyError, RuntimeError)):
-        _ = cbv.at("nonexistent")
+        _ = cbv.at_name("nonexistent")
 
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
 def test_bundle_equals_same_values(simple_bundle_schema):
     """Bundles with same values are equal."""
     v1 = PlainValue(simple_bundle_schema)
     bv1 = v1.as_bundle()
-    bv1.set("x", 42)
-    bv1.set("y", 3.14)
-    bv1.set("name", "test")
+    bv1.at_name_mut("x").set_int(42)
+    bv1.at_name_mut("y").set_double(3.14)
+    bv1.at_name_mut("name").set_string("test")
 
     v2 = PlainValue(simple_bundle_schema)
     bv2 = v2.as_bundle()
-    bv2.set("x", 42)
-    bv2.set("y", 3.14)
-    bv2.set("name", "test")
+    bv2.at_name_mut("x").set_int(42)
+    bv2.at_name_mut("y").set_double(3.14)
+    bv2.at_name_mut("name").set_string("test")
 
-    assert v1.equals(v2)
+    assert v1.equals(v2.const_view())
 
 
-@pytest.mark.skip(reason="Bundle TypeOps not yet implemented - ops is nullptr")
 def test_bundle_not_equals_different_values(simple_bundle_schema):
     """Bundles with different values are not equal."""
     v1 = PlainValue(simple_bundle_schema)
     bv1 = v1.as_bundle()
-    bv1.set("x", 42)
+    bv1.at_name_mut("x").set_int(42)
 
     v2 = PlainValue(simple_bundle_schema)
     bv2 = v2.as_bundle()
-    bv2.set("x", 100)
+    bv2.at_name_mut("x").set_int(100)
 
-    assert not v1.equals(v2)
+    assert not v1.equals(v2.const_view())

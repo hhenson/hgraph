@@ -389,24 +389,7 @@ public:
      * @brief Build and register the list type.
      * @return Pointer to the registered TypeMeta
      */
-    inline const TypeMeta* build() {
-        // TODO: Full implementation requires:
-        // 1. Calculate size for fixed lists (element_size * count) or vector size
-        // 2. Create TypeOps with proper list operations (get_at, set_at, size, resize, etc.)
-        // For now, create a minimal stub that registers an empty TypeMeta
-        auto meta = std::make_unique<TypeMeta>();
-        meta->kind = TypeKind::List;
-        meta->flags = TypeFlags::None;
-        meta->field_count = 0;
-        meta->size = 0;  // Would be calculated based on fixed_size
-        meta->alignment = _element_type ? _element_type->alignment : 1;
-        meta->ops = nullptr;  // Would need proper ops
-        meta->element_type = _element_type;
-        meta->key_type = nullptr;
-        meta->fields = nullptr;
-        meta->fixed_size = _fixed_size;
-        return _registry.register_composite(std::move(meta));
-    }
+    const TypeMeta* build();
 
 private:
     TypeRegistry& _registry;
@@ -426,24 +409,7 @@ public:
      * @brief Build and register the set type.
      * @return Pointer to the registered TypeMeta
      */
-    inline const TypeMeta* build() {
-        // TODO: Full implementation requires:
-        // 1. Determine storage size (e.g., std::unordered_set)
-        // 2. Create TypeOps with proper set operations (contains, insert, erase, size)
-        // For now, create a minimal stub that registers an empty TypeMeta
-        auto meta = std::make_unique<TypeMeta>();
-        meta->kind = TypeKind::Set;
-        meta->flags = TypeFlags::None;
-        meta->field_count = 0;
-        meta->size = 0;  // Would be sizeof(std::unordered_set<ElementType>)
-        meta->alignment = 8;  // Typical alignment for containers
-        meta->ops = nullptr;  // Would need proper ops
-        meta->element_type = _element_type;
-        meta->key_type = nullptr;
-        meta->fields = nullptr;
-        meta->fixed_size = 0;
-        return _registry.register_composite(std::move(meta));
-    }
+    const TypeMeta* build();
 
 private:
     TypeRegistry& _registry;
@@ -462,24 +428,7 @@ public:
      * @brief Build and register the map type.
      * @return Pointer to the registered TypeMeta
      */
-    inline const TypeMeta* build() {
-        // TODO: Full implementation requires:
-        // 1. Determine storage size (e.g., std::unordered_map)
-        // 2. Create TypeOps with proper map operations (map_get, map_set, contains, erase, size)
-        // For now, create a minimal stub that registers an empty TypeMeta
-        auto meta = std::make_unique<TypeMeta>();
-        meta->kind = TypeKind::Map;
-        meta->flags = TypeFlags::None;
-        meta->field_count = 0;
-        meta->size = 0;  // Would be sizeof(std::unordered_map<KeyType, ValueType>)
-        meta->alignment = 8;  // Typical alignment for containers
-        meta->ops = nullptr;  // Would need proper ops
-        meta->element_type = _value_type;  // Map uses element_type for values
-        meta->key_type = _key_type;
-        meta->fields = nullptr;
-        meta->fixed_size = 0;
-        return _registry.register_composite(std::move(meta));
-    }
+    const TypeMeta* build();
 
 private:
     TypeRegistry& _registry;
