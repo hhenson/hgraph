@@ -1,6 +1,7 @@
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/composite_ops.h>
+#include <hgraph/types/value/cyclic_buffer_ops.h>
 
 namespace hgraph::value {
 
@@ -83,6 +84,14 @@ SetTypeBuilder TypeRegistry::set(const TypeMeta* element_type) {
 
 MapTypeBuilder TypeRegistry::map(const TypeMeta* key_type, const TypeMeta* value_type) {
     return MapTypeBuilder(*this, key_type, value_type);
+}
+
+CyclicBufferTypeBuilder TypeRegistry::cyclic_buffer(const TypeMeta* element_type, size_t capacity) {
+    return CyclicBufferTypeBuilder(*this, element_type, capacity);
+}
+
+QueueTypeBuilder TypeRegistry::queue(const TypeMeta* element_type) {
+    return QueueTypeBuilder(*this, element_type);
 }
 
 // ============================================================================
@@ -271,6 +280,48 @@ const TypeMeta* MapTypeBuilder::build() {
     meta->key_type = _key_type;
     meta->fields = nullptr;
     meta->fixed_size = 0;
+
+    return _registry.register_composite(std::move(meta));
+}
+
+// ============================================================================
+// CyclicBufferTypeBuilder::build()
+// ============================================================================
+
+const TypeMeta* CyclicBufferTypeBuilder::build() {
+    auto meta = std::make_unique<TypeMeta>();
+    meta->kind = TypeKind::CyclicBuffer;
+    meta->flags = TypeFlags::None;
+    meta->field_count = 0;
+    meta->size = sizeof(CyclicBufferStorage);
+    meta->alignment = alignof(CyclicBufferStorage);
+    meta->ops = CyclicBufferOps::ops();
+    meta->element_type = _element_type;
+    meta->key_type = nullptr;
+    meta->fields = nullptr;
+    meta->fixed_size = _capacity;  // Store capacity in fixed_size
+
+    return _registry.register_composite(std::move(meta));
+}
+
+// ============================================================================
+// QueueTypeBuilder::build()
+// ============================================================================
+
+const TypeMeta* QueueTypeBuilder::build() {
+    // For now, queue uses the same storage as cyclic buffer
+    // TODO: Implement proper QueueOps when queue_ops.h is created
+    auto meta = std::make_unique<TypeMeta>();
+    meta->kind = TypeKind::Queue;
+    meta->flags = TypeFlags::None;
+    meta->field_count = 0;
+    meta->size = sizeof(CyclicBufferStorage);  // Temporary, use queue-specific storage later
+    meta->alignment = alignof(CyclicBufferStorage);
+    meta->ops = CyclicBufferOps::ops();  // Temporary, use QueueOps later
+    meta->element_type = _element_type;
+    meta->key_type = nullptr;
+    meta->fields = nullptr;
+    meta->fixed_size = _max_capacity;  // 0 = unbounded, >0 = max capacity
 
     return _registry.register_composite(std::move(meta));
 }

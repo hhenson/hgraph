@@ -36,6 +36,10 @@ class ConstSetView;
 class SetView;
 class ConstMapView;
 class MapView;
+class ConstCyclicBufferView;
+class CyclicBufferView;
+class ConstQueueView;
+class QueueView;
 
 // Forward declaration for Value (used in clone)
 template<typename Policy>
@@ -164,6 +168,22 @@ public:
         return valid() && _schema->kind == TypeKind::Map;
     }
 
+    /**
+     * @brief Check if this is a cyclic buffer type.
+     * @return true if the type kind is CyclicBuffer
+     */
+    [[nodiscard]] bool is_cyclic_buffer() const noexcept {
+        return valid() && _schema->kind == TypeKind::CyclicBuffer;
+    }
+
+    /**
+     * @brief Check if this is a queue type.
+     * @return true if the type kind is Queue
+     */
+    [[nodiscard]] bool is_queue() const noexcept {
+        return valid() && _schema->kind == TypeKind::Queue;
+    }
+
     // ========== Type Checking ==========
 
     /**
@@ -272,6 +292,18 @@ public:
      */
     [[nodiscard]] std::optional<ConstMapView> try_as_map() const;
 
+    /**
+     * @brief Try to convert to a cyclic buffer view.
+     * @return The cyclic buffer view, or nullopt if not a cyclic buffer
+     */
+    [[nodiscard]] std::optional<ConstCyclicBufferView> try_as_cyclic_buffer() const;
+
+    /**
+     * @brief Try to convert to a queue view.
+     * @return The queue view, or nullopt if not a queue
+     */
+    [[nodiscard]] std::optional<ConstQueueView> try_as_queue() const;
+
     // ========== Specialized View Conversions (Throwing) ==========
 
     /**
@@ -308,6 +340,20 @@ public:
      * @throws std::runtime_error if not a map
      */
     [[nodiscard]] ConstMapView as_map() const;
+
+    /**
+     * @brief Convert to a cyclic buffer view.
+     * @return The cyclic buffer view
+     * @throws std::runtime_error if not a cyclic buffer
+     */
+    [[nodiscard]] ConstCyclicBufferView as_cyclic_buffer() const;
+
+    /**
+     * @brief Convert to a queue view.
+     * @return The queue view
+     * @throws std::runtime_error if not a queue
+     */
+    [[nodiscard]] ConstQueueView as_queue() const;
 
     // ========== Raw Access ==========
 
@@ -518,6 +564,18 @@ public:
      */
     [[nodiscard]] std::optional<MapView> try_as_map();
 
+    /**
+     * @brief Try to convert to a mutable cyclic buffer view.
+     * @return The cyclic buffer view, or nullopt if not a cyclic buffer
+     */
+    [[nodiscard]] std::optional<CyclicBufferView> try_as_cyclic_buffer();
+
+    /**
+     * @brief Try to convert to a mutable queue view.
+     * @return The queue view, or nullopt if not a queue
+     */
+    [[nodiscard]] std::optional<QueueView> try_as_queue();
+
     // ========== Specialized Mutable View Conversions (Throwing) ==========
 
     /**
@@ -554,6 +612,20 @@ public:
      * @throws std::runtime_error if not a map
      */
     [[nodiscard]] MapView as_map();
+
+    /**
+     * @brief Convert to a mutable cyclic buffer view.
+     * @return The cyclic buffer view
+     * @throws std::runtime_error if not a cyclic buffer
+     */
+    [[nodiscard]] CyclicBufferView as_cyclic_buffer();
+
+    /**
+     * @brief Convert to a mutable queue view.
+     * @return The queue view
+     * @throws std::runtime_error if not a queue
+     */
+    [[nodiscard]] QueueView as_queue();
 
     // ========== Mutation ==========
 

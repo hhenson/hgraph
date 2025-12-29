@@ -28,6 +28,8 @@ class BundleTypeBuilder;
 class ListTypeBuilder;
 class SetTypeBuilder;
 class MapTypeBuilder;
+class CyclicBufferTypeBuilder;
+class QueueTypeBuilder;
 
 // ============================================================================
 // Type Registry
@@ -154,6 +156,23 @@ public:
      * @return A builder for constructing the map type
      */
     MapTypeBuilder map(const TypeMeta* key_type, const TypeMeta* value_type);
+
+    /**
+     * @brief Create a cyclic buffer type builder.
+     *
+     * @param element_type The type of buffer elements
+     * @param capacity The fixed capacity of the buffer
+     * @return A builder for constructing the cyclic buffer type
+     */
+    CyclicBufferTypeBuilder cyclic_buffer(const TypeMeta* element_type, size_t capacity);
+
+    /**
+     * @brief Create a queue type builder.
+     *
+     * @param element_type The type of queue elements
+     * @return A builder for constructing the queue type
+     */
+    QueueTypeBuilder queue(const TypeMeta* element_type);
 
     // ========== Named Bundle Lookup ==========
 
@@ -434,6 +453,62 @@ private:
     TypeRegistry& _registry;
     const TypeMeta* _key_type;
     const TypeMeta* _value_type;
+};
+
+/**
+ * @brief Builder for cyclic buffer types.
+ *
+ * Cyclic buffers are fixed-size circular buffers that re-center on read.
+ * When full, the oldest element is overwritten.
+ */
+class CyclicBufferTypeBuilder {
+public:
+    CyclicBufferTypeBuilder(TypeRegistry& registry, const TypeMeta* element_type, size_t capacity)
+        : _registry(registry), _element_type(element_type), _capacity(capacity) {}
+
+    /**
+     * @brief Build and register the cyclic buffer type.
+     * @return Pointer to the registered TypeMeta
+     */
+    const TypeMeta* build();
+
+private:
+    TypeRegistry& _registry;
+    const TypeMeta* _element_type;
+    size_t _capacity;
+};
+
+/**
+ * @brief Builder for queue types.
+ *
+ * Queues are FIFO data structures with optional max capacity.
+ */
+class QueueTypeBuilder {
+public:
+    QueueTypeBuilder(TypeRegistry& registry, const TypeMeta* element_type)
+        : _registry(registry), _element_type(element_type), _max_capacity(0) {}
+
+    /**
+     * @brief Set the maximum capacity for the queue.
+     *
+     * @param max The maximum capacity (0 = unbounded)
+     * @return Reference to this builder for chaining
+     */
+    QueueTypeBuilder& max_capacity(size_t max) {
+        _max_capacity = max;
+        return *this;
+    }
+
+    /**
+     * @brief Build and register the queue type.
+     * @return Pointer to the registered TypeMeta
+     */
+    const TypeMeta* build();
+
+private:
+    TypeRegistry& _registry;
+    const TypeMeta* _element_type;
+    size_t _max_capacity;
 };
 
 } // namespace hgraph::value

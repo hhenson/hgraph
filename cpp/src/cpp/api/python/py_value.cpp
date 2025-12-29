@@ -28,7 +28,8 @@ static void register_type_kind(nb::module_& m) {
         .value("List", TypeKind::List, "Indexed homogeneous collection (dynamic size)")
         .value("Set", TypeKind::Set, "Unordered unique elements")
         .value("Map", TypeKind::Map, "Key-value pairs")
-        .value("Window", TypeKind::Window, "Time-based sliding window")
+        .value("CyclicBuffer", TypeKind::CyclicBuffer, "Fixed-size circular buffer (re-centers on read)")
+        .value("Queue", TypeKind::Queue, "FIFO queue with optional max capacity")
         .value("Ref", TypeKind::Ref, "Reference to another time-series");
 }
 
@@ -201,7 +202,25 @@ static void register_type_registry(nb::module_& m) {
         .def("set", &TypeRegistry::set, "element_type"_a,
             "Create a set type builder")
         .def("map", &TypeRegistry::map, "key_type"_a, "value_type"_a,
-            "Create a map type builder");
+            "Create a map type builder")
+        .def("cyclic_buffer", &TypeRegistry::cyclic_buffer, "element_type"_a, "capacity"_a,
+            "Create a cyclic buffer type builder")
+        .def("queue", &TypeRegistry::queue, "element_type"_a,
+            "Create a queue type builder");
+
+    // CyclicBuffer type builder
+    nb::class_<CyclicBufferTypeBuilder>(m, "CyclicBufferTypeBuilder",
+        "Builder for cyclic buffer types")
+        .def("build", &CyclicBufferTypeBuilder::build, nb::rv_policy::reference,
+            "Build and register the cyclic buffer type");
+
+    // Queue type builder
+    nb::class_<QueueTypeBuilder>(m, "QueueTypeBuilder",
+        "Builder for queue types")
+        .def("max_capacity", &QueueTypeBuilder::max_capacity, "max"_a,
+            "Set the maximum capacity (0 = unbounded)")
+        .def("build", &QueueTypeBuilder::build, nb::rv_policy::reference,
+            "Build and register the queue type");
 }
 
 // ============================================================================
@@ -225,6 +244,8 @@ static void register_const_value_view(nb::module_& m) {
         .def("is_fixed_list", &ConstValueView::is_fixed_list, "Check if this is a fixed-size list")
         .def("is_set", &ConstValueView::is_set, "Check if this is a set type")
         .def("is_map", &ConstValueView::is_map, "Check if this is a map type")
+        .def("is_cyclic_buffer", &ConstValueView::is_cyclic_buffer, "Check if this is a cyclic buffer type")
+        .def("is_queue", &ConstValueView::is_queue, "Check if this is a queue type")
 
         // Type checking
         .def("is_type", &ConstValueView::is_type, "schema"_a,
@@ -275,6 +296,8 @@ static void register_const_value_view(nb::module_& m) {
         .def("as_list", &ConstValueView::as_list, "Get as a const list view (throws if not a list)")
         .def("as_set", &ConstValueView::as_set, "Get as a const set view (throws if not a set)")
         .def("as_map", &ConstValueView::as_map, "Get as a const map view (throws if not a map)")
+        .def("as_cyclic_buffer", &ConstValueView::as_cyclic_buffer, "Get as a const cyclic buffer view (throws if not a cyclic buffer)")
+        .def("as_queue", &ConstValueView::as_queue, "Get as a const queue view (throws if not a queue)")
 
         // Safe composite type access (returns None if type mismatch)
         .def("try_as_tuple", &ConstValueView::try_as_tuple,
@@ -287,6 +310,10 @@ static void register_const_value_view(nb::module_& m) {
             "Try to get as a const set view (returns None if not a set)")
         .def("try_as_map", &ConstValueView::try_as_map,
             "Try to get as a const map view (returns None if not a map)")
+        .def("try_as_cyclic_buffer", &ConstValueView::try_as_cyclic_buffer,
+            "Try to get as a const cyclic buffer view (returns None if not a cyclic buffer)")
+        .def("try_as_queue", &ConstValueView::try_as_queue,
+            "Try to get as a const queue view (returns None if not a queue)")
 
         // Operations
         .def("equals", &ConstValueView::equals, "other"_a, "Check equality with another view")
@@ -408,6 +435,8 @@ static void register_value_view(nb::module_& m) {
         .def("as_list", &ValueView::as_list, "Get as a mutable list view (throws if not a list)")
         .def("as_set", &ValueView::as_set, "Get as a mutable set view (throws if not a set)")
         .def("as_map", &ValueView::as_map, "Get as a mutable map view (throws if not a map)")
+        .def("as_cyclic_buffer", &ValueView::as_cyclic_buffer, "Get as a mutable cyclic buffer view (throws if not a cyclic buffer)")
+        .def("as_queue", &ValueView::as_queue, "Get as a mutable queue view (throws if not a queue)")
 
         // Mutation from another view
         .def("copy_from", &ValueView::copy_from, "other"_a,
@@ -989,6 +1018,153 @@ static void register_map_views(nb::module_& m) {
             nb::object py_dict = self.to_python();
             return py_dict.attr("items")();
         }, "Get view of (key, value) pairs");
+}
+
+// ============================================================================
+// CyclicBuffer Views Binding
+// ============================================================================
+
+// Helper function to check if element type is buffer compatible
+static bool is_cyclic_buffer_compatible(const ConstCyclicBufferView& buf) {
+    const TypeMeta* elem = buf.element_type();
+    if (!elem || elem->kind != TypeKind::Scalar) return false;
+    return elem->is_buffer_compatible();
+}
+
+static void register_cyclic_buffer_views(nb::module_& m) {
+    nb::class_<ConstCyclicBufferView, ConstIndexedView>(m, "ConstCyclicBufferView",
+        "Const view for cyclic buffer types (fixed-size circular buffer)")
+        .def("front", &ConstCyclicBufferView::front, "Get the oldest element")
+        .def("back", &ConstCyclicBufferView::back, "Get the newest element")
+        .def("element_type", &ConstCyclicBufferView::element_type, nb::rv_policy::reference,
+            "Get the element type")
+        .def("capacity", &ConstCyclicBufferView::capacity, "Get the fixed capacity")
+        .def("full", &ConstCyclicBufferView::full, "Check if the buffer is full")
+        .def("is_buffer_compatible", [](const ConstCyclicBufferView& self) {
+            return is_cyclic_buffer_compatible(self);
+        }, "Check if this buffer supports numpy conversion")
+        .def("to_numpy", [](const ConstCyclicBufferView& self) -> nb::object {
+            if (!is_cyclic_buffer_compatible(self)) {
+                throw std::runtime_error("CyclicBuffer element type not buffer compatible for numpy");
+            }
+
+            nb::module_ np = nb::module_::import_("numpy");
+            const TypeMeta* elem = self.element_type();
+            size_t n = self.size();
+
+            // Create numpy array and copy data in logical order (re-centered)
+            if (elem == scalar_type_meta<int64_t>()) {
+                auto arr = np.attr("empty")(n, "dtype"_a = "int64");
+                int64_t* ptr = reinterpret_cast<int64_t*>(
+                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                for (size_t i = 0; i < n; ++i) {
+                    ptr[i] = self[i].as<int64_t>();
+                }
+                return arr;
+            } else if (elem == scalar_type_meta<double>()) {
+                auto arr = np.attr("empty")(n, "dtype"_a = "float64");
+                double* ptr = reinterpret_cast<double*>(
+                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                for (size_t i = 0; i < n; ++i) {
+                    ptr[i] = self[i].as<double>();
+                }
+                return arr;
+            } else if (elem == scalar_type_meta<bool>()) {
+                auto arr = np.attr("empty")(n, "dtype"_a = "bool");
+                bool* ptr = reinterpret_cast<bool*>(
+                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                for (size_t i = 0; i < n; ++i) {
+                    ptr[i] = self[i].as<bool>();
+                }
+                return arr;
+            }
+            throw std::runtime_error("Unsupported element type for numpy conversion");
+        }, "Convert to a numpy array (copies data in logical order, oldest at [0])");
+
+    nb::class_<CyclicBufferView, IndexedView>(m, "CyclicBufferView",
+        "Mutable view for cyclic buffer types")
+        .def("front", &CyclicBufferView::front, "Get the oldest element (mutable)")
+        .def("back", &CyclicBufferView::back, "Get the newest element (mutable)")
+        .def("element_type", &CyclicBufferView::element_type, nb::rv_policy::reference,
+            "Get the element type")
+        .def("capacity", &CyclicBufferView::capacity, "Get the fixed capacity")
+        .def("full", &CyclicBufferView::full, "Check if the buffer is full")
+        .def("push_back", static_cast<void (CyclicBufferView::*)(const ConstValueView&)>(
+            &CyclicBufferView::push_back), "value"_a,
+            "Push a value to the back (evicts oldest if full)")
+        .def("clear", &CyclicBufferView::clear, "Clear all elements")
+        .def("is_buffer_compatible", [](const CyclicBufferView& self) {
+            const TypeMeta* elem = self.element_type();
+            if (!elem || elem->kind != TypeKind::Scalar) return false;
+            return elem->is_buffer_compatible();
+        }, "Check if this buffer supports numpy conversion")
+        .def("to_numpy", [](const CyclicBufferView& self) -> nb::object {
+            const TypeMeta* elem = self.element_type();
+            if (!elem || elem->kind != TypeKind::Scalar || !elem->is_buffer_compatible()) {
+                throw std::runtime_error("CyclicBuffer element type not buffer compatible for numpy");
+            }
+
+            nb::module_ np = nb::module_::import_("numpy");
+            size_t n = self.size();
+
+            // Always copy (cannot be zero-copy due to re-centering)
+            if (elem == scalar_type_meta<int64_t>()) {
+                auto arr = np.attr("empty")(n, "dtype"_a = "int64");
+                int64_t* ptr = reinterpret_cast<int64_t*>(
+                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                for (size_t i = 0; i < n; ++i) {
+                    ptr[i] = self[i].as<int64_t>();
+                }
+                return arr;
+            } else if (elem == scalar_type_meta<double>()) {
+                auto arr = np.attr("empty")(n, "dtype"_a = "float64");
+                double* ptr = reinterpret_cast<double*>(
+                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                for (size_t i = 0; i < n; ++i) {
+                    ptr[i] = self[i].as<double>();
+                }
+                return arr;
+            } else if (elem == scalar_type_meta<bool>()) {
+                auto arr = np.attr("empty")(n, "dtype"_a = "bool");
+                bool* ptr = reinterpret_cast<bool*>(
+                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
+                for (size_t i = 0; i < n; ++i) {
+                    ptr[i] = self[i].as<bool>();
+                }
+                return arr;
+            }
+            throw std::runtime_error("Unsupported element type for numpy conversion");
+        }, "Convert to a numpy array (copies data in logical order)");
+}
+
+// ============================================================================
+// Queue Views Binding
+// ============================================================================
+
+static void register_queue_views(nb::module_& m) {
+    nb::class_<ConstQueueView, ConstIndexedView>(m, "ConstQueueView",
+        "Const view for queue types (FIFO with optional max capacity)")
+        .def("front", &ConstQueueView::front, "Get the front element (first in queue)")
+        .def("back", &ConstQueueView::back, "Get the back element (last in queue)")
+        .def("element_type", &ConstQueueView::element_type, nb::rv_policy::reference,
+            "Get the element type")
+        .def("max_capacity", &ConstQueueView::max_capacity,
+            "Get the max capacity (0 = unbounded)")
+        .def("has_max_capacity", &ConstQueueView::has_max_capacity,
+            "Check if the queue has a max capacity");
+
+    nb::class_<QueueView, IndexedView>(m, "QueueView",
+        "Mutable view for queue types")
+        .def("front", &QueueView::front, "Get the front element (mutable)")
+        .def("back", &QueueView::back, "Get the back element (mutable)")
+        .def("element_type", &QueueView::element_type, nb::rv_policy::reference,
+            "Get the element type")
+        .def("max_capacity", &QueueView::max_capacity,
+            "Get the max capacity (0 = unbounded)")
+        .def("has_max_capacity", &QueueView::has_max_capacity,
+            "Check if the queue has a max capacity")
+        .def("clear", &QueueView::clear, "Clear all elements");
+    // Note: push_back and pop_front are not yet implemented in QueueView
 }
 
 // ============================================================================
@@ -1579,6 +1755,8 @@ void value_register_with_nanobind(nb::module_& m) {
     register_set_views(value_mod);
     register_const_key_set_view(value_mod);  // Before map_views - ConstKeySetView returned by map.keys()
     register_map_views(value_mod);
+    register_cyclic_buffer_views(value_mod);
+    register_queue_views(value_mod);
 
     // Register Value classes
     register_plain_value(value_mod);

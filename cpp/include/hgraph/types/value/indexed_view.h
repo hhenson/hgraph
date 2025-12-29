@@ -20,6 +20,7 @@
 
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/composite_ops.h>
+#include <hgraph/types/value/cyclic_buffer_ops.h>
 
 #include <cstddef>
 #include <iterator>
@@ -92,7 +93,8 @@ public:
         const void* elem_data = _schema->ops->get_at(_data, index, _schema);
         // Determine element type
         const TypeMeta* elem_schema = nullptr;
-        if (_schema->kind == TypeKind::List || _schema->kind == TypeKind::Set) {
+        if (_schema->kind == TypeKind::List || _schema->kind == TypeKind::Set ||
+            _schema->kind == TypeKind::CyclicBuffer || _schema->kind == TypeKind::Queue) {
             elem_schema = _schema->element_type;
         } else if (_schema->kind == TypeKind::Bundle || _schema->kind == TypeKind::Tuple) {
             elem_schema = _schema->fields[index].type;
@@ -276,7 +278,8 @@ public:
 
 private:
     [[nodiscard]] const TypeMeta* get_element_schema(size_t index) const {
-        if (_schema->kind == TypeKind::List || _schema->kind == TypeKind::Set) {
+        if (_schema->kind == TypeKind::List || _schema->kind == TypeKind::Set ||
+            _schema->kind == TypeKind::CyclicBuffer || _schema->kind == TypeKind::Queue) {
             return _schema->element_type;
         } else if (_schema->kind == TypeKind::Bundle || _schema->kind == TypeKind::Tuple) {
             return _schema->fields[index].type;
@@ -705,6 +708,251 @@ public:
      */
     template<typename T>
     void reset(const T& sentinel);  // Implemented after Value
+};
+
+// ============================================================================
+// ConstCyclicBufferView - Fixed-Size Circular Buffer Access
+// ============================================================================
+
+// Forward declaration
+struct CyclicBufferStorage;
+
+/**
+ * @brief Const view for cyclic buffer types.
+ *
+ * CyclicBuffer is a fixed-size circular buffer that re-centers on read.
+ * Logical index 0 always refers to the oldest element.
+ */
+class ConstCyclicBufferView : public ConstIndexedView {
+public:
+    using ConstIndexedView::ConstIndexedView;
+
+    /**
+     * @brief Get the oldest element.
+     */
+    [[nodiscard]] ConstValueView front() const {
+        return at(0);
+    }
+
+    /**
+     * @brief Get the newest element.
+     */
+    [[nodiscard]] ConstValueView back() const {
+        return at(size() - 1);
+    }
+
+    /**
+     * @brief Get the element type.
+     */
+    [[nodiscard]] const TypeMeta* element_type() const {
+        return _schema->element_type;
+    }
+
+    /**
+     * @brief Get the fixed capacity.
+     */
+    [[nodiscard]] size_t capacity() const {
+        return _schema->fixed_size;
+    }
+
+    /**
+     * @brief Check if the buffer is full.
+     */
+    [[nodiscard]] bool full() const {
+        return size() == capacity();
+    }
+};
+
+// ============================================================================
+// CyclicBufferView - Mutable Fixed-Size Circular Buffer
+// ============================================================================
+
+/**
+ * @brief Mutable view for cyclic buffer types.
+ */
+class CyclicBufferView : public IndexedView {
+public:
+    using IndexedView::IndexedView;
+
+    /**
+     * @brief Get the oldest element (mutable).
+     */
+    [[nodiscard]] ValueView front() {
+        return at(0);
+    }
+
+    /**
+     * @brief Get the newest element (mutable).
+     */
+    [[nodiscard]] ValueView back() {
+        return at(size() - 1);
+    }
+
+    /**
+     * @brief Get the element type.
+     */
+    [[nodiscard]] const TypeMeta* element_type() const {
+        return _schema->element_type;
+    }
+
+    /**
+     * @brief Get the fixed capacity.
+     */
+    [[nodiscard]] size_t capacity() const {
+        return _schema->fixed_size;
+    }
+
+    /**
+     * @brief Check if the buffer is full.
+     */
+    [[nodiscard]] bool full() const {
+        return size() == capacity();
+    }
+
+    /**
+     * @brief Push a value to the back of the cyclic buffer.
+     *
+     * If the buffer is not full, adds at the end.
+     * If the buffer is full, overwrites the oldest element.
+     */
+    void push_back(const ConstValueView& value);
+
+    /**
+     * @brief Clear all elements from the buffer.
+     */
+    void clear() {
+        if (_schema->ops->clear) {
+            _schema->ops->clear(data(), _schema);
+        }
+    }
+
+    /**
+     * @brief Push a typed value.
+     */
+    template<typename T>
+    void push_back(const T& value);  // Implemented after Value
+};
+
+// ============================================================================
+// ConstQueueView - FIFO Queue Access
+// ============================================================================
+
+/**
+ * @brief Const view for queue types.
+ *
+ * Queue is a FIFO data structure with optional max capacity.
+ * Elements are accessed in insertion order.
+ */
+class ConstQueueView : public ConstIndexedView {
+public:
+    using ConstIndexedView::ConstIndexedView;
+
+    /**
+     * @brief Get the front element (first in queue).
+     */
+    [[nodiscard]] ConstValueView front() const {
+        return at(0);
+    }
+
+    /**
+     * @brief Get the back element (last in queue).
+     */
+    [[nodiscard]] ConstValueView back() const {
+        return at(size() - 1);
+    }
+
+    /**
+     * @brief Get the element type.
+     */
+    [[nodiscard]] const TypeMeta* element_type() const {
+        return _schema->element_type;
+    }
+
+    /**
+     * @brief Get the max capacity (0 = unbounded).
+     */
+    [[nodiscard]] size_t max_capacity() const {
+        return _schema->fixed_size;
+    }
+
+    /**
+     * @brief Check if the queue has a max capacity.
+     */
+    [[nodiscard]] bool has_max_capacity() const {
+        return max_capacity() > 0;
+    }
+};
+
+// ============================================================================
+// QueueView - Mutable FIFO Queue
+// ============================================================================
+
+/**
+ * @brief Mutable view for queue types.
+ */
+class QueueView : public IndexedView {
+public:
+    using IndexedView::IndexedView;
+
+    /**
+     * @brief Get the front element (mutable).
+     */
+    [[nodiscard]] ValueView front() {
+        return at(0);
+    }
+
+    /**
+     * @brief Get the back element (mutable).
+     */
+    [[nodiscard]] ValueView back() {
+        return at(size() - 1);
+    }
+
+    /**
+     * @brief Get the element type.
+     */
+    [[nodiscard]] const TypeMeta* element_type() const {
+        return _schema->element_type;
+    }
+
+    /**
+     * @brief Get the max capacity (0 = unbounded).
+     */
+    [[nodiscard]] size_t max_capacity() const {
+        return _schema->fixed_size;
+    }
+
+    /**
+     * @brief Check if the queue has a max capacity.
+     */
+    [[nodiscard]] bool has_max_capacity() const {
+        return max_capacity() > 0;
+    }
+
+    /**
+     * @brief Push a value to the back of the queue.
+     */
+    void push_back(const ConstValueView& value);
+
+    /**
+     * @brief Remove the front element.
+     */
+    void pop_front();
+
+    /**
+     * @brief Clear all elements from the queue.
+     */
+    void clear() {
+        if (_schema->ops->clear) {
+            _schema->ops->clear(data(), _schema);
+        }
+    }
+
+    /**
+     * @brief Push a typed value.
+     */
+    template<typename T>
+    void push_back(const T& value);  // Implemented after Value
 };
 
 // ============================================================================
@@ -1253,6 +1501,16 @@ inline std::optional<ConstMapView> ConstValueView::try_as_map() const {
     return ConstMapView(_data, _schema);
 }
 
+inline std::optional<ConstCyclicBufferView> ConstValueView::try_as_cyclic_buffer() const {
+    if (!is_cyclic_buffer()) return std::nullopt;
+    return ConstCyclicBufferView(_data, _schema);
+}
+
+inline std::optional<ConstQueueView> ConstValueView::try_as_queue() const {
+    if (!is_queue()) return std::nullopt;
+    return ConstQueueView(_data, _schema);
+}
+
 // ConstValueView conversions (throwing versions)
 
 inline ConstTupleView ConstValueView::as_tuple() const {
@@ -1290,6 +1548,20 @@ inline ConstMapView ConstValueView::as_map() const {
     return ConstMapView(_data, _schema);
 }
 
+inline ConstCyclicBufferView ConstValueView::as_cyclic_buffer() const {
+    if (!is_cyclic_buffer()) {
+        throw std::runtime_error("Not a cyclic buffer type");
+    }
+    return ConstCyclicBufferView(_data, _schema);
+}
+
+inline ConstQueueView ConstValueView::as_queue() const {
+    if (!is_queue()) {
+        throw std::runtime_error("Not a queue type");
+    }
+    return ConstQueueView(_data, _schema);
+}
+
 // ValueView conversions (safe versions)
 
 inline std::optional<TupleView> ValueView::try_as_tuple() {
@@ -1315,6 +1587,16 @@ inline std::optional<SetView> ValueView::try_as_set() {
 inline std::optional<MapView> ValueView::try_as_map() {
     if (!is_map()) return std::nullopt;
     return MapView(_mutable_data, _schema);
+}
+
+inline std::optional<CyclicBufferView> ValueView::try_as_cyclic_buffer() {
+    if (!is_cyclic_buffer()) return std::nullopt;
+    return CyclicBufferView(_mutable_data, _schema);
+}
+
+inline std::optional<QueueView> ValueView::try_as_queue() {
+    if (!is_queue()) return std::nullopt;
+    return QueueView(_mutable_data, _schema);
 }
 
 // ValueView conversions (throwing versions)
@@ -1352,6 +1634,28 @@ inline MapView ValueView::as_map() {
         throw std::runtime_error("Not a map type");
     }
     return MapView(_mutable_data, _schema);
+}
+
+inline CyclicBufferView ValueView::as_cyclic_buffer() {
+    if (!is_cyclic_buffer()) {
+        throw std::runtime_error("Not a cyclic buffer type");
+    }
+    return CyclicBufferView(_mutable_data, _schema);
+}
+
+inline QueueView ValueView::as_queue() {
+    if (!is_queue()) {
+        throw std::runtime_error("Not a queue type");
+    }
+    return QueueView(_mutable_data, _schema);
+}
+
+// ============================================================================
+// CyclicBufferView Operations Implementation
+// ============================================================================
+
+inline void CyclicBufferView::push_back(const ConstValueView& value) {
+    CyclicBufferOps::push_back(data(), value.data(), _schema);
 }
 
 // ============================================================================
