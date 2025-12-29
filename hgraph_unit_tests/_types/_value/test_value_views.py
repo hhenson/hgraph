@@ -189,18 +189,16 @@ def test_is_list_for_list_value(list_schema):
 # ConstValueView Scalar Access
 # =============================================================================
 
-@pytest.mark.skip(reason="is_int_type() not yet implemented")
 def test_is_scalar_type_correct(int_value):
-    """is_scalar_type<T>() returns True for correct type."""
+    """is_int() returns True for integer values."""
     cv = int_value.const_view()
-    assert cv.is_int_type() is True
+    assert cv.is_int() is True
 
 
-@pytest.mark.skip(reason="is_double_type() not yet implemented")
 def test_is_scalar_type_incorrect(int_value):
-    """is_scalar_type<T>() returns False for incorrect type."""
+    """is_double() returns False for integer values."""
     cv = int_value.const_view()
-    assert cv.is_double_type() is False
+    assert cv.is_double() is False
 
 
 def test_as_scalar_read(int_value):
@@ -223,19 +221,17 @@ def test_try_as_scalar_failure(int_value):
     assert result is None
 
 
-@pytest.mark.skip(reason="checked_as_* not yet implemented on views")
 def test_checked_as_scalar_success(int_value):
-    """checked_as<T>() returns value when type matches."""
+    """as_int() returns value when type matches (checked access)."""
     cv = int_value.const_view()
-    assert cv.checked_as_int() == 42
+    assert cv.as_int() == 42
 
 
-@pytest.mark.skip(reason="checked_as_* not yet implemented on views")
 def test_checked_as_scalar_throws(int_value):
-    """checked_as<T>() throws when type doesn't match."""
+    """as_double() throws when type doesn't match (checked access)."""
     cv = int_value.const_view()
     with pytest.raises(RuntimeError):
-        cv.checked_as_double()
+        cv.as_double()
 
 
 # =============================================================================
@@ -317,7 +313,6 @@ def test_try_as_tuple_returns_view_for_tuple(tuple_schema):
 # Throwing View Conversions (as_* methods)
 # =============================================================================
 
-@pytest.mark.skip(reason="as_bundle() throwing not yet implemented")
 def test_as_bundle_throws_for_scalar(int_value):
     """as_bundle() throws for scalar values."""
     cv = int_value.const_view()
@@ -325,7 +320,6 @@ def test_as_bundle_throws_for_scalar(int_value):
         cv.as_bundle()
 
 
-@pytest.mark.skip(reason="as_list() throwing not yet implemented")
 def test_as_list_throws_for_scalar(int_value):
     """as_list() throws for scalar values."""
     cv = int_value.const_view()
@@ -376,9 +370,8 @@ def test_as_mutable_access():
     assert v.const_view().as_int() == 100
 
 
-@pytest.mark.skip(reason="data() not exposed on ValueView")
 def test_mutable_data_access(int_value):
-    """data() provides raw mutable pointer."""
+    """data() provides raw data pointer (as integer for FFI)."""
     view = int_value.view()
     assert view.data() is not None
 

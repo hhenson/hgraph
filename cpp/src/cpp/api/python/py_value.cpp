@@ -328,6 +328,11 @@ static void register_value_view(nb::module_& m) {
         .def("from_python", &ValueView::from_python, "src"_a,
             "Set the value from a Python object")
 
+        // Raw data access (returns pointer as integer for debugging/FFI)
+        .def("data", [](ValueView& self) -> uintptr_t {
+            return reinterpret_cast<uintptr_t>(self.data());
+        }, "Get raw data pointer as integer (for debugging/FFI)")
+
         // Repr
         .def("__repr__", [](const ValueView& self) {
             if (!self.valid()) return std::string("ValueView(invalid)");
@@ -345,7 +350,16 @@ static void register_const_indexed_view(nb::module_& m) {
         .def("size", &ConstIndexedView::size, "Get the number of elements")
         .def("empty", &ConstIndexedView::empty, "Check if empty")
         .def("at", &ConstIndexedView::at, "index"_a, "Get element at index (const)")
-        .def("__getitem__", &ConstIndexedView::operator[], "index"_a)
+        .def("__getitem__", [](const ConstIndexedView& self, int64_t index) {
+            int64_t size = static_cast<int64_t>(self.size());
+            if (index < 0) {
+                index += size;  // Convert negative index to positive
+            }
+            if (index < 0 || index >= size) {
+                throw nb::index_error("index out of range");
+            }
+            return self[static_cast<size_t>(index)];
+        }, "index"_a)
         .def("__len__", &ConstIndexedView::size)
         .def("__iter__", [](const ConstIndexedView& self) {
             nb::list result;
@@ -367,11 +381,23 @@ static void register_indexed_view(nb::module_& m) {
         .def("empty", &IndexedView::empty, "Check if empty")
         .def("at", static_cast<ValueView (IndexedView::*)(size_t)>(&IndexedView::at),
             "index"_a, "Get element at index (mutable)")
-        .def("__getitem__", static_cast<ValueView (IndexedView::*)(size_t)>(&IndexedView::operator[]),
-            "index"_a)
+        .def("__getitem__", [](IndexedView& self, int64_t index) {
+            int64_t size = static_cast<int64_t>(self.size());
+            if (index < 0) {
+                index += size;  // Convert negative index to positive
+            }
+            if (index < 0 || index >= size) {
+                throw nb::index_error("index out of range");
+            }
+            return self[static_cast<size_t>(index)];
+        }, "index"_a)
         .def("__len__", &IndexedView::size)
         .def("set", static_cast<void (IndexedView::*)(size_t, const ConstValueView&)>(&IndexedView::set),
             "index"_a, "value"_a, "Set element at index from a view")
+        // Overload: set from PlainValue (auto-extract const_view)
+        .def("set", [](IndexedView& self, size_t index, const PlainValue& value) {
+            self.set(index, value.const_view());
+        }, "index"_a, "value"_a, "Set element at index from a PlainValue")
         .def("__iter__", [](IndexedView& self) {
             nb::list result;
             for (size_t i = 0; i < self.size(); ++i) {
@@ -434,6 +460,17 @@ static void register_bundle_views(nb::module_& m) {
         .def("set_name", [](BundleView& self, const std::string& name, const ConstValueView& value) {
             self.set(name, value);
         }, "name"_a, "value"_a, "Set field by name from ConstValueView")
+        // Set by name with auto-wrap from Python object
+        .def("set", [](BundleView& self, const std::string& name, const nb::object& py_value) {
+            size_t idx = self.field_index(name);
+            if (idx >= self.field_count()) {
+                throw std::runtime_error("Field not found: " + name);
+            }
+            const TypeMeta* field_type = self.schema()->fields[idx].type;
+            PlainValue temp(field_type);
+            temp.from_python(py_value);
+            self.set(name, temp.const_view());
+        }, "name"_a, "value"_a, "Set field by name from Python object (auto-wrap)")
         // __getitem__ for indexing
         .def("__getitem__", [](BundleView& self, const std::string& name) {
             return self.at(name);
@@ -468,9 +505,21 @@ static void register_list_views(nb::module_& m) {
         .def("element_type", &ListView::element_type, nb::rv_policy::reference,
             "Get the element type")
         .def("is_fixed", &ListView::is_fixed, "Check if this is a fixed-size list")
-        // Dynamic list operations (Design Doc Section 6.12)
-        .def("push_back", static_cast<void (ListView::*)(const ConstValueView&)>(&ListView::push_back),
-            "value"_a, "Append an element (throws if fixed-size)")
+        // Dynamic list operations with type checking
+        .def("push_back", [](ListView& self, const ConstValueView& value) {
+            // Type check: value schema must match element type
+            if (value.schema() != self.element_type()) {
+                throw std::runtime_error("Type mismatch: cannot push_back value of different type");
+            }
+            self.push_back(value);
+        }, "value"_a, "Append an element (throws if fixed-size or type mismatch)")
+        // Override set with type checking for lists
+        .def("set", [](ListView& self, size_t index, const ConstValueView& value) {
+            if (value.schema() != self.element_type()) {
+                throw std::runtime_error("Type mismatch: cannot set value of different type");
+            }
+            self.set(index, value);
+        }, "index"_a, "value"_a, "Set element at index (with type checking)")
         .def("pop_back", &ListView::pop_back, "Remove the last element (throws if fixed-size)")
         .def("clear", &ListView::clear, "Clear all elements (throws if fixed-size)")
         .def("resize", &ListView::resize, "new_size"_a, "Resize the list (throws if fixed-size)")
@@ -823,6 +872,128 @@ static void register_cached_value(nb::module_& m) {
 }
 
 // ============================================================================
+// TSValue Registration (Caching + Modification Tracking)
+// ============================================================================
+
+static void register_ts_value(nb::module_& m) {
+    nb::class_<TSValue>(m, "TSValue",
+        "Value with caching and modification tracking (for time-series)")
+        // Constructors from scalars
+        .def(nb::init<int64_t>(), "value"_a, "Construct from int64")
+        .def(nb::init<double>(), "value"_a, "Construct from double")
+        .def(nb::init<bool>(), "value"_a, "Construct from bool")
+        .def(nb::init<const std::string&>(), "value"_a, "Construct from string")
+        // Construct from schema
+        .def(nb::init<const TypeMeta*>(), "schema"_a,
+            "Construct from type schema (default value)")
+        // Construct from view (copy)
+        .def(nb::init<const ConstValueView&>(), "view"_a,
+            "Construct by copying from a view")
+
+        // Validity
+        .def("valid", &TSValue::valid, "Check if the Value contains data")
+        .def("__bool__", &TSValue::valid, "Boolean conversion (validity)")
+        .def_prop_ro("schema", &TSValue::schema, nb::rv_policy::reference,
+            "Get the type schema")
+
+        // View access
+        .def("view", static_cast<ValueView (TSValue::*)()>(&TSValue::view),
+            "Get a mutable view of the data (invalidates cache)")
+        .def("const_view", &TSValue::const_view, "Get a const view of the data")
+
+        // Specialized view access
+        .def("as_tuple", static_cast<TupleView (TSValue::*)()>(&TSValue::as_tuple),
+            "Get as a tuple view (mutable, invalidates cache)")
+        .def("as_bundle", static_cast<BundleView (TSValue::*)()>(&TSValue::as_bundle),
+            "Get as a bundle view (mutable, invalidates cache)")
+        .def("as_list", static_cast<ListView (TSValue::*)()>(&TSValue::as_list),
+            "Get as a list view (mutable, invalidates cache)")
+        .def("as_set", static_cast<SetView (TSValue::*)()>(&TSValue::as_set),
+            "Get as a set view (mutable, invalidates cache)")
+        .def("as_map", static_cast<MapView (TSValue::*)()>(&TSValue::as_map),
+            "Get as a map view (mutable, invalidates cache)")
+
+        // Python interop
+        .def("to_python", &TSValue::to_python,
+            "Convert to Python object (uses cache)")
+        .def("from_python", &TSValue::from_python, "src"_a,
+            "Set value from Python object (notifies callbacks)")
+
+        // Modification tracking
+        .def("on_modified", [](TSValue& self, nb::object callback) {
+            self.on_modified([callback]() {
+                callback();
+            });
+        }, "callback"_a, "Register a callback for modification events")
+
+        // Equality and comparison
+        .def("equals", static_cast<bool (TSValue::*)(const ConstValueView&) const>(&TSValue::equals),
+            "other"_a, "Check equality with a view")
+
+        // Python special methods
+        .def("__eq__", [](const TSValue& self, const ConstValueView& other) {
+            return self.equals(other);
+        }, nb::is_operator())
+        .def("__hash__", &TSValue::hash)
+        .def("__str__", &TSValue::to_string)
+        .def("__repr__", [](const TSValue& self) {
+            if (!self.valid()) return std::string("TSValue(invalid)");
+            return "TSValue(" + self.to_string() + ")";
+        });
+}
+
+// ============================================================================
+// ValidatedValue Registration (Rejects None)
+// ============================================================================
+
+static void register_validated_value(nb::module_& m) {
+    nb::class_<ValidatedValue>(m, "ValidatedValue",
+        "Value that validates input (rejects None)")
+        // Constructors from scalars
+        .def(nb::init<int64_t>(), "value"_a, "Construct from int64")
+        .def(nb::init<double>(), "value"_a, "Construct from double")
+        .def(nb::init<bool>(), "value"_a, "Construct from bool")
+        .def(nb::init<const std::string&>(), "value"_a, "Construct from string")
+        // Construct from schema
+        .def(nb::init<const TypeMeta*>(), "schema"_a,
+            "Construct from type schema (default value)")
+        // Construct from view (copy)
+        .def(nb::init<const ConstValueView&>(), "view"_a,
+            "Construct by copying from a view")
+
+        // Validity
+        .def("valid", &ValidatedValue::valid, "Check if the Value contains data")
+        .def("__bool__", &ValidatedValue::valid, "Boolean conversion (validity)")
+        .def_prop_ro("schema", &ValidatedValue::schema, nb::rv_policy::reference,
+            "Get the type schema")
+
+        // View access
+        .def("view", static_cast<ValueView (ValidatedValue::*)()>(&ValidatedValue::view),
+            "Get a mutable view of the data")
+        .def("const_view", &ValidatedValue::const_view, "Get a const view of the data")
+
+        // Python interop
+        .def("to_python", &ValidatedValue::to_python, "Convert to Python object")
+        .def("from_python", &ValidatedValue::from_python, "src"_a,
+            "Set value from Python object (throws if None)")
+
+        // Equality and comparison
+        .def("equals", static_cast<bool (ValidatedValue::*)(const ConstValueView&) const>(&ValidatedValue::equals),
+            "other"_a, "Check equality with a view")
+
+        // Python special methods
+        .def("__eq__", [](const ValidatedValue& self, const ConstValueView& other) {
+            return self.equals(other);
+        }, nb::is_operator())
+        .def("__hash__", &ValidatedValue::hash)
+        .def("__str__", &ValidatedValue::to_string)
+        .def("__repr__", [](const ValidatedValue& self) {
+            if (!self.valid()) return std::string("ValidatedValue(invalid)");
+            return "ValidatedValue(" + self.to_string() + ")";
+        });
+}
+
+// ============================================================================
 // Main Registration Function
 // ============================================================================
 
@@ -862,10 +1033,14 @@ void value_register_with_nanobind(nb::module_& m) {
     // Register Value classes
     register_plain_value(value_mod);
     register_cached_value(value_mod);
+    register_ts_value(value_mod);
+    register_validated_value(value_mod);
 
     // Also export the main types at the module level for convenience
     m.attr("PlainValue") = value_mod.attr("PlainValue");
     m.attr("CachedValue") = value_mod.attr("CachedValue");
+    m.attr("TSValue") = value_mod.attr("TSValue");
+    m.attr("ValidatedValue") = value_mod.attr("ValidatedValue");
     m.attr("ConstValueView") = value_mod.attr("ConstValueView");
     m.attr("ValueView") = value_mod.attr("ValueView");
     m.attr("TypeRegistry") = value_mod.attr("TypeRegistry");

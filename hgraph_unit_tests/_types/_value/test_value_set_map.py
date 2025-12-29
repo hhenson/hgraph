@@ -616,22 +616,58 @@ def test_map_insert_doesnt_overwrite(string_double_map_schema):
 # Section 7.2: Maps - Erase Operations
 # =============================================================================
 
-@pytest.mark.skip(reason="Map erase TypeOps not implemented - vtable has nullptr")
 def test_map_erase_native_type(string_double_map_schema):
     """MapView.erase() with ConstValueView key."""
-    pass
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+
+    # Add some entries
+    k1 = make_string_value("apple")
+    v1 = make_double_value(1.50)
+    mv.set(k1.const_view(), v1.const_view())
+
+    k2 = make_string_value("banana")
+    v2 = make_double_value(0.75)
+    mv.set(k2.const_view(), v2.const_view())
+
+    assert mv.size() == 2
+
+    # Erase using ConstValueView key
+    mv.erase(k1.const_view())
+
+    assert mv.size() == 1
+    assert mv.contains(k2.const_view())
+    assert not mv.contains(k1.const_view())
 
 
-@pytest.mark.skip(reason="Map erase TypeOps not implemented - vtable has nullptr")
 def test_map_erase_returns_true_for_existing(string_double_map_schema):
     """MapView.erase() returns True for existing keys."""
-    pass
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+
+    k1 = make_string_value("apple")
+    v1 = make_double_value(1.50)
+    mv.set(k1.const_view(), v1.const_view())
+
+    # Erase returns True for existing key
+    result = mv.erase(k1.const_view())
+    assert result is True
 
 
-@pytest.mark.skip(reason="Map erase TypeOps not implemented - vtable has nullptr")
 def test_map_erase_returns_false_for_missing(string_double_map_schema):
     """MapView.erase() returns False for missing keys."""
-    pass
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+
+    k1 = make_string_value("apple")
+    v1 = make_double_value(1.50)
+    mv.set(k1.const_view(), v1.const_view())
+
+    # Try to erase non-existent key
+    k2 = make_string_value("banana")
+    result = mv.erase(k2.const_view())
+    assert result is False
+    assert mv.size() == 1
 
 
 # =============================================================================

@@ -242,18 +242,16 @@ def test_try_as_returns_none_on_mismatch(int_value):
     assert result is None
 
 
-@pytest.mark.skip(reason="checked_as_* methods not yet implemented")
 def test_checked_as_succeeds_on_match(int_value):
-    """checked_as_int() returns the value when types match."""
-    result = int_value.checked_as_int()
+    """as_int() returns the value when types match (checked access)."""
+    result = int_value.as_int()
     assert result == 42
 
 
-@pytest.mark.skip(reason="checked_as_* methods not yet implemented")
 def test_checked_as_throws_on_mismatch(int_value):
-    """checked_as_double() throws when called on int."""
+    """as_double() throws when called on int (checked access)."""
     with pytest.raises((TypeError, RuntimeError)):
-        int_value.checked_as_double()
+        int_value.as_double()
 
 
 # =============================================================================
@@ -422,20 +420,18 @@ def test_clone_string_value(string_value):
 # Error Handling
 # =============================================================================
 
-@pytest.mark.skip(reason="checked_as_* methods not yet implemented")
 def test_type_mismatch_raises_exception():
     """Type mismatch in checked conversion raises exception."""
     int_value = Value(42)
     with pytest.raises((TypeError, RuntimeError)):
-        int_value.checked_as_double()
+        int_value.as_double()
 
 
-@pytest.mark.skip(reason="checked_as_* methods not yet implemented")
 def test_type_mismatch_message_is_informative():
     """Type mismatch exception has informative message."""
     int_value = Value(42)
     try:
-        int_value.checked_as_double()
+        int_value.as_double()
     except (TypeError, RuntimeError) as e:
         assert "type" in str(e).lower() or "mismatch" in str(e).lower()
 

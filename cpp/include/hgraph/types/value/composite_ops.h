@@ -1639,6 +1639,51 @@ struct MapOps {
         do_map_set(obj, key, value, schema);
     }
 
+    static bool do_erase(void* obj, const void* key, const TypeMeta* schema) {
+        auto* storage = static_cast<MapStorage*>(obj);
+        const TypeMeta* key_type = schema->key_type;
+        const TypeMeta* val_type = schema->element_type;
+
+        size_t index = find_key(storage, key, schema);
+        if (index >= storage->size) {
+            return false;  // Key not found
+        }
+
+        // Destruct the key-value pair at index
+        void* key_ptr = get_key_ptr(storage, index, schema);
+        void* val_ptr = get_value_ptr(storage, index, schema);
+        if (key_type && key_type->ops && key_type->ops->destruct) {
+            key_type->ops->destruct(key_ptr, key_type);
+        }
+        if (val_type && val_type->ops && val_type->ops->destruct) {
+            val_type->ops->destruct(val_ptr, val_type);
+        }
+
+        // Move last pair to fill the gap (if not last)
+        if (index < storage->size - 1) {
+            void* last_key = get_key_ptr(storage, storage->size - 1, schema);
+            void* last_val = get_value_ptr(storage, storage->size - 1, schema);
+
+            if (key_type && key_type->ops) {
+                if (key_type->ops->construct) key_type->ops->construct(key_ptr, key_type);
+                if (key_type->ops->move_assign) key_type->ops->move_assign(key_ptr, last_key, key_type);
+                if (key_type->ops->destruct) key_type->ops->destruct(last_key, key_type);
+            }
+            if (val_type && val_type->ops) {
+                if (val_type->ops->construct) val_type->ops->construct(val_ptr, val_type);
+                if (val_type->ops->move_assign) val_type->ops->move_assign(val_ptr, last_val, val_type);
+                if (val_type->ops->destruct) val_type->ops->destruct(last_val, val_type);
+            }
+        }
+
+        storage->size--;
+        return true;
+    }
+
+    static void erase(void* obj, const void* key, const TypeMeta* schema) {
+        do_erase(obj, key, schema);
+    }
+
     static void do_clear(void* obj, const TypeMeta* schema) {
         auto* storage = static_cast<MapStorage*>(obj);
         const TypeMeta* key_type = schema->key_type;
@@ -1683,7 +1728,7 @@ struct MapOps {
             nullptr,   // set_field (not a bundle)
             &contains, // contains (for key lookup)
             nullptr,   // insert (not a set)
-            nullptr,   // erase (not implemented for maps)
+            &erase,    // erase (remove by key)
             &map_get,
             &map_set,
             nullptr,   // resize

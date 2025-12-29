@@ -182,9 +182,8 @@ def test_tuple_view_set_by_index(simple_tuple_schema):
     assert abs(tv[2].as_double() - 3.14) < 1e-10
 
 
-@pytest.mark.skip(reason="TupleView.set(value) needs auto-wrap - use at().set_* instead")
 def test_tuple_view_set_with_value(simple_tuple_schema):
-    """TupleView allows setting elements with explicit Value wrapping."""
+    """TupleView allows setting elements with PlainValue."""
     v = PlainValue(simple_tuple_schema)
     tv = v.as_tuple()
 
@@ -310,13 +309,13 @@ def test_tuple_index_out_of_bounds(simple_tuple_schema):
         _ = ctv.at(10)
 
 
-@pytest.mark.skip(reason="Negative index handling not implemented - nanobind doesn't pass negative ints to size_t")
 def test_tuple_negative_index_raises(simple_tuple_schema):
-    """Negative index access raises error."""
+    """Negative index access via at() raises error (at() doesn't support negative indices)."""
     v = PlainValue(simple_tuple_schema)
     ctv = v.const_view().as_tuple()
 
-    with pytest.raises((IndexError, RuntimeError, OverflowError)):
+    # at() method doesn't support negative indices (TypeError from nanobind)
+    with pytest.raises((IndexError, RuntimeError, OverflowError, TypeError)):
         _ = ctv.at(-1)
 
 

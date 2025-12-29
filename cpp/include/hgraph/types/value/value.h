@@ -484,16 +484,47 @@ public:
      * @brief Set the value from a Python object.
      *
      * If the policy has caching, this updates the cache.
+     * If the policy has validation, this rejects None values.
+     * If the policy has modification tracking, this notifies callbacks.
      *
      * @param src The Python object
+     * @throws std::runtime_error if validation is enabled and src is None
      */
     void from_python(const nb::object& src) {
+        // Validation check
+        if constexpr (policy_traits<Policy>::has_validation) {
+            if (src.is_none()) {
+                throw std::runtime_error("Cannot set value to None");
+            }
+        }
+
         if constexpr (policy_traits<Policy>::has_python_cache) {
             this->invalidate_cache();
         }
         _schema->ops->from_python(_storage.data(), src, _schema);
         if constexpr (policy_traits<Policy>::has_python_cache) {
             this->set_cache(src);
+        }
+
+        // Notify modification callbacks
+        if constexpr (policy_traits<Policy>::has_modification_tracking) {
+            this->notify_modified();
+        }
+    }
+
+    // ========== Modification Tracking ==========
+
+    /**
+     * @brief Register a callback to be called when the value is modified.
+     *
+     * Only available when the policy has modification tracking.
+     *
+     * @param cb The callback function
+     */
+    template<typename Callback>
+    void on_modified(Callback&& cb) {
+        if constexpr (policy_traits<Policy>::has_modification_tracking) {
+            storage_type::on_modified(std::forward<Callback>(cb));
         }
     }
 
@@ -511,6 +542,12 @@ using PlainValue = Value<NoCache>;
 
 /// Value with Python object caching
 using CachedValue = Value<WithPythonCache>;
+
+/// Value with caching and modification tracking (for time-series)
+using TSValue = Value<CombinedPolicy<WithPythonCache, WithModificationTracking>>;
+
+/// Value with validation (rejects None)
+using ValidatedValue = Value<WithValidation>;
 
 // ============================================================================
 // ConstValueView::clone Implementation

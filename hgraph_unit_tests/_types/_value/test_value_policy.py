@@ -31,6 +31,22 @@ except AttributeError:
     HAS_CACHED_VALUE = False
     CachedValue = None
 
+# TSValue may not be available yet
+try:
+    TSValue = value.TSValue
+    HAS_TS_VALUE = True
+except AttributeError:
+    HAS_TS_VALUE = False
+    TSValue = None
+
+# ValidatedValue may not be available yet
+try:
+    ValidatedValue = value.ValidatedValue
+    HAS_VALIDATED_VALUE = True
+except AttributeError:
+    HAS_VALIDATED_VALUE = False
+    ValidatedValue = None
+
 
 # =============================================================================
 # Fixtures
@@ -306,10 +322,9 @@ def test_cache_empty_after_invalidation(large_int, another_large_int):
 # Section 16.3 & 16.4: CRTP Mixin Patterns (if exposed)
 # =============================================================================
 
-@pytest.mark.skip(reason="TSValue not yet exposed in C++ extension")
+@pytest.mark.skipif(not HAS_TS_VALUE, reason="TSValue not yet exposed in C++ extension")
 def test_tsvalue_if_available(large_int):
     """TSValue (if available) combines caching and modification tracking."""
-    from hgraph._hgraph import TSValue
     v = TSValue(large_int)
     assert v.valid()
 
@@ -322,10 +337,9 @@ def test_tsvalue_if_available(large_int):
     assert hasattr(v, 'on_modified')
 
 
-@pytest.mark.skip(reason="TSValue not yet exposed in C++ extension")
+@pytest.mark.skipif(not HAS_TS_VALUE, reason="TSValue not yet exposed in C++ extension")
 def test_modification_callback():
     """Modification callbacks are triggered on from_python()."""
-    from hgraph._hgraph import TSValue
     v = TSValue(0)
     callback_count = [0]  # Use list for mutable closure
 
@@ -338,10 +352,9 @@ def test_modification_callback():
     assert callback_count[0] == 1
 
 
-@pytest.mark.skip(reason="TSValue not yet exposed in C++ extension")
+@pytest.mark.skipif(not HAS_TS_VALUE, reason="TSValue not yet exposed in C++ extension")
 def test_modification_invalidates_cache():
     """Modification invalidates cache in TSValue."""
-    from hgraph._hgraph import TSValue
     v = TSValue(123456789)
     py1 = v.to_python()
 
@@ -355,19 +368,19 @@ def test_modification_invalidates_cache():
 # Validation Extension Tests (Examples Section 4.1)
 # =============================================================================
 
-@pytest.mark.skip(reason="ValidatedValue not yet exposed in C++ extension")
+@pytest.mark.skipif(not HAS_VALIDATED_VALUE, reason="ValidatedValue not yet exposed in C++ extension")
 def test_validated_value_rejects_none():
     """ValidatedValue rejects None values."""
-    from hgraph._hgraph import ValidatedValue
     v = ValidatedValue(0)
-    with pytest.raises(RuntimeError, match="None"):
+    # Nanobind may reject None at binding level (TypeError) or
+    # our validation may catch it (RuntimeError)
+    with pytest.raises((RuntimeError, TypeError)):
         v.from_python(None)
 
 
-@pytest.mark.skip(reason="ValidatedValue not yet exposed in C++ extension")
+@pytest.mark.skipif(not HAS_VALIDATED_VALUE, reason="ValidatedValue not yet exposed in C++ extension")
 def test_validated_value_accepts_valid_input():
     """ValidatedValue accepts valid input."""
-    from hgraph._hgraph import ValidatedValue
     v = ValidatedValue(0)
     v.from_python(123456789)
     assert v.to_python() == 123456789

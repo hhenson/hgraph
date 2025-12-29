@@ -459,7 +459,6 @@ def test_fixed_list_set_element(fixed_double_list_schema):
     assert abs(flv[5].as_double() - 5.0) < 1e-10
 
 
-@pytest.mark.skip(reason="reset() not yet implemented")
 def test_fixed_list_reset_with_value(fixed_double_list_schema):
     """Fixed-size list reset() sets all elements to sentinel."""
     v = PlainValue(fixed_double_list_schema)
@@ -479,7 +478,6 @@ def test_fixed_list_reset_with_value(fixed_double_list_schema):
         assert abs(flv[i].as_double() - 0.0) < 1e-10
 
 
-@pytest.mark.skip(reason="reset() not yet implemented")
 def test_fixed_list_reset_with_nan(fixed_double_list_schema):
     """Fixed-size list can be reset with NaN sentinel."""
     v = PlainValue(fixed_double_list_schema)
@@ -492,7 +490,6 @@ def test_fixed_list_reset_with_nan(fixed_double_list_schema):
         assert math.isnan(flv[i].as_double())
 
 
-@pytest.mark.skip(reason="reset() not yet implemented")
 def test_fixed_list_reset_with_explicit_value(fixed_double_list_schema):
     """Fixed-size list reset(Value) works with explicit wrapping."""
     v = PlainValue(fixed_double_list_schema)
@@ -505,7 +502,6 @@ def test_fixed_list_reset_with_explicit_value(fixed_double_list_schema):
         assert abs(flv[i].as_double() - (-1.0)) < 1e-10
 
 
-@pytest.mark.skip(reason="reset() not yet implemented")
 def test_dynamic_list_reset(dynamic_double_list_schema):
     """Dynamic list also supports reset()."""
     v = PlainValue(dynamic_double_list_schema)
@@ -633,19 +629,18 @@ def test_list_index_out_of_bounds(dynamic_int_list_schema):
         _ = lv.at(10)
 
 
-@pytest.mark.skip(reason="Python bindings don't accept negative index - type conversion fails")
 def test_list_negative_index_raises(dynamic_int_list_schema):
-    """Negative index access raises error."""
+    """Negative index access via at() raises error (at() doesn't support negative indices)."""
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
     elem = make_int_value(10)
     lv.push_back(elem.const_view())
 
-    with pytest.raises((IndexError, RuntimeError, OverflowError)):
+    # at() method doesn't support negative indices (TypeError from nanobind)
+    with pytest.raises((IndexError, RuntimeError, OverflowError, TypeError)):
         _ = lv.at(-1)
 
 
-@pytest.mark.skip(reason="Type checking for wrong type not yet implemented")
 def test_list_set_wrong_type_raises(dynamic_int_list_schema):
     """Setting element with wrong type raises error."""
     v = PlainValue(dynamic_int_list_schema)
@@ -658,7 +653,6 @@ def test_list_set_wrong_type_raises(dynamic_int_list_schema):
         lv.set(0, wrong.const_view())
 
 
-@pytest.mark.skip(reason="Type checking for wrong type not yet implemented")
 def test_list_push_back_wrong_type_raises(dynamic_int_list_schema):
     """push_back with wrong type raises error."""
     v = PlainValue(dynamic_int_list_schema)

@@ -167,7 +167,6 @@ def test_bundle_value_has_correct_schema(simple_bundle_schema):
     assert v.schema == simple_bundle_schema
 
 
-@pytest.mark.skip(reason="BundleView.set(native) needs auto-wrap - use at_name_mut().set_* instead")
 def test_bundle_view_set_by_name_with_native_types(simple_bundle_schema):
     """BundleView.set(name, value) auto-wraps native types."""
     v = PlainValue(simple_bundle_schema)
