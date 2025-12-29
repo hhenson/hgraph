@@ -1679,12 +1679,12 @@ inline ConstValueView ConstKeySetView::const_iterator::operator*() const {
     // Access the MapStorage to get the key at the current iteration position
     auto* storage = static_cast<const MapStorage*>(_view->data());
 
-    if (!storage->index_set || _index >= storage->index_set->size()) {
+    if (!storage->index_set() || _index >= storage->index_set()->size()) {
         throw std::out_of_range("Key set iterator out of range");
     }
 
     // Get the storage index at this iteration position
-    auto it = storage->index_set->begin();
+    auto it = storage->index_set()->begin();
     std::advance(it, _index);
     size_t storage_idx = *it;
 

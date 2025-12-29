@@ -868,16 +868,16 @@ struct SetStorage;
  *
  * Enables heterogeneous lookup: can hash both indices (existing elements)
  * and raw pointers (lookup keys) without copying.
+ * Uses storage->element_type directly for type information.
  */
 struct SetIndexHash {
     using is_transparent = void;
     using is_avalanching = void;
 
     const SetStorage* storage{nullptr};
-    const TypeMeta* schema{nullptr};
 
     SetIndexHash() = default;
-    SetIndexHash(const SetStorage* s, const TypeMeta* sc) : storage(s), schema(sc) {}
+    explicit SetIndexHash(const SetStorage* s) : storage(s) {}
 
     [[nodiscard]] uint64_t operator()(size_t idx) const;
     [[nodiscard]] uint64_t operator()(const void* ptr) const;
@@ -888,15 +888,15 @@ struct SetIndexHash {
  *
  * Enables heterogeneous lookup: can compare indices with indices,
  * indices with pointers, and pointers with indices.
+ * Uses storage->element_type directly for type information.
  */
 struct SetIndexEqual {
     using is_transparent = void;
 
     const SetStorage* storage{nullptr};
-    const TypeMeta* schema{nullptr};
 
     SetIndexEqual() = default;
-    SetIndexEqual(const SetStorage* s, const TypeMeta* sc) : storage(s), schema(sc) {}
+    explicit SetIndexEqual(const SetStorage* s) : storage(s) {}
 
     [[nodiscard]] bool operator()(size_t a, size_t b) const;
     [[nodiscard]] bool operator()(size_t idx, const void* ptr) const;
@@ -930,7 +930,7 @@ struct SetStorage {
         // Rebuild index set with functors pointing to this storage
         if (other.index_set) {
             index_set = std::make_unique<IndexSet>(
-                0, SetIndexHash(this, element_type), SetIndexEqual(this, element_type));
+                0, SetIndexHash(this), SetIndexEqual(this));
             for (size_t idx : *other.index_set) {
                 index_set->insert(idx);
             }
@@ -946,7 +946,7 @@ struct SetStorage {
             element_type = other.element_type;
             if (other.index_set) {
                 index_set = std::make_unique<IndexSet>(
-                    0, SetIndexHash(this, element_type), SetIndexEqual(this, element_type));
+                    0, SetIndexHash(this), SetIndexEqual(this));
                 for (size_t idx : *other.index_set) {
                     index_set->insert(idx);
                 }
@@ -984,7 +984,7 @@ struct SetOps {
         auto* storage = new (dst) SetStorage();
         storage->element_type = schema->element_type;
         storage->index_set = std::make_unique<SetStorage::IndexSet>(
-            0, SetIndexHash(storage, schema), SetIndexEqual(storage, schema));
+            0, SetIndexHash(storage), SetIndexEqual(storage));
     }
 
     static void destruct(void* obj, const TypeMeta* schema) {
@@ -1228,15 +1228,46 @@ struct SetOps {
         }
 
         size_t idx = *it;
+        size_t last_idx = storage->element_count - 1;
 
-        // Destruct the element
-        void* elem = storage->get_element_ptr(idx);
-        if (elem_type && elem_type->ops && elem_type->ops->destruct) {
-            elem_type->ops->destruct(elem, elem_type);
+        // Remove the found element's index from index_set
+        storage->index_set->erase(it);
+
+        if (idx != last_idx) {
+            // Swap-with-last: move last element to fill the gap
+            void* slot_to_fill = storage->get_element_ptr(idx);
+            void* last_elem = storage->get_element_ptr(last_idx);
+
+            // IMPORTANT: Remove last_idx from index_set BEFORE moving data
+            // After moving, both indices would have the same element value,
+            // causing the equality functor to return true for both
+            storage->index_set->erase(last_idx);
+
+            // Move last element to the erased slot (overwrites the erased element)
+            if (elem_type && elem_type->ops) {
+                if (elem_type->ops->move_assign) {
+                    elem_type->ops->move_assign(slot_to_fill, last_elem, elem_type);
+                } else if (elem_type->ops->copy_assign) {
+                    elem_type->ops->copy_assign(slot_to_fill, last_elem, elem_type);
+                }
+            }
+
+            // Insert idx for the moved element (now that data is in place)
+            storage->index_set->insert(idx);
+
+            // Destruct the moved-from slot (last position)
+            if (elem_type && elem_type->ops && elem_type->ops->destruct) {
+                elem_type->ops->destruct(last_elem, elem_type);
+            }
+        } else {
+            // Erasing the last element - just destruct it
+            void* elem = storage->get_element_ptr(idx);
+            if (elem_type && elem_type->ops && elem_type->ops->destruct) {
+                elem_type->ops->destruct(elem, elem_type);
+            }
         }
 
-        // Remove from index set (tombstone pattern - element slot remains in vector)
-        storage->index_set->erase(it);
+        storage->element_count--;
         return true;
     }
 
@@ -1302,15 +1333,17 @@ struct SetOps {
 
 inline uint64_t SetIndexHash::operator()(size_t idx) const {
     const void* elem = storage->get_element_ptr(idx);
-    if (schema && schema->element_type && schema->element_type->ops && schema->element_type->ops->hash) {
-        return schema->element_type->ops->hash(elem, schema->element_type);
+    const TypeMeta* elem_type = storage->element_type;
+    if (elem_type && elem_type->ops && elem_type->ops->hash) {
+        return elem_type->ops->hash(elem, elem_type);
     }
     return 0;
 }
 
 inline uint64_t SetIndexHash::operator()(const void* ptr) const {
-    if (schema && schema->element_type && schema->element_type->ops && schema->element_type->ops->hash) {
-        return schema->element_type->ops->hash(ptr, schema->element_type);
+    const TypeMeta* elem_type = storage->element_type;
+    if (elem_type && elem_type->ops && elem_type->ops->hash) {
+        return elem_type->ops->hash(ptr, elem_type);
     }
     return 0;
 }
@@ -1319,16 +1352,18 @@ inline bool SetIndexEqual::operator()(size_t a, size_t b) const {
     if (a == b) return true;
     const void* elem_a = storage->get_element_ptr(a);
     const void* elem_b = storage->get_element_ptr(b);
-    if (schema && schema->element_type && schema->element_type->ops && schema->element_type->ops->equals) {
-        return schema->element_type->ops->equals(elem_a, elem_b, schema->element_type);
+    const TypeMeta* elem_type = storage->element_type;
+    if (elem_type && elem_type->ops && elem_type->ops->equals) {
+        return elem_type->ops->equals(elem_a, elem_b, elem_type);
     }
     return false;
 }
 
 inline bool SetIndexEqual::operator()(size_t idx, const void* ptr) const {
     const void* elem = storage->get_element_ptr(idx);
-    if (schema && schema->element_type && schema->element_type->ops && schema->element_type->ops->equals) {
-        return schema->element_type->ops->equals(elem, ptr, schema->element_type);
+    const TypeMeta* elem_type = storage->element_type;
+    if (elem_type && elem_type->ops && elem_type->ops->equals) {
+        return elem_type->ops->equals(elem, ptr, elem_type);
     }
     return false;
 }
@@ -1341,120 +1376,45 @@ inline bool SetIndexEqual::operator()(const void* ptr, size_t idx) const {
 // Map Operations
 // ============================================================================
 
-// Forward declaration for MapStorage
-struct MapStorage;
-
-/**
- * @brief Transparent hash functor for MapStorage.
- *
- * Enables heterogeneous lookup: can hash both indices (existing keys)
- * and raw pointers (lookup keys) without copying.
- */
-struct MapIndexHash {
-    using is_transparent = void;
-    using is_avalanching = void;
-
-    const MapStorage* storage{nullptr};
-    const TypeMeta* schema{nullptr};
-
-    MapIndexHash() = default;
-    MapIndexHash(const MapStorage* s, const TypeMeta* sc) : storage(s), schema(sc) {}
-
-    [[nodiscard]] uint64_t operator()(size_t idx) const;
-    [[nodiscard]] uint64_t operator()(const void* ptr) const;
-};
-
-/**
- * @brief Transparent equality functor for MapStorage.
- *
- * Enables heterogeneous lookup: can compare indices with indices,
- * indices with pointers, and pointers with indices.
- */
-struct MapIndexEqual {
-    using is_transparent = void;
-
-    const MapStorage* storage{nullptr};
-    const TypeMeta* schema{nullptr};
-
-    MapIndexEqual() = default;
-    MapIndexEqual(const MapStorage* s, const TypeMeta* sc) : storage(s), schema(sc) {}
-
-    [[nodiscard]] bool operator()(size_t a, size_t b) const;
-    [[nodiscard]] bool operator()(size_t idx, const void* ptr) const;
-    [[nodiscard]] bool operator()(const void* ptr, size_t idx) const;
-};
-
 /**
  * @brief Storage structure for maps using robin-hood hashing.
  *
- * Keys and values are stored in parallel contiguous byte vectors for cache efficiency.
- * An index-based hash set provides O(1) lookup/insert/erase by key.
- * Uses ankerl::unordered_dense with transparent hash/equal for heterogeneous lookup.
+ * Embeds a SetStorage for key management (index set + key storage).
+ * Values are stored in a parallel contiguous byte vector.
+ * This design reuses SetStorage's hash/equality functors for keys.
  */
 struct MapStorage {
-    using IndexSet = ankerl::unordered_dense::set<size_t, MapIndexHash, MapIndexEqual>;
-
-    std::vector<std::byte> keys;       // Contiguous key storage
+    SetStorage keys;                   // Key storage with index_set (reuses SetIndexHash/Equal)
     std::vector<std::byte> values;     // Parallel value storage
-    size_t entry_count{0};             // Number of valid entries
-    std::unique_ptr<IndexSet> index_set; // Index-based hash set (over keys)
-    const TypeMeta* key_type{nullptr};
     const TypeMeta* value_type{nullptr};
 
     MapStorage() = default;
     MapStorage(const MapStorage&) = delete;
     MapStorage& operator=(const MapStorage&) = delete;
 
-    // Move constructor - need to rebuild index_set with new 'this' pointer
+    // Move constructor - SetStorage handles its own move
     MapStorage(MapStorage&& other) noexcept
         : keys(std::move(other.keys))
         , values(std::move(other.values))
-        , entry_count(other.entry_count)
-        , key_type(other.key_type)
         , value_type(other.value_type) {
-        // Rebuild index set with functors pointing to this storage
-        if (other.index_set) {
-            index_set = std::make_unique<IndexSet>(
-                0, MapIndexHash(this, nullptr), MapIndexEqual(this, nullptr));
-            for (size_t idx : *other.index_set) {
-                index_set->insert(idx);
-            }
-        }
-        other.entry_count = 0;
-        other.index_set.reset();
     }
 
     MapStorage& operator=(MapStorage&& other) noexcept {
         if (this != &other) {
             keys = std::move(other.keys);
             values = std::move(other.values);
-            entry_count = other.entry_count;
-            key_type = other.key_type;
             value_type = other.value_type;
-            if (other.index_set) {
-                index_set = std::make_unique<IndexSet>(
-                    0, MapIndexHash(this, nullptr), MapIndexEqual(this, nullptr));
-                for (size_t idx : *other.index_set) {
-                    index_set->insert(idx);
-                }
-            } else {
-                index_set.reset();
-            }
-            other.entry_count = 0;
-            other.index_set.reset();
         }
         return *this;
     }
 
-    // Helper to get key pointer by index
+    // Delegate key operations to embedded SetStorage
     [[nodiscard]] const void* get_key_ptr(size_t idx) const {
-        if (!key_type) return nullptr;
-        return keys.data() + idx * key_type->size;
+        return keys.get_element_ptr(idx);
     }
 
     [[nodiscard]] void* get_key_ptr(size_t idx) {
-        if (!key_type) return nullptr;
-        return keys.data() + idx * key_type->size;
+        return keys.get_element_ptr(idx);
     }
 
     // Helper to get value pointer by index
@@ -1467,6 +1427,12 @@ struct MapStorage {
         if (!value_type) return nullptr;
         return values.data() + idx * value_type->size;
     }
+
+    // Convenience accessors
+    [[nodiscard]] size_t entry_count() const { return keys.element_count; }
+    [[nodiscard]] const TypeMeta* key_type() const { return keys.element_type; }
+    [[nodiscard]] SetStorage::IndexSet* index_set() { return keys.index_set.get(); }
+    [[nodiscard]] const SetStorage::IndexSet* index_set() const { return keys.index_set.get(); }
 };
 
 /**
@@ -1480,10 +1446,11 @@ struct MapOps {
 
     static void construct(void* dst, const TypeMeta* schema) {
         auto* storage = new (dst) MapStorage();
-        storage->key_type = schema->key_type;
+        // Initialize the embedded SetStorage for keys
+        storage->keys.element_type = schema->key_type;
+        storage->keys.index_set = std::make_unique<SetStorage::IndexSet>(
+            0, SetIndexHash(&storage->keys), SetIndexEqual(&storage->keys));
         storage->value_type = schema->element_type;
-        storage->index_set = std::make_unique<MapStorage::IndexSet>(
-            0, MapIndexHash(storage, schema), MapIndexEqual(storage, schema));
     }
 
     static void destruct(void* obj, const TypeMeta* schema) {
@@ -1492,8 +1459,8 @@ struct MapOps {
         const TypeMeta* val_type = schema->element_type;
 
         // Destruct all key-value pairs
-        if (storage->index_set) {
-            for (size_t idx : *storage->index_set) {
+        if (storage->index_set()) {
+            for (size_t idx : *storage->index_set()) {
                 void* key_ptr = storage->get_key_ptr(idx);
                 void* val_ptr = storage->get_value_ptr(idx);
                 if (key_type && key_type->ops && key_type->ops->destruct) {
@@ -1514,8 +1481,8 @@ struct MapOps {
         do_clear(dst, schema);
 
         // Copy entries from source
-        if (src_storage->index_set) {
-            for (size_t idx : *src_storage->index_set) {
+        if (src_storage->index_set()) {
+            for (size_t idx : *src_storage->index_set()) {
                 const void* src_key = src_storage->get_key_ptr(idx);
                 const void* src_val = src_storage->get_value_ptr(idx);
                 do_map_set(dst, src_key, src_val, schema);
@@ -1539,20 +1506,20 @@ struct MapOps {
         auto* storage_b = static_cast<const MapStorage*>(b);
         const TypeMeta* val_type = schema->element_type;
 
-        size_t size_a = storage_a->index_set ? storage_a->index_set->size() : 0;
-        size_t size_b = storage_b->index_set ? storage_b->index_set->size() : 0;
+        size_t size_a = storage_a->index_set() ? storage_a->index_set()->size() : 0;
+        size_t size_b = storage_b->index_set() ? storage_b->index_set()->size() : 0;
 
         if (size_a != size_b) return false;
 
         // Check that all key-value pairs in a exist in b with same value (O(n) with O(1) lookups)
-        if (storage_a->index_set && storage_b->index_set) {
-            for (size_t idx_a : *storage_a->index_set) {
+        if (storage_a->index_set() && storage_b->index_set()) {
+            for (size_t idx_a : *storage_a->index_set()) {
                 const void* key = storage_a->get_key_ptr(idx_a);
                 const void* val_a = storage_a->get_value_ptr(idx_a);
 
                 // O(1) lookup in b
-                auto it_b = storage_b->index_set->find(key);
-                if (it_b == storage_b->index_set->end()) {
+                auto it_b = storage_b->index_set()->find(key);
+                if (it_b == storage_b->index_set()->end()) {
                     return false;  // Key not found
                 }
 
@@ -1573,9 +1540,9 @@ struct MapOps {
         const TypeMeta* val_type = schema->element_type;
         std::string result = "{";
 
-        if (storage->index_set) {
+        if (storage->index_set()) {
             bool first = true;
-            for (size_t idx : *storage->index_set) {
+            for (size_t idx : *storage->index_set()) {
                 if (!first) result += ", ";
                 first = false;
                 const void* key_ptr = storage->get_key_ptr(idx);
@@ -1606,8 +1573,8 @@ struct MapOps {
         const TypeMeta* val_type = schema->element_type;
         nb::dict result;
 
-        if (storage->index_set) {
-            for (size_t idx : *storage->index_set) {
+        if (storage->index_set()) {
+            for (size_t idx : *storage->index_set()) {
                 const void* key_ptr = storage->get_key_ptr(idx);
                 const void* val_ptr = storage->get_value_ptr(idx);
 
@@ -1685,8 +1652,8 @@ struct MapOps {
         size_t result = 0;
 
         // XOR all key-value pair hashes (order-independent)
-        if (storage->index_set) {
-            for (size_t idx : *storage->index_set) {
+        if (storage->index_set()) {
+            for (size_t idx : *storage->index_set()) {
                 const void* key_ptr = storage->get_key_ptr(idx);
                 const void* val_ptr = storage->get_value_ptr(idx);
                 size_t pair_hash = 0;
@@ -1706,19 +1673,19 @@ struct MapOps {
 
     static size_t size(const void* obj, const TypeMeta* /*schema*/) {
         auto* storage = static_cast<const MapStorage*>(obj);
-        return storage->index_set ? storage->index_set->size() : 0;
+        return storage->index_set() ? storage->index_set()->size() : 0;
     }
 
     // ========== Map-specific Operations ==========
 
     static const void* do_map_get(const void* obj, const void* key, const TypeMeta* /*schema*/) {
         auto* storage = static_cast<const MapStorage*>(obj);
-        if (!storage->index_set) {
+        if (!storage->index_set()) {
             throw std::out_of_range("Map key not found");
         }
 
-        auto it = storage->index_set->find(key);
-        if (it == storage->index_set->end()) {
+        auto it = storage->index_set()->find(key);
+        if (it == storage->index_set()->end()) {
             throw std::out_of_range("Map key not found");
         }
         return storage->get_value_ptr(*it);
@@ -1731,8 +1698,8 @@ struct MapOps {
     // Contains for key lookup (O(1))
     static bool do_contains(const void* obj, const void* key, const TypeMeta* /*schema*/) {
         auto* storage = static_cast<const MapStorage*>(obj);
-        if (!storage->index_set) return false;
-        return storage->index_set->find(key) != storage->index_set->end();
+        if (!storage->index_set()) return false;
+        return storage->index_set()->find(key) != storage->index_set()->end();
     }
 
     static bool contains(const void* obj, const void* key, const TypeMeta* schema) {
@@ -1744,11 +1711,11 @@ struct MapOps {
         const TypeMeta* key_type = schema->key_type;
         const TypeMeta* val_type = schema->element_type;
 
-        if (!storage->index_set) return;
+        if (!storage->index_set()) return;
 
         // Check if key already exists (O(1))
-        auto it = storage->index_set->find(key);
-        if (it != storage->index_set->end()) {
+        auto it = storage->index_set()->find(key);
+        if (it != storage->index_set()->end()) {
             // Update existing value
             void* val_ptr = storage->get_value_ptr(*it);
             if (val_type && val_type->ops && val_type->ops->copy_assign) {
@@ -1758,14 +1725,14 @@ struct MapOps {
         }
 
         // Add new entry at entry_count position
-        size_t new_idx = storage->entry_count;
+        size_t new_idx = storage->entry_count();
         size_t key_size = key_type->size;
         size_t val_size = val_type->size;
 
-        // Grow key storage if needed
+        // Grow key storage if needed (keys.elements is the storage)
         size_t required_key_size = (new_idx + 1) * key_size;
-        if (storage->keys.size() < required_key_size) {
-            storage->keys.resize(required_key_size);
+        if (storage->keys.elements.size() < required_key_size) {
+            storage->keys.elements.resize(required_key_size);
         }
 
         // Grow value storage if needed
@@ -1796,8 +1763,8 @@ struct MapOps {
             }
         }
 
-        storage->entry_count++;
-        storage->index_set->insert(new_idx);
+        storage->keys.element_count++;
+        storage->index_set()->insert(new_idx);
     }
 
     static void map_set(void* obj, const void* key, const void* value, const TypeMeta* schema) {
@@ -1809,27 +1776,72 @@ struct MapOps {
         const TypeMeta* key_type = schema->key_type;
         const TypeMeta* val_type = schema->element_type;
 
-        if (!storage->index_set) return false;
+        if (!storage->index_set()) return false;
 
-        auto it = storage->index_set->find(key);
-        if (it == storage->index_set->end()) {
+        auto it = storage->index_set()->find(key);
+        if (it == storage->index_set()->end()) {
             return false;  // Key not found
         }
 
         size_t idx = *it;
+        size_t last_idx = storage->entry_count() - 1;
 
-        // Destruct the key-value pair
-        void* key_ptr = storage->get_key_ptr(idx);
-        void* val_ptr = storage->get_value_ptr(idx);
-        if (key_type && key_type->ops && key_type->ops->destruct) {
-            key_type->ops->destruct(key_ptr, key_type);
-        }
-        if (val_type && val_type->ops && val_type->ops->destruct) {
-            val_type->ops->destruct(val_ptr, val_type);
+        // Remove the found key's index from index_set
+        storage->index_set()->erase(it);
+
+        if (idx != last_idx) {
+            // Swap-with-last: move last key-value pair to fill the gap
+            void* key_slot = storage->get_key_ptr(idx);
+            void* val_slot = storage->get_value_ptr(idx);
+            void* last_key = storage->get_key_ptr(last_idx);
+            void* last_val = storage->get_value_ptr(last_idx);
+
+            // IMPORTANT: Remove last_idx from index_set BEFORE moving data
+            // After moving, both indices would have the same key value,
+            // causing the equality functor to return true for both
+            storage->index_set()->erase(last_idx);
+
+            // Move last key to the erased slot (overwrites the erased key)
+            if (key_type && key_type->ops) {
+                if (key_type->ops->move_assign) {
+                    key_type->ops->move_assign(key_slot, last_key, key_type);
+                } else if (key_type->ops->copy_assign) {
+                    key_type->ops->copy_assign(key_slot, last_key, key_type);
+                }
+            }
+
+            // Move last value to the erased slot (overwrites the erased value)
+            if (val_type && val_type->ops) {
+                if (val_type->ops->move_assign) {
+                    val_type->ops->move_assign(val_slot, last_val, val_type);
+                } else if (val_type->ops->copy_assign) {
+                    val_type->ops->copy_assign(val_slot, last_val, val_type);
+                }
+            }
+
+            // Insert idx for the moved key (now that data is in place)
+            storage->index_set()->insert(idx);
+
+            // Destruct the moved-from slots (last position)
+            if (key_type && key_type->ops && key_type->ops->destruct) {
+                key_type->ops->destruct(last_key, key_type);
+            }
+            if (val_type && val_type->ops && val_type->ops->destruct) {
+                val_type->ops->destruct(last_val, val_type);
+            }
+        } else {
+            // Erasing the last entry - just destruct it
+            void* key_ptr = storage->get_key_ptr(idx);
+            void* val_ptr = storage->get_value_ptr(idx);
+            if (key_type && key_type->ops && key_type->ops->destruct) {
+                key_type->ops->destruct(key_ptr, key_type);
+            }
+            if (val_type && val_type->ops && val_type->ops->destruct) {
+                val_type->ops->destruct(val_ptr, val_type);
+            }
         }
 
-        // Remove from index set (tombstone pattern - slots remain in vectors)
-        storage->index_set->erase(it);
+        storage->keys.element_count--;
         return true;
     }
 
@@ -1843,8 +1855,8 @@ struct MapOps {
         const TypeMeta* val_type = schema->element_type;
 
         // Destruct all key-value pairs
-        if (storage->index_set) {
-            for (size_t idx : *storage->index_set) {
+        if (storage->index_set()) {
+            for (size_t idx : *storage->index_set()) {
                 void* key_ptr = storage->get_key_ptr(idx);
                 void* val_ptr = storage->get_value_ptr(idx);
                 if (key_type && key_type->ops && key_type->ops->destruct) {
@@ -1854,13 +1866,13 @@ struct MapOps {
                     val_type->ops->destruct(val_ptr, val_type);
                 }
             }
-            storage->index_set->clear();
+            storage->index_set()->clear();
         }
 
         // Clear storage
-        storage->keys.clear();
+        storage->keys.elements.clear();
+        storage->keys.element_count = 0;
         storage->values.clear();
-        storage->entry_count = 0;
     }
 
     static void clear(void* obj, const TypeMeta* schema) {
@@ -1896,48 +1908,5 @@ struct MapOps {
         return &map_ops;
     }
 };
-
-// ========== MapIndexHash and MapIndexEqual implementations ==========
-
-inline uint64_t MapIndexHash::operator()(size_t idx) const {
-    const void* key = storage->get_key_ptr(idx);
-    const TypeMeta* key_type = storage->key_type;
-    if (key_type && key_type->ops && key_type->ops->hash) {
-        return key_type->ops->hash(key, key_type);
-    }
-    return 0;
-}
-
-inline uint64_t MapIndexHash::operator()(const void* ptr) const {
-    const TypeMeta* key_type = storage->key_type;
-    if (key_type && key_type->ops && key_type->ops->hash) {
-        return key_type->ops->hash(ptr, key_type);
-    }
-    return 0;
-}
-
-inline bool MapIndexEqual::operator()(size_t a, size_t b) const {
-    if (a == b) return true;
-    const void* key_a = storage->get_key_ptr(a);
-    const void* key_b = storage->get_key_ptr(b);
-    const TypeMeta* key_type = storage->key_type;
-    if (key_type && key_type->ops && key_type->ops->equals) {
-        return key_type->ops->equals(key_a, key_b, key_type);
-    }
-    return false;
-}
-
-inline bool MapIndexEqual::operator()(size_t idx, const void* ptr) const {
-    const void* key = storage->get_key_ptr(idx);
-    const TypeMeta* key_type = storage->key_type;
-    if (key_type && key_type->ops && key_type->ops->equals) {
-        return key_type->ops->equals(key, ptr, key_type);
-    }
-    return false;
-}
-
-inline bool MapIndexEqual::operator()(const void* ptr, size_t idx) const {
-    return (*this)(idx, ptr);
-}
 
 } // namespace hgraph::value
