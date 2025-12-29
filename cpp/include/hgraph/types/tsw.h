@@ -63,15 +63,18 @@ namespace hgraph {
         [[nodiscard]] engine_time_t first_modified_time() const;
 
         void copy_from_output(const TimeSeriesOutput &output) override {
-            if (!is_same_type(&output)) throw std::bad_cast();
-            auto &o = **output.visit(cast_to_expected<const TimeSeriesFixedWindowOutput*>);
-            _buffer = o._buffer;
-            _times = o._times;
-            _start = o._start;
-            _length = o._length;
-            _size = o._size;
-            _min_size = o._min_size;
-            mark_modified();
+            output.visit(
+                [this](const TimeSeriesFixedWindowOutput* o) {
+                    _buffer = o->_buffer;
+                    _times = o->_times;
+                    _start = o->_start;
+                    _length = o->_length;
+                    _size = o->_size;
+                    _min_size = o->_min_size;
+                    mark_modified();
+                },
+                throw_if_not_expected<const TimeSeriesFixedWindowOutput*>
+            );
         }
 
         void copy_from_input(const TimeSeriesInput &input) override;
@@ -189,7 +192,7 @@ namespace hgraph {
                 _min_size = src->_min_size;
                 mark_modified();
             },
-            make_throw_error("TimeSeriesFixedWindowOutput::copy_from_input: input is not fixed window")
+            make_throw_error("TimeSeriesFixedWindowOutput::copy_from_input: input output is not fixed window")
         );
     }
 
