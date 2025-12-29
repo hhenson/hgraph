@@ -18,9 +18,10 @@ namespace hgraph
         using underlying_type = T_U;
         using api_ptr = ApiPtr<underlying_type>;
 
-        explicit PyTimeSeriesList(api_ptr impl);
-        explicit PyTimeSeriesList(underlying_type *impl, const control_block_ptr &cb);
-        explicit PyTimeSeriesList(underlying_type *impl);
+        template<typename T, typename... Ts>
+            requires (!std::same_as<std::remove_cvref_t<T>, PyTimeSeriesList>)
+        explicit PyTimeSeriesList(T&& x, Ts&&... xs)
+            : T_TS(std::forward<T>(x), std::forward<Ts>(xs)...) {}
 
         // Move constructor
         PyTimeSeriesList(PyTimeSeriesList&& other) noexcept
