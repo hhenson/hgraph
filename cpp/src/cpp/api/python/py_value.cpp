@@ -304,7 +304,65 @@ static void register_const_value_view(nb::module_& m) {
         .def("__repr__", [](const ConstValueView& self) {
             if (!self.valid()) return std::string("ConstValueView(invalid)");
             return "ConstValueView(" + self.to_string() + ")";
-        });
+        })
+
+        // Visitor Pattern (User Guide Section 8)
+        .def("visit", [](const ConstValueView& self, nb::callable handler) {
+            // Convert value to Python and call the handler
+            nb::object py_value = self.to_python();
+            return handler(py_value);
+        }, "handler"_a,
+            "Visit the value with a callable handler.\n\n"
+            "The handler is called with the Python-converted value.\n"
+            "Returns whatever the handler returns.")
+
+        .def("visit_void", [](const ConstValueView& self, nb::callable handler) {
+            // Convert value to Python and call the handler (discard result)
+            nb::object py_value = self.to_python();
+            handler(py_value);
+        }, "handler"_a,
+            "Visit the value with a callable handler for side effects only.\n\n"
+            "The handler is called with the Python-converted value.\n"
+            "The return value is ignored.")
+
+        .def("match", [](const ConstValueView& self, nb::args type_handler_pairs) {
+            // Pattern matching: pairs of (type, handler)
+            // Last pair can have None as type for default handler
+            nb::object py_value = self.to_python();
+
+            for (size_t i = 0; i < type_handler_pairs.size(); ++i) {
+                nb::tuple pair = nb::cast<nb::tuple>(type_handler_pairs[i]);
+                if (pair.size() != 2) {
+                    throw std::runtime_error("match: each argument must be a (type, handler) tuple");
+                }
+
+                nb::object type_or_none = pair[0];
+                nb::callable handler = nb::cast<nb::callable>(pair[1]);
+
+                if (type_or_none.is_none()) {
+                    // Default handler
+                    return handler(py_value);
+                }
+
+                // Check if py_value is an instance of the type
+                if (nb::isinstance(py_value, type_or_none)) {
+                    return handler(py_value);
+                }
+            }
+
+            throw std::runtime_error("match: no handler matched for value type");
+        },
+            "Pattern match on the value with (type, handler) pairs.\n\n"
+            "Each argument should be a tuple of (type, callable).\n"
+            "Use (None, handler) as the last pair for a default handler.\n"
+            "Returns the result of the first matching handler.\n\n"
+            "Example:\n"
+            "    result = view.match(\n"
+            "        (int, lambda x: f'int:{x}'),\n"
+            "        (float, lambda x: f'float:{x}'),\n"
+            "        (str, lambda x: f'str:{x}'),\n"
+            "        (None, lambda x: 'default')\n"
+            "    )");
 }
 
 // ============================================================================
@@ -352,7 +410,23 @@ static void register_value_view(nb::module_& m) {
         .def("__repr__", [](const ValueView& self) {
             if (!self.valid()) return std::string("ValueView(invalid)");
             return "ValueView(" + self.to_string() + ")";
-        });
+        })
+
+        // Mutable Visitor Pattern (User Guide Section 8)
+        .def("visit_mut", [](ValueView& self, nb::callable handler) {
+            // For mutable visiting, we pass the view itself to allow mutations
+            // The handler can use from_python() to update the value
+            nb::object py_value = self.to_python();
+            nb::object result = handler(py_value);
+
+            // If handler returns a value, set it back
+            if (!result.is_none()) {
+                self.from_python(result);
+            }
+        }, "handler"_a,
+            "Visit the value with a mutable callable handler.\n\n"
+            "The handler is called with the Python-converted value.\n"
+            "If the handler returns a value (not None), the view is updated with it.");
 }
 
 // ============================================================================

@@ -36,6 +36,7 @@
 #include <hgraph/types/value/value_storage.h>
 #include <hgraph/types/value/path.h>
 #include <hgraph/types/value/traversal.h>
+#include <hgraph/types/value/visitor.h>
 
 #include <type_traits>
 #include <utility>

@@ -9,7 +9,7 @@
  * - "items[0]" (index access)
  * - "users[0].addresses[1].city" (mixed access)
  *
- * Reference: ts_design_docs/Value_USER_GUIDE.md Section 9
+ * Reference: ts_design_docs/Value_USER_GUIDE.md Section 10
  *
  * Usage:
  * @code

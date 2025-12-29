@@ -524,7 +524,111 @@ if apple_key.const_view() in key_set:
 
 ---
 
-## 8. Deep Traversal of Nested Structures
+## 8. Visiting Values
+
+**Implementation**: `cpp/include/hgraph/types/value/visitor.h`
+
+The visitor pattern provides flexible runtime dispatch based on TypeKind without static dependencies on specific scalar types.
+
+### Visit with Overloaded Handlers
+
+The `visit` function combines handlers using the overloaded pattern and dispatches based on TypeKind:
+
+```cpp
+#include <hgraph/types/value/visitor.h>
+
+using namespace hgraph::value;
+
+// Visit with type-specific handlers
+std::string result = visit(value.const_view(),
+    [](ConstValueView v) { return "scalar: " + v.to_string(); },
+    [](ConstTupleView t) { return "tuple[" + std::to_string(t.size()) + "]"; },
+    [](ConstBundleView b) { return "bundle"; },
+    [](ConstListView l) { return "list"; },
+    [](ConstSetView s) { return "set"; },
+    [](ConstMapView m) { return "map"; }
+);
+
+// Partial handlers with catch-all (ConstValueView matches any type)
+std::string result = visit(value.const_view(),
+    [](ConstListView l) { return "list[" + std::to_string(l.size()) + "]"; },
+    [](ConstMapView m) { return "map"; },
+    [](ConstValueView v) { return "other: " + v.to_string(); }  // catch-all
+);
+```
+
+For scalar values, the handler receives `ConstValueView`. Use `is_scalar_type<T>()` to check the type:
+
+```cpp
+int64_t doubled = visit(value.const_view(),
+    [](ConstValueView v) {
+        if (v.is_scalar_type<int64_t>()) return v.as<int64_t>() * 2;
+        if (v.is_scalar_type<double>()) return static_cast<int64_t>(v.as<double>() * 2);
+        return int64_t{0};
+    },
+    [](ConstTupleView) { return int64_t{0}; },
+    [](ConstBundleView) { return int64_t{0}; },
+    [](ConstListView) { return int64_t{0}; },
+    [](ConstSetView) { return int64_t{0}; },
+    [](ConstMapView) { return int64_t{0}; }
+);
+```
+
+### Mutable Visiting
+
+For mutable access, pass `ValueView` instead:
+
+```cpp
+visit(value.view(),
+    [](ValueView v) { v.as<int64_t>() *= 2; },
+    [](TupleView t) { /* modify tuple */ },
+    [](BundleView b) { /* modify bundle */ },
+    [](ListView l) { /* modify list */ },
+    [](SetView s) { /* modify set */ },
+    [](MapView m) { /* modify map */ }
+);
+```
+
+### Pattern Matching with When/Otherwise
+
+For declarative pattern matching on TypeKind:
+
+```cpp
+std::string result = match<std::string>(value.const_view(),
+    when<TypeKind::Scalar>([](ConstValueView v) { return v.to_string(); }),
+    when<TypeKind::List>([](ConstListView l) {
+        return "list of " + std::to_string(l.size());
+    }),
+    otherwise([](ConstValueView) { return "other"; })
+);
+```
+
+### Python Bindings
+
+The Python bindings provide simple visitor methods on `ConstValueView` and `ValueView`:
+
+```python
+# Visit with a handler (converts to Python, calls handler)
+result = value.const_view().visit(lambda x: f"value: {x}")
+
+# Void visitor for side effects
+value.const_view().visit_void(lambda x: print(x))
+
+# Pattern matching on Python types
+result = value.const_view().match(
+    (int, lambda x: f"int:{x}"),
+    (float, lambda x: f"float:{x}"),
+    (str, lambda x: f"str:{x}"),
+    (None, lambda x: "default"),  # None = default handler
+)
+
+# Mutable visitor (returns new value to update)
+value.view().visit_mut(lambda x: x * 2)  # Doubles numeric value
+```
+
+---
+
+## 9. Deep Traversal of Nested Structures
 
 **Implementation**: `cpp/include/hgraph/types/value/traversal.h`
 
@@ -573,7 +677,7 @@ auto min_val = min_numeric(value.const_view());
 
 ---
 
-## 9. Path-Based Access
+## 10. Path-Based Access
 
 **Implementation**: `cpp/include/hgraph/types/value/path.h`
 
@@ -657,7 +761,7 @@ path.push_back(PathElement::key(key.const_view()));  // Arbitrary value key
 
 ---
 
-## 10. Comparison and Hashing
+## 11. Comparison and Hashing
 
 ```cpp
 Value a(42);
@@ -682,7 +786,7 @@ value_ordered.insert(c);
 
 ---
 
-## 11. Cloning Values
+## 12. Cloning Values
 
 Views are non-owning references. To create an owning copy of a viewed value, use `clone()`:
 
@@ -706,7 +810,7 @@ Value copy3(cv);  // Equivalent to clone()
 
 ---
 
-## 12. Python Interop
+## 13. Python Interop
 
 ```cpp
 #include <nanobind/nanobind.h>
@@ -751,7 +855,7 @@ future versions may implement the Python buffer protocol directly.
 
 ---
 
-## 13. Performance Tips
+## 14. Performance Tips
 
 1. **Use views for temporary access** - Views avoid copying and are lightweight.
 
@@ -817,7 +921,7 @@ double val = mv.at(std::string("9999")).as<double>();  // O(1) lookup
 
 ---
 
-## 14. Error Handling
+## 15. Error Handling
 
 ```cpp
 // Type mismatch
@@ -844,7 +948,7 @@ if (auto* p = v.try_as<double>()) {
 
 ---
 
-## 15. Extending Value Operations
+## 16. Extending Value Operations
 
 Value operations can be extended using **zero-overhead composition** at compile time. Two complementary
 patterns are available:

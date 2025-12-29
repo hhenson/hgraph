@@ -11,7 +11,7 @@
  * - Transforming all scalars
  * - Serialization/deserialization
  *
- * Reference: ts_design_docs/Value_USER_GUIDE.md Section 8
+ * Reference: ts_design_docs/Value_USER_GUIDE.md Section 9
  *
  * Usage:
  * @code
