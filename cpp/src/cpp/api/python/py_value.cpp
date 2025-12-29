@@ -2,6 +2,8 @@
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/composite_ops.h>
+#include <hgraph/types/value/path.h>
+#include <hgraph/types/value/traversal.h>
 #include <hgraph/python/chrono.h>
 
 #include <nanobind/stl/string.h>
@@ -362,7 +364,21 @@ static void register_const_value_view(nb::module_& m) {
             "        (float, lambda x: f'float:{x}'),\n"
             "        (str, lambda x: f'str:{x}'),\n"
             "        (None, lambda x: 'default')\n"
-            "    )");
+            "    )")
+
+        // Path-based Navigation (User Guide Section 10)
+        .def("navigate", [](const ConstValueView& self, const std::string& path_str) {
+            return navigate(self, path_str);
+        }, "path"_a,
+            "Navigate through the value using a path string.\n\n"
+            "Returns the ConstValueView at the path destination.\n"
+            "Throws if navigation fails.")
+        .def("try_navigate", [](const ConstValueView& self, const std::string& path_str)
+            -> std::optional<ConstValueView> {
+            return try_navigate(self, path_str);
+        }, "path"_a,
+            "Try to navigate through the value using a path string.\n\n"
+            "Returns the ConstValueView at the destination, or None on failure.");
 }
 
 // ============================================================================
@@ -426,7 +442,21 @@ static void register_value_view(nb::module_& m) {
         }, "handler"_a,
             "Visit the value with a mutable callable handler.\n\n"
             "The handler is called with the Python-converted value.\n"
-            "If the handler returns a value (not None), the view is updated with it.");
+            "If the handler returns a value (not None), the view is updated with it.")
+
+        // Path-based Navigation (User Guide Section 10)
+        .def("navigate_mut", [](ValueView& self, const std::string& path_str) {
+            return navigate_mut(self, path_str);
+        }, "path"_a,
+            "Navigate through the mutable value using a path string.\n\n"
+            "Returns the ValueView at the path destination.\n"
+            "Throws if navigation fails.")
+        .def("try_navigate_mut", [](ValueView& self, const std::string& path_str)
+            -> std::optional<ValueView> {
+            return try_navigate_mut(self, path_str);
+        }, "path"_a,
+            "Try to navigate through the mutable value using a path string.\n\n"
+            "Returns the ValueView at the destination, or None on failure.");
 }
 
 // ============================================================================
@@ -909,6 +939,200 @@ static void register_map_views(nb::module_& m) {
 }
 
 // ============================================================================
+// PathElement Binding (User Guide Section 10)
+// ============================================================================
+
+static void register_path_element(nb::module_& m) {
+    nb::class_<PathElement>(m, "PathElement",
+        "Represents a single element in a navigation path")
+        // Factory methods - use different names to avoid conflict with properties
+        .def_static("field", &PathElement::field, "name"_a,
+            "Create a field access element (for bundles)")
+        .def_static("index", &PathElement::index, "idx"_a,
+            "Create an index access element (for lists/tuples)")
+
+        // Type queries
+        .def("is_field", &PathElement::is_field,
+            "Check if this is a field access element")
+        .def("is_index", &PathElement::is_index,
+            "Check if this is an index access element")
+        .def("is_string", &PathElement::is_string,
+            "Check if this uses a string for access")
+        .def("is_value", &PathElement::is_value,
+            "Check if this contains an arbitrary value key")
+
+        // Accessors - use get_ prefix to avoid conflict with static factory methods
+        .def_prop_ro("name", [](const PathElement& self) -> std::string {
+            if (!self.is_string()) {
+                throw std::runtime_error("PathElement is not a field element");
+            }
+            return self.name();
+        }, "Get the field name (throws if not a field element)")
+        .def("get_index", &PathElement::get_index,
+            "Get the index value (throws if not an index element)")
+
+        // String representation
+        .def("to_string", &PathElement::to_string, "Convert to string representation")
+        .def("__repr__", [](const PathElement& self) {
+            return "PathElement(" + self.to_string() + ")";
+        });
+}
+
+// ============================================================================
+// Path Functions Binding (User Guide Section 10)
+// ============================================================================
+
+static void register_path_functions(nb::module_& m) {
+    // parse_path function
+    m.def("parse_path", [](const std::string& path_str) {
+        return parse_path(path_str);
+    }, "path_str"_a,
+        "Parse a path string into a list of PathElements.\n\n"
+        "Supports syntax:\n"
+        "  - Field access: 'name', 'user.address'\n"
+        "  - Index access: '[0]', 'items[0]'\n"
+        "  - Mixed: 'users[0].addresses[1].city'");
+
+    // path_to_string function
+    m.def("path_to_string", [](const ValuePath& path) {
+        return path_to_string(path);
+    }, "path"_a,
+        "Convert a path to string representation");
+
+    // navigate function (const)
+    m.def("navigate", [](ConstValueView view, const std::string& path_str) {
+        return navigate(view, path_str);
+    }, "view"_a, "path"_a,
+        "Navigate through a value using a path string.\n\n"
+        "Returns the ConstValueView at the path destination.\n"
+        "Throws if navigation fails.");
+
+    // navigate with ValuePath
+    m.def("navigate", [](ConstValueView view, const ValuePath& path) {
+        return navigate(view, path);
+    }, "view"_a, "path"_a,
+        "Navigate through a value using a ValuePath.");
+
+    // try_navigate function (const)
+    m.def("try_navigate", [](ConstValueView view, const std::string& path_str)
+        -> std::optional<ConstValueView> {
+        return try_navigate(view, path_str);
+    }, "view"_a, "path"_a,
+        "Try to navigate through a value using a path string.\n\n"
+        "Returns the ConstValueView at the path destination, or None on failure.");
+
+    // try_navigate with ValuePath
+    m.def("try_navigate", [](ConstValueView view, const ValuePath& path)
+        -> std::optional<ConstValueView> {
+        return try_navigate(view, path);
+    }, "view"_a, "path"_a,
+        "Try to navigate through a value using a ValuePath.");
+
+    // navigate_mut function (mutable)
+    m.def("navigate_mut", [](ValueView view, const std::string& path_str) {
+        return navigate_mut(view, path_str);
+    }, "view"_a, "path"_a,
+        "Navigate through a mutable value using a path string.\n\n"
+        "Returns the ValueView at the path destination.\n"
+        "Throws if navigation fails.");
+
+    // navigate_mut with ValuePath
+    m.def("navigate_mut", [](ValueView view, const ValuePath& path) {
+        return navigate_mut(view, path);
+    }, "view"_a, "path"_a,
+        "Navigate through a mutable value using a ValuePath.");
+
+    // try_navigate_mut function
+    m.def("try_navigate_mut", [](ValueView view, const std::string& path_str)
+        -> std::optional<ValueView> {
+        return try_navigate_mut(view, path_str);
+    }, "view"_a, "path"_a,
+        "Try to navigate through a mutable value using a path string.\n\n"
+        "Returns the ValueView at the path destination, or None on failure.");
+
+    // try_navigate_mut with ValuePath
+    m.def("try_navigate_mut", [](ValueView view, const ValuePath& path)
+        -> std::optional<ValueView> {
+        return try_navigate_mut(view, path);
+    }, "view"_a, "path"_a,
+        "Try to navigate through a mutable value using a ValuePath.");
+}
+
+// ============================================================================
+// Traversal Functions Binding (User Guide Section 11)
+// ============================================================================
+
+static void register_traversal_functions(nb::module_& m) {
+    // deep_visit function
+    m.def("deep_visit", [](ConstValueView view, nb::object callback) {
+        deep_visit(view, [&callback](ConstValueView leaf, const TraversalPath& path) {
+            // Convert TraversalPath to Python list
+            nb::list py_path;
+            for (const auto& elem : path) {
+                if (std::holds_alternative<std::string>(elem)) {
+                    py_path.append(nb::cast(std::get<std::string>(elem)));
+                } else {
+                    py_path.append(nb::cast(std::get<size_t>(elem)));
+                }
+            }
+            callback(leaf, py_path);
+        });
+    }, "view"_a, "callback"_a,
+        "Visit all leaf (scalar) values in a nested structure.\n\n"
+        "Calls callback(leaf_view, path) for each scalar value.");
+
+    // count_leaves function
+    m.def("count_leaves", &count_leaves, "view"_a,
+        "Count all leaf (scalar) values in a nested structure.");
+
+    // collect_leaf_paths function
+    m.def("collect_leaf_paths", [](ConstValueView view) {
+        auto paths = collect_leaf_paths(view);
+        nb::list result;
+        for (const auto& path : paths) {
+            nb::list py_path;
+            for (const auto& elem : path) {
+                if (std::holds_alternative<std::string>(elem)) {
+                    py_path.append(nb::cast(std::get<std::string>(elem)));
+                } else {
+                    py_path.append(nb::cast(std::get<size_t>(elem)));
+                }
+            }
+            result.append(py_path);
+        }
+        return result;
+    }, "view"_a,
+        "Collect the paths to all leaf values.");
+
+    // sum_numeric function
+    m.def("sum_numeric", &sum_numeric, "view"_a,
+        "Sum all numeric leaf values (int64 and double).");
+
+    // max_numeric function
+    m.def("max_numeric", &max_numeric, "view"_a,
+        "Find maximum numeric leaf value (returns None if no numeric leaves).");
+
+    // min_numeric function
+    m.def("min_numeric", &min_numeric, "view"_a,
+        "Find minimum numeric leaf value (returns None if no numeric leaves).");
+
+    // path_to_string for TraversalPath (using overload)
+    m.def("traversal_path_to_string", [](const nb::list& py_path) {
+        TraversalPath path;
+        for (size_t i = 0; i < nb::len(py_path); ++i) {
+            nb::object elem = py_path[i];
+            if (nb::isinstance<nb::str>(elem)) {
+                path.push_back(nb::cast<std::string>(elem));
+            } else {
+                path.push_back(nb::cast<size_t>(elem));
+            }
+        }
+        return path_to_string(path);
+    }, "path"_a,
+        "Convert a traversal path (list of strings/ints) to string representation.");
+}
+
+// ============================================================================
 // PlainValue (Value<NoCache>) Binding
 // ============================================================================
 
@@ -1004,7 +1228,33 @@ static void register_plain_value(nb::module_& m) {
         .def("__repr__", [](const PlainValue& self) {
             if (!self.valid()) return std::string("PlainValue(invalid)");
             return "PlainValue(" + self.to_string() + ")";
-        });
+        })
+
+        // Path-based Navigation (User Guide Section 10)
+        .def("navigate", [](const PlainValue& self, const std::string& path_str) {
+            return navigate(self.const_view(), path_str);
+        }, "path"_a,
+            "Navigate through the value using a path string.\n\n"
+            "Returns the ConstValueView at the path destination.\n"
+            "Throws if navigation fails.")
+        .def("try_navigate", [](const PlainValue& self, const std::string& path_str)
+            -> std::optional<ConstValueView> {
+            return try_navigate(self.const_view(), path_str);
+        }, "path"_a,
+            "Try to navigate through the value using a path string.\n\n"
+            "Returns the ConstValueView at the destination, or None on failure.")
+        .def("navigate_mut", [](PlainValue& self, const std::string& path_str) {
+            return navigate_mut(self.view(), path_str);
+        }, "path"_a,
+            "Navigate through the mutable value using a path string.\n\n"
+            "Returns the ValueView at the path destination.\n"
+            "Throws if navigation fails.")
+        .def("try_navigate_mut", [](PlainValue& self, const std::string& path_str)
+            -> std::optional<ValueView> {
+            return try_navigate_mut(self.view(), path_str);
+        }, "path"_a,
+            "Try to navigate through the mutable value using a path string.\n\n"
+            "Returns the ValueView at the destination, or None on failure.");
 }
 
 // ============================================================================
@@ -1278,6 +1528,11 @@ void value_register_with_nanobind(nb::module_& m) {
     register_cached_value(value_mod);
     register_ts_value(value_mod);
     register_validated_value(value_mod);
+
+    // Register path-based access utilities
+    register_path_element(value_mod);
+    register_path_functions(value_mod);
+    register_traversal_functions(value_mod);
 
     // Also export the main types at the module level for convenience
     m.attr("PlainValue") = value_mod.attr("PlainValue");

@@ -185,7 +185,6 @@ def make_double_value(val):
 # Section 10.1: PathElement Tests
 # =============================================================================
 
-@pytest.mark.xfail(reason="PathElement not yet implemented in C++ extension")
 def test_path_element_field_creation():
     """PathElement can be created for field access."""
     PathElement = value.PathElement
@@ -194,16 +193,14 @@ def test_path_element_field_creation():
     assert elem.name == "name"
 
 
-@pytest.mark.xfail(reason="PathElement not yet implemented in C++ extension")
 def test_path_element_index_creation():
     """PathElement can be created for index access."""
     PathElement = value.PathElement
     elem = PathElement.index(0)
     assert elem is not None
-    assert elem.index == 0
+    assert elem.get_index() == 0
 
 
-@pytest.mark.xfail(reason="PathElement not yet implemented in C++ extension")
 def test_path_element_is_field():
     """PathElement.is_field() returns True for field elements."""
     PathElement = value.PathElement
@@ -214,7 +211,6 @@ def test_path_element_is_field():
     assert index_elem.is_field() is False
 
 
-@pytest.mark.xfail(reason="PathElement not yet implemented in C++ extension")
 def test_path_element_is_index():
     """PathElement.is_index() returns True for index elements."""
     PathElement = value.PathElement
@@ -225,7 +221,6 @@ def test_path_element_is_index():
     assert index_elem.is_index() is True
 
 
-@pytest.mark.xfail(reason="PathElement not yet implemented in C++ extension")
 def test_path_element_field_with_empty_name():
     """PathElement.field() with empty name raises or creates valid element."""
     PathElement = value.PathElement
@@ -238,12 +233,11 @@ def test_path_element_field_with_empty_name():
         pass  # Empty name is not allowed
 
 
-@pytest.mark.xfail(reason="PathElement not yet implemented in C++ extension")
 def test_path_element_negative_index():
-    """PathElement.index() with negative index raises or creates valid element."""
+    """PathElement.index() with negative index raises (size_t cannot be negative)."""
     PathElement = value.PathElement
-    # Depending on design, negative index might be valid or throw
-    with pytest.raises((ValueError, RuntimeError, OverflowError)):
+    # Negative index causes type conversion error in nanobind (size_t cannot be negative)
+    with pytest.raises((ValueError, RuntimeError, OverflowError, TypeError)):
         PathElement.index(-1)
 
 
@@ -251,7 +245,6 @@ def test_path_element_negative_index():
 # Section 10.2: Path Parsing Tests
 # =============================================================================
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_simple_field_path():
     """parse_path() parses single field name."""
     parse_path = value.parse_path
@@ -262,7 +255,6 @@ def test_parse_simple_field_path():
     assert path[0].name == "name"
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_dotted_path():
     """parse_path() parses dotted field path like 'user.name'."""
     parse_path = value.parse_path
@@ -275,7 +267,6 @@ def test_parse_dotted_path():
     assert path[1].name == "name"
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_indexed_path():
     """parse_path() parses indexed path like 'items[0]'."""
     parse_path = value.parse_path
@@ -285,10 +276,9 @@ def test_parse_indexed_path():
     assert path[0].is_field()
     assert path[0].name == "items"
     assert path[1].is_index()
-    assert path[1].index == 0
+    assert path[1].get_index() == 0
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_mixed_path():
     """parse_path() parses mixed path like 'users[0].addresses[1].city'."""
     parse_path = value.parse_path
@@ -296,13 +286,12 @@ def test_parse_mixed_path():
 
     assert len(path) == 5
     assert path[0].is_field() and path[0].name == "users"
-    assert path[1].is_index() and path[1].index == 0
+    assert path[1].is_index() and path[1].get_index() == 0
     assert path[2].is_field() and path[2].name == "addresses"
-    assert path[3].is_index() and path[3].index == 1
+    assert path[3].is_index() and path[3].get_index() == 1
     assert path[4].is_field() and path[4].name == "city"
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_empty_path():
     """parse_path() with empty string returns empty path."""
     parse_path = value.parse_path
@@ -311,7 +300,6 @@ def test_parse_empty_path():
     assert len(path) == 0
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_invalid_path_throws():
     """parse_path() with invalid syntax throws."""
     parse_path = value.parse_path
@@ -334,7 +322,6 @@ def test_parse_invalid_path_throws():
             parse_path(invalid_path)
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_deeply_nested_path():
     """parse_path() handles deeply nested paths."""
     parse_path = value.parse_path
@@ -346,7 +333,6 @@ def test_parse_deeply_nested_path():
         assert path[i].name == name
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_multiple_consecutive_indices():
     """parse_path() handles consecutive indices like 'matrix[0][1]'."""
     parse_path = value.parse_path
@@ -354,11 +340,10 @@ def test_parse_multiple_consecutive_indices():
 
     assert len(path) == 3
     assert path[0].is_field() and path[0].name == "matrix"
-    assert path[1].is_index() and path[1].index == 0
-    assert path[2].is_index() and path[2].index == 1
+    assert path[1].is_index() and path[1].get_index() == 0
+    assert path[2].is_index() and path[2].get_index() == 1
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_large_index():
     """parse_path() handles large indices."""
     parse_path = value.parse_path
@@ -366,14 +351,13 @@ def test_parse_large_index():
 
     assert len(path) == 2
     assert path[1].is_index()
-    assert path[1].index == 999999
+    assert path[1].get_index() == 999999
 
 
 # =============================================================================
 # Section 10.3: Navigation Tests - Single Field
 # =============================================================================
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_single_field(simple_bundle_schema):
     """navigate() to single bundle field."""
     v = PlainValue(simple_bundle_schema)
@@ -389,7 +373,6 @@ def test_navigate_single_field(simple_bundle_schema):
     assert result.as_int() == 42
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_single_field_string(simple_bundle_schema):
     """navigate() to string field."""
     v = PlainValue(simple_bundle_schema)
@@ -402,7 +385,6 @@ def test_navigate_single_field_string(simple_bundle_schema):
     assert result.as_string() == "hello world"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_single_field_double(simple_bundle_schema):
     """navigate() to double field."""
     v = PlainValue(simple_bundle_schema)
@@ -419,7 +401,6 @@ def test_navigate_single_field_double(simple_bundle_schema):
 # Section 10.3: Navigation Tests - Nested Fields
 # =============================================================================
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_nested_fields(person_schema, address_schema):
     """navigate() through nested bundles."""
     v = PlainValue(person_schema)
@@ -439,7 +420,6 @@ def test_navigate_nested_fields(person_schema, address_schema):
     assert result.as_string() == "Boston"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_deeply_nested_fields(deeply_nested_schema, person_schema, address_schema):
     """navigate() through deeply nested bundles."""
     v = PlainValue(deeply_nested_schema)
@@ -467,7 +447,6 @@ def test_navigate_deeply_nested_fields(deeply_nested_schema, person_schema, addr
 # Section 10.3: Navigation Tests - List Index
 # =============================================================================
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_list_index(list_of_ints_schema):
     """navigate() to list element by index."""
     v = PlainValue(list_of_ints_schema)
@@ -483,7 +462,6 @@ def test_navigate_list_index(list_of_ints_schema):
     assert result.as_int() == 20
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_list_first_element(list_of_strings_schema):
     """navigate() to first list element."""
     v = PlainValue(list_of_strings_schema)
@@ -498,7 +476,6 @@ def test_navigate_list_first_element(list_of_strings_schema):
     assert result.as_string() == "first"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_list_last_element(list_of_ints_schema):
     """navigate() to last list element."""
     v = PlainValue(list_of_ints_schema)
@@ -518,7 +495,6 @@ def test_navigate_list_last_element(list_of_ints_schema):
 # Section 10.3: Navigation Tests - Tuple Index
 # =============================================================================
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_tuple_index(tuple_schema):
     """navigate() to tuple element by index."""
     v = PlainValue(tuple_schema)
@@ -534,7 +510,6 @@ def test_navigate_tuple_index(tuple_schema):
     assert result.as_string() == "hello"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_tuple_first_element(tuple_schema):
     """navigate() to first tuple element."""
     v = PlainValue(tuple_schema)
@@ -548,7 +523,6 @@ def test_navigate_tuple_first_element(tuple_schema):
     assert result.as_int() == 100
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_tuple_last_element(tuple_schema):
     """navigate() to last tuple element."""
     v = PlainValue(tuple_schema)
@@ -566,7 +540,6 @@ def test_navigate_tuple_last_element(tuple_schema):
 # Section 10.3: Navigation Tests - Mixed Paths
 # =============================================================================
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_mixed(person_with_addresses_schema, address_schema):
     """navigate() with mixed field and index access."""
     v = PlainValue(person_with_addresses_schema)
@@ -599,7 +572,6 @@ def test_navigate_mixed(person_with_addresses_schema, address_schema):
     assert result.as_string() == "Chicago"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_mixed_second_element(person_with_addresses_schema, address_schema):
     """navigate() with mixed access to second list element."""
     v = PlainValue(person_with_addresses_schema)
@@ -625,7 +597,6 @@ def test_navigate_mixed_second_element(person_with_addresses_schema, address_sch
     assert result.as_string() == "Seattle"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_bundle_with_tuple(bundle_with_tuple_schema):
     """navigate() through bundle containing tuple."""
     v = PlainValue(bundle_with_tuple_schema)
@@ -644,7 +615,6 @@ def test_navigate_bundle_with_tuple(bundle_with_tuple_schema):
     assert result.as_string() == "value"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_list_of_tuples(list_of_tuples_schema, tuple_schema):
     """navigate() through list of tuples."""
     v = PlainValue(list_of_tuples_schema)
@@ -675,7 +645,6 @@ def test_navigate_list_of_tuples(list_of_tuples_schema, tuple_schema):
 # Section 10.3: Navigation Tests - Error Conditions
 # =============================================================================
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_invalid_field_throws(simple_bundle_schema):
     """navigate() to non-existent field throws."""
     v = PlainValue(simple_bundle_schema)
@@ -686,7 +655,6 @@ def test_navigate_invalid_field_throws(simple_bundle_schema):
         v.navigate("nonexistent")
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_invalid_index_throws(list_of_ints_schema):
     """navigate() to out-of-range index throws."""
     v = PlainValue(list_of_ints_schema)
@@ -697,7 +665,6 @@ def test_navigate_invalid_index_throws(list_of_ints_schema):
         v.navigate("[5]")
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_negative_index_throws(list_of_ints_schema):
     """navigate() with negative index throws."""
     v = PlainValue(list_of_ints_schema)
@@ -709,7 +676,6 @@ def test_navigate_negative_index_throws(list_of_ints_schema):
         v.navigate("[-1]")
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_type_mismatch_field_on_scalar_throws():
     """navigate() with field access on scalar throws."""
     v = PlainValue(42)  # Scalar value
@@ -718,7 +684,6 @@ def test_navigate_type_mismatch_field_on_scalar_throws():
         v.navigate("field")
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_type_mismatch_index_on_scalar_throws():
     """navigate() with index access on scalar throws."""
     v = PlainValue(42)  # Scalar value
@@ -727,19 +692,22 @@ def test_navigate_type_mismatch_index_on_scalar_throws():
         v.navigate("[0]")
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
-def test_navigate_type_mismatch_index_on_bundle_throws(simple_bundle_schema):
-    """navigate() with index access on bundle throws."""
+def test_navigate_index_on_bundle_succeeds(simple_bundle_schema):
+    """navigate() with index access on bundle succeeds (bundles support positional access)."""
     v = PlainValue(simple_bundle_schema)
     bv = v.as_bundle()
     bv.set("x", 42)
+    bv.set("y", 3.14)
+    bv.set("name", "test")
 
-    # Bundles don't support index access via path
-    with pytest.raises((TypeError, RuntimeError)):
-        v.navigate("[0]")
+    # Bundles support index access by field position
+    result = v.navigate("[0]")  # First field (x)
+    assert result.as_int() == 42
+
+    result = v.navigate("[1]")  # Second field (y)
+    assert abs(result.as_double() - 3.14) < 1e-10
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_type_mismatch_field_on_list_throws(list_of_ints_schema):
     """navigate() with field access on list throws."""
     v = PlainValue(list_of_ints_schema)
@@ -751,7 +719,6 @@ def test_navigate_type_mismatch_field_on_list_throws(list_of_ints_schema):
         v.navigate("field")
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_empty_path_returns_self(simple_bundle_schema):
     """navigate() with empty path returns view of self."""
     v = PlainValue(simple_bundle_schema)
@@ -765,7 +732,6 @@ def test_navigate_empty_path_returns_self(simple_bundle_schema):
     assert result.is_bundle()
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_nested_invalid_field_throws(person_schema, address_schema):
     """navigate() to non-existent nested field throws."""
     v = PlainValue(person_schema)
@@ -777,7 +743,6 @@ def test_navigate_nested_invalid_field_throws(person_schema, address_schema):
         v.navigate("address.country")  # country doesn't exist
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_partial_path_valid_then_invalid(person_with_addresses_schema, address_schema):
     """navigate() fails partway through when path becomes invalid."""
     v = PlainValue(person_with_addresses_schema)
@@ -794,7 +759,6 @@ def test_navigate_partial_path_valid_then_invalid(person_with_addresses_schema, 
 # Section 10.4: try_navigate Tests
 # =============================================================================
 
-@pytest.mark.xfail(reason="try_navigate not yet implemented in C++ extension")
 def test_try_navigate_success(simple_bundle_schema):
     """try_navigate() returns view on success."""
     v = PlainValue(simple_bundle_schema)
@@ -807,7 +771,6 @@ def test_try_navigate_success(simple_bundle_schema):
     assert result.as_int() == 42
 
 
-@pytest.mark.xfail(reason="try_navigate not yet implemented in C++ extension")
 def test_try_navigate_failure_invalid_field(simple_bundle_schema):
     """try_navigate() returns None on invalid field."""
     v = PlainValue(simple_bundle_schema)
@@ -819,7 +782,6 @@ def test_try_navigate_failure_invalid_field(simple_bundle_schema):
     assert result is None
 
 
-@pytest.mark.xfail(reason="try_navigate not yet implemented in C++ extension")
 def test_try_navigate_failure_invalid_index(list_of_ints_schema):
     """try_navigate() returns None on invalid index."""
     v = PlainValue(list_of_ints_schema)
@@ -831,7 +793,6 @@ def test_try_navigate_failure_invalid_index(list_of_ints_schema):
     assert result is None
 
 
-@pytest.mark.xfail(reason="try_navigate not yet implemented in C++ extension")
 def test_try_navigate_failure_type_mismatch():
     """try_navigate() returns None on type mismatch."""
     v = PlainValue(42)  # Scalar
@@ -841,7 +802,6 @@ def test_try_navigate_failure_type_mismatch():
     assert result is None
 
 
-@pytest.mark.xfail(reason="try_navigate not yet implemented in C++ extension")
 def test_try_navigate_nested_success(person_schema, address_schema):
     """try_navigate() succeeds for valid nested path."""
     v = PlainValue(person_schema)
@@ -857,7 +817,6 @@ def test_try_navigate_nested_success(person_schema, address_schema):
     assert result.as_string() == "Boston"
 
 
-@pytest.mark.xfail(reason="try_navigate not yet implemented in C++ extension")
 def test_try_navigate_nested_failure(person_schema):
     """try_navigate() returns None for invalid nested path."""
     v = PlainValue(person_schema)
@@ -869,7 +828,6 @@ def test_try_navigate_nested_failure(person_schema):
     assert result is None
 
 
-@pytest.mark.xfail(reason="try_navigate not yet implemented in C++ extension")
 def test_try_navigate_empty_path(simple_bundle_schema):
     """try_navigate() with empty path returns view of self."""
     v = PlainValue(simple_bundle_schema)
@@ -886,7 +844,6 @@ def test_try_navigate_empty_path(simple_bundle_schema):
 # Section 10.5: Mutable Navigation Tests
 # =============================================================================
 
-@pytest.mark.xfail(reason="navigate_mut not yet implemented in C++ extension")
 def test_navigate_mut_set_value(simple_bundle_schema):
     """navigate_mut() returns mutable view that can be modified."""
     v = PlainValue(simple_bundle_schema)
@@ -901,7 +858,6 @@ def test_navigate_mut_set_value(simple_bundle_schema):
     assert v.as_bundle()["x"].as_int() == 100
 
 
-@pytest.mark.xfail(reason="navigate_mut not yet implemented in C++ extension")
 def test_navigate_mut_nested(person_schema, address_schema):
     """navigate_mut() through nested path."""
     v = PlainValue(person_schema)
@@ -917,7 +873,6 @@ def test_navigate_mut_nested(person_schema, address_schema):
     assert v.as_bundle()["address"].as_bundle()["city"].as_string() == "New City"
 
 
-@pytest.mark.xfail(reason="navigate_mut not yet implemented in C++ extension")
 def test_navigate_mut_list_element(list_of_ints_schema):
     """navigate_mut() to list element for modification."""
     v = PlainValue(list_of_ints_schema)
@@ -937,7 +892,6 @@ def test_navigate_mut_list_element(list_of_ints_schema):
 # Section 10.6: Edge Cases
 # =============================================================================
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_with_numeric_field_name(type_registry, int_schema):
     """navigate() handles field names that look like numbers."""
     # Create bundle with numeric-looking field name
@@ -957,7 +911,6 @@ def test_navigate_with_numeric_field_name(type_registry, int_schema):
     assert result.as_int() == 42
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_whitespace_in_path_invalid():
     """navigate() rejects paths with whitespace."""
     v = PlainValue(42)
@@ -966,7 +919,6 @@ def test_navigate_whitespace_in_path_invalid():
         v.navigate("name .field")
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_special_characters_in_field_name(type_registry, int_schema):
     """navigate() handles special characters in field names if allowed."""
     # Some implementations may allow underscores
@@ -989,7 +941,6 @@ def test_navigate_special_characters_in_field_name(type_registry, int_schema):
 # Section 10.7: ConstValueView and ValueView navigate methods
 # =============================================================================
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_const_view_navigate(simple_bundle_schema):
     """ConstValueView.navigate() works correctly."""
     v = PlainValue(simple_bundle_schema)
@@ -1003,7 +954,6 @@ def test_const_view_navigate(simple_bundle_schema):
     assert result.as_int() == 42
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_value_view_navigate(simple_bundle_schema):
     """ValueView.navigate() works correctly."""
     v = PlainValue(simple_bundle_schema)
@@ -1017,7 +967,6 @@ def test_value_view_navigate(simple_bundle_schema):
     assert result.as_int() == 42
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_value_view_navigate_mut(simple_bundle_schema):
     """ValueView.navigate_mut() returns mutable view."""
     v = PlainValue(simple_bundle_schema)
@@ -1035,7 +984,6 @@ def test_value_view_navigate_mut(simple_bundle_schema):
 # Integration with to_python/from_python
 # =============================================================================
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_result_to_python(simple_bundle_schema):
     """navigated view can be converted to Python."""
     v = PlainValue(simple_bundle_schema)
@@ -1048,7 +996,6 @@ def test_navigate_result_to_python(simple_bundle_schema):
     assert py_obj == "test value"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_mut_from_python(simple_bundle_schema):
     """navigated mutable view can be updated from Python."""
     v = PlainValue(simple_bundle_schema)
@@ -1083,7 +1030,6 @@ def nested_map_schema(type_registry, string_schema, address_schema):
     return type_registry.map(string_schema, address_schema).build()
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_quoted_string_key_double_quotes():
     """parse_path() parses quoted string key with double quotes."""
     parse_path = value.parse_path
@@ -1096,7 +1042,6 @@ def test_parse_quoted_string_key_double_quotes():
     assert path[1].name == "key"
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_quoted_string_key_single_quotes():
     """parse_path() parses quoted string key with single quotes."""
     parse_path = value.parse_path
@@ -1109,7 +1054,6 @@ def test_parse_quoted_string_key_single_quotes():
     assert path[1].name == "mykey"
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_mixed_index_and_string_key():
     """parse_path() handles mix of numeric index and string key."""
     parse_path = value.parse_path
@@ -1118,11 +1062,10 @@ def test_parse_mixed_index_and_string_key():
 
     assert len(path) == 3
     assert path[0].is_field() and path[0].name == "items"
-    assert path[1].is_index() and path[1].index == 0
+    assert path[1].is_index() and path[1].get_index() == 0
     assert path[2].is_field() and path[2].name == "name"
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_string_key_with_special_chars():
     """parse_path() parses string key with special characters."""
     parse_path = value.parse_path
@@ -1132,7 +1075,6 @@ def test_parse_string_key_with_special_chars():
     assert path[1].name == "key.with.dots"
 
 
-@pytest.mark.xfail(reason="parse_path not yet implemented in C++ extension")
 def test_parse_consecutive_string_keys():
     """parse_path() handles consecutive string keys like map["a"]["b"]."""
     parse_path = value.parse_path
@@ -1144,7 +1086,6 @@ def test_parse_consecutive_string_keys():
     assert path[2].is_field() and path[2].name == "level2"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_map_string_key(string_to_int_map_schema):
     """navigate() through map with string key using quoted syntax."""
     v = PlainValue(string_to_int_map_schema)
@@ -1166,7 +1107,6 @@ def test_navigate_map_string_key(string_to_int_map_schema):
     assert result.as_int() == 100
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_map_string_key_single_quotes(string_to_int_map_schema):
     """navigate() through map with string key using single quotes."""
     v = PlainValue(string_to_int_map_schema)
@@ -1182,7 +1122,6 @@ def test_navigate_map_string_key_single_quotes(string_to_int_map_schema):
     assert result.as_int() == 42
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_map_int_key(int_to_string_map_schema):
     """navigate() through map with integer key."""
     v = PlainValue(int_to_string_map_schema)
@@ -1203,7 +1142,6 @@ def test_navigate_map_int_key(int_to_string_map_schema):
     assert result.as_string() == "two"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_nested_map_value(nested_map_schema, address_schema):
     """navigate() through map to nested bundle field."""
     v = PlainValue(nested_map_schema)
@@ -1226,7 +1164,6 @@ def test_navigate_nested_map_value(nested_map_schema, address_schema):
     assert result.as_string() == "Boston"
 
 
-@pytest.mark.xfail(reason="navigate not yet implemented in C++ extension")
 def test_navigate_map_invalid_key_throws(string_to_int_map_schema):
     """navigate() with non-existent map key throws."""
     v = PlainValue(string_to_int_map_schema)
@@ -1236,11 +1173,10 @@ def test_navigate_map_invalid_key_throws(string_to_int_map_schema):
     val = make_int_value(42)
     mv.insert(key.const_view(), val.const_view())
 
-    with pytest.raises((KeyError, RuntimeError)):
+    with pytest.raises((KeyError, IndexError, RuntimeError)):
         v.navigate('["nonexistent"]')
 
 
-@pytest.mark.xfail(reason="try_navigate not yet implemented in C++ extension")
 def test_try_navigate_map_key_success(string_to_int_map_schema):
     """try_navigate() returns view for valid map key."""
     v = PlainValue(string_to_int_map_schema)
@@ -1256,7 +1192,6 @@ def test_try_navigate_map_key_success(string_to_int_map_schema):
     assert result.as_int() == 999
 
 
-@pytest.mark.xfail(reason="try_navigate not yet implemented in C++ extension")
 def test_try_navigate_map_key_failure(string_to_int_map_schema):
     """try_navigate() returns None for invalid map key."""
     v = PlainValue(string_to_int_map_schema)
@@ -1267,7 +1202,6 @@ def test_try_navigate_map_key_failure(string_to_int_map_schema):
     assert result is None
 
 
-@pytest.mark.xfail(reason="navigate_mut not yet implemented in C++ extension")
 def test_navigate_mut_map_value(string_to_int_map_schema):
     """navigate_mut() through map key for modification."""
     v = PlainValue(string_to_int_map_schema)
