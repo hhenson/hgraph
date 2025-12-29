@@ -347,13 +347,27 @@ def test_buffer_modifications_visible(dynamic_int_list_schema):
         elem = make_int_value(val)
         lv.push_back(elem.const_view())
 
-    # Get const list view for numpy conversion
-    clv = v.const_view().as_list()
+    # Get mutable list view for zero-copy numpy conversion
+    # Note: ListView.to_numpy() provides zero-copy access, while
+    # ConstListView.to_numpy() creates a copy for safety
+    arr = lv.to_numpy()
 
-    # Note: to_numpy() creates a copy, not zero-copy, so modifications
-    # through numpy are NOT visible in the Value.
-    # This test is skipped because zero-copy is not implemented.
-    pytest.skip("to_numpy() creates a copy, not zero-copy view")
+    # Verify initial values
+    np.testing.assert_array_equal(arr, [10, 20, 30])
+
+    # Modify through numpy
+    arr[0] = 999
+
+    # Verify the change is visible in the Value
+    assert lv[0].as_int() == 999
+    assert v.const_view().as_list()[0].as_int() == 999
+
+    # Modify more elements
+    arr[1] = 888
+    arr[2] = 777
+
+    # Verify all changes propagated
+    np.testing.assert_array_equal([lv[i].as_int() for i in range(3)], [999, 888, 777])
 
 
 def test_const_buffer_is_readonly(dynamic_int_list_schema):

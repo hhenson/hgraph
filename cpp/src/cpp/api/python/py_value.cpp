@@ -643,28 +643,6 @@ static bool is_list_buffer_compatible(const ConstListView& list) {
     return elem->is_buffer_compatible();
 }
 
-// Helper to get numpy format string for element type
-static const char* get_buffer_format(const TypeMeta* elem) {
-    if (elem == scalar_type_meta<int64_t>()) return "l";  // long (int64)
-    if (elem == scalar_type_meta<double>()) return "d";   // double
-    if (elem == scalar_type_meta<bool>()) return "?";     // bool
-    return nullptr;
-}
-
-// Helper to get the data pointer from a list
-static const void* get_list_data_ptr(const ConstListView& list) {
-    if (!list.valid() || list.empty()) return nullptr;
-
-    const TypeMeta* schema = list.schema();
-    if (schema->is_fixed_size()) {
-        // Fixed list: data is stored inline
-        return list.data();
-    } else {
-        // Dynamic list: data is in DynamicListStorage
-        const auto* storage = static_cast<const DynamicListStorage*>(list.data());
-        return storage->data;
-    }
-}
 
 static void register_list_views(nb::module_& m) {
     nb::class_<ConstListView, ConstIndexedView>(m, "ConstListView",
@@ -677,7 +655,7 @@ static void register_list_views(nb::module_& m) {
         .def("is_buffer_compatible", [](const ConstListView& self) {
             return is_list_buffer_compatible(self);
         }, "Check if this list supports the buffer protocol (numpy compatibility)")
-        // Provide to_numpy method for explicit conversion
+        // Provide to_numpy method for explicit conversion (creates copy for const view)
         .def("to_numpy", [](const ConstListView& self) -> nb::object {
             if (!is_list_buffer_compatible(self)) {
                 throw std::runtime_error("List element type not buffer compatible for numpy");
@@ -725,6 +703,81 @@ static void register_list_views(nb::module_& m) {
         .def("element_type", &ListView::element_type, nb::rv_policy::reference,
             "Get the element type")
         .def("is_fixed", &ListView::is_fixed, "Check if this is a fixed-size list")
+        .def("is_buffer_compatible", [](const ListView& self) {
+            // Check if element type supports buffer protocol
+            const TypeMeta* elem = self.element_type();
+            if (!elem || elem->kind != TypeKind::Scalar) return false;
+            return elem->is_buffer_compatible();
+        }, "Check if this list supports the buffer protocol (numpy compatibility)")
+        // Zero-copy numpy conversion for mutable list view
+        .def("to_numpy", [](ListView& self) -> nb::object {
+            const TypeMeta* elem = self.element_type();
+            if (!elem || elem->kind != TypeKind::Scalar || !elem->is_buffer_compatible()) {
+                throw std::runtime_error("List element type not buffer compatible for numpy");
+            }
+
+            // Import numpy
+            nb::module_ np = nb::module_::import_("numpy");
+
+            size_t n = self.size();
+            if (n == 0) {
+                // Return empty array for empty list
+                const char* dtype = "int64";
+                if (elem == scalar_type_meta<double>()) dtype = "float64";
+                else if (elem == scalar_type_meta<bool>()) dtype = "bool";
+                return np.attr("array")(nb::list(), "dtype"_a = dtype);
+            }
+
+            // Get pointer to data
+            void* data_ptr = nullptr;
+            const TypeMeta* schema = self.schema();
+            if (schema->is_fixed_size()) {
+                // Fixed list: data stored inline
+                data_ptr = const_cast<void*>(self.data());
+            } else {
+                // Dynamic list: data in DynamicListStorage
+                auto* storage = static_cast<DynamicListStorage*>(const_cast<void*>(self.data()));
+                data_ptr = storage->data;
+            }
+
+            if (!data_ptr) {
+                throw std::runtime_error("Cannot get data pointer for list");
+            }
+
+            // Create numpy array using ctypes to directly reference the memory
+            // This creates a zero-copy view into the Value's storage
+            // Use numpy.ctypeslib.as_array for zero-copy
+            // But we need to ensure the Value stays alive - use numpy.ndarray directly
+            nb::module_ ctypes = nb::module_::import_("ctypes");
+
+            // Create a ctypes pointer to the data
+            nb::object c_void_p = ctypes.attr("c_void_p")(reinterpret_cast<uintptr_t>(data_ptr));
+
+            // Use numpy.ctypeslib.as_array with shape
+            nb::object np_ctypeslib = np.attr("ctypeslib");
+
+            // Create the appropriate ctypes array type
+            nb::object c_type;
+            if (elem == scalar_type_meta<int64_t>()) {
+                c_type = ctypes.attr("c_int64");
+            } else if (elem == scalar_type_meta<double>()) {
+                c_type = ctypes.attr("c_double");
+            } else if (elem == scalar_type_meta<bool>()) {
+                c_type = ctypes.attr("c_bool");
+            } else {
+                throw std::runtime_error("Unsupported element type for zero-copy numpy");
+            }
+
+            // Create pointer type and cast
+            // Use Python's __mul__ to create array type (e.g., c_int64 * n)
+            nb::object array_type = c_type.attr("__mul__")(n);
+            nb::object ptr = ctypes.attr("cast")(c_void_p, ctypes.attr("POINTER")(array_type));
+
+            // Use np.ctypeslib.as_array to create zero-copy view
+            nb::object arr = np_ctypeslib.attr("as_array")(ptr.attr("contents"));
+
+            return arr;
+        }, "Convert to a numpy array (zero-copy, shares memory with Value)")
         // Dynamic list operations with type checking
         .def("push_back", [](ListView& self, const ConstValueView& value) {
             // Type check: value schema must match element type
@@ -950,6 +1003,8 @@ static void register_path_element(nb::module_& m) {
             "Create a field access element (for bundles)")
         .def_static("index", &PathElement::index, "idx"_a,
             "Create an index access element (for lists/tuples)")
+        .def_static("key", &PathElement::key, "view"_a,
+            "Create a value key element (for maps with arbitrary key types)")
 
         // Type queries
         .def("is_field", &PathElement::is_field,
@@ -970,6 +1025,8 @@ static void register_path_element(nb::module_& m) {
         }, "Get the field name (throws if not a field element)")
         .def("get_index", &PathElement::get_index,
             "Get the index value (throws if not an index element)")
+        .def("get_value", &PathElement::get_value,
+            "Get the value key as a ConstValueView (throws if not a value element)")
 
         // String representation
         .def("to_string", &PathElement::to_string, "Convert to string representation")

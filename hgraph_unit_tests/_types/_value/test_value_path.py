@@ -1230,7 +1230,6 @@ def tuple_key_map_schema(type_registry, tuple_schema, string_schema):
     return type_registry.map(tuple_schema, string_schema).build()
 
 
-@pytest.mark.xfail(reason="PathElement.key() not yet implemented in C++ extension")
 def test_path_element_value_key():
     """PathElement.key() creates a value key element."""
     PathElement = value.PathElement
@@ -1244,7 +1243,6 @@ def test_path_element_value_key():
     assert not elem.is_index()
 
 
-@pytest.mark.xfail(reason="PathElement.key() not yet implemented in C++ extension")
 def test_path_element_value_key_string():
     """PathElement.key() works with string key values."""
     PathElement = value.PathElement
@@ -1257,7 +1255,6 @@ def test_path_element_value_key_string():
     assert elem.get_value().as_string() == "mykey"
 
 
-@pytest.mark.xfail(reason="navigate with value keys not yet implemented")
 def test_navigate_with_value_key(string_to_int_map_schema):
     """navigate() using PathElement.key() with value key."""
     PathElement = value.PathElement
@@ -1278,7 +1275,6 @@ def test_navigate_with_value_key(string_to_int_map_schema):
     assert result.as_int() == 999
 
 
-@pytest.mark.xfail(reason="navigate with value keys not yet implemented")
 def test_navigate_tuple_key_map(tuple_key_map_schema, tuple_schema):
     """navigate() through map with tuple keys."""
     PathElement = value.PathElement
@@ -1303,7 +1299,6 @@ def test_navigate_tuple_key_map(tuple_key_map_schema, tuple_schema):
     assert result.as_string() == "found"
 
 
-@pytest.mark.xfail(reason="navigate with value keys not yet implemented")
 def test_navigate_value_key_type_mismatch(string_to_int_map_schema):
     """navigate() with wrong value key type throws."""
     PathElement = value.PathElement
@@ -1322,7 +1317,6 @@ def test_navigate_value_key_type_mismatch(string_to_int_map_schema):
         value.navigate(v.const_view(), path)
 
 
-@pytest.mark.xfail(reason="navigate with value keys not yet implemented")
 def test_navigate_mixed_path_with_value_key(type_registry, string_schema, int_schema, address_schema):
     """navigate() with mixed field and value key access."""
     PathElement = value.PathElement
