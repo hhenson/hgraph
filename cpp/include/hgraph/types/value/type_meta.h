@@ -270,6 +270,11 @@ struct TypeMeta {
     [[nodiscard]] constexpr bool is_equatable() const noexcept {
         return has(TypeFlags::Equatable);
     }
+
+    /// Check if this type is buffer compatible (numpy/Arrow)
+    [[nodiscard]] constexpr bool is_buffer_compatible() const noexcept {
+        return has(TypeFlags::BufferCompatible);
+    }
 };
 
 // ============================================================================
@@ -391,6 +396,16 @@ constexpr TypeFlags compute_scalar_flags() {
     // Assume all scalar types are hashable, comparable, and equatable
     // unless specialized otherwise
     flags = flags | TypeFlags::Hashable | TypeFlags::Comparable | TypeFlags::Equatable;
+
+    // BufferCompatible for numeric types that can be used in numpy arrays
+    if constexpr (std::is_same_v<T, int64_t> || std::is_same_v<T, double> ||
+                  std::is_same_v<T, bool> || std::is_same_v<T, float> ||
+                  std::is_same_v<T, int32_t> || std::is_same_v<T, int16_t> ||
+                  std::is_same_v<T, int8_t> || std::is_same_v<T, uint64_t> ||
+                  std::is_same_v<T, uint32_t> || std::is_same_v<T, uint16_t> ||
+                  std::is_same_v<T, uint8_t>) {
+        flags = flags | TypeFlags::BufferCompatible;
+    }
 
     return flags;
 }

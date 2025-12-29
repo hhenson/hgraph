@@ -609,10 +609,8 @@ static bool is_list_buffer_compatible(const ConstListView& list) {
     const TypeMeta* elem = list.element_type();
     if (!elem || elem->kind != TypeKind::Scalar) return false;
 
-    // Check for supported numeric/bool types
-    return elem == scalar_type_meta<int64_t>() ||
-           elem == scalar_type_meta<double>() ||
-           elem == scalar_type_meta<bool>();
+    // Use the BufferCompatible flag from TypeMeta
+    return elem->is_buffer_compatible();
 }
 
 // Helper to get numpy format string for element type
