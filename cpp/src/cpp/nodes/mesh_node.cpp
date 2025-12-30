@@ -37,23 +37,22 @@ namespace hgraph {
         TsdMapNode<K>::do_start();
 
         // Set up the reference output and register in GlobalState
-        if (GlobalState::has_instance()) {
-            auto tsb_output = *this->output()->visit(cast_to_expected<TimeSeriesBundleOutput*>);
+        if (!GlobalState::has_instance())
+            throw_error("GlobalState instance required for MeshNode");
 
-            // Get the "out" and "ref" outputs from the output bundle
-            auto tsd_output_ptr = (*tsb_output)["out"];
-            auto ref_output = *(*tsb_output)["ref"]->visit(cast_to_expected<TimeSeriesReferenceOutput*>);
+        auto& tsb_output = **this->output()->visit(cast_to_expected<TimeSeriesBundleOutput*>);
 
-            // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
-            // Pass the shared_ptr directly to keep the output alive
-            auto reference = TimeSeriesReference::make(tsd_output_ptr);
-            ref_output->set_value(std::move(reference));
+        // Get the "out" and "ref" outputs from the output bundle
+        auto tsd_output_ptr = tsb_output["out"];
+        auto ref_output = *tsb_output["ref"]->visit(cast_to_expected<TimeSeriesReferenceOutput*>);
 
-            // Store the ref output in GlobalState using shared_ptr-based wrapping
-            GlobalState::set(full_context_path_, wrap_output(ref_output->shared_from_this()));
-        } else {
-            throw std::runtime_error("GlobalState instance required for MeshNode");
-        }
+        // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
+        // Pass the shared_ptr directly to keep the output alive
+        auto reference = TimeSeriesReference::make(tsd_output_ptr);
+        ref_output->set_value(std::move(reference));
+
+        // Store the ref output in GlobalState using shared_ptr-based wrapping
+        GlobalState::set(full_context_path_, wrap_output(ref_output->shared_from_this()));
     }
 
     template<typename K>
@@ -218,9 +217,9 @@ namespace hgraph {
             std::string node_label = this->signature().label.has_value()
                                          ? this->signature().label.value()
                                          : this->signature().name;
-            throw std::runtime_error(fmt::format("mesh {}.{} has a dependency cycle {} -> {}",
-                                                 this->signature().wiring_path_name,
-                                                 node_label, to_string(key), to_string(key)));
+            throw_error("mesh {}.{} has a dependency cycle {} -> {}",
+                            this->signature().wiring_path_name,
+                            node_label, to_string(key), to_string(key));
         }
     }
 
@@ -228,8 +227,10 @@ namespace hgraph {
     void MeshNode<K>::remove_graph(const K &key) {
         // Remove error output if using exception capture
         if (this->signature().capture_exception) {
-            auto &error_output_ = **this->error_output()->visit(cast_to_expected<TimeSeriesDictOutput_T<K>*>);
-            error_output_.erase(key);
+            this->error_output()->visit(
+                [&key](TimeSeriesDictOutput_T<K>* dict_output) { dict_output->erase(key); },
+                make_throw_if_not_expected<TimeSeriesDictOutput_T<K>*>()
+            );
         }
 
         auto graph_it = this->active_graphs_.find(key);
@@ -281,14 +282,16 @@ namespace hgraph {
 
         // Check if we should remove the dependency graph
         if (active_graphs_dependencies_[depends_on].empty()) {
-            auto get_keys =
-                with_expected<TimeSeriesBundleInput*>(
-                    [](auto* input_bundle) { return (*input_bundle)[TsdMapNode<K>::KEYS_ARG]; }
-                )
-                >> cast_to_expected<TimeSeriesSetInput_T<K>*>;
+            auto impl =
+                with_expected<TimeSeriesBundleInput*>([](auto* input_bundle) {
+                    return (*input_bundle)[TsdMapNode<K>::KEYS_ARG];
+                })
+                >> ddv::serial{[&](TimeSeriesSetInput_T<K>* keys) {
+                    if (!keys->contains(depends_on))
+                        graphs_to_remove_.insert(depends_on);
+                }, ddv::noop};
 
-            auto& keys = **get_keys(this->input());
-            if (!keys.contains(depends_on)) { graphs_to_remove_.insert(depends_on); }
+            impl(this->input());
         }
     }
 
@@ -342,8 +345,8 @@ namespace hgraph {
                             this->signature().label.has_value()
                                 ? this->signature().label.value()
                                 : this->signature().name;
-                    throw std::runtime_error(fmt::format("mesh {}.{} has a dependency cycle: {}",
-                                                         this->signature().wiring_path_name, node_label, cycle_str));
+                    throw_error("mesh {}.{} has a dependency cycle: {}",
+                                 this->signature().wiring_path_name, node_label, cycle_str);
                 }
 
                 auto new_stack = re_rank_stack;
