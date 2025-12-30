@@ -5,6 +5,8 @@
 #ifndef FORMAT_H
 #define FORMAT_H
 
+#include <hgraph/hgraph_forward_declarations.h>
+
 #include <format>
 #include <nanobind/nanobind.h>
 
@@ -45,6 +47,18 @@ namespace std {
 
     using handle_formatter = formatter<nanobind::handle>;
     using object_formatter = formatter<nanobind::object>;
+
 } // namespace std
+
+namespace hgraph {
+
+    template<typename T>
+    constexpr auto format_py_typename(std::string_view cxx_name, tp::unit<T>) -> std::string {
+        constexpr auto idx = tp::find<T>(ts_payload_types_v);
+        static_assert(idx < tp::size(ts_payload_types_v));
+        return std::format("{}_{}", cxx_name, ts_payload_tnames[idx]);
+    }
+
+} // namespace hgraph
 
 #endif  // FORMAT_H

@@ -5,6 +5,7 @@
 #ifndef HGRAPH_FORWARD_DECLARATIONS_H
 #define HGRAPH_FORWARD_DECLARATIONS_H
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <nanobind/intrusive/ref.h>
@@ -188,7 +189,7 @@ namespace hgraph {
 
     using ts_payload_types = tp::tpack<bool, int64_t, double, engine_date_t, engine_time_t, engine_time_delta_t, nb::object>;
     inline constexpr auto ts_payload_types_v = ts_payload_types{};
-
+    inline constexpr auto ts_payload_tnames = std::array{"bool", "int", "float", "date", "date_time", "time_delta", "object"};
 
 } // namespace hgraph
 
