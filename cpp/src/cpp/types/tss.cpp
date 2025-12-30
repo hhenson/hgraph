@@ -149,15 +149,18 @@ namespace hgraph
     }
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(const node_ptr &parent)
-        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
-                                                           TimeSeriesValueOutputBuilder<bool>().make_instance(this))} {}
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput>(
+                                                           TimeSeriesValueOutputBuilder(value::scalar_type_meta<bool>()).make_instance(this))} {}
 
     TimeSeriesSetOutput::TimeSeriesSetOutput(time_series_output_ptr parent)
-        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
-                                                           TimeSeriesValueOutputBuilder<bool>().make_instance(this))} {}
+        : TimeSeriesSet<BaseTimeSeriesOutput>(parent), _is_empty_ref_output{std::dynamic_pointer_cast<TimeSeriesValueOutput>(
+                                                           TimeSeriesValueOutputBuilder(value::scalar_type_meta<bool>()).make_instance(this))} {}
 
-    TimeSeriesValueOutput<bool>::s_ptr &TimeSeriesSetOutput::is_empty_output() {
-        if (!_is_empty_ref_output->valid()) { _is_empty_ref_output->set_value(empty()); }
+    time_series_value_output_s_ptr &TimeSeriesSetOutput::is_empty_output() {
+        if (!_is_empty_ref_output->valid()) {
+            // Set the bool value via Python interop
+            _is_empty_ref_output->py_set_value(nb::cast(empty()));
+        }
         return _is_empty_ref_output;
     }
 
@@ -174,10 +177,11 @@ namespace hgraph
           _contains_ref_outputs{this,
                                 // Note: naked new is correct here - output_builder_s_ptr is nb::ref<OutputBuilder>
                                 // which uses intrusive reference counting and accepts raw pointers from new
-                                new TimeSeriesValueOutputBuilder<bool>(),
+                                new TimeSeriesValueOutputBuilder(value::scalar_type_meta<bool>()),
                                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
-                                    reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
-                                        reinterpret_cast<const TimeSeriesSetOutput_T<element_type> &>(ts).contains(key));
+                                    auto& ts_val = dynamic_cast<TimeSeriesValueOutput&>(ref);
+                                    auto& ts_set = dynamic_cast<const TimeSeriesSetOutput_T<element_type>&>(ts);
+                                    ts_val.py_set_value(nb::cast(ts_set.contains(key)));
                                 },
                                 {}} {}
 
@@ -187,10 +191,11 @@ namespace hgraph
           _contains_ref_outputs{this,
                                 // Note: naked new is correct here - output_builder_s_ptr is nb::ref<OutputBuilder>
                                 // which uses intrusive reference counting and accepts raw pointers from new
-                                new TimeSeriesValueOutputBuilder<bool>(),
+                                new TimeSeriesValueOutputBuilder(value::scalar_type_meta<bool>()),
                                 [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const element_type &key) {
-                                    reinterpret_cast<TimeSeriesValueOutput<bool> &>(ref).set_value(
-                                        reinterpret_cast<const TimeSeriesSetOutput_T<element_type> &>(ts).contains(key));
+                                    auto& ts_val = dynamic_cast<TimeSeriesValueOutput&>(ref);
+                                    auto& ts_set = dynamic_cast<const TimeSeriesSetOutput_T<element_type>&>(ts);
+                                    ts_val.py_set_value(nb::cast(ts_set.contains(key)));
                                 },
                                 {}} {}
 
@@ -340,10 +345,10 @@ namespace hgraph
         bool is_current_cycle = (last_modified_time() < owning_graph()->evaluation_time());
         if ((has_changes || needs_validation) && is_current_cycle) {
             mark_modified();
-            if (_added.size() > 0 && is_empty_output()->valid() && is_empty_output()->value()) {
-                is_empty_output()->set_value(false);
+            if (_added.size() > 0 && is_empty_output()->valid() && is_empty_output()->value().template as<bool>()) {
+                is_empty_output()->py_set_value(nb::cast(false));
             } else if (_removed.size() > 0 && empty()) {
-                is_empty_output()->set_value(true);
+                is_empty_output()->py_set_value(nb::cast(true));
             }
             _contains_ref_outputs.update_all(_added.begin(), _added.end());
             _contains_ref_outputs.update_all(_removed.begin(), _removed.end());
@@ -484,7 +489,7 @@ namespace hgraph
         _added.clear();
         _contains_ref_outputs.update_all(_value.begin(), _value.end());
         _value.clear();
-        is_empty_output()->set_value(true);
+        is_empty_output()->py_set_value(nb::cast(true));
         // Clear the caches
         _py_value.reset();
         _py_added.reset();
@@ -517,7 +522,7 @@ namespace hgraph
             _py_added.reset();
             _py_removed.reset();
             _py_value.reset();
-            is_empty_output()->set_value(empty());
+            is_empty_output()->py_set_value(nb::cast(empty()));
             _contains_ref_outputs.update_all(_added.begin(), _added.end());
             _contains_ref_outputs.update_all(_removed.begin(), _removed.end());
             mark_modified();
@@ -551,7 +556,7 @@ namespace hgraph
             _py_added.reset();
             _py_removed.reset();
             _py_value.reset();
-            is_empty_output()->set_value(empty());
+            is_empty_output()->py_set_value(nb::cast(empty()));
             _contains_ref_outputs.update_all(_added.begin(), _added.end());
             _contains_ref_outputs.update_all(_removed.begin(), _removed.end());
             mark_modified();
@@ -602,7 +607,7 @@ namespace hgraph
 
             _contains_ref_outputs.update(key);
 
-            if (empty()) { is_empty_output()->set_value(true); }
+            if (empty()) { is_empty_output()->py_set_value(nb::cast(true)); }
 
             mark_modified();
         }
@@ -610,7 +615,7 @@ namespace hgraph
 
     template <typename T_Key> void TimeSeriesSetOutput_T<T_Key>::add(const element_type &key) {
         if (!contains(key)) {
-            if (empty()) { is_empty_output()->set_value(false); }
+            if (empty()) { is_empty_output()->py_set_value(nb::cast(false)); }
             _add(key);
             _contains_ref_outputs.update(key);
             mark_modified();
@@ -620,9 +625,9 @@ namespace hgraph
     template <typename T_Key> bool TimeSeriesSetOutput_T<T_Key>::empty() const { return _value.empty(); }
 
     template <typename T_Key>
-    TimeSeriesValueOutput<bool>::s_ptr TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
+    time_series_value_output_s_ptr TimeSeriesSetOutput_T<T_Key>::get_contains_output(const nb::object &item,
                                                                                        const nb::object &requester) {
-        return std::dynamic_pointer_cast<TimeSeriesValueOutput<bool>>(
+        return std::dynamic_pointer_cast<TimeSeriesValueOutput>(
             _contains_ref_outputs.create_or_increment(nb::cast<element_type>(item), static_cast<void *>(requester.ptr())));
     }
 

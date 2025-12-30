@@ -275,26 +275,37 @@ if is_feature_enabled("use_cpp"):
                 }.get(type(referenced_tp), _make_ts_value_ref)()
 
 
+        def _get_value_schema_for_scalar_type(scalar_type):
+            """Get the Value type schema for a scalar type."""
+            from hgraph._hgraph import value
+            schema_map = {
+                bool: value.scalar_type_meta_bool,
+                int: value.scalar_type_meta_int64,
+                float: value.scalar_type_meta_double,
+                date: value.scalar_type_meta_date,
+                datetime: value.scalar_type_meta_datetime,
+                timedelta: value.scalar_type_meta_timedelta,
+            }
+            schema_fn = schema_map.get(scalar_type.py_type)
+            if schema_fn is not None:
+                return schema_fn()
+            # Fallback: check if scalar_type has cpp_type, otherwise use Python object schema
+            if hasattr(scalar_type, 'cpp_type') and scalar_type.cpp_type is not None:
+                return scalar_type.cpp_type
+            # Default to object (nb::object) schema for unknown types
+            return value.get_scalar_type_meta(scalar_type.py_type)
+
         def _ts_input_builder_type_for(scalar_type):
-            return {
-                bool: _hgraph.InputBuilder_TS_Bool,
-                int: _hgraph.InputBuilder_TS_Int,
-                float: _hgraph.InputBuilder_TS_Float,
-                date: _hgraph.InputBuilder_TS_Date,
-                datetime: _hgraph.InputBuilder_TS_DateTime,
-                timedelta: _hgraph.InputBuilder_TS_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.InputBuilder_TS_Object)
+            """Return factory for non-templated TimeSeriesValueInput builder."""
+            # Return callable to match old factory pattern
+            return _hgraph.InputBuilder_TS_Value
 
 
         def _ts_output_builder_for_tp(scalar_type):
-            return {
-                bool: _hgraph.OutputBuilder_TS_Bool,
-                int: _hgraph.OutputBuilder_TS_Int,
-                float: _hgraph.OutputBuilder_TS_Float,
-                date: _hgraph.OutputBuilder_TS_Date,
-                datetime: _hgraph.OutputBuilder_TS_DateTime,
-                timedelta: _hgraph.OutputBuilder_TS_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.OutputBuilder_TS_Object)
+            """Return factory for non-templated TimeSeriesValueOutput builder with schema."""
+            schema = _get_value_schema_for_scalar_type(scalar_type)
+            # Return callable to match old factory pattern
+            return lambda: _hgraph.OutputBuilder_TS_Value(schema)
 
 
         def _tss_input_builder_type_for(scalar_type):

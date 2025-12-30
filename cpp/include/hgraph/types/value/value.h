@@ -504,9 +504,27 @@ public:
         if constexpr (policy_traits<Policy>::has_python_cache) {
             this->invalidate_cache();
         }
-        _schema->ops->from_python(_storage.data(), src, _schema);
+
+        // Try type conversion; if it fails and we have caching, fall back to
+        // storing just the Python object (like Python's TimeSeriesValueOutput does)
         if constexpr (policy_traits<Policy>::has_python_cache) {
+            try {
+                _schema->ops->from_python(_storage.data(), src, _schema);
+            } catch (...) {
+                // Type conversion failed - just cache the Python object directly.
+                // This handles cases like to_table where the declared type doesn't
+                // match the actual runtime value type.
+                this->set_cache(src);
+                // Notify modification callbacks
+                if constexpr (policy_traits<Policy>::has_modification_tracking) {
+                    this->notify_modified();
+                }
+                return;
+            }
             this->set_cache(src);
+        } else {
+            // No caching - must do type conversion
+            _schema->ops->from_python(_storage.data(), src, _schema);
         }
 
         // Notify modification callbacks

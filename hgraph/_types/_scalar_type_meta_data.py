@@ -1160,18 +1160,22 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         """
         if not self.is_resolved:
             raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
+        # Check for recursive types - if we're already computing cpp_type for this type, return None
+        if SchemaRecurseContext.is_in_context(self.py_type):
+            return None
         from hgraph._feature_switch import is_feature_enabled
         if not is_feature_enabled("use_cpp"):
             return None
         try:
             import hgraph._hgraph as _hgraph
-            fields = []
-            for field_name, field_meta in self.meta_data_schema.items():
-                field_cpp = field_meta.cpp_type
-                if field_cpp is None:
-                    return None
-                fields.append((field_name, field_cpp))
-            return _hgraph.value.get_bundle_type_meta(fields, self.py_type.__name__)
+            with SchemaRecurseContext(self.py_type):
+                fields = []
+                for field_name, field_meta in self.meta_data_schema.items():
+                    field_cpp = field_meta.cpp_type
+                    if field_cpp is None:
+                        return None
+                    fields.append((field_name, field_cpp))
+                return _hgraph.value.get_bundle_type_meta(fields, self.py_type.__name__)
         except (ImportError, AttributeError):
             return None
 

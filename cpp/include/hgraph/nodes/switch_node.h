@@ -53,7 +53,7 @@ namespace hgraph {
         std::unordered_map<K, graph_builder_s_ptr> nested_graph_builders_;
         std::unordered_map<K, std::unordered_map<std::string, int> > input_node_ids_;
         std::unordered_map<K, int> output_node_ids_;
-        TimeSeriesValueInput<K> *key_ts;
+        TimeSeriesValueInput *key_ts;
 
         bool reload_on_ticked_;
         graph_s_ptr active_graph_{};

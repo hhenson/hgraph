@@ -86,19 +86,19 @@ namespace hgraph {
 
         explicit TimeSeriesSetOutput(time_series_output_ptr parent);
 
-        [[nodiscard]] virtual TimeSeriesValueOutput<bool>::s_ptr get_contains_output(const nb::object &item,
+        [[nodiscard]] virtual time_series_value_output_s_ptr get_contains_output(const nb::object &item,
             const nb::object &requester) = 0;
 
         virtual void release_contains_output(const nb::object &item, const nb::object &requester) = 0;
 
-        [[nodiscard]] TimeSeriesValueOutput<bool>::s_ptr &is_empty_output();
+        [[nodiscard]] time_series_value_output_s_ptr &is_empty_output();
 
         void invalidate() override;
 
         VISITOR_SUPPORT()
 
     private:
-        TimeSeriesValueOutput<bool>::s_ptr _is_empty_ref_output;
+        time_series_value_output_s_ptr _is_empty_ref_output;
     };
 
     struct TimeSeriesSetInput : TimeSeriesSet<BaseTimeSeriesInput> {
@@ -185,7 +185,7 @@ namespace hgraph {
 
         [[nodiscard]] bool empty() const override;
 
-        [[nodiscard]] TimeSeriesValueOutput<bool>::s_ptr get_contains_output(const nb::object &item,
+        [[nodiscard]] time_series_value_output_s_ptr get_contains_output(const nb::object &item,
                                                                            const nb::object &requester) override;
 
         void release_contains_output(const nb::object &item, const nb::object &requester) override;

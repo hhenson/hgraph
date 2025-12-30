@@ -160,11 +160,16 @@ namespace hgraph {
     struct TimeSeriesDictReferenceOutput;
     struct TimeSeriesBundleReferenceOutput;
 
-    template<typename> struct TimeSeriesValueInput;
+    // Non-templated time series value types (use Value system with TypeMeta)
+    struct TimeSeriesValueInput;
+    struct TimeSeriesValueOutput;
+    using time_series_value_output_ptr = TimeSeriesValueOutput*;
+    using time_series_value_output_s_ptr = std::shared_ptr<TimeSeriesValueOutput>;
+
+    // Templated collection types
     template<typename> struct TimeSeriesDictInput_T;
     template<typename> struct TimeSeriesSetInput_T;
     template<typename> struct TimeSeriesWindowInput;
-    template<typename> struct TimeSeriesValueOutput;
     template<typename> struct TimeSeriesDictOutput_T;
     template<typename> struct TimeSeriesSetOutput_T;
     template<typename> struct TimeSeriesFixedWindowOutput;

@@ -135,18 +135,55 @@ struct BundleOps {
     }
 
     static void from_python(void* dst, const nb::object& src, const TypeMeta* schema) {
-        // Expect a dict with field names as keys
-        if (!nb::isinstance<nb::dict>(src)) {
-            throw std::runtime_error("Bundle.from_python expects a dict");
-        }
-        nb::dict d = nb::cast<nb::dict>(src);
+        if (nb::isinstance<nb::dict>(src)) {
+            // Handle dict: field names as keys
+            nb::dict d = nb::cast<nb::dict>(src);
 
-        for (size_t i = 0; i < schema->field_count; ++i) {
-            const BundleFieldInfo& field = schema->fields[i];
-            void* field_ptr = static_cast<char*>(dst) + field.offset;
-            if (field.name && d.contains(field.name)) {
+            for (size_t i = 0; i < schema->field_count; ++i) {
+                const BundleFieldInfo& field = schema->fields[i];
+                void* field_ptr = static_cast<char*>(dst) + field.offset;
+                if (field.name && d.contains(field.name)) {
+                    if (field.type && field.type->ops && field.type->ops->from_python) {
+                        nb::object val = d[field.name];
+                        // Skip None values - can't cast None to non-nullable scalar types
+                        if (!val.is_none()) {
+                            field.type->ops->from_python(field_ptr, val, field.type);
+                        }
+                    }
+                }
+            }
+        } else if (nb::isinstance<nb::tuple>(src) || nb::isinstance<nb::list>(src)) {
+            // Handle tuple/list: map by index position
+            // This supports tuples represented as bundles with fields $0, $1, etc.
+            nb::sequence seq = nb::cast<nb::sequence>(src);
+            size_t seq_len = nb::len(seq);
+            size_t n = std::min(seq_len, schema->field_count);
+
+            for (size_t i = 0; i < n; ++i) {
+                const BundleFieldInfo& field = schema->fields[i];
+                void* field_ptr = static_cast<char*>(dst) + field.offset;
                 if (field.type && field.type->ops && field.type->ops->from_python) {
-                    field.type->ops->from_python(field_ptr, d[field.name], field.type);
+                    nb::object elem = seq[i];
+                    // Skip None values - can't cast None to non-nullable scalar types
+                    if (!elem.is_none()) {
+                        field.type->ops->from_python(field_ptr, elem, field.type);
+                    }
+                }
+            }
+        } else {
+            // Handle object with attributes (e.g., dataclass, namedtuple, custom objects)
+            // Extract attributes by field names using getattr
+            for (size_t i = 0; i < schema->field_count; ++i) {
+                const BundleFieldInfo& field = schema->fields[i];
+                void* field_ptr = static_cast<char*>(dst) + field.offset;
+                if (field.name && nb::hasattr(src, field.name)) {
+                    if (field.type && field.type->ops && field.type->ops->from_python) {
+                        nb::object attr = nb::getattr(src, field.name);
+                        // Skip None values - can't cast None to non-nullable scalar types
+                        if (!attr.is_none()) {
+                            field.type->ops->from_python(field_ptr, attr, field.type);
+                        }
+                    }
                 }
             }
         }
@@ -688,7 +725,11 @@ struct ListOps {
             for (size_t i = 0; i < copy_count; ++i) {
                 void* elem_ptr = get_element_ptr(dst, i, schema);
                 if (elem_type && elem_type->ops && elem_type->ops->from_python) {
-                    elem_type->ops->from_python(elem_ptr, seq[i], elem_type);
+                    nb::object elem = seq[i];
+                    // Skip None values - can't cast None to non-nullable scalar types
+                    if (!elem.is_none()) {
+                        elem_type->ops->from_python(elem_ptr, elem, elem_type);
+                    }
                 }
             }
         } else {
@@ -698,7 +739,11 @@ struct ListOps {
             for (size_t i = 0; i < src_len; ++i) {
                 void* elem_ptr = static_cast<char*>(storage->data_ptr()) + i * elem_type->size;
                 if (elem_type && elem_type->ops && elem_type->ops->from_python) {
-                    elem_type->ops->from_python(elem_ptr, seq[i], elem_type);
+                    nb::object elem = seq[i];
+                    // Skip None values - can't cast None to non-nullable scalar types
+                    if (!elem.is_none()) {
+                        elem_type->ops->from_python(elem_ptr, elem, elem_type);
+                    }
                 }
             }
         }
@@ -1588,8 +1633,9 @@ struct MapOps {
     }
 
     static void from_python(void* dst, const nb::object& src, const TypeMeta* schema) {
-        if (!nb::isinstance<nb::dict>(src)) {
-            throw std::runtime_error("Map.from_python expects a dict");
+        // Handle dict, frozendict, and dict-like objects with items() method
+        if (!nb::isinstance<nb::dict>(src) && !nb::hasattr(src, "items")) {
+            throw std::runtime_error("Map.from_python expects a dict or dict-like object");
         }
 
         const TypeMeta* key_type = schema->key_type;
@@ -1598,9 +1644,18 @@ struct MapOps {
         // Clear destination
         do_clear(dst, schema);
 
-        // Insert items from Python dict
-        nb::dict d = nb::cast<nb::dict>(src);
-        for (auto item : d) {
+        // Get items - works for dict, frozendict, and any dict-like object
+        nb::object items;
+        if (nb::isinstance<nb::dict>(src)) {
+            items = nb::cast<nb::dict>(src).attr("items")();
+        } else {
+            items = src.attr("items")();
+        }
+
+        // Iterate over items (key, value) pairs
+        for (nb::handle item : items) {
+            nb::tuple kv = nb::cast<nb::tuple>(item);
+
             // Create temp key
             std::vector<char> temp_key_storage(key_type->size);
             void* temp_key = temp_key_storage.data();
@@ -1608,7 +1663,7 @@ struct MapOps {
                 key_type->ops->construct(temp_key, key_type);
             }
             if (key_type->ops && key_type->ops->from_python) {
-                nb::object key_obj = nb::borrow<nb::object>(item.first);
+                nb::object key_obj = nb::borrow<nb::object>(kv[0]);
                 key_type->ops->from_python(temp_key, key_obj, key_type);
             }
 
@@ -1619,7 +1674,7 @@ struct MapOps {
                 val_type->ops->construct(temp_val, val_type);
             }
             if (val_type->ops && val_type->ops->from_python) {
-                nb::object val_obj = nb::borrow<nb::object>(item.second);
+                nb::object val_obj = nb::borrow<nb::object>(kv[1]);
                 val_type->ops->from_python(temp_val, val_obj, val_type);
             }
 

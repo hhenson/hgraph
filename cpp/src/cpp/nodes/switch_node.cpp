@@ -72,9 +72,9 @@ namespace hgraph {
     template<typename K>
     void SwitchNode<K>::do_start() {
         auto ts{(*input())["key"].get()};
-        key_ts = dynamic_cast<TimeSeriesValueInput<K> *>(ts);
+        key_ts = dynamic_cast<TimeSeriesValueInput*>(ts);
         if (!key_ts) {
-            throw std::runtime_error("SwitchNode requires a TimeSeriesValueInput<K> for key input, but none found");
+            throw std::runtime_error("SwitchNode requires a TimeSeriesValueInput for key input, but none found");
         }
         // Check if graph has recordable ID trait
         if (has_recordable_id_trait(graph()->traits())) {
@@ -116,8 +116,9 @@ namespace hgraph {
 
         // Check if key has been modified
         if (key_ts->modified()) {
-            // Extract the key value from the input time series
-            if (reload_on_ticked_ || !active_key_.has_value() || !keys_equal(key_ts->value(), active_key_.value())) {
+            // Extract the key value from the input time series (using Value system)
+            auto current_key = key_ts->value().as<K>();
+            if (reload_on_ticked_ || !active_key_.has_value() || !keys_equal(current_key, active_key_.value())) {
                 if (active_key_.has_value()) {
                     graph_reset_ = true;
                     // Invalidate current output so stale fields (e.g., TSB members) are cleared on branch switch
@@ -136,7 +137,7 @@ namespace hgraph {
                     active_graph_ = nullptr;
                     active_graph_builder_ = nullptr;
                 }
-                active_key_ = key_ts->value();
+                active_key_ = current_key;
                 auto it = nested_graph_builders_.find(active_key_.value());
                 if (it != nested_graph_builders_.end()) {
                     active_graph_builder_ = it->second;
