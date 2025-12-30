@@ -3,11 +3,12 @@
 // Includes both fixed-size (tick-count) and time-window (timedelta) variants.
 //
 
-#ifndef TSW_H
-#define TSW_H
+#ifndef HGRAPH_TYPES_TSW
+#define HGRAPH_TYPES_TSW
 
 #include <hgraph/types/base_time_series.h>
 #include <hgraph/util/errors.h>
+
 #include <deque>
 
 namespace hgraph {
@@ -62,20 +63,7 @@ namespace hgraph {
 
         [[nodiscard]] engine_time_t first_modified_time() const;
 
-        void copy_from_output(const TimeSeriesOutput &output) override {
-            output.visit(
-                [this](const TimeSeriesFixedWindowOutput* o) {
-                    _buffer = o->_buffer;
-                    _times = o->_times;
-                    _start = o->_start;
-                    _length = o->_length;
-                    _size = o->_size;
-                    _min_size = o->_min_size;
-                    mark_modified();
-                },
-                throw_if_not_expected<const TimeSeriesFixedWindowOutput*>
-            );
-        }
+        void copy_from_output(const TimeSeriesOutput &output) override;
 
         void copy_from_input(const TimeSeriesInput &input) override;
 
@@ -180,22 +168,6 @@ namespace hgraph {
 
     };
 
-    template<typename T>
-    void TimeSeriesFixedWindowOutput<T>::copy_from_input(const TimeSeriesInput &input) {
-        input.output()->visit(
-            [this](TimeSeriesFixedWindowOutput<T>* src) {
-                _buffer = src->_buffer;
-                _times = src->_times;
-                _start = src->_start;
-                _length = src->_length;
-                _size = src->_size;
-                _min_size = src->_min_size;
-                mark_modified();
-            },
-            make_throw_error("TimeSeriesFixedWindowOutput::copy_from_input: input output is not fixed window")
-        );
-    }
-
     // TimeSeriesTimeWindowOutput - timedelta-based window
     template<typename T>
     struct TimeSeriesTimeWindowOutput final : BaseTimeSeriesOutput {
@@ -231,19 +203,7 @@ namespace hgraph {
 
         [[nodiscard]] engine_time_t first_modified_time() const;
 
-        void copy_from_output(const TimeSeriesOutput &output) override {
-            output.visit(
-                [this](TimeSeriesTimeWindowOutput* src) {
-                    _buffer = src->_buffer;
-                    _times = src->_times;
-                    _size = src->_size;
-                    _min_size = src->_min_size;
-                    _ready = src->_ready;
-                    mark_modified();
-                },
-                make_throw_error("TimeSeriesFixedWindowOutput::copy_from_output: output is not time window")
-            );
-        }
+        void copy_from_output(const TimeSeriesOutput &output) override;
 
         void copy_from_input(const TimeSeriesInput &input) override;
 
@@ -277,4 +237,4 @@ namespace hgraph {
 
 } // namespace hgraph
 
-#endif  // TSW_H
+#endif // HGRAPH_TYPES_TSW
