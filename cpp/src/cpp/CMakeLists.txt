@@ -105,6 +105,7 @@ set(HGRAPH_SOURCES
         types/tsl.cpp
         types/tsw.cpp
         types/value/type_registry.cpp
+        types/value/type_meta_bindings.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp

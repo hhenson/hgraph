@@ -4,6 +4,7 @@
 #include <hgraph/types/value/composite_ops.h>
 #include <hgraph/types/value/path.h>
 #include <hgraph/types/value/traversal.h>
+#include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/python/chrono.h>
 
 #include <nanobind/stl/string.h>
@@ -1743,6 +1744,9 @@ void value_register_with_nanobind(nb::module_& m) {
 
     // Register free functions for scalar type metadata (Design Doc Section 3.2)
     register_scalar_type_meta_functions(value_mod);
+
+    // Register type meta binding functions for Python-to-C++ type mapping
+    register_type_meta_bindings(value_mod);
 
     // Register base view classes (order matters for inheritance)
     register_const_value_view(value_mod);
