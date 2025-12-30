@@ -10,6 +10,8 @@
 namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesSetOutputBuilder : OutputBuilder {
         using OutputBuilder::OutputBuilder;
+
+        [[nodiscard]] size_t type_alignment() const override = 0;
     };
 
     template<typename T>
@@ -23,6 +25,8 @@ namespace hgraph {
         void release_instance(time_series_output_ptr item) const override;
 
         [[nodiscard]] size_t memory_size() const override;
+
+        [[nodiscard]] size_t type_alignment() const override;
     };
 
     void time_series_set_output_builder_register_with_nanobind(nb::module_ & m);
