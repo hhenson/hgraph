@@ -10,6 +10,7 @@
 #include <hgraph/types/feature_extension.h>
 #include <hgraph/types/base_time_series.h>
 #include <hgraph/types/ts.h>
+#include <hgraph/types/value/value.h>
 
 namespace hgraph {
     template<typename T>
@@ -274,6 +275,129 @@ namespace hgraph {
     };
 
     void register_set_delta_with_nanobind(nb::module_ & m);
+
+    // ============================================================================
+    // Non-templated TimeSeriesSet using Value type system
+    // ============================================================================
+
+    /**
+     * @brief Non-templated time series set output using CachedValue storage.
+     *
+     * This class stores set values using the Value type system with Python caching.
+     * The TypeMeta* schema defines the element type at runtime instead of compile time.
+     */
+    struct TimeSeriesSetValueOutput final : TimeSeriesSetOutput {
+        using s_ptr = std::shared_ptr<TimeSeriesSetValueOutput>;
+
+        /**
+         * @brief Construct with owning node and element schema.
+         */
+        TimeSeriesSetValueOutput(Node* owning_node, const value::TypeMeta* element_schema);
+
+        /**
+         * @brief Construct with parent output and element schema.
+         */
+        TimeSeriesSetValueOutput(TimeSeriesOutput* parent, const value::TypeMeta* element_schema);
+
+        // Python interop
+        [[nodiscard]] nb::object py_value() const override;
+        [[nodiscard]] nb::object py_delta_value() const override;
+        void py_set_value(const nb::object& value) override;
+        void apply_result(const nb::object& value) override;
+
+        // Value access via views
+        [[nodiscard]] value::ConstSetView value() const { return _value.const_view().as_set(); }
+        [[nodiscard]] value::SetView value_mut() { return _value.view().as_set(); }
+
+        // Added/removed access
+        [[nodiscard]] value::ConstSetView added_set() const { return _added.const_view().as_set(); }
+        [[nodiscard]] value::ConstSetView removed_set() const { return _removed.const_view().as_set(); }
+
+        // Schema access
+        [[nodiscard]] const value::TypeMeta* element_schema() const { return _element_schema; }
+        [[nodiscard]] const value::TypeMeta* set_schema() const { return _value.schema(); }
+
+        // Set operations
+        [[nodiscard]] size_t size() const override;
+        [[nodiscard]] bool empty() const override;
+        [[nodiscard]] bool contains(const nb::object& item) const;
+
+        // Modification operations
+        void add(const nb::object& item);
+        void remove(const nb::object& item);
+        void clear() override;
+
+        // Lifecycle
+        void copy_from_output(const TimeSeriesOutput& output) override;
+        void copy_from_input(const TimeSeriesInput& input) override;
+        [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
+
+        // Feature outputs
+        [[nodiscard]] time_series_value_output_s_ptr get_contains_output(const nb::object& item,
+                                                                          const nb::object& requester) override;
+        void release_contains_output(const nb::object& item, const nb::object& requester) override;
+
+        using TimeSeriesOutput::mark_modified;
+        void mark_modified(engine_time_t modified_time) override;
+
+        void _reset_value();
+
+        VISITOR_SUPPORT()
+
+    protected:
+        void _post_modify();
+        void _reset();
+
+    private:
+        const value::TypeMeta* _element_schema;  // Element type
+        value::CachedValue _value;   // Set storage
+        value::CachedValue _added;   // Added elements this cycle
+        value::CachedValue _removed; // Removed elements this cycle
+        FeatureOutputExtension<nb::object> _contains_ref_outputs;
+    };
+
+    /**
+     * @brief Non-templated time series set input.
+     *
+     * Delegates to the bound TimeSeriesSetValueOutput for value access.
+     */
+    struct TimeSeriesSetValueInput final : TimeSeriesSetInput {
+        using ptr = TimeSeriesSetValueInput*;
+
+        using TimeSeriesSetInput::TimeSeriesSetInput;
+
+        [[nodiscard]] TimeSeriesSetValueOutput& set_value_output();
+        [[nodiscard]] const TimeSeriesSetValueOutput& set_value_output() const;
+
+        [[nodiscard]] nb::object py_value() const override;
+        [[nodiscard]] nb::object py_delta_value() const override;
+
+        [[nodiscard]] size_t size() const override;
+        [[nodiscard]] bool empty() const override;
+
+        [[nodiscard]] value::ConstSetView value() const;
+        [[nodiscard]] value::ConstSetView added() const;
+        [[nodiscard]] value::ConstSetView removed() const;
+
+        [[nodiscard]] bool contains(const nb::object& item) const;
+
+        [[nodiscard]] const value::TypeMeta* element_schema() const;
+
+        [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
+
+        VISITOR_SUPPORT()
+
+    protected:
+        const TimeSeriesSetValueOutput& prev_value_output() const;
+        void reset_prev() override;
+
+        // Caches for computed added/removed when rebinding
+        mutable value::PlainValue _cached_added;
+        mutable value::PlainValue _cached_removed;
+    };
+
+    void register_tss_with_nanobind(nb::module_& m);
+
 } // namespace hgraph
 
 #endif  // TSS_H
