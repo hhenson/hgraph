@@ -1,4 +1,5 @@
 #include <hgraph/types/tss.h>
+#include <hgraph/types/value/value.h>
 
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
@@ -77,9 +78,11 @@ namespace hgraph {
             // Get all keys that are valid but NOT added (i.e., keys present before start)
             // This matches Python: keys = key_set.valid - key_set.added
             std::unordered_set<K> keys;
-            const auto &key_set{tsd->key_set_t()};
-            for (const auto &key: key_set.value()) {
-                if (!key_set.was_added(key)) { keys.insert(key); }
+            auto &key_set_out = tsd->output_t().key_set();
+            for (auto elem : key_set_out.value_view()) {
+                K key = elem.template as<K>();
+                value::Value<> key_val(key);
+                if (!key_set_out.was_added(key_val.const_view())) { keys.insert(key); }
             }
 
             if (!keys.empty()) {
@@ -107,11 +110,20 @@ namespace hgraph {
     void ReduceNode<K>::eval() {
         mark_evaluated();
 
-        auto &key_set = ts()->key_set_t();
+        auto &key_set_out = ts()->output_t().key_set();
 
         // Process removals first, then additions
-        remove_nodes(key_set.removed());
-        add_nodes(key_set.added());
+        // Build sets from Value-based iteration
+        std::unordered_set<K> removed_keys;
+        for (auto elem : key_set_out.removed_view()) {
+            removed_keys.insert(elem.template as<K>());
+        }
+        std::unordered_set<K> added_keys;
+        for (auto elem : key_set_out.added_view()) {
+            added_keys.insert(elem.template as<K>());
+        }
+        remove_nodes(removed_keys);
+        add_nodes(added_keys);
 
         // Re-balance the tree if required
         re_balance_nodes();

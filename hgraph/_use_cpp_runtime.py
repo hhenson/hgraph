@@ -309,25 +309,14 @@ if is_feature_enabled("use_cpp"):
 
 
         def _tss_input_builder_type_for(scalar_type):
-            return {
-                bool: _hgraph.InputBuilder_TSS_Bool,
-                int: _hgraph.InputBuilder_TSS_Int,
-                float: _hgraph.InputBuilder_TSS_Float,
-                date: _hgraph.InputBuilder_TSS_Date,
-                datetime: _hgraph.InputBuilder_TSS_DateTime,
-                timedelta: _hgraph.InputBuilder_TSS_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.InputBuilder_TSS_Object)
+            """Return factory for non-templated TimeSeriesSetInput builder."""
+            return _hgraph.InputBuilder_TSS
 
 
         def _tss_output_builder_for_tp(scalar_type):
-            return {
-                bool: _hgraph.OutputBuilder_TSS_Bool,
-                int: _hgraph.OutputBuilder_TSS_Int,
-                float: _hgraph.OutputBuilder_TSS_Float,
-                date: _hgraph.OutputBuilder_TSS_Date,
-                datetime: _hgraph.OutputBuilder_TSS_DateTime,
-                timedelta: _hgraph.OutputBuilder_TSS_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.OutputBuilder_TSS_Object)
+            """Return factory for non-templated TimeSeriesSetOutput builder with element schema."""
+            schema = _get_value_schema_for_scalar_type(scalar_type)
+            return lambda: _hgraph.OutputBuilder_TSS(schema)
 
 
         def _tsd_input_builder_type_for(scalar_type):

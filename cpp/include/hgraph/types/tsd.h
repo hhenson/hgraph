@@ -11,6 +11,7 @@
 #include <hgraph/builders/time_series_types/time_series_dict_output_builder.h>
 #include <hgraph/types/base_time_series.h>
 #include <hgraph/types/tss.h>
+#include <hgraph/types/value/value.h>
 #include <ranges>
 
 namespace hgraph
@@ -92,7 +93,8 @@ namespace hgraph
         using map_type            = std::unordered_map<key_type, value_type>;
         using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
-        using key_set_type        = TimeSeriesSetOutput_T<key_type>;
+        // Non-templated key set - access keys via Value API with elem.as<K>()
+        using key_set_type        = TimeSeriesSetOutput;
         // TODO: Currently we are only exposing simple types and nb::object, so this simple strategy is not overly expensive,
         //  If we start using more complicated native types, we may wish to use a pointer so something to that effect to
         //  Track keys. The values have a light weight reference counting cost to store as value_type so leave for the moment as
@@ -156,11 +158,20 @@ namespace hgraph
         }
 
         [[nodiscard]] auto added_items() const {
-            return key_set_t().added() |
-                   std::views::transform([this](const auto &key) { return std::make_pair(key, _ts_values.at(key)); });
+            // Access added keys via Value API and extract typed keys
+            std::vector<std::pair<key_type, value_type>> result;
+            for (auto elem : _key_set->added_view()) {
+                key_type key = elem.template as<key_type>();
+                result.emplace_back(key, _ts_values.at(key));
+            }
+            return result;
         }
 
-        [[nodiscard]] const k_set_type &added_keys() const;
+        /**
+         * @brief Get added keys - returns a copy since TSS uses Value storage.
+         * Note: This is less efficient than iterating added_view() directly.
+         */
+        [[nodiscard]] k_set_type added_keys() const;
 
         [[nodiscard]] bool was_added(const key_type &key) const;
 
@@ -172,9 +183,10 @@ namespace hgraph
 
         [[nodiscard]] const TimeSeriesSetOutput &key_set() const override;
 
-        [[nodiscard]] TimeSeriesSetOutput_T<key_type> &key_set_t();
-
-        [[nodiscard]] const TimeSeriesSetOutput_T<key_type> &key_set_t() const;
+        /**
+         * @brief Get the key_set as a shared_ptr for binding operations.
+         */
+        [[nodiscard]] std::shared_ptr<TimeSeriesSetOutput> key_set_s_ptr() const { return _key_set; }
 
         void py_set_item(const nb::object &key, const nb::object &value) override;
 
@@ -188,9 +200,9 @@ namespace hgraph
 
         void py_release_ref(const nb::object &key, const nb::object &requester) override;
 
-        time_series_output_s_ptr& get_ref(const key_type &key, const void *requester);
+        time_series_output_s_ptr& get_ref(const nb::object &key, const void *requester);
 
-        void release_ref(const key_type &key, const void *requester);
+        void release_ref(const nb::object &key, const void *requester);
 
         void add_key_observer(TSDKeyObserver<key_type> *observer);
 
@@ -242,7 +254,8 @@ namespace hgraph
         output_builder_s_ptr _ts_builder;
         output_builder_s_ptr _ts_ref_builder;
 
-        FeatureOutputExtension<key_type>        _ref_ts_feature;
+        // Value-based FeatureOutputExtension for ref outputs
+        FeatureOutputExtensionValue             _ref_ts_feature;
         std::vector<TSDKeyObserver<key_type> *> _key_observers;
         engine_time_t                           _last_cleanup_time{MIN_DT};
         static inline map_type                  _empty;
@@ -262,7 +275,8 @@ namespace hgraph
         using modified_map_type   = std::unordered_map<key_type, value_type>;
         using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
-        using key_set_type        = TimeSeriesSetInput_T<key_type>;
+        // Non-templated key set - access keys via Value API with elem.as<K>()
+        using key_set_type        = TimeSeriesSetInput;
         using key_set_type_ptr    = std::shared_ptr<key_set_type>;
         // Use raw pointers for reverse lookup to enable efficient lookup from notify_parent
         using reverse_map = std::unordered_map<TimeSeriesInput *, key_type>;
@@ -301,7 +315,11 @@ namespace hgraph
 
         [[nodiscard]] const map_type &valid_items() const;
 
-        [[nodiscard]] const k_set_type &added_keys() const;
+        /**
+         * @brief Get added keys - returns a copy since TSS uses Value storage.
+         * Note: This is less efficient than iterating added_view() on the key_set directly.
+         */
+        [[nodiscard]] k_set_type added_keys() const;
 
         [[nodiscard]] const map_type &added_items() const;
 
@@ -339,10 +357,6 @@ namespace hgraph
 
         // Expose this as this is currently used in at least one Python service test.
         void create(const key_type &key);
-
-        [[nodiscard]] TimeSeriesSetInput_T<key_type> &key_set_t();
-
-        [[nodiscard]] const TimeSeriesSetInput_T<key_type> &key_set_t() const;
 
         [[nodiscard]] TimeSeriesDictOutput_T<key_type> &output_t();
 

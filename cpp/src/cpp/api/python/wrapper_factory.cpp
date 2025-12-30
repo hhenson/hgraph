@@ -66,9 +66,9 @@ namespace
             using U = TimeSeriesDictInput_T<T>;
             return create_wrapper_from_api<PyTimeSeriesDictInput_T<U>, U>(std::move(impl));
         },
-        []<typename T>(TimeSeriesSetInput_T<T>*, ApiPtr<TimeSeriesInput> impl) {
-            using U = TimeSeriesSetInput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesSetInput_T<U>, U>(std::move(impl));
+        // Non-templated TSS input
+        [](TimeSeriesSetInput*, ApiPtr<TimeSeriesInput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesSetInput, TimeSeriesSetInput>(std::move(impl));
         },
         []<typename T>(TimeSeriesWindowInput<T>*, ApiPtr<TimeSeriesInput> impl) {
             using U = TimeSeriesWindowInput<T>;
@@ -116,9 +116,9 @@ namespace
             using U = TimeSeriesDictOutput_T<T>;
             return create_wrapper_from_api<PyTimeSeriesDictOutput_T<U>, U>(std::move(impl));
         },
-        []<typename T>(TimeSeriesSetOutput_T<T>*, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesSetOutput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesSetOutput_T<U>, U>(std::move(impl));
+        // Non-templated TSS output
+        [](TimeSeriesSetOutput*, ApiPtr<TimeSeriesOutput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesSetOutput, TimeSeriesSetOutput>(std::move(impl));
         },
         []<typename T>(TimeSeriesFixedWindowOutput<T>*, ApiPtr<TimeSeriesOutput> impl) {
             using U = TimeSeriesFixedWindowOutput<T>;

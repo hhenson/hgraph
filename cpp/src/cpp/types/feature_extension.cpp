@@ -8,6 +8,103 @@ namespace hgraph {
         std::move(output_)) {
     }
 
+    // ========== FeatureOutputExtensionValue Implementation ==========
+
+    namespace {
+        // Get the TypeMeta for FeatureOutputRequestTracker (registers on first call)
+        const value::TypeMeta* tracker_type_meta() {
+            return value::scalar_type_meta<FeatureOutputRequestTracker>();
+        }
+
+        // Create a Map schema for key_type -> FeatureOutputRequestTracker
+        const value::TypeMeta* make_map_schema(const value::TypeMeta* key_type) {
+            auto& registry = value::TypeRegistry::instance();
+            return registry.map(key_type, tracker_type_meta()).build();
+        }
+    }
+
+    FeatureOutputExtensionValue::FeatureOutputExtensionValue(
+        time_series_output_ptr owning_output_,
+        output_builder_s_ptr output_builder_,
+        const value::TypeMeta* key_type_,
+        feature_fn value_getter_,
+        std::optional<feature_fn> initial_value_getter_)
+        : _owning_output(owning_output_),
+          _output_builder(std::move(output_builder_)),
+          _key_type(key_type_),
+          _map_schema(make_map_schema(key_type_)),
+          _value_getter(std::move(value_getter_)),
+          _initial_value_getter(std::move(initial_value_getter_)),
+          _outputs(_map_schema) {  // Initialize PlainValue with Map schema
+    }
+
+    time_series_output_s_ptr& FeatureOutputExtensionValue::create_or_increment(
+        const value::ConstValueView& key, const void *requester) {
+
+        // Get a MapView for the outputs
+        value::MapView map_view = _outputs.view().as_map();
+
+        if (!map_view.contains(key)) {
+            // Create new output
+            auto new_output{_output_builder->make_instance(_owning_output->owning_node())};
+
+            // Create a new tracker with the output
+            FeatureOutputRequestTracker tracker(new_output);
+
+            // Insert into the map
+            value::Value<> tracker_val(tracker);
+            map_view.set(key, tracker_val.const_view());
+
+            // Call the value getter to initialize
+            (_initial_value_getter ? *_initial_value_getter : _value_getter)(*_owning_output, *new_output, key);
+        }
+
+        // Get mutable reference to the tracker and add the requester
+        value::ValueView tracker_view = map_view.at(key);
+        FeatureOutputRequestTracker& tracker = tracker_view.as<FeatureOutputRequestTracker>();
+        tracker.requesters.insert(requester);
+
+        return tracker.output;
+    }
+
+    void FeatureOutputExtensionValue::update(const value::ConstValueView& key) {
+        value::MapView map_view = _outputs.view().as_map();
+
+        if (map_view.contains(key)) {
+            value::ValueView tracker_view = map_view.at(key);
+            FeatureOutputRequestTracker& tracker = tracker_view.as<FeatureOutputRequestTracker>();
+            _value_getter(*_owning_output, *(tracker.output), key);
+        }
+    }
+
+    void FeatureOutputExtensionValue::update(const nb::handle& key) {
+        if (!_key_type) return;
+        value::PlainValue key_val(_key_type);
+        key_val.from_python(nb::cast<nb::object>(key));
+        update(key_val.const_view());
+    }
+
+    void FeatureOutputExtensionValue::release(const value::ConstValueView& key, const void *requester) {
+        value::MapView map_view = _outputs.view().as_map();
+
+        if (map_view.contains(key)) {
+            value::ValueView tracker_view = map_view.at(key);
+            FeatureOutputRequestTracker& tracker = tracker_view.as<FeatureOutputRequestTracker>();
+            tracker.requesters.erase(requester);
+
+            if (tracker.requesters.empty()) {
+                map_view.erase(key);
+            }
+        }
+    }
+
+    bool FeatureOutputExtensionValue::empty() const {
+        value::ConstMapView map_view = _outputs.const_view().as_map();
+        return map_view.empty();
+    }
+
+    // ========== Legacy FeatureOutputExtension Implementation ==========
+
     template<typename T>
     FeatureOutputExtension<T>::FeatureOutputExtension(time_series_output_ptr owning_output_,
                                                       output_builder_s_ptr output_builder_,

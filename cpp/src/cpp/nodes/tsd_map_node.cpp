@@ -1,4 +1,5 @@
 #include <hgraph/types/tss.h>
+#include <hgraph/types/value/value.h>
 
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
@@ -79,15 +80,19 @@ namespace hgraph
     template <typename K> void TsdMapNode<K>::eval() {
         mark_evaluated();
 
-        auto &keys = dynamic_cast<TimeSeriesSetInput_T<K> &>(*(*input())[KEYS_ARG]);
+        auto &keys = dynamic_cast<TimeSeriesSetInput &>(*(*input())[KEYS_ARG]);
         if (keys.modified()) {
-            for (const auto &k : keys.added()) {
+            // Iterate added keys using Value API
+            for (auto elem : keys.set_output().added_view()) {
+                K k = elem.template as<K>();
                 // There seems to be a case where a set can show a value as added even though it is not.
                 // This protects from accidentally creating duplicate graphs
                 if (active_graphs_.find(k) == active_graphs_.end()) { create_new_graph(k); }
                 // If key already exists, skip it (can happen during startup before reset_prev() is called)
             }
-            for (const auto &k : keys.removed()) {
+            // Iterate removed keys using Value API
+            for (auto elem : keys.set_output().removed_view()) {
+                K k = elem.template as<K>();
                 if (auto it = active_graphs_.find(k); it != active_graphs_.end()) {
                     remove_graph(k);
                     scheduled_keys_.erase(k);
@@ -226,8 +231,9 @@ namespace hgraph
                     // Align with Python: only clear upstream per-key state when the key is truly absent
                     // from the upstream key set (and that key set is valid). Do NOT clear during startup
                     // when the key set may be invalid, as this breaks re-add semantics.
-                    auto &key_set = dynamic_cast<TimeSeriesSetInput_T<K> &>(tsd.key_set());
-                    if (key_set.valid() && !key_set.contains(key)) { tsd.on_key_removed(key); }
+                    auto &key_set = dynamic_cast<TimeSeriesSetInput &>(tsd.key_set());
+                    value::Value<> key_val(key);
+                    if (key_set.valid() && !key_set.contains(key_val.const_view())) { tsd.on_key_removed(key); }
                 }
             }
         }

@@ -41,9 +41,6 @@ void export_types(nb::module_ &m) {
     PyTimeSeriesOutput::register_with_nanobind(m);
     PyTimeSeriesInput::register_with_nanobind(m);
 
-    // All reference types registered inside this function
-    register_set_delta_with_nanobind(m);
-
     ref_register_with_nanobind(m);
     signal_register_with_nanobind(m);
     ts_register_with_nanobind(m);
