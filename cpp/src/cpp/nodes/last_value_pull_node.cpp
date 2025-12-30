@@ -37,28 +37,18 @@ namespace hgraph {
         auto output_obj = output().get();
 
         // Check the type of the output and set the appropriate combine function
-        // TimeSeriesSet (TSS)
-        if (dynamic_cast<TimeSeriesSetOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tss_delta;
-        }
-        // TimeSeriesDict (TSD)
-        else if (dynamic_cast<TimeSeriesDictOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tsd_delta;
-        }
-        // TimeSeriesBundle (TSB)
-        else if (dynamic_cast<TimeSeriesBundleOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tsb_delta;
-        }
-        // TimeSeriesList (TSL)
-        else if (dynamic_cast<TimeSeriesListOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tsl_delta_value;
-        }
-        // Default: simple replacement
-        else {
-            _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
-                return new_delta;
-            };
-        }
+        output_obj->visit(
+            [&](TimeSeriesSetOutput*) { _delta_combine_fn = _combine_tss_delta; },
+            [&](TimeSeriesDictOutput*) { _delta_combine_fn = _combine_tsd_delta; },
+            [&](TimeSeriesBundleOutput*) { _delta_combine_fn = _combine_tsb_delta; },
+            [&](TimeSeriesListOutput*) { _delta_combine_fn = _combine_tsl_delta_value; },
+            // Default: simple replacement
+            [&] {
+                _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
+                    return new_delta;
+                };
+            }
+        );
     }
 
     void LastValuePullNode::copy_from_input(const TimeSeriesInput &input) {

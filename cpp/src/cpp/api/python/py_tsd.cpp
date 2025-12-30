@@ -223,7 +223,7 @@ namespace hgraph
         try {
             auto key = impl()->key_from_value(p);
             return nb::cast(key);
-        } catch (const std::exception &e) {
+        } catch (const std::exception&) {
             return nb::none();
         }
     }

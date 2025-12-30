@@ -1,9 +1,6 @@
-#include <cstdlib>
-#include <fmt/format.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/mesh_node.h>
-#include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/python/global_keys.h>
 #include <hgraph/python/global_state.h>
 #include <hgraph/python/hashable.h>
@@ -14,50 +11,14 @@
 #include <hgraph/types/tss.h>
 #include <hgraph/util/string_utils.h>
 #include <hgraph/util/scope.h>
+#include <hgraph/util/errors.h>
+
+#include <fmt/format.h>
+
+#include <cstdlib>
+
 
 namespace hgraph {
-    // MeshNestedEngineEvaluationClock implementation
-    template<typename K>
-    MeshNestedEngineEvaluationClock<K>::MeshNestedEngineEvaluationClock(
-        EngineEvaluationClock::ptr engine_evaluation_clock, K key,
-        mesh_node_ptr<K> nested_node)
-        : NestedEngineEvaluationClock(std::move(engine_evaluation_clock),
-                                      static_cast<NestedNode*>(nested_node)),
-          _key(key) {
-    }
-
-    template<typename K>
-    void MeshNestedEngineEvaluationClock<K>::update_next_scheduled_evaluation_time(engine_time_t next_time) {
-        // Cast nested_node_ptr to MeshNode<K> using dynamic_cast
-        auto node = dynamic_cast<MeshNode<K> *>(_nested_node);
-        if (!node) {
-            return; // Safety check - should not happen
-        }
-
-        // Check if we should skip scheduling
-        auto let = node->last_evaluation_time();
-        if ((let != MIN_DT && let > next_time) || node->is_stopping()) { return; }
-
-        auto rank = node->active_graphs_rank_[_key];
-
-        // If already scheduled for current time at current rank, skip
-        if (next_time == let &&
-            (rank == node->current_eval_rank_ ||
-             (node->current_eval_graph_.has_value() && std::equal_to<K>()(node->current_eval_graph_.value(), _key)))) {
-            return;
-        }
-
-        // Check if we need to reschedule
-        auto it = node->scheduled_keys_by_rank_[rank].find(_key);
-        engine_time_t tm = (it != node->scheduled_keys_by_rank_[rank].end()) ? it->second : MIN_DT;
-
-        if (tm == MIN_DT || tm > next_time || tm < node->graph()->evaluation_time()) {
-            node->schedule_graph(_key, next_time);
-        }
-
-        NestedEngineEvaluationClock::update_next_scheduled_evaluation_time(next_time);
-    }
-
     template<typename K>
     MeshNode<K>::MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                           nb::dict scalars,
@@ -76,22 +37,22 @@ namespace hgraph {
         TsdMapNode<K>::do_start();
 
         // Set up the reference output and register in GlobalState
-        if (GlobalState::has_instance()) {
-            auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
-            // Get the "out" and "ref" outputs from the output bundle
-            auto tsd_output_ptr = (*tsb_output)["out"];
-            auto &ref_output = dynamic_cast<TimeSeriesReferenceOutput &>(*(*tsb_output)["ref"]);
+        if (!GlobalState::has_instance())
+            throw_error("GlobalState instance required for MeshNode");
 
-            // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
-            // Pass the shared_ptr directly to keep the output alive
-            auto reference = TimeSeriesReference::make(tsd_output_ptr);
-            ref_output.set_value(reference);
+        auto& tsb_output = **this->output()->visit(cast_to_expected<TimeSeriesBundleOutput*>);
 
-            // Store the ref output in GlobalState using shared_ptr-based wrapping
-            GlobalState::set(full_context_path_, wrap_output(ref_output.shared_from_this()));
-        } else {
-            throw std::runtime_error("GlobalState instance required for MeshNode");
-        }
+        // Get the "out" and "ref" outputs from the output bundle
+        auto tsd_output_ptr = tsb_output["out"];
+        auto ref_output = *tsb_output["ref"]->visit(cast_to_expected<TimeSeriesReferenceOutput*>);
+
+        // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
+        // Pass the shared_ptr directly to keep the output alive
+        auto reference = TimeSeriesReference::make(tsd_output_ptr);
+        ref_output->set_value(std::move(reference));
+
+        // Store the ref output in GlobalState using shared_ptr-based wrapping
+        GlobalState::set(full_context_path_, wrap_output(ref_output->shared_from_this()));
     }
 
     template<typename K>
@@ -107,8 +68,11 @@ namespace hgraph {
         this->mark_evaluated();
 
         // 1. Process keys input (additions/removals)
-        auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
-        auto &keys = dynamic_cast<TimeSeriesSetInput_T<K> &>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
+        auto get_keys = 
+            with_expected<TimeSeriesBundleInput*>([](auto* bundle) { return (*bundle)[TsdMapNode<K>::KEYS_ARG]; })
+            >> cast_to_expected<TimeSeriesSetInput_T<K>*>;
+
+        auto &keys = **get_keys(this->input());
         if (keys.modified()) {
             for (const auto &k: keys.added()) {
                 if (this->active_graphs_.find(k) == this->active_graphs_.end()) {
@@ -204,8 +168,11 @@ namespace hgraph {
     template<typename K>
     TimeSeriesDictOutput_T<K> &MeshNode<K>::tsd_output() {
         // Access output bundle's "out" member - output() returns smart pointer to TimeSeriesBundleOutput
-        auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
-        return dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*output_bundle)["out"]);
+        auto impl =
+            with_expected<TimeSeriesBundleOutput*>([](auto* bundle) { return (*bundle)["out"]; })
+            >> cast_to_expected<TimeSeriesDictOutput_T<K>*>;
+
+        return **impl(this->output());
     }
 
     template<typename K>
@@ -250,9 +217,9 @@ namespace hgraph {
             std::string node_label = this->signature().label.has_value()
                                          ? this->signature().label.value()
                                          : this->signature().name;
-            throw std::runtime_error(fmt::format("mesh {}.{} has a dependency cycle {} -> {}",
-                                                 this->signature().wiring_path_name,
-                                                 node_label, to_string(key), to_string(key)));
+            throw_error("mesh {}.{} has a dependency cycle {} -> {}",
+                            this->signature().wiring_path_name,
+                            node_label, to_string(key), to_string(key));
         }
     }
 
@@ -260,8 +227,10 @@ namespace hgraph {
     void MeshNode<K>::remove_graph(const K &key) {
         // Remove error output if using exception capture
         if (this->signature().capture_exception) {
-            auto &error_output_ = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*this->error_output());
-            error_output_.erase(key);
+            this->error_output()->visit(
+                [&key](TimeSeriesDictOutput_T<K>* dict_output) { dict_output->erase(key); },
+                make_throw_if_not_expected<TimeSeriesDictOutput_T<K>*>()
+            );
         }
 
         auto graph_it = this->active_graphs_.find(key);
@@ -313,9 +282,16 @@ namespace hgraph {
 
         // Check if we should remove the dependency graph
         if (active_graphs_dependencies_[depends_on].empty()) {
-            auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
-            auto &keys = dynamic_cast<TimeSeriesSetInput_T<K> &>(*input_bundle[TsdMapNode<K>::KEYS_ARG]);
-            if (!keys.contains(depends_on)) { graphs_to_remove_.insert(depends_on); }
+            auto impl =
+                with_expected<TimeSeriesBundleInput*>([](auto* input_bundle) {
+                    return (*input_bundle)[TsdMapNode<K>::KEYS_ARG];
+                })
+                >> ddv::serial{[&](TimeSeriesSetInput_T<K>* keys) {
+                    if (!keys->contains(depends_on))
+                        graphs_to_remove_.insert(depends_on);
+                }, ddv::noop};
+
+            impl(this->input());
         }
     }
 
@@ -369,8 +345,8 @@ namespace hgraph {
                             this->signature().label.has_value()
                                 ? this->signature().label.value()
                                 : this->signature().name;
-                    throw std::runtime_error(fmt::format("mesh {}.{} has a dependency cycle: {}",
-                                                         this->signature().wiring_path_name, node_label, cycle_str));
+                    throw_error("mesh {}.{} has a dependency cycle: {}",
+                                 this->signature().wiring_path_name, node_label, cycle_str);
                 }
 
                 auto new_stack = re_rank_stack;
@@ -389,64 +365,4 @@ namespace hgraph {
     template struct MeshNode<engine_time_delta_t>;
     template struct MeshNode<nb::object>;
 
-    template struct MeshNestedEngineEvaluationClock<bool>;
-    template struct MeshNestedEngineEvaluationClock<int64_t>;
-    template struct MeshNestedEngineEvaluationClock<double>;
-    template struct MeshNestedEngineEvaluationClock<engine_date_t>;
-    template struct MeshNestedEngineEvaluationClock<engine_time_t>;
-    template struct MeshNestedEngineEvaluationClock<engine_time_delta_t>;
-    template struct MeshNestedEngineEvaluationClock<nb::object>;
-
-    void register_mesh_node_with_nanobind(nb::module_ &m) {
-        // Register MeshNode specializations
-        nb::class_<MeshNode<bool>, TsdMapNode<bool> >(m, "MeshNode_bool")
-                .def("_add_graph_dependency", &MeshNode<bool>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<bool>::_remove_graph_dependency, "key"_a, "depends_on"_a);
-        nb::class_<MeshNode<int64_t>, TsdMapNode<int64_t> >(m, "MeshNode_int")
-                .def("_add_graph_dependency", &MeshNode<int64_t>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<int64_t>::_remove_graph_dependency, "key"_a, "depends_on"_a);
-        nb::class_<MeshNode<double>, TsdMapNode<double> >(m, "MeshNode_float")
-                .def("_add_graph_dependency", &MeshNode<double>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<double>::_remove_graph_dependency, "key"_a, "depends_on"_a);
-        nb::class_<MeshNode<engine_date_t>, TsdMapNode<engine_date_t> >(m, "MeshNode_date")
-                .def("_add_graph_dependency", &MeshNode<engine_date_t>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<engine_date_t>::_remove_graph_dependency, "key"_a,
-                     "depends_on"_a);
-        nb::class_<MeshNode<engine_time_t>, TsdMapNode<engine_time_t> >(m, "MeshNode_date_time")
-                .def("_add_graph_dependency", &MeshNode<engine_time_t>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<engine_time_t>::_remove_graph_dependency, "key"_a,
-                     "depends_on"_a);
-        nb::class_<MeshNode<engine_time_delta_t>, TsdMapNode<engine_time_delta_t> >(m, "MeshNode_time_delta")
-                .def("_add_graph_dependency", &MeshNode<engine_time_delta_t>::_add_graph_dependency, "key"_a,
-                     "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<engine_time_delta_t>::_remove_graph_dependency, "key"_a,
-                     "depends_on"_a);
-        nb::class_<MeshNode<nb::object>, TsdMapNode<nb::object> >(m, "MeshNode_object")
-                .def("_add_graph_dependency", &MeshNode<nb::object>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<nb::object>::_remove_graph_dependency, "key"_a,
-                     "depends_on"_a);
-
-        // Register MeshNestedEngineEvaluationClock specializations with 'key' property so Python can discover mesh keys
-        nb::class_<MeshNestedEngineEvaluationClock<bool>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_bool")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<bool>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<int64_t>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_int")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<int64_t>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<double>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_float")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<double>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<engine_date_t>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_date")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<engine_date_t>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<engine_time_t>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_date_time")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<engine_time_t>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<engine_time_delta_t>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_time_delta")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<engine_time_delta_t>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<nb::object>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_object")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<nb::object>::key);
-    }
 } // namespace hgraph

@@ -2,6 +2,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
+#include <hgraph/util/errors.h>
 
 namespace hgraph {
     time_series_input_s_ptr TimeSeriesSignalInputBuilder::make_instance(node_ptr owning_node) const {
@@ -13,12 +14,12 @@ namespace hgraph {
     }
 
     void TimeSeriesSignalInputBuilder::release_instance(time_series_input_ptr item) const {
-        release_instance(dynamic_cast<TimeSeriesSignalInput *>(item));
+        item->visit([this](TimeSeriesSignalInput* signal) { release_instance(signal); }, ddv::noop);
     }
 
     void TimeSeriesSignalInputBuilder::release_instance(TimeSeriesSignalInput *signal_input) const {
         if (signal_input == nullptr) {
-            throw std::runtime_error("TimeSeriesSignalInputBuilder::release_instance: expected TimeSeriesSignalInput but got different type");
+            throw_error("TimeSeriesSignalInputBuilder::release_instance: expected TimeSeriesSignalInput but got different type");
         }
         InputBuilder::release_instance(signal_input);
         if (signal_input->_ts_values.empty()) { return; }

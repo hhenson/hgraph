@@ -7,10 +7,6 @@ namespace hgraph
 
     template <typename T_TS, typename T_U>
         requires(is_py_tsb<T_TS, T_U>)
-    PyTimeSeriesBundle<T_TS, T_U>::PyTimeSeriesBundle(api_ptr impl) : T_TS(std::move(impl)) {}
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
     nb::object PyTimeSeriesBundle<T_TS, T_U>::iter() const {
         return nb::iter(list_to_list(impl()->values()));
     }
@@ -63,7 +59,7 @@ namespace hgraph
         try {
             auto key = impl()->key_from_value(p);
             return nb::str(key.c_str());
-        } catch (const std::exception &e) {
+        } catch (const std::exception&) {
             return nb::none();
         }
     }

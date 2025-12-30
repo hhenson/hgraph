@@ -165,7 +165,7 @@ find_package(tpack CONFIG QUIET)
 if (NOT tpack_FOUND)
     message(STATUS "tpack not found via find_package, using FetchContent")
     include(FetchContent)
-    FetchContent_Declare(tpack GIT_REPOSITORY https://github.com/uentity/tpack.git GIT_TAG v0.3.2)
+    FetchContent_Declare(tpack GIT_REPOSITORY https://github.com/uentity/tpack.git GIT_TAG v0.3.4)
     FetchContent_MakeAvailable(tpack)
     # Export tpack to the package registry so ddvisitor can find it via find_package
     set(tpack_DIR "${CMAKE_BINARY_DIR}/_deps/tpack-build" CACHE PATH "tpack build dir" FORCE)
@@ -174,13 +174,11 @@ else ()
 endif ()
 
 # ddv via package or FetchContent
-# Note: ddvisitor v0.9.1 has a bug where it references cmake/ddvisitor-config.cmake.in
-# that doesn't exist. We work around this by manually including only what we need.
 find_package(ddvisitor CONFIG QUIET)
 if (NOT ddvisitor_FOUND)
     message(STATUS "ddvisitor not found via find_package, using FetchContent")
     include(FetchContent)
-    FetchContent_Declare(ddvisitor GIT_REPOSITORY https://github.com/uentity/ddvisitor.git GIT_TAG v0.9.5)
+    FetchContent_Declare(ddvisitor GIT_REPOSITORY https://github.com/uentity/ddvisitor.git GIT_TAG v0.9.6)
     FetchContent_MakeAvailable(ddvisitor)
 else ()
     message(STATUS "Found ddvisitor via Conan/system: ${ddvisitor_DIR}")

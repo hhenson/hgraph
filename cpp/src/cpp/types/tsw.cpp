@@ -1,5 +1,6 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/tsw.h>
+
 #include <type_traits>
 
 namespace hgraph
@@ -112,6 +113,37 @@ namespace hgraph
         return _times.empty() ? engine_time_t{} : _times[_start];
     }
 
+    template<typename T>
+    void TimeSeriesFixedWindowOutput<T>::copy_from_output(const TimeSeriesOutput &output) {
+        output.visit(
+            [this](const TimeSeriesFixedWindowOutput* o) {
+                _buffer = o->_buffer;
+                _times = o->_times;
+                _start = o->_start;
+                _length = o->_length;
+                _size = o->_size;
+                _min_size = o->_min_size;
+                mark_modified();
+            },
+            throw_if_not_expected<const TimeSeriesFixedWindowOutput*>
+        );
+    }
+
+    template<typename T>
+    void TimeSeriesFixedWindowOutput<T>::copy_from_input(const TimeSeriesInput &input) {
+        input.output()->visit(
+            [this](TimeSeriesFixedWindowOutput<T>* src) {
+                _buffer = src->_buffer;
+                _times = src->_times;
+                _start = src->_start;
+                _length = src->_length;
+                _size = src->_size;
+                _min_size = src->_min_size;
+                mark_modified();
+            },
+            make_throw_error("TimeSeriesFixedWindowOutput::copy_from_input: input output is not fixed window")
+        );
+    }
 
     // Unified TimeSeriesWindowInput implementation
     template <typename T> bool TimeSeriesWindowInput<T>::all_valid() const {
@@ -259,6 +291,21 @@ namespace hgraph
         }
     }
 
+    template<typename T>
+    void TimeSeriesTimeWindowOutput<T>::copy_from_output(const TimeSeriesOutput &output) {
+        output.visit(
+            [this](TimeSeriesTimeWindowOutput* src) {
+                _buffer = src->_buffer;
+                _times = src->_times;
+                _size = src->_size;
+                _min_size = src->_min_size;
+                _ready = src->_ready;
+                mark_modified();
+            },
+            make_throw_error("TimeSeriesFixedWindowOutput::copy_from_output: output is not time window")
+        );
+    }
+
 
 
     // Template instantiations for unified TimeSeriesWindowInput
@@ -287,4 +334,5 @@ namespace hgraph
     template struct TimeSeriesTimeWindowOutput<engine_time_t>;
     template struct TimeSeriesTimeWindowOutput<engine_time_delta_t>;
     template struct TimeSeriesTimeWindowOutput<nb::object>;
+
 }  // namespace hgraph

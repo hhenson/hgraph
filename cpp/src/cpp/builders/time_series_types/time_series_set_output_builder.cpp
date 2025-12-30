@@ -2,6 +2,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tss.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
+#include <hgraph/util/errors.h>
 
 namespace hgraph {
     template<typename T>
@@ -17,11 +18,10 @@ namespace hgraph {
     template<typename T>
     void TimeSeriesSetOutputBuilder_T<T>::release_instance(time_series_output_ptr item) const {
         TimeSeriesSetOutputBuilder::release_instance(item);
-        auto set = dynamic_cast<TimeSeriesSetOutput_T<T> *>(item);
-        if (set == nullptr) {
-            throw std::runtime_error("TimeSeriesSetOutputBuilder_T::release_instance: expected TimeSeriesSetOutput_T but got different type");
-        }
-        set->_reset_value();
+        item->visit(
+            [](TimeSeriesSetOutput_T<T>* set) { set->_reset_value(); },
+            make_throw_error("TimeSeriesSetOutputBuilder_T::release_instance: expected TimeSeriesSetOutput_T but got different type")
+        );
     }
 
     template<typename T>

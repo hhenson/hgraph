@@ -1,12 +1,14 @@
 #include <hgraph/api/python/wrapper_factory.h>
 
-#include <fmt/format.h>
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/nodes/context_node.h>
 #include <hgraph/python/global_keys.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/util/errors.h>
+
+#include <fmt/format.h>
 #include <nanobind/nanobind.h>
 
 namespace hgraph {
@@ -77,7 +79,7 @@ namespace hgraph {
             } catch (...) {
                 // ignore diagnostics failures
             }
-            throw std::runtime_error(fmt::format("Missing shared output for path: {}{}", key, diag));
+            throw_error("Missing shared output for path: {}{}", key, diag);
         }
 
         // We will capture the reference value and subscribe to the producing output when available
@@ -118,15 +120,12 @@ namespace hgraph {
         }
 
         // Finally, set this node's own REF output to the captured value (may be None)
-        auto my_output = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
-        if (!my_output) {
-            throw std::runtime_error("ContextStubSourceNode: output is not a TimeSeriesReferenceOutput");
-        }
-        if (value_ref.has_value()) {
-            my_output->set_value(*value_ref);
-        } else {
-            my_output->set_value(TimeSeriesReference::make());
-        }
+        output()->visit(
+            [&](TimeSeriesReferenceOutput* out) {
+                out->set_value(value_ref.has_value() ? *value_ref : TimeSeriesReference::make());
+            },
+            make_throw_error("ContextStubSourceNode: output is not a TimeSeriesReferenceOutput")
+        );
     }
 
     void register_context_node_with_nanobind(nb::module_ &m) {
