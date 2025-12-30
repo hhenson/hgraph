@@ -5,6 +5,7 @@ set(HGRAPH_SOURCES
         api/python/py_evaluation_engine.cpp
         api/python/py_graph.cpp
         api/python/py_node.cpp
+        api/python/py_mesh_node.cpp
         api/python/py_special_nodes.cpp
         api/python/py_time_series.cpp
         api/python/py_ref.cpp

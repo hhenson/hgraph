@@ -1,9 +1,6 @@
-#include <cstdlib>
-#include <fmt/format.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/mesh_node.h>
-#include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/python/global_keys.h>
 #include <hgraph/python/global_state.h>
 #include <hgraph/python/hashable.h>
@@ -15,6 +12,11 @@
 #include <hgraph/util/string_utils.h>
 #include <hgraph/util/scope.h>
 #include <hgraph/util/errors.h>
+
+#include <fmt/format.h>
+
+#include <cstdlib>
+
 
 namespace hgraph {
     template<typename K>
@@ -360,37 +362,4 @@ namespace hgraph {
     template struct MeshNode<engine_time_delta_t>;
     template struct MeshNode<nb::object>;
 
-    void register_mesh_nested_engine_with_nanobind(nb::module_ &m);
-
-    void register_mesh_node_with_nanobind(nb::module_ &m) {
-        // Register MeshNode specializations
-        nb::class_<MeshNode<bool>, TsdMapNode<bool> >(m, "MeshNode_bool")
-                .def("_add_graph_dependency", &MeshNode<bool>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<bool>::_remove_graph_dependency, "key"_a, "depends_on"_a);
-        nb::class_<MeshNode<int64_t>, TsdMapNode<int64_t> >(m, "MeshNode_int")
-                .def("_add_graph_dependency", &MeshNode<int64_t>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<int64_t>::_remove_graph_dependency, "key"_a, "depends_on"_a);
-        nb::class_<MeshNode<double>, TsdMapNode<double> >(m, "MeshNode_float")
-                .def("_add_graph_dependency", &MeshNode<double>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<double>::_remove_graph_dependency, "key"_a, "depends_on"_a);
-        nb::class_<MeshNode<engine_date_t>, TsdMapNode<engine_date_t> >(m, "MeshNode_date")
-                .def("_add_graph_dependency", &MeshNode<engine_date_t>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<engine_date_t>::_remove_graph_dependency, "key"_a,
-                     "depends_on"_a);
-        nb::class_<MeshNode<engine_time_t>, TsdMapNode<engine_time_t> >(m, "MeshNode_date_time")
-                .def("_add_graph_dependency", &MeshNode<engine_time_t>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<engine_time_t>::_remove_graph_dependency, "key"_a,
-                     "depends_on"_a);
-        nb::class_<MeshNode<engine_time_delta_t>, TsdMapNode<engine_time_delta_t> >(m, "MeshNode_time_delta")
-                .def("_add_graph_dependency", &MeshNode<engine_time_delta_t>::_add_graph_dependency, "key"_a,
-                     "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<engine_time_delta_t>::_remove_graph_dependency, "key"_a,
-                     "depends_on"_a);
-        nb::class_<MeshNode<nb::object>, TsdMapNode<nb::object> >(m, "MeshNode_object")
-                .def("_add_graph_dependency", &MeshNode<nb::object>::_add_graph_dependency, "key"_a, "depends_on"_a)
-                .def("_remove_graph_dependency", &MeshNode<nb::object>::_remove_graph_dependency, "key"_a,
-                     "depends_on"_a);
-
-        register_mesh_nested_engine_with_nanobind(m);
-    }
 } // namespace hgraph

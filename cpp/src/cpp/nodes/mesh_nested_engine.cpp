@@ -51,29 +51,4 @@ namespace hgraph {
     template struct MeshNestedEngineEvaluationClock<engine_time_delta_t>;
     template struct MeshNestedEngineEvaluationClock<nb::object>;
 
-    void register_mesh_nested_engine_with_nanobind(nb::module_ &m) {
-        // Register MeshNestedEngineEvaluationClock specializations with 'key' property so Python can discover mesh keys
-        nb::class_<MeshNestedEngineEvaluationClock<bool>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_bool")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<bool>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<int64_t>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_int")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<int64_t>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<double>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_float")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<double>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<engine_date_t>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_date")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<engine_date_t>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<engine_time_t>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_date_time")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<engine_time_t>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<engine_time_delta_t>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_time_delta")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<engine_time_delta_t>::key);
-        nb::class_<MeshNestedEngineEvaluationClock<nb::object>, NestedEngineEvaluationClock>(
-                    m, "MeshNestedEngineEvaluationClock_object")
-                .def_prop_ro("key", &MeshNestedEngineEvaluationClock<nb::object>::key);
-    }
-
 } // namespace hgraph
