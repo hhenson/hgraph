@@ -1003,16 +1003,63 @@ public:
         return _schema->element_type;
     }
 
-    // TODO(iteration): Add iteration support for ConstSetView.
-    // Required additions:
-    // 1. Add const_iterator class similar to ConstIndexedView::const_iterator
-    // 2. Add begin() and end() methods
-    // 3. This requires TypeOps to provide iteration callbacks:
-    //    - iter_begin(const void* obj, const TypeMeta*) -> void* (iterator state)
-    //    - iter_next(void* iter_state, const TypeMeta*) -> bool
-    //    - iter_get(const void* iter_state, const TypeMeta*) -> const void*
-    //    - iter_end(void* iter_state, const TypeMeta*) -> void (cleanup)
-    // 4. Alternatively, could provide get_at(index) for sets if ordering is defined
+    // ========== Iteration ==========
+
+    /**
+     * @brief Const iterator for set views.
+     *
+     * Iterates over set elements in O(n) total time using index-based access.
+     *
+     * IMPORTANT: Stores data pointer and schema directly (NOT a view pointer)
+     * to avoid dangling pointer issues when iterating over temporary views.
+     */
+    class const_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = ConstValueView;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const ConstValueView*;
+        using reference = ConstValueView;
+
+        const_iterator() = default;
+        const_iterator(const void* data, const TypeMeta* schema, size_t index, size_t /*size*/)
+            : _data(data), _schema(schema), _index(index) {}
+
+        reference operator*() const;
+
+        const_iterator& operator++() {
+            ++_index;
+            return *this;
+        }
+
+        const_iterator operator++(int) {
+            const_iterator tmp = *this;
+            ++_index;
+            return tmp;
+        }
+
+        bool operator==(const const_iterator& other) const {
+            return _data == other._data && _index == other._index;
+        }
+
+        bool operator!=(const const_iterator& other) const {
+            return !(*this == other);
+        }
+
+    private:
+        const void* _data{nullptr};
+        const TypeMeta* _schema{nullptr};
+        size_t _index{0};
+    };
+
+    [[nodiscard]] const_iterator begin() const {
+        return const_iterator(_data, _schema, 0, size());
+    }
+
+    [[nodiscard]] const_iterator end() const {
+        size_t sz = size();
+        return const_iterator(_data, _schema, sz, sz);
+    }
 };
 
 // ============================================================================
@@ -1100,8 +1147,19 @@ public:
     template<typename T>
     bool erase(const T& value);
 
-    // TODO(iteration): Add iteration support for SetView (same as ConstSetView).
-    // See ConstSetView TODO for implementation details.
+    // ========== Iteration ==========
+
+    // Reuse ConstSetView's const_iterator for iteration
+    using const_iterator = ConstSetView::const_iterator;
+
+    [[nodiscard]] const_iterator begin() const {
+        return const_iterator(_data, _schema, 0, size());
+    }
+
+    [[nodiscard]] const_iterator end() const {
+        size_t sz = size();
+        return const_iterator(_data, _schema, sz, sz);
+    }
 };
 
 // ============================================================================
@@ -1669,6 +1727,27 @@ inline void QueueView::push_back(const ConstValueView& value) {
 
 inline void QueueView::pop_front() {
     QueueOps::pop_front(data(), _schema);
+}
+
+// ============================================================================
+// ConstSetView Iterator Implementation
+// ============================================================================
+
+inline ConstValueView ConstSetView::const_iterator::operator*() const {
+    // Access the SetStorage to get the element at the current iteration position
+    auto* storage = static_cast<const SetStorage*>(_data);
+
+    if (!storage->index_set || _index >= storage->index_set->size()) {
+        throw std::out_of_range("Set iterator out of range");
+    }
+
+    // ankerl::unordered_dense::set supports random access via its vector backend
+    auto it = storage->index_set->begin();
+    std::advance(it, _index);
+    size_t storage_idx = *it;
+
+    // Return a view of the element at this storage index
+    return ConstValueView(storage->get_element_ptr(storage_idx), _schema->element_type);
 }
 
 // ============================================================================

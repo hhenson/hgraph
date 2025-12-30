@@ -5,6 +5,9 @@
 #include <hgraph/types/value/path.h>
 #include <hgraph/types/value/traversal.h>
 #include <hgraph/types/value/type_meta_bindings.h>
+#include <hgraph/types/value/tracked_set_storage.h>
+#include <hgraph/types/value/tracked_set_view.h>
+#include <hgraph/types/value/set_delta_value.h>
 #include <hgraph/python/chrono.h>
 
 #include <nanobind/stl/string.h>
@@ -900,6 +903,93 @@ static void register_set_views(nb::module_& m) {
 }
 
 // ============================================================================
+// TrackedSetStorage Binding
+// ============================================================================
+
+static void register_tracked_set(nb::module_& m) {
+    // TrackedSetStorage - owning storage with delta tracking
+    nb::class_<TrackedSetStorage>(m, "TrackedSetStorage",
+        "Storage for sets with delta tracking (added/removed elements)")
+        .def(nb::init<const TypeMeta*>(), "element_type"_a,
+            "Create TrackedSetStorage with element type")
+        .def("size", &TrackedSetStorage::size, "Get current set size")
+        .def("empty", &TrackedSetStorage::empty, "Check if empty")
+        .def("has_delta", &TrackedSetStorage::has_delta, "Check if there are pending changes")
+        .def("__len__", &TrackedSetStorage::size)
+        .def("value", static_cast<ConstSetView (TrackedSetStorage::*)() const>(&TrackedSetStorage::value),
+            "Get const view of current set")
+        .def("added", &TrackedSetStorage::added, "Get const view of added elements")
+        .def("removed", &TrackedSetStorage::removed, "Get const view of removed elements")
+        .def("contains", static_cast<bool (TrackedSetStorage::*)(const ConstValueView&) const>(
+            &TrackedSetStorage::contains), "elem"_a, "Check if element is in set")
+        .def("__contains__", static_cast<bool (TrackedSetStorage::*)(const ConstValueView&) const>(
+            &TrackedSetStorage::contains), "elem"_a)
+        .def("was_added", static_cast<bool (TrackedSetStorage::*)(const ConstValueView&) const>(
+            &TrackedSetStorage::was_added), "elem"_a, "Check if element was added this cycle")
+        .def("was_removed", static_cast<bool (TrackedSetStorage::*)(const ConstValueView&) const>(
+            &TrackedSetStorage::was_removed), "elem"_a, "Check if element was removed this cycle")
+        .def("add", static_cast<bool (TrackedSetStorage::*)(const ConstValueView&)>(
+            &TrackedSetStorage::add), "elem"_a, "Add element with delta tracking")
+        .def("remove", static_cast<bool (TrackedSetStorage::*)(const ConstValueView&)>(
+            &TrackedSetStorage::remove), "elem"_a, "Remove element with delta tracking")
+        .def("clear_deltas", &TrackedSetStorage::clear_deltas, "Clear delta tracking")
+        .def("clear", &TrackedSetStorage::clear, "Clear all elements");
+
+    // ConstTrackedSetView - read-only view
+    nb::class_<ConstTrackedSetView>(m, "ConstTrackedSetView",
+        "Const view for TrackedSetStorage")
+        .def(nb::init<const TrackedSetStorage*>(), "storage"_a)
+        .def("size", &ConstTrackedSetView::size, "Get set size")
+        .def("empty", &ConstTrackedSetView::empty, "Check if empty")
+        .def("has_delta", &ConstTrackedSetView::has_delta, "Check for pending changes")
+        .def("__len__", &ConstTrackedSetView::size)
+        .def("value", &ConstTrackedSetView::value, "Get const view of current set")
+        .def("added", &ConstTrackedSetView::added, "Get const view of added elements")
+        .def("removed", &ConstTrackedSetView::removed, "Get const view of removed elements")
+        .def("contains", static_cast<bool (ConstTrackedSetView::*)(const ConstValueView&) const>(
+            &ConstTrackedSetView::contains), "elem"_a)
+        .def("__contains__", static_cast<bool (ConstTrackedSetView::*)(const ConstValueView&) const>(
+            &ConstTrackedSetView::contains), "elem"_a)
+        .def("was_added", &ConstTrackedSetView::was_added, "elem"_a)
+        .def("was_removed", &ConstTrackedSetView::was_removed, "elem"_a)
+        .def("element_type", &ConstTrackedSetView::element_type, nb::rv_policy::reference)
+        .def("__iter__", [](const ConstTrackedSetView& self) {
+            nb::list result;
+            for (auto elem : self) {
+                result.append(nb::cast(elem));
+            }
+            return nb::iter(result);
+        }, "Iterate over current set elements");
+
+    // TrackedSetView - mutable view
+    nb::class_<TrackedSetView, ConstTrackedSetView>(m, "TrackedSetView",
+        "Mutable view for TrackedSetStorage")
+        .def(nb::init<TrackedSetStorage*>(), "storage"_a)
+        .def("add", static_cast<bool (TrackedSetView::*)(const ConstValueView&)>(
+            &TrackedSetView::add), "elem"_a, "Add element with delta tracking")
+        .def("remove", static_cast<bool (TrackedSetView::*)(const ConstValueView&)>(
+            &TrackedSetView::remove), "elem"_a, "Remove element with delta tracking")
+        .def("clear_deltas", &TrackedSetView::clear_deltas)
+        .def("clear", &TrackedSetView::clear);
+
+    // SetDeltaValue - snapshot of delta changes
+    nb::class_<SetDeltaValue>(m, "SetDeltaValue",
+        "Value class representing set delta changes")
+        .def(nb::init<const TypeMeta*>(), "element_type"_a,
+            "Create empty delta with element type")
+        .def(nb::init<ConstSetView, ConstSetView, const TypeMeta*>(),
+            "added"_a, "removed"_a, "element_type"_a,
+            "Create delta from added/removed sets")
+        .def("added", &SetDeltaValue::added, "Get const view of added elements")
+        .def("removed", &SetDeltaValue::removed, "Get const view of removed elements")
+        .def("empty", &SetDeltaValue::empty, "Check if delta is empty")
+        .def("added_count", &SetDeltaValue::added_count, "Get number of added elements")
+        .def("removed_count", &SetDeltaValue::removed_count, "Get number of removed elements")
+        .def("element_type", &SetDeltaValue::element_type, nb::rv_policy::reference)
+        .def("to_python", &SetDeltaValue::to_python, "Convert to Python dict with added/removed");
+}
+
+// ============================================================================
 // ConstKeySetView Binding - Set View Over Map Keys
 // ============================================================================
 
@@ -1761,6 +1851,7 @@ void value_register_with_nanobind(nb::module_& m) {
     register_bundle_views(value_mod);
     register_list_views(value_mod);
     register_set_views(value_mod);
+    register_tracked_set(value_mod);  // TrackedSetStorage and related views
     register_const_key_set_view(value_mod);  // Before map_views - ConstKeySetView returned by map.keys()
     register_map_views(value_mod);
     register_cyclic_buffer_views(value_mod);
@@ -1786,6 +1877,11 @@ void value_register_with_nanobind(nb::module_& m) {
     m.attr("ValueView") = value_mod.attr("ValueView");
     m.attr("TypeRegistry") = value_mod.attr("TypeRegistry");
     m.attr("TypeMeta") = value_mod.attr("TypeMeta");
+    // TrackedSet types for TSS
+    m.attr("TrackedSetStorage") = value_mod.attr("TrackedSetStorage");
+    m.attr("TrackedSetView") = value_mod.attr("TrackedSetView");
+    m.attr("ConstTrackedSetView") = value_mod.attr("ConstTrackedSetView");
+    m.attr("SetDeltaValue") = value_mod.attr("SetDeltaValue");
 }
 
 } // namespace hgraph
