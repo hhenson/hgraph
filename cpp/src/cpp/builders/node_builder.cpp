@@ -63,26 +63,40 @@ namespace hgraph {
         dispose_component(*item);
     }
 
+    size_t NodeBuilder::node_type_size() const {
+        // Default implementation returns sizeof(Node)
+        // Concrete builders should override this to return the size of their specific node type
+        return sizeof(Node);
+    }
+
+    size_t NodeBuilder::node_type_alignment() const {
+        // Default implementation returns alignof(Node)
+        // Concrete builders should override this to return the alignment of their specific node type
+        return alignof(Node);
+    }
+
+    size_t NodeBuilder::type_alignment() const {
+        return node_type_alignment();
+    }
+
     size_t NodeBuilder::memory_size() const {
-        // Base size for Node - concrete node builders should override if they create different node types
-        // Add canary size to the base Node object
-        size_t total = add_canary_size(sizeof(Node));
-        // Align and add each time-series builder's size
+        // Use node_type_size() to get the correct size for the concrete node type
+        size_t total = add_canary_size(node_type_size());
+        // Align and add each time-series builder's size using the builder's actual type alignment
         if (input_builder) {
-            // We don't know the exact type, so use TimeSeriesType alignment as a conservative estimate
-            total = align_size(total, alignof(TimeSeriesType));
+            total = align_size(total, (*input_builder)->type_alignment());
             total += (*input_builder)->memory_size();
         }
         if (output_builder) {
-            total = align_size(total, alignof(TimeSeriesType));
+            total = align_size(total, (*output_builder)->type_alignment());
             total += (*output_builder)->memory_size();
         }
         if (error_builder) {
-            total = align_size(total, alignof(TimeSeriesType));
+            total = align_size(total, (*error_builder)->type_alignment());
             total += (*error_builder)->memory_size();
         }
         if (recordable_state_builder) {
-            total = align_size(total, alignof(TimeSeriesType));
+            total = align_size(total, (*recordable_state_builder)->type_alignment());
             total += (*recordable_state_builder)->memory_size();
         }
         return total;

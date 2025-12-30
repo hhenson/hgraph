@@ -25,6 +25,8 @@ namespace hgraph {
 
         [[nodiscard]] size_t memory_size() const override;
 
+        [[nodiscard]] size_t type_alignment() const override;
+
         static void register_with_nanobind(nb::module_ &m);
 
     private:

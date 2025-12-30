@@ -7,6 +7,11 @@
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
+
+    size_t ContextNodeBuilder::node_type_size() const {
+        return sizeof(ContextStubSourceNode);
+    }
+
     node_s_ptr ContextNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
         auto node = arena_make_shared_as<ContextStubSourceNode, Node>(node_ndx, owning_graph_id, signature, scalars);
         _build_inputs_and_outputs(node.get());

@@ -21,6 +21,7 @@ namespace hgraph {
         time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -35,6 +36,7 @@ namespace hgraph {
         bool has_reference() const override { return true; }
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -49,6 +51,7 @@ namespace hgraph {
         bool has_reference() const override { return true; }
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -59,6 +62,7 @@ namespace hgraph {
         time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -69,6 +73,7 @@ namespace hgraph {
         time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -79,6 +84,7 @@ namespace hgraph {
         time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -93,6 +99,7 @@ namespace hgraph {
         time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -107,6 +114,7 @@ namespace hgraph {
         bool has_reference() const override { return true; }
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -121,6 +129,7 @@ namespace hgraph {
         bool has_reference() const override { return true; }
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -131,6 +140,7 @@ namespace hgraph {
         time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -141,6 +151,7 @@ namespace hgraph {
         time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 
@@ -151,6 +162,7 @@ namespace hgraph {
         time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
         bool has_reference() const override { return true; }
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
         static void register_with_nanobind(nb::module_ &m);
     };
 

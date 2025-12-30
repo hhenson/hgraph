@@ -33,6 +33,8 @@ namespace hgraph {
 
         node_s_ptr make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const override;
 
+        [[nodiscard]] size_t node_type_size() const override;
+
         const std::unordered_map<K, graph_builder_s_ptr> nested_graph_builders;
         const std::unordered_map<K, std::unordered_map<std::string, int> > input_node_ids;
         const std::unordered_map<K, int> output_node_ids;

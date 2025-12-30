@@ -19,6 +19,11 @@ namespace hgraph {
         return add_canary_size(sizeof(TimeSeriesValueInput<T>));
     }
 
+    template<typename T>
+    size_t TimeSeriesValueInputBuilder<T>::type_alignment() const {
+        return alignof(TimeSeriesValueInput<T>);
+    }
+
     void time_series_value_input_builder_register_with_nanobind(nb::module_ &m) {
         using InputBuilder_TS_Bool = TimeSeriesValueInputBuilder<bool>;
         using InputBuilder_TS_Int = TimeSeriesValueInputBuilder<int64_t>;
