@@ -1003,30 +1003,6 @@ public:
         return _schema->element_type;
     }
 
-    /**
-     * @brief Check if a Python object is in the set.
-     *
-     * Converts the Python object to the element type and checks containment.
-     */
-    [[nodiscard]] bool contains_py(const nb::object& obj) const {
-        assert(valid() && "contains_py() on invalid view");
-        // Create temp value and check
-        const TypeMeta* elem_type = _schema->element_type;
-        std::vector<char> temp_storage(elem_type->size);
-        void* temp = temp_storage.data();
-        if (elem_type->ops && elem_type->ops->construct) {
-            elem_type->ops->construct(temp, elem_type);
-        }
-        if (elem_type->ops && elem_type->ops->from_python) {
-            elem_type->ops->from_python(temp, obj, elem_type);
-        }
-        bool result = _schema->ops->contains(_data, temp, _schema);
-        if (elem_type->ops && elem_type->ops->destruct) {
-            elem_type->ops->destruct(temp, elem_type);
-        }
-        return result;
-    }
-
     // TODO(iteration): Add iteration support for ConstSetView.
     // Required additions:
     // 1. Add const_iterator class similar to ConstIndexedView::const_iterator
@@ -1112,84 +1088,6 @@ public:
      */
     [[nodiscard]] const TypeMeta* element_type() const {
         return _schema->element_type;
-    }
-
-    /**
-     * @brief Check if a Python object is in the set.
-     *
-     * Converts the Python object to the element type and checks containment.
-     */
-    [[nodiscard]] bool contains_py(const nb::object& obj) const {
-        assert(valid() && "contains_py() on invalid view");
-        // Create temp value and check
-        const TypeMeta* elem_type = _schema->element_type;
-        std::vector<char> temp_storage(elem_type->size);
-        void* temp = temp_storage.data();
-        if (elem_type->ops && elem_type->ops->construct) {
-            elem_type->ops->construct(temp, elem_type);
-        }
-        if (elem_type->ops && elem_type->ops->from_python) {
-            elem_type->ops->from_python(temp, obj, elem_type);
-        }
-        bool result = _schema->ops->contains(_data, temp, _schema);
-        if (elem_type->ops && elem_type->ops->destruct) {
-            elem_type->ops->destruct(temp, elem_type);
-        }
-        return result;
-    }
-
-    /**
-     * @brief Insert a Python object into the set.
-     *
-     * Converts the Python object to the element type and inserts it.
-     * @return true if the element was inserted (not already present)
-     */
-    bool insert_py(const nb::object& obj) {
-        assert(valid() && "insert_py() on invalid view");
-        if (contains_py(obj)) return false;
-
-        // Create temp value and insert
-        const TypeMeta* elem_type = _schema->element_type;
-        std::vector<char> temp_storage(elem_type->size);
-        void* temp = temp_storage.data();
-        if (elem_type->ops && elem_type->ops->construct) {
-            elem_type->ops->construct(temp, elem_type);
-        }
-        if (elem_type->ops && elem_type->ops->from_python) {
-            elem_type->ops->from_python(temp, obj, elem_type);
-        }
-        _schema->ops->insert(data(), temp, _schema);
-        if (elem_type->ops && elem_type->ops->destruct) {
-            elem_type->ops->destruct(temp, elem_type);
-        }
-        return true;
-    }
-
-    /**
-     * @brief Remove a Python object from the set.
-     *
-     * Converts the Python object to the element type and removes it.
-     * @return true if the element was removed (was present)
-     */
-    bool erase_py(const nb::object& obj) {
-        assert(valid() && "erase_py() on invalid view");
-        if (!contains_py(obj)) return false;
-
-        // Create temp value and erase
-        const TypeMeta* elem_type = _schema->element_type;
-        std::vector<char> temp_storage(elem_type->size);
-        void* temp = temp_storage.data();
-        if (elem_type->ops && elem_type->ops->construct) {
-            elem_type->ops->construct(temp, elem_type);
-        }
-        if (elem_type->ops && elem_type->ops->from_python) {
-            elem_type->ops->from_python(temp, obj, elem_type);
-        }
-        _schema->ops->erase(data(), temp, _schema);
-        if (elem_type->ops && elem_type->ops->destruct) {
-            elem_type->ops->destruct(temp, elem_type);
-        }
-        return true;
     }
 
     // Templated operations - implemented after Value
