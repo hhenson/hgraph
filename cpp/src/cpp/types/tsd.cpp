@@ -605,10 +605,11 @@ namespace hgraph
 
     template <typename T_Key>
     typename TimeSeriesDictInput_T<T_Key>::k_set_type TimeSeriesDictInput_T<T_Key>::added_keys() const {
-        // Build set from Value-based iteration on output's key_set
+        // Use INPUT's key_set.py_added() instead of OUTPUT's key_set (matching Python)
         k_set_type result;
-        for (auto elem : output_t().key_set().added_view()) {
-            result.insert(elem.template as<key_type>());
+        nb::object added = key_set().py_added();
+        for (auto py_key : nb::iter(added)) {
+            result.insert(nb::cast<key_type>(nb::cast<nb::object>(py_key)));
         }
         return result;
     }
@@ -617,8 +618,10 @@ namespace hgraph
     const typename TimeSeriesDictInput_T<T_Key>::map_type &TimeSeriesDictInput_T<T_Key>::added_items() const {
         // TODO: Try and ensure that we cache the result where possible
         _added_items_cache.clear();
-        for (auto elem : output_t().key_set().added_view()) {
-            key_type k = elem.template as<key_type>();
+        // Use INPUT's key_set.py_added() instead of OUTPUT's key_set (matching Python)
+        nb::object added = key_set().py_added();
+        for (auto py_key : nb::iter(added)) {
+            key_type k = nb::cast<key_type>(nb::cast<nb::object>(py_key));
             // Check if key exists in _ts_values before accessing
             // During cleanup, keys might be in added set but not in _ts_values
             auto it = _ts_values.find(k);
@@ -632,19 +635,23 @@ namespace hgraph
     }
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_added() const {
-        return !output_t().key_set().added_view().empty();
+        // Use INPUT's key_set (matching Python)
+        nb::object added = key_set().py_added();
+        return nb::len(added) > 0;
     }
 
     template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::was_added(const key_type &key) const {
-        value::Value<> key_val(key);
-        return output_t().key_set().was_added(key_val.const_view());
+        // Use INPUT's key_set (matching Python)
+        return key_set().py_was_added(nb::cast(key));
     }
 
     template <typename T_Key>
     const typename TimeSeriesDictInput_T<T_Key>::map_type &TimeSeriesDictInput_T<T_Key>::removed_items() const {
         _removed_item_cache.clear();
-        for (auto elem : output_t().key_set().removed_view()) {
-            key_type key = elem.template as<key_type>();
+        // Use INPUT's key_set.py_removed() instead of OUTPUT's key_set (matching Python)
+        nb::object removed = key_set().py_removed();
+        for (auto py_key : nb::iter(removed)) {
+            key_type key = nb::cast<key_type>(nb::cast<nb::object>(py_key));
             auto it{_removed_items.find(key)};
             if (it == _removed_items.end()) {
                 auto it = _ts_values.find(key); // transplanted items do not go to _removed_items, they stay in _ts_values as they do not belong to us

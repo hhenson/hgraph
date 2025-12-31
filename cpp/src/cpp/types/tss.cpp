@@ -148,16 +148,12 @@ namespace hgraph
     }
 
     nb::object TimeSeriesSetOutput::py_delta_value() const {
+        // Return PythonSetDelta for proper comparison in tests
+        auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
         if (!modified()) {
-            nb::dict result;
-            result["added"] = nb::frozenset();
-            result["removed"] = nb::frozenset();
-            return result;
+            return PythonSetDelta(nb::frozenset(), nb::frozenset());
         }
-        nb::dict result;
-        result["added"] = py_added();
-        result["removed"] = py_removed();
-        return result;
+        return PythonSetDelta(py_added(), py_removed());
     }
 
     void TimeSeriesSetOutput::py_set_value(const nb::object& value) {
@@ -166,10 +162,49 @@ namespace hgraph
             return;
         }
 
+        // Handle objects with .added and .removed attributes (like PythonSetDelta)
+        if (nb::hasattr(value, "added") && nb::hasattr(value, "removed")) {
+            bool was_invalid = !valid();
+            auto added_iter = value.attr("added");
+            auto removed_iter = value.attr("removed");
+
+            // Filter to match Python behavior:
+            // - Only remove elements that ARE in current value
+            // - Only add elements that are NOT in current value
+            nb::list to_remove;
+            for (auto item : nb::iter(removed_iter)) {
+                auto obj = nb::cast<nb::object>(item);
+                if (py_contains(obj)) {
+                    to_remove.append(obj);
+                }
+            }
+            nb::list to_add;
+            for (auto item : nb::iter(added_iter)) {
+                auto obj = nb::cast<nb::object>(item);
+                if (!py_contains(obj)) {
+                    to_add.append(obj);
+                }
+            }
+
+            for (auto item : to_remove) {
+                py_remove(nb::cast<nb::object>(item));
+            }
+            for (auto item : to_add) {
+                py_add(nb::cast<nb::object>(item));
+            }
+
+            // Handle empty set on first tick marking modified
+            if (was_invalid && !modified()) {
+                mark_modified();
+            }
+            return;
+        }
+
         // Handle dict with added/removed (delta format)
         if (nb::isinstance<nb::dict>(value)) {
             auto d = nb::cast<nb::dict>(value);
             if (d.contains("added") && d.contains("removed")) {
+                bool was_invalid = !valid();
                 auto added = d["added"];
                 auto removed = d["removed"];
                 for (auto item : nb::iter(removed)) {
@@ -178,12 +213,17 @@ namespace hgraph
                 for (auto item : nb::iter(added)) {
                     py_add(nb::cast<nb::object>(item));
                 }
+                // Handle empty set on first tick marking modified
+                if (was_invalid && !modified()) {
+                    mark_modified();
+                }
                 return;
             }
         }
 
         // Handle frozenset (replace entire set)
         if (nb::isinstance<nb::frozenset>(value)) {
+            bool was_invalid = !valid();
             auto fs = nb::cast<nb::frozenset>(value);
             // Build list of items to add and remove
             nb::list to_add;
@@ -210,10 +250,16 @@ namespace hgraph
             for (auto item : to_add) {
                 py_add(nb::cast<nb::object>(item));
             }
+
+            // Handle empty set on first tick marking modified
+            if (was_invalid && !modified()) {
+                mark_modified();
+            }
             return;
         }
 
         // Handle Removed wrapper and iterable
+        bool was_invalid = !valid();
         auto removed_class = get_removed();
         for (auto r : nb::iter(value)) {
             if (nb::isinstance(r, removed_class)) {
@@ -227,6 +273,11 @@ namespace hgraph
                     py_add(item);
                 }
             }
+        }
+
+        // Handle empty set on first tick marking modified
+        if (was_invalid && !modified()) {
+            mark_modified();
         }
     }
 
@@ -483,8 +534,7 @@ namespace hgraph
     }
 
     nb::object TimeSeriesSetInput::py_removed() const {
-        if (!has_output()) return nb::frozenset();
-
+        // Check prev_output FIRST (matching Python order)
         if (has_prev_output()) {
             // Calculate removed: items in prev state that aren't in current
             // prev state = (prev_values + prev_removed - prev_added)
@@ -502,9 +552,17 @@ namespace hgraph
                 }
             }
 
+            // Get current values (empty if no output)
+            nb::set current_values;
+            if (has_output()) {
+                for (auto elem : set_output().value_view()) {
+                    current_values.add(elem.to_python());
+                }
+            }
+
             nb::set result;
             for (auto item : prev_state) {
-                if (!set_output().py_contains(nb::cast<nb::object>(item))) {
+                if (!current_values.contains(item)) {
                     result.add(item);
                 }
             }
@@ -514,6 +572,7 @@ namespace hgraph
             return nb::frozenset(result);
         }
 
+        if (!has_output()) return nb::frozenset();
         if (sampled()) return nb::frozenset();
         return set_output().py_removed();
     }
@@ -523,10 +582,9 @@ namespace hgraph
     }
 
     nb::object TimeSeriesSetInput::py_delta_value() const {
-        nb::dict result;
-        result["added"] = py_added();
-        result["removed"] = py_removed();
-        return result;
+        // Return PythonSetDelta for proper comparison in tests
+        auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
+        return PythonSetDelta(py_added(), py_removed());
     }
 
     size_t TimeSeriesSetInput::size() const {

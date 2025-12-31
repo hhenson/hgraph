@@ -82,17 +82,19 @@ namespace hgraph
 
         auto &keys = dynamic_cast<TimeSeriesSetInput &>(*(*input())[KEYS_ARG]);
         if (keys.modified()) {
-            // Iterate added keys using Value API
-            for (auto elem : keys.set_output().added_view()) {
-                K k = elem.template as<K>();
+            // Use INPUT's py_added() which handles sampled() case (returns all values when first bound)
+            nb::object added = keys.py_added();
+            for (auto py_key : nb::iter(added)) {
+                K k = nb::cast<K>(nb::cast<nb::object>(py_key));
                 // There seems to be a case where a set can show a value as added even though it is not.
                 // This protects from accidentally creating duplicate graphs
                 if (active_graphs_.find(k) == active_graphs_.end()) { create_new_graph(k); }
                 // If key already exists, skip it (can happen during startup before reset_prev() is called)
             }
-            // Iterate removed keys using Value API
-            for (auto elem : keys.set_output().removed_view()) {
-                K k = elem.template as<K>();
+            // Use INPUT's py_removed() which handles sampled() case (returns empty when first bound)
+            nb::object removed = keys.py_removed();
+            for (auto py_key : nb::iter(removed)) {
+                K k = nb::cast<K>(nb::cast<nb::object>(py_key));
                 if (auto it = active_graphs_.find(k); it != active_graphs_.end()) {
                     remove_graph(k);
                     scheduled_keys_.erase(k);

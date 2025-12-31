@@ -405,17 +405,12 @@ if is_feature_enabled("use_cpp"):
 
 
         def _create_set_delta(added, removed, tp):
-            sd_tp = {
-                bool: _hgraph.SetDelta_bool,
-                int: _hgraph.SetDelta_int,
-                float: _hgraph.SetDelta_float,
-                date: _hgraph.SetDelta_date,
-                datetime: _hgraph.SetDelta_date_time,
-                timedelta: _hgraph.SetDelta_time_delta,
-            }.get(tp, None)
-            if sd_tp is None:
-                return _hgraph.SetDelta_object(added, removed, tp)
-            return sd_tp(added, removed)
+            # Use PythonSetDelta since C++ SetDelta templates are no longer available
+            from hgraph._impl._types._tss import PythonSetDelta
+            return PythonSetDelta[tp](
+                added=frozenset() if added is None else frozenset(added),
+                removed=frozenset() if removed is None else frozenset(removed)
+            )
 
 
         hgraph.set_set_delta_factory(_create_set_delta)
