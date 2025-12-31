@@ -9,6 +9,7 @@
 #include <hgraph/types/value/type_meta_bindings.h>
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/types/value/type_meta.h>
+#include <hgraph/types/value/composite_ops.h>
 #include <hgraph/util/date_time.h>
 #include <hgraph/python/chrono.h>
 
@@ -182,7 +183,159 @@ struct CompositeTypeKeyHash {
 // Cache for composite types
 std::unordered_map<CompositeTypeKey, const TypeMeta*, CompositeTypeKeyHash> g_composite_cache;
 
+// Registry mapping TypeMeta* to Python class for CompoundScalar reconstruction
+std::unordered_map<const TypeMeta*, nb::object> g_compound_scalar_registry;
+
 } // anonymous namespace
+
+// ============================================================================
+// CompoundScalar Operations (Bundle with Python class reconstruction)
+// ============================================================================
+
+/**
+ * @brief Get the Python class associated with a TypeMeta (for CompoundScalar).
+ *
+ * @param meta The TypeMeta to look up
+ * @return The Python class, or an invalid nb::object if not found
+ */
+nb::object get_compound_scalar_class(const TypeMeta* meta) {
+    auto it = g_compound_scalar_registry.find(meta);
+    if (it != g_compound_scalar_registry.end()) {
+        return it->second;
+    }
+    return nb::object();
+}
+
+/**
+ * @brief Register a Python class for a TypeMeta (for CompoundScalar).
+ *
+ * @param meta The TypeMeta to register
+ * @param py_class The Python class to associate
+ */
+void register_compound_scalar_class(const TypeMeta* meta, nb::object py_class) {
+    g_compound_scalar_registry[meta] = std::move(py_class);
+}
+
+/**
+ * @brief Operations for CompoundScalar types (Bundle with Python class reconstruction).
+ *
+ * This is like BundleOps but to_python() reconstructs the original Python
+ * CompoundScalar class instead of returning a dict. This preserves hashability
+ * when CompoundScalar is used as keys in TSD/TSS/mesh operations.
+ */
+struct CompoundScalarOps {
+    // Most operations delegate to BundleOps
+    static void construct(void* dst, const TypeMeta* schema) {
+        BundleOps::construct(dst, schema);
+    }
+
+    static void destruct(void* obj, const TypeMeta* schema) {
+        BundleOps::destruct(obj, schema);
+    }
+
+    static void copy_assign(void* dst, const void* src, const TypeMeta* schema) {
+        BundleOps::copy_assign(dst, src, schema);
+    }
+
+    static void move_assign(void* dst, void* src, const TypeMeta* schema) {
+        BundleOps::move_assign(dst, src, schema);
+    }
+
+    static bool equals(const void* a, const void* b, const TypeMeta* schema) {
+        return BundleOps::equals(a, b, schema);
+    }
+
+    static std::string to_string(const void* obj, const TypeMeta* schema) {
+        return BundleOps::to_string(obj, schema);
+    }
+
+    // ========== Python Interop - Reconstruct CompoundScalar ==========
+
+    static nb::object to_python(const void* obj, const TypeMeta* schema) {
+        // Check if we have a registered Python class for this type
+        nb::object py_class = get_compound_scalar_class(schema);
+        if (py_class.is_valid()) {
+            // Build kwargs dict from field values
+            nb::dict kwargs;
+            for (size_t i = 0; i < schema->field_count; ++i) {
+                const BundleFieldInfo& field = schema->fields[i];
+                const void* field_ptr = static_cast<const char*>(obj) + field.offset;
+                if (field.type && field.type->ops && field.type->ops->to_python && field.name) {
+                    kwargs[field.name] = field.type->ops->to_python(field_ptr, field.type);
+                }
+            }
+            // Construct the Python class with **kwargs
+            return py_class(**kwargs);
+        }
+        // Fallback to dict if no class registered
+        return BundleOps::to_python(obj, schema);
+    }
+
+    static void from_python(void* dst, const nb::object& src, const TypeMeta* schema) {
+        BundleOps::from_python(dst, src, schema);
+    }
+
+    // ========== Hashable Operations ==========
+
+    static size_t hash(const void* obj, const TypeMeta* schema) {
+        return BundleOps::hash(obj, schema);
+    }
+
+    // ========== Iterable Operations ==========
+
+    static size_t size(const void* obj, const TypeMeta* schema) {
+        return BundleOps::size(obj, schema);
+    }
+
+    // ========== Indexable Operations ==========
+
+    static const void* get_at(const void* obj, size_t index, const TypeMeta* schema) {
+        return BundleOps::get_at(obj, index, schema);
+    }
+
+    static void set_at(void* obj, size_t index, const void* value, const TypeMeta* schema) {
+        BundleOps::set_at(obj, index, value, schema);
+    }
+
+    // ========== Bundle-specific Operations ==========
+
+    static const void* get_field(const void* obj, const char* name, const TypeMeta* schema) {
+        return BundleOps::get_field(obj, name, schema);
+    }
+
+    static void set_field(void* obj, const char* name, const void* value, const TypeMeta* schema) {
+        BundleOps::set_field(obj, name, value, schema);
+    }
+
+    /// Get the operations vtable for CompoundScalar
+    static const TypeOps* ops() {
+        static const TypeOps compound_scalar_ops = {
+            &construct,
+            &destruct,
+            &copy_assign,
+            &move_assign,
+            &equals,
+            &to_string,
+            &to_python,
+            &from_python,
+            &hash,
+            nullptr,   // less_than (bundles not ordered)
+            &size,
+            &get_at,
+            &set_at,
+            &get_field,
+            &set_field,
+            nullptr,   // contains (not a set)
+            nullptr,   // insert (not a set)
+            nullptr,   // erase (not a set)
+            nullptr,   // map_get (not a map)
+            nullptr,   // map_set (not a map)
+            nullptr,   // resize (not resizable)
+            nullptr,   // clear (not clearable)
+        };
+        return &compound_scalar_ops;
+    }
+};
 
 // ============================================================================
 // Scalar Type Mapping
@@ -407,6 +560,105 @@ static const TypeMeta* get_bundle_type_meta(
     return result;
 }
 
+/**
+ * @brief Get the TypeMeta for a CompoundScalar type.
+ *
+ * This creates a Bundle-like TypeMeta but uses CompoundScalarOps which
+ * reconstructs the original Python class in to_python() instead of returning a dict.
+ * This preserves hashability when CompoundScalar is used as keys in TSD/TSS/mesh.
+ *
+ * @param fields Vector of (field_name, field_meta) pairs
+ * @param py_class The Python CompoundScalar class to reconstruct
+ * @param type_name Optional name for display/lookup (does not affect type identity)
+ * @return TypeMeta* for the CompoundScalar type
+ */
+static const TypeMeta* get_compound_scalar_type_meta(
+    std::vector<std::pair<std::string, const TypeMeta*>> fields,
+    nb::object py_class,
+    std::optional<std::string> type_name
+) {
+    // Validate all fields have valid TypeMeta
+    for (const auto& field : fields) {
+        if (!field.second) {
+            throw std::invalid_argument("All field types must not be null");
+        }
+    }
+
+    // Check cache - key is based on fields, not name
+    CompositeTypeKey cache_key{TypeKind::Bundle, nullptr, nullptr, fields};
+    auto it = g_composite_cache.find(cache_key);
+    if (it != g_composite_cache.end()) {
+        // Already exists - just ensure the py_class is registered
+        register_compound_scalar_class(it->second, py_class);
+        return it->second;
+    }
+
+    // Build new type manually (similar to BundleTypeBuilder but with CompoundScalarOps)
+    auto& registry = TypeRegistry::instance();
+    const size_t count = fields.size();
+
+    // Calculate total size and alignment
+    size_t total_size = 0;
+    size_t max_alignment = 1;
+
+    // Allocate field info array
+    auto field_info = std::make_unique<BundleFieldInfo[]>(count);
+
+    for (size_t i = 0; i < count; ++i) {
+        const char* name = fields[i].first.c_str();
+        const TypeMeta* type = fields[i].second;
+
+        // Align offset for this field
+        size_t alignment = type ? type->alignment : 1;
+        total_size = (total_size + alignment - 1) & ~(alignment - 1);
+
+        // Store the name in registry (to ensure stable pointer)
+        const char* stored_name = registry.store_name(name ? name : "");
+
+        // Store field info
+        field_info[i].name = stored_name;
+        field_info[i].index = i;
+        field_info[i].offset = total_size;
+        field_info[i].type = type;
+
+        // Update totals
+        total_size += type ? type->size : 0;
+        if (alignment > max_alignment) max_alignment = alignment;
+    }
+
+    // Align final size
+    total_size = (total_size + max_alignment - 1) & ~(max_alignment - 1);
+
+    // Store fields in registry and get pointer
+    BundleFieldInfo* fields_ptr = count > 0 ? registry.store_field_info(std::move(field_info)) : nullptr;
+
+    // Create TypeMeta with CompoundScalarOps
+    auto meta = std::make_unique<TypeMeta>();
+    meta->kind = TypeKind::Bundle;
+    meta->flags = TypeFlags::Hashable | TypeFlags::Equatable;  // CompoundScalar is hashable
+    meta->field_count = count;
+    meta->size = total_size;
+    meta->alignment = max_alignment;
+    meta->ops = CompoundScalarOps::ops();  // Use CompoundScalarOps for to_python reconstruction
+    meta->element_type = nullptr;
+    meta->key_type = nullptr;
+    meta->fields = fields_ptr;
+    meta->fixed_size = 0;
+
+    const TypeMeta* result = registry.register_composite(std::move(meta));
+
+    // Register the Python class for reconstruction
+    register_compound_scalar_class(result, py_class);
+
+    // Register as named bundle if name was provided
+    if (type_name.has_value() && !type_name.value().empty()) {
+        registry.register_named_bundle(type_name.value(), result);
+    }
+
+    g_composite_cache[cache_key] = result;
+    return result;
+}
+
 // ============================================================================
 // Python Bindings Registration
 // ============================================================================
@@ -466,6 +718,19 @@ void register_type_meta_bindings(nb::module_& m) {
         "Two bundles with identical fields in the same order return the same TypeMeta*.\n\n"
         "Args:\n"
         "    fields: List of (field_name, field_meta) tuples\n"
+        "    type_name: Optional name for display/lookup (does not affect type identity)");
+
+    // get_compound_scalar_type_meta(fields, py_class, type_name) - Creates CompoundScalar TypeMeta*
+    m.def("get_compound_scalar_type_meta", &get_compound_scalar_type_meta,
+        "fields"_a, "py_class"_a, "type_name"_a = nb::none(),
+        nb::rv_policy::reference,
+        "Get the TypeMeta for a CompoundScalar type.\n\n"
+        "This creates a Bundle-like TypeMeta but uses CompoundScalarOps which\n"
+        "reconstructs the original Python class in to_python() instead of returning a dict.\n"
+        "This preserves hashability when CompoundScalar is used as keys in TSD/TSS/mesh.\n\n"
+        "Args:\n"
+        "    fields: List of (field_name, field_meta) tuples\n"
+        "    py_class: The Python CompoundScalar class to reconstruct in to_python()\n"
         "    type_name: Optional name for display/lookup (does not affect type identity)");
 }
 

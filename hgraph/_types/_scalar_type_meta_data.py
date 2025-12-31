@@ -1155,15 +1155,31 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
     def cpp_type(self):
         """Get the C++ TypeMeta for this compound scalar type.
 
-        Returns None to preserve Python objects as nb::object.
-        BundleOps.to_python() returns a dict which is unhashable, causing issues
-        when CompoundScalar is used as a key in TSD/TSS/mesh operations.
-        By returning None, the Python object is preserved as-is through nb::object.
+        Returns a Bundle TypeMeta with CompoundScalarOps that reconstructs the
+        Python class in to_python() instead of returning a dict. This preserves
+        hashability when CompoundScalar is used as keys in TSD/TSS/mesh operations.
         """
-        # CompoundScalar types need to preserve their Python identity for hashing
-        # Using Bundle TypeMeta would convert them to dicts via to_python(), breaking
-        # hash operations in mesh, TSD, and TSS.
-        return None
+        if not self.is_resolved:
+            raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            # Build the fields list with (name, type_meta) pairs
+            fields = []
+            schema = self.meta_data_schema
+            for field_name, field_type_meta in schema.items():
+                field_cpp = field_type_meta.cpp_type
+                if field_cpp is None:
+                    return None  # Fall back to nb::object if any field type is not supported
+                fields.append((field_name, field_cpp))
+            # Create CompoundScalar TypeMeta with Python class for reconstruction
+            return _hgraph.value.get_compound_scalar_type_meta(
+                fields, self.py_type, self.py_type.__name__
+            )
+        except (ImportError, AttributeError):
+            return None
 
     def __eq__(self, o: object) -> bool:
         if SchemaRecurseContext.is_in_context(self.py_type):
