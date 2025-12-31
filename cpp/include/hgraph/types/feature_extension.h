@@ -46,6 +46,98 @@ namespace std {
     };
 } // namespace std
 
+namespace hgraph::value {
+
+    /**
+     * @brief ScalarOps specialization for FeatureOutputRequestTracker.
+     *
+     * FeatureOutputRequestTracker contains non-trivially-copyable members
+     * (shared_ptr and unordered_set), so we need custom ops that properly
+     * call constructors, destructors, and copy/move operations.
+     */
+    template<>
+    struct ScalarOps<hgraph::FeatureOutputRequestTracker> {
+        using Tracker = hgraph::FeatureOutputRequestTracker;
+
+        static void construct(void* dst, const TypeMeta*) {
+            new (dst) Tracker{};
+        }
+
+        static void destruct(void* obj, const TypeMeta*) {
+            static_cast<Tracker*>(obj)->~Tracker();
+        }
+
+        static void copy_assign(void* dst, const void* src, const TypeMeta*) {
+            *static_cast<Tracker*>(dst) = *static_cast<const Tracker*>(src);
+        }
+
+        static void move_assign(void* dst, void* src, const TypeMeta*) {
+            *static_cast<Tracker*>(dst) = std::move(*static_cast<Tracker*>(src));
+        }
+
+        static bool equals(const void* a, const void* b, const TypeMeta*) {
+            return *static_cast<const Tracker*>(a) == *static_cast<const Tracker*>(b);
+        }
+
+        static size_t hash(const void* obj, const TypeMeta*) {
+            return std::hash<Tracker>{}(*static_cast<const Tracker*>(obj));
+        }
+
+        static bool less_than(const void* a, const void* b, const TypeMeta*) {
+            return *static_cast<const Tracker*>(a) < *static_cast<const Tracker*>(b);
+        }
+
+        static std::string to_string(const void* obj, const TypeMeta*) {
+            const auto& tracker = *static_cast<const Tracker*>(obj);
+            return std::format("FeatureOutputRequestTracker(output={}, requesters={})",
+                static_cast<void*>(tracker.output.get()), tracker.requesters.size());
+        }
+
+        static nb::object to_python(const void* /*obj*/, const TypeMeta*) {
+            // FeatureOutputRequestTracker is internal, no Python conversion needed
+            return nb::none();
+        }
+
+        static void from_python(void* /*dst*/, const nb::object& /*src*/, const TypeMeta*) {
+            throw std::runtime_error("Cannot construct FeatureOutputRequestTracker from Python");
+        }
+
+        static constexpr TypeOps make_ops() {
+            return TypeOps{
+                &construct,
+                &destruct,
+                &copy_assign,
+                &move_assign,
+                &equals,
+                &to_string,
+                &to_python,
+                &from_python,
+                &hash,
+                &less_than,
+                nullptr,  // size
+                nullptr,  // get_at
+                nullptr,  // set_at
+                nullptr,  // get_field
+                nullptr,  // set_field
+                nullptr,  // contains
+                nullptr,  // insert
+                nullptr,  // erase
+                nullptr,  // map_get
+                nullptr,  // map_set
+                nullptr,  // resize
+                nullptr,  // clear
+            };
+        }
+    };
+
+    // FeatureOutputRequestTracker is not trivially copyable
+    template<>
+    constexpr TypeFlags compute_scalar_flags<hgraph::FeatureOutputRequestTracker>() {
+        return TypeFlags::Hashable | TypeFlags::Equatable | TypeFlags::Comparable;
+    }
+
+} // namespace hgraph::value
+
 namespace hgraph {
 
     // ========== Value-based FeatureOutputExtension ==========

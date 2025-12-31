@@ -405,6 +405,19 @@ public:
         : _registry(registry), _element_type(element_type), _fixed_size(fixed_size) {}
 
     /**
+     * @brief Mark this list as a variadic tuple (tuple[T, ...]).
+     *
+     * When set, to_python will return a Python tuple instead of a list,
+     * making the type hashable.
+     *
+     * @return Reference to this builder for chaining
+     */
+    ListTypeBuilder& as_variadic_tuple() {
+        _is_variadic_tuple = true;
+        return *this;
+    }
+
+    /**
      * @brief Build and register the list type.
      * @return Pointer to the registered TypeMeta
      */
@@ -414,6 +427,7 @@ private:
     TypeRegistry& _registry;
     const TypeMeta* _element_type;
     size_t _fixed_size;
+    bool _is_variadic_tuple{false};
 };
 
 /**

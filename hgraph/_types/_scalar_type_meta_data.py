@@ -882,7 +882,7 @@ class HgTupleFixedScalarType(HgTupleScalarType):
     def cpp_type(self):
         """Get the C++ TypeMeta for this fixed tuple type.
 
-        Uses synthetic field names $0, $1, etc. for the tuple elements.
+        Uses TupleOps which returns a hashable Python tuple from to_python().
         """
         if not self.is_resolved:
             raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
@@ -891,13 +891,13 @@ class HgTupleFixedScalarType(HgTupleScalarType):
             return None
         try:
             import hgraph._hgraph as _hgraph
-            fields = []
-            for i, elem_type in enumerate(self.element_types):
+            element_types = []
+            for elem_type in self.element_types:
                 elem_cpp = elem_type.cpp_type
                 if elem_cpp is None:
                     return None
-                fields.append((f"${i}", elem_cpp))
-            return _hgraph.value.get_bundle_type_meta(fields, None)
+                element_types.append(elem_cpp)
+            return _hgraph.value.get_tuple_type_meta(element_types)
         except (ImportError, AttributeError):
             return None
 
@@ -1155,29 +1155,15 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
     def cpp_type(self):
         """Get the C++ TypeMeta for this compound scalar type.
 
-        Uses the field names and types from meta_data_schema to create a Bundle TypeMeta.
-        The type_name is the Python class name.
+        Returns None to preserve Python objects as nb::object.
+        BundleOps.to_python() returns a dict which is unhashable, causing issues
+        when CompoundScalar is used as a key in TSD/TSS/mesh operations.
+        By returning None, the Python object is preserved as-is through nb::object.
         """
-        if not self.is_resolved:
-            raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
-        # Check for recursive types - if we're already computing cpp_type for this type, return None
-        if SchemaRecurseContext.is_in_context(self.py_type):
-            return None
-        from hgraph._feature_switch import is_feature_enabled
-        if not is_feature_enabled("use_cpp"):
-            return None
-        try:
-            import hgraph._hgraph as _hgraph
-            with SchemaRecurseContext(self.py_type):
-                fields = []
-                for field_name, field_meta in self.meta_data_schema.items():
-                    field_cpp = field_meta.cpp_type
-                    if field_cpp is None:
-                        return None
-                    fields.append((field_name, field_cpp))
-                return _hgraph.value.get_bundle_type_meta(fields, self.py_type.__name__)
-        except (ImportError, AttributeError):
-            return None
+        # CompoundScalar types need to preserve their Python identity for hashing
+        # Using Bundle TypeMeta would convert them to dicts via to_python(), breaking
+        # hash operations in mesh, TSD, and TSS.
+        return None
 
     def __eq__(self, o: object) -> bool:
         if SchemaRecurseContext.is_in_context(self.py_type):

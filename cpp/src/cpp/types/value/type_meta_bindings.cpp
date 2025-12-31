@@ -314,15 +314,58 @@ static const TypeMeta* get_dynamic_list_type_meta(const TypeMeta* element_meta) 
         return it->second;
     }
 
-    // Build new type
+    // Build new type - mark as variadic tuple since this is tuple[T, ...]
     auto& registry = TypeRegistry::instance();
-    const TypeMeta* result = registry.list(element_meta).build();
+    const TypeMeta* result = registry.list(element_meta).as_variadic_tuple().build();
     g_composite_cache[cache_key] = result;
     return result;
 }
 
 /**
- * @brief Get the TypeMeta for a bundle type (CompoundScalar or fixed tuple).
+ * @brief Get the TypeMeta for a fixed tuple type (Tuple[T1, T2, ...]).
+ *
+ * Tuples are indexed by position, not by name. Uses TupleOps which returns
+ * a Python tuple (hashable) from to_python(), not a dict.
+ *
+ * @param element_types Vector of element type TypeMeta pointers
+ * @return TypeMeta* for the tuple type
+ */
+static const TypeMeta* get_tuple_type_meta(
+    std::vector<const TypeMeta*> element_types
+) {
+    // Validate all elements have valid TypeMeta
+    for (const auto* elem : element_types) {
+        if (!elem) {
+            throw std::invalid_argument("All element types must not be null");
+        }
+    }
+
+    // Check cache - create cache key with synthetic field names
+    std::vector<std::pair<std::string, const TypeMeta*>> fields;
+    for (size_t i = 0; i < element_types.size(); ++i) {
+        fields.emplace_back("$" + std::to_string(i), element_types[i]);
+    }
+    CompositeTypeKey cache_key{TypeKind::Tuple, nullptr, nullptr, fields};
+    auto it = g_composite_cache.find(cache_key);
+    if (it != g_composite_cache.end()) {
+        return it->second;
+    }
+
+    // Build new type using TupleTypeBuilder
+    auto& registry = TypeRegistry::instance();
+    TupleTypeBuilder builder = registry.tuple();
+
+    for (const auto* elem : element_types) {
+        builder.element(elem);
+    }
+
+    const TypeMeta* result = builder.build();
+    g_composite_cache[cache_key] = result;
+    return result;
+}
+
+/**
+ * @brief Get the TypeMeta for a bundle type (CompoundScalar).
  *
  * Bundle type equivalence is based on field names + types + order (not bundle name).
  * Two bundles with identical fields in the same order return the same TypeMeta*.
@@ -404,11 +447,21 @@ void register_type_meta_bindings(nb::module_& m) {
         nb::rv_policy::reference,
         "Get the TypeMeta for a dynamic list type (tuple[T, ...]).");
 
+    // get_tuple_type_meta(element_types) - Creates Tuple TypeMeta* for Tuple[T1, T2, ...]
+    m.def("get_tuple_type_meta", &get_tuple_type_meta,
+        "element_types"_a,
+        nb::rv_policy::reference,
+        "Get the TypeMeta for a fixed tuple type (Tuple[T1, T2, ...]).\n\n"
+        "Tuples are indexed by position, not by name. Returns a TypeMeta using TupleOps\n"
+        "which converts to Python tuple (hashable) via to_python().\n\n"
+        "Args:\n"
+        "    element_types: List of element type TypeMeta pointers");
+
     // get_bundle_type_meta(fields, type_name) - Creates Bundle TypeMeta* for CompoundScalar
     m.def("get_bundle_type_meta", &get_bundle_type_meta,
         "fields"_a, "type_name"_a = nb::none(),
         nb::rv_policy::reference,
-        "Get the TypeMeta for a bundle type (CompoundScalar or fixed tuple).\n\n"
+        "Get the TypeMeta for a bundle type (CompoundScalar).\n\n"
         "Bundle type equivalence is based on field names + types + order (not bundle name).\n"
         "Two bundles with identical fields in the same order return the same TypeMeta*.\n\n"
         "Args:\n"

@@ -94,7 +94,7 @@ namespace hgraph
         if (!was_added) { _removed_items.emplace(key, item); }
         // Note: TSS key_set handles all added/removed tracking via key_set().remove()
         _remove_key_value(key, item);
-        _ref_ts_feature.update(key_view);
+        _ref_ts_feature.update(key);
         _modified_items.erase(key);
 
         // Schedule cleanup notification only once per evaluation cycle
@@ -141,10 +141,8 @@ namespace hgraph
           _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{this,
                           _ts_ref_builder,
-                          value::scalar_type_meta<T_Key>(),
-                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const value::ConstValueView &key) {
+                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const key_type &k) {
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
-                              auto  k = key.template as<key_type>();
                               auto  it = output_t._ts_values.find(k);
                               if (it != output_t._ts_values.end()) {
                                   auto r{TimeSeriesReference::make(it->second)};
@@ -168,10 +166,8 @@ namespace hgraph
           _ts_builder{std::move(ts_builder)}, _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{this,
                           _ts_ref_builder,
-                          value::scalar_type_meta<T_Key>(),
-                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const value::ConstValueView &key) {
+                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const key_type &k) {
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
-                              auto  k = key.template as<key_type>();
                               auto  it = output_t._ts_values.find(k);
                               if (it != output_t._ts_values.end()) {
                                   auto r{TimeSeriesReference::make(it->second)};
@@ -259,8 +255,7 @@ namespace hgraph
         _clear_key_tracking();
         // Update feature outputs for removed keys
         for (const auto &[key, _] : _removed_items) {
-            value::Value<> key_val(key);
-            _ref_ts_feature.update(key_val.const_view());
+            _ref_ts_feature.update(key);
         }
         _modified_items.clear();
 
@@ -419,17 +414,11 @@ namespace hgraph
 
     template <typename T_Key>
     time_series_output_s_ptr& TimeSeriesDictOutput_T<T_Key>::get_ref(const nb::object &key, const void *requester) {
-        // Convert Python key to Value for the lookup
-        value::PlainValue key_val(value::scalar_type_meta<T_Key>());
-        key_val.from_python(key);
-        return _ref_ts_feature.create_or_increment(key_val.const_view(), requester);
+        return _ref_ts_feature.create_or_increment(nb::cast<key_type>(key), requester);
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::release_ref(const nb::object &key, const void *requester) {
-        // Convert Python key to Value for the lookup
-        value::PlainValue key_val(value::scalar_type_meta<T_Key>());
-        key_val.from_python(key);
-        _ref_ts_feature.release(key_val.const_view(), requester);
+        _ref_ts_feature.release(nb::cast<key_type>(key), requester);
     }
 
     template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_dispose() {
@@ -740,14 +729,17 @@ namespace hgraph
 
         if (!_ts_values.empty()) { register_clear_key_changes(); }
 
-        // Iterate Value-based views to get keys
-        for (auto elem : value_output->key_set().value_view()) {
+        // Iterate INPUT's key_set values and removed (not output's) to get keys - matches Python behavior
+        // The input's key_set was just bound to output's key_set above, so it now reflects
+        // the delta from the old output to the new output
+        for (auto elem : key_set().value_view()) {
             key_type key = elem.template as<key_type>();
             on_key_added(key);
         }
 
-        for (auto elem : value_output->key_set().removed_view()) {
-            key_type key = elem.template as<key_type>();
+        // Use py_removed() which properly handles _prev_output case (computes delta when rebinding)
+        for (auto py_key : nb::iter(key_set().py_removed())) {
+            key_type key = nb::cast<key_type>(nb::cast<nb::object>(py_key));
             on_key_removed(key);
         }
 
@@ -763,6 +755,7 @@ namespace hgraph
             for (const auto &[key, value] : _ts_values) { _removed_items.insert({key, {value, value->valid()}}); }
             _ts_values.clear();
             _clear_key_tracking();
+            _modified_items.clear();  // Clear stale modified items to ensure correct delta when rebinding
             register_clear_key_changes();
 
             removed_map_type to_keep{};
@@ -976,7 +969,7 @@ namespace hgraph
             _removed_items.erase(it);
         }
 
-        _ref_ts_feature.update(key_val.const_view());
+        _ref_ts_feature.update(key);
         for (auto &observer : _key_observers) { observer->on_key_added(key); }
 
         auto et{owning_graph()->evaluation_time()};

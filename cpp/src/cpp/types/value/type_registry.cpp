@@ -221,7 +221,7 @@ const TypeMeta* BundleTypeBuilder::build() {
 const TypeMeta* ListTypeBuilder::build() {
     auto meta = std::make_unique<TypeMeta>();
     meta->kind = TypeKind::List;
-    meta->flags = TypeFlags::None;
+    meta->flags = _is_variadic_tuple ? TypeFlags::VariadicTuple : TypeFlags::None;
     meta->field_count = 0;
 
     if (_fixed_size > 0) {

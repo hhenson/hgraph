@@ -64,6 +64,7 @@ enum class TypeFlags : uint32_t {
     Comparable             = 1 << 4,
     Equatable              = 1 << 5,
     BufferCompatible       = 1 << 6,  ///< numpy/Arrow compatible
+    VariadicTuple          = 1 << 7,  ///< List represents tuple[T, ...], to_python returns tuple
 };
 
 /// Bitwise OR for TypeFlags
@@ -275,6 +276,11 @@ struct TypeMeta {
     /// Check if this type is buffer compatible (numpy/Arrow)
     [[nodiscard]] constexpr bool is_buffer_compatible() const noexcept {
         return has(TypeFlags::BufferCompatible);
+    }
+
+    /// Check if this is a variadic tuple (tuple[T, ...])
+    [[nodiscard]] constexpr bool is_variadic_tuple() const noexcept {
+        return has(TypeFlags::VariadicTuple);
     }
 };
 

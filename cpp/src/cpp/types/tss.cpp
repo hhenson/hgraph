@@ -61,12 +61,14 @@ namespace hgraph
             if (_storage.size() == 1) {
                 is_empty_output()->py_set_value(nb::cast(false));
             }
+            _contains_ref_outputs.update(elem);
             mark_modified();
         }
     }
 
     void TimeSeriesSetOutput::remove(const value::ConstValueView& elem) {
         if (_storage.remove(elem)) {
+            _contains_ref_outputs.update(elem);
             if (_storage.empty()) {
                 is_empty_output()->py_set_value(nb::cast(true));
             }
@@ -437,8 +439,9 @@ namespace hgraph
         if (has_output()) {
             return set_output().value_view();
         }
-        static value::PlainValue empty_set;
-        return empty_set.const_view().as_set();
+        // Return an invalid view when no output is bound
+        // Callers should check valid() or handle empty iteration gracefully
+        return value::ConstSetView{};
     }
 
     bool TimeSeriesSetInput::contains(const value::ConstValueView& elem) const {

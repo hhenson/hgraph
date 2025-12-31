@@ -707,8 +707,11 @@ struct ListOps {
                 result.append(nb::none());
             }
         }
-        // Return as tuple for hashability (variadic tuples like tuple[T, ...] need to be hashable for sets)
-        return nb::tuple(result);
+        // Return as tuple if this is a variadic tuple (tuple[T, ...]), otherwise list
+        if (schema->is_variadic_tuple()) {
+            return nb::tuple(result);
+        }
+        return result;
     }
 
     static void from_python(void* dst, const nb::object& src, const TypeMeta* schema) {

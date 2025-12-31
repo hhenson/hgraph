@@ -27,6 +27,16 @@ namespace hgraph {
     template<>
     inline bool keys_equal<nb::object>(const nb::object &a, const nb::object &b) { return a.equal(b); }
 
+    // Helper to extract value from ConstValueView (special handling for nb::object)
+    template<typename K>
+    inline K value_as(const value::ConstValueView& v) {
+        if constexpr (std::is_same_v<K, nb::object>) {
+            return v.to_python();
+        } else {
+            return v.as<K>();
+        }
+    }
+
     template<typename K>
     ReduceNode<K>::ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                               nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
@@ -80,7 +90,7 @@ namespace hgraph {
             std::unordered_set<K> keys;
             auto &key_set_out = tsd->output_t().key_set();
             for (auto elem : key_set_out.value_view()) {
-                K key = elem.template as<K>();
+                K key = value_as<K>(elem);
                 value::Value<> key_val(key);
                 if (!key_set_out.was_added(key_val.const_view())) { keys.insert(key); }
             }
@@ -116,11 +126,11 @@ namespace hgraph {
         // Build sets from Value-based iteration
         std::unordered_set<K> removed_keys;
         for (auto elem : key_set_out.removed_view()) {
-            removed_keys.insert(elem.template as<K>());
+            removed_keys.insert(value_as<K>(elem));
         }
         std::unordered_set<K> added_keys;
         for (auto elem : key_set_out.added_view()) {
-            added_keys.insert(elem.template as<K>());
+            added_keys.insert(value_as<K>(elem));
         }
         remove_nodes(removed_keys);
         add_nodes(added_keys);

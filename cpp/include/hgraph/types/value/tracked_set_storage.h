@@ -195,14 +195,21 @@ struct TrackedSetStorage {
     }
 
     /**
-     * @brief Clear the entire set and all deltas.
+     * @brief Clear the entire set.
+     *
+     * Items that were added in the same cycle are NOT marked as removed
+     * (matches Python: self._removed = self._value - (self._added or set()))
      */
     void clear() {
-        // Track all current elements as removed
+        // Track elements as removed, but exclude items added this cycle
         auto val = value();
+        auto added_view = _added.view().as_set();
         auto removed_view = _removed.view().as_set();
         for (auto elem : val) {
-            removed_view.insert(elem);
+            // Only mark as removed if it wasn't added this cycle
+            if (!added_view.contains(elem)) {
+                removed_view.insert(elem);
+            }
         }
         // Clear value and added
         value().clear();

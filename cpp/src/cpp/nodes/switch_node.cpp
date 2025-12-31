@@ -21,6 +21,16 @@ namespace hgraph {
     template<>
     inline bool keys_equal<nb::object>(const nb::object &a, const nb::object &b) { return a.equal(b); }
 
+    // Helper to extract value from ConstValueView (special handling for nb::object)
+    template<typename K>
+    inline K value_as(const value::ConstValueView& v) {
+        if constexpr (std::is_same_v<K, nb::object>) {
+            return v.to_python();
+        } else {
+            return v.as<K>();
+        }
+    }
+
     // Helper to get DEFAULT object from Python
     static nb::object get_python_default() {
         static nb::object default_obj;
@@ -117,7 +127,7 @@ namespace hgraph {
         // Check if key has been modified
         if (key_ts->modified()) {
             // Extract the key value from the input time series (using Value system)
-            auto current_key = key_ts->value().as<K>();
+            auto current_key = value_as<K>(key_ts->value());
             if (reload_on_ticked_ || !active_key_.has_value() || !keys_equal(current_key, active_key_.value())) {
                 if (active_key_.has_value()) {
                     graph_reset_ = true;

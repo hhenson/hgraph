@@ -1053,10 +1053,12 @@ public:
     };
 
     [[nodiscard]] const_iterator begin() const {
+        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
         return const_iterator(_data, _schema, 0, size());
     }
 
     [[nodiscard]] const_iterator end() const {
+        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
         size_t sz = size();
         return const_iterator(_data, _schema, sz, sz);
     }
@@ -1153,10 +1155,12 @@ public:
     using const_iterator = ConstSetView::const_iterator;
 
     [[nodiscard]] const_iterator begin() const {
+        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
         return const_iterator(_data, _schema, 0, size());
     }
 
     [[nodiscard]] const_iterator end() const {
+        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
         size_t sz = size();
         return const_iterator(_data, _schema, sz, sz);
     }

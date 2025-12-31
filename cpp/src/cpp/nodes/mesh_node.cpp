@@ -17,6 +17,16 @@
 #include <hgraph/util/scope.h>
 
 namespace hgraph {
+    // Helper to extract value from ConstValueView (special handling for nb::object)
+    template<typename K>
+    inline K value_as(const value::ConstValueView& v) {
+        if constexpr (std::is_same_v<K, nb::object>) {
+            return v.to_python();
+        } else {
+            return v.as<K>();
+        }
+    }
+
     // MeshNestedEngineEvaluationClock implementation
     template<typename K>
     MeshNestedEngineEvaluationClock<K>::MeshNestedEngineEvaluationClock(
@@ -113,7 +123,7 @@ namespace hgraph {
         if (keys.modified()) {
             // Iterate added keys using Value API
             for (auto elem : keys.set_output().added_view()) {
-                K k = elem.template as<K>();
+                K k = value_as<K>(elem);
                 if (this->active_graphs_.find(k) == this->active_graphs_.end()) {
                     create_new_graph(k);
 
@@ -128,7 +138,7 @@ namespace hgraph {
             }
             // Iterate removed keys using Value API
             for (auto elem : keys.set_output().removed_view()) {
-                K k = elem.template as<K>();
+                K k = value_as<K>(elem);
                 // Only remove if no dependencies
                 if (active_graphs_dependencies_[k].empty()) {
                     scheduled_keys_by_rank_[active_graphs_rank_[k]].erase(k);

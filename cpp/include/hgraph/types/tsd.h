@@ -254,8 +254,8 @@ namespace hgraph
         output_builder_s_ptr _ts_builder;
         output_builder_s_ptr _ts_ref_builder;
 
-        // Value-based FeatureOutputExtension for ref outputs
-        FeatureOutputExtensionValue             _ref_ts_feature;
+        // Legacy templated FeatureOutputExtension for ref outputs (avoids MapStorage resize corruption)
+        FeatureOutputExtension<key_type>        _ref_ts_feature;
         std::vector<TSDKeyObserver<key_type> *> _key_observers;
         engine_time_t                           _last_cleanup_time{MIN_DT};
         static inline map_type                  _empty;
