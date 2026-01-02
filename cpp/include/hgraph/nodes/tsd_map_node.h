@@ -55,7 +55,7 @@ namespace hgraph
 
         void do_eval() override {};
 
-        virtual TimeSeriesDictOutput_T<K> &tsd_output();
+        virtual TimeSeriesDictOutputImpl &tsd_output();
 
         void create_new_graph(const K &key);
 

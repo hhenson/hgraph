@@ -61,8 +61,8 @@ namespace hgraph {
     }
 
     template<typename K>
-    typename TimeSeriesDictInput_T<K>::ptr ReduceNode<K>::ts() {
-        return dynamic_cast<TimeSeriesDictInput_T<K> *>((*input())[0].get());
+    TimeSeriesDictInputImpl::ptr ReduceNode<K>::ts() {
+        return dynamic_cast<TimeSeriesDictInputImpl *>((*input())[0].get());
     }
 
     template<typename K>
@@ -360,7 +360,8 @@ namespace hgraph {
         auto node = nodes[side];
 
         // Get the time series input from the TSD for this key
-        auto ts_ = (*ts())[key];
+        value::Value<> key_val(key);
+        auto ts_ = (*ts())[key_val.const_view()];
 
         // Check what's currently at this position before binding
         auto old_input = (*node->input())[0];

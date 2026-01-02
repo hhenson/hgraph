@@ -61,10 +61,9 @@ namespace
                   PyTimeSeriesBundleReferenceInput>;
 
     static constexpr auto input_v = ddv::serial{
-        // typed inputs
-        []<typename T>(TimeSeriesDictInput_T<T>*, ApiPtr<TimeSeriesInput> impl) {
-            using U = TimeSeriesDictInput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesDictInput_T<U>, U>(std::move(impl));
+        // Non-templated TSD input
+        [](TimeSeriesDictInputImpl*, ApiPtr<TimeSeriesInput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesDictInput, TimeSeriesDictInputImpl>(std::move(impl));
         },
         // Non-templated TSS input
         [](TimeSeriesSetInput*, ApiPtr<TimeSeriesInput> impl) {
@@ -111,10 +110,9 @@ namespace
                   PyTimeSeriesBundleReferenceOutput>;
 
     static constexpr auto output_v = ddv::serial{
-        // typed outputs
-        []<typename T>(TimeSeriesDictOutput_T<T>*, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesDictOutput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesDictOutput_T<U>, U>(std::move(impl));
+        // Non-templated TSD output
+        [](TimeSeriesDictOutputImpl*, ApiPtr<TimeSeriesOutput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesDictOutput, TimeSeriesDictOutputImpl>(std::move(impl));
         },
         // Non-templated TSS output
         [](TimeSeriesSetOutput*, ApiPtr<TimeSeriesOutput> impl) {

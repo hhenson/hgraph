@@ -18,13 +18,13 @@
 namespace hgraph
 {
 
-    template<typename T_Key> void TimeSeriesDictOutput_T<T_Key>::apply_result(const nb::object& value) {
+    void TimeSeriesDictOutputImpl::apply_result(const nb::object& value) {
         // Ensure any Python API interaction occurs under the GIL and protect against exceptions
         if (value.is_none()) { return; }
         py_set_value(value);
     }
 
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::can_apply_result(const nb::object& result) {
+    bool TimeSeriesDictOutputImpl::can_apply_result(const nb::object& result) {
         if (result.is_none()) { return true; }
         if (!nb::cast<bool>(nb::bool_(result))) { return true; }
 
@@ -38,52 +38,48 @@ namespace hgraph
             auto k  = pair[0];
             auto v_ = pair[1];
             if (v_.is_none()) { continue; }
-            auto k_ = nb::cast<T_Key>(k);
+            // Convert Python key to Value using TypeOps
+            value::Value<> key_val(_key_type);
+            _key_type->ops->from_python(key_val.data(), k, _key_type);
+            auto key_view = key_val.const_view();
             if (v_.is(remove) || v_.is(remove_if_exists)) {
-                if (v_.is(remove_if_exists) && !contains(k_)) { continue; }
-                if (was_modified(k_)) { return false; }
+                if (v_.is(remove_if_exists) && !contains(key_view)) { continue; }
+                if (was_modified(key_view)) { return false; }
             } else {
-                if (was_removed(k_)) { return false; }
-                if (contains(k_)) {
-                    if (!operator[](k_)->can_apply_result(nb::borrow(v_))) { return false; }
+                if (was_removed(key_view)) { return false; }
+                if (contains(key_view)) {
+                    if (!operator[](key_view)->can_apply_result(nb::borrow(v_))) { return false; }
                 }
             }
         }
         return true;
     }
 
-    template <typename T_Key>
-    void TimeSeriesDictOutput_T<T_Key>::mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) {
-        if (last_modified_time() < modified_time) { _modified_items.clear(); }
+    void TimeSeriesDictOutputImpl::mark_child_modified(TimeSeriesOutput &child, engine_time_t modified_time) {
+        if (last_modified_time() < modified_time) {
+            _modified_items.clear();
+        }
 
         if (&child != &key_set()) {
-            auto key{key_from_value(&child)};
+            auto key{key_from_ts(&child)};
             _key_updated(key);
         }
 
         BaseTimeSeriesOutput::mark_child_modified(child, modified_time);
     }
 
-    template <typename T_Key> const typename TimeSeriesDictOutput_T<T_Key>::map_type &TimeSeriesDictOutput_T<T_Key>::value() const {
-        return _ts_values;
-    }
-
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::remove_value(const key_type &key, bool raise_if_not_found) {
+    void TimeSeriesDictOutputImpl::remove_value(const value::ConstValueView &key, bool raise_if_not_found) {
         auto it{_ts_values.find(key)};
         if (it == _ts_values.end()) {
             if (raise_if_not_found) {
-                std::string key_str{to_string(key)};
-                std::string err_msg = "TSD[" + std::string(typeid(T_Key).name()) + "] Key '" + key_str + "' does not exist";
+                std::string err_msg = "TSD key does not exist";
                 throw nb::key_error(err_msg.c_str());
             }
             return;
         }
 
-        // Use Value API for TSS operations
-        value::Value<> key_val(key);
-        auto key_view = key_val.const_view();
-        bool was_added = key_set().was_added(key_view);
-        key_set().remove(key_view);
+        bool was_added_flag = key_set().was_added(key);
+        key_set().remove(key);
 
         for (auto &observer : _key_observers) { observer->on_key_removed(key); }
 
@@ -91,11 +87,17 @@ namespace hgraph
         _ts_values.erase(it);
         // Is this wise clearing the item if we are going to track the remove? What if we need the last known value?
         item->clear();
-        if (!was_added) { _removed_items.emplace(key, item); }
+        if (!was_added_flag) {
+            _removed_items.emplace(key.clone(), item);
+        }
         // Note: TSS key_set handles all added/removed tracking via key_set().remove()
         _remove_key_value(key, item);
+        // Update feature extension using Value-based key
         _ref_ts_feature.update(key);
-        _modified_items.erase(key);
+        // Erase from modified items using find-then-erase (transparent lookup + iterator erase)
+        if (auto mod_it = _modified_items.find(key); mod_it != _modified_items.end()) {
+            _modified_items.erase(mod_it);
+        }
 
         // Schedule cleanup notification only once per evaluation cycle
         auto et = owning_graph()->evaluation_time();
@@ -105,45 +107,48 @@ namespace hgraph
             auto weak_self = weak_from_this();
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
                 if (auto self = weak_self.lock()) {
-                    static_cast<TimeSeriesDictOutput_T *>(self.get())->_clear_key_changes();
+                    static_cast<TimeSeriesDictOutputImpl *>(self.get())->_clear_key_changes();
                 }
             });
         }
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_clear_key_tracking() { _ts_values_to_keys.clear(); }
+    void TimeSeriesDictOutputImpl::_clear_key_tracking() { _ts_values_to_keys.clear(); }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_add_key_value(const key_type &key, const value_type &value) {
-        // Need to cast away const and upcast to interface type for map key
-        _ts_values_to_keys.insert({const_cast<TimeSeriesOutput *>(static_cast<const TimeSeriesOutput *>(value.get())), key});
+    void TimeSeriesDictOutputImpl::_add_key_value(const value::ConstValueView &key, const value_type &value) {
+        // Store PlainValue key in reverse map
+        _ts_values_to_keys.emplace(const_cast<TimeSeriesOutput *>(static_cast<const TimeSeriesOutput *>(value.get())),
+                                   key.clone());
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_key_updated(const key_type &key) {
+    void TimeSeriesDictOutputImpl::_key_updated(const value::ConstValueView &key) {
         auto it{_ts_values.find(key)};
         if (it != _ts_values.end()) {
-            _modified_items[key] = it->second;  // Use operator[] instead of insert to ensure update
+            _modified_items.insert_or_assign(key.clone(), it->second);
         } else {
             // In the output we have noted that removed keys can still update, so we can't raise an exception here
         }
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_remove_key_value(const key_type &key, const value_type &value) {
-        // Need to cast away const and upcast to interface type for map key
+    void TimeSeriesDictOutputImpl::_remove_key_value(const value::ConstValueView &key, const value_type &value) {
+        // Remove from reverse map
         _ts_values_to_keys.erase(const_cast<TimeSeriesOutput *>(static_cast<const TimeSeriesOutput *>(value.get())));
     }
 
-    template <typename T_Key>
-    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(const node_ptr &parent, output_builder_s_ptr ts_builder,
-                                                          output_builder_s_ptr ts_ref_builder)
+    TimeSeriesDictOutputImpl::TimeSeriesDictOutputImpl(const node_ptr &parent, output_builder_s_ptr ts_builder,
+                                                          output_builder_s_ptr ts_ref_builder, const value::TypeMeta* key_type)
         : TimeSeriesDictOutput(parent),
-          _key_set{arena_make_shared_as<TimeSeriesSetOutput, TimeSeriesOutput>(this, value::scalar_type_meta<T_Key>())},
+          _key_type{key_type},
+          _key_set{arena_make_shared_as<TimeSeriesSetOutput, TimeSeriesOutput>(this, key_type)},
           _ts_builder{std::move(ts_builder)},
           _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{this,
                           _ts_ref_builder,
-                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const key_type &k) {
-                              auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
-                              auto  it = output_t._ts_values.find(k);
+                          key_type,
+                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const value::ConstValueView &key) {
+                              auto &output_t{dynamic_cast<const TimeSeriesDictOutputImpl &>(output)};
+                              // Use key directly for lookup
+                              auto it = output_t._ts_values.find(key);
                               if (it != output_t._ts_values.end()) {
                                   auto r{TimeSeriesReference::make(it->second)};
                                   auto r_val{nb::cast(r)};
@@ -158,17 +163,19 @@ namespace hgraph
                           {}} {
     }
 
-    template <typename T_Key>
-    TimeSeriesDictOutput_T<T_Key>::TimeSeriesDictOutput_T(time_series_output_ptr parent, output_builder_s_ptr ts_builder,
-                                                          output_builder_s_ptr ts_ref_builder)
+    TimeSeriesDictOutputImpl::TimeSeriesDictOutputImpl(time_series_output_ptr parent, output_builder_s_ptr ts_builder,
+                                                          output_builder_s_ptr ts_ref_builder, const value::TypeMeta* key_type)
         : TimeSeriesDictOutput(parent),
-          _key_set{arena_make_shared_as<TimeSeriesSetOutput, TimeSeriesOutput>(this, value::scalar_type_meta<T_Key>())},
+          _key_type{key_type},
+          _key_set{arena_make_shared_as<TimeSeriesSetOutput, TimeSeriesOutput>(this, key_type)},
           _ts_builder{std::move(ts_builder)}, _ts_ref_builder{std::move(ts_ref_builder)},
           _ref_ts_feature{this,
                           _ts_ref_builder,
-                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const key_type &k) {
-                              auto &output_t{dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output)};
-                              auto  it = output_t._ts_values.find(k);
+                          key_type,
+                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const value::ConstValueView &key) {
+                              auto &output_t{dynamic_cast<const TimeSeriesDictOutputImpl &>(output)};
+                              // Use key directly for lookup
+                              auto it = output_t._ts_values.find(key);
                               if (it != output_t._ts_values.end()) {
                                   auto r{TimeSeriesReference::make(it->second)};
                                   auto r_val{nb::cast(r)};
@@ -183,7 +190,7 @@ namespace hgraph
                           {}} {
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_value(const nb::object& value) {
+    void TimeSeriesDictOutputImpl::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
             return;
@@ -205,223 +212,240 @@ namespace hgraph
         // Operators (convert/collect/combine) are responsible for emitting REMOVE entries when needed.
         nb::iterator items = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
         for (const auto &kv : items) {
-            auto k_ = nb::cast<T_Key>(kv[0]);
+            // Convert Python key to Value using TypeOps
+            value::Value<> key_val(_key_type);
+            _key_type->ops->from_python(key_val.data(), kv[0], _key_type);
+            auto key_view = key_val.const_view();
             auto v  = kv[1];
             if (v.is_none()) { continue; }
             if (v.is(remove) || v.is(remove_if_exists)) {
-                if (contains(k_)) {
-                    erase(k_);
+                if (contains(key_view)) {
+                    erase(key_view);
                 } else {
                     // Python semantics: REMOVE on missing -> KeyError; REMOVE_IF_EXISTS on missing -> no-op
                     if (v.is(remove)) {
-                        std::string msg = "TSD key not found for REMOVE: " + to_string(k_);
+                        std::string msg = "TSD key not found for REMOVE";
                         throw nb::key_error(msg.c_str());
                     }  // else REMOVE_IF_EXISTS: do nothing
                 }
             } else {
-                get_or_create(k_)->py_set_value(v);
+                get_or_create(key_view)->py_set_value(v);
             }
         }
     }
 
-    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_value() const {
+    nb::object TimeSeriesDictOutputImpl::py_value() const {
         auto v{nb::dict()};
-        for (const auto &[key, value] : _ts_values) {
-            if (value->valid()) { v[nb::cast(key)] = value->py_value(); }
+        for (const auto &[pv_key, value] : _ts_values) {
+            if (value->valid()) {
+                // Convert key to Python using TypeOps
+                nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                v[py_key] = value->py_value();
+            }
         }
         // Return frozendict snapshot of all valid items (mirror Python `_tsd.py:value`)
         return get_frozendict()(v);
     }
 
-    template <typename T_Key> nb::object TimeSeriesDictOutput_T<T_Key>::py_delta_value() const {
+    nb::object TimeSeriesDictOutputImpl::py_delta_value() const {
         auto delta_value{nb::dict()};
-        for (const auto &[key, value] : _ts_values) {
-            if (value->modified() && value->valid()) { delta_value[nb::cast(key)] = value->py_delta_value(); }
+        for (const auto &[pv_key, value] : _ts_values) {
+            if (value->modified() && value->valid()) {
+                // Convert key to Python using TypeOps
+                nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                delta_value[py_key] = value->py_delta_value();
+            }
         }
         if (!_removed_items.empty()) {
             auto removed{get_remove()};
-            for (const auto &[key, _] : _removed_items) { delta_value[nb::cast(key)] = removed; }
+            for (const auto &[pv_key, _] : _removed_items) {
+                // Convert key to Python using TypeOps
+                nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                delta_value[py_key] = removed;
+            }
         }
         // Return frozendict of modified-valid entries plus removed keys (mirror Python `_tsd.py:delta_value`)
         return get_frozendict()(delta_value);
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::clear() {
+    void TimeSeriesDictOutputImpl::clear() {
         key_set().clear();
         for (auto &[_, value] : _ts_values) { value->clear(); }
 
         _removed_items.clear();
         std::swap(_removed_items, _ts_values);
         _clear_key_tracking();
-        // Update feature outputs for removed keys
-        for (const auto &[key, _] : _removed_items) {
-            _ref_ts_feature.update(key);
+        // Update feature outputs for removed keys using Value-based API
+        for (const auto &[pv_key, _] : _removed_items) {
+            _ref_ts_feature.update(pv_key.const_view());
         }
         _modified_items.clear();
 
         for (auto &observer : _key_observers) {
-            for (const auto &[key, _] : _removed_items) { observer->on_key_removed(key); }
+            for (const auto &[pv_key, _] : _removed_items) {
+                observer->on_key_removed(pv_key.const_view());
+            }
         }
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::invalidate() {
+    void TimeSeriesDictOutputImpl::invalidate() {
         for (auto &[_, value] : _ts_values) { value->invalidate(); }
         mark_invalid();
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::copy_from_output(const TimeSeriesOutput &output) {
-        auto &other = dynamic_cast<const TimeSeriesDictOutput_T<T_Key> &>(output);
+    void TimeSeriesDictOutputImpl::copy_from_output(const TimeSeriesOutput &output) {
+        auto &other = dynamic_cast<const TimeSeriesDictOutputImpl &>(output);
 
-        // Build sets of keys from Value-based iteration
-        std::vector<T_Key> to_remove;
+        // Build list of keys to remove
+        std::vector<value::PlainValue> to_remove;
         for (auto elem : key_set().value_view()) {
-            key_type key = elem.template as<key_type>();
             // Check if key is NOT in other's key set
-            value::Value<> key_val(key);
-            if (!other.key_set().contains(key_val.const_view())) {
-                to_remove.push_back(key);
+            if (!other.key_set().contains(elem)) {
+                to_remove.push_back(elem.clone());
             }
         }
-        for (const auto &k : to_remove) { erase(k); }
-        for (const auto &[k, v] : other._ts_values) { get_or_create(k)->copy_from_output(*v); }
+        for (const auto &k : to_remove) { erase(k.const_view()); }
+        for (const auto &[pv_key, v] : other._ts_values) {
+            get_or_create(pv_key.const_view())->copy_from_output(*v);
+        }
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::copy_from_input(const TimeSeriesInput &input) {
-        auto &dict_input = dynamic_cast<const TimeSeriesDictInput_T<T_Key> &>(input);
+    void TimeSeriesDictOutputImpl::copy_from_input(const TimeSeriesInput &input) {
+        auto &dict_input = dynamic_cast<const TimeSeriesDictInputImpl &>(input);
 
         // Remove keys that are in output but NOT in input (matching Python: self.key_set.value - input.key_set.value)
-        std::vector<T_Key> to_remove;
+        std::vector<value::PlainValue> to_remove;
         for (auto elem : key_set().value_view()) {
-            key_type key = elem.template as<key_type>();
             // Check if key is NOT in input's key set
-            value::Value<> key_val(key);
-            if (!dict_input.key_set().contains(key_val.const_view())) {
-                to_remove.push_back(key);
+            if (!dict_input.key_set().contains(elem)) {
+                to_remove.push_back(elem.clone());
             }
         }
-        for (const auto &k : to_remove) { erase(k); }
-        for (const auto &[k, v_input] : dict_input.value()) { get_or_create(k)->copy_from_input(*v_input); }
-    }
-
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::has_added() const { return !added_keys().empty(); }
-
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::has_removed() const { return !_removed_items.empty(); }
-
-    template <typename T_Key> size_t TimeSeriesDictOutput_T<T_Key>::size() const { return _ts_values.size(); }
-
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::contains(const key_type &item) const {
-        return _ts_values.find(item) != _ts_values.end();
-    }
-
-    template <typename T_Key>
-    typename TimeSeriesDictOutput_T<T_Key>::ts_type_s_ptr TimeSeriesDictOutput_T<T_Key>::operator[](const key_type &item) {
-        return get_or_create(item);
-    }
-
-    template <typename T_Key>
-    typename TimeSeriesDictOutput_T<T_Key>::ts_type_s_ptr TimeSeriesDictOutput_T<T_Key>::operator[](const key_type &item) const {
-        return _ts_values.at(item);
-    }
-
-    template <typename T_Key>
-    typename TimeSeriesDictOutput_T<T_Key>::const_item_iterator TimeSeriesDictOutput_T<T_Key>::begin() const {
-        return _ts_values.begin();
-    }
-
-    template <typename T_Key> typename TimeSeriesDictOutput_T<T_Key>::item_iterator TimeSeriesDictOutput_T<T_Key>::begin() {
-        return _ts_values.begin();
-    }
-
-    template <typename T_Key>
-    typename TimeSeriesDictOutput_T<T_Key>::const_item_iterator TimeSeriesDictOutput_T<T_Key>::end() const {
-        return _ts_values.end();
-    }
-
-    template <typename T_Key> typename TimeSeriesDictOutput_T<T_Key>::item_iterator TimeSeriesDictOutput_T<T_Key>::end() {
-        return _ts_values.end();
-    }
-
-    template <typename T_Key>
-    const typename TimeSeriesDictOutput_T<T_Key>::map_type &TimeSeriesDictOutput_T<T_Key>::modified_items() const {
-        return modified() ? _modified_items : _empty;
-    }
-
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::was_modified(const key_type &key) const {
-        return _modified_items.find(key) != _modified_items.end();
-    }
-
-    template <typename T_Key>
-    typename TimeSeriesDictOutput_T<T_Key>::k_set_type TimeSeriesDictOutput_T<T_Key>::added_keys() const {
-        // Build set from Value-based iteration on key_set().added_view()
-        k_set_type result;
-        for (auto elem : key_set().added_view()) {
-            result.insert(elem.template as<key_type>());
+        for (const auto &k : to_remove) { erase(k.const_view()); }
+        // Iterate PlainValue-keyed map
+        for (const auto &[pv_key, v_input] : dict_input.value()) {
+            get_or_create(pv_key.const_view())->copy_from_input(*v_input);
         }
-        return result;
     }
 
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::was_added(const key_type &key) const {
-        // Use Value API to check if key was added
-        value::Value<> key_val(key);
-        return key_set().was_added(key_val.const_view());
+    bool TimeSeriesDictOutputImpl::has_added() const { return !key_set().added_view().empty(); }
+
+    bool TimeSeriesDictOutputImpl::has_removed() const { return !_removed_items.empty(); }
+
+    size_t TimeSeriesDictOutputImpl::size() const { return _ts_values.size(); }
+
+    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::operator[](const value::ConstValueView &key) {
+        return get_or_create(key);
     }
 
-    template <typename T_Key>
-    const typename TimeSeriesDictOutput_T<T_Key>::map_type &TimeSeriesDictOutput_T<T_Key>::removed_items() const {
-        return _removed_items;
+    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::operator[](const value::ConstValueView &key) const {
+        auto it = _ts_values.find(key);
+        if (it == _ts_values.end()) {
+            throw std::out_of_range("Key not found in TimeSeriesDictOutput");
+        }
+        return it->second;
     }
 
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::was_removed(const key_type &key) const {
-        return _removed_items.find(key) != _removed_items.end();
+    TimeSeriesDictOutputImpl::const_item_iterator TimeSeriesDictOutputImpl::begin() const {
+        return _ts_values.begin();
     }
 
-    template <typename T_Key> TimeSeriesSetOutput &TimeSeriesDictOutput_T<T_Key>::key_set() { return *_key_set; }
+    TimeSeriesDictOutputImpl::item_iterator TimeSeriesDictOutputImpl::begin() {
+        return _ts_values.begin();
+    }
 
-    template <typename T_Key> const TimeSeriesSetOutput &TimeSeriesDictOutput_T<T_Key>::key_set() const { return *_key_set; }
+    TimeSeriesDictOutputImpl::const_item_iterator TimeSeriesDictOutputImpl::end() const {
+        return _ts_values.end();
+    }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_set_item(const nb::object &key, const nb::object &value) {
-        auto ts{operator[](nb::cast<T_Key>(key))};
+    TimeSeriesDictOutputImpl::item_iterator TimeSeriesDictOutputImpl::end() {
+        return _ts_values.end();
+    }
+
+    const TimeSeriesDictOutputImpl::map_type &TimeSeriesDictOutputImpl::valid_items() const {
+        // Rebuild cache each call to ensure freshness
+        _valid_items_cache.clear();
+        for (const auto &[pv_key, val] : _ts_values) {
+            if (val->valid()) {
+                _valid_items_cache.emplace(pv_key.const_view().clone(), val);
+            }
+        }
+        return _valid_items_cache;
+    }
+
+    const TimeSeriesDictOutputImpl::map_type &TimeSeriesDictOutputImpl::added_items() const {
+        // Return items that were added, fetched from the key_set's added view
+        static map_type added_cache;  // Static to persist across calls
+        added_cache.clear();
+        for (auto elem : key_set().added_view()) {
+            auto it = _ts_values.find(elem);
+            if (it != _ts_values.end()) {
+                added_cache.emplace(elem.clone(), it->second);
+            }
+        }
+        return added_cache;
+    }
+
+    TimeSeriesSetOutput &TimeSeriesDictOutputImpl::key_set() { return *_key_set; }
+
+    const TimeSeriesSetOutput &TimeSeriesDictOutputImpl::key_set() const { return *_key_set; }
+
+    void TimeSeriesDictOutputImpl::py_set_item(const nb::object &key, const nb::object &value) {
+        // Convert Python key to Value using TypeOps
+        value::Value<> key_val(_key_type);
+        _key_type->ops->from_python(key_val.data(), key, _key_type);
+        auto ts{operator[](key_val.const_view())};
         ts->apply_result(value);
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::py_del_item(const nb::object &key) {
-        erase(nb::cast<T_Key>(key));
+    void TimeSeriesDictOutputImpl::py_del_item(const nb::object &key) {
+        // Convert Python key to Value using TypeOps
+        value::Value<> key_val(_key_type);
+        _key_type->ops->from_python(key_val.data(), key, _key_type);
+        erase(key_val.const_view());
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::erase(const key_type &key) { remove_value(key, false); }
+    void TimeSeriesDictOutputImpl::erase(const value::ConstValueView &key) {
+        remove_value(key, false);
+    }
 
-    template <typename T_Key>
-    nb::object TimeSeriesDictOutput_T<T_Key>::py_pop(const nb::object &key, const nb::object &default_value) {
-        nb::object value{};
-        auto       k = nb::cast<T_Key>(key);
-        if (auto it = _ts_values.find(k); it != _ts_values.end()) {
-            value = it->second->py_value();
-            remove_value(k, false);
+    nb::object TimeSeriesDictOutputImpl::py_pop(const nb::object &key, const nb::object &default_value) {
+        nb::object result_value{};
+        // Convert Python key to Value using TypeOps
+        value::Value<> key_val(_key_type);
+        _key_type->ops->from_python(key_val.data(), key, _key_type);
+        auto key_view = key_val.const_view();
+        if (auto it = _ts_values.find(key_view); it != _ts_values.end()) {
+            result_value = it->second->py_value();
+            remove_value(key_view, false);
         }
-        if (!value.is_valid()) { value = default_value; }
-        return value;
+        if (!result_value.is_valid()) { result_value = default_value; }
+        return result_value;
     }
 
-    template <typename T_Key>
-    nb::object TimeSeriesDictOutput_T<T_Key>::py_get_ref(const nb::object &key, const nb::object &requester) {
+    nb::object TimeSeriesDictOutputImpl::py_get_ref(const nb::object &key, const nb::object &requester) {
         return wrap_time_series(get_ref(key, static_cast<const void *>(requester.ptr())));
     }
 
-    template <typename T_Key>
-    void TimeSeriesDictOutput_T<T_Key>::py_release_ref(const nb::object &key, const nb::object &requester) {
+    void TimeSeriesDictOutputImpl::py_release_ref(const nb::object &key, const nb::object &requester) {
         release_ref(key, static_cast<const void *>(requester.ptr()));
     }
 
-    template <typename T_Key>
-    time_series_output_s_ptr& TimeSeriesDictOutput_T<T_Key>::get_ref(const nb::object &key, const void *requester) {
-        return _ref_ts_feature.create_or_increment(nb::cast<key_type>(key), requester);
+    time_series_output_s_ptr& TimeSeriesDictOutputImpl::get_ref(const nb::object &key, const void *requester) {
+        // Convert Python key to Value using TypeOps
+        value::Value<> key_val(_key_type);
+        _key_type->ops->from_python(key_val.data(), key, _key_type);
+        return _ref_ts_feature.create_or_increment(key_val.const_view(), requester);
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::release_ref(const nb::object &key, const void *requester) {
-        _ref_ts_feature.release(nb::cast<key_type>(key), requester);
+    void TimeSeriesDictOutputImpl::release_ref(const nb::object &key, const void *requester) {
+        // Convert Python key to Value using TypeOps
+        value::Value<> key_val(_key_type);
+        _key_type->ops->from_python(key_val.data(), key, _key_type);
+        _ref_ts_feature.release(key_val.const_view(), requester);
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_dispose() {
+    void TimeSeriesDictOutputImpl::_dispose() {
         // Release all removed items first
         for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value.get()); }
         _removed_items.clear();
@@ -431,96 +455,105 @@ namespace hgraph
         _ts_values.clear();
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::_clear_key_changes() {
+    void TimeSeriesDictOutputImpl::_clear_key_changes() {
         // Release removed instances before clearing
         for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value.get()); }
         _removed_items.clear();
     }
 
-    template <typename T_Key>
-    typename TimeSeriesDictOutput_T<T_Key>::value_type TimeSeriesDictOutput_T<T_Key>::get_or_create(const key_type &key) {
-        if (_ts_values.find(key) == _ts_values.end()) { create(key); }
-        return _ts_values[key];
+    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::get_or_create(const value::ConstValueView &key) {
+        auto it = _ts_values.find(key);
+        if (it == _ts_values.end()) {
+            create(key);
+            it = _ts_values.find(key);
+        }
+        return it->second;
     }
 
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::has_reference() const { return _ts_builder->has_reference(); }
+    bool TimeSeriesDictOutputImpl::has_reference() const { return _ts_builder->has_reference(); }
 
-    template <typename T_Key>
-    const typename TimeSeriesDictOutput_T<T_Key>::key_type &
-    TimeSeriesDictOutput_T<T_Key>::key_from_value(TimeSeriesOutput *value) const {
-        auto it = _ts_values_to_keys.find(value);
-        if (it != _ts_values_to_keys.end()) { return it->second; }
+    value::ConstValueView TimeSeriesDictOutputImpl::key_from_ts(TimeSeriesOutput *ts) const {
+        auto it = _ts_values_to_keys.find(ts);
+        if (it != _ts_values_to_keys.end()) {
+            return it->second.const_view();
+        }
         throw std::out_of_range("Value not found in TimeSeriesDictOutput");
     }
 
-    template <typename T_Key>
-    const typename TimeSeriesDictOutput_T<T_Key>::key_type &
-    TimeSeriesDictOutput_T<T_Key>::key_from_value(const TimeSeriesDictOutput_T<T_Key>::value_type& value) const {
-        auto it = _ts_values_to_keys.find(const_cast<TimeSeriesOutput*>(value.get()));
-        if (it != _ts_values_to_keys.end()) { return it->second; }
+    value::ConstValueView TimeSeriesDictOutputImpl::key_from_ts(const TimeSeriesDictOutputImpl::value_type& ts) const {
+        auto it = _ts_values_to_keys.find(const_cast<TimeSeriesOutput*>(ts.get()));
+        if (it != _ts_values_to_keys.end()) {
+            return it->second.const_view();
+        }
         throw std::out_of_range("Value not found in TimeSeriesDictOutput");
     }
 
-    template <typename T_Key>
-    TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(const node_ptr &parent, input_builder_s_ptr ts_builder)
+    TimeSeriesDictInputImpl::TimeSeriesDictInputImpl(const node_ptr &parent, input_builder_s_ptr ts_builder, const value::TypeMeta* key_type)
         : TimeSeriesDictInput(parent),
+          _key_type{key_type},
           _key_set{arena_make_shared_as<TimeSeriesSetInput, TimeSeriesInput>(this)},
           _ts_builder{ts_builder} {}
 
-    template <typename T_Key>
-    TimeSeriesDictInput_T<T_Key>::TimeSeriesDictInput_T(time_series_input_ptr parent, input_builder_s_ptr ts_builder)
+    TimeSeriesDictInputImpl::TimeSeriesDictInputImpl(time_series_input_ptr parent, input_builder_s_ptr ts_builder, const value::TypeMeta* key_type)
         : TimeSeriesDictInput(parent),
+          _key_type{key_type},
           _key_set{arena_make_shared_as<TimeSeriesSetInput, TimeSeriesInput>(this)},
           _ts_builder{ts_builder} {}
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_peer() const { return _has_peer; }
+    bool TimeSeriesDictInputImpl::has_peer() const { return _has_peer; }
 
-    template <typename T_Key>
-    typename TimeSeriesDictInput_T<T_Key>::const_item_iterator TimeSeriesDictInput_T<T_Key>::begin() const {
-        return const_cast<TimeSeriesDictInput_T *>(this)->begin();
-    }
-
-    template <typename T_Key> typename TimeSeriesDictInput_T<T_Key>::item_iterator TimeSeriesDictInput_T<T_Key>::begin() {
+    TimeSeriesDictInputImpl::const_item_iterator TimeSeriesDictInputImpl::begin() const {
         return _ts_values.begin();
     }
 
-    template <typename T_Key> typename TimeSeriesDictInput_T<T_Key>::const_item_iterator TimeSeriesDictInput_T<T_Key>::end() const {
-        return const_cast<TimeSeriesDictInput_T *>(this)->end();
+    TimeSeriesDictInputImpl::item_iterator TimeSeriesDictInputImpl::begin() {
+        return _ts_values.begin();
     }
 
-    template <typename T_Key> typename TimeSeriesDictInput_T<T_Key>::item_iterator TimeSeriesDictInput_T<T_Key>::end() {
+    TimeSeriesDictInputImpl::const_item_iterator TimeSeriesDictInputImpl::end() const {
         return _ts_values.end();
     }
 
-    template <typename T_Key> size_t TimeSeriesDictInput_T<T_Key>::size() const { return _ts_values.size(); }
-
-    template <typename T_Key> const typename TimeSeriesDictInput_T<T_Key>::map_type &TimeSeriesDictInput_T<T_Key>::value() const {
-        return _ts_values;
+    TimeSeriesDictInputImpl::item_iterator TimeSeriesDictInputImpl::end() {
+        return _ts_values.end();
     }
 
-    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_value() const {
+    size_t TimeSeriesDictInputImpl::size() const { return _ts_values.size(); }
+
+    nb::object TimeSeriesDictInputImpl::py_value() const {
         auto v{nb::dict()};
-        for (const auto &[key, value] : _ts_values) {
-            if (value->valid()) { v[nb::cast(key)] = value->py_value(); }
+        for (const auto &[pv_key, value] : _ts_values) {
+            if (value->valid()) {
+                // Convert key to Python using TypeOps
+                nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                v[py_key] = value->py_value();
+            }
         }
         // Return frozendict snapshot of all valid items to mirror Python `_tsd.py:value`
         return get_frozendict()(v);
     }
 
-    template <typename T_Key> nb::object TimeSeriesDictInput_T<T_Key>::py_delta_value() const {
+    nb::object TimeSeriesDictInputImpl::py_delta_value() const {
         auto delta{nb::dict()};
-        // Build from currently modified and valid child inputs to avoid relying solely on observer-tracked state
-        const auto &modified = modified_items();
-        for (const auto &[key, value] : modified) {
-            if (value->valid()) { delta[nb::cast(key)] = value->py_delta_value(); }
+        // Build from currently modified and valid child inputs
+        for (const auto &[pv_key, value] : _ts_values) {
+            if (value->modified() && value->valid()) {
+                // Convert key to Python using TypeOps
+                nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                delta[py_key] = value->py_delta_value();
+            }
         }
-        const auto &removed_{removed_items()};
-        if (!removed_.empty()) {
+        // Handle removed items - use removed_items() which respects key_set's delta tracking
+        // This ensures same-cycle add/remove doesn't show up as REMOVE
+        const auto& removed_map = removed_items();
+        if (!removed_map.empty()) {
             auto removed{get_remove()};
-            for (const auto &[key, _] : removed_) {
-                if (was_removed_valid(key)) {
-                    // Check was_valid flag
-                    delta[nb::cast(key)] = removed;
+            for (const auto &[pv_key, value] : removed_map) {
+                // Check was_valid flag from _removed_items
+                if (was_removed_valid(pv_key.const_view())) {
+                    // Convert key to Python using TypeOps
+                    nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                    delta[py_key] = removed;
                 }
             }
         }
@@ -528,174 +561,167 @@ namespace hgraph
         return get_frozendict()(delta);
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::contains(const key_type &item) const {
-        if (has_peer()) {
-            value::Value<> key_val(item);
-            return key_set().contains(key_val.const_view());
+    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::operator[](const value::ConstValueView &key) const {
+        auto it = _ts_values.find(key);
+        if (it == _ts_values.end()) {
+            throw std::out_of_range("Key not found in TimeSeriesDictInput");
         }
-        return _ts_values.contains(item);
+        return it->second;
     }
 
-    template <typename T_Key>
-    TimeSeriesDictInput_T<T_Key>::value_type TimeSeriesDictInput_T<T_Key>::operator[](const key_type &item) const {
-        return _ts_values.at(item);
+    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::operator[](const value::ConstValueView &key) {
+        return get_or_create(key);
     }
 
-    template <typename T_Key>
-    TimeSeriesDictInput_T<T_Key>::value_type TimeSeriesDictInput_T<T_Key>::operator[](const key_type &item) {
-        return get_or_create(item);
-    }
-
-    template <typename T_Key>
-    const typename TimeSeriesDictInput_T<T_Key>::map_type &TimeSeriesDictInput_T<T_Key>::modified_items() const {
-        _modified_items_cache.clear();
-        if (sampled()) {
-            // Return all valid items when sampled
-            for (const auto &[key, value] : valid_items()) { _modified_items_cache.emplace(key, value); }
-        } else if (has_peer()) {
-            // When peered, only return items that are modified in the output
-            for (const auto &[key, _] : output_t().modified_items()) {
-                auto it = _ts_values.find(key);
-                if (it != _ts_values.end()) { _modified_items_cache.emplace(key, it->second); }
-            }
-        } else if (active()) {
-            // When active but not sampled or peered, only return cached modified items
-            // during the current evaluation cycle
-            if (last_modified_time() == owning_graph()->evaluation_time()) {
-                return _modified_items;
-            } else {
-                return empty_;  // Return empty set if not in current cycle
-            }
-        } else {
-            // When not active, return all modified items
-            for (const auto &[key, value] : _ts_values) {
-                if (value->modified()) { _modified_items_cache.emplace(key, value); }
-            }
-        }
-        return _modified_items_cache;
-    }
-
-    template <typename T_Key> TimeSeriesSetInput &TimeSeriesDictInput_T<T_Key>::key_set() { return *_key_set; }
-
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::was_modified(const key_type &key) const {
-        const auto &it{_ts_values.find(key)};
-        return it != _ts_values.end() && it->second->modified();
-    }
-
-    template <typename T_Key>
-    const typename TimeSeriesDictInput_T<T_Key>::map_type &TimeSeriesDictInput_T<T_Key>::valid_items() const {
-        // Rebuild cache each call to ensure freshness; returns a reference to a member to ensure iterator lifetime safety.
+    const TimeSeriesDictInputImpl::map_type &TimeSeriesDictInputImpl::valid_items() const {
+        // Rebuild cache each call to ensure freshness
         _valid_items_cache.clear();
-        for (const auto &item : _ts_values) {
-            if (item.second->valid()) { _valid_items_cache.insert(item); }
+        for (const auto &[pv_key, val] : _ts_values) {
+            if (val->valid()) {
+                _valid_items_cache.emplace(pv_key.const_view().clone(), val);
+            }
         }
         return _valid_items_cache;
     }
 
-    template <typename T_Key>
-    typename TimeSeriesDictInput_T<T_Key>::k_set_type TimeSeriesDictInput_T<T_Key>::added_keys() const {
-        // Use INPUT's key_set.py_added() instead of OUTPUT's key_set (matching Python)
-        k_set_type result;
-        nb::object added = key_set().py_added();
-        for (auto py_key : nb::iter(added)) {
-            result.insert(nb::cast<key_type>(nb::cast<nb::object>(py_key)));
-        }
-        return result;
-    }
-
-    template <typename T_Key>
-    const typename TimeSeriesDictInput_T<T_Key>::map_type &TimeSeriesDictInput_T<T_Key>::added_items() const {
-        // TODO: Try and ensure that we cache the result where possible
+    const TimeSeriesDictInputImpl::map_type &TimeSeriesDictInputImpl::added_items() const {
+        // Rebuild cache using key_set's collect_added() which handles _prev_output
         _added_items_cache.clear();
-        // Use INPUT's key_set.py_added() instead of OUTPUT's key_set (matching Python)
-        nb::object added = key_set().py_added();
-        for (auto py_key : nb::iter(added)) {
-            key_type k = nb::cast<key_type>(nb::cast<nb::object>(py_key));
-            // Check if key exists in _ts_values before accessing
-            // During cleanup, keys might be in added set but not in _ts_values
-            auto it = _ts_values.find(k);
+        auto added_keys = key_set().collect_added();
+        for (auto& elem : added_keys) {
+            auto it = _ts_values.find(elem.const_view());
             if (it != _ts_values.end()) {
-                _added_items_cache.emplace(k, it->second);
-            } else {
-                // TODO: print out error message as this should never happen
+                _added_items_cache.emplace(std::move(elem), it->second);
             }
         }
         return _added_items_cache;
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_added() const {
-        // Use INPUT's key_set (matching Python)
-        nb::object added = key_set().py_added();
-        return nb::len(added) > 0;
+    bool TimeSeriesDictInputImpl::has_added() const {
+        return !key_set().collect_added().empty();
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::was_added(const key_type &key) const {
-        // Use INPUT's key_set (matching Python)
-        return key_set().py_was_added(nb::cast(key));
-    }
-
-    template <typename T_Key>
-    const typename TimeSeriesDictInput_T<T_Key>::map_type &TimeSeriesDictInput_T<T_Key>::removed_items() const {
-        _removed_item_cache.clear();
-        // Use INPUT's key_set.py_removed() instead of OUTPUT's key_set (matching Python)
-        nb::object removed = key_set().py_removed();
-        for (auto py_key : nb::iter(removed)) {
-            key_type key = nb::cast<key_type>(nb::cast<nb::object>(py_key));
-            auto it{_removed_items.find(key)};
+    const TimeSeriesDictInputImpl::map_type &TimeSeriesDictInputImpl::removed_items() const {
+        _removed_items_cache.clear();
+        // Use key_set's collect_removed() which handles _prev_output for unbound inputs
+        auto removed_keys = key_set().collect_removed();
+        for (auto& elem : removed_keys) {
+            auto it = _removed_items.find(elem.const_view());
             if (it == _removed_items.end()) {
-                auto it = _ts_values.find(key); // transplanted items do not go to _removed_items, they stay in _ts_values as they do not belong to us
-                if (it == _ts_values.end()) continue;  // Key not found anywhere, skip
-                _removed_item_cache.emplace(key, it->second);
+                // transplanted items stay in _ts_values
+                auto it2 = _ts_values.find(elem.const_view());
+                if (it2 == _ts_values.end()) continue;
+                _removed_items_cache.emplace(std::move(elem), it2->second);
             } else {
-                _removed_item_cache.emplace(key, it->second.first);
+                _removed_items_cache.emplace(std::move(elem), it->second.first);
             }
         }
-        return _removed_item_cache;
+        return _removed_items_cache;
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_removed() const { return !_removed_items.empty(); }
+    bool TimeSeriesDictInputImpl::has_removed() const { return !removed_items().empty(); }
 
-    template <typename T_Key> const TimeSeriesSetInput &TimeSeriesDictInput_T<T_Key>::key_set() const { return *_key_set; }
+    const TimeSeriesDictInputImpl::map_type &TimeSeriesDictInputImpl::modified_items() const {
+        // Python logic:
+        // 1. If sampled: return valid items (TODO: not yet implemented in C++)
+        // 2. If has_peer: get keys from output's modified_items, map to input's values
+        // 3. If active and last_modified_time == evaluation_time: return _modified_items
+        // 4. Otherwise: iterate all items and return modified ones
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::on_key_added(const key_type &key) {
+        if (has_peer()) {
+            // Delegate to output's modified keys, map to input's values
+            _modified_items_cache.clear();
+            const auto& output_modified = output_t().modified_items();
+            for (const auto& [pv_key, _] : output_modified) {
+                auto it = _ts_values.find(pv_key.const_view());
+                if (it != _ts_values.end()) {
+                    _modified_items_cache.emplace(pv_key.const_view().clone(), it->second);
+                }
+            }
+            return _modified_items_cache;
+        } else if (active()) {
+            auto et = owning_graph()->evaluation_time();
+            if (_last_modified_time == et) {
+                return _modified_items;
+            } else {
+                return empty_;
+            }
+        } else {
+            // Non-active: iterate all items and return modified ones
+            _modified_items_cache.clear();
+            for (const auto& [pv_key, val] : _ts_values) {
+                if (val->modified()) {
+                    _modified_items_cache.emplace(pv_key.const_view().clone(), val);
+                }
+            }
+            return _modified_items_cache;
+        }
+    }
+
+    bool TimeSeriesDictInputImpl::was_modified(const value::ConstValueView &key) const {
+        if (has_peer()) {
+            return output_t().was_modified(key);
+        } else if (active()) {
+            auto et = owning_graph()->evaluation_time();
+            if (_last_modified_time == et) {
+                return _modified_items.find(key) != _modified_items.end();
+            } else {
+                return false;
+            }
+        } else {
+            auto it = _ts_values.find(key);
+            return it != _ts_values.end() && it->second->modified();
+        }
+    }
+
+    TimeSeriesSetInput &TimeSeriesDictInputImpl::key_set() { return *_key_set; }
+
+    const TimeSeriesSetInput &TimeSeriesDictInputImpl::key_set() const { return *_key_set; }
+
+    void TimeSeriesDictInputImpl::on_key_added(const value::ConstValueView &key) {
         auto value{get_or_create(key)};
         value->bind_output(output_t()[key]);
     }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::on_key_removed(const key_type &key) {
-        // Pop the value from _ts_values first (matching Python: self._ts_values.pop(key, None))
+    void TimeSeriesDictInputImpl::on_key_removed(const value::ConstValueView &key) {
+        // Pop the value from _ts_values first
         auto it = _ts_values.find(key);
         if (it == _ts_values.end()) { return; }
 
         auto value{it->second};
-        _ts_values.erase(it);  // Remove from _ts_values first
+        _ts_values.erase(it);
         _remove_key_value(key, value);
 
         register_clear_key_changes();
-        // Capture validity now while output is still valid, before any cleanup
         auto was_valid = value->valid();
 
         if (value->parent_input().get() == this) {
-            // This is our own input - deactivate and track for cleanup
             if (value->active()) { value->make_passive(); }
-            _removed_items.insert({key, {value, was_valid}});
-            auto it_{_modified_items.find(key)};
-            if (it_ != _modified_items.end()) { _modified_items.erase(it_); }
+            // Use emplace instead of insert for move-only PlainValue keys
+            _removed_items.emplace(key.clone(), std::make_pair(value, was_valid));
+
+            auto it_ = _modified_items.find(key);
+            if (it_ != _modified_items.end()) {
+                _modified_items.erase(it_);
+            }
             if (!has_peer()) { value->un_bind_output(false); }
         } else {
-            // This is a transplanted input - put it back and unbind it
-            _ts_values.insert({key, value});
+            // Transplanted input - put it back and unbind it
+            // Use emplace instead of insert for move-only PlainValue keys
+            _ts_values.emplace(key.clone(), value);
             _add_key_value(key, value);
-            value->un_bind_output(true);  // unbind_refs=True
+            value->un_bind_output(true);
         }
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::was_removed(const key_type &key) const {
-        return _removed_items.find(key) != _removed_items.end();
+    bool TimeSeriesDictInputImpl::was_removed_valid(const value::ConstValueView &key) const {
+        auto it = _removed_items.find(key);
+        if (it == _removed_items.end()) { return false; }
+        return it->second.second;
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::do_bind_output(time_series_output_s_ptr value) {
-        auto value_output{std::dynamic_pointer_cast<TimeSeriesDictOutput_T<T_Key>>(value)};
+    bool TimeSeriesDictInputImpl::do_bind_output(time_series_output_s_ptr value) {
+        auto value_output{std::dynamic_pointer_cast<TimeSeriesDictOutputImpl>(value)};
 
         // Peer when types match AND neither has references (matching Python logic)
         bool  peer = (is_same_type(value_output.get()) || !(value_output->has_reference() || this->has_reference()));
@@ -710,7 +736,7 @@ namespace hgraph
             auto weak_self = weak_from_this();
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
                 if (auto self = weak_self.lock()) {
-                    static_cast<TimeSeriesDictInput_T *>(self.get())->reset_prev();
+                    static_cast<TimeSeriesDictInputImpl *>(self.get())->reset_prev();
                 }
             });
         }
@@ -733,46 +759,49 @@ namespace hgraph
         // The input's key_set was just bound to output's key_set above, so it now reflects
         // the delta from the old output to the new output
         for (auto elem : key_set().value_view()) {
-            key_type key = elem.template as<key_type>();
-            on_key_added(key);
+            on_key_added(elem);
         }
 
-        // Use py_removed() which properly handles _prev_output case (computes delta when rebinding)
-        for (auto py_key : nb::iter(key_set().py_removed())) {
-            key_type key = nb::cast<key_type>(nb::cast<nb::object>(py_key));
-            on_key_removed(key);
+        // Use key_set INPUT's collect_removed() which properly handles _prev_output case (computes delta when rebinding)
+        // This returns items that were in the old output but aren't in the new one
+        auto removed_keys = key_set().collect_removed();
+        for (auto& elem : removed_keys) {
+            on_key_removed(elem.const_view());
         }
 
         value_output->add_key_observer(this);
         return peer;
     }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::do_un_bind_output(bool unbind_refs) {
+    void TimeSeriesDictInputImpl::do_un_bind_output(bool unbind_refs) {
         key_set().un_bind_output(unbind_refs);
 
         if (!_ts_values.empty()) {
             _removed_items.clear();
-            for (const auto &[key, value] : _ts_values) { _removed_items.insert({key, {value, value->valid()}}); }
+            for (const auto &[pv_key, value] : _ts_values) {
+                // Clone the PlainValue key and use emplace (copy constructor is deleted)
+                _removed_items.emplace(pv_key.const_view().clone(), std::make_pair(value, value->valid()));
+            }
             _ts_values.clear();
             _clear_key_tracking();
-            _modified_items.clear();  // Clear stale modified items to ensure correct delta when rebinding
+            _modified_items.clear();
             register_clear_key_changes();
 
             removed_map_type to_keep{};
-            for (auto &[key, v] : _removed_items) {
+            for (auto &[pv_key, v] : _removed_items) {
                 auto &[value, was_valid] = v;
                 if (value->parent_input().get() != this) {
-                    // Check for transplanted items, these do not get removed, but can be un-bound
+                    // Transplanted items - un-bind and put back
                     value->un_bind_output(unbind_refs);
-                    _ts_values.insert({key, value});
-                    _add_key_value(key, value);
+                    // Use emplace instead of insert for move-only PlainValue keys
+                    _ts_values.emplace(pv_key.const_view().clone(), value);
+                    _add_key_value(pv_key.const_view(), value);
                 } else {
-                    to_keep.insert({key, {value, was_valid}});
+                    to_keep.emplace(pv_key.const_view().clone(), std::make_pair(value, was_valid));
                 }
             }
             std::swap(_removed_items, to_keep);
         }
-        // If we are un-binding then the output must exist by definition.
         output_t().remove_key_observer(this);
         if (has_peer()) {
             BaseTimeSeriesInput::do_un_bind_output(unbind_refs);
@@ -782,38 +811,29 @@ namespace hgraph
     }
 
 
-    template <typename T_Key>
-    TimeSeriesDictOutput_T<typename TimeSeriesDictInput_T<T_Key>::key_type> &TimeSeriesDictInput_T<T_Key>::output_t() {
-        return static_cast<TimeSeriesDictOutput_T<key_type> &>(*output());
+    TimeSeriesDictOutputImpl &TimeSeriesDictInputImpl::output_t() {
+        return static_cast<TimeSeriesDictOutputImpl &>(*output());
     }
 
-    template <typename T_Key>
-    const TimeSeriesDictOutput_T<typename TimeSeriesDictInput_T<T_Key>::key_type> &TimeSeriesDictInput_T<T_Key>::output_t() const {
-        return const_cast<TimeSeriesDictInput_T *>(this)->output_t();
+    const TimeSeriesDictOutputImpl &TimeSeriesDictInputImpl::output_t() const {
+        return const_cast<TimeSeriesDictInputImpl *>(this)->output_t();
     }
 
-    template <typename T_Key>
-    const typename TimeSeriesDictInput_T<T_Key>::key_type &
-    TimeSeriesDictInput_T<T_Key>::key_from_value(TimeSeriesInput *value) const {
-        auto it = _ts_values_to_keys.find(value);
-        if (it != _ts_values_to_keys.end()) { return it->second; }
-        throw std::runtime_error("key_from_value: value not found in _ts_values_to_keys");
+    value::ConstValueView TimeSeriesDictInputImpl::key_from_ts(TimeSeriesInput *ts) const {
+        auto it = _ts_values_to_keys.find(ts);
+        if (it != _ts_values_to_keys.end()) {
+            return it->second.const_view();
+        }
+        throw std::runtime_error("key_from_ts: value not found in _ts_values_to_keys");
     }
 
-    template <typename T_Key>
-    const typename TimeSeriesDictInput_T<T_Key>::key_type &TimeSeriesDictInput_T<T_Key>::key_from_value(value_type value) const {
-        return key_from_value(value.get());
+    value::ConstValueView TimeSeriesDictInputImpl::key_from_ts(value_type ts) const {
+        return key_from_ts(ts.get());
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::was_removed_valid(const key_type &key) const {
-        auto it = _removed_items.find(key);
-        if (it == _removed_items.end()) { return false; }
-        return it->second.second;
-    }
+    void TimeSeriesDictInputImpl::reset_prev() { _prev_output = nullptr; }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::reset_prev() { _prev_output = nullptr; }
-
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::clear_key_changes() {
+    void TimeSeriesDictInputImpl::clear_key_changes() {
         _clear_key_changes_registered = false;
 
         // Guard against cleared node (matches Python: if self.owning_node is None)
@@ -833,58 +853,62 @@ namespace hgraph
         _removed_items.clear();
     }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::register_clear_key_changes() const {
+    void TimeSeriesDictInputImpl::register_clear_key_changes() const {
         // This has side effects, but they are not directly impacting the behaviour of the class
-        const_cast<TimeSeriesDictInput_T *>(this)->register_clear_key_changes();
+        const_cast<TimeSeriesDictInputImpl *>(this)->register_clear_key_changes();
     }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::register_clear_key_changes() {
+    void TimeSeriesDictInputImpl::register_clear_key_changes() {
         if (!_clear_key_changes_registered) {
             _clear_key_changes_registered = true;
             auto weak_self = weak_from_this();
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
                 if (auto self = weak_self.lock()) {
-                    static_cast<TimeSeriesDictInput_T *>(self.get())->clear_key_changes();
+                    static_cast<TimeSeriesDictInputImpl *>(self.get())->clear_key_changes();
                 }
             });
         }
     }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::_clear_key_tracking() { _ts_values_to_keys.clear(); }
+    void TimeSeriesDictInputImpl::_clear_key_tracking() { _ts_values_to_keys.clear(); }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::_add_key_value(const key_type &key, const value_type &value) {
-        _ts_values_to_keys.insert({const_cast<TimeSeriesInput *>(value.get()), key});
+    void TimeSeriesDictInputImpl::_add_key_value(const value::ConstValueView &key, const value_type &value) {
+        // Store PlainValue key in reverse map - use emplace for move-only PlainValue
+        _ts_values_to_keys.emplace(const_cast<TimeSeriesInput *>(value.get()), key.clone());
     }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::_key_updated(const key_type &key) {
-        auto it{_ts_values.find(key)};
+    void TimeSeriesDictInputImpl::_key_updated(const value::ConstValueView &key) {
+        auto it = _ts_values.find(key);
         if (it != _ts_values.end()) {
-            _modified_items[key] = it->second;  // Use operator[] instead of insert to ensure update
+            // Use insert_or_assign for move-only PlainValue keys
+            _modified_items.insert_or_assign(key.clone(), it->second);
         } else {
-            // If we cannot find the child there is a bug, let's rather catch this condition
             throw nb::key_error("Key not found in TSD");
         }
     }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::_remove_key_value(const key_type &key, const value_type &value) {
-        _ts_values_to_keys.erase(const_cast<TimeSeriesInput *>(value.get()));  // Remove from reverse map
+    void TimeSeriesDictInputImpl::_remove_key_value(const value::ConstValueView &key, const value_type &value) {
+        _ts_values_to_keys.erase(const_cast<TimeSeriesInput *>(value.get()));
     }
 
-    template <typename T_Key>
-    TimeSeriesDictInput_T<T_Key>::value_type TimeSeriesDictInput_T<T_Key>::get_or_create(const key_type &key) {
-        if (!_ts_values.contains(key)) { create(key); }
-        return _ts_values[key];
+    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::get_or_create(const value::ConstValueView &key) {
+        auto it = _ts_values.find(key);
+        if (it == _ts_values.end()) {
+            create(key);
+            it = _ts_values.find(key);
+        }
+        return it->second;
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::is_same_type(const TimeSeriesType *other) const {
-        auto other_d = dynamic_cast<const TimeSeriesDictInput_T<key_type> *>(other);
+    bool TimeSeriesDictInputImpl::is_same_type(const TimeSeriesType *other) const {
+        auto other_d = dynamic_cast<const TimeSeriesDictInputImpl *>(other);
         if (!other_d) { return false; }
         return _ts_builder->is_same_type(*other_d->_ts_builder);
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::has_reference() const { return _ts_builder->has_reference(); }
+    bool TimeSeriesDictInputImpl::has_reference() const { return _ts_builder->has_reference(); }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::make_active() {
+    void TimeSeriesDictInputImpl::make_active() {
         if (has_peer()) {
             TimeSeriesDictInput::make_active();
             // Reactivate transplanted inputs that might have been deactivated in make_passive()
@@ -900,7 +924,7 @@ namespace hgraph
         }
     }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::make_passive() {
+    void TimeSeriesDictInputImpl::make_passive() {
         if (has_peer()) {
             TimeSeriesDictInput::make_passive();
         } else {
@@ -910,7 +934,7 @@ namespace hgraph
         }
     }
 
-    template <typename T_Key> bool TimeSeriesDictInput_T<T_Key>::modified() const {
+    bool TimeSeriesDictInputImpl::modified() const {
         if (has_peer()) { return TimeSeriesDictInput::modified(); }
         if (active()) {
             auto et{owning_graph()->evaluation_time()};
@@ -920,17 +944,16 @@ namespace hgraph
                std::any_of(_ts_values.begin(), _ts_values.end(), [](const auto &pair) { return pair.second->modified(); });
     }
 
-    template <typename T_Key> engine_time_t TimeSeriesDictInput_T<T_Key>::last_modified_time() const {
+    engine_time_t TimeSeriesDictInputImpl::last_modified_time() const {
         if (has_peer()) { return TimeSeriesDictInput::last_modified_time(); }
         if (active()) { return std::max(std::max(_last_modified_time, key_set().last_modified_time()), sample_time()); }
         auto max_e{std::max_element(_ts_values.begin(), _ts_values.end(), [](const auto &pair1, const auto &pair2) {
             return pair1.second->last_modified_time() < pair2.second->last_modified_time();
         })};
-        return std::max(key_set().last_modified_time(), max_e == end() ? MIN_DT : max_e->second->last_modified_time());
+        return std::max(key_set().last_modified_time(), max_e == _ts_values.end() ? MIN_DT : max_e->second->last_modified_time());
     }
 
-    template <typename T_Key>
-    void TimeSeriesDictInput_T<T_Key>::notify_parent(TimeSeriesInput *child, engine_time_t modified_time) {
+    void TimeSeriesDictInputImpl::notify_parent(TimeSeriesInput *child, engine_time_t modified_time) {
         if (_last_modified_time < modified_time) {
             _last_modified_time = modified_time;
             _modified_items.clear();
@@ -938,39 +961,42 @@ namespace hgraph
 
         if (child != &key_set()) {
             // Child is not the key-set instance
-            auto key{key_from_value(child)};
+            auto key{key_from_ts(child)};
             _key_updated(key);
         }
 
         BaseTimeSeriesInput::notify_parent(this, modified_time);
     }
 
-    template <typename T_Key> void TimeSeriesDictInput_T<T_Key>::create(const key_type &key) {
+    void TimeSeriesDictInputImpl::create(const value::ConstValueView &key_view) {
         auto item{_ts_builder->make_instance(this)};
         // For non-peered inputs that are active, make the newly created item active too
         // This ensures proper notification chain for fast non-peer TSD scenarios
         if (!has_peer() and active()) { item->make_active(); }
-        _ts_values.insert({key, item});
-        _add_key_value(key, item);
+        // Use emplace with cloned key for move-only PlainValue storage
+        _ts_values.emplace(key_view.clone(), item);
+        _add_key_value(key_view, item);
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::create(const key_type &key) {
-        // Use Value API to add key to TSS
-        value::Value<> key_val(key);
-        key_set().add(key_val.const_view());
+    void TimeSeriesDictOutputImpl::create(const value::ConstValueView &key_view) {
+        // Add key to TSS (already Value-based)
+        key_set().add(key_view);
 
         auto item{_ts_builder->make_instance(this)};
-        _ts_values.insert({key, item});
-        _add_key_value(key, item);
+        // Use emplace with cloned key for move-only PlainValue storage
+        _ts_values.emplace(key_view.clone(), item);
+
+        _add_key_value(key_view, item);
 
         // If the key was removed in this cycle, clean up the removed tracking
-        if (auto it = _removed_items.find(key); it != _removed_items.end()) {
+        if (auto it = _removed_items.find(key_view); it != _removed_items.end()) {
             _ts_builder->release_instance(it->second.get());
             _removed_items.erase(it);
         }
 
-        _ref_ts_feature.update(key);
-        for (auto &observer : _key_observers) { observer->on_key_added(key); }
+        // Update feature extension using Value-based key
+        _ref_ts_feature.update(key_view);
+        for (auto &observer : _key_observers) { observer->on_key_added(key_view); }
 
         auto et{owning_graph()->evaluation_time()};
         if (_last_cleanup_time < et) {
@@ -978,17 +1004,17 @@ namespace hgraph
             auto weak_self = weak_from_this();
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
                 if (auto self = weak_self.lock()) {
-                    static_cast<TimeSeriesDictOutput_T *>(self.get())->_clear_key_changes();
+                    static_cast<TimeSeriesDictOutputImpl *>(self.get())->_clear_key_changes();
                 }
             });
         }
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::add_key_observer(TSDKeyObserver<key_type> *observer) {
+    void TimeSeriesDictOutputImpl::add_key_observer(TSDKeyObserver *observer) {
         _key_observers.push_back(observer);
     }
 
-    template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::remove_key_observer(TSDKeyObserver<key_type> *observer) {
+    void TimeSeriesDictOutputImpl::remove_key_observer(TSDKeyObserver *observer) {
         auto it = std::find(_key_observers.begin(), _key_observers.end(), observer);
         if (it != _key_observers.end()) {
             *it = std::move(_key_observers.back());
@@ -996,44 +1022,10 @@ namespace hgraph
         }
     }
 
-    template <typename T_Key> bool TimeSeriesDictOutput_T<T_Key>::is_same_type(const TimeSeriesType *other) const {
-        auto other_d = dynamic_cast<const TimeSeriesDictOutput_T<key_type> *>(other);
+    bool TimeSeriesDictOutputImpl::is_same_type(const TimeSeriesType *other) const {
+        auto other_d = dynamic_cast<const TimeSeriesDictOutputImpl *>(other);
         if (!other_d) { return false; }
         return _ts_builder->is_same_type(*other_d->_ts_builder);
     }
-
-    template struct TimeSeriesDictInput_T<bool>;
-    template struct TimeSeriesDictInput_T<int64_t>;
-    template struct TimeSeriesDictInput_T<double>;
-    template struct TimeSeriesDictInput_T<engine_date_t>;
-    template struct TimeSeriesDictInput_T<engine_time_t>;
-    template struct TimeSeriesDictInput_T<engine_time_delta_t>;
-    template struct TimeSeriesDictInput_T<nb::object>;
-
-    using TSD_Bool      = TimeSeriesDictInput_T<bool>;
-    using TSD_Int       = TimeSeriesDictInput_T<int64_t>;
-    using TSD_Float     = TimeSeriesDictInput_T<double>;
-    using TSD_Date      = TimeSeriesDictInput_T<engine_date_t>;
-    using TSD_DateTime  = TimeSeriesDictInput_T<engine_time_t>;
-    using TSD_TimeDelta = TimeSeriesDictInput_T<engine_time_delta_t>;
-    using TSD_Object    = TimeSeriesDictInput_T<nb::object>;
-
-    template struct TimeSeriesDictOutput_T<bool>;
-    template struct TimeSeriesDictOutput_T<int64_t>;
-    template struct TimeSeriesDictOutput_T<double>;
-    template struct TimeSeriesDictOutput_T<engine_date_t>;
-    template struct TimeSeriesDictOutput_T<engine_time_t>;
-    template struct TimeSeriesDictOutput_T<engine_time_delta_t>;
-    template struct TimeSeriesDictOutput_T<nb::object>;
-
-    using TSD_OUT_Bool      = TimeSeriesDictOutput_T<bool>;
-    using TSD_OUT_Int       = TimeSeriesDictOutput_T<int64_t>;
-    using TSD_OUT_Float     = TimeSeriesDictOutput_T<double>;
-    using TSD_OUT_Date      = TimeSeriesDictOutput_T<engine_date_t>;
-    using TSD_OUT_DateTime  = TimeSeriesDictOutput_T<engine_time_t>;
-    using TSD_OUT_TimeDelta = TimeSeriesDictOutput_T<engine_time_delta_t>;
-    using TSD_OUT_Object    = TimeSeriesDictOutput_T<nb::object>;
-
-    // template <typename T_Key> void TimeSeriesDictOutput_T<T_Key>::post_modify() { _post_modify(); }
 
 }  // namespace hgraph

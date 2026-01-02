@@ -219,10 +219,10 @@ namespace hgraph {
     }
 
     template<typename K>
-    TimeSeriesDictOutput_T<K> &MeshNode<K>::tsd_output() {
+    TimeSeriesDictOutputImpl &MeshNode<K>::tsd_output() {
         // Access output bundle's "out" member - output() returns smart pointer to TimeSeriesBundleOutput
         auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
-        return dynamic_cast<TimeSeriesDictOutput_T<K> &>(*(*output_bundle)["out"]);
+        return dynamic_cast<TimeSeriesDictOutputImpl &>(*(*output_bundle)["out"]);
     }
 
     template<typename K>
@@ -277,8 +277,9 @@ namespace hgraph {
     void MeshNode<K>::remove_graph(const K &key) {
         // Remove error output if using exception capture
         if (this->signature().capture_exception) {
-            auto &error_output_ = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*this->error_output());
-            error_output_.erase(key);
+            auto &error_output_ = dynamic_cast<TimeSeriesDictOutputImpl &>(*this->error_output());
+            value::Value<> key_val(key);
+            error_output_.erase(key_val.const_view());
         }
 
         auto graph_it = this->active_graphs_.find(key);

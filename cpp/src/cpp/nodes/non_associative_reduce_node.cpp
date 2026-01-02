@@ -85,7 +85,7 @@ namespace hgraph {
         // Check if size changed (matches Python lines 362-370)
         int64_t sz = node_count();
         auto tsd = (*input())["ts"];
-        auto tsd_input = dynamic_cast<TimeSeriesDictInput_T<int64_t> *>(tsd.get());
+        auto tsd_input = dynamic_cast<TimeSeriesDictInputImpl *>(tsd.get());
         int64_t new_size = tsd_input->size();
 
         if (sz == new_size) {
@@ -103,7 +103,7 @@ namespace hgraph {
         auto zero = (*input())["zero"];
         auto zero_ref = dynamic_cast<TimeSeriesReferenceInput *>(zero.get());
         auto tsd = (*input())["ts"];
-        auto tsd_input = dynamic_cast<TimeSeriesDictInput_T<int64_t> *>(tsd.get());
+        auto tsd_input = dynamic_cast<TimeSeriesDictInputImpl *>(tsd.get());
 
         for (int64_t ndx = curr_size; ndx < sz; ndx++) {
             // Extend the nested graph
@@ -126,7 +126,8 @@ namespace hgraph {
 
             // Bind RHS input to TSD[ndx]
             auto rhs_node = new_graph[std::get < 1 > (input_node_ids_)];
-            auto rhs = (*tsd_input)[ndx];
+            value::Value<> key_val(ndx);
+            auto rhs = (*tsd_input)[key_val.const_view()];
             auto rhs_ref = dynamic_cast<TimeSeriesReferenceInput *>(rhs.get());
             auto rhs_input = dynamic_cast<TimeSeriesReferenceInput *>((*rhs_node->input())[0].get());
             rhs_input->clone_binding(rhs_ref);

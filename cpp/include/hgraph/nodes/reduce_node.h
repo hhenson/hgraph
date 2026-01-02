@@ -28,7 +28,7 @@ namespace hgraph {
 
         std::unordered_map<int, graph_s_ptr> &nested_graphs();
 
-        TimeSeriesDictInput_T<K>::ptr ts();
+        TimeSeriesDictInputImpl::ptr ts();
 
         time_series_reference_input_ptr zero();
 

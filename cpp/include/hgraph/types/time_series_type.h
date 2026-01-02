@@ -38,7 +38,7 @@ namespace hgraph
                                       ts_reference_input_types_v
                                       // payload specialized inputs (TimeSeriesValueInput is now non-templated, in ts_input_types)
                                       + tp::transform<tp::meta::apply<TimeSeriesSetInput_T>::type>(ts_payload_types_v) +
-                                      tp::transform<tp::meta::apply<TimeSeriesDictInput_T>::type>(ts_payload_types_v) +
+                                      tp::tpack_v<TimeSeriesDictInputImpl> +  // Non-templated TSD uses Value/TypeMeta
                                       tp::transform<tp::meta::apply<TimeSeriesWindowInput>::type>(ts_payload_types_v)))::type;
 
     using TimeSeriesOutputVisitor =
@@ -46,7 +46,7 @@ namespace hgraph
                                       ts_reference_output_types_v
                                       // payload specialized outputs (TimeSeriesValueOutput is now non-templated, in ts_output_types)
                                       + tp::transform<tp::meta::apply<TimeSeriesSetOutput_T>::type>(ts_payload_types_v) +
-                                      tp::transform<tp::meta::apply<TimeSeriesDictOutput_T>::type>(ts_payload_types_v) +
+                                      tp::tpack_v<TimeSeriesDictOutputImpl> +  // Non-templated TSD uses Value/TypeMeta
                                       tp::transform<tp::meta::apply<TimeSeriesFixedWindowOutput>::type>(ts_payload_types_v) +
                                       tp::transform<tp::meta::apply<TimeSeriesTimeWindowOutput>::type>(ts_payload_types_v)))::type;
 

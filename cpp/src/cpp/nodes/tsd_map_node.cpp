@@ -127,8 +127,8 @@ namespace hgraph
         }
     }
 
-    template <typename K> TimeSeriesDictOutput_T<K> &TsdMapNode<K>::tsd_output() {
-        return dynamic_cast<TimeSeriesDictOutput_T<K> &>(*output());
+    template <typename K> TimeSeriesDictOutputImpl &TsdMapNode<K>::tsd_output() {
+        return dynamic_cast<TimeSeriesDictOutputImpl &>(*output());
     }
 
     template <typename K> void TsdMapNode<K>::create_new_graph(const K &key) {
@@ -161,8 +161,9 @@ namespace hgraph
     template <typename K> void TsdMapNode<K>::remove_graph(const K &key) {
         if (signature().capture_exception) {
             // Remove the error output associated to the graph if there is one
-            auto &error_output_ = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*error_output());
-            error_output_.erase(key);
+            auto &error_output_ = dynamic_cast<TimeSeriesDictOutputImpl &>(*error_output());
+            value::Value<> key_val(key);
+            error_output_.erase(key_val.const_view());
         }
 
         auto graph{active_graphs_[key]};
@@ -187,10 +188,11 @@ namespace hgraph
             try {
                 graph->evaluate_graph();
             } catch (const std::exception &e) {
-                auto &error_tsd  = dynamic_cast<TimeSeriesDictOutput_T<K> &>(*error_output());
+                auto &error_tsd  = dynamic_cast<TimeSeriesDictOutputImpl &>(*error_output());
                 auto  msg        = std::string("key: ") + to_string(key);
                 auto  node_error = NodeError::capture_error(e, *this, msg);
-                auto  error_ts   = error_tsd.get_or_create(key);
+                value::Value<> key_val(key);
+                auto  error_ts   = error_tsd.get_or_create(key_val.const_view());
                 // Create a heap-allocated copy managed by nanobind
                 auto error_ptr = nb::ref<NodeError>(new NodeError(node_error));
                 error_ts->py_set_value(nb::cast(error_ptr));
@@ -212,7 +214,7 @@ namespace hgraph
             if (arg != key_arg_) {
                 if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
                     auto  ts{static_cast<TimeSeriesInput *>((*input())[arg].get())};
-                    auto &tsd = dynamic_cast<TimeSeriesDictInput_T<K> &>(*ts);
+                    auto &tsd = dynamic_cast<TimeSeriesDictInputImpl &>(*ts);
                     // Since this is a multiplexed arg it must be of type K
 
                     // Make the per-key input passive to unsubscribe from output before re-parenting
@@ -235,12 +237,15 @@ namespace hgraph
                     // when the key set may be invalid, as this breaks re-add semantics.
                     auto &key_set = dynamic_cast<TimeSeriesSetInput &>(tsd.key_set());
                     value::Value<> key_val(key);
-                    if (key_set.valid() && !key_set.contains(key_val.const_view())) { tsd.on_key_removed(key); }
+                    if (key_set.valid() && !key_set.contains(key_val.const_view())) { tsd.on_key_removed(key_val.const_view()); }
                 }
             }
         }
 
-        if (output_node_id_ >= 0) { tsd_output().erase(key); }
+        if (output_node_id_ >= 0) {
+            value::Value<> key_val(key);
+            tsd_output().erase(key_val.const_view());
+        }
     }
 
     template <typename K> void TsdMapNode<K>::wire_graph(const K &key, graph_s_ptr &graph) {
@@ -255,8 +260,9 @@ namespace hgraph
             } else {
                 if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {
                     auto  ts       = static_cast<TimeSeriesInput *>((*input())[arg].get());
-                    auto &tsd      = dynamic_cast<TimeSeriesDictInput_T<K> &>(*ts);
-                    auto  ts_value = tsd.get_or_create(key);
+                    auto &tsd      = dynamic_cast<TimeSeriesDictInputImpl &>(*ts);
+                    value::Value<> key_val(key);
+                    auto  ts_value = tsd.get_or_create(key_val.const_view());
 
                     node->reset_input(node->input()->copy_with(node.get(), {ts_value->shared_from_this()}));
                     ts_value->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
@@ -272,7 +278,8 @@ namespace hgraph
         if (output_node_id_ >= 0) {
             auto  node       = graph->nodes()[output_node_id_];
             auto &output_tsd = tsd_output();
-            auto  output_ts  = output_tsd.get_or_create(key);
+            value::Value<> key_val(key);
+            auto  output_ts  = output_tsd.get_or_create(key_val.const_view());
             node->set_output(output_ts->shared_from_this());
         }
     }

@@ -56,7 +56,7 @@ namespace hgraph
 
         void eval() override;
 
-        TimeSeriesDictOutput_T<K> &tsd_output() override;
+        TimeSeriesDictOutputImpl &tsd_output() override;
 
         void create_new_graph(const K &key, int rank = -1);
 

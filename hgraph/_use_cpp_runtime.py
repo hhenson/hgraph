@@ -319,26 +319,16 @@ if is_feature_enabled("use_cpp"):
             return lambda: _hgraph.OutputBuilder_TSS(schema)
 
 
-        def _tsd_input_builder_type_for(scalar_type):
-            return {
-                bool: _hgraph.InputBuilder_TSD_Bool,
-                int: _hgraph.InputBuilder_TSD_Int,
-                float: _hgraph.InputBuilder_TSD_Float,
-                date: _hgraph.InputBuilder_TSD_Date,
-                datetime: _hgraph.InputBuilder_TSD_DateTime,
-                timedelta: _hgraph.InputBuilder_TSD_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.InputBuilder_TSD_Object)
+        def _tsd_input_builder_type_for(key_scalar_type):
+            """Return factory for non-templated TimeSeriesDictInput builder with key TypeMeta."""
+            key_schema = _get_value_schema_for_scalar_type(key_scalar_type)
+            return lambda ts_builder: _hgraph.InputBuilder_TSD(ts_builder, key_schema)
 
 
-        def _tsd_output_builder_for_tp(scalar_type):
-            return {
-                bool: _hgraph.OutputBuilder_TSD_Bool,
-                int: _hgraph.OutputBuilder_TSD_Int,
-                float: _hgraph.OutputBuilder_TSD_Float,
-                date: _hgraph.OutputBuilder_TSD_Date,
-                datetime: _hgraph.OutputBuilder_TSD_DateTime,
-                timedelta: _hgraph.OutputBuilder_TSD_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.OutputBuilder_TSD_Object)
+        def _tsd_output_builder_for_tp(key_scalar_type):
+            """Return factory for non-templated TimeSeriesDictOutput builder with key TypeMeta."""
+            key_schema = _get_value_schema_for_scalar_type(key_scalar_type)
+            return lambda ts_builder, ts_ref_builder: _hgraph.OutputBuilder_TSD(ts_builder, ts_ref_builder, key_schema)
 
 
         def _tsw_input_builder_type_for(scalar_type):

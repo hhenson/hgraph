@@ -6,20 +6,18 @@
 #define TIME_SERIES_DICT_OUTPUT_BUILDER_H
 
 #include <hgraph/builders/output_builder.h>
+#include <hgraph/types/value/type_meta.h>
 
 namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesDictOutputBuilder : OutputBuilder {
         output_builder_s_ptr ts_builder;
         output_builder_s_ptr ts_ref_builder;
+        const value::TypeMeta* key_type_meta;
 
-        TimeSeriesDictOutputBuilder(output_builder_s_ptr ts_builder, output_builder_s_ptr ts_ref_builder);
+        TimeSeriesDictOutputBuilder(output_builder_s_ptr ts_builder, output_builder_s_ptr ts_ref_builder,
+                                    const value::TypeMeta* key_type_meta);
 
         bool has_reference() const override { return ts_builder->has_reference(); }
-    };
-
-    template<typename T>
-    struct HGRAPH_EXPORT TimeSeriesDictOutputBuilder_T : TimeSeriesDictOutputBuilder {
-        using TimeSeriesDictOutputBuilder::TimeSeriesDictOutputBuilder;
 
         time_series_output_s_ptr make_instance(node_ptr owning_node) const override;
 

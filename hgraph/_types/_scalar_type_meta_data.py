@@ -1159,6 +1159,10 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         Python class in to_python() instead of returning a dict. This preserves
         hashability when CompoundScalar is used as keys in TSD/TSS/mesh operations.
         """
+        # Detect recursion - for recursive compound scalars, fall back to Python handling
+        if SchemaRecurseContext.is_in_context(self.py_type):
+            return None
+
         if not self.is_resolved:
             raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
         from hgraph._feature_switch import is_feature_enabled
@@ -1167,17 +1171,18 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         try:
             import hgraph._hgraph as _hgraph
             # Build the fields list with (name, type_meta) pairs
-            fields = []
-            schema = self.meta_data_schema
-            for field_name, field_type_meta in schema.items():
-                field_cpp = field_type_meta.cpp_type
-                if field_cpp is None:
-                    return None  # Fall back to nb::object if any field type is not supported
-                fields.append((field_name, field_cpp))
-            # Create CompoundScalar TypeMeta with Python class for reconstruction
-            return _hgraph.value.get_compound_scalar_type_meta(
-                fields, self.py_type, self.py_type.__name__
-            )
+            with SchemaRecurseContext(self.py_type):
+                fields = []
+                schema = self.meta_data_schema
+                for field_name, field_type_meta in schema.items():
+                    field_cpp = field_type_meta.cpp_type
+                    if field_cpp is None:
+                        return None  # Fall back to nb::object if any field type is not supported
+                    fields.append((field_name, field_cpp))
+                # Create CompoundScalar TypeMeta with Python class for reconstruction
+                return _hgraph.value.get_compound_scalar_type_meta(
+                    fields, self.py_type, self.py_type.__name__
+                )
         except (ImportError, AttributeError):
             return None
 

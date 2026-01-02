@@ -478,6 +478,90 @@ namespace hgraph
         return set_output().was_removed(elem);
     }
 
+    std::vector<value::PlainValue> TimeSeriesSetInput::collect_added() const {
+        std::vector<value::PlainValue> result;
+
+        if (!has_output()) return result;
+
+        if (has_prev_output()) {
+            // Calculate added: items in current that weren't in prev state
+            // prev state = (prev_values + prev_removed - prev_added)
+            for (auto elem : set_output().value_view()) {
+                bool was_in_prev = (prev_output().contains(elem) || prev_output().was_removed(elem))
+                                   && !prev_output().was_added(elem);
+                if (!was_in_prev) {
+                    result.push_back(elem.clone());
+                }
+            }
+            return result;
+        }
+
+        if (sampled()) {
+            for (auto elem : set_output().value_view()) {
+                result.push_back(elem.clone());
+            }
+            return result;
+        }
+
+        for (auto elem : set_output().added_view()) {
+            result.push_back(elem.clone());
+        }
+        return result;
+    }
+
+    std::vector<value::PlainValue> TimeSeriesSetInput::collect_removed() const {
+        std::vector<value::PlainValue> result;
+
+        // Check prev_output FIRST (matching Python order)
+        if (has_prev_output()) {
+            // Calculate removed: items in prev state that aren't in current
+            // prev state = (prev_values + prev_removed - prev_added)
+            // Use vector-based approach to avoid needing hash/equal functors
+            std::vector<value::PlainValue> prev_state;
+            for (auto elem : prev_output().value_view()) {
+                prev_state.push_back(elem.clone());
+            }
+            for (auto elem : prev_output().removed_view()) {
+                // Only add if not already in prev_state
+                bool found = false;
+                for (const auto& existing : prev_state) {
+                    if (existing.equals(elem)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    prev_state.push_back(elem.clone());
+                }
+            }
+            // Remove items that were only added in the previous cycle
+            for (auto elem : prev_output().added_view()) {
+                prev_state.erase(
+                    std::remove_if(prev_state.begin(), prev_state.end(),
+                        [&](const value::PlainValue& v) { return v.equals(elem); }),
+                    prev_state.end());
+            }
+
+            // Now filter: items in prev_state that aren't in current values
+            for (auto& elem : prev_state) {
+                bool in_current = has_output() && set_output().contains(elem.const_view());
+                if (!in_current) {
+                    result.push_back(std::move(elem));
+                }
+            }
+            return result;
+        }
+
+        if (sampled()) return result;  // Return empty
+
+        if (has_output()) {
+            for (auto elem : set_output().removed_view()) {
+                result.push_back(elem.clone());
+            }
+        }
+        return result;
+    }
+
     // ========== Python Interop Methods for TimeSeriesSetInput ==========
 
     bool TimeSeriesSetInput::py_contains(const nb::object& item) const {

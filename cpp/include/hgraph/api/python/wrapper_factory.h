@@ -13,6 +13,7 @@
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/value/value.h>
 #include <memory>
 #include <type_traits>
 
@@ -105,17 +106,27 @@ namespace hgraph
     // time series values appropriately using the provided control block.
     // All functions return nb::list - wrap with nb::iter() in __iter__ methods.
 
+    // Helper to convert a key to Python object - handles PlainValue specially
+    template <typename K>
+    nb::object key_to_python(const K& key) {
+        if constexpr (std::is_same_v<std::decay_t<K>, value::PlainValue>) {
+            return key.to_python();
+        } else {
+            return nb::cast(key);
+        }
+    }
+
     // Convert range keys to a Python list (for map-like iterators)
     template <typename Iterator> nb::list keys_to_list(Iterator begin, Iterator end) {
         nb::list result;
-        for (auto it = begin; it != end; ++it) { result.append(nb::cast(it->first)); }
+        for (auto it = begin; it != end; ++it) { result.append(key_to_python(it->first)); }
         return result;
     }
 
     // Convert map/range keys to a Python list (takes by value to handle views)
     template <typename Range> nb::list keys_to_list(Range range) {
         nb::list result;
-        for (const auto &[key, _] : range) { result.append(nb::cast(key)); }
+        for (const auto &[key, _] : range) { result.append(key_to_python(key)); }
         return result;
     }
 
@@ -140,7 +151,7 @@ namespace hgraph
     template <typename Iterator> nb::list items_to_list(Iterator begin, Iterator end) {
         nb::list result;
         for (auto it = begin; it != end; ++it) {
-            result.append(nb::make_tuple(nb::cast(it->first), wrap_time_series(it->second)));
+            result.append(nb::make_tuple(key_to_python(it->first), wrap_time_series(it->second)));
         }
         return result;
     }
@@ -149,7 +160,7 @@ namespace hgraph
     // Values are expected to be shared_ptr types
     template <typename Range> nb::list items_to_list(Range range) {
         nb::list result;
-        for (const auto &[key, value] : range) { result.append(nb::make_tuple(nb::cast(key), wrap_time_series(value))); }
+        for (const auto &[key, value] : range) { result.append(nb::make_tuple(key_to_python(key), wrap_time_series(value))); }
         return result;
     }
 
