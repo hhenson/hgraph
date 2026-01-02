@@ -170,12 +170,14 @@ namespace hgraph {
     struct TimeSeriesDictInputImpl;
     struct TimeSeriesDictOutputImpl;
 
-    // Templated collection types (non-TSD)
-    template<typename> struct TimeSeriesSetInput_T;
-    template<typename> struct TimeSeriesWindowInput;
-    template<typename> struct TimeSeriesSetOutput_T;
-    template<typename> struct TimeSeriesFixedWindowOutput;
-    template<typename> struct TimeSeriesTimeWindowOutput;
+    // Non-templated TSS types (use Value system with TypeMeta)
+    struct TimeSeriesSetInput;
+    struct TimeSeriesSetOutput;
+
+    // Non-templated TSW types (use Value system with TypeMeta)
+    struct TimeSeriesWindowInput;
+    struct TimeSeriesFixedWindowOutput;
+    struct TimeSeriesTimeWindowOutput;
 
     struct ContextStubSourceNode;
     struct NestedNode;

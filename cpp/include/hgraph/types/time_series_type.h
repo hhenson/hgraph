@@ -36,19 +36,14 @@ namespace hgraph
     using TimeSeriesInputVisitor =
         decltype(tp::make_v<ddv::mux>(ts_input_types_v +
                                       ts_reference_input_types_v
-                                      // payload specialized inputs (TimeSeriesValueInput is now non-templated, in ts_input_types)
-                                      + tp::transform<tp::meta::apply<TimeSeriesSetInput_T>::type>(ts_payload_types_v) +
-                                      tp::tpack_v<TimeSeriesDictInputImpl> +  // Non-templated TSD uses Value/TypeMeta
-                                      tp::transform<tp::meta::apply<TimeSeriesWindowInput>::type>(ts_payload_types_v)))::type;
+                                      // Non-templated concrete types not in base packs (use Value/TypeMeta)
+                                      + tp::tpack_v<TimeSeriesDictInputImpl, TimeSeriesWindowInput>))::type;
 
     using TimeSeriesOutputVisitor =
         decltype(tp::make_v<ddv::mux>(ts_output_types_v +
                                       ts_reference_output_types_v
-                                      // payload specialized outputs (TimeSeriesValueOutput is now non-templated, in ts_output_types)
-                                      + tp::transform<tp::meta::apply<TimeSeriesSetOutput_T>::type>(ts_payload_types_v) +
-                                      tp::tpack_v<TimeSeriesDictOutputImpl> +  // Non-templated TSD uses Value/TypeMeta
-                                      tp::transform<tp::meta::apply<TimeSeriesFixedWindowOutput>::type>(ts_payload_types_v) +
-                                      tp::transform<tp::meta::apply<TimeSeriesTimeWindowOutput>::type>(ts_payload_types_v)))::type;
+                                      // Non-templated concrete types not in base packs (use Value/TypeMeta)
+                                      + tp::tpack_v<TimeSeriesDictOutputImpl, TimeSeriesFixedWindowOutput, TimeSeriesTimeWindowOutput>))::type;
 
     struct HGRAPH_EXPORT TimeSeriesType
     {

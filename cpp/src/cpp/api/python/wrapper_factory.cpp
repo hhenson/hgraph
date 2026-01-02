@@ -69,9 +69,9 @@ namespace
         [](TimeSeriesSetInput*, ApiPtr<TimeSeriesInput> impl) {
             return create_wrapper_from_api<PyTimeSeriesSetInput, TimeSeriesSetInput>(std::move(impl));
         },
-        []<typename T>(TimeSeriesWindowInput<T>*, ApiPtr<TimeSeriesInput> impl) {
-            using U = TimeSeriesWindowInput<T>;
-            return create_wrapper_from_api<PyTimeSeriesWindowInput<T>, U>(std::move(impl));
+        // Non-templated TSW input
+        [](TimeSeriesWindowInput*, ApiPtr<TimeSeriesInput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesWindowInput, TimeSeriesWindowInput>(std::move(impl));
         },
         // value inputs
         [](TimeSeriesValueInputBase*, ApiPtr<TimeSeriesInput> impl) {
@@ -118,13 +118,13 @@ namespace
         [](TimeSeriesSetOutput*, ApiPtr<TimeSeriesOutput> impl) {
             return create_wrapper_from_api<PyTimeSeriesSetOutput, TimeSeriesSetOutput>(std::move(impl));
         },
-        []<typename T>(TimeSeriesFixedWindowOutput<T>*, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesFixedWindowOutput<T>;
-            return create_wrapper_from_api<PyTimeSeriesWindowOutput<U>, U>(std::move(impl));
+        // Non-templated TSW fixed window output
+        [](TimeSeriesFixedWindowOutput*, ApiPtr<TimeSeriesOutput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesFixedWindowOutput, TimeSeriesFixedWindowOutput>(std::move(impl));
         },
-        []<typename T>(TimeSeriesTimeWindowOutput<T>*, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesTimeWindowOutput<T>;
-            return create_wrapper_from_api<PyTimeSeriesWindowOutput<U>, U>(std::move(impl));
+        // Non-templated TSW time window output
+        [](TimeSeriesTimeWindowOutput*, ApiPtr<TimeSeriesOutput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesTimeWindowOutput, TimeSeriesTimeWindowOutput>(std::move(impl));
         },
         // value outputs
         [](TimeSeriesValueOutputBase*, ApiPtr<TimeSeriesOutput> impl) {
