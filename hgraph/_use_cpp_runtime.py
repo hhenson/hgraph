@@ -423,15 +423,8 @@ if is_feature_enabled("use_cpp"):
             input_node_ids = dict(input_node_ids) if input_node_ids is not None else {}
             output_node_id = -1 if output_node_id is None else int(output_node_id)
             multiplexed_args = set(multiplexed_args) if multiplexed_args is not None else set()
-            key_tp = key_tp.py_type
-            return {
-                bool: _hgraph.TsdMapNodeBuilder_bool,
-                int: _hgraph.TsdMapNodeBuilder_int,
-                float: _hgraph.TsdMapNodeBuilder_float,
-                date: _hgraph.TsdMapNodeBuilder_date,
-                datetime: _hgraph.TsdMapNodeBuilder_date_time,
-                timedelta: _hgraph.TsdMapNodeBuilder_time_delta,
-            }.get(key_tp, _hgraph.TsdMapNodeBuilder_object)(
+            # Non-templated TsdMapNodeBuilder - key type is handled dynamically
+            return _hgraph.TsdMapNodeBuilder(
                 signature,
                 scalars,
                 input_builder,
@@ -459,16 +452,8 @@ if is_feature_enabled("use_cpp"):
             input_node_ids,
             output_node_id,
         ):
-            ts_input_type = signature.time_series_inputs["ts"]
-            key_tp = ts_input_type.key_tp.py_type
-            return {
-                bool: _hgraph.ReduceNodeBuilder_bool,
-                int: _hgraph.ReduceNodeBuilder_int,
-                float: _hgraph.ReduceNodeBuilder_float,
-                date: _hgraph.ReduceNodeBuilder_date,
-                datetime: _hgraph.ReduceNodeBuilder_date_time,
-                timedelta: _hgraph.ReduceNodeBuilder_time_delta,
-            }.get(key_tp, _hgraph.ReduceNodeBuilder_object)(
+            # Non-templated ReduceNodeBuilder - key type is handled dynamically via TSD input
+            return _hgraph.ReduceNodeBuilder(
                 signature,
                 scalars,
                 input_builder,
@@ -658,14 +643,8 @@ if is_feature_enabled("use_cpp"):
             key_tp,
             context_path,
         ):
-            return {
-                bool: _hgraph.MeshNodeBuilder_bool,
-                int: _hgraph.MeshNodeBuilder_int,
-                float: _hgraph.MeshNodeBuilder_float,
-                date: _hgraph.MeshNodeBuilder_date,
-                datetime: _hgraph.MeshNodeBuilder_date_time,
-                timedelta: _hgraph.MeshNodeBuilder_time_delta,
-            }.get(key_tp.py_type, _hgraph.MeshNodeBuilder_object)(
+            # Non-templated MeshNodeBuilder - key type is handled dynamically via keys input
+            return _hgraph.MeshNodeBuilder(
                 signature,
                 scalars,
                 input_builder,

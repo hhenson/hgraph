@@ -174,17 +174,15 @@ namespace hgraph
         tp::tpack<PushQueueNode, ContextStubSourceNode, LastValuePullNode, BasePythonNode, NestedNode,
             // BasePythonNode descendands
             PythonGeneratorNode, PythonNode,
-            // NestedNode descendands
-            ComponentNode, TsdNonAssociativeReduceNode, NestedGraphNode, TryExceptNode>;
+            // NestedNode descendands (non-templated)
+            ComponentNode, TsdNonAssociativeReduceNode, NestedGraphNode, TryExceptNode,
+            ReduceNode, TsdMapNode, MeshNode>;
     inline constexpr auto node_types_v = node_types{};
 
     using NodeVisitor = decltype(tp::make_v<ddv::mux>(
         node_types_v +
-        // payload specialized outputs
-        tp::transform<tp::meta::apply<ReduceNode>::type>(ts_payload_types_v) +
-        tp::transform<tp::meta::apply<SwitchNode>::type>(ts_payload_types_v) +
-        tp::transform<tp::meta::apply<TsdMapNode>::type>(ts_payload_types_v) +
-        tp::transform<tp::meta::apply<MeshNode>::type>(ts_payload_types_v)))::type;
+        // payload specialized outputs (only SwitchNode is still templated)
+        tp::transform<tp::meta::apply<SwitchNode>::type>(ts_payload_types_v)))::type;
 
     // Node - runtime object, uses shared_ptr
     struct HGRAPH_EXPORT Node : ComponentLifeCycle,

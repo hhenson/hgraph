@@ -154,9 +154,9 @@ namespace
         [](PushQueueNode*, ApiPtr<Node> ptr) {
             return create_wrapper_from_api<PyPushQueueNode, PushQueueNode>(std::move(ptr));
         },
-        // Mesh nodes
-        []<typename T>(MeshNode<T>*, ApiPtr<Node> ptr) {
-            return nb::cast(PyMeshNestedNode::make_mesh_node<T>(std::move(ptr)));
+        // Mesh nodes - now non-templated
+        [](MeshNode*, ApiPtr<Node> ptr) {
+            return nb::cast(PyMeshNestedNode::make_mesh_node(std::move(ptr)));
         },
         // Other nested nodes
         [](NestedNode*, ApiPtr<Node> ptr) {
@@ -181,11 +181,11 @@ namespace
     }
 
     /**
-     * Try to create a mesh node wrapper if the api_ptr can be cast to MeshNode<T>.
+     * Try to create a mesh node wrapper if the api_ptr can be cast to MeshNode.
      * Returns std::nullopt if the cast fails.
      */
-    template <typename T, typename ApiPtrType> std::optional<nb::object> try_create_mesh_node(ApiPtrType &impl) {
-        if (impl.template dynamic_cast_<MeshNode<T>>()) { return nb::cast(PyMeshNestedNode::make_mesh_node<T>(std::move(impl))); }
+    template <typename ApiPtrType> std::optional<nb::object> try_create_mesh_node(ApiPtrType &impl) {
+        if (impl.template dynamic_cast_<MeshNode>()) { return nb::cast(PyMeshNestedNode::make_mesh_node(std::move(impl))); }
         return std::nullopt;
     }
 

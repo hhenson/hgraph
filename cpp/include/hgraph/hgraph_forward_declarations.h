@@ -185,13 +185,13 @@ namespace hgraph {
     struct TsdNonAssociativeReduceNode;
     struct PythonGeneratorNode;
     struct PythonNode;
-    template<typename> struct ReduceNode;
+    struct ReduceNode;
     template<typename> struct SwitchNode;
     struct NestedGraphNode;
-    template<typename> struct TsdMapNode;
+    struct TsdMapNode;
     struct ComponentNode;
     struct TryExceptNode;
-    template <typename> struct MeshNode;
+    struct MeshNode;
 
     using ts_payload_types = tp::tpack<bool, int64_t, double, engine_date_t, engine_time_t, engine_time_delta_t, nb::object>;
     inline constexpr auto ts_payload_types_v = ts_payload_types{};
