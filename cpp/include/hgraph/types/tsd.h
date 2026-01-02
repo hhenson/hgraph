@@ -17,41 +17,8 @@
 
 namespace hgraph
 {
-    /**
-     * @brief Hash functor for PlainValue with transparent lookup support.
-     * Enables heterogeneous lookup with ConstValueView keys.
-     */
-    struct PlainValueHash {
-        using is_transparent = void;  // Enable heterogeneous lookup
+    // PlainValueHash and PlainValueEqual are defined in feature_extension.h
 
-        size_t operator()(const value::PlainValue& v) const {
-            return v.hash();
-        }
-
-        size_t operator()(const value::ConstValueView& v) const {
-            return v.hash();
-        }
-    };
-
-    /**
-     * @brief Equality functor for PlainValue with transparent lookup support.
-     * Enables heterogeneous comparison with ConstValueView keys.
-     */
-    struct PlainValueEqual {
-        using is_transparent = void;  // Enable heterogeneous lookup
-
-        bool operator()(const value::PlainValue& a, const value::PlainValue& b) const {
-            return a.equals(b.const_view());
-        }
-
-        bool operator()(const value::PlainValue& a, const value::ConstValueView& b) const {
-            return a.equals(b);
-        }
-
-        bool operator()(const value::ConstValueView& a, const value::PlainValue& b) const {
-            return b.equals(a);
-        }
-    };
     // TSDKeyObserver: Used to track additions and removals of parent keys.
     // Since the TSD is dynamic, the inputs associated with an output need to be updated when a key is added or removed
     // to correctly manage its internal state.
@@ -128,6 +95,8 @@ namespace hgraph
         // Storage types using PlainValue for type-erased key storage
         using map_type = std::unordered_map<value::PlainValue, value_type, PlainValueHash, PlainValueEqual>;
         using reverse_map_type = std::unordered_map<TimeSeriesOutput*, value::PlainValue>;
+        // Removed items stores pair<value, was_valid> to preserve validity state from before clearing
+        using removed_items_map_type = std::unordered_map<value::PlainValue, std::pair<value_type, bool>, PlainValueHash, PlainValueEqual>;
         using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
 
@@ -196,10 +165,17 @@ namespace hgraph
             return key_set().was_added(key);
         }
 
-        [[nodiscard]] const map_type &removed_items() const { return _removed_items; }
+        [[nodiscard]] const removed_items_map_type &removed_items() const { return _removed_items; }
 
         [[nodiscard]] bool was_removed(const value::ConstValueView &key) const {
             return _removed_items.find(key) != _removed_items.end();
+        }
+
+        // Returns whether the removed item was valid at the time of removal
+        [[nodiscard]] bool was_removed_valid(const value::ConstValueView &key) const {
+            auto it = _removed_items.find(key);
+            if (it == _removed_items.end()) { return false; }
+            return it->second.second;  // pair<value_type, was_valid>
         }
 
         [[nodiscard]] TimeSeriesSetOutput &key_set() override;
@@ -273,7 +249,7 @@ namespace hgraph
         map_type _ts_values;
         reverse_map_type _ts_values_to_keys;
         map_type _modified_items;
-        map_type _removed_items;
+        removed_items_map_type _removed_items;  // Stores pair<value, was_valid>
         mutable map_type _valid_items_cache;
 
         output_builder_s_ptr _ts_builder;

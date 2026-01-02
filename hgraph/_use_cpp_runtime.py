@@ -309,8 +309,9 @@ if is_feature_enabled("use_cpp"):
 
 
         def _tss_input_builder_type_for(scalar_type):
-            """Return factory for non-templated TimeSeriesSetInput builder."""
-            return _hgraph.InputBuilder_TSS
+            """Return factory for non-templated TimeSeriesSetInput builder with element schema."""
+            schema = _get_value_schema_for_scalar_type(scalar_type)
+            return lambda: _hgraph.InputBuilder_TSS(schema)
 
 
         def _tss_output_builder_for_tp(scalar_type):

@@ -153,13 +153,23 @@ namespace hgraph
     nb::object PyTimeSeriesDictOutput::removed_values() const {
         auto self = impl();
         const auto &items = self->removed_items();
-        return values_to_list(items.begin(), items.end());
+        // removed_items now stores pair<value, was_valid>, extract value
+        nb::list result;
+        for (const auto &[_, pair] : items) {
+            result.append(wrap_time_series(pair.first));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::removed_items() const {
         auto self = impl();
         const auto &items = self->removed_items();
-        return items_to_list(items.begin(), items.end());
+        // removed_items now stores pair<value, was_valid>, extract value
+        nb::list result;
+        for (const auto &[key, pair] : items) {
+            result.append(nb::make_tuple(key_to_python(key), wrap_time_series(pair.first)));
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictOutput::has_removed() const {

@@ -427,11 +427,20 @@ namespace hgraph
 
     // ========== TimeSeriesSetInput Implementation ==========
 
+    TimeSeriesSetInput::TimeSeriesSetInput(const node_ptr &parent, const value::TypeMeta* element_type)
+        : TimeSeriesSet<BaseTimeSeriesInput>(parent), _element_type(element_type) {}
+
+    TimeSeriesSetInput::TimeSeriesSetInput(time_series_input_ptr parent, const value::TypeMeta* element_type)
+        : TimeSeriesSet<BaseTimeSeriesInput>(parent), _element_type(element_type) {}
+
     TimeSeriesSetOutput &TimeSeriesSetInput::set_output() const {
         return dynamic_cast<TimeSeriesSetOutput &>(*output());
     }
 
     const value::TypeMeta* TimeSeriesSetInput::element_type() const {
+        // First check local element type (set during construction)
+        if (_element_type) return _element_type;
+        // Fall back to output's element type if available
         return has_output() ? set_output().element_type() : nullptr;
     }
 

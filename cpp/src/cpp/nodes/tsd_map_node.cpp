@@ -108,7 +108,9 @@ namespace hgraph
         if (keys.modified()) {
             // Use INPUT's collect_added() which handles sampled() case (returns all values when first bound)
             // Process added keys using Value-based iteration
-            for (auto& key : keys.collect_added()) {
+            auto added_keys = keys.collect_added();
+            for (size_t i = 0; i < added_keys.size(); ++i) {
+                auto& key = added_keys[i];
                 // There seems to be a case where a set can show a value as added even though it is not.
                 // This protects from accidentally creating duplicate graphs
                 if (active_graphs_.find(key.const_view()) == active_graphs_.end()) {
@@ -139,6 +141,7 @@ namespace hgraph
 
         for (const auto &[k, dt] : scheduled_keys) {
             if (dt < last_evaluation_time()) {
+                nb::object py_key = key_type_meta_->ops->to_python(k.const_view().data(), key_type_meta_);
                 throw std::runtime_error(
                     fmt::format("Scheduled time is in the past; last evaluation time: {}, scheduled time: {}, evaluation time: {}",
                                 last_evaluation_time(), dt, graph()->evaluation_time()));

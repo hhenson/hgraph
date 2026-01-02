@@ -79,17 +79,62 @@ namespace hgraph
         }
 
         bool was_added_flag = key_set().was_added(key);
-        key_set().remove(key);
+        auto item{it->second};
+        // CRITICAL: Capture was_valid BEFORE clearing the item AND before notifying observers!
+        // This allows INPUTs to query the OUTPUT for validity via was_removed_valid() during on_key_removed.
+        // The cascading removal sequence means observers might be called from nested removals,
+        // and they need to be able to query was_valid from ANY OUTPUT in the chain.
+        bool item_was_valid = item->valid();
+        // For reference outputs, check the REFERENCED output's validity, not the reference's binding status.
+        // A REF output reports valid()=true when it's bound, but for REMOVE purposes we need to know
+        // if the underlying output has a value - e.g., mesh fib(7) creates a REF that's bound but
+        // the nested graph never completed so the referenced output has no value.
+        if (auto ref_out = dynamic_cast<TimeSeriesReferenceOutput*>(item.get())) {
+            if (ref_out->has_value()) {
+                auto& ref = ref_out->value();
+                if (ref.is_bound()) {
+                    auto bound = ref.output();
+                    if (bound && bound->valid()) {
+                        // Referenced output is still valid - use that
+                        item_was_valid = true;
+                    } else if (bound && bound->last_modified_time() == MIN_DT) {
+                        // Referenced output has last_modified_time == MIN_DT. This can mean:
+                        // 1. It was NEVER written to (e.g., fib(7) never completed)
+                        // 2. It was written to but has been CLEARED due to cascading cleanup
+                        //
+                        // Use the REF output's last_modified_time as a heuristic: if it was only
+                        // modified at tick 1 (initial wiring), the bound output was never written to.
+                        // If modified after tick 1, the bound output was likely written to and cleared.
+                        auto ref_lmt = ref_out->last_modified_time();
+                        if (ref_lmt <= engine_time_t{std::chrono::microseconds{1}}) {
+                            item_was_valid = false;  // Never written to
+                        } else {
+                            // REF was modified after tick 1 - bound output was written to then cleared
+                            item_was_valid = ref_out->valid();
+                        }
+                    } else {
+                        // Bound output exists with lmt > MIN_DT but valid() is false
+                        item_was_valid = false;
+                    }
+                } else {
+                    item_was_valid = false;  // Not bound
+                }
+            } else {
+                item_was_valid = false;  // No reference value means not valid
+            }
+        }
 
+        // Store was_valid BEFORE notifying observers, so they can query it via was_removed_valid()
+        if (!was_added_flag) {
+            _removed_items.emplace(key.clone(), std::make_pair(item, item_was_valid));
+        }
+
+        key_set().remove(key);
         for (auto &observer : _key_observers) { observer->on_key_removed(key); }
 
-        auto item{it->second};
         _ts_values.erase(it);
-        // Is this wise clearing the item if we are going to track the remove? What if we need the last known value?
         item->clear();
-        if (!was_added_flag) {
-            _removed_items.emplace(key.clone(), item);
-        }
+
         // Note: TSS key_set handles all added/removed tracking via key_set().remove()
         _remove_key_value(key, item);
         // Update feature extension using Value-based key
@@ -270,10 +315,17 @@ namespace hgraph
 
     void TimeSeriesDictOutputImpl::clear() {
         key_set().clear();
-        for (auto &[_, value] : _ts_values) { value->clear(); }
 
+        // Track items that were valid before clearing
+        // Transfer _ts_values to _removed_items with was_valid=true (they were valid before clear)
         _removed_items.clear();
-        std::swap(_removed_items, _ts_values);
+        for (auto &[pv_key, value] : _ts_values) {
+            bool was_valid = value->valid();
+            value->clear();
+            // Clone the key since map keys are const
+            _removed_items.emplace(pv_key.const_view().clone(), std::make_pair(value, was_valid));
+        }
+        _ts_values.clear();
         _clear_key_tracking();
         // Update feature outputs for removed keys using Value-based API
         for (const auto &[pv_key, _] : _removed_items) {
@@ -446,8 +498,8 @@ namespace hgraph
     }
 
     void TimeSeriesDictOutputImpl::_dispose() {
-        // Release all removed items first
-        for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value.get()); }
+        // Release all removed items first (now stores pair<value, was_valid>)
+        for (auto &[_, pair] : _removed_items) { _ts_builder->release_instance(pair.first.get()); }
         _removed_items.clear();
 
         // Release all current values
@@ -456,8 +508,8 @@ namespace hgraph
     }
 
     void TimeSeriesDictOutputImpl::_clear_key_changes() {
-        // Release removed instances before clearing
-        for (auto &[_, value] : _removed_items) { _ts_builder->release_instance(value.get()); }
+        // Release removed instances before clearing (now stores pair<value, was_valid>)
+        for (auto &[_, pair] : _removed_items) { _ts_builder->release_instance(pair.first.get()); }
         _removed_items.clear();
     }
 
@@ -546,12 +598,16 @@ namespace hgraph
         // Handle removed items - use removed_items() which respects key_set's delta tracking
         // This ensures same-cycle add/remove doesn't show up as REMOVE
         const auto& removed_map = removed_items();
+
+        // NOTE: Unlike OUTPUT, INPUT should NOT unconditionally emit REMOVE for all removed keys.
+        // Python INPUT delta_value checks was_valid flag: only emit REMOVE if the item was valid
+        // when it was removed. This is critical for test_mesh_removal where the mesh output
+        // for key 7 was never valid (fib(7) didn't complete before removal).
         if (!removed_map.empty()) {
             auto removed{get_remove()};
             for (const auto &[pv_key, value] : removed_map) {
                 // Check was_valid flag from _removed_items
                 if (was_removed_valid(pv_key.const_view())) {
-                    // Convert key to Python using TypeOps
                     nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
                     delta[py_key] = removed;
                 }
@@ -689,11 +745,26 @@ namespace hgraph
         if (it == _ts_values.end()) { return; }
 
         auto value{it->second};
+
+        // Determine was_valid: whether the INPUT's bound value had a valid result before removal.
+        //
+        // This handles two cases:
+        // 1. test_mesh_2: key 'e' produced a valid result before removal -> emit REMOVE
+        // 2. test_mesh_removal: key 7 never produced a valid result (fib(7) didn't complete) -> NO REMOVE
+        //
+        // We use the TSD OUTPUT's stored was_valid (captured BEFORE clearing and before notifying
+        // observers). This is the authoritative source because it captures validity before cascading.
+        bool was_valid = value->valid();  // Current validity of INPUT's bound value
+        if (!was_valid && has_output()) {
+            // Value is currently invalid due to cascading. Query the TSD OUTPUT for the
+            // authoritative was_valid that was captured before clearing.
+            was_valid = output_t().was_removed_valid(key);
+        }
+
         _ts_values.erase(it);
         _remove_key_value(key, value);
 
         register_clear_key_changes();
-        auto was_valid = value->valid();
 
         if (value->parent_input().get() == this) {
             if (value->active()) { value->make_passive(); }
@@ -990,7 +1061,7 @@ namespace hgraph
 
         // If the key was removed in this cycle, clean up the removed tracking
         if (auto it = _removed_items.find(key_view); it != _removed_items.end()) {
-            _ts_builder->release_instance(it->second.get());
+            _ts_builder->release_instance(it->second.first.get());  // pair<value, was_valid>.first
             _removed_items.erase(it);
         }
 

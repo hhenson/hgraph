@@ -9,6 +9,47 @@
 namespace hgraph {
 
     /**
+     * @brief Hash functor for PlainValue with transparent lookup support.
+     * Enables heterogeneous lookup with ConstValueView keys.
+     */
+    struct PlainValueHash {
+        using is_transparent = void;  // Enable heterogeneous lookup
+
+        size_t operator()(const value::PlainValue& v) const {
+            return v.hash();
+        }
+
+        size_t operator()(const value::ConstValueView& v) const {
+            return v.hash();
+        }
+    };
+
+    /**
+     * @brief Equality functor for PlainValue with transparent lookup support.
+     * Enables heterogeneous comparison with ConstValueView keys.
+     */
+    struct PlainValueEqual {
+        using is_transparent = void;  // Enable heterogeneous lookup
+
+        bool operator()(const value::PlainValue& a, const value::PlainValue& b) const {
+            return a.equals(b.const_view());
+        }
+
+        bool operator()(const value::PlainValue& a, const value::ConstValueView& b) const {
+            return a.equals(b);
+        }
+
+        bool operator()(const value::ConstValueView& a, const value::PlainValue& b) const {
+            return b.equals(a);
+        }
+
+        bool operator()(const value::ConstValueView& a, const value::ConstValueView& b) const {
+            if (!a.valid() || !b.valid()) return false;
+            return a.hash() == b.hash() && a.schema() == b.schema();
+        }
+    };
+
+    /**
      * @brief Tracks a feature output and its requesters.
      *
      * This struct is registered as a scalar type with ScalarOps to enable
@@ -143,11 +184,11 @@ namespace hgraph {
     // ========== Value-based FeatureOutputExtension ==========
 
     /**
-     * @brief Non-templated FeatureOutputExtension using Value Map storage.
+     * @brief Non-templated FeatureOutputExtension using type-erased key storage.
      *
-     * This class manages feature outputs keyed by type-erased values. It uses
-     * the Value system's Map type with FeatureOutputRequestTracker as the value type,
-     * which is registered as a scalar type via ScalarOps.
+     * This class manages feature outputs keyed by type-erased PlainValue keys.
+     * Uses std::unordered_map with PlainValue keys (NOT the Value Map type) to
+     * properly handle non-trivially-copyable FeatureOutputRequestTracker objects.
      *
      * Usage:
      * - Create with key_type to specify the key schema
@@ -156,6 +197,8 @@ namespace hgraph {
      */
     struct FeatureOutputExtensionValue {
         using feature_fn = std::function<void(const TimeSeriesOutput &, TimeSeriesOutput &, const value::ConstValueView &)>;
+        using outputs_map_type = std::unordered_map<value::PlainValue, FeatureOutputRequestTracker,
+                                                     PlainValueHash, PlainValueEqual>;
 
         FeatureOutputExtensionValue(time_series_output_ptr owning_output_,
                                      output_builder_s_ptr output_builder_,
@@ -210,10 +253,9 @@ namespace hgraph {
         time_series_output_ptr _owning_output;
         output_builder_s_ptr _output_builder;
         const value::TypeMeta* _key_type;
-        const value::TypeMeta* _map_schema;  // Map<key_type, FeatureOutputRequestTracker>
         feature_fn _value_getter;
         std::optional<feature_fn> _initial_value_getter;
-        value::PlainValue _outputs;  // Map storage using Value system
+        outputs_map_type _outputs;  // Standard unordered_map for proper object handling
     };
 
     // ========== Legacy templated FeatureOutputExtension ==========

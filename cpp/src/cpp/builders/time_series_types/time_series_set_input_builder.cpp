@@ -5,12 +5,15 @@
 
 namespace hgraph {
 
+    TimeSeriesSetInputBuilder::TimeSeriesSetInputBuilder(const value::TypeMeta* element_type)
+        : InputBuilder(), _element_type(element_type) {}
+
     time_series_input_s_ptr TimeSeriesSetInputBuilder::make_instance(node_ptr owning_node) const {
-        return arena_make_shared_as<TimeSeriesSetInput, TimeSeriesInput>(owning_node);
+        return arena_make_shared_as<TimeSeriesSetInput, TimeSeriesInput>(owning_node, _element_type);
     }
 
     time_series_input_s_ptr TimeSeriesSetInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return arena_make_shared_as<TimeSeriesSetInput, TimeSeriesInput>(owning_input);
+        return arena_make_shared_as<TimeSeriesSetInput, TimeSeriesInput>(owning_input, _element_type);
     }
 
     size_t TimeSeriesSetInputBuilder::memory_size() const {
@@ -19,7 +22,7 @@ namespace hgraph {
 
     void time_series_set_input_builder_register_with_nanobind(nb::module_& m) {
         nb::class_<TimeSeriesSetInputBuilder, InputBuilder>(m, "InputBuilder_TSS")
-            .def(nb::init<>());
+            .def(nb::init<const value::TypeMeta*>(), "element_type"_a = nullptr);
     }
 
 } // namespace hgraph

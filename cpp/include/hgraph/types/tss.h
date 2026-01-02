@@ -185,7 +185,9 @@ namespace hgraph {
      * @brief Non-templated TimeSeriesSetInput using Value-based storage.
      */
     struct TimeSeriesSetInput final : TimeSeriesSet<BaseTimeSeriesInput> {
-        using TimeSeriesSet<BaseTimeSeriesInput>::TimeSeriesSet;
+        // Constructors with element type
+        explicit TimeSeriesSetInput(const node_ptr &parent, const value::TypeMeta* element_type = nullptr);
+        explicit TimeSeriesSetInput(time_series_input_ptr parent, const value::TypeMeta* element_type = nullptr);
 
         TimeSeriesSetOutput &set_output() const;
 
@@ -290,6 +292,7 @@ namespace hgraph {
     private:
         TimeSeriesSetOutput::s_ptr _prev_output;
         mutable bool _pending_reset_prev{false};
+        const value::TypeMeta* _element_type{nullptr};
     };
 
 } // namespace hgraph
