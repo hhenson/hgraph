@@ -9,26 +9,33 @@
 namespace hgraph {
     void register_reduce_node_with_nanobind(nb::module_ & m);
 
-    template<typename K>
     struct ReduceNode;
-    template<typename K>
-    using reduce_node_s_ptr = std::shared_ptr<ReduceNode<K>>;
+    using reduce_node_s_ptr = std::shared_ptr<ReduceNode>;
 
     /**
      * C++ implementation of PythonReduceNodeImpl.
      * This implements TSD reduction using an inverted binary tree with inputs at the leaves
      * and the result at the root. The inputs bound to the leaves can be moved as nodes come and go.
+     *
+     * Non-templated: uses Value/TypeMeta for type-erased key handling.
      */
-    template<typename K>
     struct ReduceNode final : NestedNode {
+        // Use PlainValue for type-erased key storage (same as TSD)
+        using key_map_type = std::unordered_map<value::PlainValue, std::tuple<int64_t, int64_t>,
+                                                 PlainValueHash, PlainValueEqual>;
+
         ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                    nb::dict scalars,
                    graph_builder_s_ptr nested_graph_builder, const std::tuple<int64_t, int64_t> &input_node_ids,
                    int64_t output_node_id);
 
+        // Non-copyable due to move-only PlainValue members
+        ReduceNode(const ReduceNode&) = delete;
+        ReduceNode& operator=(const ReduceNode&) = delete;
+
         std::unordered_map<int, graph_s_ptr> &nested_graphs();
 
-        TimeSeriesDictInput_T<K>::ptr ts();
+        TimeSeriesDictInputImpl::ptr ts();
 
         time_series_reference_input_ptr zero();
 
@@ -40,7 +47,8 @@ namespace hgraph {
 
         int64_t output_node_id() const;
 
-        const std::unordered_map<K, std::tuple<int64_t, int64_t> > &bound_node_indexes() const;
+        // Returns Python dict for inspection (converts PlainValue keys to Python)
+        nb::dict py_bound_node_indexes() const;
 
         const std::vector<std::tuple<int64_t, int64_t> > &free_node_indexes() const;
 
@@ -64,9 +72,10 @@ namespace hgraph {
 
         TimeSeriesOutput::s_ptr last_output();
 
-        void add_nodes(const std::unordered_set<K> &keys);
+        // Uses ConstValueView for key iteration from TSD
+        void add_nodes_from_views(const std::vector<value::ConstValueView> &keys);
 
-        void remove_nodes(const std::unordered_set<K> &keys);
+        void remove_nodes_from_views(const std::vector<value::ConstValueView> &keys);
 
         void re_balance_nodes();
 
@@ -74,7 +83,7 @@ namespace hgraph {
 
         void shrink_tree();
 
-        void bind_key_to_node(const K &key, const std::tuple<int64_t, int64_t> &ndx);
+        void bind_key_to_node(const value::ConstValueView &key, const std::tuple<int64_t, int64_t> &ndx);
 
         void zero_node(const std::tuple<int64_t, int64_t> &ndx);
 
@@ -91,7 +100,7 @@ namespace hgraph {
         graph_builder_s_ptr nested_graph_builder_;
         std::tuple<int64_t, int64_t> input_node_ids_; // LHS index, RHS index
         int64_t output_node_id_;
-        std::unordered_map<K, std::tuple<int64_t, int64_t> > bound_node_indexes_;
+        key_map_type bound_node_indexes_;
         std::vector<std::tuple<int64_t, int64_t> > free_node_indexes_; // List of (ndx, 0(lhs)|1(rhs)) tuples
 
         // The python code uses the fact that you can randomly add properties to a python object and tracks

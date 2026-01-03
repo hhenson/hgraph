@@ -115,6 +115,10 @@ def test_inspector_sort_key():
     InspectorItemId.__reset__()
 
 
+@pytest.mark.skipif(
+    __import__('shutil').which('npm') is None,
+    reason="npm is not installed (required for Perspective web components)"
+)
 def test_run_inspector():
     import polars as pl
     import pyarrow

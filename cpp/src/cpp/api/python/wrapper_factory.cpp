@@ -20,6 +20,7 @@
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/mesh_node.h>
 #include <hgraph/nodes/push_queue_node.h>
+#include <hgraph/nodes/switch_node.h>
 #include <hgraph/nodes/tsd_map_node.h>
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/graph.h>
@@ -61,18 +62,17 @@ namespace
                   PyTimeSeriesBundleReferenceInput>;
 
     static constexpr auto input_v = ddv::serial{
-        // typed inputs
-        []<typename T>(TimeSeriesDictInput_T<T>*, ApiPtr<TimeSeriesInput> impl) {
-            using U = TimeSeriesDictInput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesDictInput_T<U>, U>(std::move(impl));
+        // Non-templated TSD input
+        [](TimeSeriesDictInputImpl*, ApiPtr<TimeSeriesInput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesDictInput, TimeSeriesDictInputImpl>(std::move(impl));
         },
-        []<typename T>(TimeSeriesSetInput_T<T>*, ApiPtr<TimeSeriesInput> impl) {
-            using U = TimeSeriesSetInput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesSetInput_T<U>, U>(std::move(impl));
+        // Non-templated TSS input
+        [](TimeSeriesSetInput*, ApiPtr<TimeSeriesInput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesSetInput, TimeSeriesSetInput>(std::move(impl));
         },
-        []<typename T>(TimeSeriesWindowInput<T>*, ApiPtr<TimeSeriesInput> impl) {
-            using U = TimeSeriesWindowInput<T>;
-            return create_wrapper_from_api<PyTimeSeriesWindowInput<T>, U>(std::move(impl));
+        // Non-templated TSW input
+        [](TimeSeriesWindowInput*, ApiPtr<TimeSeriesInput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesWindowInput, TimeSeriesWindowInput>(std::move(impl));
         },
         // value inputs
         [](TimeSeriesValueInputBase*, ApiPtr<TimeSeriesInput> impl) {
@@ -83,14 +83,14 @@ namespace
             requires(tp::contains<TS>(ts_opaque_input_types_v))
         {
             if constexpr (std::is_same_v<TS, TimeSeriesReferenceInput>) {
-                // BUG: Encountered a base TimeSeriesReferenceInput that doesn't match any specialized type.
-                // There should not be naked instances of TimeSeriesReferenceInput - they should always be
-                // one of the specialized types. This indicates a bug where a base TimeSeriesReferenceInput
-                // was created instead of a specialized type.
+                // DEFENSIVE: This branch handles the base TimeSeriesReferenceInput type in the visitor pattern.
+                // Since TimeSeriesReferenceInput is an abstract class (clone_blank_ref_instance is pure virtual),
+                // this should never be triggered - all actual instances will be specialized types.
+                // This guard exists to catch any unexpected visitor pattern matching issues.
                 throw std::runtime_error(
                     "Python wrap input TS: Encountered a base TimeSeriesReferenceInput "
-                    "that doesn't match any specialized type. This is a bug - there should not be naked instances of "
-                    "TimeSeriesReferenceInput. Check where this input was created (likely in reduce_node.cpp::zero_node).");
+                    "that doesn't match any specialized type. This should not happen since "
+                    "TimeSeriesReferenceInput is abstract. Check the visitor pattern matching logic.");
             } else {
                 using py_type = tp::get_t<tp::find<TS>(ts_opaque_input_types_v), py_ts_opaque_input_types>;
                 return create_wrapper_from_api<py_type, TS>(std::move(impl));
@@ -111,22 +111,21 @@ namespace
                   PyTimeSeriesBundleReferenceOutput>;
 
     static constexpr auto output_v = ddv::serial{
-        // typed outputs
-        []<typename T>(TimeSeriesDictOutput_T<T>*, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesDictOutput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesDictOutput_T<U>, U>(std::move(impl));
+        // Non-templated TSD output
+        [](TimeSeriesDictOutputImpl*, ApiPtr<TimeSeriesOutput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesDictOutput, TimeSeriesDictOutputImpl>(std::move(impl));
         },
-        []<typename T>(TimeSeriesSetOutput_T<T>*, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesSetOutput_T<T>;
-            return create_wrapper_from_api<PyTimeSeriesSetOutput_T<U>, U>(std::move(impl));
+        // Non-templated TSS output
+        [](TimeSeriesSetOutput*, ApiPtr<TimeSeriesOutput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesSetOutput, TimeSeriesSetOutput>(std::move(impl));
         },
-        []<typename T>(TimeSeriesFixedWindowOutput<T>*, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesFixedWindowOutput<T>;
-            return create_wrapper_from_api<PyTimeSeriesWindowOutput<U>, U>(std::move(impl));
+        // Non-templated TSW fixed window output
+        [](TimeSeriesFixedWindowOutput*, ApiPtr<TimeSeriesOutput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesFixedWindowOutput, TimeSeriesFixedWindowOutput>(std::move(impl));
         },
-        []<typename T>(TimeSeriesTimeWindowOutput<T>*, ApiPtr<TimeSeriesOutput> impl) {
-            using U = TimeSeriesTimeWindowOutput<T>;
-            return create_wrapper_from_api<PyTimeSeriesWindowOutput<U>, U>(std::move(impl));
+        // Non-templated TSW time window output
+        [](TimeSeriesTimeWindowOutput*, ApiPtr<TimeSeriesOutput> impl) {
+            return create_wrapper_from_api<PyTimeSeriesTimeWindowOutput, TimeSeriesTimeWindowOutput>(std::move(impl));
         },
         // value outputs
         [](TimeSeriesValueOutputBase*, ApiPtr<TimeSeriesOutput> impl) {
@@ -151,18 +150,22 @@ namespace
 
     static auto node_v = ddv::serial{
         [](LastValuePullNode*, ApiPtr<Node> ptr) {
-            return create_wrapper_from_api<PyLastValuePullNode, LastValuePullNode>(std::move(ptr));
+            return nb::cast(PyLastValuePullNode(std::move(ptr)));
         },
         [](PushQueueNode*, ApiPtr<Node> ptr) {
-            return create_wrapper_from_api<PyPushQueueNode, PushQueueNode>(std::move(ptr));
+            return nb::cast(PyPushQueueNode(std::move(ptr)));
         },
-        // Mesh nodes
-        []<typename T>(MeshNode<T>*, ApiPtr<Node> ptr) {
-            return nb::cast(PyMeshNestedNode::make_mesh_node<T>(std::move(ptr)));
+        // Mesh nodes - now non-templated
+        [](MeshNode*, ApiPtr<Node> ptr) {
+            return nb::cast(PyMeshNestedNode::make_mesh_node(std::move(ptr)));
+        },
+        // Switch nodes - now non-templated, wraps as PyNestedNode
+        [](SwitchNode*, ApiPtr<Node> ptr) {
+            return nb::cast(PyNestedNode(std::move(ptr)));
         },
         // Other nested nodes
         [](NestedNode*, ApiPtr<Node> ptr) {
-            return create_wrapper_from_api<PyNestedNode, NestedNode>(std::move(ptr));
+            return nb::cast(PyNestedNode(std::move(ptr)));
         },
         // Default to base PyNode
         // [NOTE] first arg must be `auto`, not `Node*`: in latter case compiler needs complete nodes definitions
@@ -183,11 +186,11 @@ namespace
     }
 
     /**
-     * Try to create a mesh node wrapper if the api_ptr can be cast to MeshNode<T>.
+     * Try to create a mesh node wrapper if the api_ptr can be cast to MeshNode.
      * Returns std::nullopt if the cast fails.
      */
-    template <typename T, typename ApiPtrType> std::optional<nb::object> try_create_mesh_node(ApiPtrType &impl) {
-        if (impl.template dynamic_cast_<MeshNode<T>>()) { return nb::cast(PyMeshNestedNode::make_mesh_node<T>(std::move(impl))); }
+    template <typename ApiPtrType> std::optional<nb::object> try_create_mesh_node(ApiPtrType &impl) {
+        if (impl.template dynamic_cast_<MeshNode>()) { return nb::cast(PyMeshNestedNode::make_mesh_node(std::move(impl))); }
         return std::nullopt;
     }
 

@@ -63,6 +63,7 @@ class TableSchema(CompoundScalar):
     removed_keys: tuple[str, ...]  # Only present when there are partition_keys.
     date_time_key: str
     as_of_key: str
+    is_multi_row: bool = False  # True for types like Frame that return multiple rows without partition_keys
 
 
 @dataclass(frozen=True)
@@ -89,7 +90,7 @@ def table_shape(ts: type[TIME_SERIES_TYPE]) -> TABLE:
 def table_shape_from_schema(schema: TableSchema) -> TABLE:
     """The shape of the table from the schema"""
     row = schema.types
-    if schema.partition_keys:
+    if schema.partition_keys or schema.is_multi_row:
         return tuple[tuple[*row], ...]
     else:
         return tuple[*row]
@@ -133,6 +134,7 @@ def make_table_schema(
     removed_keys: tuple[str, ...] = tuple(),
     date_key: str = None,
     as_of_key: str = None,
+    is_multi_row: bool = False,
 ) -> TableSchema:
     """
     Constructs the table schema. This ensures we use the system default behaviour when
@@ -165,6 +167,7 @@ def make_table_schema(
         removed_keys=removed_keys,
         date_time_key=date_key,
         as_of_key=as_of_key,
+        is_multi_row=is_multi_row,
     )
 
 

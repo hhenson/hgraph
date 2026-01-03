@@ -442,7 +442,8 @@ def test_to_table_frame():
         as_of = MIN_ST + 10 * MIN_TD
         set_as_of(as_of)
         df = pl.DataFrame({"a": [1, 2, 3], "b": [4, 5, 6]})
-        assert eval_node(g, [df])[-1] == (MIN_ST, as_of, (1, 4), (2, 5), (3, 6))
+        # Each row gets its own datetime columns
+        assert eval_node(g, [df])[-1] == ((MIN_ST, as_of, 1, 4), (MIN_ST, as_of, 2, 5), (MIN_ST, as_of, 3, 6))
 
 
 def test_to_table_schema_frame():
@@ -459,4 +460,5 @@ def test_to_table_schema_frame():
         removed_keys=(),
         date_time_key="__date_time__",
         as_of_key="__as_of__",
+        is_multi_row=True,  # Frame returns multiple rows (one per DataFrame row)
     )

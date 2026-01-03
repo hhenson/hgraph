@@ -2,148 +2,130 @@
 #include <hgraph/util/string_utils.h>
 
 namespace hgraph {
-    template<typename T>
-    nb::object TimeSeriesValueOutput<T>::py_value() const { return valid() ? nb::cast(_value) : nb::none(); }
 
-    template<typename T>
-    nb::object TimeSeriesValueOutput<T>::py_delta_value() const { return py_value(); }
+    // ============================================================================
+    // TimeSeriesValueOutput Implementation
+    // ============================================================================
 
-    template<typename T>
-    void TimeSeriesValueOutput<T>::py_set_value(const nb::object& value) {
+    TimeSeriesValueOutput::TimeSeriesValueOutput(Node* owning_node, const value::TypeMeta* schema)
+        : TimeSeriesValueOutputBase(owning_node), _value(schema) {}
+
+    TimeSeriesValueOutput::TimeSeriesValueOutput(TimeSeriesOutput* parent, const value::TypeMeta* schema)
+        : TimeSeriesValueOutputBase(parent), _value(schema) {}
+
+    nb::object TimeSeriesValueOutput::py_value() const {
+        return valid() ? _value.to_python() : nb::none();
+    }
+
+    nb::object TimeSeriesValueOutput::py_delta_value() const {
+        return py_value();
+    }
+
+    void TimeSeriesValueOutput::py_set_value(const nb::object& value) {
         if (value.is_none()) {
             invalidate();
             return;
         }
-        set_value(nb::cast<T>(value));
+        _value.from_python(value);
+        mark_modified();
     }
 
-    template<typename T>
-    void TimeSeriesValueOutput<T>::apply_result(const nb::object& value) {
-        if (!value.is_valid() || value.is_none()) { return; }
+    void TimeSeriesValueOutput::apply_result(const nb::object& value) {
+        if (!value.is_valid() || value.is_none()) {
+            return;
+        }
         try {
             py_set_value(value);
-        } catch (std::exception &e) {
-            std::string msg = "Cannot apply node output " + to_string(value) + " of type " +
-                              std::string(typeid(T).name()) + " to TimeSeriesValueOutput: " + e.what();
+        } catch (std::exception& e) {
+            std::string msg = "Cannot apply node output " + to_string(value) +
+                              " to TimeSeriesValueOutput: " + e.what();
             throw nb::type_error(msg.c_str());
         }
     }
 
-    template<typename T>
-    void TimeSeriesValueOutput<T>::set_value(const T &value) {
-        _value = value;
-        mark_modified();
-    }
-
-    template<typename T>
-    void TimeSeriesValueOutput<T>::set_value(T &&value) {
-        _value = std::move(value);
-        mark_modified();
-    }
-
-    template<typename T>
-    void TimeSeriesValueOutput<T>::mark_invalid() {
-        _value = {}; // Set to the equivalent of none
+    void TimeSeriesValueOutput::mark_invalid() {
+        _value = value::CachedValue(schema());  // Reset to default
         BaseTimeSeriesOutput::mark_invalid();
     }
 
-    template<typename T>
-    void TimeSeriesValueOutput<T>::copy_from_output(const TimeSeriesOutput &output) {
-        auto &output_t = dynamic_cast<const TimeSeriesValueOutput<T> &>(output);
-        if (output_t.valid()){
-            set_value(output_t._value);
+    void TimeSeriesValueOutput::copy_from_output(const TimeSeriesOutput& output) {
+        auto* other = dynamic_cast<const TimeSeriesValueOutput*>(&output);
+        if (!other) {
+            throw std::runtime_error("TimeSeriesValueOutput::copy_from_output: type mismatch");
+        }
+        if (other->valid()) {
+            _value.view().copy_from(other->_value.const_view());
+            mark_modified();
         } else {
             mark_invalid();
         }
     }
 
-    template<typename T>
-    void TimeSeriesValueOutput<T>::copy_from_input(const TimeSeriesInput &input) {
-        const auto &input_t = dynamic_cast<const TimeSeriesValueInput<T> &>(input);
-        if (input_t.valid()) {
-            set_value(input_t.value());
+    void TimeSeriesValueOutput::copy_from_input(const TimeSeriesInput& input) {
+        auto* other = dynamic_cast<const TimeSeriesValueInput*>(&input);
+        if (!other) {
+            throw std::runtime_error("TimeSeriesValueOutput::copy_from_input: type mismatch");
+        }
+        if (other->valid()) {
+            _value.view().copy_from(other->value());
+            mark_modified();
         } else {
             mark_invalid();
         }
     }
 
-    template<typename T>
-    bool TimeSeriesValueOutput<T>::is_same_type(const TimeSeriesType *other) const {
-        return dynamic_cast<const TimeSeriesValueOutput<T> *>(other) != nullptr;
+    bool TimeSeriesValueOutput::is_same_type(const TimeSeriesType* other) const {
+        auto* ts = dynamic_cast<const TimeSeriesValueOutput*>(other);
+        return ts && ts->schema() == schema();
     }
 
-    template<typename T>
-    void TimeSeriesValueOutput<T>::reset_value() {
-        _value = {};
+    void TimeSeriesValueOutput::reset_value() {
+        _value = value::CachedValue(schema());
     }
 
-    template<typename T>
-    TimeSeriesValueOutput<T> &TimeSeriesValueInput<T>::value_output() {
-        return dynamic_cast<TimeSeriesValueOutput<T> &>(*output());
+    // ============================================================================
+    // TimeSeriesValueInput Implementation
+    // ============================================================================
+
+    TimeSeriesValueOutput& TimeSeriesValueInput::value_output() {
+        return dynamic_cast<TimeSeriesValueOutput&>(*output());
     }
 
-    template<typename T>
-    const TimeSeriesValueOutput<T> &TimeSeriesValueInput<T>::value_output() const {
-        return dynamic_cast<TimeSeriesValueOutput<T> &>(*output());
+    const TimeSeriesValueOutput& TimeSeriesValueInput::value_output() const {
+        return dynamic_cast<const TimeSeriesValueOutput&>(*output());
     }
 
-    template<typename T>
-    const T &TimeSeriesValueInput<T>::value() const { return value_output().value(); }
-
-    template<typename T>
-    bool TimeSeriesValueInput<T>::is_same_type(const TimeSeriesType *other) const {
-        return dynamic_cast<const TimeSeriesValueInput<T> *>(other) != nullptr;
+    value::ConstValueView TimeSeriesValueInput::value() const {
+        return value_output().value();
     }
 
-    // TODO: How to better track the types we have registered as there is a corresponding item to deal with in the output and input
-    // builders.
-    template struct TimeSeriesValueInput<bool>;
-    template struct TimeSeriesValueInput<int64_t>;
-    template struct TimeSeriesValueInput<double>;
-    template struct TimeSeriesValueInput<engine_date_t>;
-    template struct TimeSeriesValueInput<engine_time_t>;
-    template struct TimeSeriesValueInput<engine_time_delta_t>;
-    template struct TimeSeriesValueInput<nb::object>;
-
-    template struct TimeSeriesValueOutput<bool>;
-    template struct TimeSeriesValueOutput<int64_t>;
-    template struct TimeSeriesValueOutput<double>;
-    template struct TimeSeriesValueOutput<engine_date_t>;
-    template struct TimeSeriesValueOutput<engine_time_t>;
-    template struct TimeSeriesValueOutput<engine_time_delta_t>;
-    template struct TimeSeriesValueOutput<nb::object>;
-
-    using TS_Bool = TimeSeriesValueInput<bool>;
-    using TS_Out_Bool = TimeSeriesValueOutput<bool>;
-    using TS_Int = TimeSeriesValueInput<int64_t>;
-    using TS_Out_Int = TimeSeriesValueOutput<int64_t>;
-    using TS_Float = TimeSeriesValueInput<double>;
-    using TS_Out_Float = TimeSeriesValueOutput<double>;
-    using TS_Date = TimeSeriesValueInput<engine_date_t>;
-    using TS_Out_Date = TimeSeriesValueOutput<engine_date_t>;
-    using TS_DateTime = TimeSeriesValueInput<engine_time_t>;
-    using TS_Out_DateTime = TimeSeriesValueOutput<engine_time_t>;
-    using TS_TimeDelta = TimeSeriesValueInput<engine_time_delta_t>;
-    using TS_Out_TimeDelta = TimeSeriesValueOutput<engine_time_delta_t>;
-    using TS_Object = TimeSeriesValueInput<nb::object>;
-    using TS_Out_Object = TimeSeriesValueOutput<nb::object>;
-
-    void register_ts_with_nanobind(nb::module_ &m) {
-        nb::class_<TimeSeriesValueOutputBase, BaseTimeSeriesOutput>(m, "TimeSeriesValueOutput");
-        nb::class_<TimeSeriesValueInputBase, BaseTimeSeriesInput>(m, "TimeSeriesValueInput");
-        nb::class_<TS_Out_Bool, TimeSeriesValueOutputBase>(m, "TS_Out_Bool");
-        nb::class_<TS_Bool, TimeSeriesValueInputBase>(m, "TS_Bool");
-        nb::class_<TS_Out_Int, TimeSeriesValueOutputBase>(m, "TS_Out_Int");
-        nb::class_<TS_Int, TimeSeriesValueInputBase>(m, "TS_Int");
-        nb::class_<TS_Out_Float, TimeSeriesValueOutputBase>(m, "TS_Out_Float");
-        nb::class_<TS_Float, TimeSeriesValueInputBase>(m, "TS_Float");
-        nb::class_<TS_Out_Date, TimeSeriesValueOutputBase>(m, "TS_Out_Date");
-        nb::class_<TS_Date, TimeSeriesValueInputBase>(m, "TS_Date");
-        nb::class_<TS_Out_DateTime, TimeSeriesValueOutputBase>(m, "TS_Out_DateTime");
-        nb::class_<TS_DateTime, TimeSeriesValueInputBase>(m, "TS_DateTime");
-        nb::class_<TS_Out_TimeDelta, TimeSeriesValueOutputBase>(m, "TS_Out_TimeDelta");
-        nb::class_<TS_TimeDelta, TimeSeriesValueInputBase>(m, "TS_TimeDelta");
-        nb::class_<TS_Out_Object, TimeSeriesValueOutputBase>(m, "TS_Out_Object");
-        nb::class_<TS_Object, TimeSeriesValueInputBase>(m, "TS_Object");
+    const value::TypeMeta* TimeSeriesValueInput::schema() const {
+        return value_output().schema();
     }
+
+    bool TimeSeriesValueInput::is_same_type(const TimeSeriesType* other) const {
+        auto* ts = dynamic_cast<const TimeSeriesValueInput*>(other);
+        return ts != nullptr;
+    }
+
+    // ============================================================================
+    // Python Bindings
+    // ============================================================================
+
+    void register_ts_with_nanobind(nb::module_& m) {
+        // TimeSeriesValueOutputBase - intermediate class for visitor pattern
+        nb::class_<TimeSeriesValueOutputBase, BaseTimeSeriesOutput>(m, "TimeSeriesValueOutputBase");
+
+        // TimeSeriesValueOutput - created via builders, not directly from Python
+        nb::class_<TimeSeriesValueOutput, TimeSeriesValueOutputBase>(m, "TimeSeriesValueOutput")
+            .def_prop_ro("schema", &TimeSeriesValueOutput::schema);
+
+        // TimeSeriesValueInputBase - intermediate class for visitor pattern
+        nb::class_<TimeSeriesValueInputBase, BaseTimeSeriesInput>(m, "TimeSeriesValueInputBase");
+
+        // TimeSeriesValueInput - created via builders
+        nb::class_<TimeSeriesValueInput, TimeSeriesValueInputBase>(m, "TimeSeriesValueInput")
+            .def_prop_ro("schema", &TimeSeriesValueInput::schema);
+    }
+
 } // namespace hgraph

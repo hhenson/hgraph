@@ -40,6 +40,7 @@ class PartialSchema:
     to_table_sample: Callable[[TIME_SERIES_TYPE], TABLE]
     to_table_snap: Callable[[TIME_SERIES_TYPE], TABLE]
     from_table: Callable[[Iterable], TIME_SERIES_TYPE]
+    is_multi_row: bool = False  # True for types like Frame that return multiple rows
 
 
 @functools.cache
@@ -136,6 +137,7 @@ def _(tp: HgTSTypeMetaData) -> PartialSchema:
                 schema.to_table_snap(ts.value) if ts.valid else (None,) * len(schema.keys)
             ),
             from_table=schema.from_table,
+            is_multi_row=schema.is_multi_row,  # Propagate from inner schema
         )
     else:
         return PartialSchema(
@@ -394,6 +396,7 @@ def _(tp: HgDataFrameScalarTypeMetaData) -> PartialSchema:
             to_table_sample=lambda v: tuple(schema.to_table(tp.schema.py_type(**i)) for i in v.rows(named=True)),
             to_table_snap=lambda v: tuple(schema.to_table(tp.schema.py_type(**i)) for i in v.rows(named=True)),
             from_table=lambda it: pl.DataFrame(tuple(schema.from_table(iter(i)) for i in it)),
+            is_multi_row=True,  # Frame returns multiple rows (one per DataFrame row)
         )
     else:
         return PartialSchema(

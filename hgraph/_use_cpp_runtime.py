@@ -89,7 +89,7 @@ if is_feature_enabled("use_cpp"):
                 return self.make_output_builder(value_tp)
 
             def _make_tsw_input_builder(self, value_tp):
-                return _tsw_input_builder_type_for(value_tp.value_scalar_tp)()
+                return _tsw_input_builder_for(value_tp.value_scalar_tp)
 
             def make_input_builder(self, value_tp):
                 return {
@@ -119,14 +119,16 @@ if is_feature_enabled("use_cpp"):
                 time_range = getattr(value_tp.size_tp.py_type, "TIME_RANGE", None)
                 is_time_based = time_range is not None
                 if is_time_based:
-                    return _ttsw_output_builder_for_tp(value_tp.value_scalar_tp)(
+                    return _ttsw_output_builder_for(
+                        value_tp.value_scalar_tp,
                         value_tp.size_tp.py_type.TIME_RANGE,
                         value_tp.min_size_tp.py_type.TIME_RANGE
                         if getattr(value_tp.min_size_tp.py_type, "TIME_RANGE", None)
                         else value_tp.min_size_tp.py_type.TIME_RANGE,
                     )
                 else:
-                    return _tsw_output_builder_for_tp(value_tp.value_scalar_tp)(
+                    return _tsw_output_builder_for(
+                        value_tp.value_scalar_tp,
                         value_tp.size_tp.py_type.SIZE,
                         value_tp.min_size_tp.py_type.SIZE
                         if getattr(value_tp.min_size_tp.py_type, "FIXED_SIZE", True)
@@ -275,122 +277,80 @@ if is_feature_enabled("use_cpp"):
                 }.get(type(referenced_tp), _make_ts_value_ref)()
 
 
+        def _get_value_schema_for_scalar_type(scalar_type):
+            """Get the Value type schema for a scalar type."""
+            from hgraph._hgraph import value
+            schema_map = {
+                bool: value.scalar_type_meta_bool,
+                int: value.scalar_type_meta_int64,
+                float: value.scalar_type_meta_double,
+                str: value.scalar_type_meta_string,
+                date: value.scalar_type_meta_date,
+                datetime: value.scalar_type_meta_datetime,
+                timedelta: value.scalar_type_meta_timedelta,
+            }
+            schema_fn = schema_map.get(scalar_type.py_type)
+            if schema_fn is not None:
+                return schema_fn()
+            # Fallback: check if scalar_type has cpp_type, otherwise use Python object schema
+            if hasattr(scalar_type, 'cpp_type') and scalar_type.cpp_type is not None:
+                return scalar_type.cpp_type
+            # Default to object (nb::object) schema for unknown types
+            return value.get_scalar_type_meta(scalar_type.py_type)
+
         def _ts_input_builder_type_for(scalar_type):
-            return {
-                bool: _hgraph.InputBuilder_TS_Bool,
-                int: _hgraph.InputBuilder_TS_Int,
-                float: _hgraph.InputBuilder_TS_Float,
-                date: _hgraph.InputBuilder_TS_Date,
-                datetime: _hgraph.InputBuilder_TS_DateTime,
-                timedelta: _hgraph.InputBuilder_TS_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.InputBuilder_TS_Object)
+            """Return factory for non-templated TimeSeriesValueInput builder."""
+            # Return callable to match old factory pattern
+            return _hgraph.InputBuilder_TS_Value
 
 
         def _ts_output_builder_for_tp(scalar_type):
-            return {
-                bool: _hgraph.OutputBuilder_TS_Bool,
-                int: _hgraph.OutputBuilder_TS_Int,
-                float: _hgraph.OutputBuilder_TS_Float,
-                date: _hgraph.OutputBuilder_TS_Date,
-                datetime: _hgraph.OutputBuilder_TS_DateTime,
-                timedelta: _hgraph.OutputBuilder_TS_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.OutputBuilder_TS_Object)
+            """Return factory for non-templated TimeSeriesValueOutput builder with schema."""
+            schema = _get_value_schema_for_scalar_type(scalar_type)
+            # Return callable to match old factory pattern
+            return lambda: _hgraph.OutputBuilder_TS_Value(schema)
 
 
         def _tss_input_builder_type_for(scalar_type):
-            return {
-                bool: _hgraph.InputBuilder_TSS_Bool,
-                int: _hgraph.InputBuilder_TSS_Int,
-                float: _hgraph.InputBuilder_TSS_Float,
-                date: _hgraph.InputBuilder_TSS_Date,
-                datetime: _hgraph.InputBuilder_TSS_DateTime,
-                timedelta: _hgraph.InputBuilder_TSS_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.InputBuilder_TSS_Object)
+            """Return factory for non-templated TimeSeriesSetInput builder with element schema."""
+            schema = _get_value_schema_for_scalar_type(scalar_type)
+            return lambda: _hgraph.InputBuilder_TSS(schema)
 
 
         def _tss_output_builder_for_tp(scalar_type):
-            return {
-                bool: _hgraph.OutputBuilder_TSS_Bool,
-                int: _hgraph.OutputBuilder_TSS_Int,
-                float: _hgraph.OutputBuilder_TSS_Float,
-                date: _hgraph.OutputBuilder_TSS_Date,
-                datetime: _hgraph.OutputBuilder_TSS_DateTime,
-                timedelta: _hgraph.OutputBuilder_TSS_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.OutputBuilder_TSS_Object)
+            """Return factory for non-templated TimeSeriesSetOutput builder with element schema."""
+            schema = _get_value_schema_for_scalar_type(scalar_type)
+            return lambda: _hgraph.OutputBuilder_TSS(schema)
 
 
-        def _tsd_input_builder_type_for(scalar_type):
-            return {
-                bool: _hgraph.InputBuilder_TSD_Bool,
-                int: _hgraph.InputBuilder_TSD_Int,
-                float: _hgraph.InputBuilder_TSD_Float,
-                date: _hgraph.InputBuilder_TSD_Date,
-                datetime: _hgraph.InputBuilder_TSD_DateTime,
-                timedelta: _hgraph.InputBuilder_TSD_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.InputBuilder_TSD_Object)
+        def _tsd_input_builder_type_for(key_scalar_type):
+            """Return factory for non-templated TimeSeriesDictInput builder with key TypeMeta."""
+            key_schema = _get_value_schema_for_scalar_type(key_scalar_type)
+            return lambda ts_builder: _hgraph.InputBuilder_TSD(ts_builder, key_schema)
 
 
-        def _tsd_output_builder_for_tp(scalar_type):
-            return {
-                bool: _hgraph.OutputBuilder_TSD_Bool,
-                int: _hgraph.OutputBuilder_TSD_Int,
-                float: _hgraph.OutputBuilder_TSD_Float,
-                date: _hgraph.OutputBuilder_TSD_Date,
-                datetime: _hgraph.OutputBuilder_TSD_DateTime,
-                timedelta: _hgraph.OutputBuilder_TSD_TimeDelta,
-            }.get(scalar_type.py_type, _hgraph.OutputBuilder_TSD_Object)
+        def _tsd_output_builder_for_tp(key_scalar_type):
+            """Return factory for non-templated TimeSeriesDictOutput builder with key TypeMeta."""
+            key_schema = _get_value_schema_for_scalar_type(key_scalar_type)
+            return lambda ts_builder, ts_ref_builder: _hgraph.OutputBuilder_TSD(ts_builder, ts_ref_builder, key_schema)
 
 
-        def _tsw_input_builder_type_for(scalar_type):
-            """Unified TSW input builder - works for both fixed-size and timedelta windows"""
-            tp = scalar_type.py_type
-            return {
-                bool: _hgraph.InputBuilder_TSW_Bool,
-                int: _hgraph.InputBuilder_TSW_Int,
-                float: _hgraph.InputBuilder_TSW_Float,
-                date: _hgraph.InputBuilder_TSW_Date,
-                datetime: _hgraph.InputBuilder_TSW_DateTime,
-                timedelta: _hgraph.InputBuilder_TSW_TimeDelta,
-            }.get(tp, _hgraph.InputBuilder_TSW_Object)
+        def _tsw_input_builder_for(scalar_type):
+            """Non-templated TSW input builder - uses TypeMeta for element type"""
+            element_schema = _get_value_schema_for_scalar_type(scalar_type)
+            return _hgraph.InputBuilder_TSW(element_schema)
 
 
-        def _tsw_output_builder_for_tp(scalar_type):
-            tp = scalar_type.py_type
-            mapping = {
-                bool: getattr(_hgraph, "OutputBuilder_TSW_Bool", None),
-                int: getattr(_hgraph, "OutputBuilder_TSW_Int", None),
-                float: getattr(_hgraph, "OutputBuilder_TSW_Float", None),
-                date: getattr(_hgraph, "OutputBuilder_TSW_Date", None),
-                datetime: getattr(_hgraph, "OutputBuilder_TSW_DateTime", None),
-                timedelta: getattr(_hgraph, "OutputBuilder_TSW_TimeDelta", None),
-            }
-            builder_cls = mapping.get(tp, getattr(_hgraph, "OutputBuilder_TSW_Object", None))
-
-            def ctor(size: int, min_size: int):
-                if builder_cls is None:
-                    return _raise_un_implemented(f"TSW OutputBuilder for type {tp}")
-                return builder_cls(size, min_size)
-
-            return ctor
+        def _tsw_output_builder_for(scalar_type, size: int, min_size: int):
+            """Non-templated fixed-size TSW output builder - uses TypeMeta for element type"""
+            element_schema = _get_value_schema_for_scalar_type(scalar_type)
+            return _hgraph.OutputBuilder_TSW(size, min_size, element_schema)
 
 
-        def _ttsw_output_builder_for_tp(scalar_type):
-            """Time-based (timedelta) TSW output builders"""
-            tp = scalar_type.py_type
-
-            def ctor(size: timedelta, min_size: timedelta):
-                mapping = {
-                    bool: _hgraph.OutputBuilder_TTSW_Bool,
-                    int: _hgraph.OutputBuilder_TTSW_Int,
-                    float: _hgraph.OutputBuilder_TTSW_Float,
-                    date: _hgraph.OutputBuilder_TTSW_Date,
-                    datetime: _hgraph.OutputBuilder_TTSW_DateTime,
-                    timedelta: _hgraph.OutputBuilder_TTSW_TimeDelta,
-                }
-                builder_cls = mapping.get(tp, _hgraph.OutputBuilder_TTSW_Object)
-                return builder_cls(size, min_size)
-
-            return ctor
+        def _ttsw_output_builder_for(scalar_type, size: timedelta, min_size: timedelta):
+            """Non-templated time-based TSW output builder - uses TypeMeta for element type"""
+            element_schema = _get_value_schema_for_scalar_type(scalar_type)
+            return _hgraph.OutputBuilder_TTSW(size, min_size, element_schema)
 
 
         # Register the TimeSeriesBuilderFactory
@@ -405,17 +365,12 @@ if is_feature_enabled("use_cpp"):
 
 
         def _create_set_delta(added, removed, tp):
-            sd_tp = {
-                bool: _hgraph.SetDelta_bool,
-                int: _hgraph.SetDelta_int,
-                float: _hgraph.SetDelta_float,
-                date: _hgraph.SetDelta_date,
-                datetime: _hgraph.SetDelta_date_time,
-                timedelta: _hgraph.SetDelta_time_delta,
-            }.get(tp, None)
-            if sd_tp is None:
-                return _hgraph.SetDelta_object(added, removed, tp)
-            return sd_tp(added, removed)
+            # Use PythonSetDelta since C++ SetDelta templates are no longer available
+            from hgraph._impl._types._tss import PythonSetDelta
+            return PythonSetDelta[tp](
+                added=frozenset() if added is None else frozenset(added),
+                removed=frozenset() if removed is None else frozenset(removed)
+            )
 
 
         hgraph.set_set_delta_factory(_create_set_delta)
@@ -438,15 +393,8 @@ if is_feature_enabled("use_cpp"):
             input_node_ids = dict(input_node_ids) if input_node_ids is not None else {}
             output_node_id = -1 if output_node_id is None else int(output_node_id)
             multiplexed_args = set(multiplexed_args) if multiplexed_args is not None else set()
-            key_tp = key_tp.py_type
-            return {
-                bool: _hgraph.TsdMapNodeBuilder_bool,
-                int: _hgraph.TsdMapNodeBuilder_int,
-                float: _hgraph.TsdMapNodeBuilder_float,
-                date: _hgraph.TsdMapNodeBuilder_date,
-                datetime: _hgraph.TsdMapNodeBuilder_date_time,
-                timedelta: _hgraph.TsdMapNodeBuilder_time_delta,
-            }.get(key_tp, _hgraph.TsdMapNodeBuilder_object)(
+            # Non-templated TsdMapNodeBuilder - key type is handled dynamically
+            return _hgraph.TsdMapNodeBuilder(
                 signature,
                 scalars,
                 input_builder,
@@ -474,16 +422,8 @@ if is_feature_enabled("use_cpp"):
             input_node_ids,
             output_node_id,
         ):
-            ts_input_type = signature.time_series_inputs["ts"]
-            key_tp = ts_input_type.key_tp.py_type
-            return {
-                bool: _hgraph.ReduceNodeBuilder_bool,
-                int: _hgraph.ReduceNodeBuilder_int,
-                float: _hgraph.ReduceNodeBuilder_float,
-                date: _hgraph.ReduceNodeBuilder_date,
-                datetime: _hgraph.ReduceNodeBuilder_date_time,
-                timedelta: _hgraph.ReduceNodeBuilder_time_delta,
-            }.get(key_tp, _hgraph.ReduceNodeBuilder_object)(
+            # Non-templated ReduceNodeBuilder - key type is handled dynamically via TSD input
+            return _hgraph.ReduceNodeBuilder(
                 signature,
                 scalars,
                 input_builder,
@@ -540,22 +480,17 @@ if is_feature_enabled("use_cpp"):
             reload_on_ticked,
             recordable_state_builder=None,
         ):
+            # Get key type schema for Value-based key storage
             switch_input_type = signature.time_series_inputs["key"]
-            key_tp = switch_input_type.value_scalar_tp.py_type
-            return {
-                bool: _hgraph.SwitchNodeBuilder_bool,
-                int: _hgraph.SwitchNodeBuilder_int,
-                float: _hgraph.SwitchNodeBuilder_float,
-                date: _hgraph.SwitchNodeBuilder_date,
-                datetime: _hgraph.SwitchNodeBuilder_date_time,
-                timedelta: _hgraph.SwitchNodeBuilder_time_delta,
-            }.get(key_tp, _hgraph.SwitchNodeBuilder_object)(
+            key_type_schema = _get_value_schema_for_scalar_type(switch_input_type.value_scalar_tp)
+            return _hgraph.SwitchNodeBuilder(
                 signature,
                 scalars,
                 input_builder,
                 output_builder,
                 error_builder,
                 recordable_state_builder,
+                key_type_schema,
                 nested_graphs,
                 input_node_ids,
                 output_node_id,
@@ -673,14 +608,8 @@ if is_feature_enabled("use_cpp"):
             key_tp,
             context_path,
         ):
-            return {
-                bool: _hgraph.MeshNodeBuilder_bool,
-                int: _hgraph.MeshNodeBuilder_int,
-                float: _hgraph.MeshNodeBuilder_float,
-                date: _hgraph.MeshNodeBuilder_date,
-                datetime: _hgraph.MeshNodeBuilder_date_time,
-                timedelta: _hgraph.MeshNodeBuilder_time_delta,
-            }.get(key_tp.py_type, _hgraph.MeshNodeBuilder_object)(
+            # Non-templated MeshNodeBuilder - key type is handled dynamically via keys input
+            return _hgraph.MeshNodeBuilder(
                 signature,
                 scalars,
                 input_builder,

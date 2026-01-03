@@ -6,78 +6,51 @@
 #include <utility>
 
 namespace hgraph {
-    TimeSeriesDictInputBuilder::TimeSeriesDictInputBuilder(input_builder_s_ptr ts_builder)
-        : InputBuilder(), ts_builder{std::move(ts_builder)} {
+    TimeSeriesDictInputBuilder::TimeSeriesDictInputBuilder(input_builder_s_ptr ts_builder,
+                                                           const value::TypeMeta* key_type_meta)
+        : InputBuilder(), ts_builder{std::move(ts_builder)}, key_type_meta{key_type_meta} {
     }
 
-    template<typename T>
-    time_series_input_s_ptr TimeSeriesDictInputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        return arena_make_shared_as<TimeSeriesDictInput_T<T>, TimeSeriesInput>(owning_node, ts_builder);
+    time_series_input_s_ptr TimeSeriesDictInputBuilder::make_instance(node_ptr owning_node) const {
+        return arena_make_shared_as<TimeSeriesDictInputImpl, TimeSeriesInput>(
+            owning_node, ts_builder, key_type_meta);
     }
 
-    template<typename T>
-    time_series_input_s_ptr TimeSeriesDictInputBuilder_T<T>::make_instance(time_series_input_ptr owning_input) const {
-        return arena_make_shared_as<TimeSeriesDictInput_T<T>, TimeSeriesInput>(owning_input, ts_builder);
+    time_series_input_s_ptr TimeSeriesDictInputBuilder::make_instance(time_series_input_ptr owning_input) const {
+        return arena_make_shared_as<TimeSeriesDictInputImpl, TimeSeriesInput>(
+            owning_input, ts_builder, key_type_meta);
     }
 
-    template<typename T>
-    bool TimeSeriesDictInputBuilder_T<T>::is_same_type(const Builder &other) const {
-        if (auto other_b = dynamic_cast<const TimeSeriesDictInputBuilder_T<T> *>(&other)) {
-            return ts_builder->is_same_type(*other_b->ts_builder);
+    bool TimeSeriesDictInputBuilder::is_same_type(const Builder &other) const {
+        if (auto other_b = dynamic_cast<const TimeSeriesDictInputBuilder *>(&other)) {
+            return ts_builder->is_same_type(*other_b->ts_builder) &&
+                   key_type_meta == other_b->key_type_meta;
         }
         return false;
     }
 
-    template<typename T>
-    void TimeSeriesDictInputBuilder_T<T>::release_instance(time_series_input_ptr item) const {
+    void TimeSeriesDictInputBuilder::release_instance(time_series_input_ptr item) const {
         InputBuilder::release_instance(item);
-        auto dict = dynamic_cast<TimeSeriesDictInput_T<T> *>(item);
+        auto dict = dynamic_cast<TimeSeriesDictInputImpl *>(item);
         if (dict == nullptr) {
-            throw std::runtime_error("TimeSeriesDictInputBuilder_T::release_instance: expected TimeSeriesDictInput_T but got different type");
+            throw std::runtime_error("TimeSeriesDictInputBuilder::release_instance: expected TimeSeriesDictInputImpl but got different type");
         }
         for (auto &value: dict->_ts_values) { ts_builder->release_instance(value.second.get()); }
     }
 
-    template<typename T>
-    size_t TimeSeriesDictInputBuilder_T<T>::memory_size() const {
-        // Note: The key_set (TimeSeriesSetInput_T<T>) is allocated separately via
-        // arena_make_shared_as during TSD construction, so it's not included here.
-        return add_canary_size(sizeof(TimeSeriesDictInput_T<T>));
+    size_t TimeSeriesDictInputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesDictInputImpl));
     }
 
-    template<typename T>
-    size_t TimeSeriesDictInputBuilder_T<T>::type_alignment() const {
-        return alignof(TimeSeriesDictInput_T<T>);
+    size_t TimeSeriesDictInputBuilder::type_alignment() const {
+        return alignof(TimeSeriesDictInputImpl);
     }
 
     void time_series_dict_input_builder_register_with_nanobind(nb::module_ &m) {
-        nb::class_ < TimeSeriesDictInputBuilder, InputBuilder > (m, "InputBuilder_TSD")
+        nb::class_<TimeSeriesDictInputBuilder, InputBuilder>(m, "InputBuilder_TSD")
+                .def(nb::init<input_builder_s_ptr, const value::TypeMeta*>(),
+                     "ts_builder"_a, "key_type_meta"_a)
                 .def_ro("ts_builder", &TimeSeriesDictInputBuilder::ts_builder);
-
-        nb::class_<TimeSeriesDictInputBuilder_T<bool>, TimeSeriesDictInputBuilder>(m, "InputBuilder_TSD_Bool")
-                .def(nb::init<input_builder_s_ptr>(), "ts_builder"_a);
-        nb::class_<TimeSeriesDictInputBuilder_T<int64_t>, TimeSeriesDictInputBuilder>(m, "InputBuilder_TSD_Int")
-                .def(nb::init<input_builder_s_ptr>(), "ts_builder"_a);
-        nb::class_<TimeSeriesDictInputBuilder_T<double>, TimeSeriesDictInputBuilder>(m, "InputBuilder_TSD_Float")
-                .def(nb::init<input_builder_s_ptr>(), "ts_builder"_a);
-        nb::class_<TimeSeriesDictInputBuilder_T<engine_date_t>, TimeSeriesDictInputBuilder>(m, "InputBuilder_TSD_Date")
-                .def(nb::init<input_builder_s_ptr>(), "ts_builder"_a);
-        nb::class_<TimeSeriesDictInputBuilder_T<engine_time_t>, TimeSeriesDictInputBuilder>(
-                    m, "InputBuilder_TSD_DateTime")
-                .def(nb::init<input_builder_s_ptr>(), "ts_builder"_a);
-        nb::class_<TimeSeriesDictInputBuilder_T<engine_time_delta_t>, TimeSeriesDictInputBuilder>(
-                    m, "InputBuilder_TSD_TimeDelta")
-                .def(nb::init<input_builder_s_ptr>(), "ts_builder"_a);
-        nb::class_<TimeSeriesDictInputBuilder_T<nb::object>, TimeSeriesDictInputBuilder>(m, "InputBuilder_TSD_Object")
-                .def(nb::init<input_builder_s_ptr>(), "ts_builder"_a);
     }
 
-    // Template instantiations
-    template struct TimeSeriesDictInputBuilder_T<bool>;
-    template struct TimeSeriesDictInputBuilder_T<int64_t>;
-    template struct TimeSeriesDictInputBuilder_T<double>;
-    template struct TimeSeriesDictInputBuilder_T<engine_date_t>;
-    template struct TimeSeriesDictInputBuilder_T<engine_time_t>;
-    template struct TimeSeriesDictInputBuilder_T<engine_time_delta_t>;
-    template struct TimeSeriesDictInputBuilder_T<nb::object>;
 } // namespace hgraph

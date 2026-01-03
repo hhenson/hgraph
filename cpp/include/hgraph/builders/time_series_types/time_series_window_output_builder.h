@@ -6,50 +6,58 @@
 #define TIME_SERIES_WINDOW_OUTPUT_BUILDER_H
 
 #include <hgraph/builders/output_builder.h>
+#include <hgraph/types/value/type_meta.h>
 
 namespace hgraph {
-    // TimeSeriesWindow (TSW) output builder for fixed-size windows
-    template<typename T>
-    struct HGRAPH_EXPORT TimeSeriesWindowOutputBuilder_T : OutputBuilder {
-        using ptr = nb::ref<TimeSeriesWindowOutputBuilder_T<T> >;
-        size_t size;
-        size_t min_size;
+    /**
+     * @brief Non-templated builder for TimeSeriesFixedWindowOutput.
+     *
+     * Takes a TypeMeta* for the element type at construction time.
+     */
+    struct HGRAPH_EXPORT TimeSeriesWindowOutputBuilder : OutputBuilder {
+        using ptr = nb::ref<TimeSeriesWindowOutputBuilder>;
 
-        TimeSeriesWindowOutputBuilder_T(size_t size, size_t min_size);
+        TimeSeriesWindowOutputBuilder(size_t size, size_t min_size, const value::TypeMeta* element_type);
 
         time_series_output_s_ptr make_instance(node_ptr owning_node) const override;
 
         time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
 
-        [[nodiscard]] bool is_same_type(const Builder &other) const override;
-
         void release_instance(time_series_output_ptr item) const override;
 
         [[nodiscard]] size_t memory_size() const override;
-
         [[nodiscard]] size_t type_alignment() const override;
+
+    private:
+        size_t _size;
+        size_t _min_size;
+        const value::TypeMeta* _element_type;
     };
 
-    // TimeSeriesWindow (TSW) output builder for timedelta-based windows
-    template<typename T>
-    struct HGRAPH_EXPORT TimeSeriesTimeWindowOutputBuilder_T : OutputBuilder {
-        using ptr = nb::ref<TimeSeriesTimeWindowOutputBuilder_T<T> >;
-        engine_time_delta_t size;
-        engine_time_delta_t min_size;
+    /**
+     * @brief Non-templated builder for TimeSeriesTimeWindowOutput.
+     *
+     * Takes a TypeMeta* for the element type at construction time.
+     */
+    struct HGRAPH_EXPORT TimeSeriesTimeWindowOutputBuilder : OutputBuilder {
+        using ptr = nb::ref<TimeSeriesTimeWindowOutputBuilder>;
 
-        TimeSeriesTimeWindowOutputBuilder_T(engine_time_delta_t size, engine_time_delta_t min_size);
+        TimeSeriesTimeWindowOutputBuilder(engine_time_delta_t size, engine_time_delta_t min_size,
+                                          const value::TypeMeta* element_type);
 
         time_series_output_s_ptr make_instance(node_ptr owning_node) const override;
 
         time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
 
-        [[nodiscard]] bool is_same_type(const Builder &other) const override;
-
         void release_instance(time_series_output_ptr item) const override;
 
         [[nodiscard]] size_t memory_size() const override;
-
         [[nodiscard]] size_t type_alignment() const override;
+
+    private:
+        engine_time_delta_t _size;
+        engine_time_delta_t _min_size;
+        const value::TypeMeta* _element_type;
     };
 
     void time_series_window_output_builder_register_with_nanobind(nb::module_ & m);

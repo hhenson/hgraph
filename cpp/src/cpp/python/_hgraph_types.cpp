@@ -1,6 +1,7 @@
 #include <hgraph/api/python/py_signal.h>
 #include <hgraph/api/python/py_ts.h>
 #include <hgraph/api/python/py_tsl.h>
+#include <hgraph/api/python/py_value.h>
 
 #include <hgraph/api/python/py_ref.h>
 
@@ -24,6 +25,9 @@
 void export_types(nb::module_ &m) {
     using namespace hgraph;
 
+    // Value type system (must come before time series types that use them)
+    value_register_with_nanobind(m);
+
     // Schema and scalar types (must come before time series types that use them)
     AbstractSchema::register_with_nanobind(m);
     CompoundScalar::register_with_nanobind(m);
@@ -36,9 +40,6 @@ void export_types(nb::module_ &m) {
     PyTimeSeriesType::register_with_nanobind(m);
     PyTimeSeriesOutput::register_with_nanobind(m);
     PyTimeSeriesInput::register_with_nanobind(m);
-
-    // All reference types registered inside this function
-    register_set_delta_with_nanobind(m);
 
     ref_register_with_nanobind(m);
     signal_register_with_nanobind(m);

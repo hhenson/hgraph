@@ -147,7 +147,8 @@ namespace hgraph
 
     struct PyMeshNestedNode : PyNestedNode
     {
-        template <typename T> static PyMeshNestedNode make_mesh_node(api_ptr node);
+        // Non-templated factory since MeshNode is now non-templated
+        static PyMeshNestedNode make_mesh_node(api_ptr node);
 
         bool add_graph_dependency(const nb::handle &key, const nb::handle &depends_on) const {
             return _add_graph_dependency_fn(*this, key, depends_on);
@@ -165,14 +166,15 @@ namespace hgraph
         std::function<void(const PyMeshNestedNode &, const nb::handle &, const nb::handle &)> _remove_graph_dependency_fn;
     };
 
-    template <typename T> PyMeshNestedNode PyMeshNestedNode::make_mesh_node(api_ptr node) {
+    // Non-templated implementation since MeshNode is now non-templated
+    inline PyMeshNestedNode PyMeshNestedNode::make_mesh_node(api_ptr node) {
         return PyMeshNestedNode(
             std::move(node),
             [](const PyMeshNestedNode &self, const nb::handle &key, const nb::handle &depends_on) {
-                return self.static_cast_impl<MeshNode<T>>()->_add_graph_dependency(nb::cast<T>(key), nb::cast<T>(depends_on));
+                return self.static_cast_impl<MeshNode>()->_add_graph_dependency(nb::borrow(key), nb::borrow(depends_on));
             },
             [](const PyMeshNestedNode &self, const nb::handle &key, const nb::handle &depends_on) {
-                return self.static_cast_impl<MeshNode<T>>()->_remove_graph_dependency(nb::cast<T>(key), nb::cast<T>(depends_on));
+                return self.static_cast_impl<MeshNode>()->_remove_graph_dependency(nb::borrow(key), nb::borrow(depends_on));
             });
     }
 

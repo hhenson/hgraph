@@ -123,7 +123,14 @@ namespace hgraph {
     }
 
     void IndexedTimeSeriesInput::do_un_bind_output(bool unbind_refs) {
-        for (auto &ts: ts_values()) { ts->un_bind_output(unbind_refs); }
+        // Use index-based iteration to be safer with container modifications
+        auto& values = ts_values();
+        for (size_t i = 0; i < values.size(); ++i) {
+            auto& ts = values[i];
+            if (ts) {
+                ts->un_bind_output(unbind_refs);
+            }
+        }
         if (has_peer()) { BaseTimeSeriesInput::do_un_bind_output(unbind_refs); }
     }
 } // namespace hgraph

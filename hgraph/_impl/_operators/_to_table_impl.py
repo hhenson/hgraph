@@ -32,6 +32,7 @@ def table_schema_generic(tp: type[TIME_SERIES_TYPE]) -> TS[TableSchema]:
         types=partial_schema.types,
         partition_keys=partial_schema.partition_keys,
         removed_keys=partial_schema.remove_partition_keys,
+        is_multi_row=partial_schema.is_multi_row,
     )
 
 
@@ -52,7 +53,7 @@ def to_table_generic(
     elif mode.value == ToTableMode.Snap:
         fn = schema.to_table_snap
 
-    if schema.partition_keys:
+    if schema.partition_keys or schema.is_multi_row:
         return tuple(((ts.last_modified_time, get_as_of(_clock)) + i) for i in fn(ts))
     else:
         return (ts.last_modified_time, get_as_of(_clock)) + fn(ts)
@@ -68,7 +69,7 @@ def from_table_generic(ts: TS[TABLE], _tp: type[OUT] = AUTO_RESOLVE, _state: STA
     schema: PartialSchema = _state.partial_schema
     # We strip out the time aspect as this would have been used to prepare the inputs, we only need to
     # process the main data bundle
-    if schema.partition_keys:
+    if schema.partition_keys or schema.is_multi_row:
         return schema.from_table(iter(value[2:] for value in ts.value))
     else:
         return schema.from_table(iter(ts.value[2:]))

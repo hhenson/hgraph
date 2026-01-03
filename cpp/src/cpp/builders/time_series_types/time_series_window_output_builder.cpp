@@ -4,155 +4,81 @@
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
 namespace hgraph {
-    template<typename T>
-    TimeSeriesWindowOutputBuilder_T<T>::TimeSeriesWindowOutputBuilder_T(size_t size, size_t min_size)
-        : size(size), min_size(min_size) {
+
+    // ========== TimeSeriesWindowOutputBuilder (Fixed-size) ==========
+
+    TimeSeriesWindowOutputBuilder::TimeSeriesWindowOutputBuilder(size_t size, size_t min_size,
+                                                                 const value::TypeMeta* element_type)
+        : OutputBuilder(), _size(size), _min_size(min_size), _element_type(element_type) {}
+
+    time_series_output_s_ptr TimeSeriesWindowOutputBuilder::make_instance(node_ptr owning_node) const {
+        return arena_make_shared_as<TimeSeriesFixedWindowOutput, TimeSeriesOutput>(
+            owning_node, _size, _min_size, _element_type);
     }
 
-    // TSW output builder implementations
-    template<typename T>
-    time_series_output_s_ptr TimeSeriesWindowOutputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        return arena_make_shared_as<TimeSeriesFixedWindowOutput<T>, TimeSeriesOutput>(owning_node, size, min_size);
+    time_series_output_s_ptr TimeSeriesWindowOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+        return arena_make_shared_as<TimeSeriesFixedWindowOutput, TimeSeriesOutput>(
+            owning_output, _size, _min_size, _element_type);
     }
 
-    template<typename T>
-    time_series_output_s_ptr TimeSeriesWindowOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output) const {
-        return arena_make_shared_as<TimeSeriesFixedWindowOutput<T>, TimeSeriesOutput>(owning_output, size, min_size);
-    }
-
-    template<typename T>
-    bool TimeSeriesWindowOutputBuilder_T<T>::is_same_type(const Builder &other) const {
-        if (auto other_b = dynamic_cast<const TimeSeriesWindowOutputBuilder_T<T> *>(&other)) {
-            return size == other_b->size && min_size == other_b->min_size;
-        }
-        return false;
-    }
-
-    template<typename T>
-    void TimeSeriesWindowOutputBuilder_T<T>::release_instance(time_series_output_ptr item) const {
+    void TimeSeriesWindowOutputBuilder::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
-        auto ts = dynamic_cast<TimeSeriesFixedWindowOutput<T> *>(item);
+        auto* ts = dynamic_cast<TimeSeriesFixedWindowOutput*>(item);
         if (ts == nullptr) {
-            throw std::runtime_error("TimeSeriesWindowOutputBuilder_T::release_instance: expected TimeSeriesFixedWindowOutput but got different type");
+            throw std::runtime_error(
+                "TimeSeriesWindowOutputBuilder::release_instance: expected TimeSeriesFixedWindowOutput but got different type");
         }
         ts->reset_value();
     }
 
-    template<typename T>
-    size_t TimeSeriesWindowOutputBuilder_T<T>::memory_size() const {
-        return add_canary_size(sizeof(TimeSeriesFixedWindowOutput<T>));
+    size_t TimeSeriesWindowOutputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesFixedWindowOutput));
     }
 
-    template<typename T>
-    size_t TimeSeriesWindowOutputBuilder_T<T>::type_alignment() const {
-        return alignof(TimeSeriesFixedWindowOutput<T>);
+    size_t TimeSeriesWindowOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesFixedWindowOutput);
     }
 
-    // TimeSeriesTimeWindowOutputBuilder_T implementations (timedelta-based)
-    template<typename T>
-    TimeSeriesTimeWindowOutputBuilder_T<T>::TimeSeriesTimeWindowOutputBuilder_T(engine_time_delta_t size,
-        engine_time_delta_t min_size)
-        : size(size), min_size(min_size) {
+    // ========== TimeSeriesTimeWindowOutputBuilder (Time-based) ==========
+
+    TimeSeriesTimeWindowOutputBuilder::TimeSeriesTimeWindowOutputBuilder(engine_time_delta_t size,
+                                                                         engine_time_delta_t min_size,
+                                                                         const value::TypeMeta* element_type)
+        : OutputBuilder(), _size(size), _min_size(min_size), _element_type(element_type) {}
+
+    time_series_output_s_ptr TimeSeriesTimeWindowOutputBuilder::make_instance(node_ptr owning_node) const {
+        return arena_make_shared_as<TimeSeriesTimeWindowOutput, TimeSeriesOutput>(
+            owning_node, _size, _min_size, _element_type);
     }
 
-    template<typename T>
-    time_series_output_s_ptr TimeSeriesTimeWindowOutputBuilder_T<T>::make_instance(node_ptr owning_node) const {
-        return arena_make_shared_as<TimeSeriesTimeWindowOutput<T>, TimeSeriesOutput>(owning_node, size, min_size);
+    time_series_output_s_ptr TimeSeriesTimeWindowOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
+        return arena_make_shared_as<TimeSeriesTimeWindowOutput, TimeSeriesOutput>(
+            owning_output, _size, _min_size, _element_type);
     }
 
-    template<typename T>
-    time_series_output_s_ptr TimeSeriesTimeWindowOutputBuilder_T<T>::make_instance(time_series_output_ptr owning_output) const {
-        return arena_make_shared_as<TimeSeriesTimeWindowOutput<T>, TimeSeriesOutput>(owning_output, size, min_size);
-    }
-
-    template<typename T>
-    bool TimeSeriesTimeWindowOutputBuilder_T<T>::is_same_type(const Builder &other) const {
-        if (auto other_b = dynamic_cast<const TimeSeriesTimeWindowOutputBuilder_T<T> *>(&other)) {
-            return size == other_b->size && min_size == other_b->min_size;
-        }
-        return false;
-    }
-
-    template<typename T>
-    void TimeSeriesTimeWindowOutputBuilder_T<T>::release_instance(time_series_output_ptr item) const {
+    void TimeSeriesTimeWindowOutputBuilder::release_instance(time_series_output_ptr item) const {
         OutputBuilder::release_instance(item);
-        // No reset_value for time windows
+        // No reset_value for time windows - they auto-clean via _roll()
     }
 
-    template<typename T>
-    size_t TimeSeriesTimeWindowOutputBuilder_T<T>::memory_size() const {
-        return add_canary_size(sizeof(TimeSeriesTimeWindowOutput<T>));
+    size_t TimeSeriesTimeWindowOutputBuilder::memory_size() const {
+        return add_canary_size(sizeof(TimeSeriesTimeWindowOutput));
     }
 
-    template<typename T>
-    size_t TimeSeriesTimeWindowOutputBuilder_T<T>::type_alignment() const {
-        return alignof(TimeSeriesTimeWindowOutput<T>);
+    size_t TimeSeriesTimeWindowOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesTimeWindowOutput);
     }
+
+    // ========== Nanobind Registration ==========
 
     void time_series_window_output_builder_register_with_nanobind(nb::module_ &m) {
-        using OutputBuilder_TSW_Bool = TimeSeriesWindowOutputBuilder_T<bool>;
-        using OutputBuilder_TSW_Int = TimeSeriesWindowOutputBuilder_T<int64_t>;
-        using OutputBuilder_TSW_Float = TimeSeriesWindowOutputBuilder_T<double>;
-        using OutputBuilder_TSW_Date = TimeSeriesWindowOutputBuilder_T<engine_date_t>;
-        using OutputBuilder_TSW_DateTime = TimeSeriesWindowOutputBuilder_T<engine_time_t>;
-        using OutputBuilder_TSW_TimeDelta = TimeSeriesWindowOutputBuilder_T<engine_time_delta_t>;
-        using OutputBuilder_TSW_Object = TimeSeriesWindowOutputBuilder_T<nb::object>;
+        nb::class_<TimeSeriesWindowOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSW")
+            .def(nb::init<size_t, size_t, const value::TypeMeta*>(),
+                 "size"_a, "min_size"_a, "element_type"_a);
 
-        nb::class_<OutputBuilder_TSW_Bool, OutputBuilder>(m, "OutputBuilder_TSW_Bool")
-                .def(nb::init<size_t, size_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TSW_Int, OutputBuilder>(m, "OutputBuilder_TSW_Int")
-                .def(nb::init<size_t, size_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TSW_Float, OutputBuilder>(m, "OutputBuilder_TSW_Float")
-                .def(nb::init<size_t, size_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TSW_Date, OutputBuilder>(m, "OutputBuilder_TSW_Date")
-                .def(nb::init<size_t, size_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TSW_DateTime, OutputBuilder>(m, "OutputBuilder_TSW_DateTime")
-                .def(nb::init<size_t, size_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TSW_TimeDelta, OutputBuilder>(m, "OutputBuilder_TSW_TimeDelta")
-                .def(nb::init<size_t, size_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TSW_Object, OutputBuilder>(m, "OutputBuilder_TSW_Object")
-                .def(nb::init<size_t, size_t>(), "size"_a, "min_size"_a);
-
-        // Time-based (timedelta) window builders
-        using OutputBuilder_TTSW_Bool = TimeSeriesTimeWindowOutputBuilder_T<bool>;
-        using OutputBuilder_TTSW_Int = TimeSeriesTimeWindowOutputBuilder_T<int64_t>;
-        using OutputBuilder_TTSW_Float = TimeSeriesTimeWindowOutputBuilder_T<double>;
-        using OutputBuilder_TTSW_Date = TimeSeriesTimeWindowOutputBuilder_T<engine_date_t>;
-        using OutputBuilder_TTSW_DateTime = TimeSeriesTimeWindowOutputBuilder_T<engine_time_t>;
-        using OutputBuilder_TTSW_TimeDelta = TimeSeriesTimeWindowOutputBuilder_T<engine_time_delta_t>;
-        using OutputBuilder_TTSW_Object = TimeSeriesTimeWindowOutputBuilder_T<nb::object>;
-
-        nb::class_<OutputBuilder_TTSW_Bool, OutputBuilder>(m, "OutputBuilder_TTSW_Bool")
-                .def(nb::init<engine_time_delta_t, engine_time_delta_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TTSW_Int, OutputBuilder>(m, "OutputBuilder_TTSW_Int")
-                .def(nb::init<engine_time_delta_t, engine_time_delta_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TTSW_Float, OutputBuilder>(m, "OutputBuilder_TTSW_Float")
-                .def(nb::init<engine_time_delta_t, engine_time_delta_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TTSW_Date, OutputBuilder>(m, "OutputBuilder_TTSW_Date")
-                .def(nb::init<engine_time_delta_t, engine_time_delta_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TTSW_DateTime, OutputBuilder>(m, "OutputBuilder_TTSW_DateTime")
-                .def(nb::init<engine_time_delta_t, engine_time_delta_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TTSW_TimeDelta, OutputBuilder>(m, "OutputBuilder_TTSW_TimeDelta")
-                .def(nb::init<engine_time_delta_t, engine_time_delta_t>(), "size"_a, "min_size"_a);
-        nb::class_<OutputBuilder_TTSW_Object, OutputBuilder>(m, "OutputBuilder_TTSW_Object")
-                .def(nb::init<engine_time_delta_t, engine_time_delta_t>(), "size"_a, "min_size"_a);
+        nb::class_<TimeSeriesTimeWindowOutputBuilder, OutputBuilder>(m, "OutputBuilder_TTSW")
+            .def(nb::init<engine_time_delta_t, engine_time_delta_t, const value::TypeMeta*>(),
+                 "size"_a, "min_size"_a, "element_type"_a);
     }
 
-    // Template instantiations for fixed-size windows
-    template struct TimeSeriesWindowOutputBuilder_T<bool>;
-    template struct TimeSeriesWindowOutputBuilder_T<int64_t>;
-    template struct TimeSeriesWindowOutputBuilder_T<double>;
-    template struct TimeSeriesWindowOutputBuilder_T<engine_date_t>;
-    template struct TimeSeriesWindowOutputBuilder_T<engine_time_t>;
-    template struct TimeSeriesWindowOutputBuilder_T<engine_time_delta_t>;
-    template struct TimeSeriesWindowOutputBuilder_T<nb::object>;
-
-    // Template instantiations for time-based windows
-    template struct TimeSeriesTimeWindowOutputBuilder_T<bool>;
-    template struct TimeSeriesTimeWindowOutputBuilder_T<int64_t>;
-    template struct TimeSeriesTimeWindowOutputBuilder_T<double>;
-    template struct TimeSeriesTimeWindowOutputBuilder_T<engine_date_t>;
-    template struct TimeSeriesTimeWindowOutputBuilder_T<engine_time_t>;
-    template struct TimeSeriesTimeWindowOutputBuilder_T<engine_time_delta_t>;
-    template struct TimeSeriesTimeWindowOutputBuilder_T<nb::object>;
 } // namespace hgraph

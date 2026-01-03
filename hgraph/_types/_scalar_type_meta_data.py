@@ -242,6 +242,30 @@ class HgAtomicType(HgScalarTypeMetaData):
     def generic_rank(self) -> dict[type, float]:
         return {self.py_type: 1e-10}
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TypeMeta for this scalar type.
+
+        Returns the corresponding C++ TypeMeta* for this Python type:
+        - bool -> bool
+        - int -> int64_t
+        - float -> double
+        - datetime.date -> engine_date_t
+        - datetime.datetime -> engine_time_t
+        - datetime.timedelta -> engine_time_delta_t
+        - Everything else (str, bytes, Enum, etc.) -> nb::object fallback
+        """
+        if not self.is_resolved:
+            raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            return _hgraph.value.get_scalar_type_meta(self.py_type)
+        except (ImportError, AttributeError):
+            return None
+
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return ((tp_ := type(tp)) is HgAtomicType and self.py_type == tp.py_type) or tp_ is HgScalarTypeVar
 
@@ -675,6 +699,23 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
     def __init__(self, element_type: HgScalarTypeMetaData):
         self.element_type = element_type
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TypeMeta for this dynamic tuple type (tuple[T, ...])."""
+        if not self.is_resolved:
+            raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            element_cpp = self.element_type.cpp_type
+            if element_cpp is None:
+                return None
+            return _hgraph.value.get_dynamic_list_type_meta(element_cpp)
+        except (ImportError, AttributeError):
+            return None
+
     def matches(self, tp: "HgTypeMetaData") -> bool:
         tp_ = type(tp)
         if tp_ is HgTupleCollectionScalarType:
@@ -837,6 +878,29 @@ class HgTupleFixedScalarType(HgTupleScalarType):
     def size(self) -> int:
         return len(self.element_types)
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TypeMeta for this fixed tuple type.
+
+        Uses TupleOps which returns a hashable Python tuple from to_python().
+        """
+        if not self.is_resolved:
+            raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            element_types = []
+            for elem_type in self.element_types:
+                elem_cpp = elem_type.cpp_type
+                if elem_cpp is None:
+                    return None
+                element_types.append(elem_cpp)
+            return _hgraph.value.get_tuple_type_meta(element_types)
+        except (ImportError, AttributeError):
+            return None
+
     def matches(self, tp: "HgTypeMetaData") -> bool:
         if isinstance(tp, HgTupleCollectionScalarType):
             # There is already logic in the HgTupleCollectionScalarType
@@ -902,6 +966,23 @@ class HgSetScalarType(HgCollectionType):
 
     def __init__(self, element_type: HgScalarTypeMetaData):
         self.element_type = element_type
+
+    @property
+    def cpp_type(self):
+        """Get the C++ TypeMeta for this set type."""
+        if not self.is_resolved:
+            raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            element_cpp = self.element_type.cpp_type
+            if element_cpp is None:
+                return None
+            return _hgraph.value.get_set_type_meta(element_cpp)
+        except (ImportError, AttributeError):
+            return None
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         if (t := type(tp)) is HgSetScalarType and self.element_type.matches(tp.element_type):
@@ -969,6 +1050,24 @@ class HgDictScalarType(HgCollectionType):
     def __init__(self, key_type: HgScalarTypeMetaData, value_type: HgScalarTypeMetaData):
         self.key_type = key_type
         self.value_type = value_type
+
+    @property
+    def cpp_type(self):
+        """Get the C++ TypeMeta for this dict type."""
+        if not self.is_resolved:
+            raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            key_cpp = self.key_type.cpp_type
+            value_cpp = self.value_type.cpp_type
+            if key_cpp is None or value_cpp is None:
+                return None
+            return _hgraph.value.get_dict_type_meta(key_cpp, value_cpp)
+        except (ImportError, AttributeError):
+            return None
 
     def matches(self, tp: "HgTypeMetaData") -> bool:
         return (
@@ -1051,6 +1150,41 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
 
     def __init__(self, py_type: Type):
         self.py_type = py_type
+
+    @property
+    def cpp_type(self):
+        """Get the C++ TypeMeta for this compound scalar type.
+
+        Returns a Bundle TypeMeta with CompoundScalarOps that reconstructs the
+        Python class in to_python() instead of returning a dict. This preserves
+        hashability when CompoundScalar is used as keys in TSD/TSS/mesh operations.
+        """
+        # Detect recursion - for recursive compound scalars, fall back to Python handling
+        if SchemaRecurseContext.is_in_context(self.py_type):
+            return None
+
+        if not self.is_resolved:
+            raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            # Build the fields list with (name, type_meta) pairs
+            with SchemaRecurseContext(self.py_type):
+                fields = []
+                schema = self.meta_data_schema
+                for field_name, field_type_meta in schema.items():
+                    field_cpp = field_type_meta.cpp_type
+                    if field_cpp is None:
+                        return None  # Fall back to nb::object if any field type is not supported
+                    fields.append((field_name, field_cpp))
+                # Create CompoundScalar TypeMeta with Python class for reconstruction
+                return _hgraph.value.get_compound_scalar_type_meta(
+                    fields, self.py_type, self.py_type.__name__
+                )
+        except (ImportError, AttributeError):
+            return None
 
     def __eq__(self, o: object) -> bool:
         if SchemaRecurseContext.is_in_context(self.py_type):

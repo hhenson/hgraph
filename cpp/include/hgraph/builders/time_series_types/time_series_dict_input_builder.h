@@ -6,22 +6,17 @@
 #define TIME_SERIES_DICT_INPUT_BUILDER_H
 
 #include <hgraph/builders/input_builder.h>
+#include <hgraph/types/value/type_meta.h>
 
 namespace hgraph {
     struct HGRAPH_EXPORT TimeSeriesDictInputBuilder : InputBuilder {
         using ptr = nb::ref<TimeSeriesDictInputBuilder>;
         input_builder_s_ptr ts_builder;
+        const value::TypeMeta* key_type_meta;
 
-        explicit TimeSeriesDictInputBuilder(input_builder_s_ptr ts_builder);
+        explicit TimeSeriesDictInputBuilder(input_builder_s_ptr ts_builder, const value::TypeMeta* key_type_meta);
 
         bool has_reference() const override { return ts_builder->has_reference(); }
-
-        [[nodiscard]] size_t type_alignment() const override = 0;
-    };
-
-    template<typename T>
-    struct HGRAPH_EXPORT TimeSeriesDictInputBuilder_T : TimeSeriesDictInputBuilder {
-        using TimeSeriesDictInputBuilder::TimeSeriesDictInputBuilder;
 
         time_series_input_s_ptr make_instance(node_ptr owning_node) const override;
 

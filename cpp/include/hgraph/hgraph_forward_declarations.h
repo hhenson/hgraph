@@ -160,15 +160,24 @@ namespace hgraph {
     struct TimeSeriesDictReferenceOutput;
     struct TimeSeriesBundleReferenceOutput;
 
-    template<typename> struct TimeSeriesValueInput;
-    template<typename> struct TimeSeriesDictInput_T;
-    template<typename> struct TimeSeriesSetInput_T;
-    template<typename> struct TimeSeriesWindowInput;
-    template<typename> struct TimeSeriesValueOutput;
-    template<typename> struct TimeSeriesDictOutput_T;
-    template<typename> struct TimeSeriesSetOutput_T;
-    template<typename> struct TimeSeriesFixedWindowOutput;
-    template<typename> struct TimeSeriesTimeWindowOutput;
+    // Non-templated time series value types (use Value system with TypeMeta)
+    struct TimeSeriesValueInput;
+    struct TimeSeriesValueOutput;
+    using time_series_value_output_ptr = TimeSeriesValueOutput*;
+    using time_series_value_output_s_ptr = std::shared_ptr<TimeSeriesValueOutput>;
+
+    // Non-templated TSD types (use Value system with TypeMeta for keys)
+    struct TimeSeriesDictInputImpl;
+    struct TimeSeriesDictOutputImpl;
+
+    // Non-templated TSS types (use Value system with TypeMeta)
+    struct TimeSeriesSetInput;
+    struct TimeSeriesSetOutput;
+
+    // Non-templated TSW types (use Value system with TypeMeta)
+    struct TimeSeriesWindowInput;
+    struct TimeSeriesFixedWindowOutput;
+    struct TimeSeriesTimeWindowOutput;
 
     struct ContextStubSourceNode;
     struct NestedNode;
@@ -178,13 +187,13 @@ namespace hgraph {
     struct TsdNonAssociativeReduceNode;
     struct PythonGeneratorNode;
     struct PythonNode;
-    template<typename> struct ReduceNode;
-    template<typename> struct SwitchNode;
+    struct ReduceNode;
+    struct SwitchNode;
     struct NestedGraphNode;
-    template<typename> struct TsdMapNode;
+    struct TsdMapNode;
     struct ComponentNode;
     struct TryExceptNode;
-    template <typename> struct MeshNode;
+    struct MeshNode;
 
     using ts_payload_types = tp::tpack<bool, int64_t, double, engine_date_t, engine_time_t, engine_time_delta_t, nb::object>;
     inline constexpr auto ts_payload_types_v = ts_payload_types{};

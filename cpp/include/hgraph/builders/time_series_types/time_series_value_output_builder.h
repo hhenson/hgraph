@@ -6,24 +6,31 @@
 #define TIME_SERIES_VALUE_OUTPUT_BUILDER_H
 
 #include <hgraph/builders/output_builder.h>
+#include <hgraph/types/value/type_meta.h>
 
 namespace hgraph {
-    template<typename T>
+
+    /**
+     * @brief Non-templated builder for TimeSeriesValueOutput.
+     *
+     * Takes a TypeMeta* schema at construction time and creates
+     * TimeSeriesValueOutput instances with that schema.
+     */
     struct HGRAPH_EXPORT TimeSeriesValueOutputBuilder : OutputBuilder {
-        using OutputBuilder::OutputBuilder;
+        explicit TimeSeriesValueOutputBuilder(const value::TypeMeta* schema);
 
         time_series_output_s_ptr make_instance(node_ptr owning_node) const override;
-
         time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
-
         void release_instance(time_series_output_ptr item) const override;
-
         [[nodiscard]] size_t memory_size() const override;
-
         [[nodiscard]] size_t type_alignment() const override;
+
+    private:
+        const value::TypeMeta* _schema;
     };
 
-    void time_series_value_output_builder_register_with_nanobind(nb::module_ & m);
+    void time_series_value_output_builder_register_with_nanobind(nb::module_& m);
+
 } // namespace hgraph
 
 #endif  // TIME_SERIES_VALUE_OUTPUT_BUILDER_H

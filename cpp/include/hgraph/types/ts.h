@@ -6,77 +6,96 @@
 #define TS_H
 
 #include <hgraph/types/base_time_series.h>
+#include <hgraph/types/value/value.h>
 
 namespace hgraph {
 
+    /**
+     * @brief Base class for TimeSeriesValueOutput - used for visitor pattern.
+     */
     struct TimeSeriesValueOutputBase : BaseTimeSeriesOutput {
         using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         VISITOR_SUPPORT()
     };
 
-    template<typename T>
+    /**
+     * @brief Non-templated time series value output using CachedValue storage.
+     *
+     * This class stores values using the Value type system with Python caching.
+     * The TypeMeta* schema defines the value type at runtime instead of compile time.
+     */
     struct TimeSeriesValueOutput final : TimeSeriesValueOutputBase {
-        using value_type = T;
-        using s_ptr = std::shared_ptr<TimeSeriesValueOutput<T>>;
+        using s_ptr = std::shared_ptr<TimeSeriesValueOutput>;
 
-        using TimeSeriesValueOutputBase::TimeSeriesValueOutputBase;
+        /**
+         * @brief Construct with owning node and schema.
+         */
+        TimeSeriesValueOutput(Node* owning_node, const value::TypeMeta* schema);
 
+        /**
+         * @brief Construct with parent output and schema.
+         */
+        TimeSeriesValueOutput(TimeSeriesOutput* parent, const value::TypeMeta* schema);
+
+        // Python interop
         [[nodiscard]] nb::object py_value() const override;
-
         [[nodiscard]] nb::object py_delta_value() const override;
-
         void py_set_value(const nb::object& value) override;
-
         void apply_result(const nb::object& value) override;
 
-        const T &value() const { return _value; }
+        // Value access via views
+        [[nodiscard]] value::ConstValueView value() const { return _value.const_view(); }
+        [[nodiscard]] value::ValueView value_mut() { return _value.view(); }
 
-        void set_value(const T &value);
+        // Schema access
+        [[nodiscard]] const value::TypeMeta* schema() const { return _value.schema(); }
 
-        void set_value(T &&value);
-
+        // Lifecycle
         void mark_invalid() override;
-
-        void copy_from_output(const TimeSeriesOutput &output) override;
-
-        void copy_from_input(const TimeSeriesInput &input) override;
-
-        [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
-
+        void copy_from_output(const TimeSeriesOutput& output) override;
+        void copy_from_input(const TimeSeriesInput& input) override;
+        [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
         void reset_value();
 
         VISITOR_SUPPORT()
 
     private:
-        T _value{};
+        value::CachedValue _value;  // Type-erased storage with Python caching
     };
 
+    /**
+     * @brief Base class for TimeSeriesValueInput - used for visitor pattern.
+     */
     struct TimeSeriesValueInputBase : BaseTimeSeriesInput {
         using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         VISITOR_SUPPORT()
     };
 
-    template<typename T>
+    /**
+     * @brief Non-templated time series value input.
+     *
+     * Delegates to the bound TimeSeriesValueOutput for value access.
+     */
     struct TimeSeriesValueInput final : TimeSeriesValueInputBase {
-        using value_type = T;
-        using ptr = TimeSeriesValueInput<T>*;
+        using ptr = TimeSeriesValueInput*;
 
         using TimeSeriesValueInputBase::TimeSeriesValueInputBase;
 
-        [[nodiscard]] TimeSeriesValueOutput<T> &value_output();
+        [[nodiscard]] TimeSeriesValueOutput& value_output();
+        [[nodiscard]] const TimeSeriesValueOutput& value_output() const;
 
-        [[nodiscard]] const TimeSeriesValueOutput<T> &value_output() const;
+        [[nodiscard]] value::ConstValueView value() const;
+        [[nodiscard]] const value::TypeMeta* schema() const;
 
-        [[nodiscard]] const T &value() const;
-
-        [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
+        [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
 
         VISITOR_SUPPORT()
     };
 
-    void register_ts_with_nanobind(nb::module_ & m);
+    void register_ts_with_nanobind(nb::module_& m);
+
 } // namespace hgraph
 
 #endif  // TS_H
