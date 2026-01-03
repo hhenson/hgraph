@@ -83,14 +83,14 @@ namespace
             requires(tp::contains<TS>(ts_opaque_input_types_v))
         {
             if constexpr (std::is_same_v<TS, TimeSeriesReferenceInput>) {
-                // BUG: Encountered a base TimeSeriesReferenceInput that doesn't match any specialized type.
-                // There should not be naked instances of TimeSeriesReferenceInput - they should always be
-                // one of the specialized types. This indicates a bug where a base TimeSeriesReferenceInput
-                // was created instead of a specialized type.
+                // DEFENSIVE: This branch handles the base TimeSeriesReferenceInput type in the visitor pattern.
+                // Since TimeSeriesReferenceInput is an abstract class (clone_blank_ref_instance is pure virtual),
+                // this should never be triggered - all actual instances will be specialized types.
+                // This guard exists to catch any unexpected visitor pattern matching issues.
                 throw std::runtime_error(
                     "Python wrap input TS: Encountered a base TimeSeriesReferenceInput "
-                    "that doesn't match any specialized type. This is a bug - there should not be naked instances of "
-                    "TimeSeriesReferenceInput. Check where this input was created (likely in reduce_node.cpp::zero_node).");
+                    "that doesn't match any specialized type. This should not happen since "
+                    "TimeSeriesReferenceInput is abstract. Check the visitor pattern matching logic.");
             } else {
                 using py_type = tp::get_t<tp::find<TS>(ts_opaque_input_types_v), py_ts_opaque_input_types>;
                 return create_wrapper_from_api<py_type, TS>(std::move(impl));

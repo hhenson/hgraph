@@ -699,10 +699,21 @@ namespace hgraph
 
     const TimeSeriesDictInputImpl::map_type &TimeSeriesDictInputImpl::modified_items() const {
         // Python logic:
-        // 1. If sampled: return valid items (TODO: not yet implemented in C++)
+        // 1. If sampled: return valid items
         // 2. If has_peer: get keys from output's modified_items, map to input's values
         // 3. If active and last_modified_time == evaluation_time: return _modified_items
         // 4. Otherwise: iterate all items and return modified ones
+
+        if (sampled()) {
+            // Sampling returns all valid items as "modified" for this tick
+            _modified_items_cache.clear();
+            for (const auto& [pv_key, val] : _ts_values) {
+                if (val->valid()) {
+                    _modified_items_cache.emplace(pv_key.const_view().clone(), val);
+                }
+            }
+            return _modified_items_cache;
+        }
 
         if (has_peer()) {
             // Delegate to output's modified keys, map to input's values

@@ -7,6 +7,105 @@
 namespace hgraph::value {
 
 // ============================================================================
+// Helper: Compute composite type flags from element/field types
+// ============================================================================
+
+/**
+ * @brief Compute TypeFlags for a composite type from its elements.
+ *
+ * Composite types (Tuple, Bundle) inherit flags that require ALL elements
+ * to have that flag. For example, a tuple is only Hashable if all its
+ * elements are Hashable.
+ */
+static TypeFlags compute_composite_flags(const TypeMeta* const* types, size_t count) {
+    if (count == 0) {
+        // Empty composite is trivial and hashable
+        return TypeFlags::TriviallyConstructible | TypeFlags::TriviallyDestructible |
+               TypeFlags::TriviallyCopyable | TypeFlags::Hashable |
+               TypeFlags::Equatable | TypeFlags::Comparable;
+    }
+
+    // Start with all flags set, then intersect with each element's flags
+    TypeFlags result = TypeFlags::TriviallyConstructible | TypeFlags::TriviallyDestructible |
+                       TypeFlags::TriviallyCopyable | TypeFlags::Hashable |
+                       TypeFlags::Equatable | TypeFlags::Comparable | TypeFlags::BufferCompatible;
+
+    for (size_t i = 0; i < count; ++i) {
+        const TypeMeta* elem = types[i];
+        if (!elem) continue;
+
+        // Intersect flags - composite only has a flag if ALL elements have it
+        if (!elem->is_trivially_constructible()) {
+            result = result & ~TypeFlags::TriviallyConstructible;
+        }
+        if (!elem->is_trivially_destructible()) {
+            result = result & ~TypeFlags::TriviallyDestructible;
+        }
+        if (!elem->is_trivially_copyable()) {
+            result = result & ~TypeFlags::TriviallyCopyable;
+        }
+        if (!elem->is_hashable()) {
+            result = result & ~TypeFlags::Hashable;
+        }
+        if (!elem->is_equatable()) {
+            result = result & ~TypeFlags::Equatable;
+        }
+        if (!elem->is_comparable()) {
+            result = result & ~TypeFlags::Comparable;
+        }
+        if (!elem->is_buffer_compatible()) {
+            result = result & ~TypeFlags::BufferCompatible;
+        }
+    }
+
+    return result;
+}
+
+/**
+ * @brief Compute TypeFlags for a Bundle from its field info.
+ */
+static TypeFlags compute_bundle_flags(const BundleFieldInfo* fields, size_t count) {
+    if (count == 0) {
+        return TypeFlags::TriviallyConstructible | TypeFlags::TriviallyDestructible |
+               TypeFlags::TriviallyCopyable | TypeFlags::Hashable |
+               TypeFlags::Equatable | TypeFlags::Comparable;
+    }
+
+    TypeFlags result = TypeFlags::TriviallyConstructible | TypeFlags::TriviallyDestructible |
+                       TypeFlags::TriviallyCopyable | TypeFlags::Hashable |
+                       TypeFlags::Equatable | TypeFlags::Comparable | TypeFlags::BufferCompatible;
+
+    for (size_t i = 0; i < count; ++i) {
+        const TypeMeta* elem = fields[i].type;
+        if (!elem) continue;
+
+        if (!elem->is_trivially_constructible()) {
+            result = result & ~TypeFlags::TriviallyConstructible;
+        }
+        if (!elem->is_trivially_destructible()) {
+            result = result & ~TypeFlags::TriviallyDestructible;
+        }
+        if (!elem->is_trivially_copyable()) {
+            result = result & ~TypeFlags::TriviallyCopyable;
+        }
+        if (!elem->is_hashable()) {
+            result = result & ~TypeFlags::Hashable;
+        }
+        if (!elem->is_equatable()) {
+            result = result & ~TypeFlags::Equatable;
+        }
+        if (!elem->is_comparable()) {
+            result = result & ~TypeFlags::Comparable;
+        }
+        if (!elem->is_buffer_compatible()) {
+            result = result & ~TypeFlags::BufferCompatible;
+        }
+    }
+
+    return result;
+}
+
+// ============================================================================
 // TypeRegistry Singleton
 // ============================================================================
 
@@ -133,10 +232,13 @@ const TypeMeta* TupleTypeBuilder::build() {
     // Store fields in registry and get pointer
     BundleFieldInfo* fields_ptr = count > 0 ? _registry.store_field_info(std::move(fields)) : nullptr;
 
+    // Compute flags from element types
+    TypeFlags flags = compute_composite_flags(_element_types.data(), count);
+
     // Create TypeMeta
     auto meta = std::make_unique<TypeMeta>();
     meta->kind = TypeKind::Tuple;
-    meta->flags = TypeFlags::None;  // TODO: compute from element types
+    meta->flags = flags;
     meta->field_count = count;
     meta->size = total_size;
     meta->alignment = max_alignment;
@@ -191,10 +293,13 @@ const TypeMeta* BundleTypeBuilder::build() {
     // Store fields in registry and get pointer
     BundleFieldInfo* fields_ptr = count > 0 ? _registry.store_field_info(std::move(fields)) : nullptr;
 
+    // Compute flags from field types
+    TypeFlags flags = fields_ptr ? compute_bundle_flags(fields_ptr, count) : TypeFlags::None;
+
     // Create TypeMeta
     auto meta = std::make_unique<TypeMeta>();
     meta->kind = TypeKind::Bundle;
-    meta->flags = TypeFlags::None;  // TODO: compute from field types
+    meta->flags = flags;
     meta->field_count = count;
     meta->size = total_size;
     meta->alignment = max_alignment;

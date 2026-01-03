@@ -81,6 +81,11 @@ constexpr TypeFlags operator&(TypeFlags lhs, TypeFlags rhs) noexcept {
     );
 }
 
+/// Bitwise NOT for TypeFlags
+constexpr TypeFlags operator~(TypeFlags flags) noexcept {
+    return static_cast<TypeFlags>(~static_cast<uint32_t>(flags));
+}
+
 /// Check if a flag is set
 constexpr bool has_flag(TypeFlags flags, TypeFlags flag) noexcept {
     return (static_cast<uint32_t>(flags) & static_cast<uint32_t>(flag)) != 0;
