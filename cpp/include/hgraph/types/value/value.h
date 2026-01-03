@@ -506,28 +506,20 @@ public:
         }
 
         // Perform type conversion from Python object to native storage
+        try {
+            _schema->ops->from_python(_storage.data(), src, _schema);
+        } catch (const nb::python_error& e) {
+            // Re-throw Python exceptions with preserved traceback
+            throw;
+        } catch (const std::exception& e) {
+            // Wrap C++ exceptions with context about the conversion
+            throw std::runtime_error(
+                std::string("Value::from_python: type conversion failed: ") + e.what());
+        }
+
+        // Update cache if policy supports it
         if constexpr (policy_traits<Policy>::has_python_cache) {
-            try {
-                _schema->ops->from_python(_storage.data(), src, _schema);
-            } catch (const nb::python_error& e) {
-                // Re-throw Python exceptions with preserved traceback
-                throw;
-            } catch (const std::exception& e) {
-                // Wrap C++ exceptions with context about the conversion
-                throw std::runtime_error(
-                    std::string("Value::from_python: type conversion failed: ") + e.what());
-            }
             this->set_cache(src);
-        } else {
-            // No caching - perform type conversion directly
-            try {
-                _schema->ops->from_python(_storage.data(), src, _schema);
-            } catch (const nb::python_error& e) {
-                throw;
-            } catch (const std::exception& e) {
-                throw std::runtime_error(
-                    std::string("Value::from_python: type conversion failed: ") + e.what());
-            }
         }
 
         // Notify modification callbacks
