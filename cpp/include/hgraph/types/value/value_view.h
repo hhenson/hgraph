@@ -22,7 +22,6 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
-#include <typeinfo>
 
 namespace hgraph::value {
 
@@ -662,46 +661,40 @@ public:
 
     // ========== Root Tracking ==========
 
+    // NOTE(type-safety): The set_root/root methods use void* for type erasure,
+    // which loses the Policy template parameter type information. If set_root<PolicyA>()
+    // is called and root<PolicyB>() is later called with a different policy,
+    // undefined behavior results. Users must ensure Policy consistency.
+
     /**
      * @brief Set the root Value for notification chains.
      *
      * This is used for TSValue to track modifications to nested views.
-     * Debug builds include runtime type checking to catch Policy mismatches.
+     *
+     * @warning The Policy type must match between set_root and root calls.
      *
      * @param root Pointer to the owning Value
      */
     template<typename Policy = NoCache>
     void set_root(Value<Policy>* root) {
         _root = static_cast<void*>(root);
-#ifndef NDEBUG
-        _root_policy_type = &typeid(Policy);
-#endif
     }
 
     /**
      * @brief Get the root Value.
      *
-     * Debug builds include runtime type checking to catch Policy mismatches.
+     * @warning The Policy type must match the Policy used in set_root.
      *
      * @return Pointer to the owning Value, or nullptr
      */
     template<typename Policy = NoCache>
     [[nodiscard]] Value<Policy>* root() const {
-#ifndef NDEBUG
-        if (_root != nullptr && _root_policy_type != nullptr) {
-            assert(*_root_policy_type == typeid(Policy) &&
-                   "ValueView::root() Policy type mismatch - set_root was called with a different Policy");
-        }
-#endif
         return static_cast<Value<Policy>*>(_root);
     }
 
 private:
     void* _mutable_data{nullptr};
     void* _root{nullptr};  // Optional, for notification chains
-#ifndef NDEBUG
-    const std::type_info* _root_policy_type{nullptr};  // Debug-only: type checking for root
-#endif
 };
 
 // ============================================================================
