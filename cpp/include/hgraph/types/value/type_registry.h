@@ -42,6 +42,18 @@ class QueueTypeBuilder;
  * lookup functionality. Types are registered once and their metadata pointers
  * remain stable for the lifetime of the registry.
  *
+ * Thread Safety:
+ * - Read operations (get_scalar, get_bundle_by_name, has_*) are thread-safe
+ *   for concurrent reads when no registration is in progress.
+ * - Registration operations (register_scalar, register_composite, builder.build())
+ *   are NOT thread-safe and must be synchronized externally if called from
+ *   multiple threads.
+ * - In hgraph, registration happens during graph construction under Python's GIL,
+ *   and graph execution is single-threaded, so no additional synchronization
+ *   is needed in practice.
+ * - For other use cases, ensure all type registration completes before
+ *   concurrent access begins.
+ *
  * Usage:
  * @code
  * auto& registry = TypeRegistry::instance();
@@ -264,6 +276,13 @@ private:
  *
  * Convenience function that accesses the singleton registry.
  * Registers the type if not already registered.
+ *
+ * Thread Safety Warning:
+ * This function is NOT thread-safe if the type has not been previously
+ * registered. The get-then-register pattern can race with concurrent calls.
+ * For thread-safe usage, either:
+ * 1. Pre-register all needed types during startup, or
+ * 2. Ensure external synchronization (e.g., Python's GIL during graph construction)
  *
  * @tparam T The scalar type
  * @return Pointer to the TypeMeta

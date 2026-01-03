@@ -129,6 +129,10 @@ struct TypeOps {
     /// Move assign from src to dst
     void (*move_assign)(void* dst, void* src, const TypeMeta* schema);
 
+    /// Move construct a value at dst from src (placement new with move semantics)
+    /// This is used when dst is uninitialized memory and src should be moved into it
+    void (*move_construct)(void* dst, void* src, const TypeMeta* schema);
+
     /// Check equality of two values
     bool (*equals)(const void* a, const void* b, const TypeMeta* schema);
 
@@ -314,6 +318,10 @@ struct ScalarOps {
         *static_cast<T*>(dst) = std::move(*static_cast<T*>(src));
     }
 
+    static void move_construct(void* dst, void* src, const TypeMeta*) {
+        new (dst) T(std::move(*static_cast<T*>(src)));
+    }
+
     static bool equals(const void* a, const void* b, const TypeMeta*) {
         return *static_cast<const T*>(a) == *static_cast<const T*>(b);
     }
@@ -355,6 +363,7 @@ struct ScalarOps {
             &destruct,
             &copy_assign,
             &move_assign,
+            &move_construct,
             &equals,
             &to_string,
             &to_python,

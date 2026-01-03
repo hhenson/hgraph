@@ -505,26 +505,29 @@ public:
             this->invalidate_cache();
         }
 
-        // Try type conversion; if it fails and we have caching, fall back to
-        // storing just the Python object (like Python's TimeSeriesValueOutput does)
+        // Perform type conversion from Python object to native storage
         if constexpr (policy_traits<Policy>::has_python_cache) {
             try {
                 _schema->ops->from_python(_storage.data(), src, _schema);
-            } catch (...) {
-                // Type conversion failed - just cache the Python object directly.
-                // This handles cases like to_table where the declared type doesn't
-                // match the actual runtime value type.
-                this->set_cache(src);
-                // Notify modification callbacks
-                if constexpr (policy_traits<Policy>::has_modification_tracking) {
-                    this->notify_modified();
-                }
-                return;
+            } catch (const nb::python_error& e) {
+                // Re-throw Python exceptions with preserved traceback
+                throw;
+            } catch (const std::exception& e) {
+                // Wrap C++ exceptions with context about the conversion
+                throw std::runtime_error(
+                    std::string("Value::from_python: type conversion failed: ") + e.what());
             }
             this->set_cache(src);
         } else {
-            // No caching - must do type conversion
-            _schema->ops->from_python(_storage.data(), src, _schema);
+            // No caching - perform type conversion directly
+            try {
+                _schema->ops->from_python(_storage.data(), src, _schema);
+            } catch (const nb::python_error& e) {
+                throw;
+            } catch (const std::exception& e) {
+                throw std::runtime_error(
+                    std::string("Value::from_python: type conversion failed: ") + e.what());
+            }
         }
 
         // Notify modification callbacks

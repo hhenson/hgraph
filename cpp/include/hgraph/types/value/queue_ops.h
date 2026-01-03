@@ -244,6 +244,20 @@ struct QueueOps {
         src_storage->slot_count = 0;
     }
 
+    static void move_construct(void* dst, void* src, const TypeMeta* /*schema*/) {
+        auto* src_storage = static_cast<QueueStorage*>(src);
+        // Placement new with move: take ownership of all storage
+        auto* dst_storage = new (dst) QueueStorage();
+        dst_storage->order = std::move(src_storage->order);
+        dst_storage->data = std::move(src_storage->data);
+        dst_storage->free_slots = std::move(src_storage->free_slots);
+        dst_storage->max_capacity = src_storage->max_capacity;
+        dst_storage->slot_count = src_storage->slot_count;
+
+        // Reset source
+        src_storage->slot_count = 0;
+    }
+
     static bool equals(const void* a, const void* b, const TypeMeta* schema) {
         auto* storage_a = static_cast<const QueueStorage*>(a);
         auto* storage_b = static_cast<const QueueStorage*>(b);
@@ -459,6 +473,7 @@ struct QueueOps {
             &destruct,
             &copy_assign,
             &move_assign,
+            &move_construct,
             &equals,
             &to_string,
             &to_python,

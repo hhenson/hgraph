@@ -53,6 +53,10 @@ struct ScalarOps<nb::object> {
         *static_cast<nb::object*>(dst) = std::move(*static_cast<nb::object*>(src));
     }
 
+    static void move_construct(void* dst, void* src, const TypeMeta*) {
+        new (dst) nb::object(std::move(*static_cast<nb::object*>(src)));
+    }
+
     static bool equals(const void* a, const void* b, const TypeMeta*) {
         const auto& obj_a = *static_cast<const nb::object*>(a);
         const auto& obj_b = *static_cast<const nb::object*>(b);
@@ -111,6 +115,7 @@ struct ScalarOps<nb::object> {
             &destruct,
             &copy_assign,
             &move_assign,
+            &move_construct,
             &equals,
             &to_string,
             &to_python,
@@ -241,6 +246,10 @@ struct CompoundScalarOps {
         BundleOps::move_assign(dst, src, schema);
     }
 
+    static void move_construct(void* dst, void* src, const TypeMeta* schema) {
+        BundleOps::move_construct(dst, src, schema);
+    }
+
     static bool equals(const void* a, const void* b, const TypeMeta* schema) {
         return BundleOps::equals(a, b, schema);
     }
@@ -314,6 +323,7 @@ struct CompoundScalarOps {
             &destruct,
             &copy_assign,
             &move_assign,
+            &move_construct,
             &equals,
             &to_string,
             &to_python,

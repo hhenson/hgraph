@@ -75,13 +75,12 @@ public:
         if (_schema) {
             if (_is_inline) {
                 // For trivially copyable types, memcpy is safe and efficient
-                // For non-trivial types, we must use move_assign to properly transfer ownership
+                // For non-trivial types, use move_construct for proper placement new with move semantics
                 if (_schema->is_trivially_copyable()) {
                     std::memcpy(&_storage.inline_buffer, &other._storage.inline_buffer, _schema->size);
                 } else {
-                    // Construct default in this storage, then move-assign from other
-                    _schema->ops->construct(data(), _schema);
-                    _schema->ops->move_assign(data(), other.data(), _schema);
+                    // Move-construct directly into uninitialized storage
+                    _schema->ops->move_construct(data(), other.data(), _schema);
                 }
             } else {
                 // Transfer heap pointer
@@ -102,13 +101,12 @@ public:
             if (_schema) {
                 if (_is_inline) {
                     // For trivially copyable types, memcpy is safe and efficient
-                    // For non-trivial types, we must use move_assign to properly transfer ownership
+                    // For non-trivial types, use move_construct for proper placement new with move semantics
                     if (_schema->is_trivially_copyable()) {
                         std::memcpy(&_storage.inline_buffer, &other._storage.inline_buffer, _schema->size);
                     } else {
-                        // Construct default in this storage, then move-assign from other
-                        _schema->ops->construct(data(), _schema);
-                        _schema->ops->move_assign(data(), other.data(), _schema);
+                        // Move-construct directly into uninitialized storage (reset() already cleared it)
+                        _schema->ops->move_construct(data(), other.data(), _schema);
                     }
                 } else {
                     _storage.heap_ptr = other._storage.heap_ptr;

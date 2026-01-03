@@ -86,6 +86,18 @@ struct BundleOps {
         }
     }
 
+    static void move_construct(void* dst, void* src, const TypeMeta* schema) {
+        // Move-construct each field using its type's ops
+        for (size_t i = 0; i < schema->field_count; ++i) {
+            const BundleFieldInfo& field = schema->fields[i];
+            void* dst_field = static_cast<char*>(dst) + field.offset;
+            void* src_field = static_cast<char*>(src) + field.offset;
+            if (field.type && field.type->ops && field.type->ops->move_construct) {
+                field.type->ops->move_construct(dst_field, src_field, field.type);
+            }
+        }
+    }
+
     static bool equals(const void* a, const void* b, const TypeMeta* schema) {
         // All fields must be equal
         for (size_t i = 0; i < schema->field_count; ++i) {
@@ -264,6 +276,7 @@ struct BundleOps {
             &destruct,
             &copy_assign,
             &move_assign,
+            &move_construct,
             &equals,
             &to_string,
             &to_python,
@@ -338,6 +351,17 @@ struct TupleOps {
             void* src_field = static_cast<char*>(src) + field.offset;
             if (field.type && field.type->ops && field.type->ops->move_assign) {
                 field.type->ops->move_assign(dst_field, src_field, field.type);
+            }
+        }
+    }
+
+    static void move_construct(void* dst, void* src, const TypeMeta* schema) {
+        for (size_t i = 0; i < schema->field_count; ++i) {
+            const BundleFieldInfo& field = schema->fields[i];
+            void* dst_field = static_cast<char*>(dst) + field.offset;
+            void* src_field = static_cast<char*>(src) + field.offset;
+            if (field.type && field.type->ops && field.type->ops->move_construct) {
+                field.type->ops->move_construct(dst_field, src_field, field.type);
             }
         }
     }
@@ -453,6 +477,7 @@ struct TupleOps {
             &destruct,
             &copy_assign,
             &move_assign,
+            &move_construct,
             &equals,
             &to_string,
             &to_python,
@@ -652,6 +677,24 @@ struct ListOps {
 
             // Reset source
             src_storage->size = 0;
+        }
+    }
+
+    static void move_construct(void* dst, void* src, const TypeMeta* schema) {
+        if (is_fixed(schema)) {
+            // Fixed list: move-construct all elements
+            const TypeMeta* elem_type = schema->element_type;
+            for (size_t i = 0; i < schema->fixed_size; ++i) {
+                void* dst_elem = get_element_ptr(dst, i, schema);
+                void* src_elem = get_element_ptr(src, i, schema);
+                if (elem_type && elem_type->ops && elem_type->ops->move_construct) {
+                    elem_type->ops->move_construct(dst_elem, src_elem, elem_type);
+                }
+            }
+        } else {
+            // Dynamic list: placement new with move
+            auto* src_storage = static_cast<DynamicListStorage*>(src);
+            new (dst) DynamicListStorage(std::move(*src_storage));
         }
     }
 
@@ -873,6 +916,7 @@ struct ListOps {
             &destruct,
             &copy_assign,
             &move_assign,
+            &move_construct,
             &equals,
             &to_string,
             &to_python,
@@ -1065,6 +1109,12 @@ struct SetOps {
 
         // Move via move assignment operator
         *dst_storage = std::move(*src_storage);
+    }
+
+    static void move_construct(void* dst, void* src, const TypeMeta* /*schema*/) {
+        auto* src_storage = static_cast<SetStorage*>(src);
+        // Placement new with move constructor
+        new (dst) SetStorage(std::move(*src_storage));
     }
 
     static bool equals(const void* a, const void* b, const TypeMeta* schema) {
@@ -1346,6 +1396,7 @@ struct SetOps {
             &destruct,
             &copy_assign,
             &move_assign,
+            &move_construct,
             &equals,
             &to_string,
             &to_python,
@@ -1539,6 +1590,12 @@ struct MapOps {
 
         // Move via move assignment operator
         *dst_storage = std::move(*src_storage);
+    }
+
+    static void move_construct(void* dst, void* src, const TypeMeta* /*schema*/) {
+        auto* src_storage = static_cast<MapStorage*>(src);
+        // Placement new with move constructor
+        new (dst) MapStorage(std::move(*src_storage));
     }
 
     static bool equals(const void* a, const void* b, const TypeMeta* schema) {
@@ -1936,6 +1993,7 @@ struct MapOps {
             &destruct,
             &copy_assign,
             &move_assign,
+            &move_construct,
             &equals,
             &to_string,
             &to_python,

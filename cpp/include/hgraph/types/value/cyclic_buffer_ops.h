@@ -183,6 +183,22 @@ struct CyclicBufferOps {
         src_storage->head = 0;
     }
 
+    static void move_construct(void* dst, void* src, const TypeMeta* /*schema*/) {
+        auto* src_storage = static_cast<CyclicBufferStorage*>(src);
+        // Placement new with move: transfer data ownership directly
+        auto* dst_storage = new (dst) CyclicBufferStorage();
+        dst_storage->data = src_storage->data;
+        dst_storage->capacity = src_storage->capacity;
+        dst_storage->size = src_storage->size;
+        dst_storage->head = src_storage->head;
+
+        // Reset source
+        src_storage->data = nullptr;
+        src_storage->capacity = 0;
+        src_storage->size = 0;
+        src_storage->head = 0;
+    }
+
     static bool equals(const void* a, const void* b, const TypeMeta* schema) {
         auto* storage_a = static_cast<const CyclicBufferStorage*>(a);
         auto* storage_b = static_cast<const CyclicBufferStorage*>(b);
@@ -385,6 +401,7 @@ struct CyclicBufferOps {
             &destruct,
             &copy_assign,
             &move_assign,
+            &move_construct,
             &equals,
             &to_string,
             &to_python,

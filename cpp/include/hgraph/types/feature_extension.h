@@ -116,6 +116,10 @@ namespace hgraph::value {
             *static_cast<Tracker*>(dst) = std::move(*static_cast<Tracker*>(src));
         }
 
+        static void move_construct(void* dst, void* src, const TypeMeta*) {
+            new (dst) Tracker(std::move(*static_cast<Tracker*>(src)));
+        }
+
         static bool equals(const void* a, const void* b, const TypeMeta*) {
             return *static_cast<const Tracker*>(a) == *static_cast<const Tracker*>(b);
         }
@@ -149,6 +153,7 @@ namespace hgraph::value {
                 &destruct,
                 &copy_assign,
                 &move_assign,
+                &move_construct,
                 &equals,
                 &to_string,
                 &to_python,
