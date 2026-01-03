@@ -20,6 +20,10 @@ namespace hgraph {
         return add_canary_size(sizeof(TimeSeriesSetInput));
     }
 
+    size_t TimeSeriesSetInputBuilder::type_alignment() const {
+        return alignof(TimeSeriesSetInput);
+    }
+
     void time_series_set_input_builder_register_with_nanobind(nb::module_& m) {
         nb::class_<TimeSeriesSetInputBuilder, InputBuilder>(m, "InputBuilder_TSS")
             .def(nb::init<const value::TypeMeta*>(), "element_type"_a = nullptr);

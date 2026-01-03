@@ -35,6 +35,10 @@ namespace hgraph {
         return add_canary_size(sizeof(TimeSeriesFixedWindowOutput));
     }
 
+    size_t TimeSeriesWindowOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesFixedWindowOutput);
+    }
+
     // ========== TimeSeriesTimeWindowOutputBuilder (Time-based) ==========
 
     TimeSeriesTimeWindowOutputBuilder::TimeSeriesTimeWindowOutputBuilder(engine_time_delta_t size,
@@ -59,6 +63,10 @@ namespace hgraph {
 
     size_t TimeSeriesTimeWindowOutputBuilder::memory_size() const {
         return add_canary_size(sizeof(TimeSeriesTimeWindowOutput));
+    }
+
+    size_t TimeSeriesTimeWindowOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesTimeWindowOutput);
     }
 
     // ========== Nanobind Registration ==========

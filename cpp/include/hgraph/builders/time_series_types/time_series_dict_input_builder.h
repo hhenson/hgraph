@@ -27,6 +27,8 @@ namespace hgraph {
         void release_instance(time_series_input_ptr item) const override;
 
         [[nodiscard]] size_t memory_size() const override;
+
+        [[nodiscard]] size_t type_alignment() const override;
     };
 
     void time_series_dict_input_builder_register_with_nanobind(nb::module_ & m);

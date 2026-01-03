@@ -23,6 +23,7 @@ namespace hgraph {
         time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
         void release_instance(time_series_output_ptr item) const override;
         [[nodiscard]] size_t memory_size() const override;
+        [[nodiscard]] size_t type_alignment() const override;
 
     private:
         const value::TypeMeta* _schema;

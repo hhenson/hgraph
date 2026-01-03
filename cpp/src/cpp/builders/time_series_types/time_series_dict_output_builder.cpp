@@ -44,6 +44,10 @@ namespace hgraph {
         return add_canary_size(sizeof(TimeSeriesDictOutputImpl));
     }
 
+    size_t TimeSeriesDictOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesDictOutputImpl);
+    }
+
     void time_series_dict_output_builder_register_with_nanobind(nb::module_ &m) {
         nb::class_<TimeSeriesDictOutputBuilder, OutputBuilder>(m, "OutputBuilder_TSD")
                 .def(nb::init<output_builder_s_ptr, output_builder_s_ptr, const value::TypeMeta*>(),

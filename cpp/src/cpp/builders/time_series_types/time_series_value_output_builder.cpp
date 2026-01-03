@@ -30,6 +30,10 @@ namespace hgraph {
         return add_canary_size(sizeof(TimeSeriesValueOutput));
     }
 
+    size_t TimeSeriesValueOutputBuilder::type_alignment() const {
+        return alignof(TimeSeriesValueOutput);
+    }
+
     void time_series_value_output_builder_register_with_nanobind(nb::module_& m) {
         nb::class_<TimeSeriesValueOutputBuilder, OutputBuilder>(m, "OutputBuilder_TS_Value")
             .def(nb::init<const value::TypeMeta*>(), "schema"_a);
