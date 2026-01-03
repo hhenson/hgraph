@@ -878,12 +878,33 @@ struct ListOps {
             size_t current_byte_capacity = storage->data.capacity();
 
             if (new_byte_size > current_byte_capacity) {
-                // Need more capacity - use growth strategy (at least double)
+                // Need more capacity - must properly handle non-trivially-copyable types
                 size_t current_elem_capacity = elem_size > 0 ? current_byte_capacity / elem_size : 0;
                 size_t new_capacity = std::max(current_elem_capacity * 2, new_size);
+                size_t new_capacity_bytes = new_capacity * elem_size;
 
-                // Reserve new capacity and resize to required size
-                storage->data.reserve(new_capacity * elem_size);
+                // For non-trivially-copyable types with existing elements, we must manually move
+                if (elem_type && !elem_type->is_trivially_copyable() && storage->size > 0) {
+                    std::vector<std::byte> new_data(new_capacity_bytes);
+
+                    // Move-construct existing elements to new storage
+                    for (size_t i = 0; i < storage->size; i++) {
+                        void* old_elem = storage->data.data() + i * elem_size;
+                        void* new_elem = new_data.data() + i * elem_size;
+
+                        if (elem_type->ops && elem_type->ops->move_construct) {
+                            elem_type->ops->move_construct(new_elem, old_elem, elem_type);
+                        }
+                        if (elem_type->ops && elem_type->ops->destruct) {
+                            elem_type->ops->destruct(old_elem, elem_type);
+                        }
+                    }
+
+                    storage->data = std::move(new_data);
+                } else {
+                    // Trivially copyable or no existing elements - reserve is safe
+                    storage->data.reserve(new_capacity_bytes);
+                }
             }
 
             // Ensure vector has enough bytes for all elements
@@ -1066,6 +1087,62 @@ struct SetStorage {
  * Elements must be hashable and equatable.
  */
 struct SetOps {
+    // ========== Helper Functions ==========
+
+    /**
+     * @brief Safely grow the element storage, properly handling non-trivially-copyable types.
+     *
+     * When std::vector<std::byte> reallocates, it does a raw memcpy of bytes. This is incorrect
+     * for non-trivially-copyable types like std::string. This function handles reallocation
+     * by properly move-constructing elements to the new buffer.
+     */
+    static void grow_storage(SetStorage* storage, size_t new_count, const TypeMeta* elem_type) {
+        if (!elem_type) return;
+
+        size_t elem_size = elem_type->size;
+        size_t required_bytes = new_count * elem_size;
+
+        // Already have enough space?
+        if (storage->elements.size() >= required_bytes) {
+            return;
+        }
+
+        // Have enough capacity (resize won't reallocate)?
+        if (storage->elements.capacity() >= required_bytes) {
+            storage->elements.resize(required_bytes);
+            return;
+        }
+
+        // Need to reallocate - must properly move elements for non-trivially-copyable types
+        size_t old_count = storage->element_count;
+
+        // For trivially copyable types, vector's memcpy is fine
+        if (elem_type->is_trivially_copyable() || old_count == 0) {
+            storage->elements.resize(required_bytes);
+            return;
+        }
+
+        // Non-trivially-copyable with existing elements: manual reallocation required
+        size_t new_capacity = std::max(required_bytes, storage->elements.capacity() * 2);
+        std::vector<std::byte> new_storage(new_capacity);
+
+        // Move-construct existing elements to new storage
+        for (size_t i = 0; i < old_count; i++) {
+            void* old_elem = storage->elements.data() + i * elem_size;
+            void* new_elem = new_storage.data() + i * elem_size;
+
+            if (elem_type->ops && elem_type->ops->move_construct) {
+                elem_type->ops->move_construct(new_elem, old_elem, elem_type);
+            }
+            if (elem_type->ops && elem_type->ops->destruct) {
+                elem_type->ops->destruct(old_elem, elem_type);
+            }
+        }
+
+        // Replace storage
+        storage->elements = std::move(new_storage);
+    }
+
     // ========== Core Operations ==========
 
     static void construct(void* dst, const TypeMeta* schema) {
@@ -1282,13 +1359,9 @@ struct SetOps {
 
         // Add new element at element_count position
         size_t new_idx = storage->element_count;
-        size_t elem_size = elem_type->size;
 
-        // Grow element storage if needed
-        size_t required_size = (new_idx + 1) * elem_size;
-        if (storage->elements.size() < required_size) {
-            storage->elements.resize(required_size);
-        }
+        // Grow element storage if needed (safely handles non-trivially-copyable types)
+        grow_storage(storage, new_idx + 1, elem_type);
 
         // Construct and copy new element
         void* new_elem = storage->get_element_ptr(new_idx);
@@ -1537,6 +1610,61 @@ struct MapStorage {
  * Keys must be hashable and equatable.
  */
 struct MapOps {
+    // ========== Helper Functions ==========
+
+    /**
+     * @brief Safely grow the key storage, properly handling non-trivially-copyable types.
+     */
+    static void grow_key_storage(MapStorage* storage, size_t new_count, const TypeMeta* key_type) {
+        // Delegate to SetOps::grow_storage since keys use SetStorage
+        SetOps::grow_storage(&storage->keys, new_count, key_type);
+    }
+
+    /**
+     * @brief Safely grow the value storage, properly handling non-trivially-copyable types.
+     */
+    static void grow_value_storage(MapStorage* storage, size_t new_count, const TypeMeta* val_type) {
+        if (!val_type) return;
+
+        size_t val_size = val_type->size;
+        size_t required_bytes = new_count * val_size;
+
+        if (storage->values.size() >= required_bytes) {
+            return;
+        }
+
+        if (storage->values.capacity() >= required_bytes) {
+            storage->values.resize(required_bytes);
+            return;
+        }
+
+        // Need to reallocate
+        size_t old_count = storage->entry_count();
+
+        if (val_type->is_trivially_copyable() || old_count == 0) {
+            storage->values.resize(required_bytes);
+            return;
+        }
+
+        // Non-trivially-copyable with existing elements: manual reallocation required
+        size_t new_capacity = std::max(required_bytes, storage->values.capacity() * 2);
+        std::vector<std::byte> new_storage(new_capacity);
+
+        for (size_t i = 0; i < old_count; i++) {
+            void* old_elem = storage->values.data() + i * val_size;
+            void* new_elem = new_storage.data() + i * val_size;
+
+            if (val_type->ops && val_type->ops->move_construct) {
+                val_type->ops->move_construct(new_elem, old_elem, val_type);
+            }
+            if (val_type->ops && val_type->ops->destruct) {
+                val_type->ops->destruct(old_elem, val_type);
+            }
+        }
+
+        storage->values = std::move(new_storage);
+    }
+
     // ========== Core Operations ==========
 
     static void construct(void* dst, const TypeMeta* schema) {
@@ -1837,20 +1965,10 @@ struct MapOps {
 
         // Add new entry at entry_count position
         size_t new_idx = storage->entry_count();
-        size_t key_size = key_type->size;
-        size_t val_size = val_type->size;
 
-        // Grow key storage if needed (keys.elements is the storage)
-        size_t required_key_size = (new_idx + 1) * key_size;
-        if (storage->keys.elements.size() < required_key_size) {
-            storage->keys.elements.resize(required_key_size);
-        }
-
-        // Grow value storage if needed
-        size_t required_val_size = (new_idx + 1) * val_size;
-        if (storage->values.size() < required_val_size) {
-            storage->values.resize(required_val_size);
-        }
+        // Grow storage if needed (safely handles non-trivially-copyable types)
+        grow_key_storage(storage, new_idx + 1, key_type);
+        grow_value_storage(storage, new_idx + 1, val_type);
 
         // Construct and copy new key
         void* new_key = storage->get_key_ptr(new_idx);

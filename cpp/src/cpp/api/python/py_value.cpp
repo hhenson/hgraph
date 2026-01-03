@@ -1491,7 +1491,7 @@ static void register_plain_value(nb::module_& m) {
         // View access (Design Doc Section 6.2)
         .def("view", static_cast<ValueView (PlainValue::*)()>(&PlainValue::view),
             "Get a mutable view of the data")
-        .def("const_view", &PlainValue::const_view, "Get a const view of the data")
+        .def("const_view", &PlainValue::const_view, nb::keep_alive<0, 1>(), "Get a const view of the data")
 
         // Specialized view access (Design Doc Section 6.2)
         .def("as_tuple", static_cast<TupleView (PlainValue::*)()>(&PlainValue::as_tuple),
@@ -1616,7 +1616,7 @@ static void register_cached_value(nb::module_& m) {
         // View access (Design Doc Section 6.2)
         .def("view", static_cast<ValueView (CachedValue::*)()>(&CachedValue::view),
             "Get a mutable view of the data (invalidates cache)")
-        .def("const_view", &CachedValue::const_view, "Get a const view of the data")
+        .def("const_view", &CachedValue::const_view, nb::keep_alive<0, 1>(), "Get a const view of the data")
 
         // Specialized view access (Design Doc Section 6.2)
         .def("as_tuple", static_cast<TupleView (CachedValue::*)()>(&CachedValue::as_tuple),
@@ -1716,7 +1716,7 @@ static void register_ts_value(nb::module_& m) {
         // View access
         .def("view", static_cast<ValueView (TSValue::*)()>(&TSValue::view),
             "Get a mutable view of the data (invalidates cache)")
-        .def("const_view", &TSValue::const_view, "Get a const view of the data")
+        .def("const_view", &TSValue::const_view, nb::keep_alive<0, 1>(), "Get a const view of the data")
 
         // Specialized view access
         .def("as_tuple", static_cast<TupleView (TSValue::*)()>(&TSValue::as_tuple),
@@ -1790,7 +1790,7 @@ static void register_validated_value(nb::module_& m) {
         // View access
         .def("view", static_cast<ValueView (ValidatedValue::*)()>(&ValidatedValue::view),
             "Get a mutable view of the data")
-        .def("const_view", &ValidatedValue::const_view, "Get a const view of the data")
+        .def("const_view", &ValidatedValue::const_view, nb::keep_alive<0, 1>(), "Get a const view of the data")
 
         // Python interop
         .def("to_python", &ValidatedValue::to_python, "Convert to Python object")

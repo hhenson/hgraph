@@ -634,10 +634,43 @@ public:
         if (!_schema->ops->resize) {
             throw std::runtime_error("List type does not support resize operation");
         }
-        // Resize to add one element, then set the last element
+
+        // IMPORTANT: Copy the source value BEFORE resize, in case the source
+        // is a temporary that may be destroyed by allocations during resize.
+        // The resize may trigger memory allocations that could reuse the
+        // memory where the source value was stored.
+        const TypeMeta* elem_type = _schema->element_type;
+        alignas(16) std::byte local_buffer[64];  // Stack buffer for small values
+        void* temp_storage = nullptr;
+        bool using_heap = false;
+
+        if (elem_type && elem_type->size <= sizeof(local_buffer)) {
+            temp_storage = local_buffer;
+        } else if (elem_type) {
+            temp_storage = ::operator new(elem_type->size, std::align_val_t{elem_type->alignment});
+            using_heap = true;
+        }
+
+        // Copy-construct the value into temp storage
+        if (temp_storage && elem_type && elem_type->ops) {
+            elem_type->ops->construct(temp_storage, elem_type);
+            elem_type->ops->copy_assign(temp_storage, value.data(), elem_type);
+        }
+
+        // Now resize - this may reallocate and potentially reuse freed memory
         size_t current_size = size();
         _schema->ops->resize(data(), current_size + 1, _schema);
-        set(current_size, value);
+
+        // Copy from our temp storage to the new element
+        if (temp_storage && elem_type && elem_type->ops) {
+            void* elem_ptr = ListOps::get_element_ptr(data(), current_size, _schema);
+            elem_type->ops->copy_assign(elem_ptr, temp_storage, elem_type);
+            elem_type->ops->destruct(temp_storage, elem_type);
+        }
+
+        if (using_heap && temp_storage) {
+            ::operator delete(temp_storage, std::align_val_t{elem_type->alignment});
+        }
     }
 
     /**
