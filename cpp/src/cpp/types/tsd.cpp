@@ -129,8 +129,20 @@ namespace hgraph
             _removed_items.emplace(key.clone(), std::make_pair(item, item_was_valid));
         }
 
-        key_set().remove(key);
-        for (auto &observer : _key_observers) { observer->on_key_removed(key); }
+        // Check if the owning graph is stopping to avoid notification cascades
+        // during teardown. This allows data cleanup while preventing crashes from
+        // accessing partially stopped nodes.
+        bool is_teardown = false;
+        if (has_owning_node()) {
+            auto g = owning_graph();
+            is_teardown = (g != nullptr && g->is_stopping());
+        }
+
+        // Skip notifications during teardown to avoid accessing partially stopped state
+        if (!is_teardown) {
+            key_set().remove(key);
+            for (auto &observer : _key_observers) { observer->on_key_removed(key); }
+        }
 
         _ts_values.erase(it);
         item->clear();
@@ -145,12 +157,20 @@ namespace hgraph
         }
 
         // Schedule cleanup notification only once per evaluation cycle
-        auto et = owning_graph()->evaluation_time();
+        // Skip if no owning node or graph is stopping to avoid accessing partially torn-down state
+        if (!has_owning_node()) {
+            return;
+        }
+        auto g = owning_graph();
+        if (g == nullptr || g->is_stopping()) {
+            return;
+        }
+        auto et = g->evaluation_time();
 
         if (_last_cleanup_time < et) {
             _last_cleanup_time = et;
             auto weak_self = weak_from_this();
-            owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
+            g->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
                 if (auto self = weak_self.lock()) {
                     static_cast<TimeSeriesDictOutputImpl *>(self.get())->_clear_key_changes();
                 }

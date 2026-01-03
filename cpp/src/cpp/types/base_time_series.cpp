@@ -153,6 +153,12 @@ namespace hgraph {
         if (has_parent_or_node()) {
             auto n = owning_node();
             if (n != nullptr) {
+                // Skip modifications during graph teardown to prevent notification cascades
+                // that could access partially stopped nodes
+                auto g = n->graph();
+                if (g != nullptr && g->is_stopping()) {
+                    return;
+                }
                 // Use cached evaluation time pointer from node for performance
                 mark_modified(*n->cached_evaluation_time_ptr());
             } else {
@@ -413,7 +419,16 @@ namespace hgraph {
                 auto parent = std::static_pointer_cast<BaseTimeSeriesInput>(parent_input());
                 parent->notify_parent(this, modified_time);
             } else {
-                owning_node()->notify(modified_time);
+                auto node = owning_node();
+                if (node == nullptr) {
+                    return;
+                }
+                // Skip notifications when the graph is stopping to avoid accessing
+                // partially stopped nodes or inconsistent state during teardown
+                if (node->graph() && node->graph()->is_stopping()) {
+                    return;
+                }
+                node->notify(modified_time);
             }
         }
     }
