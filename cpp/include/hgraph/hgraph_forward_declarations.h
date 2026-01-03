@@ -188,7 +188,7 @@ namespace hgraph {
     struct PythonGeneratorNode;
     struct PythonNode;
     struct ReduceNode;
-    template<typename> struct SwitchNode;
+    struct SwitchNode;
     struct NestedGraphNode;
     struct TsdMapNode;
     struct ComponentNode;

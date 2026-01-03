@@ -641,6 +641,6 @@ def test_filter_by_tsd():
 
     assert eval_node(
         g,
-        [{1: 1, 2: 2, 3: 3}, None, {1: REMOVE}],
+        [{"1": 1, "2": 2, "3": 3}, None, {"1": REMOVE}],
         [2, 0],
-    ) == [{3: 3}, {1: 1, 2: 2}, {1: REMOVE}]
+    ) == [{"3": 3}, {"1": 1, "2": 2}, {"1": REMOVE}]

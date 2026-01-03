@@ -284,6 +284,7 @@ if is_feature_enabled("use_cpp"):
                 bool: value.scalar_type_meta_bool,
                 int: value.scalar_type_meta_int64,
                 float: value.scalar_type_meta_double,
+                str: value.scalar_type_meta_string,
                 date: value.scalar_type_meta_date,
                 datetime: value.scalar_type_meta_datetime,
                 timedelta: value.scalar_type_meta_timedelta,
@@ -479,22 +480,17 @@ if is_feature_enabled("use_cpp"):
             reload_on_ticked,
             recordable_state_builder=None,
         ):
+            # Get key type schema for Value-based key storage
             switch_input_type = signature.time_series_inputs["key"]
-            key_tp = switch_input_type.value_scalar_tp.py_type
-            return {
-                bool: _hgraph.SwitchNodeBuilder_bool,
-                int: _hgraph.SwitchNodeBuilder_int,
-                float: _hgraph.SwitchNodeBuilder_float,
-                date: _hgraph.SwitchNodeBuilder_date,
-                datetime: _hgraph.SwitchNodeBuilder_date_time,
-                timedelta: _hgraph.SwitchNodeBuilder_time_delta,
-            }.get(key_tp, _hgraph.SwitchNodeBuilder_object)(
+            key_type_schema = _get_value_schema_for_scalar_type(switch_input_type.value_scalar_tp)
+            return _hgraph.SwitchNodeBuilder(
                 signature,
                 scalars,
                 input_builder,
                 output_builder,
                 error_builder,
                 recordable_state_builder,
+                key_type_schema,
                 nested_graphs,
                 input_node_ids,
                 output_node_id,

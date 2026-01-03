@@ -20,6 +20,7 @@
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/mesh_node.h>
 #include <hgraph/nodes/push_queue_node.h>
+#include <hgraph/nodes/switch_node.h>
 #include <hgraph/nodes/tsd_map_node.h>
 #include <hgraph/runtime/evaluation_engine.h>
 #include <hgraph/types/graph.h>
@@ -149,18 +150,22 @@ namespace
 
     static auto node_v = ddv::serial{
         [](LastValuePullNode*, ApiPtr<Node> ptr) {
-            return create_wrapper_from_api<PyLastValuePullNode, LastValuePullNode>(std::move(ptr));
+            return nb::cast(PyLastValuePullNode(std::move(ptr)));
         },
         [](PushQueueNode*, ApiPtr<Node> ptr) {
-            return create_wrapper_from_api<PyPushQueueNode, PushQueueNode>(std::move(ptr));
+            return nb::cast(PyPushQueueNode(std::move(ptr)));
         },
         // Mesh nodes - now non-templated
         [](MeshNode*, ApiPtr<Node> ptr) {
             return nb::cast(PyMeshNestedNode::make_mesh_node(std::move(ptr)));
         },
+        // Switch nodes - now non-templated, wraps as PyNestedNode
+        [](SwitchNode*, ApiPtr<Node> ptr) {
+            return nb::cast(PyNestedNode(std::move(ptr)));
+        },
         // Other nested nodes
         [](NestedNode*, ApiPtr<Node> ptr) {
-            return create_wrapper_from_api<PyNestedNode, NestedNode>(std::move(ptr));
+            return nb::cast(PyNestedNode(std::move(ptr)));
         },
         // Default to base PyNode
         // [NOTE] first arg must be `auto`, not `Node*`: in latter case compiler needs complete nodes definitions
