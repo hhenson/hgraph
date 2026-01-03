@@ -56,29 +56,39 @@ struct TrackedSetStorage {
 
     /**
      * @brief Get const view of current set value.
+     * @return Empty invalid view if storage not initialized, otherwise set view.
      */
     [[nodiscard]] ConstSetView value() const {
+        if (!_set_schema) return ConstSetView{};
         return _value.const_view().as_set();
     }
 
     /**
      * @brief Get mutable view of current set value.
+     * @note Caller should ensure storage is initialized before calling.
      */
     [[nodiscard]] SetView value() {
+        if (!_set_schema) {
+            throw std::runtime_error("TrackedSetStorage::value(): storage not initialized");
+        }
         return _value.view().as_set();
     }
 
     /**
      * @brief Get const view of added elements.
+     * @return Empty invalid view if storage not initialized, otherwise set view.
      */
     [[nodiscard]] ConstSetView added() const {
+        if (!_set_schema) return ConstSetView{};
         return _added.const_view().as_set();
     }
 
     /**
      * @brief Get const view of removed elements.
+     * @return Empty invalid view if storage not initialized, otherwise set view.
      */
     [[nodiscard]] ConstSetView removed() const {
+        if (!_set_schema) return ConstSetView{};
         return _removed.const_view().as_set();
     }
 
