@@ -424,7 +424,11 @@ struct TupleOps {
             const BundleFieldInfo& field = schema->fields[i];
             void* field_ptr = static_cast<char*>(dst) + field.offset;
             if (field.type && field.type->ops && field.type->ops->from_python) {
-                field.type->ops->from_python(field_ptr, seq[i], field.type);
+                nb::object elem = seq[i];
+                // Skip None values - can't cast None to non-nullable scalar types
+                if (!elem.is_none()) {
+                    field.type->ops->from_python(field_ptr, elem, field.type);
+                }
             }
         }
     }
