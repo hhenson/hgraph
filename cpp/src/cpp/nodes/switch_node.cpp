@@ -15,22 +15,6 @@
 
 namespace hgraph {
 
-    // Helper to get DEFAULT object from Python
-    static nb::object get_python_default() {
-        static nb::object default_obj;
-        if (!default_obj.is_valid()) {
-            try {
-                // Import DEFAULT from hgraph._types._scalar_types
-                auto scalar_types = nb::module_::import_("hgraph._types._scalar_types");
-                default_obj = scalar_types.attr("DEFAULT");
-            } catch (...) {
-                // If import fails, return an invalid object
-                default_obj = nb::object();
-            }
-        }
-        return default_obj;
-    }
-
     SwitchNode::SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                            nb::dict scalars,
                            const value::TypeMeta* key_type,
@@ -193,12 +177,7 @@ namespace hgraph {
 
         auto active_key_view = _active_key->const_view();
 
-        // Determine the effective graph key: if no specific mapping, use DEFAULT
-        bool has_specific = _nested_graph_builders->find(active_key_view) != _nested_graph_builders->end();
-
-        // For lookups, we use active_key_view if specific, otherwise need a DEFAULT key
-        // But since we're already using the active graph builder, we can use the active key for lookups
-        // and fall back to defaults if not found
+        // For lookups, we use active_key_view if specific, otherwise fall back to defaults
 
         // Set recordable ID if needed
         if (!_recordable_id.empty()) {
