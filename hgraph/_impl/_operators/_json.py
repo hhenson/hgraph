@@ -83,20 +83,34 @@ def getattr_json_obj(ts: TS[JSON], attr: str) -> TS[object]:
 
 
 @compute_node(overloads=getitem_)
-def getitem_json_str(ts: TS[JSON], key: str, _log: LOGGER = None) -> TS[JSON]:
+def getitem_json_str(ts: TS[JSON], key: str, __strict__: bool = True, _log: LOGGER = None) -> TS[JSON]:
     try:
-        return JSON(ts.value.json.get(key))
+        value = ts.value.json.get(key)
+        if value is None:
+            if __strict__:
+                assert False
+            else:
+                return
+        else:
+            return JSON(value)
     except:
-        _log.error(f"Failed to get '{key}' from JSON {ts.value}")
+        _log.error(f"Cannot get '{key}' from JSON '{ts.value.json}'")
 
 
 
 @compute_node(overloads=getitem_)
-def getitem_json_int(ts: TS[JSON], key: int, _log: LOGGER = None) -> TS[JSON]:
+def getitem_json_int(ts: TS[JSON], key: int, __strict__: bool = True, _log: LOGGER = None) -> TS[JSON]:
     try:
-        return JSON(ts.value.json[key])
+        value = ts.value.json[key]
+        if value is None:
+            if __strict__:
+                assert False
+            else:
+                return
+        else:
+            return JSON(value)
     except:
-        _log.error(f"Failed to get '{key}' from JSON {ts.value}")
+        _log.error(f"Cannot get '{key}' from JSON '{ts.value.json}'")
 
 
 @compute_node(
