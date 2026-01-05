@@ -45,7 +45,7 @@ def json_encode_str(ts: TS[JSON], _tp: Type[str] = DEFAULT[SCALAR], _log: LOGGER
     try:
         return json.dumps(ts.value.json)
     except:
-        _log.error(f"Failed to encode JSON {ts.value}")
+        _log.error(f"Failed to encode JSON {ts.value.json}")
 
 
 
@@ -54,7 +54,7 @@ def json_encode_bytes(ts: TS[JSON], _tp: Type[bytes] = DEFAULT[SCALAR], _log: LO
     try:
         return json.dumps(ts.value.json).encode("utf-8")
     except:
-        _log.error("Failed to encode JSON bytes")
+        _log.error(f"Failed to encode JSON {ts.value.json}")
 
 
 @compute_node(overloads=getattr_, requires=lambda m, attr: attr == "str")
