@@ -609,6 +609,26 @@ namespace hgraph
         : _node_ndx{node_ndx}, _owning_graph_id{std::move(owning_graph_id)}, _signature{std::move(signature)},
           _scalars{std::move(scalars)} {}
 
+    Node::Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars,
+               const TSMeta* input_meta, const TSMeta* output_meta,
+               const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
+        : _node_ndx{node_ndx}, _owning_graph_id{std::move(owning_graph_id)}, _signature{std::move(signature)},
+          _scalars{std::move(scalars)} {
+        // Construct TSValue storage from provided TSMeta
+        if (input_meta) {
+            _ts_input.emplace(input_meta, this);
+        }
+        if (output_meta) {
+            _ts_output.emplace(output_meta, this, OUTPUT_MAIN);
+        }
+        if (error_output_meta) {
+            _ts_error_output.emplace(error_output_meta, this, ERROR_PATH);
+        }
+        if (recordable_state_meta) {
+            _ts_recordable_state.emplace(recordable_state_meta, this, STATE_PATH);
+        }
+    }
+
     void Node::notify(engine_time_t modified_time) {
         if (is_started() || is_starting()) {
             // When a node is starting, it might be notified with a historical time (from inputs that ticked in the past).
@@ -892,5 +912,49 @@ namespace hgraph
         } else if (has_scheduler() && _scheduler->requires_scheduling()) {
             graph()->schedule_node(node_ndx(), _scheduler->next_scheduled_time());
         }
+    }
+
+    // ========== TSValue View Access Methods ==========
+
+    TSBView Node::input_view() {
+        if (!_ts_input.has_value()) {
+            throw std::runtime_error("Node has no TSValue-based input storage");
+        }
+        return _ts_input->bundle_view();
+    }
+
+    TSBView Node::input_view() const {
+        if (!_ts_input.has_value()) {
+            throw std::runtime_error("Node has no TSValue-based input storage");
+        }
+        return _ts_input->bundle_view();
+    }
+
+    TSMutableView Node::output_view() {
+        if (!_ts_output.has_value()) {
+            throw std::runtime_error("Node has no TSValue-based output storage");
+        }
+        return _ts_output->mutable_view();
+    }
+
+    TSView Node::output_view() const {
+        if (!_ts_output.has_value()) {
+            throw std::runtime_error("Node has no TSValue-based output storage");
+        }
+        return _ts_output->view();
+    }
+
+    TSMutableView Node::error_output_view() {
+        if (!_ts_error_output.has_value()) {
+            throw std::runtime_error("Node has no TSValue-based error output storage");
+        }
+        return _ts_error_output->mutable_view();
+    }
+
+    TSMutableView Node::state_view() {
+        if (!_ts_recordable_state.has_value()) {
+            throw std::runtime_error("Node has no TSValue-based recordable state storage");
+        }
+        return _ts_recordable_state->mutable_view();
     }
 }  // namespace hgraph

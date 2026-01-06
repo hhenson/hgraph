@@ -58,8 +58,7 @@ constexpr int STATE_PATH = -2;    ///< Recordable state for checkpointing
  * float price = bundle.field("price").as<float>();
  * @endcode
  */
-class TSValue {
-public:
+struct TSValue {
     /// The underlying Value type with appropriate policies
     using base_value_type = value::Value<value::CombinedPolicy<
         value::WithPythonCache,

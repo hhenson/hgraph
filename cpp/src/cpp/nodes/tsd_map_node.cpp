@@ -292,7 +292,7 @@ namespace hgraph
             node->notify();
 
             if (arg == key_arg_) {
-                auto key_node{dynamic_cast<PythonNode &>(*node)};
+                auto& key_node{dynamic_cast<PythonNode &>(*node)};
                 // This relies on the current stub binding mechanism with a stub python class to hold the key.
                 nb::object py_key = key_type_meta_->ops->to_python(key.data(), key_type_meta_);
                 nb::setattr(key_node.eval_fn(), "key", py_key);

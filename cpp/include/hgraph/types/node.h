@@ -2,6 +2,8 @@
 #define NODE_H
 
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/ts_value.h>
+#include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <memory>
@@ -190,7 +192,13 @@ namespace hgraph
         using ptr   = Node *;
         using s_ptr = std::shared_ptr<Node>;
 
+        // Legacy constructor (for existing code during transition)
         Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars);
+
+        // New constructor with TSMeta - Node constructs TSValue internally
+        Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars,
+             const TSMeta* input_meta, const TSMeta* output_meta,
+             const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         virtual void eval();
 
@@ -246,6 +254,55 @@ namespace hgraph
 
         void set_error_output(const time_series_output_s_ptr &value);
 
+        // ========== TSValue View Access Methods ==========
+        // These provide type-safe access to the new TSValue storage
+
+        /**
+         * @brief Check if the node has TSValue-based input storage.
+         */
+        [[nodiscard]] bool has_ts_input() const { return _ts_input.has_value(); }
+
+        /**
+         * @brief Check if the node has TSValue-based output storage.
+         */
+        [[nodiscard]] bool has_ts_output() const { return _ts_output.has_value(); }
+
+        /**
+         * @brief Get a bundle view of the input (always TSB).
+         * @return TSBView for accessing input fields
+         */
+        [[nodiscard]] TSBView input_view();
+
+        /**
+         * @brief Get a bundle view of the input (const).
+         * @return TSBView for reading input fields
+         */
+        [[nodiscard]] TSBView input_view() const;
+
+        /**
+         * @brief Get a mutable view of the output.
+         * @return TSMutableView for reading and writing output
+         */
+        [[nodiscard]] TSMutableView output_view();
+
+        /**
+         * @brief Get a read-only view of the output.
+         * @return TSView for reading output
+         */
+        [[nodiscard]] TSView output_view() const;
+
+        /**
+         * @brief Get a mutable view of the error output.
+         * @return TSMutableView for reading and writing error output
+         */
+        [[nodiscard]] TSMutableView error_output_view();
+
+        /**
+         * @brief Get a mutable view of the recordable state.
+         * @return TSMutableView for reading and writing state
+         */
+        [[nodiscard]] TSMutableView state_view();
+
         // Performance optimization: provide access to cached evaluation time pointer
         [[nodiscard]] const engine_time_t *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
 
@@ -297,6 +354,13 @@ namespace hgraph
         // Performance optimization: Cache evaluation time pointer from graph
         // Set once when graph is assigned to node, never changes
         const engine_time_t *_cached_evaluation_time_ptr{nullptr};
+
+        // ========== New TSValue Storage ==========
+        // These replace the shared_ptr-based time-series storage
+        std::optional<TSValue> _ts_input;            // Always TSB type
+        std::optional<TSValue> _ts_output;           // Any TS type
+        std::optional<TSValue> _ts_error_output;     // Error output path
+        std::optional<TSValue> _ts_recordable_state; // Recordable state path
     };
 }  // namespace hgraph
 

@@ -8,6 +8,9 @@
 #include <hgraph/builders/builder.h>
 
 namespace hgraph {
+
+    // Forward declaration
+    struct TSMeta;
     struct NodeBuilder : Builder {
         NodeBuilder(node_signature_s_ptr signature_, nb::dict scalars_,
                     std::optional<input_builder_s_ptr> input_builder_ = std::nullopt,
@@ -50,6 +53,34 @@ namespace hgraph {
         [[nodiscard]] size_t type_alignment() const override;
 
         static void register_with_nanobind(nb::module_ &m);
+
+        // ========== TSMeta Extraction Methods ==========
+        // These extract TSMeta from the CppTimeSeriesBuilder instances
+        // for passing to Node constructor.
+
+        /**
+         * @brief Extract TSMeta from input builder (if it's a CppTimeSeriesInputBuilder).
+         * @return The TSMeta pointer, or nullptr if not available
+         */
+        [[nodiscard]] const TSMeta* input_meta() const;
+
+        /**
+         * @brief Extract TSMeta from output builder (if it's a CppTimeSeriesOutputBuilder).
+         * @return The TSMeta pointer, or nullptr if not available
+         */
+        [[nodiscard]] const TSMeta* output_meta() const;
+
+        /**
+         * @brief Extract TSMeta from error output builder.
+         * @return The TSMeta pointer, or nullptr if not available
+         */
+        [[nodiscard]] const TSMeta* error_output_meta() const;
+
+        /**
+         * @brief Extract TSMeta from recordable state builder.
+         * @return The TSMeta pointer, or nullptr if not available
+         */
+        [[nodiscard]] const TSMeta* recordable_state_meta() const;
 
         node_signature_s_ptr signature;
         nb::dict scalars;

@@ -14,10 +14,8 @@
 
 namespace hgraph
 {
-    constexpr int64_t ERROR_PATH = -1;  // The path in the wiring edges representing the error output of the node
-    constexpr int64_t STATE_PATH = -2;
-    // The path in the wiring edges representing the recordable state output of the node
-    constexpr int64_t KEY_SET = -3;  // The path in the wiring edges representing the recordable state output of the node
+    // Note: ERROR_PATH and STATE_PATH are defined in ts_value.h (included via node.h)
+    constexpr int64_t KEY_SET = -3;  // The path in the wiring edges representing the key_set output of the node
 
     time_series_output_s_ptr _extract_output(node_ptr node, const std::vector<int64_t> &path) {
         if (path.empty()) { throw std::runtime_error("No path to find an output for"); }

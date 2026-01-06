@@ -7,6 +7,7 @@
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/node_builder.h>
 #include <hgraph/builders/output_builder.h>
+#include <hgraph/builders/ts_builders.h>
 
 // Include all the extracted builder headers
 #include <hgraph/builders/nodes/python_node_builder.h>
@@ -100,6 +101,48 @@ namespace hgraph {
             total += (*recordable_state_builder)->memory_size();
         }
         return total;
+    }
+
+    // ========== TSMeta Extraction Methods ==========
+
+    const TSMeta* NodeBuilder::input_meta() const {
+        if (!input_builder.has_value()) {
+            return nullptr;
+        }
+        if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesInputBuilder*>(input_builder->get())) {
+            return cpp_builder->ts_meta();
+        }
+        return nullptr;
+    }
+
+    const TSMeta* NodeBuilder::output_meta() const {
+        if (!output_builder.has_value()) {
+            return nullptr;
+        }
+        if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(output_builder->get())) {
+            return cpp_builder->ts_meta();
+        }
+        return nullptr;
+    }
+
+    const TSMeta* NodeBuilder::error_output_meta() const {
+        if (!error_builder.has_value()) {
+            return nullptr;
+        }
+        if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(error_builder->get())) {
+            return cpp_builder->ts_meta();
+        }
+        return nullptr;
+    }
+
+    const TSMeta* NodeBuilder::recordable_state_meta() const {
+        if (!recordable_state_builder.has_value()) {
+            return nullptr;
+        }
+        if (auto* cpp_builder = dynamic_cast<const CppTimeSeriesOutputBuilder*>(recordable_state_builder->get())) {
+            return cpp_builder->ts_meta();
+        }
+        return nullptr;
     }
 
     void NodeBuilder::register_with_nanobind(nb::module_ &m) {
