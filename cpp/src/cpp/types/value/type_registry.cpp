@@ -308,6 +308,7 @@ const TypeMeta* BundleTypeBuilder::build() {
     meta->key_type = nullptr;
     meta->fields = fields_ptr;
     meta->fixed_size = 0;
+    meta->python_type = std::move(_python_type);  // Store Python type for to_python
 
     const TypeMeta* result = _registry.register_composite(std::move(meta));
 

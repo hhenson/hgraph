@@ -404,6 +404,20 @@ public:
     }
 
     /**
+     * @brief Set the Python type for this bundle.
+     *
+     * When set, to_python will construct an instance of this type
+     * instead of returning a plain dict.
+     *
+     * @param type The Python type (e.g., CompoundScalar dataclass)
+     * @return Reference to this builder for chaining
+     */
+    BundleTypeBuilder& with_python_type(nb::object type) {
+        _python_type = std::move(type);
+        return *this;
+    }
+
+    /**
      * @brief Build and register the bundle type.
      * @return Pointer to the registered TypeMeta
      */
@@ -413,6 +427,7 @@ private:
     TypeRegistry& _registry;
     std::string _name;
     std::vector<std::pair<const char*, const TypeMeta*>> _fields;
+    nb::object _python_type;
 };
 
 /**

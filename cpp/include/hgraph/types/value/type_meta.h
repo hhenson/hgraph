@@ -240,6 +240,10 @@ struct TypeMeta {
 
     size_t fixed_size;                 ///< 0 = dynamic, >0 = fixed capacity
 
+    // ========== Python Type Information ==========
+
+    nb::object python_type;            ///< Optional Python type (e.g., CompoundScalar dataclass)
+
     // ========== Query Methods ==========
 
     /// Check if this is a fixed-size collection
@@ -290,6 +294,11 @@ struct TypeMeta {
     /// Check if this is a variadic tuple (tuple[T, ...])
     [[nodiscard]] constexpr bool is_variadic_tuple() const noexcept {
         return has(TypeFlags::VariadicTuple);
+    }
+
+    /// Check if this type has an associated Python type
+    [[nodiscard]] bool has_python_type() const noexcept {
+        return python_type.is_valid() && !python_type.is_none();
     }
 };
 

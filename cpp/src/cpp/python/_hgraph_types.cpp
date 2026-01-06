@@ -22,11 +22,18 @@
 #include <hgraph/types/traits.h>
 #include <hgraph/types/tsb.h>
 
+#include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
+
 void export_types(nb::module_ &m) {
     using namespace hgraph;
 
     // Value type system (must come before time series types that use them)
     value_register_with_nanobind(m);
+
+    // Time-series type metadata (must come before time series types that use them)
+    register_ts_type_meta_with_nanobind(m);
+    register_ts_type_registry_with_nanobind(m);
 
     // Schema and scalar types (must come before time series types that use them)
     AbstractSchema::register_with_nanobind(m);

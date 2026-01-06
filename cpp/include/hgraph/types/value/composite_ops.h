@@ -143,6 +143,23 @@ struct BundleOps {
                 result[field.name] = field.type->ops->to_python(field_ptr, field.type);
             }
         }
+
+        // If a Python type is set (e.g., CompoundScalar dataclass), construct it
+        if (schema->has_python_type()) {
+            nb::dict kwargs;
+            for (size_t i = 0; i < schema->field_count; ++i) {
+                const BundleFieldInfo& field = schema->fields[i];
+                if (field.name) {
+                    if (result.contains(field.name)) {
+                        kwargs[field.name] = result[field.name];
+                    } else {
+                        kwargs[field.name] = nb::none();
+                    }
+                }
+            }
+            return schema->python_type(**kwargs);
+        }
+
         return result;
     }
 
