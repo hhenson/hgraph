@@ -1134,29 +1134,41 @@ class tooltip_info{
 const FORMAT_REGEX = /(?<!\{)\{([^\{\}]*?)\}(?!\})/g;
 
 function createButtonAction(td, action, metadata, model, viewer) {
-    if (td.querySelector("button") === null) {
-        td.innerHTML = "<button style='font: inherit'>" + action.label + "</button>";
-        const btn = td.querySelector("button");
+    td.innerHTML = "<button style='font: inherit'>" + action.label + "</button>";
+    const btn = td.querySelector("button");
+    const id = model._ids[metadata.y - metadata.y0];
+    if (id){
         btn.addEventListener("click", async () => {
-            const id = model._ids[metadata.y - metadata.y0];
-            if (id){
-                const tbl = await viewer.getTable();
-                const index = await tbl.get_index();
-                const view = await tbl.view({filter: [[index, '==', id.join(',')]]});
-                const row = (await (view).to_json())[0];
-                view.delete();
-                if (row){
-                    switch (action.action.type) {
-                    case 'url':
-                        const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
-                        btn.disabled = true;
-                        await fetch (url, {method: 'GET'});
-                        btn.disabled = false;
+            const tbl = await viewer.getTable();
+            const index = await tbl.get_index();
+            const view = await tbl.view({filter: [[index, '==', id.join(',')]]});
+            const row = (await (view).to_json())[0];
+            view.delete();
+            if (row){
+                switch (action.action.type) {
+                case 'url':
+                    const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
+                    btn.disabled = true;
+                    btn.style.cursor = "progress";
+                    console.server(`Action: ${btn.innerText}, Fetching URL: ${url} at time ${new Date().toISOString()}`);
+                    const reply = await fetch (url, {method: 'GET'});
+                    btn.disabled = false;
+                    btn.style.cursor = "default";
+                    if (reply.ok) {
+                        console.server(`Action: ${btn.innerText}, Successfully fetched URL: ${url} at time ${new Date().toISOString()}`);
+                    } else {
+                        const error_text = await reply.text();
+                        console.server(`Action: ${btn.innerText}, Failed to fetch URL: ${url} with status ${reply.status} and message: '${error_text}' at time ${new Date().toISOString()}`);
+                        alert(`Action failed with status ${reply.status} and message: '${error_text}'`);
                     }
                 }
             }
         });
-    }
+    } else {
+        btn.disabled = true;
+        btn.style.cursor = "not-allowed";
+        console.error(`Action: ${btn.innerText}, Cannot attach action because row ID is missing.`);
+    }        
 }
 
 function parseActionConfig(action) {

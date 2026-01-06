@@ -554,7 +554,7 @@ def handle_inspector_request(state: InspectorState, request: HttpGetRequest, f: 
                     return
         except Exception as e:
             set_result(f, HttpResponse(500, body=f"Error: {e}"))
-            logger.exception(f"Inspector error {e}")
+            logger.error(f"Inspector error {e}")
             return
             # raise e
 
