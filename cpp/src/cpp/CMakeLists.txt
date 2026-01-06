@@ -22,6 +22,7 @@ set(HGRAPH_SOURCES
         builders/input_builder.cpp
         builders/node_builder.cpp
         builders/output_builder.cpp
+        builders/ts_builders.cpp
         builders/nodes/python_node_builder.cpp
         builders/nodes/python_generator_node_builder.cpp
         builders/nodes/tsd_map_node_builder.cpp
@@ -108,6 +109,9 @@ set(HGRAPH_SOURCES
         types/value/type_meta_bindings.cpp
         types/time_series/ts_type_meta.cpp
         types/time_series/ts_type_registry.cpp
+        types/time_series/ts_value.cpp
+        types/time_series/ts_view.cpp
+        types/time_series/ts_value_test_bindings.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp

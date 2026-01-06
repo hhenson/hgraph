@@ -12,7 +12,7 @@
 2. [Time-Series Schema System](#2-time-series-schema-system)
 3. [Creating TSValues](#3-creating-tsvalues)
 4. [TSViews - Reading Values](#4-tsviews---reading-values)
-5. [Outputs and Inputs (Slot Approach)](#5-outputs-and-inputs-slot-approach)
+5. [Node Storage and View Creation](#5-node-storage-and-view-creation)
 6. [Binding and Notification](#6-binding-and-notification)
 7. [Working with Bundles (TSB)](#7-working-with-bundles-tsb)
 8. [Path-Based Navigation](#8-path-based-navigation)
@@ -24,34 +24,36 @@
 
 ## 1. Getting Started
 
-The TSValue type system provides type-erased time-series values for the hgraph runtime. It builds on the Value type system, adding time-series semantics (modification tracking, notification, binding).
+The TSValue type system provides type-erased time-series values for the hgraph runtime. It builds on the Value type system (using the existing policy infrastructure), adding time-series semantics (modification tracking, notification, binding).
 
 **Basic Concepts:**
 
 | Concept | Description |
 |---------|-------------|
-| **OutputSlot** | Tuple of TSValue + TSMutableView stored together |
-| **InputSlot** | Tuple of TSValue + TSView for non-peered inputs |
-| **TSValue** | Owns storage for a time-series value |
-| **TSMutableView** | Mutable view - returned as output interface |
-| **TSView** | Read-only view - returned as input interface |
+| **TSValue** | Extends Value with policies, owns time-series storage |
+| **TSMutableView** | Mutable view for outputs - allows setting values |
+| **TSView** | Read-only view for inputs - base view with `as_xxx()` casting |
+| **TSBView** | Bundle-specific view with field navigation |
 
 **Key Difference from Value:**
 - `Value` is just data with a schema
-- `TSValue` adds time-series semantics: modification tracking, notification callbacks, node ownership
-- Slots (OutputSlot/InputSlot) bundle value + view together; view is the interface
+- `TSValue` extends `Value<CombinedPolicy<WithPythonCache, WithModificationTracking>>` adding:
+  - Time-series schema (`TSMeta*`)
+  - Node ownership tracking (`Node*`)
+  - View creation methods (`view()`, `mutable_view()`, `bundle_view()`)
 
 **Relationship to Existing Types:**
 
 | Current Type | New Equivalent |
 |--------------|----------------|
-| `TimeSeriesValueOutput` | `OutputSlot` → returns `TSMutableView&` |
+| `TimeSeriesValueOutput` | `TSValue` stored in Node, accessed via `TSMutableView` |
 | `TimeSeriesValueInput` (peered) | `TSView` bound to external output |
-| `TimeSeriesBundleInput` (non-peered) | `InputSlot` → returns `TSView&` |
+| `TimeSeriesBundleInput` (non-peered) | `TSValue` stored in Node, accessed via `TSBView` |
 
-**Node pattern:**
-- **Store**: `OutputSlot` and `InputSlot` in stable containers (deque)
-- **Return**: View references (`TSMutableView&`, `TSView&`) as external interface
+**Node storage pattern:**
+- **Single input**: `std::optional<TSValue>` - always TSB, accessed via `bundle_view()`
+- **Single output**: `std::optional<TSValue>` - any TS type, accessed via `mutable_view()`
+- **Error/State outputs**: Optional additional TSValue members
 - **Peered inputs**: Just `TSView` bound to upstream output
 
 ---
@@ -354,105 +356,127 @@ bool is_active = view.active();
 
 ---
 
-## 5. Outputs and Inputs (Slot Approach)
+## 5. Node Storage and View Creation
 
-The slot approach bundles value + view together. Nodes store slots; views are returned as the interface.
+Nodes store TSValue directly using `std::optional`. Views are created on demand via methods on TSValue.
 
-### 5.1 OutputSlot and InputSlot
+### 5.1 Node Storage Pattern
 
-```cpp
-#include <hgraph/types/slots.h>
-
-// OutputSlot - holds TSValue + TSMutableView
-struct OutputSlot {
-    TSValue value;
-    TSMutableView view;
-    // View is auto-bound to value on construction
-};
-
-// InputSlot - holds TSValue + TSView (for non-peered inputs)
-struct InputSlot {
-    TSValue value;
-    TSView view;
-};
-```
-
-### 5.2 Node Storage Pattern
-
-Nodes store slots in stable containers and return view references:
+A Node has **at most one** of each named storage location:
 
 ```cpp
 class Node {
-    std::deque<OutputSlot> _output_slots;  // Stable storage
-    std::deque<InputSlot> _input_slots;
+    std::optional<TSValue> _input;           // Always TSB, exposed as TSBView
+    std::optional<TSValue> _output;          // Any TS type, exposed as TSMutableView
+    std::optional<TSValue> _error_output;    // For error handling
+    std::optional<TSValue> _recorded_state;  // For state persistence
 
 public:
-    // Add output, return view as interface
-    TSMutableView& add_output(const TSMeta* schema) {
-        _output_slots.emplace_back(schema, this);
-        return _output_slots.back().view;
-    }
+    // Set the single input/output
+    void set_input(TSValue input);   // Must be TSB
+    void set_output(TSValue output);
+    void set_error_output(TSValue err);
+    void set_recorded_state(TSValue state);
 
-    // Add non-peered input, return view as interface
-    TSView& add_input(const TSMeta* schema) {
-        _input_slots.emplace_back(schema, this);
-        return _input_slots.back().view;
-    }
+    // Input is always TSB - return TSBView
+    TSBView input_view() { return _input->bundle_view(); }
 
-    // Access by index
-    TSMutableView& output(size_t i) { return _output_slots[i].view; }
-    TSView& input(size_t i) { return _input_slots[i].view; }
+    // Output returns TSMutableView (use as_xxx() for specific types)
+    TSMutableView output_view() { return _output->mutable_view(); }
+    TSMutableView error_output_view();
+    TSMutableView recorded_state_view();
+
+    bool has_input() const { return _input.has_value(); }
+    bool has_output() const { return _output.has_value(); }
 };
 ```
 
-### 5.3 Usage Example
+### 5.2 View Creation Methods
+
+TSValue provides methods to create appropriate views:
+
+```cpp
+class TSValue : public Value<CombinedPolicy<WithPythonCache, WithModificationTracking>> {
+    const TSMeta* _ts_meta{nullptr};
+    Node* _owning_node{nullptr};
+
+public:
+    // View creation methods
+    TSView view();                    // Read-only view
+    TSMutableView mutable_view();     // Mutable view for outputs
+    TSBView bundle_view();            // Bundle-specific view (for TSB inputs)
+
+    // Schema access
+    const TSMeta* ts_meta() const { return _ts_meta; }
+    Node* owning_node() const { return _owning_node; }
+};
+```
+
+### 5.3 View Casting
+
+TSView provides `as_xxx()` methods for type-specific access:
+
+```cpp
+class TSView {
+    // Casting methods for specific types
+    TSBView as_bundle();      // For TSB types
+    TSLView as_list();        // For TSL types
+    TSDView as_dict();        // For TSD types
+    TSSView as_set();         // For TSS types
+
+    // Direct scalar access (for TS[T])
+    template<typename T>
+    const T& as() const;
+};
+
+class TSMutableView : public TSView {
+    // Mutable access
+    template<typename T>
+    void set(const T& val, engine_time_t time);
+
+    // Copy from another view
+    void copy_from(const TSView& source);
+};
+```
+
+### 5.4 Usage Example
 
 ```cpp
 class MyNode : public Node {
 public:
-    MyNode() {
-        // Add outputs - get view references
-        TSMutableView& out = add_output(ts_type<TS<int>>());
-
-        // Add non-peered TSB input
-        TSView& in = add_input(ts_type<TSB<
-            Field<"price", TS<float>>,
-            Field<"volume", TS<int>>
-        >>());
+    void setup(const TSMeta* input_schema, const TSMeta* output_schema) {
+        // Create TSValues via TSMeta factory methods
+        set_input(input_schema->make_input(this));
+        set_output(output_schema->make_output(this));
     }
 
     void do_evaluate(engine_time_t time) {
-        // Use views directly
-        float price = input(0).field("price").as<float>();
-        output(0).set(static_cast<int>(price * 2), time);
+        // Input is always TSB - use bundle_view
+        TSBView in = input_view();
+        float price = in.field("price").as<float>();
+
+        // Output returns TSMutableView
+        TSMutableView out = output_view();
+        out.set(static_cast<int>(price * 2), time);
     }
 };
-```
-
-### 5.4 Factory Functions
-
-```cpp
-// Convenience factories
-OutputSlot make_output(const TSMeta* schema, Node* owner);
-InputSlot make_input(const TSMeta* schema, Node* owner);
 ```
 
 ### 5.5 Type Summary
 
 | Type | What It Is | Use When |
 |------|------------|----------|
-| `OutputSlot` | TSValue + TSMutableView | Store in node |
-| `InputSlot` | TSValue + TSView | Store for non-peered inputs |
-| `TSMutableView&` | Reference to view | Return as output interface |
-| `TSView&` | Reference to view | Return as input interface |
-| `TSView` | Standalone view | Peered inputs (bound to external) |
+| `TSValue` | Value with policies + TS metadata | Stored in Node |
+| `TSMutableView` | Mutable view | Accessing outputs |
+| `TSView` | Read-only base view | Generic TS access with `as_xxx()` |
+| `TSBView` | Bundle-specific view | Accessing TSB inputs |
 
 ### 5.6 Copy Operations
 
 ```cpp
 // Copy from another view
-TSView& source = input(0);
-output(0).copy_from(source);
+TSView source = input_view().field("data");
+output_view().copy_from(source);
 ```
 
 ---
@@ -847,7 +871,7 @@ output.subscribe(my_node);
 
 ## 11. Migration from Current Types
 
-### 11.1 TimeSeriesValueOutput -> TSOutput (Recommended)
+### 11.1 TimeSeriesValueOutput -> TSValue in Node
 
 **Before:**
 ```cpp
@@ -857,12 +881,20 @@ output.py_set_value(value);
 output.mark_modified();
 ```
 
-**After (one line!):**
+**After:**
 ```cpp
-// New implementation - TSOutput owns value + provides mutable view
-TSOutput output(ts_type<TS<int>>(), owning_node);
-output.py_set_value(value);
-// Modification tracking is automatic via policy
+// New implementation - TSValue stored in Node
+class MyNode : public Node {
+    void setup(const TSMeta* output_schema) {
+        set_output(output_schema->make_output(this));
+    }
+
+    void do_evaluate(engine_time_t time) {
+        TSMutableView out = output_view();
+        out.py_set_value(value);
+        // Modification tracking is automatic via policy
+    }
+};
 ```
 
 ### 11.2 TimeSeriesValueInput -> TSView
@@ -885,7 +917,7 @@ input.make_active();
 nb::object val = input.py_value();
 ```
 
-### 11.3 TimeSeriesBundleInput (Non-Peered) -> InputSlot
+### 11.3 TimeSeriesBundleInput (Non-Peered) -> TSValue with TSBView
 
 **Before:**
 ```cpp
@@ -893,33 +925,30 @@ nb::object val = input.py_value();
 TimeSeriesBundleInput input(owning_node, ts_schema);
 ```
 
-**After (slot approach):**
+**After:**
 ```cpp
-// Store InputSlot, return view as interface
+// Store TSValue in Node, access via bundle_view()
 class MyNode : public Node {
-    std::deque<InputSlot> _input_slots;
+    void setup(const TSMeta* input_schema) {
+        set_input(input_schema->make_input(this));  // Must be TSB
+    }
 
-public:
-    TSView& add_input(const TSMeta* schema) {
-        _input_slots.emplace_back(schema, this);
-        return _input_slots.back().view;
+    void do_evaluate(engine_time_t time) {
+        TSBView in = input_view();  // Returns TSBView for TSB inputs
+        float price = in.field("price").as<float>();
     }
 };
-
-// Usage
-TSView& in = add_input(ts_type<TSB<...>>());
-float price = in.field("price").as<float>();
 ```
 
 ### 11.4 Migration Summary
 
 | Old Type | New Equivalent |
 |----------|----------------|
-| `TimeSeriesValueOutput` | `OutputSlot` → `TSMutableView&` |
-| `TimeSeriesBundleInput` (non-peered) | `InputSlot` → `TSView&` |
-| `TimeSeriesValueInput` (peered) | `TSView` bound to external |
+| `TimeSeriesValueOutput` | `TSValue` in Node → `output_view()` returns `TSMutableView` |
+| `TimeSeriesBundleInput` (non-peered) | `TSValue` in Node → `input_view()` returns `TSBView` |
+| `TimeSeriesValueInput` (peered) | `TSView` bound to external output |
 
-**Key change:** Nodes store slots, return view references as the interface.
+**Key change:** Nodes store `std::optional<TSValue>`, views created on demand via methods.
 
 ---
 

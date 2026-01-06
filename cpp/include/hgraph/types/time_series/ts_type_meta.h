@@ -17,7 +17,7 @@ namespace nb = nanobind;
 namespace hgraph {
 
     // Forward declarations
-    class Node;
+    struct Node;
     struct TimeSeriesOutput;
     struct TimeSeriesInput;
 
@@ -100,9 +100,6 @@ namespace hgraph {
          * @brief Check if this is a signal (no value).
          */
         [[nodiscard]] bool is_signal() const { return kind() == TSTypeKind::SIGNAL; }
-
-        // Factory methods - implemented by subclasses
-        // These will be used by builders to create instances
 
         /**
          * @brief String representation for debugging.

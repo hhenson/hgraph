@@ -844,183 +844,101 @@ private:
 | `TSDView` | Dict view - key-based access |
 | `TSSView` | Set view - membership operations |
 
-### 6.4 Output/Input Slots (Tuple Approach)
+### 6.4 Node Storage and View Creation
 
-Rather than inheritance-based combined types, we use a **tuple approach** where the value and view are stored together in a slot, with the view returned as the external interface.
+Nodes store TSValue directly (using `std::optional` since each node has at most one of each). Views are created on demand from the TSValue.
 
-#### 6.4.1 Slot Structures
+#### 6.4.1 Node Storage Pattern
 
-```cpp
-/**
- * @brief Storage slot for an output - holds value and its mutable view together.
- *
- * The view is bound to the value on construction. Node stores slots,
- * returns view reference as the external interface.
- */
-struct OutputSlot {
-    TSValue value;
-    TSMutableView view;
-
-    OutputSlot(const TSMeta* schema, Node* owner, int output_id = OUTPUT_MAIN)
-        : value(schema, owner, output_id), view(owner) {
-        view.bind(&value);
-    }
-
-    // Non-copyable (view holds pointer to value)
-    OutputSlot(const OutputSlot&) = delete;
-    OutputSlot& operator=(const OutputSlot&) = delete;
-
-    // Moveable with rebind
-    OutputSlot(OutputSlot&& other) noexcept
-        : value(std::move(other.value)), view(std::move(other.view)) {
-        view.bind(&value);  // Rebind after move
-    }
-    OutputSlot& operator=(OutputSlot&&) = delete;  // Simplify - no move assign
-};
-
-/**
- * @brief Storage slot for a non-peered input - holds value and its read-only view.
- */
-struct InputSlot {
-    TSValue value;
-    TSView view;
-
-    InputSlot(const TSMeta* schema, Node* owner)
-        : value(schema, owner), view(owner) {
-        view.bind(&value);
-    }
-
-    // Non-copyable, moveable with rebind (same pattern as OutputSlot)
-    InputSlot(const InputSlot&) = delete;
-    InputSlot& operator=(const InputSlot&) = delete;
-    InputSlot(InputSlot&& other) noexcept
-        : value(std::move(other.value)), view(std::move(other.view)) {
-        view.bind(&value);
-    }
-    InputSlot& operator=(InputSlot&&) = delete;
-};
-```
-
-#### 6.4.2 Factory Functions
-
-```cpp
-/**
- * @brief Create an output slot.
- *
- * Returns the slot which should be stored in stable storage.
- * The view member is the external interface.
- */
-inline OutputSlot make_output(const TSMeta* schema, Node* owner,
-                              int output_id = OUTPUT_MAIN) {
-    return OutputSlot(schema, owner, output_id);
-}
-
-/**
- * @brief Create a non-peered input slot.
- */
-inline InputSlot make_input(const TSMeta* schema, Node* owner) {
-    return InputSlot(schema, owner);
-}
-```
-
-#### 6.4.3 Node Storage Pattern
+A node has **at most one** of each named slot:
 
 ```cpp
 class Node {
-    // Use deque for pointer stability (no reallocation on push_back)
-    std::deque<OutputSlot> _output_slots;
-    std::deque<InputSlot> _input_slots;
+    std::optional<TSValue> _input;           // Always TSB, exposed as TSBView
+    std::optional<TSValue> _output;          // Any TS type, exposed as TSView/TSMutableView
+    std::optional<TSValue> _error_output;    // For error handling
+    std::optional<TSValue> _recorded_state;  // For state persistence
 
 public:
-    /**
-     * @brief Add an output and return its view as the interface.
-     */
-    TSMutableView& add_output(const TSMeta* schema, int output_id = OUTPUT_MAIN) {
-        _output_slots.emplace_back(schema, this, output_id);
-        return _output_slots.back().view;
-    }
+    // Set the single input/output
+    void set_input(TSValue input);   // Must be TSB
+    void set_output(TSValue output);
+    void set_error_output(TSValue err);
+    void set_recorded_state(TSValue state);
 
-    /**
-     * @brief Add a non-peered input and return its view as the interface.
-     */
-    TSView& add_input(const TSMeta* schema) {
-        _input_slots.emplace_back(schema, this);
-        return _input_slots.back().view;
-    }
+    // Input is always TSB - return TSBView
+    TSBView input_view() { return _input->bundle_view(); }
 
-    /**
-     * @brief Access output view by index.
-     */
-    TSMutableView& output(size_t index) {
-        return _output_slots[index].view;
-    }
+    // Output returns default TSView (use as_xxx() to cast)
+    TSMutableView output_view() { return _output->mutable_view(); }
+    TSMutableView error_output_view();
+    TSMutableView recorded_state_view();
 
-    /**
-     * @brief Access input view by index.
-     */
-    TSView& input(size_t index) {
-        return _input_slots[index].view;
-    }
-
-    /**
-     * @brief Access underlying value (for copy operations, etc.)
-     */
-    TSValue& output_value(size_t index) {
-        return _output_slots[index].value;
-    }
+    bool has_input() const { return _input.has_value(); }
+    bool has_output() const { return _output.has_value(); }
 };
 ```
 
-#### 6.4.4 Usage Examples
+#### 6.4.2 View Casting
+
+TSView provides `as_xxx()` methods for type-specific access:
+
+```cpp
+class TSView {
+    // Casting methods for specific types
+    TSBView as_bundle();      // For TSB types
+    TSLView as_list();        // For TSL types
+    TSDView as_dict();        // For TSD types
+    TSSView as_set();         // For TSS types
+
+    // Direct scalar access (for TS[T])
+    template<typename T>
+    const T& as() const;
+
+    template<typename T>
+    void set(const T& val, engine_time_t time);  // Only on TSMutableView
+};
+```
+
+#### 6.4.3 Usage Example
 
 ```cpp
 // Node construction
 class MyNode : public Node {
 public:
-    MyNode() {
-        // Add outputs - get view references as the interface
-        TSMutableView& out = add_output(ts_type<TS<int>>());
-        TSMutableView& err = add_output(ts_type<TS<std::string>>(), ERROR_PATH);
-
-        // Add non-peered inputs (typically TSB)
-        TSView& in = add_input(ts_type<TSB<
-            Field<"price", TS<float>>,
-            Field<"volume", TS<int>>
-        >>());
+    MyNode(const TSMeta* input_schema, const TSMeta* output_schema) {
+        // Set input and output via builder/schema
+        set_input(TSValue(input_schema, this));
+        set_output(TSValue(output_schema, this, OUTPUT_MAIN));
     }
 
     void do_evaluate(engine_time_t time) {
-        // Use views directly - they're the interface
-        float price = input(0).field("price").as<float>();
-        output(0).set(static_cast<int>(price * 2), time);
+        // Get views on demand
+        TSBView in = input_view();
+        TSMutableView out = output_view();
+
+        // Use views
+        float price = in.field("price").as<float>();
+        out.set(static_cast<int>(price * 2), time);
     }
 };
 ```
-
-#### 6.4.5 Why Tuple/Slot Instead of Inheritance
-
-| Aspect | Tuple/Slot Approach | Inheritance Approach |
-|--------|---------------------|---------------------|
-| **Clarity** | Explicit - value and view are separate | Implicit - view "is-a" value owner |
-| **Initialization** | No ordering issues | Base constructs before derived members |
-| **Storage** | Node controls where slot lives | Object is self-contained |
-| **Interface** | View reference is the handle | Object itself is the interface |
-| **Flexibility** | Can store in various containers | Fixed object layout |
-| **Pointer stability** | Guaranteed with deque | Requires care with copies/moves |
 
 ### 6.5 When to Use Each Type
 
 | Type | Use Case |
 |------|----------|
-| `OutputSlot` | Node stores this (value + view together) |
-| `InputSlot` | Node stores this for non-peered inputs |
-| `TSMutableView&` | Returned as output interface |
-| `TSView&` | Returned as input interface, or peered input bound to external |
+| `TSValue` | Node stores this directly (via optional) |
+| `TSMutableView` | Created on demand for output access |
+| `TSView` | Created on demand for input access |
+| `TSBView` | Input view (always TSB) or bundle navigation |
+| `TSLView`, `TSDView`, `TSSView` | Type-specific navigation via `as_xxx()` |
 
 **Node pattern:**
-- **Store**: `OutputSlot` and `InputSlot` in deques
-- **Return**: View references as the external interface
-- **Peered inputs**: Just `TSView` bound to upstream output (no slot needed)
+- **Store**: `std::optional<TSValue>` for input, output, error_output, recorded_state
+- **Return**: Views created on demand via `xxx_view()` methods
+- **Input is always TSB**: `input_view()` returns `TSBView`
+- **Output can be any type**: Use `as_xxx()` methods for specific navigation
 
 ---
 

@@ -25,6 +25,11 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
 
+// Forward declaration for test bindings
+namespace hgraph {
+    void register_ts_value_test_bindings(nb::module_& m);
+}
+
 void export_types(nb::module_ &m) {
     using namespace hgraph;
 
@@ -72,4 +77,7 @@ void export_types(nb::module_ &m) {
     TimeSeriesSchema::register_with_nanobind(m);
 
     register_special_nodes_with_nanobind(m);
+
+    // TSValue test bindings (lightweight wrapper for testing without Node)
+    register_ts_value_test_bindings(m);
 }
