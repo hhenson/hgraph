@@ -489,3 +489,83 @@ def test_ts_cpp_native_wrapper_same_as_flag():
     result_flag = eval_node(g_flag, inputs_flag)
 
     assert result_wrapper == result_flag == [0, 1, 2, 3, 4]
+
+
+# ============================================================================
+# Tests for TSB (TimeSeriesBundle) Schema Behavior
+# ============================================================================
+
+def test_tsb_uses_bundle_schema_not_opaque():
+    """TSB should use bundle schema expansion, not opaque Python storage.
+
+    This verifies that TSB behavior is unchanged by the CompoundScalar changes.
+    TSB always uses field expansion via schema, regardless of cpp_native flag.
+    """
+    _skip_if_no_cpp()
+
+    from hgraph._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
+    from hgraph._types._tsb_type import TimeSeriesSchema
+    from hgraph import TS
+
+    class MySchema(TimeSeriesSchema):
+        """Test schema with default CompoundScalar fields."""
+        x: TS[int]
+        y: TS[str]
+
+    meta = HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(MySchema))
+    cpp_type = meta.cpp_type
+
+    assert cpp_type is not None
+    # TSB should create a TSBTypeMeta, not opaque storage
+    # TSBTypeMeta has field access methods
+    assert cpp_type.field_count == 2
+
+
+def test_tsb_with_compound_scalar_value_field():
+    """TSB containing TS[CompoundScalar] should still work correctly.
+
+    Even when a TS field contains a CompoundScalar (which now defaults to opaque),
+    the TSB schema itself should still use bundle expansion.
+    """
+    _skip_if_no_cpp()
+
+    from hgraph._types._tsb_meta_data import HgTSBTypeMetaData, HgTimeSeriesSchemaTypeMetaData
+    from hgraph._types._tsb_type import TimeSeriesSchema
+    from hgraph import TS
+
+    class InnerScalar(CompoundScalar):
+        """Inner scalar (default: opaque storage)."""
+        value: int
+
+    class OuterSchema(TimeSeriesSchema):
+        """Schema containing a TS[CompoundScalar]."""
+        data: TS[InnerScalar]
+        count: TS[int]
+
+    meta = HgTSBTypeMetaData(HgTimeSeriesSchemaTypeMetaData(OuterSchema))
+    cpp_type = meta.cpp_type
+
+    assert cpp_type is not None
+    # TSB should have 2 fields (data, count) in its schema
+    assert cpp_type.field_count == 2
+
+
+def test_tsb_from_ts_basic_execution():
+    """TSB.from_ts should continue to work with default CompoundScalar."""
+    from hgraph import graph, TS, TSB
+    from hgraph._types._tsb_type import TimeSeriesSchema
+    from hgraph.test import eval_node
+
+    class MySchema(TimeSeriesSchema):
+        x: TS[int]
+        y: TS[str]
+
+    @graph
+    def g(a: TS[int], b: TS[str]) -> TSB[MySchema]:
+        return TSB[MySchema].from_ts(x=a, y=b)
+
+    result = eval_node(g, a=[1, 2], b=["hello", None, "world"])
+    assert result[0]["x"] == 1
+    assert result[0]["y"] == "hello"
+    assert result[1]["x"] == 2
+    assert result[2]["y"] == "world"
