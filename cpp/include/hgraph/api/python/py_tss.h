@@ -19,8 +19,7 @@ namespace hgraph
         [[nodiscard]] bool contains(const nb::object &item) const { return impl()->py_contains(item); }
         [[nodiscard]] size_t size() const { return impl()->size(); }
         [[nodiscard]] nb::bool_ empty() const { return nb::bool_(impl()->empty()); }
-        [[nodiscard]] nb::object value() const { return impl()->py_value(); }
-        [[nodiscard]] nb::object values() const { return value(); }
+        [[nodiscard]] nb::object values() const { return impl()->py_value(); }
         [[nodiscard]] nb::object added() const { return impl()->py_added(); }
         [[nodiscard]] nb::object removed() const { return impl()->py_removed(); }
         [[nodiscard]] nb::bool_ was_added(const nb::object &item) const { return nb::bool_(impl()->py_was_added(item)); }
@@ -54,8 +53,7 @@ namespace hgraph
         [[nodiscard]] bool contains(const nb::object &item) const { return impl()->py_contains(item); }
         [[nodiscard]] size_t size() const { return impl()->size(); }
         [[nodiscard]] nb::bool_ empty() const { return nb::bool_(impl()->empty()); }
-        [[nodiscard]] nb::object value() const { return impl()->py_value(); }
-        [[nodiscard]] nb::object values() const { return value(); }
+        [[nodiscard]] nb::object values() const { return impl()->py_value(); }
         [[nodiscard]] nb::object added() const { return impl()->py_added(); }
         [[nodiscard]] nb::object removed() const { return impl()->py_removed(); }
         [[nodiscard]] nb::bool_ was_added(const nb::object &item) const { return nb::bool_(impl()->py_was_added(item)); }

@@ -35,6 +35,8 @@
 #include <hgraph/types/tsl.h>
 #include <hgraph/types/tss.h>
 #include <hgraph/types/tsw.h>
+#include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 #include <stdexcept>
 #include <utility>
 
@@ -278,6 +280,80 @@ namespace
     nb::object wrap_traits(const Traits *impl, const control_block_ptr &control_block) {
         if (!impl) { return nb::none(); }
         return nb::cast(PyTraits(PyTraits::api_ptr(impl, control_block)));
+    }
+
+    // ========================================================================
+    // TSView-based wrapping (new system)
+    // ========================================================================
+
+    nb::object wrap_input_view(const TSView& view) {
+        if (!view.valid()) { return nb::none(); }
+
+        const auto* meta = view.ts_meta();
+        if (!meta) { return nb::none(); }
+
+        switch (meta->kind()) {
+            case TSTypeKind::TS:
+                return nb::cast(PyTimeSeriesValueInput(view));
+            case TSTypeKind::TSB:
+                // Bundle requires ApiPtr-based wrapping for now - complex nested structure
+                throw std::runtime_error("wrap_input_view: TSB requires ApiPtr-based wrapping, use wrap_input() instead");
+            case TSTypeKind::TSL:
+                throw std::runtime_error("wrap_input_view: TSL requires ApiPtr-based wrapping, use wrap_input() instead");
+            case TSTypeKind::TSD:
+                throw std::runtime_error("wrap_input_view: TSD requires ApiPtr-based wrapping, use wrap_input() instead");
+            case TSTypeKind::TSS:
+                throw std::runtime_error("wrap_input_view: TSS requires ApiPtr-based wrapping, use wrap_input() instead");
+            case TSTypeKind::TSW:
+                throw std::runtime_error("wrap_input_view: TSW requires ApiPtr-based wrapping, use wrap_input() instead");
+            case TSTypeKind::REF:
+                throw std::runtime_error("wrap_input_view: REF requires ApiPtr-based wrapping, use wrap_input() instead");
+            case TSTypeKind::SIGNAL:
+                throw std::runtime_error("wrap_input_view: SIGNAL requires ApiPtr-based wrapping, use wrap_input() instead");
+            default:
+                throw std::runtime_error("wrap_input_view: Unknown TSTypeKind");
+        }
+    }
+
+    nb::object wrap_output_view(TSMutableView view) {
+        if (!view.valid()) { return nb::none(); }
+
+        const auto* meta = view.ts_meta();
+        if (!meta) { return nb::none(); }
+
+        switch (meta->kind()) {
+            case TSTypeKind::TS:
+                return nb::cast(PyTimeSeriesValueOutput(view));
+            case TSTypeKind::TSB:
+                // Bundle requires ApiPtr-based wrapping for now - complex nested structure
+                throw std::runtime_error("wrap_output_view: TSB requires ApiPtr-based wrapping, use wrap_output() instead");
+            case TSTypeKind::TSL:
+                throw std::runtime_error("wrap_output_view: TSL requires ApiPtr-based wrapping, use wrap_output() instead");
+            case TSTypeKind::TSD:
+                throw std::runtime_error("wrap_output_view: TSD requires ApiPtr-based wrapping, use wrap_output() instead");
+            case TSTypeKind::TSS:
+                throw std::runtime_error("wrap_output_view: TSS requires ApiPtr-based wrapping, use wrap_output() instead");
+            case TSTypeKind::TSW:
+                throw std::runtime_error("wrap_output_view: TSW requires ApiPtr-based wrapping, use wrap_output() instead");
+            case TSTypeKind::REF:
+                throw std::runtime_error("wrap_output_view: REF requires ApiPtr-based wrapping, use wrap_output() instead");
+            case TSTypeKind::SIGNAL:
+                throw std::runtime_error("wrap_output_view: SIGNAL requires ApiPtr-based wrapping, use wrap_output() instead");
+            default:
+                throw std::runtime_error("wrap_output_view: Unknown TSTypeKind");
+        }
+    }
+
+    nb::object wrap_bundle_input_view(const TSBView& view) {
+        if (!view.valid()) { return nb::none(); }
+        // Bundle requires ApiPtr-based wrapping for now - complex nested structure
+        throw std::runtime_error("wrap_bundle_input_view: TSB requires ApiPtr-based wrapping, use wrap_input() instead");
+    }
+
+    nb::object wrap_bundle_output_view(TSBView view) {
+        if (!view.valid()) { return nb::none(); }
+        // Bundle requires ApiPtr-based wrapping for now - complex nested structure
+        throw std::runtime_error("wrap_bundle_output_view: TSB requires ApiPtr-based wrapping, use wrap_output() instead");
     }
 
 }  // namespace hgraph

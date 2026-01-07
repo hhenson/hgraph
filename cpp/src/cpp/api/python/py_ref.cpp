@@ -105,16 +105,8 @@ namespace hgraph
     }
 
     void PyTimeSeriesReferenceOutput::register_with_nanobind(nb::module_ &m) {
+        // No need to re-register value property - base class handles it via TSView
         nb::class_<PyTimeSeriesReferenceOutput, PyTimeSeriesOutput>(m, "TimeSeriesReferenceOutput")
-            // .def("observe_reference", &TimeSeriesReferenceOutput::observe_reference, "input"_a,
-            //      "Register an input as observing this reference value")
-            // .def("stop_observing_reference", &TimeSeriesReferenceOutput::stop_observing_reference, "input"_a,
-            //      "Unregister an input from observing this reference value")
-            // .def_prop_ro(
-            //     "reference_observers_count", [](const TimeSeriesReferenceOutput &self) {
-            //         return self._reference_observers.size();
-            //     },
-            //     "Number of inputs observing this reference value")
             .def("__str__", &PyTimeSeriesReferenceOutput::to_string)
             .def("__repr__", &PyTimeSeriesReferenceOutput::to_repr);
     }
@@ -137,6 +129,7 @@ namespace hgraph
     nb::str PyTimeSeriesReferenceInput::to_repr() const { return to_string(); }
 
     void PyTimeSeriesReferenceInput::register_with_nanobind(nb::module_ &m) {
+        // No need to re-register value property - base class handles it via TSView
         nb::class_<PyTimeSeriesReferenceInput, PyTimeSeriesInput>(m, "TimeSeriesReferenceInput")
             .def("__str__", &PyTimeSeriesReferenceInput::to_string)
             .def("__repr__", &PyTimeSeriesReferenceInput::to_repr);

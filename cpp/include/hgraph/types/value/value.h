@@ -544,6 +544,78 @@ public:
         }
     }
 
+    /**
+     * @brief Notify that the value was modified at given time.
+     *
+     * Only available when the policy has modification tracking.
+     *
+     * @param time The engine time of modification
+     */
+    void notify_modified(engine_time_t time) {
+        if constexpr (policy_traits<Policy>::has_modification_tracking) {
+            storage_type::notify_modified(time);
+        }
+    }
+
+    /**
+     * @brief Notify modification without explicit time (uses MIN_DT).
+     */
+    void notify_modified() {
+        if constexpr (policy_traits<Policy>::has_modification_tracking) {
+            storage_type::notify_modified();
+        }
+    }
+
+    /**
+     * @brief Get the last modification time.
+     *
+     * Only available when the policy has modification tracking.
+     */
+    [[nodiscard]] engine_time_t last_modified_time() const {
+        if constexpr (policy_traits<Policy>::has_modification_tracking) {
+            return storage_type::last_modified_time();
+        } else {
+            return MIN_DT;
+        }
+    }
+
+    /**
+     * @brief Check if modified at specific time.
+     *
+     * Only available when the policy has modification tracking.
+     */
+    [[nodiscard]] bool modified_at(engine_time_t time) const {
+        if constexpr (policy_traits<Policy>::has_modification_tracking) {
+            return storage_type::modified_at(time);
+        } else {
+            return false;
+        }
+    }
+
+    /**
+     * @brief Check if the time-series value is valid (has been set).
+     *
+     * Only available when the policy has modification tracking.
+     */
+    [[nodiscard]] bool ts_valid() const {
+        if constexpr (policy_traits<Policy>::has_modification_tracking) {
+            return storage_type::ts_valid();
+        } else {
+            return valid();  // Fall back to structural validity
+        }
+    }
+
+    /**
+     * @brief Mark the time-series as invalid (cleared).
+     *
+     * Only available when the policy has modification tracking.
+     */
+    void invalidate_ts() {
+        if constexpr (policy_traits<Policy>::has_modification_tracking) {
+            storage_type::invalidate_ts();
+        }
+    }
+
 private:
     ValueStorage _storage;
     const TypeMeta* _schema{nullptr};

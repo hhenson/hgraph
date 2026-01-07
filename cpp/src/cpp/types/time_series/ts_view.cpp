@@ -15,11 +15,29 @@ namespace hgraph {
 TSView::TSView(const void* data, const TSMeta* ts_meta) noexcept
     : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _ts_meta(ts_meta)
+    , _container(nullptr)
+    , _tracking_view()
+{}
+
+TSView::TSView(const void* data, const TSMeta* ts_meta, const TSValue* container) noexcept
+    : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
+    , _ts_meta(ts_meta)
+    , _container(container)
+    , _tracking_view(container ? container->tracking().const_view() : value::ConstValueView())
+{}
+
+TSView::TSView(const void* data, const TSMeta* ts_meta, value::ConstValueView tracking_view) noexcept
+    : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
+    , _ts_meta(ts_meta)
+    , _container(nullptr)
+    , _tracking_view(tracking_view)
 {}
 
 TSView::TSView(const TSValue& ts_value)
     : _view(ts_value.value().data(), ts_value.value_schema())
     , _ts_meta(ts_value.ts_meta())
+    , _container(&ts_value)
+    , _tracking_view(ts_value.tracking().const_view())
 {}
 
 bool TSView::valid() const noexcept {
@@ -74,6 +92,53 @@ nb::object TSView::to_python() const {
     return schema->ops->to_python(_view.data(), schema);
 }
 
+bool TSView::ts_valid() const {
+    // Use hierarchical tracking if available
+    if (_tracking_view.valid()) {
+        // For scalar types, tracking is a single engine_time_t
+        // For containers, the root timestamp indicates overall validity
+        engine_time_t time = _tracking_view.as<engine_time_t>();
+        return time != MIN_DT;
+    }
+    // Fall back to container's root-level tracking
+    if (_container) {
+        return _container->ts_valid();
+    }
+    return valid();  // Fall back to structural validity
+}
+
+bool TSView::modified_at(engine_time_t time) const {
+    // Use hierarchical tracking if available
+    if (_tracking_view.valid()) {
+        engine_time_t last_mod = _tracking_view.as<engine_time_t>();
+        return last_mod == time;
+    }
+    // Fall back to container's root-level tracking
+    if (_container) {
+        return _container->modified_at(time);
+    }
+    return false;  // No tracking means no modification tracking
+}
+
+engine_time_t TSView::last_modified_time() const {
+    // Use hierarchical tracking if available
+    if (_tracking_view.valid()) {
+        return _tracking_view.as<engine_time_t>();
+    }
+    // Fall back to container's root-level tracking
+    if (_container) {
+        return _container->last_modified_time();
+    }
+    return MIN_DT;  // No tracking means no modification tracking
+}
+
+Node* TSView::owning_node() const {
+    if (!_container) {
+        return nullptr;  // No container means no node ownership
+    }
+    return _container->owning_node();
+}
+
 // ============================================================================
 // TSMutableView Implementation
 // ============================================================================
@@ -81,11 +146,29 @@ nb::object TSView::to_python() const {
 TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta) noexcept
     : TSView(data, ts_meta)
     , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
+    , _mutable_container(nullptr)
+    , _mutable_tracking_view()
+{}
+
+TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, TSValue* container) noexcept
+    : TSView(data, ts_meta, container)
+    , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
+    , _mutable_container(container)
+    , _mutable_tracking_view(container ? container->tracking().view() : value::ValueView())
+{}
+
+TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, value::ValueView tracking_view) noexcept
+    : TSView(data, ts_meta, value::ConstValueView(tracking_view.data(), tracking_view.schema()))
+    , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
+    , _mutable_container(nullptr)
+    , _mutable_tracking_view(tracking_view)
 {}
 
 TSMutableView::TSMutableView(TSValue& ts_value)
     : TSView(ts_value)
     , _mutable_view(ts_value.value().data(), ts_value.value_schema())
+    , _mutable_container(&ts_value)
+    , _mutable_tracking_view(ts_value.tracking().view())
 {}
 
 void TSMutableView::copy_from(const TSView& source) {
@@ -106,6 +189,28 @@ void TSMutableView::from_python(const nb::object& src) {
     const value::TypeMeta* schema = _ts_meta->value_schema();
     if (schema && schema->ops) {
         schema->ops->from_python(_mutable_view.data(), src, schema);
+    }
+}
+
+void TSMutableView::notify_modified(engine_time_t time) {
+    // Update hierarchical tracking if available
+    if (_mutable_tracking_view.valid()) {
+        _mutable_tracking_view.as<engine_time_t>() = time;
+    }
+    // Also notify container for root-level tracking (if different from hierarchical)
+    if (_mutable_container) {
+        _mutable_container->notify_modified(time);
+    }
+}
+
+void TSMutableView::invalidate_ts() {
+    // Update hierarchical tracking if available
+    if (_mutable_tracking_view.valid()) {
+        _mutable_tracking_view.as<engine_time_t>() = MIN_DT;
+    }
+    // Also invalidate container for root-level tracking (if different from hierarchical)
+    if (_mutable_container) {
+        _mutable_container->invalidate_ts();
     }
 }
 
@@ -133,7 +238,14 @@ TSView TSBView::field(const std::string& name) const {
     value::ConstBundleView bundle_view = _view.as_bundle();
     value::ConstValueView field_value = bundle_view.at(name);
 
-    return TSView(field_value.data(), field_info->type);
+    // Navigate tracking in parallel if available
+    value::ConstValueView field_tracking;
+    if (_tracking_view.valid()) {
+        value::ConstBundleView tracking_bundle = _tracking_view.as_bundle();
+        field_tracking = tracking_bundle.at(name);
+    }
+
+    return TSView(field_value.data(), field_info->type, field_tracking);
 }
 
 TSView TSBView::field(size_t index) const {
@@ -154,7 +266,14 @@ TSView TSBView::field(size_t index) const {
     value::ConstBundleView bundle_view = _view.as_bundle();
     value::ConstValueView field_value = bundle_view.at(field_info.name);
 
-    return TSView(field_value.data(), field_info.type);
+    // Navigate tracking in parallel if available
+    value::ConstValueView field_tracking;
+    if (_tracking_view.valid()) {
+        value::ConstBundleView tracking_bundle = _tracking_view.as_bundle();
+        field_tracking = tracking_bundle.at(field_info.name);
+    }
+
+    return TSView(field_value.data(), field_info.type, field_tracking);
 }
 
 size_t TSBView::field_count() const noexcept {
@@ -192,7 +311,17 @@ TSView TSLView::element(size_t index) const {
     }
 
     value::ConstValueView element_value = list_view.at(index);
-    return TSView(element_value.data(), element_type);
+
+    // Navigate tracking in parallel if available
+    value::ConstValueView element_tracking;
+    if (_tracking_view.valid()) {
+        value::ConstListView tracking_list = _tracking_view.as_list();
+        if (index < tracking_list.size()) {
+            element_tracking = tracking_list.at(index);
+        }
+    }
+
+    return TSView(element_value.data(), element_type, element_tracking);
 }
 
 size_t TSLView::size() const noexcept {

@@ -429,6 +429,7 @@ namespace hgraph
     // ===== Nanobind Registration =====
 
     void tsd_register_with_nanobind(nb::module_ &m) {
+        // No need to re-register value property - base class handles it via TSView
         nb::class_<PyTimeSeriesDictOutput, PyTimeSeriesOutput>(m, "TimeSeriesDictOutput")
             .def("__contains__", &PyTimeSeriesDictOutput::contains, "key"_a)
             .def("__getitem__", &PyTimeSeriesDictOutput::get_item, "key"_a)
@@ -468,6 +469,7 @@ namespace hgraph
             .def("__str__", &PyTimeSeriesDictOutput::py_str)
             .def("__repr__", &PyTimeSeriesDictOutput::py_repr);
 
+        // No need to re-register value property - base class handles it via TSView
         nb::class_<PyTimeSeriesDictInput, PyTimeSeriesInput>(m, "TimeSeriesDictInput")
             .def("__contains__", &PyTimeSeriesDictInput::contains, "key"_a)
             .def("__getitem__", &PyTimeSeriesDictInput::get_item, "key"_a)

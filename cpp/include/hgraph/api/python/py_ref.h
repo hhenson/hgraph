@@ -13,7 +13,6 @@ namespace hgraph
 
     struct PyTimeSeriesReferenceOutput : PyTimeSeriesOutput
     {
-
         [[nodiscard]] nb::str to_string() const;
         [[nodiscard]] nb::str to_repr() const;
 

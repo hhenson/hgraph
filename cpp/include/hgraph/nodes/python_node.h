@@ -15,7 +15,20 @@ namespace hgraph {
      * Most functionality is inherited from BasePythonNode.
      */
     struct PythonNode final : BasePythonNode {
-        using BasePythonNode::BasePythonNode;
+        // Legacy constructor
+        PythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
+                   nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn)
+            : BasePythonNode(node_ndx, std::move(owning_graph_id), std::move(signature),
+                             std::move(scalars), std::move(eval_fn), std::move(start_fn), std::move(stop_fn)) {}
+
+        // Constructor with TSMeta
+        PythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
+                   nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn,
+                   const TSMeta* input_meta, const TSMeta* output_meta,
+                   const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr)
+            : BasePythonNode(node_ndx, std::move(owning_graph_id), std::move(signature),
+                             std::move(scalars), std::move(eval_fn), std::move(start_fn), std::move(stop_fn),
+                             input_meta, output_meta, error_output_meta, recordable_state_meta) {}
 
         const nb::callable &eval_fn();
 

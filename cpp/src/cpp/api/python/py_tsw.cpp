@@ -108,6 +108,8 @@ namespace hgraph
     // ========== Nanobind Registration ==========
 
     void tsw_register_with_nanobind(nb::module_ &m) {
+        // No need to re-register value property - base class handles it via TSView
+
         // Fixed-size window output
         nb::class_<PyTimeSeriesFixedWindowOutput, PyTimeSeriesOutput>(m, "TimeSeriesFixedWindowOutput")
             .def_prop_ro("value_times", &PyTimeSeriesFixedWindowOutput::value_times)

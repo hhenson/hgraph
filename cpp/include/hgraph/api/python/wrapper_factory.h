@@ -24,6 +24,9 @@ namespace hgraph
     struct Graph;
     struct TimeSeriesInput;
     struct TimeSeriesOutput;
+    struct TSView;
+    struct TSMutableView;
+    struct TSBView;
 
     /**
      * Wrap a Node in a PyNode.
@@ -98,6 +101,36 @@ namespace hgraph
 
     // Overload for shared_ptr - avoids redundant shared_from_this() call
     nb::object wrap_output(const time_series_output_s_ptr &impl);
+
+    // ========================================================================
+    // TSView-based wrapping (new system - replaces ApiPtr wrapping)
+    // ========================================================================
+
+    /**
+     * Wrap a TSView in the appropriate PyTimeSeriesXxxInput wrapper.
+     * Dispatches based on TSMeta::kind() to create specialized wrapper.
+     *
+     * Handles: TS, TSB, TSL, TSD, TSS, TSW, REF, SIGNAL.
+     */
+    nb::object wrap_input_view(const TSView& view);
+
+    /**
+     * Wrap a TSMutableView in the appropriate PyTimeSeriesXxxOutput wrapper.
+     * Dispatches based on TSMeta::kind() to create specialized wrapper.
+     *
+     * Handles: TS, TSB, TSL, TSD, TSS, TSW, REF, SIGNAL.
+     */
+    nb::object wrap_output_view(TSMutableView view);
+
+    /**
+     * Wrap a TSBView as a bundle input.
+     */
+    nb::object wrap_bundle_input_view(const TSBView& view);
+
+    /**
+     * Wrap a TSBView as a bundle output.
+     */
+    nb::object wrap_bundle_output_view(TSBView view);
 
     // ---------------------------------------------------------------------
     // List-based helpers for time series wrapping

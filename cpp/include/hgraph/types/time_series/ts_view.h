@@ -48,6 +48,7 @@ struct TSSView;
  *
  * TSView wraps a ConstValueView with TSMeta schema information.
  * It provides as_xxx() casting methods for type-specific access.
+ * It also holds a pointer to the container (TSValue) for state access.
  */
 struct TSView {
     // ========== Construction ==========
@@ -58,12 +59,25 @@ struct TSView {
     TSView() noexcept = default;
 
     /**
-     * @brief Construct from data pointer and schema.
+     * @brief Construct from data pointer and schema (no container access).
      */
     TSView(const void* data, const TSMeta* ts_meta) noexcept;
 
     /**
-     * @brief Construct from a TSValue.
+     * @brief Construct from data pointer, schema, and container.
+     */
+    TSView(const void* data, const TSMeta* ts_meta, const TSValue* container) noexcept;
+
+    /**
+     * @brief Construct from data pointer, schema, and tracking view (for child views).
+     *
+     * Used when creating views for bundle fields, list elements, etc.
+     * where we have hierarchical tracking but no direct container reference.
+     */
+    TSView(const void* data, const TSMeta* ts_meta, value::ConstValueView tracking_view) noexcept;
+
+    /**
+     * @brief Construct from a TSValue (full access).
      */
     explicit TSView(const TSValue& ts_value);
 
@@ -150,6 +164,49 @@ struct TSView {
      */
     [[nodiscard]] TSSView as_set() const;
 
+    // ========== State Access ==========
+
+    /**
+     * @brief Check if the time-series has been set (is valid).
+     */
+    [[nodiscard]] bool ts_valid() const;
+
+    /**
+     * @brief Check if modified at the given time.
+     * @param time The time to check against
+     */
+    [[nodiscard]] bool modified_at(engine_time_t time) const;
+
+    /**
+     * @brief Get the last modification time.
+     */
+    [[nodiscard]] engine_time_t last_modified_time() const;
+
+    /**
+     * @brief Get the owning node.
+     * @return The Node that owns this time-series, or nullptr
+     */
+    [[nodiscard]] Node* owning_node() const;
+
+    /**
+     * @brief Check if the view has container access (for state queries).
+     */
+    [[nodiscard]] bool has_container() const noexcept { return _container != nullptr; }
+
+    /**
+     * @brief Check if the view has tracking access (for hierarchical state queries).
+     */
+    [[nodiscard]] bool has_tracking() const noexcept { return _tracking_view.valid(); }
+
+    /**
+     * @brief Get the tracking view for this level.
+     *
+     * The tracking view contains engine_time_t timestamps following the
+     * same structure as the data. For scalar types, this is a single timestamp.
+     * For bundles/lists, navigate in parallel with the data.
+     */
+    [[nodiscard]] value::ConstValueView tracking_view() const noexcept { return _tracking_view; }
+
     // ========== Python Interop ==========
 
     /**
@@ -160,6 +217,8 @@ struct TSView {
 protected:
     value::ConstValueView _view;
     const TSMeta* _ts_meta{nullptr};
+    const TSValue* _container{nullptr};      ///< Container for state access (can be null)
+    value::ConstValueView _tracking_view;    ///< Tracking view for this level (can be invalid)
 };
 
 /**
@@ -177,12 +236,25 @@ struct TSMutableView : TSView {
     TSMutableView() noexcept = default;
 
     /**
-     * @brief Construct from data pointer and schema.
+     * @brief Construct from data pointer and schema (no container access).
      */
     TSMutableView(void* data, const TSMeta* ts_meta) noexcept;
 
     /**
-     * @brief Construct from a TSValue.
+     * @brief Construct from data pointer, schema, and container.
+     */
+    TSMutableView(void* data, const TSMeta* ts_meta, TSValue* container) noexcept;
+
+    /**
+     * @brief Construct from data pointer, schema, and tracking view (for child views).
+     *
+     * Used when creating mutable views for bundle fields, list elements, etc.
+     * where we have hierarchical tracking but no direct container reference.
+     */
+    TSMutableView(void* data, const TSMeta* ts_meta, value::ValueView tracking_view) noexcept;
+
+    /**
+     * @brief Construct from a TSValue (full access).
      */
     explicit TSMutableView(TSValue& ts_value);
 
@@ -230,6 +302,19 @@ struct TSMutableView : TSView {
      */
     void copy_from(const TSView& source);
 
+    // ========== State Mutation ==========
+
+    /**
+     * @brief Notify that the value was modified at given time.
+     * @param time The engine time of modification
+     */
+    void notify_modified(engine_time_t time);
+
+    /**
+     * @brief Mark the time-series as invalid (cleared).
+     */
+    void invalidate_ts();
+
     // ========== Python Interop ==========
 
     /**
@@ -237,8 +322,15 @@ struct TSMutableView : TSView {
      */
     void from_python(const nb::object& src);
 
+    /**
+     * @brief Get the mutable tracking view for this level.
+     */
+    [[nodiscard]] value::ValueView mutable_tracking_view() { return _mutable_tracking_view; }
+
 private:
     value::ValueView _mutable_view;
+    TSValue* _mutable_container{nullptr};     ///< Mutable container access
+    value::ValueView _mutable_tracking_view;  ///< Mutable tracking view for this level
 };
 
 /**

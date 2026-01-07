@@ -8,6 +8,8 @@
 #include <hgraph/types/node.h>
 
 namespace hgraph {
+    // Forward declaration
+    struct TSMeta;
     /**
      * BasePythonNode - Base class for Python-based compute nodes
      *
@@ -22,8 +24,15 @@ namespace hgraph {
      * - PythonGeneratorNode: Generator-based nodes
      */
     struct BasePythonNode : Node {
+        // Legacy constructor (for existing code during transition)
         BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                        nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
+
+        // New constructor with TSMeta - Node constructs TSValue internally
+        BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
+                       nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn,
+                       const TSMeta* input_meta, const TSMeta* output_meta,
+                       const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         void _initialise_kwargs();
 

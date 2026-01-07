@@ -21,6 +21,18 @@ namespace hgraph {
           input_node_ids_(input_node_ids), output_node_id_(output_node_id) {
     }
 
+    TsdNonAssociativeReduceNode::TsdNonAssociativeReduceNode(
+        int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
+        nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
+        const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id,
+        const TSMeta* input_meta, const TSMeta* output_meta,
+        const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
+        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+                     input_meta, output_meta, error_output_meta, recordable_state_meta),
+          nested_graph_builder_(std::move(nested_graph_builder)),
+          input_node_ids_(input_node_ids), output_node_id_(output_node_id) {
+    }
+
     void TsdNonAssociativeReduceNode::initialise() {
         // Create nested graph and set up evaluation engine (matches Python lines 319, 329-331)
         //TODO: Should this be constructed by the GraphBuilder, if it does not escape into Python then

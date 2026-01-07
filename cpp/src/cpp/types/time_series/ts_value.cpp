@@ -23,16 +23,24 @@ TSValue::TSValue(const TSMeta* ts_schema, Node* owner, int output_id)
         if (value_schema) {
             _value = base_value_type(value_schema);
         }
+        // Create hierarchical tracking Value with derived schema
+        _tracking_schema = tracking_schema_from(ts_schema);
+        if (_tracking_schema) {
+            _tracking = tracking_value_type(_tracking_schema);
+        }
     }
 }
 
 TSValue::TSValue(TSValue&& other) noexcept
     : _value(std::move(other._value))
+    , _tracking(std::move(other._tracking))
     , _ts_meta(other._ts_meta)
+    , _tracking_schema(other._tracking_schema)
     , _owning_node(other._owning_node)
     , _output_id(other._output_id)
 {
     other._ts_meta = nullptr;
+    other._tracking_schema = nullptr;
     other._owning_node = nullptr;
     other._output_id = OUTPUT_MAIN;
 }
@@ -40,11 +48,14 @@ TSValue::TSValue(TSValue&& other) noexcept
 TSValue& TSValue::operator=(TSValue&& other) noexcept {
     if (this != &other) {
         _value = std::move(other._value);
+        _tracking = std::move(other._tracking);
         _ts_meta = other._ts_meta;
+        _tracking_schema = other._tracking_schema;
         _owning_node = other._owning_node;
         _output_id = other._output_id;
 
         other._ts_meta = nullptr;
+        other._tracking_schema = nullptr;
         other._owning_node = nullptr;
         other._output_id = OUTPUT_MAIN;
     }
@@ -55,6 +66,9 @@ TSValue TSValue::copy(const TSValue& other) {
     TSValue result(other._ts_meta, other._owning_node, other._output_id);
     if (other._value.valid()) {
         result._value = base_value_type::copy(other._value);
+    }
+    if (other._tracking.valid()) {
+        result._tracking = tracking_value_type::copy(other._tracking);
     }
     return result;
 }
@@ -71,14 +85,14 @@ TSView TSValue::view() const {
     if (!valid()) {
         return TSView();
     }
-    return TSView(_value.data(), _ts_meta);
+    return TSView(_value.data(), _ts_meta, this);
 }
 
 TSMutableView TSValue::mutable_view() {
     if (!valid()) {
         return TSMutableView();
     }
-    return TSMutableView(_value.data(), _ts_meta);
+    return TSMutableView(_value.data(), _ts_meta, this);
 }
 
 TSBView TSValue::bundle_view() const {
@@ -97,6 +111,26 @@ nb::object TSValue::to_python() const {
 
 void TSValue::from_python(const nb::object& src) {
     _value.from_python(src);
+}
+
+void TSValue::notify_modified(engine_time_t time) {
+    _value.notify_modified(time);
+}
+
+engine_time_t TSValue::last_modified_time() const {
+    return _value.last_modified_time();
+}
+
+bool TSValue::modified_at(engine_time_t time) const {
+    return _value.modified_at(time);
+}
+
+bool TSValue::ts_valid() const {
+    return _value.ts_valid();
+}
+
+void TSValue::invalidate_ts() {
+    _value.invalidate_ts();
 }
 
 }  // namespace hgraph

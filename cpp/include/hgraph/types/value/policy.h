@@ -11,6 +11,7 @@
  * Available policies:
  * - NoCache: Default policy with no extensions (zero overhead)
  * - WithPythonCache: Caches Python object conversions
+ * - WithModificationTracking: Tracks modification time and valid state
  *
  * The policy_traits template detects policy capabilities, and PolicyStorage
  * provides conditional storage that uses Empty Base Optimization (EBO) when
@@ -18,6 +19,7 @@
  */
 
 #include <nanobind/nanobind.h>
+#include <hgraph/util/date_time.h>
 
 #include <functional>
 #include <optional>
@@ -208,10 +210,22 @@ struct PolicyStorage<Policy, std::enable_if_t<
 
     // Stub for modification tracking (no-op)
     void notify_modified() const {}
+    void notify_modified(engine_time_t) const {}
+
+    // Stub methods for time-series state (no tracking)
+    [[nodiscard]] engine_time_t last_modified_time() const { return MIN_DT; }
+    [[nodiscard]] bool modified_at(engine_time_t) const { return false; }
+    [[nodiscard]] bool ts_valid() const { return false; }
+    void invalidate_ts() const {}
 };
 
 /**
  * @brief Policy storage specialization for modification tracking only (no caching).
+ *
+ * Provides:
+ * - Last modification time tracking
+ * - Valid state tracking
+ * - Modification callbacks
  */
 template<typename Policy>
 struct PolicyStorage<Policy, std::enable_if_t<
@@ -220,16 +234,53 @@ struct PolicyStorage<Policy, std::enable_if_t<
 
     using callback_type = std::function<void()>;
     mutable std::vector<callback_type> _callbacks;
+    mutable engine_time_t _last_modified_time{MIN_DT};
+    mutable bool _valid{false};
 
     void on_modified(callback_type cb) const {
         _callbacks.push_back(std::move(cb));
     }
 
-    void notify_modified() const {
+    /**
+     * @brief Notify that value was modified at given time.
+     * @param time The engine time of modification
+     */
+    void notify_modified(engine_time_t time) const {
+        _last_modified_time = time;
+        _valid = true;
         for (auto& cb : _callbacks) {
             if (cb) cb();
         }
     }
+
+    /**
+     * @brief Legacy notify_modified without time (uses MIN_DT).
+     */
+    void notify_modified() const {
+        notify_modified(MIN_DT);
+    }
+
+    /**
+     * @brief Get last modification time.
+     */
+    [[nodiscard]] engine_time_t last_modified_time() const { return _last_modified_time; }
+
+    /**
+     * @brief Check if modified at specific time.
+     */
+    [[nodiscard]] bool modified_at(engine_time_t time) const {
+        return _last_modified_time == time;
+    }
+
+    /**
+     * @brief Check if value has been set (is valid).
+     */
+    [[nodiscard]] bool ts_valid() const { return _valid; }
+
+    /**
+     * @brief Mark value as invalid (cleared).
+     */
+    void invalidate_ts() const { _valid = false; }
 
     // Stub for caching (no-op)
     void invalidate_cache() const {}
@@ -239,6 +290,12 @@ struct PolicyStorage<Policy, std::enable_if_t<
  * @brief Policy storage specialization for both Python caching and modification tracking.
  *
  * Used by TSValue = Value<CombinedPolicy<WithPythonCache, WithModificationTracking>>
+ *
+ * Provides:
+ * - Python object caching
+ * - Last modification time tracking
+ * - Valid state tracking
+ * - Modification callbacks
  */
 template<typename Policy>
 struct PolicyStorage<Policy, std::enable_if_t<
@@ -255,6 +312,10 @@ struct PolicyStorage<Policy, std::enable_if_t<
     }
     void set_cache(nb::object obj) const { _cached_python = std::move(obj); }
 
+    // Time-series state storage
+    mutable engine_time_t _last_modified_time{MIN_DT};
+    mutable bool _valid{false};
+
     // Callback storage
     using callback_type = std::function<void()>;
     mutable std::vector<callback_type> _callbacks;
@@ -263,12 +324,47 @@ struct PolicyStorage<Policy, std::enable_if_t<
         _callbacks.push_back(std::move(cb));
     }
 
-    void notify_modified() const {
+    /**
+     * @brief Notify that value was modified at given time.
+     * @param time The engine time of modification
+     */
+    void notify_modified(engine_time_t time) const {
+        _last_modified_time = time;
+        _valid = true;
         invalidate_cache();  // Also invalidate cache on modification
         for (auto& cb : _callbacks) {
             if (cb) cb();
         }
     }
+
+    /**
+     * @brief Legacy notify_modified without time (uses MIN_DT).
+     */
+    void notify_modified() const {
+        notify_modified(MIN_DT);
+    }
+
+    /**
+     * @brief Get last modification time.
+     */
+    [[nodiscard]] engine_time_t last_modified_time() const { return _last_modified_time; }
+
+    /**
+     * @brief Check if modified at specific time.
+     */
+    [[nodiscard]] bool modified_at(engine_time_t time) const {
+        return _last_modified_time == time;
+    }
+
+    /**
+     * @brief Check if value has been set (is valid).
+     */
+    [[nodiscard]] bool ts_valid() const { return _valid; }
+
+    /**
+     * @brief Mark value as invalid (cleared).
+     */
+    void invalidate_ts() const { _valid = false; }
 };
 
 // ============================================================================

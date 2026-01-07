@@ -10,6 +10,7 @@
  * - Node* ownership for notification routing
  * - Output ID for identifying which output of a node
  * - View creation methods for type-safe access
+ * - Hierarchical modification tracking via a shadow Value
  *
  * This is the core storage type for all time-series data in nodes.
  */
@@ -63,6 +64,10 @@ struct TSValue {
     using base_value_type = value::Value<value::CombinedPolicy<
         value::WithPythonCache,
         value::WithModificationTracking>>;
+
+    /// The tracking Value type - simple Value without extra policies
+    /// Stores engine_time_t timestamps mirroring the TSMeta structure
+    using tracking_value_type = value::Value<value::NoCache>;
 
     // ========== Construction ==========
 
@@ -199,11 +204,69 @@ struct TSValue {
         _value.on_modified(std::forward<Callback>(cb));
     }
 
+    /**
+     * @brief Notify that the value was modified at given time.
+     * @param time The engine time of modification
+     */
+    void notify_modified(engine_time_t time);
+
+    /**
+     * @brief Get the last modification time.
+     */
+    [[nodiscard]] engine_time_t last_modified_time() const;
+
+    /**
+     * @brief Check if modified at specific time.
+     * @param time The time to check against
+     */
+    [[nodiscard]] bool modified_at(engine_time_t time) const;
+
+    /**
+     * @brief Check if the time-series value is valid (has been set).
+     */
+    [[nodiscard]] bool ts_valid() const;
+
+    /**
+     * @brief Mark the time-series as invalid (cleared).
+     */
+    void invalidate_ts();
+
+    // ========== Hierarchical Tracking ==========
+
+    /**
+     * @brief Get the tracking schema.
+     *
+     * The tracking schema mirrors the TSMeta structure with engine_time_t
+     * at every leaf, enabling per-level modification tracking.
+     *
+     * @return The TypeMeta for tracking, or nullptr if not initialized
+     */
+    [[nodiscard]] const value::TypeMeta* tracking_schema() const noexcept {
+        return _tracking_schema;
+    }
+
+    /**
+     * @brief Get the tracking value (mutable).
+     *
+     * The tracking value stores modification timestamps following the
+     * time-series structure. Navigate it the same way as the data value.
+     *
+     * @return Reference to the tracking Value
+     */
+    [[nodiscard]] tracking_value_type& tracking() { return _tracking; }
+
+    /**
+     * @brief Get the tracking value (const).
+     */
+    [[nodiscard]] const tracking_value_type& tracking() const { return _tracking; }
+
 private:
-    base_value_type _value;              ///< Underlying type-erased storage
-    const TSMeta* _ts_meta{nullptr};     ///< Time-series schema
-    Node* _owning_node{nullptr};         ///< Owning node (not owned)
-    int _output_id{OUTPUT_MAIN};         ///< Output identifier
+    base_value_type _value;                    ///< Underlying type-erased storage
+    tracking_value_type _tracking;             ///< Hierarchical modification timestamps
+    const TSMeta* _ts_meta{nullptr};           ///< Time-series schema
+    const value::TypeMeta* _tracking_schema{nullptr}; ///< Schema for tracking Value
+    Node* _owning_node{nullptr};               ///< Owning node (not owned)
+    int _output_id{OUTPUT_MAIN};               ///< Output identifier
 };
 
 // ============================================================================

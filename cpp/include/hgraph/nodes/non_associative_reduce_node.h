@@ -6,6 +6,9 @@
 #include <hgraph/types/tsd.h>
 
 namespace hgraph {
+    // Forward declaration
+    struct TSMeta;
+
     void register_non_associative_reduce_node_with_nanobind(nb::module_ & m);
 
     /**
@@ -17,10 +20,19 @@ namespace hgraph {
      * chain is lhs = prev_node output with rhs being the nth element of the tsd input.
      */
     struct TsdNonAssociativeReduceNode final : NestedNode {
+        // Legacy constructor
         TsdNonAssociativeReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id,
                                     NodeSignature::s_ptr signature,
                                     nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
                                     const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id);
+
+        // New constructor with TSMeta
+        TsdNonAssociativeReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id,
+                                    NodeSignature::s_ptr signature,
+                                    nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
+                                    const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id,
+                                    const TSMeta* input_meta, const TSMeta* output_meta,
+                                    const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         std::unordered_map<int, graph_s_ptr> nested_graphs();
 

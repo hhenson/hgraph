@@ -169,6 +169,7 @@ namespace hgraph
     template <typename T_TS, typename T_U> void _register_tsb_with_nanobind(nb::module_ &m) {
         using PyTS_Type = PyTimeSeriesBundle<T_TS, T_U>;
         auto name{std::is_same_v<T_U, TimeSeriesBundleInput> ? "TimeSeriesBundleInput" : "TimeSeriesBundleOutput"};
+        // No need to re-register value property - base class handles it via TSView
         nb::class_<PyTS_Type, T_TS>(m, name)
             .def("__getitem__", &PyTS_Type::get_item)
             .def("__getattr__", &PyTS_Type::get_attr)

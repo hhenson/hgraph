@@ -8,35 +8,75 @@
 namespace hgraph
 {
     nb::object PyTimeSeriesType::owning_node() const {
+        if (!has_impl()) {
+            // View-based instances don't support graph navigation yet
+            return nb::none();
+        }
         auto n = _impl->owning_node();
         return n ? wrap_node(n->shared_from_this()) : nb::none();
     }
 
     nb::object PyTimeSeriesType::owning_graph() const {
+        if (!has_impl()) {
+            // View-based instances don't support graph navigation yet
+            return nb::none();
+        }
         auto g = _impl->owning_graph();
         return g ? wrap_graph(g->shared_from_this()) : nb::none();
     }
 
-    nb::bool_ PyTimeSeriesType::has_parent_or_node() const { return nb::bool_(_impl->has_parent_or_node()); }
-
-    nb::bool_ PyTimeSeriesType::has_owning_node() const { return nb::bool_(_impl->has_owning_node()); }
-
-    nb::object PyTimeSeriesType::value() const {
-        // TODO: I would like to extract the python logic into this function, to use a visitor function.
-        return _impl->py_value();
+    nb::bool_ PyTimeSeriesType::has_parent_or_node() const {
+        if (!has_impl()) return nb::bool_(false);
+        return nb::bool_(_impl->has_parent_or_node());
     }
 
-    nb::object PyTimeSeriesType::delta_value() const { return _impl->py_delta_value(); }
+    nb::bool_ PyTimeSeriesType::has_owning_node() const {
+        if (!has_impl()) return nb::bool_(false);
+        return nb::bool_(_impl->has_owning_node());
+    }
 
-    engine_time_t PyTimeSeriesType::last_modified_time() const { return _impl->last_modified_time(); }
+    nb::object PyTimeSeriesType::value() const {
+        // Base implementation uses impl if available
+        if (has_impl()) {
+            return _impl->py_value();
+        }
+        throw std::runtime_error("PyTimeSeriesType::value() called on view-only instance - override in derived class");
+    }
 
-    nb::bool_ PyTimeSeriesType::valid() const { return nb::bool_(_impl->valid()); }
+    nb::object PyTimeSeriesType::delta_value() const {
+        if (!has_impl()) {
+            // View-based instances don't support delta_value yet
+            return nb::none();
+        }
+        return _impl->py_delta_value();
+    }
 
-    nb::bool_ PyTimeSeriesType::all_valid() const { return nb::bool_(_impl->all_valid()); }
+    engine_time_t PyTimeSeriesType::last_modified_time() const {
+        if (!has_impl()) {
+            return MIN_DT;  // View-based should override this
+        }
+        return _impl->last_modified_time();
+    }
 
-    nb::bool_ PyTimeSeriesType::is_reference() const { return nb::bool_(_impl->is_reference()); }
+    nb::bool_ PyTimeSeriesType::valid() const {
+        if (!has_impl()) return nb::bool_(false);  // View-based should override
+        return nb::bool_(_impl->valid());
+    }
 
-    nb::bool_ PyTimeSeriesType::modified() const { return nb::bool_(_impl->modified()); }
+    nb::bool_ PyTimeSeriesType::all_valid() const {
+        if (!has_impl()) return nb::bool_(false);  // View-based should override
+        return nb::bool_(_impl->all_valid());
+    }
+
+    nb::bool_ PyTimeSeriesType::is_reference() const {
+        if (!has_impl()) return nb::bool_(false);
+        return nb::bool_(_impl->is_reference());
+    }
+
+    nb::bool_ PyTimeSeriesType::modified() const {
+        if (!has_impl()) return nb::bool_(false);  // View-based should override
+        return nb::bool_(_impl->modified());
+    }
 
     void PyTimeSeriesType::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesType>(m, "TimeSeriesType")
@@ -58,25 +98,111 @@ namespace hgraph
 
     control_block_ptr PyTimeSeriesType::control_block() const { return _impl.control_block(); }
 
-    nb::object PyTimeSeriesOutput::parent_output() const { return impl()->parent_output() ? wrap_output(impl()->parent_output()) : nb::none(); }
+    // ========== PyTimeSeriesOutput view-based implementation ==========
 
-    nb::bool_ PyTimeSeriesOutput::has_parent_output() const { return nb::bool_(impl()->has_parent_output()); }
+    PyTimeSeriesOutput::PyTimeSeriesOutput(TSMutableView view)
+        : PyTimeSeriesType(api_ptr{}), _view(view) {}
 
-    void PyTimeSeriesOutput::apply_result(nb::object value) { impl()->apply_result(std::move(value)); }
+    TSMutableView PyTimeSeriesOutput::view() const {
+        if (!_view.has_value()) {
+            throw std::runtime_error("PyTimeSeriesOutput::view() called on non-view-based instance");
+        }
+        return *_view;
+    }
 
-    void PyTimeSeriesOutput::set_value(nb::object value) { impl()->py_set_value(std::move(value)); }
+    nb::object PyTimeSeriesOutput::value() const {
+        if (_view.has_value()) {
+            return _view->to_python();
+        }
+        // Use the underlying impl's py_value() for ApiPtr-based instances
+        return impl()->py_value();
+    }
+
+    void PyTimeSeriesOutput::set_value(nb::object value) {
+        if (_view.has_value()) {
+            _view->from_python(value);
+        } else {
+            // Use the underlying impl's py_set_value() for ApiPtr-based instances
+            impl()->py_set_value(value);
+        }
+    }
+
+    nb::object PyTimeSeriesOutput::parent_output() const {
+        if (_view.has_value()) {
+            return nb::none();  // View-based instances don't have graph navigation
+        }
+        return impl()->parent_output() ? wrap_output(impl()->parent_output()) : nb::none();
+    }
+
+    nb::bool_ PyTimeSeriesOutput::has_parent_output() const {
+        if (_view.has_value()) {
+            return nb::bool_(false);  // View-based instances don't have graph navigation
+        }
+        return nb::bool_(impl()->has_parent_output());
+    }
+
+    void PyTimeSeriesOutput::apply_result(nb::object value) {
+        if (_view.has_value()) {
+            // For view-based, apply_result just sets the value if not None
+            if (!value.is_none()) {
+                _view->from_python(value);
+            }
+            return;
+        }
+        impl()->apply_result(std::move(value));
+    }
 
     void PyTimeSeriesOutput::copy_from_output(const PyTimeSeriesOutput &output) {
+        if (_view.has_value()) {
+            if (output.is_view_based()) {
+                // Both are view-based - copy via TSView
+                _view->copy_from(output.view());
+            } else {
+                // Copy from ApiPtr-based output - get the Python value and convert
+                _view->from_python(output.value());
+            }
+            return;
+        }
         impl()->copy_from_output(*unwrap_output(output));
     }
 
-    void PyTimeSeriesOutput::copy_from_input(const PyTimeSeriesInput &input) { impl()->copy_from_input(*unwrap_input(input)); }
+    void PyTimeSeriesOutput::copy_from_input(const PyTimeSeriesInput &input) {
+        if (_view.has_value()) {
+            if (input.is_view_based()) {
+                // Both are view-based - copy via TSView
+                _view->copy_from(input.view());
+            } else {
+                // Copy from ApiPtr-based input - get the Python value and convert
+                _view->from_python(input.value());
+            }
+            return;
+        }
+        impl()->copy_from_input(*unwrap_input(input));
+    }
 
-    void PyTimeSeriesOutput::clear() { impl()->clear(); }
+    void PyTimeSeriesOutput::clear() {
+        if (_view.has_value()) {
+            _view->invalidate_ts();
+            return;
+        }
+        impl()->clear();
+    }
 
-    void PyTimeSeriesOutput::invalidate() { impl()->invalidate(); }
+    void PyTimeSeriesOutput::invalidate() {
+        if (_view.has_value()) {
+            _view->invalidate_ts();
+            return;
+        }
+        impl()->invalidate();
+    }
 
-    bool PyTimeSeriesOutput::can_apply_result(nb::object value) { return impl()->can_apply_result(std::move(value)); }
+    bool PyTimeSeriesOutput::can_apply_result(nb::object value) {
+        if (_view.has_value()) {
+            // View-based instances can always apply a result (no queue logic)
+            return true;
+        }
+        return impl()->can_apply_result(std::move(value));
+    }
 
 
     void PyTimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
@@ -99,36 +225,116 @@ namespace hgraph
 
     TimeSeriesOutput *PyTimeSeriesOutput::impl() const { return static_cast_impl<TimeSeriesOutput>(); }
 
-    nb::object PyTimeSeriesInput::parent_input() const { return impl()->parent_input() ? wrap_input(impl()->parent_input()) : nb::none(); }
+    // ========== PyTimeSeriesInput view-based implementation ==========
 
-    nb::bool_ PyTimeSeriesInput::has_parent_input() const { return nb::bool_(impl()->has_parent_input()); }
+    PyTimeSeriesInput::PyTimeSeriesInput(TSView view)
+        : PyTimeSeriesType(api_ptr{}), _view(view) {}
 
-    nb::bool_ PyTimeSeriesInput::active() const { return nb::bool_(impl()->active()); }
+    TSView PyTimeSeriesInput::view() const {
+        if (!_view.has_value()) {
+            throw std::runtime_error("PyTimeSeriesInput::view() called on non-view-based instance");
+        }
+        return *_view;
+    }
 
-    void PyTimeSeriesInput::make_active() { impl()->make_active(); }
+    nb::object PyTimeSeriesInput::value() const {
+        if (_view.has_value()) {
+            return _view->to_python();
+        }
+        // Use the underlying impl's py_value() for ApiPtr-based instances
+        return impl()->py_value();
+    }
 
-    void PyTimeSeriesInput::make_passive() { impl()->make_passive(); }
+    nb::object PyTimeSeriesInput::parent_input() const {
+        if (_view.has_value()) {
+            return nb::none();  // View-based instances don't have graph navigation
+        }
+        return impl()->parent_input() ? wrap_input(impl()->parent_input()) : nb::none();
+    }
 
-    nb::bool_ PyTimeSeriesInput::bound() const { return nb::bool_(impl()->bound()); }
+    nb::bool_ PyTimeSeriesInput::has_parent_input() const {
+        if (_view.has_value()) {
+            return nb::bool_(false);  // View-based instances don't have graph navigation
+        }
+        return nb::bool_(impl()->has_parent_input());
+    }
 
-    nb::bool_ PyTimeSeriesInput::has_peer() const { return nb::bool_(impl()->has_peer()); }
+    nb::bool_ PyTimeSeriesInput::active() const {
+        if (_view.has_value()) {
+            return nb::bool_(true);  // View-based instances are always "active"
+        }
+        return nb::bool_(impl()->active());
+    }
 
-    nb::object PyTimeSeriesInput::output() const { return wrap_output(impl()->output()); }
+    void PyTimeSeriesInput::make_active() {
+        if (_view.has_value()) return;  // No-op for view-based
+        impl()->make_active();
+    }
 
-    nb::bool_ PyTimeSeriesInput::has_output() const { return nb::bool_(impl()->has_output()); }
+    void PyTimeSeriesInput::make_passive() {
+        if (_view.has_value()) return;  // No-op for view-based
+        impl()->make_passive();
+    }
 
-    nb::bool_ PyTimeSeriesInput::bind_output(nb::object output_) { return nb::bool_(impl()->bind_output(unwrap_output(output_))); }
+    nb::bool_ PyTimeSeriesInput::bound() const {
+        if (_view.has_value()) {
+            return nb::bool_(true);  // View-based instances are always "bound" (to their data)
+        }
+        return nb::bool_(impl()->bound());
+    }
 
-    void PyTimeSeriesInput::un_bind_output(bool unbind_refs) { return impl()->un_bind_output(unbind_refs); }
+    nb::bool_ PyTimeSeriesInput::has_peer() const {
+        if (_view.has_value()) {
+            return nb::bool_(false);  // View-based instances don't have peers
+        }
+        return nb::bool_(impl()->has_peer());
+    }
+
+    nb::object PyTimeSeriesInput::output() const {
+        if (_view.has_value()) {
+            return nb::none();  // View-based instances don't have output binding
+        }
+        return wrap_output(impl()->output());
+    }
+
+    nb::bool_ PyTimeSeriesInput::has_output() const {
+        if (_view.has_value()) {
+            return nb::bool_(false);  // View-based instances don't have output binding
+        }
+        return nb::bool_(impl()->has_output());
+    }
+
+    nb::bool_ PyTimeSeriesInput::bind_output(nb::object output_) {
+        if (_view.has_value()) {
+            throw std::runtime_error("bind_output not supported for view-based instances");
+        }
+        return nb::bool_(impl()->bind_output(unwrap_output(output_)));
+    }
+
+    void PyTimeSeriesInput::un_bind_output(bool unbind_refs) {
+        if (_view.has_value()) {
+            throw std::runtime_error("un_bind_output not supported for view-based instances");
+        }
+        return impl()->un_bind_output(unbind_refs);
+    }
 
     nb::object PyTimeSeriesInput::reference_output() const {
+        if (_view.has_value()) {
+            return nb::none();  // View-based instances don't have reference outputs
+        }
         return wrap_output(impl()->reference_output());
     }
 
-    nb::object PyTimeSeriesInput::get_input(size_t index) const { return wrap_input(impl()->get_input(index)); }
+    nb::object PyTimeSeriesInput::get_input(size_t index) const {
+        if (_view.has_value()) {
+            throw std::runtime_error("get_input not supported for view-based instances");
+        }
+        return wrap_input(impl()->get_input(index));
+    }
 
     void PyTimeSeriesInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesInput, PyTimeSeriesType>(m, "TimeSeriesInput")
+            .def_prop_ro("value", &PyTimeSeriesInput::value)
             .def_prop_ro("parent_input", &PyTimeSeriesInput::parent_input)
             .def_prop_ro("has_parent_input", &PyTimeSeriesInput::has_parent_input)
             .def_prop_ro("bound", &PyTimeSeriesInput::bound)

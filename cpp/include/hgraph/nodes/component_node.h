@@ -5,12 +5,25 @@
 #include <optional>
 
 namespace hgraph {
+    // Forward declaration
+    struct TSMeta;
+
     struct ComponentNode final : NestedNode {
+        // Legacy constructor
         ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                       nb::dict scalars,
                       graph_builder_s_ptr nested_graph_builder,
                       const std::unordered_map<std::string, int> &input_node_ids,
                       int output_node_id);
+
+        // New constructor with TSMeta
+        ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
+                      nb::dict scalars,
+                      graph_builder_s_ptr nested_graph_builder,
+                      const std::unordered_map<std::string, int> &input_node_ids,
+                      int output_node_id,
+                      const TSMeta* input_meta, const TSMeta* output_meta,
+                      const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         void initialise() override;
 
