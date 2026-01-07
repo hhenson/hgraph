@@ -1833,14 +1833,50 @@ def test_bundle_field_access():
 
 ### 12.1 TSValue Integration
 
-The Value system will be extended with modification tracking for time-series:
+TSValue is a **distinct** type-erased concept from Value.
 
-```cpp
-class TSValue : public Value {
-    ModificationTracker _tracker;
-    ObserverStorage* _observers{nullptr};  // Lazy allocation
-};
-```
+- **Value** is responsible for *data representation*: type-erased storage + schema (`TypeMeta`) + operations.
+- **TSValue** is responsible for *time-series semantics*: hierarchical modification time tracking, hierarchical
+  observability (subscriptions), and API-level behaviors required by the existing time-series types.
+
+However, TSValue must remain tightly coupled to Value at the *storage level*:
+
+1. **Zero-cost bridge**: a `TSView` must be able to wrap an existing `ValueView` (plus a `TSMeta`) without copying,
+   and a `ValueView` must be obtainable from a `TSView` without copying.
+2. **Composition-based extension points for containers**: set/map backings use index-based robin-hood hashing and
+   swap-with-last erase. TSValue’s hierarchical tracking and observer storage for sets/maps must be able to
+   reuse those indices and receive swap notifications so TS-side “parallel arrays” stay aligned.
+
+This implies an extension surface in the container operations that supports:
+
+- returning an index/handle on insert (or exposing it on-demand), and
+- emitting a swap/move notification when the backing performs swap-with-last.
+
+#### Delta application (update-by-delta for `Value` and `TSValue`)
+
+In addition to full replacement updates (e.g. `from_python()` / `copy_assign`), the system must support
+**incremental updates via deltas**.
+
+- A **delta** is a *patch-like* value that represents changes relative to a prior state.
+  - For scalars, a delta may degenerate to “the new value”.
+  - For collections, a delta is typically structural: e.g. *added/removed elements* for sets.
+- A delta must be applicable to:
+  - a plain `Value` (data-only update), and
+  - a `TSValue` / `TSView` (data update **plus** TS semantics: hierarchical timestamps + hierarchical observers).
+
+The intent is that *the same delta object* can be applied at either layer:
+
+- Applying to `Value` updates the underlying storage according to schema-defined rules.
+- Applying to `TSValue` performs the same storage update but also updates TS overlay state
+  (modification timestamps/validity and observer notifications) in a hierarchical manner.
+
+**Current reference point:** time-series types already expose `delta_value` on the Python surface, and there is an
+example concrete delta representation for sets: `value::SetDeltaValue` (added/removed snapshots).
+
+See `TSValue_DESIGN.md` for how deltas must interact with hierarchical tracking/observability and container hook surfaces.
+
+See `TSValue_DESIGN.md` for the TS overlay/extensibility design and
+`Value_TSValue_MIGRATION_PLAN.md` for an incremental migration path.
 
 ### 12.2 DynamicList
 

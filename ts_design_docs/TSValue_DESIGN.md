@@ -1,11 +1,67 @@
 # Time-Series Value (TSValue) - Design Document
 
-**Version**: 0.1 (Draft)
-**Date**: 2025-01-05
-**Status**: Design
+**Version**: 0.2 (Draft)
+**Date**: 2026-01-07
+**Status**: Design (In Revision)
 **Related**: [TSValue_USER_GUIDE.md](TSValue_USER_GUIDE.md) - User Guide
 
 ---
+
+## 0. 2026-01 Design Realignment (Value ↔ TSValue Bridge + Container Extensions)
+
+This document is being revised to better align with the project objectives:
+
+### 0.1 What stays the same
+
+- **Type-erased storage stays partitioned** (data storage and operations remain type-erased under `TypeMeta`).
+- **`Value` / `View` / `MutableView` separation stays**.
+- **Separate schemas stay**: `TypeMeta` (data schema) and `TSMeta` (time-series structure).
+- **Policy-based extension support stays** (compile-time, zero-overhead where applicable).
+
+### 0.2 What is changing
+
+1. **`Value` and `TSValue` remain distinct concepts**, but must be coupled by a **zero-cost storage bridge**.
+   - You must be able to wrap a `value::ConstValueView`/`value::ValueView` as a `TSView`/`TSMutableView` *without copying*.
+   - You must be able to obtain a `ValueView` from a `TSView` *without copying*.
+
+2. **Hierarchical modification tracking and hierarchical observability must share the same structural model**.
+   - The system should not repeat the “flat vs hierarchical” mismatch that previously appeared in change tracking.
+
+3. **Container-specific TS extensions (set/dict) must reuse the existing index-based backing store**.
+   - Set/Map storage uses robin-hood hashing with an index set and contiguous element vectors.
+   - TS extensions (per-element modified time + per-element observers) must be able to attach **parallel arrays** keyed by
+     the same index used by the container.
+   - Swap-with-last erase must provide a **lightweight, composition-based integration point** so TS extensions can mirror
+     swaps/moves without inheritance.
+
+4. **Deltas must be applicable at either layer (Value or TSValue)**.
+   - A “delta” is a patch-like representation of what changed since a prior state.
+   - The same delta should be applicable to a plain `Value` (data-only) or to a `TSValue`/`TSView` (data + TS overlay).
+   - Applying a delta at the TS layer must update hierarchical timestamps/validity and hierarchical observability.
+
+### 0.3 The central abstraction: TS “overlay” extensions
+
+Instead of treating tracking/observers as an unrelated secondary value (`tracking_value`) that happens to share a schema,
+TSValue is modeled as:
+
+- **Data**: a `Value` (or a `ValueView`) with schema `TypeMeta`.
+- **TS overlay**: a parallel, schema-shaped set of extension storages that provide:
+  - hierarchical timestamps (validity + modification time), and
+  - hierarchical observer lists.
+
+The overlay is navigated in lockstep with the data view hierarchy (bundle fields, list elements, set/map indices).
+
+### 0.4 Container hook surface (composition, not inheritance)
+
+To support set/map overlays efficiently, container ops must expose hook points such as:
+
+- **index acquisition**: returning the slot/index on insert (or a query API to retrieve it)
+- **swap notification**: `(idx_a, idx_b)` callback when swap-with-last occurs
+- **erase notification**: ability to update overlay state for the erased slot
+
+These hook points are *optional* and should compile away or become no-ops when no overlay is attached.
+
+The detailed migration is captured in: [Value_TSValue_MIGRATION_PLAN.md](Value_TSValue_MIGRATION_PLAN.md).
 
 ## Table of Contents
 
@@ -1462,20 +1518,18 @@ Add reference tests last (most complex).
 
 ### 14.1 Incremental Migration
 
-1. **Create TSValue alongside existing types**
-2. **Update builders to create TSValue**
-3. **Update PyXXX wrappers to use TSView**
-4. **Remove old types once tests pass**
+The migration is intentionally **phased** to keep the codebase compiling and testable at each step, while we evolve
+the required low-level hook surfaces (set/map index + swap notifications) and the `Value`↔`TSValue` zero-cost bridge.
+
+See: [Value_TSValue_MIGRATION_PLAN.md](Value_TSValue_MIGRATION_PLAN.md)
 
 ### 14.2 Compatibility Layer
 
-During migration, provide compatibility:
+During migration we may provide temporary adapters, but the exact shape depends on where the bridge lands
+(view-based, storage-based, or engine-object-based).
 
-```cpp
-// Temporary compatibility
-using TimeSeriesValueOutput = TSMutableView;
-using TimeSeriesValueInput = TSView;
-```
+The guiding principle is capability parity (e.g., `py_value`, `valid`, `last_modified_time`, and subscription support)
+rather than signature parity.
 
 ---
 
