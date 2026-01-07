@@ -44,6 +44,8 @@ namespace hgraph {
 // Forward declarations
 class SetDeltaValue;
 class MapDeltaValue;
+class ListDeltaValue;
+class BundleDeltaValue;
 
 // ============================================================================
 // SetDeltaView - Non-owning view of set delta
@@ -565,6 +567,316 @@ private:
     const value::TypeMeta* _value_schema{nullptr};
     std::vector<Entry> _added;
     std::vector<value::PlainValue> _removed_keys;
+    std::vector<Entry> _modified;
+};
+
+// ============================================================================
+// ListDeltaView - Non-owning view of list delta
+// ============================================================================
+
+/**
+ * @brief Non-owning view of list delta (modified elements).
+ *
+ * Obtained by calling `TSLView::delta_view(time)`. The view is valid only
+ * while the underlying overlay data is stable.
+ */
+class ListDeltaView {
+public:
+    // ========== Construction ==========
+
+    /**
+     * @brief Default constructor - creates an invalid view.
+     */
+    ListDeltaView() noexcept = default;
+
+    /**
+     * @brief Construct from overlay and list view.
+     *
+     * @param overlay The ListTSOverlay containing modification information
+     * @param list_view The underlying list data (for looking up elements)
+     * @param element_schema Schema for element values
+     * @param time The current time (used for computing modified indices)
+     */
+    ListDeltaView(ListTSOverlay* overlay,
+                  value::ConstListView list_view,
+                  const value::TypeMeta* element_schema,
+                  engine_time_t time) noexcept;
+
+    // ========== Validity ==========
+
+    [[nodiscard]] bool valid() const noexcept { return _overlay != nullptr; }
+    explicit operator bool() const noexcept { return valid(); }
+
+    // ========== Delta Access ==========
+
+    /**
+     * @brief Check if any elements were modified.
+     */
+    [[nodiscard]] bool has_modified() const noexcept;
+
+    /**
+     * @brief Check if there are any changes.
+     */
+    [[nodiscard]] bool empty() const noexcept { return !has_modified(); }
+
+    /**
+     * @brief Get indices of elements modified this tick.
+     */
+    [[nodiscard]] std::vector<size_t> modified_indices() const;
+
+    /**
+     * @brief Get views of values modified this tick.
+     *
+     * Corresponds 1:1 with modified_indices().
+     */
+    [[nodiscard]] std::vector<value::ConstValueView> modified_values() const;
+
+    // ========== Conversion ==========
+
+    /**
+     * @brief Create an owning ListDeltaValue from this view.
+     */
+    [[nodiscard]] ListDeltaValue to_value() const;
+
+    // ========== Schema Access ==========
+
+    [[nodiscard]] const value::TypeMeta* element_schema() const noexcept {
+        return _element_schema;
+    }
+
+private:
+    ListTSOverlay* _overlay{nullptr};
+    value::ConstListView _list_view;
+    const value::TypeMeta* _element_schema{nullptr};
+    engine_time_t _time{MIN_DT};
+};
+
+// ============================================================================
+// ListDeltaValue - Owning list delta
+// ============================================================================
+
+/**
+ * @brief Owning value containing list delta (modified elements).
+ */
+class ListDeltaValue {
+public:
+    /**
+     * @brief An index-value pair for list entries.
+     */
+    struct Entry {
+        size_t index;
+        value::PlainValue value;
+    };
+
+    // ========== Builder ==========
+
+    /**
+     * @brief Fluent builder for constructing list deltas.
+     */
+    class Builder {
+    public:
+        explicit Builder(const value::TypeMeta* element_schema) noexcept;
+
+        /**
+         * @brief Add a modified index-value pair.
+         */
+        Builder& modify(size_t index, value::PlainValue value);
+
+        [[nodiscard]] ListDeltaValue build();
+
+    private:
+        const value::TypeMeta* _element_schema;
+        std::vector<Entry> _modified;
+    };
+
+    static Builder builder(const value::TypeMeta* element_schema) {
+        return Builder(element_schema);
+    }
+
+    // ========== Construction ==========
+
+    ListDeltaValue() noexcept = default;
+    explicit ListDeltaValue(const ListDeltaView& view);
+    ListDeltaValue(const value::TypeMeta* element_schema,
+                   std::vector<Entry> modified) noexcept;
+
+    // ========== Delta Access ==========
+
+    [[nodiscard]] bool has_modified() const noexcept { return !_modified.empty(); }
+    [[nodiscard]] bool empty() const noexcept { return _modified.empty(); }
+
+    [[nodiscard]] const std::vector<Entry>& modified() const noexcept { return _modified; }
+
+    [[nodiscard]] std::vector<size_t> modified_indices() const;
+    [[nodiscard]] std::vector<value::ConstValueView> modified_value_views() const;
+
+    // ========== Schema Access ==========
+
+    [[nodiscard]] const value::TypeMeta* element_schema() const noexcept {
+        return _element_schema;
+    }
+
+private:
+    const value::TypeMeta* _element_schema{nullptr};
+    std::vector<Entry> _modified;
+};
+
+// ============================================================================
+// BundleDeltaView - Non-owning view of bundle delta
+// ============================================================================
+
+/**
+ * @brief Non-owning view of bundle delta (modified fields).
+ *
+ * Obtained by calling `TSBView::delta_view(time)`. The view is valid only
+ * while the underlying overlay data is stable.
+ */
+class BundleDeltaView {
+public:
+    // ========== Construction ==========
+
+    /**
+     * @brief Default constructor - creates an invalid view.
+     */
+    BundleDeltaView() noexcept = default;
+
+    /**
+     * @brief Construct from overlay and bundle view.
+     *
+     * @param overlay The CompositeTSOverlay containing modification information
+     * @param bundle_view The underlying bundle data (for looking up fields)
+     * @param bundle_schema Schema for the bundle
+     * @param time The current time (used for computing modified indices)
+     */
+    BundleDeltaView(CompositeTSOverlay* overlay,
+                    value::ConstBundleView bundle_view,
+                    const value::TypeMeta* bundle_schema,
+                    engine_time_t time) noexcept;
+
+    // ========== Validity ==========
+
+    [[nodiscard]] bool valid() const noexcept { return _overlay != nullptr; }
+    explicit operator bool() const noexcept { return valid(); }
+
+    // ========== Delta Access ==========
+
+    /**
+     * @brief Check if any fields were modified.
+     */
+    [[nodiscard]] bool has_modified() const noexcept;
+
+    /**
+     * @brief Check if there are any changes.
+     */
+    [[nodiscard]] bool empty() const noexcept { return !has_modified(); }
+
+    /**
+     * @brief Get indices of fields modified this tick.
+     */
+    [[nodiscard]] std::vector<size_t> modified_indices() const;
+
+    /**
+     * @brief Get names of fields modified this tick.
+     *
+     * Corresponds 1:1 with modified_indices().
+     */
+    [[nodiscard]] std::vector<std::string_view> modified_keys() const;
+
+    /**
+     * @brief Get views of values modified this tick.
+     *
+     * Corresponds 1:1 with modified_indices().
+     */
+    [[nodiscard]] std::vector<value::ConstValueView> modified_values() const;
+
+    // ========== Conversion ==========
+
+    /**
+     * @brief Create an owning BundleDeltaValue from this view.
+     */
+    [[nodiscard]] BundleDeltaValue to_value() const;
+
+    // ========== Schema Access ==========
+
+    [[nodiscard]] const value::TypeMeta* bundle_schema() const noexcept {
+        return _bundle_schema;
+    }
+
+private:
+    CompositeTSOverlay* _overlay{nullptr};
+    value::ConstBundleView _bundle_view;
+    const value::TypeMeta* _bundle_schema{nullptr};
+    engine_time_t _time{MIN_DT};
+};
+
+// ============================================================================
+// BundleDeltaValue - Owning bundle delta
+// ============================================================================
+
+/**
+ * @brief Owning value containing bundle delta (modified fields).
+ */
+class BundleDeltaValue {
+public:
+    /**
+     * @brief A field index-value pair for bundle entries.
+     */
+    struct Entry {
+        size_t index;
+        value::PlainValue value;
+    };
+
+    // ========== Builder ==========
+
+    /**
+     * @brief Fluent builder for constructing bundle deltas.
+     */
+    class Builder {
+    public:
+        explicit Builder(const value::TypeMeta* bundle_schema) noexcept;
+
+        /**
+         * @brief Add a modified field index-value pair.
+         */
+        Builder& modify(size_t index, value::PlainValue value);
+
+        [[nodiscard]] BundleDeltaValue build();
+
+    private:
+        const value::TypeMeta* _bundle_schema;
+        std::vector<Entry> _modified;
+    };
+
+    static Builder builder(const value::TypeMeta* bundle_schema) {
+        return Builder(bundle_schema);
+    }
+
+    // ========== Construction ==========
+
+    BundleDeltaValue() noexcept = default;
+    explicit BundleDeltaValue(const BundleDeltaView& view);
+    BundleDeltaValue(const value::TypeMeta* bundle_schema,
+                     std::vector<Entry> modified) noexcept;
+
+    // ========== Delta Access ==========
+
+    [[nodiscard]] bool has_modified() const noexcept { return !_modified.empty(); }
+    [[nodiscard]] bool empty() const noexcept { return _modified.empty(); }
+
+    [[nodiscard]] const std::vector<Entry>& modified() const noexcept { return _modified; }
+
+    [[nodiscard]] std::vector<size_t> modified_indices() const;
+    [[nodiscard]] std::vector<std::string_view> modified_keys() const;
+    [[nodiscard]] std::vector<value::ConstValueView> modified_value_views() const;
+
+    // ========== Schema Access ==========
+
+    [[nodiscard]] const value::TypeMeta* bundle_schema() const noexcept {
+        return _bundle_schema;
+    }
+
+private:
+    const value::TypeMeta* _bundle_schema{nullptr};
     std::vector<Entry> _modified;
 };
 

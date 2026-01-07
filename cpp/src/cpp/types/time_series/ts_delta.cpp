@@ -365,4 +365,229 @@ std::vector<value::ConstValueView> MapDeltaValue::modified_value_views() const {
     return result;
 }
 
+// ============================================================================
+// ListDeltaView Implementation
+// ============================================================================
+
+ListDeltaView::ListDeltaView(ListTSOverlay* overlay,
+                             value::ConstListView list_view,
+                             const value::TypeMeta* element_schema,
+                             engine_time_t time) noexcept
+    : _overlay(overlay)
+    , _list_view(list_view)
+    , _element_schema(element_schema)
+    , _time(time)
+{}
+
+bool ListDeltaView::has_modified() const noexcept {
+    return _overlay && _overlay->has_modified(_time);
+}
+
+std::vector<size_t> ListDeltaView::modified_indices() const {
+    if (!_overlay) return {};
+    return _overlay->modified_indices(_time);
+}
+
+std::vector<value::ConstValueView> ListDeltaView::modified_values() const {
+    if (!_overlay || !_list_view.valid()) return {};
+
+    auto indices = _overlay->modified_indices(_time);
+    std::vector<value::ConstValueView> result;
+    result.reserve(indices.size());
+
+    for (size_t idx : indices) {
+        result.push_back(_list_view.at(idx));
+    }
+    return result;
+}
+
+ListDeltaValue ListDeltaView::to_value() const {
+    return ListDeltaValue(*this);
+}
+
+// ============================================================================
+// ListDeltaValue Implementation
+// ============================================================================
+
+ListDeltaValue::Builder::Builder(const value::TypeMeta* element_schema) noexcept
+    : _element_schema(element_schema)
+{}
+
+ListDeltaValue::Builder& ListDeltaValue::Builder::modify(size_t index, value::PlainValue value) {
+    _modified.push_back(Entry{index, std::move(value)});
+    return *this;
+}
+
+ListDeltaValue ListDeltaValue::Builder::build() {
+    return ListDeltaValue(_element_schema, std::move(_modified));
+}
+
+ListDeltaValue::ListDeltaValue(const ListDeltaView& view)
+    : _element_schema(view.element_schema())
+{
+    if (!view.valid()) return;
+
+    auto indices = view.modified_indices();
+    auto values = view.modified_values();
+    _modified.reserve(indices.size());
+
+    for (size_t i = 0; i < indices.size(); ++i) {
+        value::PlainValue val(_element_schema);
+        _element_schema->ops->copy_assign(val.data(), values[i].data(), _element_schema);
+        _modified.push_back(Entry{indices[i], std::move(val)});
+    }
+}
+
+ListDeltaValue::ListDeltaValue(const value::TypeMeta* element_schema,
+                               std::vector<Entry> modified) noexcept
+    : _element_schema(element_schema)
+    , _modified(std::move(modified))
+{}
+
+std::vector<size_t> ListDeltaValue::modified_indices() const {
+    std::vector<size_t> result;
+    result.reserve(_modified.size());
+    for (const auto& entry : _modified) {
+        result.push_back(entry.index);
+    }
+    return result;
+}
+
+std::vector<value::ConstValueView> ListDeltaValue::modified_value_views() const {
+    std::vector<value::ConstValueView> result;
+    result.reserve(_modified.size());
+    for (const auto& entry : _modified) {
+        result.push_back(entry.value.view());
+    }
+    return result;
+}
+
+// ============================================================================
+// BundleDeltaView Implementation
+// ============================================================================
+
+BundleDeltaView::BundleDeltaView(CompositeTSOverlay* overlay,
+                                 value::ConstBundleView bundle_view,
+                                 const value::TypeMeta* bundle_schema,
+                                 engine_time_t time) noexcept
+    : _overlay(overlay)
+    , _bundle_view(bundle_view)
+    , _bundle_schema(bundle_schema)
+    , _time(time)
+{}
+
+bool BundleDeltaView::has_modified() const noexcept {
+    return _overlay && _overlay->has_modified(_time);
+}
+
+std::vector<size_t> BundleDeltaView::modified_indices() const {
+    if (!_overlay) return {};
+    return _overlay->modified_indices(_time);
+}
+
+std::vector<std::string_view> BundleDeltaView::modified_keys() const {
+    if (!_overlay || !_bundle_schema) return {};
+
+    auto indices = _overlay->modified_indices(_time);
+    std::vector<std::string_view> result;
+    result.reserve(indices.size());
+
+    for (size_t idx : indices) {
+        if (idx < _bundle_schema->field_count) {
+            result.emplace_back(_bundle_schema->fields[idx].name);
+        }
+    }
+    return result;
+}
+
+std::vector<value::ConstValueView> BundleDeltaView::modified_values() const {
+    if (!_overlay || !_bundle_view.valid()) return {};
+
+    auto indices = _overlay->modified_indices(_time);
+    std::vector<value::ConstValueView> result;
+    result.reserve(indices.size());
+
+    for (size_t idx : indices) {
+        result.push_back(_bundle_view[idx]);
+    }
+    return result;
+}
+
+BundleDeltaValue BundleDeltaView::to_value() const {
+    return BundleDeltaValue(*this);
+}
+
+// ============================================================================
+// BundleDeltaValue Implementation
+// ============================================================================
+
+BundleDeltaValue::Builder::Builder(const value::TypeMeta* bundle_schema) noexcept
+    : _bundle_schema(bundle_schema)
+{}
+
+BundleDeltaValue::Builder& BundleDeltaValue::Builder::modify(size_t index, value::PlainValue value) {
+    _modified.push_back(Entry{index, std::move(value)});
+    return *this;
+}
+
+BundleDeltaValue BundleDeltaValue::Builder::build() {
+    return BundleDeltaValue(_bundle_schema, std::move(_modified));
+}
+
+BundleDeltaValue::BundleDeltaValue(const BundleDeltaView& view)
+    : _bundle_schema(view.bundle_schema())
+{
+    if (!view.valid()) return;
+
+    auto indices = view.modified_indices();
+    auto values = view.modified_values();
+    _modified.reserve(indices.size());
+
+    for (size_t i = 0; i < indices.size(); ++i) {
+        // Get the field type from the bundle schema's fields array
+        const value::TypeMeta* field_schema = _bundle_schema->fields[indices[i]].type;
+
+        value::PlainValue val(field_schema);
+        field_schema->ops->copy_assign(val.data(), values[i].data(), field_schema);
+        _modified.push_back(Entry{indices[i], std::move(val)});
+    }
+}
+
+BundleDeltaValue::BundleDeltaValue(const value::TypeMeta* bundle_schema,
+                                   std::vector<Entry> modified) noexcept
+    : _bundle_schema(bundle_schema)
+    , _modified(std::move(modified))
+{}
+
+std::vector<size_t> BundleDeltaValue::modified_indices() const {
+    std::vector<size_t> result;
+    result.reserve(_modified.size());
+    for (const auto& entry : _modified) {
+        result.push_back(entry.index);
+    }
+    return result;
+}
+
+std::vector<std::string_view> BundleDeltaValue::modified_keys() const {
+    if (!_bundle_schema) return {};
+
+    std::vector<std::string_view> result;
+    result.reserve(_modified.size());
+    for (const auto& entry : _modified) {
+        if (entry.index < _bundle_schema->field_count) {
+            result.emplace_back(_bundle_schema->fields[entry.index].name);
+        }
+    }
+    return result;
+}
+
+std::vector<value::ConstValueView> BundleDeltaValue::modified_value_views() const {
+    std::vector<value::ConstValueView> result;
+    result.reserve(_modified.size());
+    for (const auto& entry : _modified) {
+        result.push_back(entry.value.view());
+    }
+    return result;
+}
+
 }  // namespace hgraph

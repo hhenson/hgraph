@@ -239,6 +239,25 @@ std::unique_ptr<TSOverlayStorage> CompositeTSOverlay::create_child_overlay(const
     return make_ts_overlay(child_ts_meta);
 }
 
+std::vector<size_t> CompositeTSOverlay::modified_indices(engine_time_t time) const {
+    std::vector<size_t> result;
+    for (size_t i = 0; i < _children.size(); ++i) {
+        if (_children[i] && _children[i]->last_modified_time() == time) {
+            result.push_back(i);
+        }
+    }
+    return result;
+}
+
+bool CompositeTSOverlay::has_modified(engine_time_t time) const {
+    for (const auto& child : _children) {
+        if (child && child->last_modified_time() == time) {
+            return true;
+        }
+    }
+    return false;
+}
+
 // ============================================================================
 // ListTSOverlay Implementation
 // ============================================================================
@@ -377,6 +396,25 @@ void ListTSOverlay::pop_back() {
 
 void ListTSOverlay::clear() {
     _children.clear();
+}
+
+std::vector<size_t> ListTSOverlay::modified_indices(engine_time_t time) const {
+    std::vector<size_t> result;
+    for (size_t i = 0; i < _children.size(); ++i) {
+        if (_children[i] && _children[i]->last_modified_time() == time) {
+            result.push_back(i);
+        }
+    }
+    return result;
+}
+
+bool ListTSOverlay::has_modified(engine_time_t time) const {
+    for (const auto& child : _children) {
+        if (child && child->last_modified_time() == time) {
+            return true;
+        }
+    }
+    return false;
 }
 
 std::unique_ptr<TSOverlayStorage> ListTSOverlay::create_child_overlay() {

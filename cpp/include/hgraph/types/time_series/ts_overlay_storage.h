@@ -365,6 +365,27 @@ public:
      */
     [[nodiscard]] const TSOverlayStorage* child(std::string_view name) const noexcept;
 
+    // ========== Delta Query ==========
+
+    /**
+     * @brief Get indices of fields whose values were modified at the given time.
+     *
+     * Computes modified indices by checking which child overlays have
+     * last_modified_time == time.
+     *
+     * @param time The current engine time
+     * @return Vector of modified field indices
+     */
+    [[nodiscard]] std::vector<size_t> modified_indices(engine_time_t time) const;
+
+    /**
+     * @brief Check if any fields were modified at the given time.
+     *
+     * @param time The current engine time
+     * @return True if at least one field was modified
+     */
+    [[nodiscard]] bool has_modified(engine_time_t time) const;
+
 private:
     /**
      * @brief Create a child overlay for a given TS type.
@@ -518,6 +539,27 @@ public:
     [[nodiscard]] const TSOverlayStorage* child(size_t index) const noexcept {
         return index < _children.size() ? _children[index].get() : nullptr;
     }
+
+    // ========== Delta Query ==========
+
+    /**
+     * @brief Get indices of elements whose values were modified at the given time.
+     *
+     * Computes modified indices by checking which child overlays have
+     * last_modified_time == time.
+     *
+     * @param time The current engine time
+     * @return Vector of modified element indices
+     */
+    [[nodiscard]] std::vector<size_t> modified_indices(engine_time_t time) const;
+
+    /**
+     * @brief Check if any elements were modified at the given time.
+     *
+     * @param time The current engine time
+     * @return True if at least one element was modified
+     */
+    [[nodiscard]] bool has_modified(engine_time_t time) const;
 
 private:
     /**

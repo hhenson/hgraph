@@ -335,6 +335,24 @@ bool TSBView::has_field(const std::string& name) const noexcept {
     return static_cast<const TSBTypeMeta*>(_ts_meta)->field(name) != nullptr;
 }
 
+BundleDeltaView TSBView::delta_view(engine_time_t time) {
+    auto* overlay = composite_overlay();
+    if (!overlay || !valid()) {
+        return BundleDeltaView();  // Invalid view
+    }
+
+    // Get schemas from TSMeta
+    const auto* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+    const value::TypeMeta* bundle_schema = bundle_meta->value_schema();
+
+    return BundleDeltaView(overlay, _view.as_bundle(), bundle_schema, time);
+}
+
+CompositeTSOverlay* TSBView::composite_overlay() const noexcept {
+    if (!_overlay) return nullptr;
+    return dynamic_cast<CompositeTSOverlay*>(_overlay);
+}
+
 // ============================================================================
 // TSLView Implementation
 // ============================================================================
@@ -386,6 +404,24 @@ bool TSLView::is_fixed_size() const noexcept {
 size_t TSLView::fixed_size() const noexcept {
     if (!valid()) return 0;
     return static_cast<const TSLTypeMeta*>(_ts_meta)->fixed_size();
+}
+
+ListDeltaView TSLView::delta_view(engine_time_t time) {
+    auto* overlay = list_overlay();
+    if (!overlay || !valid()) {
+        return ListDeltaView();  // Invalid view
+    }
+
+    // Get element schema from TSMeta
+    const auto* list_meta = static_cast<const TSLTypeMeta*>(_ts_meta);
+    const value::TypeMeta* element_schema = list_meta->element_type()->value_schema();
+
+    return ListDeltaView(overlay, _view.as_list(), element_schema, time);
+}
+
+ListTSOverlay* TSLView::list_overlay() const noexcept {
+    if (!_overlay) return nullptr;
+    return dynamic_cast<ListTSOverlay*>(_overlay);
 }
 
 // ============================================================================

@@ -427,6 +427,33 @@ struct TSBView : TSView {
      * @brief Check if a field exists.
      */
     [[nodiscard]] bool has_field(const std::string& name) const noexcept;
+
+    // ========== Delta Access ==========
+
+    /**
+     * @brief Get a delta view for this bundle at the given time.
+     *
+     * Returns a BundleDeltaView providing access to modified fields.
+     * The time is used to determine which fields were modified at
+     * the current tick (their overlay's last_modified_time == time).
+     *
+     * @param time The current engine time
+     * @return BundleDeltaView (check valid() before use)
+     *
+     * @code
+     * if (auto delta = bundle_view.delta_view(current_time)) {
+     *     for (size_t idx : delta.modified_indices()) { ... }
+     *     for (auto& val : delta.modified_values()) { ... }
+     * }
+     * @endcode
+     */
+    [[nodiscard]] BundleDeltaView delta_view(engine_time_t time);
+
+    /**
+     * @brief Get the composite overlay (typed access).
+     * @return CompositeTSOverlay pointer if overlay exists and is correct type, nullptr otherwise
+     */
+    [[nodiscard]] CompositeTSOverlay* composite_overlay() const noexcept;
 };
 
 /**
@@ -467,6 +494,33 @@ struct TSLView : TSView {
      * @brief Get the fixed size (0 if dynamic).
      */
     [[nodiscard]] size_t fixed_size() const noexcept;
+
+    // ========== Delta Access ==========
+
+    /**
+     * @brief Get a delta view for this list at the given time.
+     *
+     * Returns a ListDeltaView providing access to modified elements.
+     * The time is used to determine which elements were modified at
+     * the current tick (their overlay's last_modified_time == time).
+     *
+     * @param time The current engine time
+     * @return ListDeltaView (check valid() before use)
+     *
+     * @code
+     * if (auto delta = list_view.delta_view(current_time)) {
+     *     for (size_t idx : delta.modified_indices()) { ... }
+     *     for (auto& val : delta.modified_values()) { ... }
+     * }
+     * @endcode
+     */
+    [[nodiscard]] ListDeltaView delta_view(engine_time_t time);
+
+    /**
+     * @brief Get the list overlay (typed access).
+     * @return ListTSOverlay pointer if overlay exists and is correct type, nullptr otherwise
+     */
+    [[nodiscard]] ListTSOverlay* list_overlay() const noexcept;
 };
 
 /**
