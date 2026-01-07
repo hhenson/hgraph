@@ -16,6 +16,7 @@ from typing import (
     Union,
     _GenericAlias,
     Mapping,
+    ClassVar,
 )
 from typing import TypeVar, Type
 
@@ -172,8 +173,38 @@ class CompoundScalar(AbstractSchema):
         class MyTemplateScalar(CompoundScalar, Generic[SCALAR]):
             p1: SCALAR
 
+    To enable C++ field expansion (storing fields in C++ memory rather than as opaque Python objects),
+    use the ``cpp_native`` flag:
+
+    ::
+
+        @dataclass(frozen=True)
+        class MyCppScalar(CompoundScalar, cpp_native=True):
+            p1: int
+            p2: float
+
+    Alternatively, use the ``CppNative[T]`` wrapper in type annotations:
+
+    ::
+
+        def my_node(ts: TS[CppNative[MyScalar]]) -> TS[int]:
+            ...
 
     """
+
+    __cpp_native__: ClassVar[bool] = False
+
+    # Sentinel to detect when cpp_native is not explicitly specified
+    _CPP_NATIVE_NOT_SET = object()
+
+    def __init_subclass__(cls, cpp_native=_CPP_NATIVE_NOT_SET, **kwargs):
+        super().__init_subclass__(**kwargs)
+        if cpp_native is CompoundScalar._CPP_NATIVE_NOT_SET:
+            # Not explicitly set - inherit from parent class
+            cls.__cpp_native__ = getattr(cls, '__cpp_native__', False)
+        else:
+            # Explicitly set - use the provided value
+            cls.__cpp_native__ = cpp_native
 
     @classmethod
     def _parse_type(cls, tp: Type) -> "HgTypeMetaData":
