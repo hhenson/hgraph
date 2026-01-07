@@ -80,8 +80,10 @@ endif ()
 if (DEFINED Python3_EXECUTABLE AND NOT DEFINED Python_EXECUTABLE)
     set(Python_EXECUTABLE "${Python3_EXECUTABLE}")
 endif ()
-# Required: Python interpreter + development module
-find_package(Python 3.12 COMPONENTS Interpreter Development.Module REQUIRED)
+# Required: Python interpreter + development module.
+# Also require Development.Embed so C++ test executables can link against libpython
+# (MODULE targets can rely on dynamic lookup on macOS, executables cannot).
+find_package(Python 3.12 COMPONENTS Interpreter Development.Module Development.Embed REQUIRED)
 include_directories(${Python_INCLUDE_DIRS})
 
 # Get Python SOABI to avoid double .so extension in nanobind

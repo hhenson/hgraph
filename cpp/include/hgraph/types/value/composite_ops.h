@@ -11,6 +11,7 @@
 
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/value_view.h>
+#include <hgraph/types/value/container_hooks.h>
 
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
@@ -18,6 +19,7 @@
 
 #include <cstring>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <vector>
@@ -1363,15 +1365,38 @@ struct SetOps {
         return do_contains(obj, value, schema);
     }
 
-    static bool do_insert(void* obj, const void* value, const TypeMeta* schema) {
+    /**
+     * @brief Find the backing-store slot index for an element.
+     *
+     * Returns std::nullopt if the element is not present.
+     */
+    static std::optional<size_t> find_index(const void* obj, const void* value, const TypeMeta* /*schema*/) {
+        auto* storage = static_cast<const SetStorage*>(obj);
+        if (!storage->index_set) return std::nullopt;
+        auto it = storage->index_set->find(value);
+        if (it == storage->index_set->end()) {
+            return std::nullopt;
+        }
+        return *it;
+    }
+
+    /**
+     * @brief Insert an element and return its backing-store slot index.
+     *
+     * If the element already exists, returns std::nullopt.
+     *
+     * If hooks are provided, calls `hooks->insert(index)` for newly inserted elements.
+     */
+    static std::optional<size_t> insert_with_index(void* obj, const void* value, const TypeMeta* schema,
+                                                  const ContainerHooks* hooks = nullptr) {
         auto* storage = static_cast<SetStorage*>(obj);
         const TypeMeta* elem_type = schema->element_type;
 
-        if (!storage->index_set) return false;
+        if (!storage->index_set) return std::nullopt;
 
         // Check if already exists (O(1))
         if (storage->index_set->find(value) != storage->index_set->end()) {
-            return false;  // Already exists
+            return std::nullopt;  // Already exists
         }
 
         // Add new element at element_count position
@@ -1393,14 +1418,33 @@ struct SetOps {
 
         storage->element_count++;
         storage->index_set->insert(new_idx);
-        return true;
+
+        if (hooks) {
+            hooks->insert(new_idx);
+        }
+        return new_idx;
+    }
+
+    static bool do_insert(void* obj, const void* value, const TypeMeta* schema) {
+        return insert_with_index(obj, value, schema, nullptr).has_value();
     }
 
     static void insert(void* obj, const void* value, const TypeMeta* schema) {
         do_insert(obj, value, schema);
     }
 
-    static bool do_erase(void* obj, const void* value, const TypeMeta* schema) {
+    /**
+     * @brief Erase an element and optionally emit hook notifications.
+     *
+     * If swap-with-last occurs, this calls:
+     * - `hooks->swap(erased_idx, last_idx)`
+     * - `hooks->erase(last_idx)`
+     *
+     * If erasing the last element, this calls:
+     * - `hooks->erase(erased_idx)`
+     */
+    static bool erase_with_hooks(void* obj, const void* value, const TypeMeta* schema,
+                                const ContainerHooks* hooks = nullptr) {
         auto* storage = static_cast<SetStorage*>(obj);
         const TypeMeta* elem_type = schema->element_type;
 
@@ -1427,6 +1471,10 @@ struct SetOps {
             // causing the equality functor to return true for both
             storage->index_set->erase(last_idx);
 
+            if (hooks) {
+                hooks->swap(idx, last_idx);
+            }
+
             // Move last element to the erased slot (overwrites the erased element)
             if (elem_type && elem_type->ops) {
                 if (elem_type->ops->move_assign) {
@@ -1443,16 +1491,28 @@ struct SetOps {
             if (elem_type && elem_type->ops && elem_type->ops->destruct) {
                 elem_type->ops->destruct(last_elem, elem_type);
             }
+
+            if (hooks) {
+                hooks->erase(last_idx);
+            }
         } else {
             // Erasing the last element - just destruct it
             void* elem = storage->get_element_ptr(idx);
             if (elem_type && elem_type->ops && elem_type->ops->destruct) {
                 elem_type->ops->destruct(elem, elem_type);
             }
+
+            if (hooks) {
+                hooks->erase(idx);
+            }
         }
 
         storage->element_count--;
         return true;
+    }
+
+    static bool do_erase(void* obj, const void* value, const TypeMeta* schema) {
+        return erase_with_hooks(obj, value, schema, nullptr);
     }
 
     static void erase(void* obj, const void* value, const TypeMeta* schema) {
@@ -1962,12 +2022,36 @@ struct MapOps {
         return do_contains(obj, key, schema);
     }
 
-    static void do_map_set(void* obj, const void* key, const void* value, const TypeMeta* schema) {
+    /**
+     * @brief Find the backing-store slot index for a key.
+     *
+     * Returns std::nullopt if the key is not present.
+     */
+    static std::optional<size_t> find_index(const void* obj, const void* key, const TypeMeta* /*schema*/) {
+        auto* storage = static_cast<const MapStorage*>(obj);
+        if (!storage->index_set()) return std::nullopt;
+        auto it = storage->index_set()->find(key);
+        if (it == storage->index_set()->end()) {
+            return std::nullopt;
+        }
+        return *it;
+    }
+
+    /**
+     * @brief Set (upsert) a key/value and return the backing-store slot index.
+     *
+     * If the key already exists, updates the existing value and returns inserted=false.
+     * If the key is new, inserts it and returns inserted=true.
+     *
+     * If hooks are provided, calls `hooks->insert(index)` for newly inserted keys.
+     */
+    static MapSetResult map_set_with_index(void* obj, const void* key, const void* value, const TypeMeta* schema,
+                                          const ContainerHooks* hooks = nullptr) {
         auto* storage = static_cast<MapStorage*>(obj);
         const TypeMeta* key_type = schema->key_type;
         const TypeMeta* val_type = schema->element_type;
 
-        if (!storage->index_set()) return;
+        if (!storage->index_set()) return {};
 
         // Check if key already exists (O(1))
         auto it = storage->index_set()->find(key);
@@ -1977,7 +2061,7 @@ struct MapOps {
             if (val_type && val_type->ops && val_type->ops->copy_assign) {
                 val_type->ops->copy_assign(val_ptr, value, val_type);
             }
-            return;
+            return MapSetResult{*it, false};
         }
 
         // Add new entry at entry_count position
@@ -2011,13 +2095,34 @@ struct MapOps {
 
         storage->keys.element_count++;
         storage->index_set()->insert(new_idx);
+
+        if (hooks) {
+            hooks->insert(new_idx);
+        }
+
+        return MapSetResult{new_idx, true};
+    }
+
+    static void do_map_set(void* obj, const void* key, const void* value, const TypeMeta* schema) {
+        (void)map_set_with_index(obj, key, value, schema, nullptr);
     }
 
     static void map_set(void* obj, const void* key, const void* value, const TypeMeta* schema) {
         do_map_set(obj, key, value, schema);
     }
 
-    static bool do_erase(void* obj, const void* key, const TypeMeta* schema) {
+    /**
+     * @brief Erase a key/value entry and optionally emit hook notifications.
+     *
+     * If swap-with-last occurs, this calls:
+     * - `hooks->swap(erased_idx, last_idx)`
+     * - `hooks->erase(last_idx)`
+     *
+     * If erasing the last entry, this calls:
+     * - `hooks->erase(erased_idx)`
+     */
+    static bool erase_with_hooks(void* obj, const void* key, const TypeMeta* schema,
+                                const ContainerHooks* hooks = nullptr) {
         auto* storage = static_cast<MapStorage*>(obj);
         const TypeMeta* key_type = schema->key_type;
         const TypeMeta* val_type = schema->element_type;
@@ -2047,6 +2152,10 @@ struct MapOps {
             // causing the equality functor to return true for both
             storage->index_set()->erase(last_idx);
 
+            if (hooks) {
+                hooks->swap(idx, last_idx);
+            }
+
             // Move last key to the erased slot (overwrites the erased key)
             if (key_type && key_type->ops) {
                 if (key_type->ops->move_assign) {
@@ -2075,6 +2184,10 @@ struct MapOps {
             if (val_type && val_type->ops && val_type->ops->destruct) {
                 val_type->ops->destruct(last_val, val_type);
             }
+
+            if (hooks) {
+                hooks->erase(last_idx);
+            }
         } else {
             // Erasing the last entry - just destruct it
             void* key_ptr = storage->get_key_ptr(idx);
@@ -2085,10 +2198,18 @@ struct MapOps {
             if (val_type && val_type->ops && val_type->ops->destruct) {
                 val_type->ops->destruct(val_ptr, val_type);
             }
+
+            if (hooks) {
+                hooks->erase(idx);
+            }
         }
 
         storage->keys.element_count--;
         return true;
+    }
+
+    static bool do_erase(void* obj, const void* key, const TypeMeta* schema) {
+        return erase_with_hooks(obj, key, schema, nullptr);
     }
 
     static void erase(void* obj, const void* key, const TypeMeta* schema) {

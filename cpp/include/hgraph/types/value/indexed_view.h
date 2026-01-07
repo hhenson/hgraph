@@ -20,11 +20,13 @@
 
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/composite_ops.h>
+#include <hgraph/types/value/container_hooks.h>
 #include <hgraph/types/value/cyclic_buffer_ops.h>
 #include <hgraph/types/value/queue_ops.h>
 
 #include <cstddef>
 #include <iterator>
+#include <optional>
 #include <stdexcept>
 #include <string_view>
 
@@ -1132,6 +1134,34 @@ public:
     }
 
     /**
+     * @brief Find the backing-store slot index for an element.
+     *
+     * Returns std::nullopt if the element is not present.
+     */
+    [[nodiscard]] std::optional<size_t> find_index(const ConstValueView& value) const {
+        assert(valid() && "find_index() on invalid view");
+        return SetOps::find_index(_data, value.data(), _schema);
+    }
+
+    /**
+     * @brief Insert an element and return its backing-store slot index.
+     *
+     * Returns std::nullopt if the element was already present.
+     */
+    std::optional<size_t> insert_with_index(const ConstValueView& value) {
+        assert(valid() && "insert_with_index() on invalid view");
+        return SetOps::insert_with_index(data(), value.data(), _schema, nullptr);
+    }
+
+    /**
+     * @brief Insert an element and return its backing-store slot index, with hooks.
+     */
+    std::optional<size_t> insert_with_index(const ConstValueView& value, const ContainerHooks& hooks) {
+        assert(valid() && "insert_with_index() on invalid view");
+        return SetOps::insert_with_index(data(), value.data(), _schema, &hooks);
+    }
+
+    /**
      * @brief Insert an element.
      *
      * @return true if the element was inserted (not already present)
@@ -1153,6 +1183,14 @@ public:
         if (!contains(value)) return false;
         _schema->ops->erase(data(), value.data(), _schema);
         return true;
+    }
+
+    /**
+     * @brief Remove an element with swap-with-last hook notifications.
+     */
+    bool erase_with_hooks(const ConstValueView& value, const ContainerHooks& hooks) {
+        assert(valid() && "erase_with_hooks() on invalid view");
+        return SetOps::erase_with_hooks(data(), value.data(), _schema, &hooks);
     }
 
     /**
@@ -1481,6 +1519,32 @@ public:
     }
 
     /**
+     * @brief Find the backing-store slot index for a key.
+     *
+     * Returns std::nullopt if the key is not present.
+     */
+    [[nodiscard]] std::optional<size_t> find_index(const ConstValueView& key) const {
+        assert(valid() && "find_index() on invalid view");
+        return MapOps::find_index(_data, key.data(), _schema);
+    }
+
+    /**
+     * @brief Set (upsert) and return the backing-store slot index.
+     */
+    [[nodiscard]] MapSetResult set_with_index(const ConstValueView& key, const ConstValueView& value) {
+        assert(valid() && "set_with_index() on invalid view");
+        return MapOps::map_set_with_index(data(), key.data(), value.data(), _schema, nullptr);
+    }
+
+    /**
+     * @brief Set (upsert) and return the backing-store slot index, with hooks for new keys.
+     */
+    [[nodiscard]] MapSetResult set_with_index(const ConstValueView& key, const ConstValueView& value, const ContainerHooks& hooks) {
+        assert(valid() && "set_with_index() on invalid view");
+        return MapOps::map_set_with_index(data(), key.data(), value.data(), _schema, &hooks);
+    }
+
+    /**
      * @brief Set value for key.
      */
     void set(const ConstValueView& key, const ConstValueView& value) {
@@ -1509,6 +1573,14 @@ public:
         if (!contains(key)) return false;
         _schema->ops->erase(data(), key.data(), _schema);
         return true;
+    }
+
+    /**
+     * @brief Remove entry by key with swap-with-last hook notifications.
+     */
+    bool erase_with_hooks(const ConstValueView& key, const ContainerHooks& hooks) {
+        assert(valid() && "erase_with_hooks() on invalid view");
+        return MapOps::erase_with_hooks(data(), key.data(), _schema, &hooks);
     }
 
     /**

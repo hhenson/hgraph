@@ -117,6 +117,60 @@ inheritance.
 
 **Exit criteria:** Value containers can optionally drive extension hooks without changing existing semantics.
 
+#### Phase 1 implementation notes (delivered)
+
+This phase is now implemented in the Value layer as a composition-based (non-inheritance) hook surface.
+
+**Hook type**
+
+- `cpp/include/hgraph/types/value/container_hooks.h`
+  - `value::ContainerHooks` (POD bundle: `ctx` + `on_insert`/`on_swap`/`on_erase` function pointers)
+  - `value::MapSetResult` (index + `inserted` bool)
+
+**Set operations (index acquisition + swap-with-last notifications)**
+
+- `cpp/include/hgraph/types/value/composite_ops.h` (`value::SetOps`)
+  - `find_index(...) -> std::optional<size_t>`
+  - `insert_with_index(..., hooks) -> std::optional<size_t>`
+  - `erase_with_hooks(..., hooks) -> bool`
+
+- `cpp/include/hgraph/types/value/indexed_view.h` (`value::SetView`)
+  - `find_index(ConstValueView) -> std::optional<size_t>`
+  - `insert_with_index(ConstValueView[, ContainerHooks]) -> std::optional<size_t>`
+  - `erase_with_hooks(ConstValueView, ContainerHooks) -> bool`
+
+**Map operations (index acquisition + swap-with-last notifications)**
+
+- `cpp/include/hgraph/types/value/composite_ops.h` (`value::MapOps`)
+  - `find_index(...) -> std::optional<size_t>`
+  - `map_set_with_index(..., hooks) -> MapSetResult` (upsert)
+  - `erase_with_hooks(..., hooks) -> bool`
+
+- `cpp/include/hgraph/types/value/indexed_view.h` (`value::MapView`)
+  - `find_index(ConstValueView) -> std::optional<size_t>`
+  - `set_with_index(ConstValueView, ConstValueView[, ContainerHooks]) -> MapSetResult`
+  - `erase_with_hooks(ConstValueView, ContainerHooks) -> bool`
+
+**Semantics of swap-with-last notifications**
+
+- When erasing a non-last slot (`idx != last_idx`):
+  - hook `on_swap(idx, last_idx)` is called before moving bytes
+  - hook `on_erase(last_idx)` is called after the move and destruction of the last slot
+- When erasing the last slot: hook `on_erase(idx)` is called.
+
+**Tests**
+
+- `cpp/tests/test_value_container_hooks.cpp`
+  - Verifies index acquisition for set/map
+  - Verifies `on_swap` + `on_erase` events under swap-with-last
+
+**Build wiring (so tests can link)**
+
+- `_hgraph` is a `MODULE_LIBRARY` and cannot be linked into tests.
+- A linkable `STATIC` library `hgraph_core` is introduced in `cpp/src/cpp/CMakeLists.txt` and used by:
+  - `_hgraph` (module links to `hgraph_core`)
+  - `hgraph_value_container_hooks_tests` (test links to `hgraph_core` + `nanobind-static` + `Python::Python`)
+
 ---
 
 ### Phase 2 — Introduce TS overlay storage (timestamps + observers)

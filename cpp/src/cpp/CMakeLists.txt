@@ -119,29 +119,43 @@ set(HGRAPH_SOURCES
         util/string_util.cpp
 )
 
-add_definitions(-Dhgraph_EXPORTS)
+# The Python extension entrypoint (NB_MODULE) must be compiled only into the module.
+set(HGRAPH_MODULE_SOURCES
+        python/_hgraph_module.cpp
+)
 
-nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
+list(REMOVE_ITEM HGRAPH_SOURCES python/_hgraph_module.cpp)
 
-target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
-target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor)
+# Build the implementation code as a normal linkable library so C++ tests can link
+# against it (CMake forbids linking a MODULE_LIBRARY into other targets).
+add_library(hgraph_core STATIC ${HGRAPH_SOURCES})
+
+target_link_libraries(hgraph_core PUBLIC Threads::Threads)
+target_link_libraries(hgraph_core PUBLIC fmt::fmt ddvisitor)
 
 # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
 if (HGRAPH_WITH_BACKWARD)
-    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=1)
+    target_compile_definitions(hgraph_core PUBLIC HGRAPH_WITH_BACKWARD=1)
 else ()
-    target_compile_definitions(${PROJECT_NAME} PRIVATE HGRAPH_WITH_BACKWARD=0)
+    target_compile_definitions(hgraph_core PUBLIC HGRAPH_WITH_BACKWARD=0)
 endif ()
 
-# Suppress benign fmt warning on GCC/Clang for this target only (avoid touching ALIAS/IMPORTED fmt targets)
+# Suppress benign fmt warning on GCC/Clang for this target only
 if (CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-    target_compile_options(${PROJECT_NAME} PRIVATE -Wno-tautological-compare)
+    target_compile_options(hgraph_core PRIVATE -Wno-tautological-compare)
 endif ()
 
 # Link Backward only if enabled and available
 if (HGRAPH_WITH_BACKWARD AND TARGET Backward::Backward)
-    target_link_libraries(${PROJECT_NAME} PRIVATE Backward::Backward)
+    target_link_libraries(hgraph_core PUBLIC Backward::Backward)
 endif ()
+
+add_definitions(-Dhgraph_EXPORTS)
+
+nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_MODULE_SOURCES} ${HGRAPH_INCLUDES})
+
+# The module links to the core implementation library.
+target_link_libraries(${PROJECT_NAME} PRIVATE hgraph_core)
 #target_compile_definitions(${PROJECT_NAME} PRIVATE BACKWARD_HAS_BACKTRACE=1)
 
 # Windows: link required debug helper libraries for backward-cpp stack traces

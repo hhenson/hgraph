@@ -48,6 +48,26 @@ include(CTest)
 include(Catch)
 catch_discover_tests(hgraph_visitor_tests)
 
+# -----------------------------------------------------------------------------
+# Value container hook tests (Phase 1)
+# -----------------------------------------------------------------------------
+
+add_executable(hgraph_value_container_hooks_tests
+    test_value_container_hooks.cpp
+)
+
+target_link_libraries(hgraph_value_container_hooks_tests PRIVATE
+    Catch2::Catch2WithMain
+    fmt::fmt
+    hgraph_core
+    nanobind-static
+    Python::Python
+)
+
+target_compile_features(hgraph_value_container_hooks_tests PRIVATE cxx_std_23)
+
+catch_discover_tests(hgraph_value_container_hooks_tests)
+
 # Optional: Add custom target to run tests
 add_custom_target(run_visitor_tests
     COMMAND hgraph_visitor_tests
