@@ -74,11 +74,14 @@ class HgScalarTypeMetaData(HgTypeMetaData):
         if p := getattr(cls, "_parsers_list", None):
             return p
 
+        from hgraph._types._cpp_native_meta_data import HgCppNativeScalarType
+
         cls._parsers_list = [
             HgAtomicType,
             HgTupleScalarType,
             HgDictScalarType,
             HgSetScalarType,
+            HgCppNativeScalarType,  # Must be before HgCompoundScalarType
             HgCompoundScalarType,
             HgScalarTypeVar,
             HgTypeOfTypeMetaData,
@@ -133,11 +136,15 @@ class HgScalarTypeVar(HgScalarTypeMetaData):
             return False
 
         if tp.is_scalar:
+            # Get effective py_type for matching - unwrap CppNative wrappers
+            from hgraph._types._cpp_native_meta_data import HgCppNativeScalarType
+            effective_py_type = tp.wrapped_type.py_type if isinstance(tp, HgCppNativeScalarType) else tp.py_type
+
             for c in self.constraints():
                 if isinstance(c, HgScalarTypeMetaData) and c.matches(tp):
                     return True
                 else:
-                    if issubclass(getattr(tp.py_type, "__origin__", tp.py_type), c):
+                    if issubclass(getattr(effective_py_type, "__origin__", effective_py_type), c):
                         return True
 
         return False
@@ -1155,9 +1162,11 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
     def cpp_type(self):
         """Get the C++ TypeMeta for this compound scalar type.
 
-        Returns a Bundle TypeMeta with CompoundScalarOps that reconstructs the
-        Python class in to_python() instead of returning a dict. This preserves
-        hashability when CompoundScalar is used as keys in TSD/TSS/mesh operations.
+        By default, returns opaque Python object storage (nb::object TypeMeta).
+        If the class has __cpp_native__ = True, returns field-expanded Bundle TypeMeta.
+
+        The opaque storage preserves Python object identity, which is important for
+        hashing and equality when CompoundScalar is used as keys in TSD/TSS operations.
         """
         # Detect recursion - for recursive compound scalars, fall back to Python handling
         if SchemaRecurseContext.is_in_context(self.py_type):
@@ -1168,6 +1177,20 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
         from hgraph._feature_switch import is_feature_enabled
         if not is_feature_enabled("use_cpp"):
             return None
+
+        # Check if this CompoundScalar should use C++ field expansion
+        if getattr(self.py_type, '__cpp_native__', False):
+            return self._get_expanded_cpp_type()
+        else:
+            # Default: Return opaque Python object storage
+            return self._get_opaque_cpp_type()
+
+    def _get_expanded_cpp_type(self):
+        """Returns field-expanded Bundle TypeMeta with CompoundScalarOps.
+
+        This stores each field in C++ memory and reconstructs the Python class
+        in to_python(). Use this when you need efficient field access from C++.
+        """
         try:
             import hgraph._hgraph as _hgraph
             # Build the fields list with (name, type_meta) pairs
@@ -1183,6 +1206,19 @@ class HgCompoundScalarType(HgScalarTypeMetaData):
                 return _hgraph.value.get_compound_scalar_type_meta(
                     fields, self.py_type, self.py_type.__name__
                 )
+        except (ImportError, AttributeError):
+            return None
+
+    def _get_opaque_cpp_type(self):
+        """Returns nb::object TypeMeta for opaque Python object storage.
+
+        This preserves Python object identity, which is important for hashing
+        and equality. Use this (the default) when you need to preserve object
+        identity or when the CompoundScalar has complex subclass behavior.
+        """
+        try:
+            import hgraph._hgraph as _hgraph
+            return _hgraph.value.get_scalar_type_meta(object)
         except (ImportError, AttributeError):
             return None
 

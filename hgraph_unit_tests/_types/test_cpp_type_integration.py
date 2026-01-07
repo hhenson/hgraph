@@ -60,20 +60,20 @@ class MyEnum(Enum):
     B = "B"
 
 
-class TestPoint(CompoundScalar):
-    """Test compound scalar for bundle tests."""
+class TestPoint(CompoundScalar, cpp_native=True):
+    """Test compound scalar for bundle tests (uses C++ field expansion)."""
     x: int
     y: int
 
 
-class TestPerson(CompoundScalar):
-    """Another test compound scalar for bundle equivalence tests."""
+class TestPerson(CompoundScalar, cpp_native=True):
+    """Another test compound scalar for bundle equivalence tests (uses C++ field expansion)."""
     x: int
     y: int
 
 
-class TestNested(CompoundScalar):
-    """Compound scalar with nested types."""
+class TestNested(CompoundScalar, cpp_native=True):
+    """Compound scalar with nested types (uses C++ field expansion)."""
     name: str
     value: int
 

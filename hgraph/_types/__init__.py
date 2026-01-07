@@ -1,5 +1,7 @@
 from hgraph._types._context_meta_data import *
 from hgraph._types._context_type import *
+from hgraph._types._cpp_native_meta_data import *
+from hgraph._types._cpp_native_type import *
 from hgraph._types._error_type import *
 from hgraph._types._frame_scalar_type_meta_data import *
 from hgraph._types._recordable_state import *
