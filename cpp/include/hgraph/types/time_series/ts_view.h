@@ -279,7 +279,9 @@ struct TSMutableView : TSView {
     template<typename T>
     void set(const T& val, engine_time_t time) {
         _mutable_view.as<T>() = val;
-        // TODO: Update modification tracking with time
+        // Phase 0 note: this currently does not update timestamps/validity.
+        // Call `notify_modified(time)` explicitly for now.
+        // See `ts_design_docs/Value_TSValue_MIGRATION_PLAN.md` Phase 0 checklist.
     }
 
     /**

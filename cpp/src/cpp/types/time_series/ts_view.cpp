@@ -89,6 +89,10 @@ nb::object TSView::to_python() const {
         return nb::none();
     }
     const value::TypeMeta* schema = _ts_meta->value_schema();
+    // Phase 0 note: this conversion path calls `TypeMeta::ops` directly and therefore does not
+    // participate in `value::Value` policy behavior (e.g. `WithPythonCache`).
+    // See `ts_design_docs/Value_TSValue_MIGRATION_PLAN.md` Phase 0 checklist.
+    // TODO: fix that as we should not be bypassing the type-erased behavior
     return schema->ops->to_python(_view.data(), schema);
 }
 
@@ -188,6 +192,12 @@ void TSMutableView::from_python(const nb::object& src) {
     }
     const value::TypeMeta* schema = _ts_meta->value_schema();
     if (schema && schema->ops) {
+        // Phase 0 note: this bypasses `value::Value::from_python`, so it does not:
+        // - update/invalidate any python cache policy
+        // - update timestamps/validity (caller must define/perform `notify_modified(time)` semantics)
+        // - trigger hierarchical observer notifications
+        // See `ts_design_docs/Value_TSValue_MIGRATION_PLAN.md` Phase 0 checklist.
+        // TODO: fix that as we should not be bypassing the type-erased behavior
         schema->ops->from_python(_mutable_view.data(), src, schema);
     }
 }

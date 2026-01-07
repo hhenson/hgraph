@@ -45,7 +45,55 @@ This migration exists to deliver a reworked `Value`/`TSValue` system that:
 2. Document (in code comments or small doc notes) where the current TSValue implementation diverges from the intended
    semantics (e.g., view-based `from_python` not updating modification time).
 
-**Exit criteria:** a written checklist of required behaviors and the key invariants.
+#### Phase 0 checklist (required behaviors + invariants)
+
+The following is the *baseline capability checklist* that the new `TSValue` + views must be able to satisfy
+(directly or via a thin adapter) in order to replace the legacy time-series types.
+
+**A. Python-facing `TimeSeriesType` surface (capability parity)**
+
+- [ ] `TimeSeriesType.value` returns the current value as a Python object.
+- [ ] `TimeSeriesType.delta_value` returns a delta (patch-like) Python object when applicable.
+  - [ ] When no delta is available/meaningful for a type, the behavior is explicitly defined (e.g. `None`).
+- [ ] `TimeSeriesType.valid` and `TimeSeriesType.all_valid` are defined and consistent with the legacy semantics.
+- [ ] `TimeSeriesType.modified` is defined and matches legacy semantics (time-based equality against evaluation time).
+- [ ] `TimeSeriesType.last_modified_time` is defined and stable.
+- [ ] Graph navigation properties are either supported or explicitly out-of-scope for view-only wrappers:
+  - [ ] `owning_node`, `owning_graph`
+  - [ ] `has_parent_or_node`, `has_owning_node`
+
+**B. Output mutation semantics (legacy behavior expectations)**
+
+- [ ] `apply_result(v)`:
+  - [ ] If `v is None`, it invalidates (legacy convention).
+  - [ ] Otherwise, it applies the value.
+- [ ] `set_value(v)`:
+  - [ ] If `v is None`, it invalidates.
+  - [ ] Otherwise, it sets the value.
+- [ ] `invalidate()` / `clear()` behavior is defined and consistent (even if the internal mechanism differs).
+- [ ] Copy helpers (`copy_from_input`, `copy_from_output`) do not silently lose required semantics.
+
+**C. Modification time invariants (legacy + TS overlay direction)**
+
+- [ ] Root validity is equivalent to `last_modified_time > MIN_DT` (as in `BaseTimeSeriesOutput::valid()`).
+- [ ] `mark_modified(et)` is monotonic (`_last_modified_time` only increases).
+- [ ] Parent propagation: modifying a child updates the parent modification time (legacy `mark_child_modified`).
+- [ ] Invalidation sets `last_modified_time = MIN_DT` and notifies subscribers (legacy `mark_invalid`).
+
+**D. Observability invariants (legacy + hierarchical direction)**
+
+- [ ] Root-level `subscribe(Notifiable*)` / `un_subscribe(Notifiable*)` works.
+- [ ] Notifications deliver the correct `engine_time_t` and are safe under teardown/stop conditions.
+- [ ] TS-level observability must be hierarchical and share the same structural model as hierarchical timestamping.
+
+**E. Delta invariants (Value vs TS layer)**
+
+- [ ] A delta is applicable at either layer:
+  - [ ] applying to `Value` updates data only
+  - [ ] applying to `TSValue` updates data **and** TS overlay (timestamps + observers) hierarchically
+- [ ] For set/dict-like types, deltas can express structural changes (e.g. add/remove events) where required.
+
+**Exit criteria:** this checklist is present and referenced from the key divergence points in code (Phase 0 notes).
 
 ---
 

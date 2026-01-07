@@ -40,12 +40,16 @@ namespace hgraph
         if (has_impl()) {
             return _impl->py_value();
         }
+        // Phase 0 note: view-based wrappers must override required legacy surfaces.
+        // See `ts_design_docs/Value_TSValue_MIGRATION_PLAN.md` Phase 0 checklist.
         throw std::runtime_error("PyTimeSeriesType::value() called on view-only instance - override in derived class");
     }
 
     nb::object PyTimeSeriesType::delta_value() const {
         if (!has_impl()) {
-            // View-based instances don't support delta_value yet
+            // View-based instances don't support delta_value yet.
+            // Phase 0 note: delta capability is part of the required parity surface.
+            // See `ts_design_docs/Value_TSValue_MIGRATION_PLAN.md` Phase 0 checklist.
             return nb::none();
         }
         return _impl->py_delta_value();
@@ -120,6 +124,10 @@ namespace hgraph
 
     void PyTimeSeriesOutput::set_value(nb::object value) {
         if (_view.has_value()) {
+            // Phase 0 note: view-based mutation currently bypasses engine-time semantics.
+            // - No timestamp/modified-time update is performed here.
+            // - Legacy outputs treat `None` as invalidate; this path currently forwards to `from_python`.
+            // See `ts_design_docs/Value_TSValue_MIGRATION_PLAN.md` Phase 0 checklist.
             _view->from_python(value);
         } else {
             // Use the underlying impl's py_set_value() for ApiPtr-based instances
@@ -143,7 +151,9 @@ namespace hgraph
 
     void PyTimeSeriesOutput::apply_result(nb::object value) {
         if (_view.has_value()) {
-            // For view-based, apply_result just sets the value if not None
+            // Phase 0 note: legacy behavior treats `None` as invalidate.
+            // This view-based path currently ignores `None` (no-op) and does not update modification time.
+            // See `ts_design_docs/Value_TSValue_MIGRATION_PLAN.md` Phase 0 checklist.
             if (!value.is_none()) {
                 _view->from_python(value);
             }
