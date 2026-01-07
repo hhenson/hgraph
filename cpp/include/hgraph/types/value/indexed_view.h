@@ -1038,6 +1038,19 @@ public:
         return _schema->element_type;
     }
 
+    // ========== Index-based Access (for overlay integration) ==========
+
+    /**
+     * @brief Get element by storage index.
+     *
+     * Used internally by TS overlay to access elements by their storage slot.
+     * The storage index is stable unless swap-with-last occurs during erase.
+     *
+     * @param storage_idx The storage slot index
+     * @return View to the element at that storage slot
+     */
+    [[nodiscard]] ConstValueView at(size_t storage_idx) const;
+
     // ========== Iteration ==========
 
     /**
@@ -1426,6 +1439,30 @@ public:
     [[nodiscard]] const TypeMeta* value_type() const {
         return _schema->element_type;
     }
+
+    // ========== Index-based Access (for overlay integration) ==========
+
+    /**
+     * @brief Get key by storage index.
+     *
+     * Used internally by TS overlay to access keys by their storage slot.
+     * The storage index is stable unless swap-with-last occurs during erase.
+     *
+     * @param storage_idx The storage slot index
+     * @return View to the key at that storage slot
+     */
+    [[nodiscard]] ConstValueView key_at(size_t storage_idx) const;
+
+    /**
+     * @brief Get value by storage index.
+     *
+     * Used internally by TS overlay to access values by their storage slot.
+     * The storage index is stable unless swap-with-last occurs during erase.
+     *
+     * @param storage_idx The storage slot index
+     * @return View to the value at that storage slot
+     */
+    [[nodiscard]] ConstValueView value_at(size_t storage_idx) const;
 
     // ========== Key Set View ==========
 
@@ -1879,6 +1916,32 @@ inline ConstValueView ConstKeySetView::const_iterator::operator*() const {
     // Return a view of the key at this storage index
     const void* key_ptr = storage->get_key_ptr(storage_idx);
     return ConstValueView(key_ptr, _view->element_type());
+}
+
+// ============================================================================
+// ConstSetView Index-based Access Implementation
+// ============================================================================
+
+inline ConstValueView ConstSetView::at(size_t storage_idx) const {
+    assert(valid() && "at() on invalid view");
+    auto* storage = static_cast<const SetStorage*>(_data);
+    return ConstValueView(storage->get_element_ptr(storage_idx), _schema->element_type);
+}
+
+// ============================================================================
+// ConstMapView Index-based Access Implementation
+// ============================================================================
+
+inline ConstValueView ConstMapView::key_at(size_t storage_idx) const {
+    assert(valid() && "key_at() on invalid view");
+    auto* storage = static_cast<const MapStorage*>(_data);
+    return ConstValueView(storage->get_key_ptr(storage_idx), _schema->key_type);
+}
+
+inline ConstValueView ConstMapView::value_at(size_t storage_idx) const {
+    assert(valid() && "value_at() on invalid view");
+    auto* storage = static_cast<const MapStorage*>(_data);
+    return ConstValueView(storage->get_value_ptr(storage_idx), _schema->element_type);
 }
 
 } // namespace hgraph::value

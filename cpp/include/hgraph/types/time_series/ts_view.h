@@ -32,6 +32,8 @@
 
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/ts_overlay_storage.h>
+#include <hgraph/types/time_series/ts_delta.h>
 
 namespace hgraph {
 
@@ -75,6 +77,14 @@ struct TSView {
      * where we have hierarchical tracking but no direct container reference.
      */
     TSView(const void* data, const TSMeta* ts_meta, value::ConstValueView tracking_view) noexcept;
+
+    /**
+     * @brief Construct from data pointer, schema, and overlay (for overlay-based tracking).
+     *
+     * Used when creating views with overlay-backed modification tracking.
+     * The overlay provides hierarchical timestamp tracking and delta information.
+     */
+    TSView(const void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay) noexcept;
 
     /**
      * @brief Construct from a TSValue (full access).
@@ -207,6 +217,21 @@ struct TSView {
      */
     [[nodiscard]] value::ConstValueView tracking_view() const noexcept { return _tracking_view; }
 
+    /**
+     * @brief Check if the view has overlay access (for overlay-based state queries).
+     */
+    [[nodiscard]] bool has_overlay() const noexcept { return _overlay != nullptr; }
+
+    /**
+     * @brief Get the overlay storage for this view.
+     *
+     * The overlay provides hierarchical modification tracking and for
+     * collection types, also provides delta information (added/removed elements).
+     *
+     * @return Pointer to the overlay, or nullptr if not available
+     */
+    [[nodiscard]] TSOverlayStorage* overlay() const noexcept { return _overlay; }
+
     // ========== Python Interop ==========
 
     /**
@@ -217,8 +242,9 @@ struct TSView {
 protected:
     value::ConstValueView _view;
     const TSMeta* _ts_meta{nullptr};
-    const TSValue* _container{nullptr};      ///< Container for state access (can be null)
-    value::ConstValueView _tracking_view;    ///< Tracking view for this level (can be invalid)
+    const TSValue* _container{nullptr};       ///< Container for state access (can be null)
+    value::ConstValueView _tracking_view;     ///< Tracking view for this level (can be invalid)
+    TSOverlayStorage* _overlay{nullptr};      ///< Overlay for modification tracking (can be null)
 };
 
 /**
@@ -252,6 +278,13 @@ struct TSMutableView : TSView {
      * where we have hierarchical tracking but no direct container reference.
      */
     TSMutableView(void* data, const TSMeta* ts_meta, value::ValueView tracking_view) noexcept;
+
+    /**
+     * @brief Construct from data pointer, schema, and overlay (for overlay-based tracking).
+     *
+     * Used when creating mutable views with overlay-backed modification tracking.
+     */
+    TSMutableView(void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay) noexcept;
 
     /**
      * @brief Construct from a TSValue (full access).
@@ -476,6 +509,43 @@ struct TSDView : TSView {
      * @brief Get the number of entries.
      */
     [[nodiscard]] size_t size() const noexcept;
+
+    // ========== Delta Access ==========
+
+    /**
+     * @brief Get a delta view for this map at the given time.
+     *
+     * Returns a MapDeltaView providing access to key additions and removals.
+     * The time is used for lazy cleanup - if it differs from the last
+     * modification time, delta buffers are cleared first.
+     *
+     * @param time The current engine time
+     * @return MapDeltaView (check valid() before use)
+     *
+     * @code
+     * if (auto delta = dict_view.delta_view(current_time)) {
+     *     for (auto& key : delta.added_keys()) { ... }
+     *     for (auto& val : delta.added_values()) { ... }
+     *     for (auto& key : delta.removed_keys()) { ... }
+     * }
+     * @endcode
+     */
+    [[nodiscard]] MapDeltaView delta_view(engine_time_t time);
+
+    /**
+     * @brief Get a key set view for SetTSOverlay-compatible key tracking.
+     *
+     * This mirrors how TSD exposes key_set() on the value side.
+     *
+     * @return KeySetOverlayView wrapping this map's key tracking, or invalid view if no overlay
+     */
+    [[nodiscard]] KeySetOverlayView key_set_view() const;
+
+    /**
+     * @brief Get the map overlay (typed access).
+     * @return MapTSOverlay pointer if overlay exists and is correct type, nullptr otherwise
+     */
+    [[nodiscard]] MapTSOverlay* map_overlay() const noexcept;
 };
 
 /**
@@ -507,6 +577,33 @@ struct TSSView : TSView {
      * @brief Get the number of elements.
      */
     [[nodiscard]] size_t size() const noexcept;
+
+    // ========== Delta Access ==========
+
+    /**
+     * @brief Get a delta view for this set at the given time.
+     *
+     * Returns a SetDeltaView providing access to additions and removals.
+     * The time is used for lazy cleanup - if it differs from the last
+     * modification time, delta buffers are cleared first.
+     *
+     * @param time The current engine time
+     * @return SetDeltaView (check valid() before use)
+     *
+     * @code
+     * if (auto delta = set_view.delta_view(current_time)) {
+     *     for (auto& added : delta.added_values()) { ... }
+     *     for (auto& removed : delta.removed_values()) { ... }
+     * }
+     * @endcode
+     */
+    [[nodiscard]] SetDeltaView delta_view(engine_time_t time);
+
+    /**
+     * @brief Get the set overlay (typed access).
+     * @return SetTSOverlay pointer if overlay exists and is correct type, nullptr otherwise
+     */
+    [[nodiscard]] SetTSOverlay* set_overlay() const noexcept;
 };
 
 }  // namespace hgraph

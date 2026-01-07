@@ -17,13 +17,15 @@ TSView::TSView(const void* data, const TSMeta* ts_meta) noexcept
     , _ts_meta(ts_meta)
     , _container(nullptr)
     , _tracking_view()
+    , _overlay(nullptr)
 {}
 
 TSView::TSView(const void* data, const TSMeta* ts_meta, const TSValue* container) noexcept
     : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _ts_meta(ts_meta)
     , _container(container)
-    , _tracking_view()  // Will use container's overlay-backed methods instead
+    , _tracking_view()
+    , _overlay(container ? const_cast<TSOverlayStorage*>(container->overlay()) : nullptr)
 {}
 
 TSView::TSView(const void* data, const TSMeta* ts_meta, value::ConstValueView tracking_view) noexcept
@@ -31,6 +33,15 @@ TSView::TSView(const void* data, const TSMeta* ts_meta, value::ConstValueView tr
     , _ts_meta(ts_meta)
     , _container(nullptr)
     , _tracking_view(tracking_view)
+    , _overlay(nullptr)
+{}
+
+TSView::TSView(const void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay) noexcept
+    : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
+    , _ts_meta(ts_meta)
+    , _container(nullptr)
+    , _tracking_view()
+    , _overlay(overlay)
 {}
 
 TSView::TSView(const TSValue& ts_value)
@@ -38,6 +49,7 @@ TSView::TSView(const TSValue& ts_value)
     , _ts_meta(ts_value.ts_meta())
     , _container(&ts_value)
     , _tracking_view()  // Will use container's overlay-backed methods instead
+    , _overlay(const_cast<TSOverlayStorage*>(ts_value.overlay()))
 {}
 
 bool TSView::valid() const noexcept {
@@ -97,6 +109,10 @@ nb::object TSView::to_python() const {
 }
 
 bool TSView::ts_valid() const {
+    // Use overlay-based tracking if available (preferred)
+    if (_overlay) {
+        return _overlay->last_modified_time() != MIN_DT;
+    }
     // Use hierarchical tracking if available
     if (_tracking_view.valid()) {
         // For scalar types, tracking is a single engine_time_t
@@ -112,6 +128,10 @@ bool TSView::ts_valid() const {
 }
 
 bool TSView::modified_at(engine_time_t time) const {
+    // Use overlay-based tracking if available (preferred)
+    if (_overlay) {
+        return _overlay->last_modified_time() == time;
+    }
     // Use hierarchical tracking if available
     if (_tracking_view.valid()) {
         engine_time_t last_mod = _tracking_view.as<engine_time_t>();
@@ -125,6 +145,10 @@ bool TSView::modified_at(engine_time_t time) const {
 }
 
 engine_time_t TSView::last_modified_time() const {
+    // Use overlay-based tracking if available (preferred)
+    if (_overlay) {
+        return _overlay->last_modified_time();
+    }
     // Use hierarchical tracking if available
     if (_tracking_view.valid()) {
         return _tracking_view.as<engine_time_t>();
@@ -168,6 +192,13 @@ TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, value::ValueView
     , _mutable_tracking_view(tracking_view)
 {}
 
+TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay) noexcept
+    : TSView(data, ts_meta, overlay)
+    , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
+    , _mutable_container(nullptr)
+    , _mutable_tracking_view()
+{}
+
 TSMutableView::TSMutableView(TSValue& ts_value)
     : TSView(ts_value)
     , _mutable_view(ts_value.value().data(), ts_value.value_schema())
@@ -203,6 +234,10 @@ void TSMutableView::from_python(const nb::object& src) {
 }
 
 void TSMutableView::notify_modified(engine_time_t time) {
+    // Update overlay-based tracking if available (preferred)
+    if (_overlay) {
+        _overlay->mark_modified(time);
+    }
     // Update hierarchical tracking if available
     if (_mutable_tracking_view.valid()) {
         _mutable_tracking_view.as<engine_time_t>() = time;
@@ -214,6 +249,10 @@ void TSMutableView::notify_modified(engine_time_t time) {
 }
 
 void TSMutableView::invalidate_ts() {
+    // Update overlay-based tracking if available (preferred)
+    if (_overlay) {
+        _overlay->mark_invalid();
+    }
     // Update hierarchical tracking if available
     if (_mutable_tracking_view.valid()) {
         _mutable_tracking_view.as<engine_time_t>() = MIN_DT;
@@ -362,6 +401,36 @@ size_t TSDView::size() const noexcept {
     return _view.as_map().size();
 }
 
+MapDeltaView TSDView::delta_view(engine_time_t time) {
+    auto* overlay = map_overlay();
+    if (!overlay || !valid()) {
+        return MapDeltaView();  // Invalid view
+    }
+
+    // Trigger lazy cleanup if time has changed
+    (void)overlay->has_delta_at(time);
+
+    // Get schemas from TSMeta
+    const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
+    const value::TypeMeta* key_schema = dict_meta->key_type();
+    const value::TypeMeta* value_schema = dict_meta->value_ts_type()->value_schema();
+
+    return MapDeltaView(overlay, _view.as_map(), key_schema, value_schema, time);
+}
+
+KeySetOverlayView TSDView::key_set_view() const {
+    auto* overlay = map_overlay();
+    if (!overlay) {
+        return KeySetOverlayView(nullptr);
+    }
+    return overlay->key_set_view();
+}
+
+MapTSOverlay* TSDView::map_overlay() const noexcept {
+    if (!_overlay) return nullptr;
+    return dynamic_cast<MapTSOverlay*>(_overlay);
+}
+
 // ============================================================================
 // TSSView Implementation
 // ============================================================================
@@ -373,6 +442,27 @@ TSSView::TSSView(const void* data, const TSSTypeMeta* ts_meta) noexcept
 size_t TSSView::size() const noexcept {
     if (!valid()) return 0;
     return _view.as_set().size();
+}
+
+SetDeltaView TSSView::delta_view(engine_time_t time) {
+    auto* overlay = set_overlay();
+    if (!overlay || !valid()) {
+        return SetDeltaView();  // Invalid view
+    }
+
+    // Trigger lazy cleanup if time has changed
+    (void)overlay->has_delta_at(time);
+
+    // Get element schema from TSMeta
+    const auto* set_meta = static_cast<const TSSTypeMeta*>(_ts_meta);
+    const value::TypeMeta* element_schema = set_meta->element_type();
+
+    return SetDeltaView(overlay, _view.as_set(), element_schema);
+}
+
+SetTSOverlay* TSSView::set_overlay() const noexcept {
+    if (!_overlay) return nullptr;
+    return dynamic_cast<SetTSOverlay*>(_overlay);
 }
 
 }  // namespace hgraph

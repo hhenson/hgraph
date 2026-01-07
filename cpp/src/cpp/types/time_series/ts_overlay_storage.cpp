@@ -5,6 +5,7 @@
 
 #include <hgraph/types/time_series/ts_overlay_storage.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <algorithm>
 
 namespace hgraph {
 
@@ -551,6 +552,7 @@ MapTSOverlay::MapTSOverlay(MapTSOverlay&& other) noexcept
     , _last_delta_time(other._last_delta_time)
     , _added_key_indices(std::move(other._added_key_indices))
     , _removed_key_indices(std::move(other._removed_key_indices))
+    , _removed_key_values(std::move(other._removed_key_values))
     , _value_overlays(std::move(other._value_overlays))
     , _removed_value_overlays(std::move(other._removed_value_overlays))
     , _value_type(other._value_type)
@@ -580,6 +582,7 @@ MapTSOverlay& MapTSOverlay::operator=(MapTSOverlay&& other) noexcept {
         _last_delta_time = other._last_delta_time;
         _added_key_indices = std::move(other._added_key_indices);
         _removed_key_indices = std::move(other._removed_key_indices);
+        _removed_key_values = std::move(other._removed_key_values);
         _value_overlays = std::move(other._value_overlays);
         _removed_value_overlays = std::move(other._removed_value_overlays);
         _value_type = other._value_type;
@@ -642,12 +645,15 @@ void MapTSOverlay::record_key_added(size_t index, engine_time_t time) {
     mark_modified(time);
 }
 
-void MapTSOverlay::record_key_removed(size_t index, engine_time_t time) {
+void MapTSOverlay::record_key_removed(size_t index, engine_time_t time, value::PlainValue removed_key) {
     // Lazy cleanup: reset buffers if time changed since last modification
     maybe_reset_delta(time);
 
     // Record in removed buffer
     _removed_key_indices.push_back(index);
+
+    // Buffer the removed key value
+    _removed_key_values.push_back(std::move(removed_key));
 
     // Buffer the value overlay so it can still be accessed until delta is cleared
     if (index < _value_overlays.size() && _value_overlays[index]) {
@@ -673,6 +679,45 @@ TSOverlayStorage* MapTSOverlay::ensure_value_overlay(size_t index) {
     }
 
     return _value_overlays[index].get();
+}
+
+std::vector<size_t> MapTSOverlay::modified_key_indices(engine_time_t time) const {
+    std::vector<size_t> result;
+
+    // Check each value overlay for modification at this time
+    for (size_t i = 0; i < _value_overlays.size(); ++i) {
+        if (!_value_overlays[i]) continue;
+
+        // Check if this value was modified at the current time
+        if (_value_overlays[i]->last_modified_time() == time) {
+            // Exclude if this key was added this tick (not a modification of existing key)
+            bool is_added = std::find(_added_key_indices.begin(), _added_key_indices.end(), i)
+                            != _added_key_indices.end();
+            if (!is_added) {
+                result.push_back(i);
+            }
+        }
+    }
+
+    return result;
+}
+
+bool MapTSOverlay::has_modified_keys(engine_time_t time) const {
+    // Check each value overlay for modification at this time
+    for (size_t i = 0; i < _value_overlays.size(); ++i) {
+        if (!_value_overlays[i]) continue;
+
+        // Check if this value was modified at the current time
+        if (_value_overlays[i]->last_modified_time() == time) {
+            // Exclude if this key was added this tick
+            bool is_added = std::find(_added_key_indices.begin(), _added_key_indices.end(), i)
+                            != _added_key_indices.end();
+            if (!is_added) {
+                return true;
+            }
+        }
+    }
+    return false;
 }
 
 std::unique_ptr<TSOverlayStorage> MapTSOverlay::create_value_overlay() {
@@ -722,6 +767,10 @@ void MapTSOverlay::hook_on_erase(void* ctx, size_t index) {
     // before the erase. That function handles moving the value overlay to the removed buffer.
     (void)ctx;
     (void)index;
+}
+
+KeySetOverlayView MapTSOverlay::key_set_view() noexcept {
+    return KeySetOverlayView(this);
 }
 
 // ============================================================================

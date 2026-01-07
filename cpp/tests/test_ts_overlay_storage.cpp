@@ -580,7 +580,7 @@ TEST_CASE("MapTSOverlay record_key_added grows vector as needed", "[ts_overlay][
     REQUIRE(overlay.added_key_indices()[2] == 10);
 }
 
-TEST_CASE("MapTSOverlay record_key_removed tracks indices and buffers value overlay", "[ts_overlay][map]") {
+TEST_CASE("MapTSOverlay record_key_removed tracks indices, key values, and buffers value overlay", "[ts_overlay][map]") {
     MapTSOverlay overlay(nullptr);
 
     engine_time_t t1 = MIN_DT + std::chrono::microseconds(100);
@@ -594,11 +594,13 @@ TEST_CASE("MapTSOverlay record_key_removed tracks indices and buffers value over
     REQUIRE(overlay.has_delta_at(t1));
 
     // Record key removed (lazy cleanup happens since t2 != t1)
-    overlay.record_key_removed(3, t2);
+    overlay.record_key_removed(3, t2, value::PlainValue(std::string("key_3")));
 
     REQUIRE(overlay.has_removed_keys());
     REQUIRE(overlay.removed_key_indices().size() == 1);
     REQUIRE(overlay.removed_key_indices()[0] == 3);
+    REQUIRE(overlay.removed_key_values().size() == 1);
+    REQUIRE(overlay.removed_key_values()[0].as<std::string>() == "key_3");
     REQUIRE(overlay.last_modified_time() == t2);
 
     // Value overlay moved to removed buffer (no longer at index 3)
@@ -615,10 +617,11 @@ TEST_CASE("MapTSOverlay has_delta_at with time check clears buffers lazily", "[t
     // Add and remove some keys
     overlay.record_key_added(0, t1);
     overlay.record_key_added(1, t1);
-    overlay.record_key_removed(5, t1);
+    overlay.record_key_removed(5, t1, value::PlainValue(std::string("key_5")));
 
     REQUIRE(overlay.added_key_indices().size() == 2);
     REQUIRE(overlay.removed_key_indices().size() == 1);
+    REQUIRE(overlay.removed_key_values().size() == 1);
     REQUIRE(overlay.removed_value_overlays().size() == 0);  // No value overlay existed at index 5
 
     // Query delta at the correct time - should return true
@@ -633,6 +636,7 @@ TEST_CASE("MapTSOverlay has_delta_at with time check clears buffers lazily", "[t
     REQUIRE_FALSE(overlay.has_removed_keys());
     REQUIRE(overlay.added_key_indices().empty());
     REQUIRE(overlay.removed_key_indices().empty());
+    REQUIRE(overlay.removed_key_values().empty());
     REQUIRE(overlay.removed_value_overlays().empty());
 
     // Value overlays preserved
@@ -716,8 +720,9 @@ TEST_CASE("MapTSOverlay hook_on_erase is no-op - use record_key_removed to buffe
     REQUIRE(overlay.value_overlay(3) != nullptr);
 
     // The proper way: record_key_removed moves overlay to buffer, then erase
-    overlay.record_key_removed(3, t2);
+    overlay.record_key_removed(3, t2, value::PlainValue(std::string("key_3")));
     REQUIRE(overlay.value_overlay(3) == nullptr);  // Moved to removed buffer
+    REQUIRE(overlay.removed_key_values().size() == 1);
     REQUIRE(overlay.removed_value_overlays().size() == 1);
 
     // Now erase is a no-op
@@ -750,9 +755,10 @@ TEST_CASE("MapTSOverlay hook integration simulates insert-erase cycle", "[ts_ove
 
     // Simulate erase of entry at index 1 (swap-with-last, then remove)
     // Record removal first (this also triggers lazy cleanup since t2 != t1)
-    overlay.record_key_removed(1, t2);
+    overlay.record_key_removed(1, t2, value::PlainValue(std::string("key_1")));
     // The value overlay at index 1 is now in _removed_value_overlays
     REQUIRE(overlay.value_overlay(1) == nullptr);
+    REQUIRE(overlay.removed_key_values().size() == 1);
     REQUIRE(overlay.removed_value_overlays().size() == 1);
 
     // Then swap+erase
@@ -829,7 +835,7 @@ TEST_CASE("MapTSOverlay multi-tick tracking with lazy cleanup", "[ts_overlay][ma
     // Tick 2: Add one, remove one, modify one value
     // Lazy cleanup happens automatically on first operation with new time
     overlay.record_key_added(3, t2);  // This clears tick 1's buffers
-    overlay.record_key_removed(1, t2);
+    overlay.record_key_removed(1, t2, value::PlainValue(std::string("key_1")));
     overlay.value_overlay(0)->mark_modified(t2);
 
     // Only tick 2's changes in buffers
@@ -837,6 +843,8 @@ TEST_CASE("MapTSOverlay multi-tick tracking with lazy cleanup", "[ts_overlay][ma
     REQUIRE(overlay.added_key_indices()[0] == 3);
     REQUIRE(overlay.removed_key_indices().size() == 1);
     REQUIRE(overlay.removed_key_indices()[0] == 1);
+    REQUIRE(overlay.removed_key_values().size() == 1);
+    REQUIRE(overlay.removed_key_values()[0].as<std::string>() == "key_1");
 
     // Removed value overlay is buffered
     REQUIRE(overlay.value_overlay(1) == nullptr);  // Was moved to removed buffer
@@ -845,6 +853,68 @@ TEST_CASE("MapTSOverlay multi-tick tracking with lazy cleanup", "[ts_overlay][ma
     // Container modified at latest time
     REQUIRE(overlay.last_modified_time() == t2);
     REQUIRE(overlay.has_delta_at(t2));
+}
+
+// ============================================================================
+// KeySetOverlayView Tests
+// ============================================================================
+
+TEST_CASE("KeySetOverlayView provides SetTSOverlay-compatible interface", "[ts_overlay][map][keyset]") {
+    MapTSOverlay map_overlay(nullptr);
+
+    engine_time_t t1 = MIN_DT + std::chrono::microseconds(100);
+
+    // Add some keys
+    map_overlay.record_key_added(0, t1);
+    map_overlay.record_key_added(1, t1);
+    map_overlay.record_key_removed(5, t1, value::PlainValue(std::string("removed_key")));
+
+    // Get the key set view
+    auto key_view = map_overlay.key_set_view();
+
+    // Verify SetTSOverlay-compatible interface
+    REQUIRE(key_view.has_added());
+    REQUIRE(key_view.has_removed());
+    REQUIRE(key_view.has_delta_at(t1));
+
+    // Verify indices match MapTSOverlay's key indices
+    REQUIRE(key_view.added_indices().size() == 2);
+    REQUIRE(key_view.added_indices()[0] == 0);
+    REQUIRE(key_view.added_indices()[1] == 1);
+
+    REQUIRE(key_view.removed_indices().size() == 1);
+    REQUIRE(key_view.removed_indices()[0] == 5);
+
+    // Verify removed values
+    REQUIRE(key_view.removed_values().size() == 1);
+    REQUIRE(key_view.removed_values()[0].as<std::string>() == "removed_key");
+
+    // Verify underlying map access
+    REQUIRE(key_view.map_overlay() == &map_overlay);
+}
+
+TEST_CASE("KeySetOverlayView reflects lazy cleanup from MapTSOverlay", "[ts_overlay][map][keyset]") {
+    MapTSOverlay map_overlay(nullptr);
+
+    engine_time_t t1 = MIN_DT + std::chrono::microseconds(100);
+    engine_time_t t2 = MIN_DT + std::chrono::microseconds(200);
+
+    // Add keys at t1
+    map_overlay.record_key_added(0, t1);
+    map_overlay.record_key_added(1, t1);
+
+    auto key_view = map_overlay.key_set_view();
+    REQUIRE(key_view.added_indices().size() == 2);
+
+    // Query at different time triggers cleanup
+    REQUIRE_FALSE(key_view.has_delta_at(t2));
+
+    // Buffers should be cleared
+    REQUIRE_FALSE(key_view.has_added());
+    REQUIRE_FALSE(key_view.has_removed());
+    REQUIRE(key_view.added_indices().empty());
+    REQUIRE(key_view.removed_indices().empty());
+    REQUIRE(key_view.removed_values().empty());
 }
 
 // ============================================================================

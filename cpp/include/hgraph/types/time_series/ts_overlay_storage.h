@@ -767,6 +767,9 @@ private:
     const TSMeta* _element_type{nullptr};             ///< Element type schema (for future use)
 };
 
+// Forward declaration for KeySetOverlayView
+class KeySetOverlayView;
+
 /**
  * @brief Map TS overlay storage for TSD (time-series dict/map) with added/removed key buffers.
  *
@@ -893,10 +896,24 @@ public:
     }
 
     /**
+     * @brief Get the buffered removed key values.
+     *
+     * When a key is removed, its value is stored here so it can be accessed
+     * until the delta is cleared at the next tick. Corresponds 1:1 with
+     * removed_key_indices().
+     *
+     * @return Reference to the removed key values vector
+     */
+    [[nodiscard]] const std::vector<value::PlainValue>& removed_key_values() const noexcept {
+        return _removed_key_values;
+    }
+
+    /**
      * @brief Get the buffered removed value overlays.
      *
      * When a key is removed, its value overlay is moved here so the value
      * can still be accessed until the delta is cleared at the next tick.
+     * Corresponds 1:1 with removed_key_indices().
      *
      * @return Reference to the removed value overlays vector
      */
@@ -921,6 +938,28 @@ public:
     }
 
     /**
+     * @brief Get indices of keys whose values were modified this tick.
+     *
+     * Computes modified keys by checking which value overlays have
+     * last_modified_time == time and are not in added_key_indices.
+     *
+     * @param time The current engine time
+     * @return Vector of modified key indices
+     */
+    [[nodiscard]] std::vector<size_t> modified_key_indices(engine_time_t time) const;
+
+    /**
+     * @brief Check if there are any modified keys this tick.
+     *
+     * A key is considered modified if its value overlay's last_modified_time
+     * equals the given time and the key is not newly added.
+     *
+     * @param time The current engine time
+     * @return True if at least one existing key's value was modified
+     */
+    [[nodiscard]] bool has_modified_keys(engine_time_t time) const;
+
+    /**
      * @brief Record a key as added at a specific index.
      *
      * Called after inserting a new key into the backing store.
@@ -937,15 +976,16 @@ public:
      * @brief Record a key as removed at a specific index.
      *
      * Called before erasing a key from the backing store.
-     * The value overlay is moved to the removed buffer so the value
-     * can still be accessed until the delta is cleared.
-     * If the time differs from _last_modified_time, the delta buffers are
+     * Both the key value and its value overlay are buffered so they can
+     * still be accessed until the delta is cleared.
+     * If the time differs from _last_delta_time, the delta buffers are
      * cleared first (lazy cleanup).
      *
      * @param index The backing store slot index being removed
      * @param time The engine time when the key was removed
+     * @param removed_key The key value being removed (will be moved into buffer)
      */
-    void record_key_removed(size_t index, engine_time_t time);
+    void record_key_removed(size_t index, engine_time_t time, value::PlainValue removed_key);
 
     // ========== Per-Entry Value Overlay Access ==========
 
@@ -1025,15 +1065,27 @@ public:
      */
     [[nodiscard]] const TSMeta* value_type() const noexcept { return _value_type; }
 
+    /**
+     * @brief Get a key set view for SetTSOverlay-compatible key tracking.
+     *
+     * This mirrors how TSD exposes key_set() on the value side. The returned
+     * view provides the same interface as SetTSOverlay for key modification
+     * tracking (added_indices, removed_indices, removed_values).
+     *
+     * @return KeySetOverlayView wrapping this map's key tracking
+     */
+    [[nodiscard]] KeySetOverlayView key_set_view() noexcept;
+
 private:
     // ========== Internal Methods ==========
 
     /**
-     * @brief Clear delta buffers and removed value overlays (internal use).
+     * @brief Clear delta buffers, removed key values, and removed value overlays (internal use).
      */
     void clear_delta_buffers() {
         _added_key_indices.clear();
         _removed_key_indices.clear();
+        _removed_key_values.clear();
         _removed_value_overlays.clear();
     }
 
@@ -1088,9 +1140,116 @@ private:
     engine_time_t _last_delta_time{MIN_DT};                                  ///< Timestamp of last delta recording (for lazy cleanup)
     std::vector<size_t> _added_key_indices;                                   ///< Indices of keys added this tick
     std::vector<size_t> _removed_key_indices;                                 ///< Indices of keys removed this tick
+    std::vector<value::PlainValue> _removed_key_values;                       ///< Buffered removed key values
     std::vector<std::unique_ptr<TSOverlayStorage>> _value_overlays;           ///< Per-entry value overlays
     std::vector<std::unique_ptr<TSOverlayStorage>> _removed_value_overlays;   ///< Buffered removed value overlays
     const TSMeta* _value_type{nullptr};                                       ///< Value TS type for creating child overlays
+};
+
+// ============================================================================
+// KeySetOverlayView - Read-only Set View Over Map Keys
+// ============================================================================
+
+/**
+ * @brief Read-only set view over a MapTSOverlay's key tracking.
+ *
+ * This view provides a SetTSOverlay-compatible interface for accessing
+ * the key modification tracking of a MapTSOverlay. It allows TSD to expose
+ * its key_set tracking in the same way that SetTSOverlay tracks a TSS.
+ *
+ * The view does not own the underlying MapTSOverlay - it's a lightweight
+ * wrapper that forwards to the map's key tracking methods.
+ *
+ * This mirrors how ConstKeySetView provides set-like access to map keys
+ * on the value side.
+ *
+ * Usage:
+ * @code
+ * MapTSOverlay map_overlay(tsd_meta);
+ *
+ * // Get a key set view for delta tracking
+ * auto key_view = map_overlay.key_set_view();
+ *
+ * // Query delta using SetTSOverlay-compatible interface
+ * if (key_view.has_delta_at(current_time)) {
+ *     const auto& added = key_view.added_indices();
+ *     const auto& removed = key_view.removed_indices();
+ *     const auto& removed_vals = key_view.removed_values();
+ * }
+ * @endcode
+ */
+class KeySetOverlayView {
+public:
+    /**
+     * @brief Construct a key set view from a MapTSOverlay.
+     * @param map_overlay The map overlay to view keys of (must not be null)
+     */
+    explicit KeySetOverlayView(MapTSOverlay* map_overlay) noexcept
+        : _map(map_overlay) {}
+
+    // ========== Delta Query ==========
+
+    /**
+     * @brief Check if there is key delta at the given time.
+     * @param time The current engine time
+     * @return True if there are added or removed keys at this time
+     */
+    [[nodiscard]] bool has_delta_at(engine_time_t time) {
+        return _map->has_delta_at(time);
+    }
+
+    /**
+     * @brief Check if there are any added keys (without time check).
+     */
+    [[nodiscard]] bool has_added() const noexcept {
+        return _map->has_added_keys();
+    }
+
+    /**
+     * @brief Check if there are any removed keys (without time check).
+     */
+    [[nodiscard]] bool has_removed() const noexcept {
+        return _map->has_removed_keys();
+    }
+
+    // ========== Delta Buffers ==========
+
+    /**
+     * @brief Get indices of keys added this tick.
+     * @return Reference to the added indices vector
+     */
+    [[nodiscard]] const std::vector<size_t>& added_indices() const noexcept {
+        return _map->added_key_indices();
+    }
+
+    /**
+     * @brief Get indices of keys removed this tick.
+     * @return Reference to the removed indices vector
+     */
+    [[nodiscard]] const std::vector<size_t>& removed_indices() const noexcept {
+        return _map->removed_key_indices();
+    }
+
+    /**
+     * @brief Get the buffered removed key values.
+     *
+     * The removed values correspond to the indices in removed_indices().
+     *
+     * @return Reference to the removed key values vector
+     */
+    [[nodiscard]] const std::vector<value::PlainValue>& removed_values() const noexcept {
+        return _map->removed_key_values();
+    }
+
+    // ========== Underlying Map Access ==========
+
+    /**
+     * @brief Get the underlying MapTSOverlay.
+     */
+    [[nodiscard]] MapTSOverlay* map_overlay() const noexcept { return _map; }
+
+private:
+    MapTSOverlay* _map;
 };
 
 // ============================================================================
