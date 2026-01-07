@@ -23,24 +23,19 @@ TSValue::TSValue(const TSMeta* ts_schema, Node* owner, int output_id)
         if (value_schema) {
             _value = base_value_type(value_schema);
         }
-        // Create hierarchical tracking Value with derived schema
-        _tracking_schema = tracking_schema_from(ts_schema);
-        if (_tracking_schema) {
-            _tracking = tracking_value_type(_tracking_schema);
-        }
+        // Create overlay storage for hierarchical modification tracking
+        _overlay = make_ts_overlay(ts_schema);
     }
 }
 
 TSValue::TSValue(TSValue&& other) noexcept
     : _value(std::move(other._value))
-    , _tracking(std::move(other._tracking))
+    , _overlay(std::move(other._overlay))
     , _ts_meta(other._ts_meta)
-    , _tracking_schema(other._tracking_schema)
     , _owning_node(other._owning_node)
     , _output_id(other._output_id)
 {
     other._ts_meta = nullptr;
-    other._tracking_schema = nullptr;
     other._owning_node = nullptr;
     other._output_id = OUTPUT_MAIN;
 }
@@ -48,14 +43,12 @@ TSValue::TSValue(TSValue&& other) noexcept
 TSValue& TSValue::operator=(TSValue&& other) noexcept {
     if (this != &other) {
         _value = std::move(other._value);
-        _tracking = std::move(other._tracking);
+        _overlay = std::move(other._overlay);
         _ts_meta = other._ts_meta;
-        _tracking_schema = other._tracking_schema;
         _owning_node = other._owning_node;
         _output_id = other._output_id;
 
         other._ts_meta = nullptr;
-        other._tracking_schema = nullptr;
         other._owning_node = nullptr;
         other._output_id = OUTPUT_MAIN;
     }
@@ -67,9 +60,8 @@ TSValue TSValue::copy(const TSValue& other) {
     if (other._value.valid()) {
         result._value = base_value_type::copy(other._value);
     }
-    if (other._tracking.valid()) {
-        result._tracking = tracking_value_type::copy(other._tracking);
-    }
+    // Note: overlay is recreated fresh in the constructor, not copied
+    // This is intentional - modification timestamps are not preserved across copies
     return result;
 }
 
@@ -118,19 +110,21 @@ void TSValue::notify_modified(engine_time_t time) {
 }
 
 engine_time_t TSValue::last_modified_time() const {
-    return _value.last_modified_time();
+    return _overlay ? _overlay->last_modified_time() : MIN_DT;
 }
 
 bool TSValue::modified_at(engine_time_t time) const {
-    return _value.modified_at(time);
+    return _overlay ? _overlay->modified_at(time) : false;
 }
 
 bool TSValue::ts_valid() const {
-    return _value.ts_valid();
+    return _overlay ? _overlay->valid() : false;
 }
 
 void TSValue::invalidate_ts() {
-    _value.invalidate_ts();
+    if (_overlay) {
+        _overlay->mark_invalid();
+    }
 }
 
 }  // namespace hgraph

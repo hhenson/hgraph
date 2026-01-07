@@ -68,6 +68,26 @@ target_compile_features(hgraph_value_container_hooks_tests PRIVATE cxx_std_23)
 
 catch_discover_tests(hgraph_value_container_hooks_tests)
 
+# -----------------------------------------------------------------------------
+# TS overlay storage tests (Phase 2)
+# -----------------------------------------------------------------------------
+
+add_executable(hgraph_ts_overlay_tests
+    test_ts_overlay_storage.cpp
+)
+
+target_link_libraries(hgraph_ts_overlay_tests PRIVATE
+    Catch2::Catch2WithMain
+    fmt::fmt
+    hgraph_core
+    nanobind-static
+    Python::Python
+)
+
+target_compile_features(hgraph_ts_overlay_tests PRIVATE cxx_std_23)
+
+catch_discover_tests(hgraph_ts_overlay_tests)
+
 # Optional: Add custom target to run tests
 add_custom_target(run_visitor_tests
     COMMAND hgraph_visitor_tests

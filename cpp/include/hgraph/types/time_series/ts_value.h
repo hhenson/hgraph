@@ -17,6 +17,7 @@
 
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/ts_overlay_storage.h>
 
 namespace hgraph {
 
@@ -64,10 +65,6 @@ struct TSValue {
     using base_value_type = value::Value<value::CombinedPolicy<
         value::WithPythonCache,
         value::WithModificationTracking>>;
-
-    /// The tracking Value type - simple Value without extra policies
-    /// Stores engine_time_t timestamps mirroring the TSMeta structure
-    using tracking_value_type = value::Value<value::NoCache>;
 
     // ========== Construction ==========
 
@@ -231,42 +228,33 @@ struct TSValue {
      */
     void invalidate_ts();
 
-    // ========== Hierarchical Tracking ==========
+    // ========== Overlay Access ==========
 
     /**
-     * @brief Get the tracking schema.
+     * @brief Get the overlay storage (mutable).
      *
-     * The tracking schema mirrors the TSMeta structure with engine_time_t
-     * at every leaf, enabling per-level modification tracking.
+     * The overlay provides hierarchical modification tracking and observer
+     * management. It mirrors the TSMeta structure.
      *
-     * @return The TypeMeta for tracking, or nullptr if not initialized
+     * @return Pointer to the overlay, or nullptr if not initialized
      */
-    [[nodiscard]] const value::TypeMeta* tracking_schema() const noexcept {
-        return _tracking_schema;
+    [[nodiscard]] TSOverlayStorage* overlay() noexcept {
+        return _overlay.get();
     }
 
     /**
-     * @brief Get the tracking value (mutable).
-     *
-     * The tracking value stores modification timestamps following the
-     * time-series structure. Navigate it the same way as the data value.
-     *
-     * @return Reference to the tracking Value
+     * @brief Get the overlay storage (const).
      */
-    [[nodiscard]] tracking_value_type& tracking() { return _tracking; }
-
-    /**
-     * @brief Get the tracking value (const).
-     */
-    [[nodiscard]] const tracking_value_type& tracking() const { return _tracking; }
+    [[nodiscard]] const TSOverlayStorage* overlay() const noexcept {
+        return _overlay.get();
+    }
 
 private:
-    base_value_type _value;                    ///< Underlying type-erased storage
-    tracking_value_type _tracking;             ///< Hierarchical modification timestamps
-    const TSMeta* _ts_meta{nullptr};           ///< Time-series schema
-    const value::TypeMeta* _tracking_schema{nullptr}; ///< Schema for tracking Value
-    Node* _owning_node{nullptr};               ///< Owning node (not owned)
-    int _output_id{OUTPUT_MAIN};               ///< Output identifier
+    base_value_type _value;                         ///< Underlying type-erased storage
+    std::unique_ptr<TSOverlayStorage> _overlay;     ///< Hierarchical modification tracking + observers
+    const TSMeta* _ts_meta{nullptr};                ///< Time-series schema
+    Node* _owning_node{nullptr};                    ///< Owning node (not owned)
+    int _output_id{OUTPUT_MAIN};                    ///< Output identifier
 };
 
 // ============================================================================

@@ -23,7 +23,7 @@ TSView::TSView(const void* data, const TSMeta* ts_meta, const TSValue* container
     : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _ts_meta(ts_meta)
     , _container(container)
-    , _tracking_view(container ? container->tracking().const_view() : value::ConstValueView())
+    , _tracking_view()  // Will use container's overlay-backed methods instead
 {}
 
 TSView::TSView(const void* data, const TSMeta* ts_meta, value::ConstValueView tracking_view) noexcept
@@ -37,7 +37,7 @@ TSView::TSView(const TSValue& ts_value)
     : _view(ts_value.value().data(), ts_value.value_schema())
     , _ts_meta(ts_value.ts_meta())
     , _container(&ts_value)
-    , _tracking_view(ts_value.tracking().const_view())
+    , _tracking_view()  // Will use container's overlay-backed methods instead
 {}
 
 bool TSView::valid() const noexcept {
@@ -158,7 +158,7 @@ TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, TSValue* contain
     : TSView(data, ts_meta, container)
     , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _mutable_container(container)
-    , _mutable_tracking_view(container ? container->tracking().view() : value::ValueView())
+    , _mutable_tracking_view()  // Will use container's overlay-backed methods instead
 {}
 
 TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, value::ValueView tracking_view) noexcept
@@ -172,7 +172,7 @@ TSMutableView::TSMutableView(TSValue& ts_value)
     : TSView(ts_value)
     , _mutable_view(ts_value.value().data(), ts_value.value_schema())
     , _mutable_container(&ts_value)
-    , _mutable_tracking_view(ts_value.tracking().view())
+    , _mutable_tracking_view()  // Will use container's overlay-backed methods instead
 {}
 
 void TSMutableView::copy_from(const TSView& source) {

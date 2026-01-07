@@ -1,0 +1,784 @@
+/**
+ * @file ts_overlay_storage.cpp
+ * @brief Implementation of TS overlay storage for hierarchical modification tracking.
+ */
+
+#include <hgraph/types/time_series/ts_overlay_storage.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
+
+namespace hgraph {
+
+// ============================================================================
+// ObserverList Implementation
+// ============================================================================
+
+void ObserverList::subscribe(Notifiable* observer) {
+    if (observer) {
+        _observers.insert(observer);
+    }
+}
+
+void ObserverList::unsubscribe(Notifiable* observer) {
+    if (observer) {
+        _observers.erase(observer);
+    }
+}
+
+void ObserverList::notify(engine_time_t time) {
+    // Copy the set to avoid issues if observers modify the list during notification
+    auto observers_copy = _observers;
+    for (auto* observer : observers_copy) {
+        if (observer) {
+            observer->notify(time);
+        }
+    }
+}
+
+// ============================================================================
+// ScalarTSOverlay Implementation
+// ============================================================================
+
+ScalarTSOverlay::ScalarTSOverlay(ScalarTSOverlay&& other) noexcept
+    : TSOverlayStorage()
+    , _last_modified_time(other._last_modified_time)
+{
+    // Move parent and observers from base class
+    _parent = other._parent;
+    _observers = std::move(other._observers);
+
+    // Reset source
+    other._parent = nullptr;
+    other._last_modified_time = MIN_DT;
+}
+
+ScalarTSOverlay& ScalarTSOverlay::operator=(ScalarTSOverlay&& other) noexcept {
+    if (this != &other) {
+        // Move data
+        _last_modified_time = other._last_modified_time;
+        _parent = other._parent;
+        _observers = std::move(other._observers);
+
+        // Reset source
+        other._parent = nullptr;
+        other._last_modified_time = MIN_DT;
+    }
+    return *this;
+}
+
+void ScalarTSOverlay::mark_modified(engine_time_t time) {
+    // Update local timestamp
+    _last_modified_time = time;
+
+    // Notify observers at this level
+    if (_observers && _observers->has_observers()) {
+        _observers->notify(time);
+    }
+
+    // Propagate to parent
+    propagate_modified_to_parent(time);
+}
+
+void ScalarTSOverlay::mark_invalid() {
+    // Reset timestamp to invalid state
+    _last_modified_time = MIN_DT;
+
+    // Notify observers of invalidation
+    if (_observers && _observers->has_observers()) {
+        _observers->notify(MIN_DT);
+    }
+
+    // Note: Invalidation does NOT propagate to parent
+    // (parent validity is independent of child validity)
+}
+
+// ============================================================================
+// CompositeTSOverlay Implementation
+// ============================================================================
+
+CompositeTSOverlay::CompositeTSOverlay(const TSMeta* ts_meta)
+    : TSOverlayStorage()
+    , _last_modified_time(MIN_DT)
+{
+    // Determine the number of children and create them
+    if (!ts_meta) {
+        return;
+    }
+
+    // For now, we support TSB (bundle) types
+    // P2.T7 will extend this to support other composite types
+    if (ts_meta->is_bundle()) {
+        auto* bundle_meta = static_cast<const TSBTypeMeta*>(ts_meta);
+        _bundle_meta = bundle_meta;
+
+        // Create one child overlay per field
+        size_t field_count = bundle_meta->field_count();
+        _children.reserve(field_count);
+
+        for (size_t i = 0; i < field_count; ++i) {
+            const auto& field_info = bundle_meta->field(i);
+            auto child = create_child_overlay(field_info.type);
+
+            // Set parent relationship so child modifications propagate upward
+            if (child) {
+                child->set_parent(this);
+            }
+
+            _children.push_back(std::move(child));
+        }
+    }
+    // Note: Other composite types (TSL with fixed size, etc.) will be
+    // added in P2.T7 when the full factory is implemented
+}
+
+CompositeTSOverlay::CompositeTSOverlay(CompositeTSOverlay&& other) noexcept
+    : TSOverlayStorage()
+    , _last_modified_time(other._last_modified_time)
+    , _children(std::move(other._children))
+    , _bundle_meta(other._bundle_meta)
+{
+    // Move parent and observers from base class
+    _parent = other._parent;
+    _observers = std::move(other._observers);
+
+    // Update parent pointers in all children to point to this instance
+    for (auto& child : _children) {
+        if (child) {
+            child->set_parent(this);
+        }
+    }
+
+    // Reset source
+    other._parent = nullptr;
+    other._last_modified_time = MIN_DT;
+    other._bundle_meta = nullptr;
+}
+
+CompositeTSOverlay& CompositeTSOverlay::operator=(CompositeTSOverlay&& other) noexcept {
+    if (this != &other) {
+        // Move data
+        _last_modified_time = other._last_modified_time;
+        _children = std::move(other._children);
+        _bundle_meta = other._bundle_meta;
+        _parent = other._parent;
+        _observers = std::move(other._observers);
+
+        // Update parent pointers in all children to point to this instance
+        for (auto& child : _children) {
+            if (child) {
+                child->set_parent(this);
+            }
+        }
+
+        // Reset source
+        other._parent = nullptr;
+        other._last_modified_time = MIN_DT;
+        other._bundle_meta = nullptr;
+    }
+    return *this;
+}
+
+void CompositeTSOverlay::mark_modified(engine_time_t time) {
+    // Update local timestamp
+    _last_modified_time = time;
+
+    // Notify observers at this level
+    if (_observers && _observers->has_observers()) {
+        _observers->notify(time);
+    }
+
+    // Propagate to parent
+    propagate_modified_to_parent(time);
+}
+
+void CompositeTSOverlay::mark_invalid() {
+    // Reset timestamp to invalid state
+    _last_modified_time = MIN_DT;
+
+    // Notify observers of invalidation
+    if (_observers && _observers->has_observers()) {
+        _observers->notify(MIN_DT);
+    }
+
+    // Note: Invalidation does NOT propagate to parent or children
+    // (each level's validity is independent)
+}
+
+TSOverlayStorage* CompositeTSOverlay::child(std::string_view name) noexcept {
+    if (!_bundle_meta) {
+        return nullptr;
+    }
+
+    // Look up field by name
+    auto* field_info = _bundle_meta->field(std::string(name));
+    if (!field_info) {
+        return nullptr;
+    }
+
+    // Return the child at the corresponding index
+    return child(field_info->index);
+}
+
+const TSOverlayStorage* CompositeTSOverlay::child(std::string_view name) const noexcept {
+    if (!_bundle_meta) {
+        return nullptr;
+    }
+
+    // Look up field by name
+    auto* field_info = _bundle_meta->field(std::string(name));
+    if (!field_info) {
+        return nullptr;
+    }
+
+    // Return the child at the corresponding index
+    return child(field_info->index);
+}
+
+std::unique_ptr<TSOverlayStorage> CompositeTSOverlay::create_child_overlay(const TSMeta* child_ts_meta) {
+    // Use the unified factory function
+    return make_ts_overlay(child_ts_meta);
+}
+
+// ============================================================================
+// ListTSOverlay Implementation
+// ============================================================================
+
+ListTSOverlay::ListTSOverlay(const TSMeta* ts_meta)
+    : TSOverlayStorage()
+    , _last_modified_time(MIN_DT)
+{
+    // Extract element type from TSLTypeMeta or TSWTypeMeta
+    if (!ts_meta) {
+        return;
+    }
+
+    if (ts_meta->kind() == TSTypeKind::TSL) {
+        auto* list_meta = static_cast<const TSLTypeMeta*>(ts_meta);
+        _element_type = list_meta->element_type();
+    } else if (ts_meta->kind() == TSTypeKind::TSW) {
+        // Windows (TSW) behave like lists with cyclic buffer semantics
+        // Each window slot tracks when a value was added (scalar tracking)
+        // We use nullptr to signal that elements should be scalar overlays
+        _element_type = nullptr;  // Signals: create ScalarTSOverlay for each element
+    }
+    // Note: _children starts empty; elements are added via push_back() or resize()
+}
+
+ListTSOverlay::ListTSOverlay(ListTSOverlay&& other) noexcept
+    : TSOverlayStorage()
+    , _last_modified_time(other._last_modified_time)
+    , _children(std::move(other._children))
+    , _element_type(other._element_type)
+{
+    // Move parent and observers from base class
+    _parent = other._parent;
+    _observers = std::move(other._observers);
+
+    // Update parent pointers in all children to point to this instance
+    for (auto& child : _children) {
+        if (child) {
+            child->set_parent(this);
+        }
+    }
+
+    // Reset source
+    other._parent = nullptr;
+    other._last_modified_time = MIN_DT;
+    other._element_type = nullptr;
+}
+
+ListTSOverlay& ListTSOverlay::operator=(ListTSOverlay&& other) noexcept {
+    if (this != &other) {
+        // Move data
+        _last_modified_time = other._last_modified_time;
+        _children = std::move(other._children);
+        _element_type = other._element_type;
+        _parent = other._parent;
+        _observers = std::move(other._observers);
+
+        // Update parent pointers in all children to point to this instance
+        for (auto& child : _children) {
+            if (child) {
+                child->set_parent(this);
+            }
+        }
+
+        // Reset source
+        other._parent = nullptr;
+        other._last_modified_time = MIN_DT;
+        other._element_type = nullptr;
+    }
+    return *this;
+}
+
+void ListTSOverlay::mark_modified(engine_time_t time) {
+    // Update local timestamp
+    _last_modified_time = time;
+
+    // Notify observers at this level
+    if (_observers && _observers->has_observers()) {
+        _observers->notify(time);
+    }
+
+    // Propagate to parent
+    propagate_modified_to_parent(time);
+}
+
+void ListTSOverlay::mark_invalid() {
+    // Reset timestamp to invalid state
+    _last_modified_time = MIN_DT;
+
+    // Notify observers of invalidation
+    if (_observers && _observers->has_observers()) {
+        _observers->notify(MIN_DT);
+    }
+
+    // Note: Invalidation does NOT propagate to parent or children
+    // (each level's validity is independent)
+}
+
+void ListTSOverlay::resize(size_t new_size) {
+    size_t current_size = _children.size();
+
+    if (new_size > current_size) {
+        // Add new children
+        _children.reserve(new_size);
+        for (size_t i = current_size; i < new_size; ++i) {
+            auto child = create_child_overlay();
+            if (child) {
+                child->set_parent(this);
+            }
+            _children.push_back(std::move(child));
+        }
+    } else if (new_size < current_size) {
+        // Remove children from the end
+        _children.resize(new_size);
+    }
+    // If new_size == current_size, no-op
+}
+
+TSOverlayStorage* ListTSOverlay::push_back() {
+    auto child = create_child_overlay();
+    TSOverlayStorage* result = child.get();
+
+    if (child) {
+        child->set_parent(this);
+    }
+
+    _children.push_back(std::move(child));
+    return result;
+}
+
+void ListTSOverlay::pop_back() {
+    if (!_children.empty()) {
+        _children.pop_back();
+    }
+}
+
+void ListTSOverlay::clear() {
+    _children.clear();
+}
+
+std::unique_ptr<TSOverlayStorage> ListTSOverlay::create_child_overlay() {
+    // For TSW (window) types, _element_type is nullptr, so we create scalar overlays
+    if (!_element_type) {
+        return std::make_unique<ScalarTSOverlay>();
+    }
+
+    // For TSL types, use the unified factory function
+    return make_ts_overlay(_element_type);
+}
+
+// ============================================================================
+// SetTSOverlay Implementation
+// ============================================================================
+
+SetTSOverlay::SetTSOverlay(const TSMeta* ts_meta)
+    : TSOverlayStorage()
+    , _last_modified_time(MIN_DT)
+{
+    // Extract element type from TSSTypeMeta
+    if (!ts_meta) {
+        return;
+    }
+
+    // Store the ts_meta for future use
+    _element_type = ts_meta;
+
+    // Note: _added_indices and _removed_indices start empty
+}
+
+SetTSOverlay::SetTSOverlay(SetTSOverlay&& other) noexcept
+    : TSOverlayStorage()
+    , _last_modified_time(other._last_modified_time)
+    , _added_indices(std::move(other._added_indices))
+    , _removed_indices(std::move(other._removed_indices))
+    , _removed_values(std::move(other._removed_values))
+    , _element_type(other._element_type)
+{
+    // Move parent and observers from base class
+    _parent = other._parent;
+    _observers = std::move(other._observers);
+
+    // Reset source
+    other._parent = nullptr;
+    other._last_modified_time = MIN_DT;
+    other._element_type = nullptr;
+}
+
+SetTSOverlay& SetTSOverlay::operator=(SetTSOverlay&& other) noexcept {
+    if (this != &other) {
+        // Move data
+        _last_modified_time = other._last_modified_time;
+        _added_indices = std::move(other._added_indices);
+        _removed_indices = std::move(other._removed_indices);
+        _removed_values = std::move(other._removed_values);
+        _element_type = other._element_type;
+        _parent = other._parent;
+        _observers = std::move(other._observers);
+
+        // Reset source
+        other._parent = nullptr;
+        other._last_modified_time = MIN_DT;
+        other._element_type = nullptr;
+    }
+    return *this;
+}
+
+void SetTSOverlay::mark_modified(engine_time_t time) {
+    // Update local timestamp
+    _last_modified_time = time;
+
+    // Notify observers at this level
+    if (_observers && _observers->has_observers()) {
+        _observers->notify(time);
+    }
+
+    // Propagate to parent
+    propagate_modified_to_parent(time);
+}
+
+void SetTSOverlay::mark_invalid() {
+    // Reset timestamp to invalid state
+    _last_modified_time = MIN_DT;
+
+    // Notify observers of invalidation
+    if (_observers && _observers->has_observers()) {
+        _observers->notify(MIN_DT);
+    }
+
+    // Note: Invalidation does NOT propagate to parent
+    // (parent validity is independent of child validity)
+}
+
+void SetTSOverlay::hook_on_insert(void* ctx, size_t index) {
+    // No-op: The caller is responsible for calling record_added() with the time
+    (void)ctx;
+    (void)index;
+}
+
+void SetTSOverlay::hook_on_swap(void* ctx, size_t index_a, size_t index_b) {
+    auto* self = static_cast<SetTSOverlay*>(ctx);
+    if (!self) return;
+
+    // Update any indices in added/removed buffers that match the swapped positions
+    auto update_index = [index_a, index_b](size_t& idx) {
+        if (idx == index_a) {
+            idx = index_b;
+        } else if (idx == index_b) {
+            idx = index_a;
+        }
+    };
+
+    for (auto& idx : self->_added_indices) {
+        update_index(idx);
+    }
+    for (auto& idx : self->_removed_indices) {
+        update_index(idx);
+    }
+}
+
+void SetTSOverlay::hook_on_erase(void* ctx, size_t index) {
+    // No-op: The caller is responsible for calling record_removed() with the time
+    (void)ctx;
+    (void)index;
+}
+
+void SetTSOverlay::record_added(size_t index, engine_time_t time) {
+    // Lazy cleanup: reset buffers if time changed since last modification
+    maybe_reset_delta(time);
+
+    // Record the addition
+    _added_indices.push_back(index);
+
+    // Update container-level modification time
+    mark_modified(time);
+}
+
+void SetTSOverlay::record_removed(size_t index, engine_time_t time, value::PlainValue removed_value) {
+    // Lazy cleanup: reset buffers if time changed since last modification
+    maybe_reset_delta(time);
+
+    // Record the removal
+    _removed_indices.push_back(index);
+
+    // Buffer the removed value so it can be accessed until delta is cleared
+    _removed_values.push_back(std::move(removed_value));
+
+    // Update container-level modification time
+    mark_modified(time);
+}
+
+// ============================================================================
+// MapTSOverlay Implementation
+// ============================================================================
+
+MapTSOverlay::MapTSOverlay(const TSMeta* ts_meta)
+    : TSOverlayStorage()
+    , _last_modified_time(MIN_DT)
+{
+    // Extract value type from TSDTypeMeta
+    if (ts_meta && ts_meta->kind() == TSTypeKind::TSD) {
+        auto* tsd_meta = static_cast<const TSDTypeMeta*>(ts_meta);
+        _value_type = tsd_meta->value_ts_type();
+    }
+
+    // Note: _value_overlays and buffers start empty; allocated on demand via hooks
+}
+
+MapTSOverlay::MapTSOverlay(MapTSOverlay&& other) noexcept
+    : TSOverlayStorage()
+    , _last_modified_time(other._last_modified_time)
+    , _last_delta_time(other._last_delta_time)
+    , _added_key_indices(std::move(other._added_key_indices))
+    , _removed_key_indices(std::move(other._removed_key_indices))
+    , _value_overlays(std::move(other._value_overlays))
+    , _removed_value_overlays(std::move(other._removed_value_overlays))
+    , _value_type(other._value_type)
+{
+    // Move parent and observers from base class
+    _parent = other._parent;
+    _observers = std::move(other._observers);
+
+    // Update parent pointers in child overlays
+    for (auto& overlay : _value_overlays) {
+        if (overlay) {
+            overlay->set_parent(this);
+        }
+    }
+
+    // Reset source
+    other._parent = nullptr;
+    other._last_modified_time = MIN_DT;
+    other._last_delta_time = MIN_DT;
+    other._value_type = nullptr;
+}
+
+MapTSOverlay& MapTSOverlay::operator=(MapTSOverlay&& other) noexcept {
+    if (this != &other) {
+        // Move data
+        _last_modified_time = other._last_modified_time;
+        _last_delta_time = other._last_delta_time;
+        _added_key_indices = std::move(other._added_key_indices);
+        _removed_key_indices = std::move(other._removed_key_indices);
+        _value_overlays = std::move(other._value_overlays);
+        _removed_value_overlays = std::move(other._removed_value_overlays);
+        _value_type = other._value_type;
+        _parent = other._parent;
+        _observers = std::move(other._observers);
+
+        // Update parent pointers in child overlays
+        for (auto& overlay : _value_overlays) {
+            if (overlay) {
+                overlay->set_parent(this);
+            }
+        }
+
+        // Reset source
+        other._parent = nullptr;
+        other._last_modified_time = MIN_DT;
+        other._last_delta_time = MIN_DT;
+        other._value_type = nullptr;
+    }
+    return *this;
+}
+
+void MapTSOverlay::mark_modified(engine_time_t time) {
+    // Update local timestamp
+    _last_modified_time = time;
+
+    // Notify observers at this level
+    if (_observers && _observers->has_observers()) {
+        _observers->notify(time);
+    }
+
+    // Propagate to parent
+    propagate_modified_to_parent(time);
+}
+
+void MapTSOverlay::mark_invalid() {
+    // Reset timestamp to invalid state
+    _last_modified_time = MIN_DT;
+
+    // Notify observers of invalidation
+    if (_observers && _observers->has_observers()) {
+        _observers->notify(MIN_DT);
+    }
+
+    // Note: Invalidation does NOT propagate to parent
+    // (parent validity is independent of child validity)
+}
+
+void MapTSOverlay::record_key_added(size_t index, engine_time_t time) {
+    // Lazy cleanup: reset buffers if time changed since last modification
+    maybe_reset_delta(time);
+
+    // Record in added buffer
+    _added_key_indices.push_back(index);
+
+    // Ensure value overlay exists
+    ensure_value_overlay(index);
+
+    // Update container-level modification time
+    mark_modified(time);
+}
+
+void MapTSOverlay::record_key_removed(size_t index, engine_time_t time) {
+    // Lazy cleanup: reset buffers if time changed since last modification
+    maybe_reset_delta(time);
+
+    // Record in removed buffer
+    _removed_key_indices.push_back(index);
+
+    // Buffer the value overlay so it can still be accessed until delta is cleared
+    if (index < _value_overlays.size() && _value_overlays[index]) {
+        _removed_value_overlays.push_back(std::move(_value_overlays[index]));
+    }
+
+    // Update container-level modification time
+    mark_modified(time);
+}
+
+TSOverlayStorage* MapTSOverlay::ensure_value_overlay(size_t index) {
+    // Ensure capacity
+    if (index >= _value_overlays.size()) {
+        _value_overlays.resize(index + 1);
+    }
+
+    // Create child overlay if it doesn't exist
+    if (!_value_overlays[index]) {
+        _value_overlays[index] = create_value_overlay();
+        if (_value_overlays[index]) {
+            _value_overlays[index]->set_parent(this);
+        }
+    }
+
+    return _value_overlays[index].get();
+}
+
+std::unique_ptr<TSOverlayStorage> MapTSOverlay::create_value_overlay() {
+    if (_value_type) {
+        return make_ts_overlay(_value_type);
+    }
+    // Fallback to scalar overlay if no value type info
+    return std::make_unique<ScalarTSOverlay>();
+}
+
+void MapTSOverlay::hook_on_insert(void* ctx, size_t index) {
+    // No-op: The caller is responsible for calling record_key_added() with the time
+    (void)ctx;
+    (void)index;
+}
+
+void MapTSOverlay::hook_on_swap(void* ctx, size_t index_a, size_t index_b) {
+    auto* self = static_cast<MapTSOverlay*>(ctx);
+    if (!self) return;
+
+    // Update any indices in added/removed buffers that match the swapped positions
+    auto update_index = [index_a, index_b](size_t& idx) {
+        if (idx == index_a) {
+            idx = index_b;
+        } else if (idx == index_b) {
+            idx = index_a;
+        }
+    };
+
+    for (auto& idx : self->_added_key_indices) {
+        update_index(idx);
+    }
+    for (auto& idx : self->_removed_key_indices) {
+        update_index(idx);
+    }
+
+    // Swap the value overlays
+    size_t max_idx = std::max(index_a, index_b);
+    if (max_idx >= self->_value_overlays.size()) {
+        self->_value_overlays.resize(max_idx + 1);
+    }
+    std::swap(self->_value_overlays[index_a], self->_value_overlays[index_b]);
+}
+
+void MapTSOverlay::hook_on_erase(void* ctx, size_t index) {
+    // No-op: The caller is responsible for calling record_key_removed() with the time
+    // before the erase. That function handles moving the value overlay to the removed buffer.
+    (void)ctx;
+    (void)index;
+}
+
+// ============================================================================
+// Factory Function Implementation
+// ============================================================================
+
+std::unique_ptr<TSOverlayStorage> make_ts_overlay(const TSMeta* ts_meta) {
+    // Handle nullptr gracefully
+    if (!ts_meta) {
+        return nullptr;
+    }
+
+    // Create the appropriate overlay type based on TSMeta kind
+    switch (ts_meta->kind()) {
+        case TSTypeKind::TS:
+            // Scalar time-series: TS[T]
+            return std::make_unique<ScalarTSOverlay>();
+
+        case TSTypeKind::TSB:
+            // Bundle: TSB[fields...]
+            // CompositeTSOverlay constructor handles recursive child creation
+            return std::make_unique<CompositeTSOverlay>(ts_meta);
+
+        case TSTypeKind::TSL:
+            // List: TSL[TS[T], Size]
+            // ListTSOverlay starts empty; elements added via push_back/resize
+            return std::make_unique<ListTSOverlay>(ts_meta);
+
+        case TSTypeKind::TSS:
+            // Set: TSS[T]
+            // Per-element timestamp tracking with backing store alignment
+            return std::make_unique<SetTSOverlay>(ts_meta);
+
+        case TSTypeKind::TSD:
+            // Map/Dict: TSD[K, TS[V]]
+            // Per-entry timestamp tracking (key_added + value_modified)
+            return std::make_unique<MapTSOverlay>(ts_meta);
+
+        case TSTypeKind::TSW:
+            // Window: TSW[T, Size, MinSize]
+            // Windows behave like lists with cyclic buffer semantics
+            return std::make_unique<ListTSOverlay>(ts_meta);
+
+        case TSTypeKind::REF:
+            // Reference: REF[TS[T]]
+            // References behave like scalars at the overlay level
+            return std::make_unique<ScalarTSOverlay>();
+
+        case TSTypeKind::SIGNAL:
+            // Signal (tick with no value)
+            // Signals track modification time like scalars
+            return std::make_unique<ScalarTSOverlay>();
+
+        default:
+            // Unknown type - return nullptr as safe fallback
+            return nullptr;
+    }
+}
+
+}  // namespace hgraph
