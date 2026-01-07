@@ -1,3 +1,5 @@
+from datetime import datetime, date
+
 from hgraph import compute_node, TS, SCALAR, SCALAR_1, graph, AUTO_RESOLVE, OUT
 from hgraph._operators._time_series_conversion import convert
 from hgraph._types._scalar_types import DEFAULT
@@ -70,6 +72,12 @@ def convert_ts_scalar_upcast(
 def convert_ts_scalar_downcast(
     ts: TS[SCALAR], to: type[TS[SCALAR_1]] = DEFAULT[OUT], s1_type: type[SCALAR_1] = AUTO_RESOLVE
 ) -> TS[SCALAR_1]:
-    if not isinstance(ts.value, s1_type):
-        raise ValueError(f"Downcasting failed: {ts.value} is not an instance of {s1_type}")
-    return ts.value  # this is a safe downcast (see the assert above)
+    ts = ts.value
+    if isinstance(ts, s1_type):
+        return ts
+    elif ts.__class__ is date and s1_type is datetime:
+        return datetime(ts.year, ts.month, ts.day)
+    else:
+        raise ValueError(
+            f"Scalar downcast conversion failed: {ts} of type {ts.__class__.__name__} is not an instance of {s1_type}"
+        )

@@ -14,6 +14,7 @@ from hgraph import (
     diff,
     ewma,
     graph,
+    sink_node,
 )
 
 __all__ = tuple()
@@ -38,19 +39,27 @@ def count_impl(ts: SIGNAL, reset: SIGNAL = None, _output: TS_OUT[int] = None) ->
     return _output.value + 1 if increment else 1
 
 
-@compute_node(overloads=clip)
+@graph(overloads=clip)
 def clip_number(ts: TS[NUMBER], min_: TS[NUMBER], max_: TS[NUMBER]) -> TS[NUMBER]:
-    min_value = min_.value
-    max_value = max_.value
-    if (min_.modified or max_.modified) and (min_value > max_value):
+    check_clip_range(min_, max_)
+    return _clip_number(ts, min_, max_)
+
+
+@sink_node
+def check_clip_range(min_: TS[NUMBER], max_: TS[NUMBER]):
+    if min_.value > max_.value:
         raise RuntimeError(f"clip given min: {min_.value}, max: {max_.value}, but min is not < max")
 
+
+@compute_node
+def _clip_number(ts: TS[NUMBER], min_: TS[NUMBER], max_: TS[NUMBER]) -> TS[NUMBER]:
     v = ts.value
-    if v < min_value:
+    if v < (min_value := min_.value):
         return min_value
-    if v > max_value:
+    elif v > (max_value := max_.value):
         return max_value
-    return v
+    else:
+        return v
 
 
 @dataclass

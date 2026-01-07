@@ -31,6 +31,7 @@ __all__ = (
     "Stream",
     "combine_statuses",
     "combine_status_messages",
+    "combine_status_messages_",
     "merge_join",
     "register_status_message_pattern"
 )
@@ -81,23 +82,20 @@ def register_status_message_pattern(pattern: str):
 
 @compute_node(valid=())
 def combine_status_messages(message1: TS[str], message2: TS[str]) -> TS[str]:
-    message1 = message1.value
-    message2 = message2.value
-    if message1 is None:
+    return combine_status_messages_(message1.value, message2.value)
+
+
+def combine_status_messages_(message1: str, message2: str) -> str:
+    if not message1:
         return message2
-    elif message2 is None:
+    elif not message2:
         return message1
     elif message1 in message2:
         return message2
     elif message2 in message1:
         return message1
-    elif message1 and message2:
-        components = set(message1.split("; ") + message2.split("; "))
-    elif message1:
-        components = set(message1.split("; "))
-    elif message2:
-        components = set(message2.split("; "))
 
+    components = set(message1.split("; ") + message2.split("; "))
     for pattern, substr1, substr2 in STATUS_MESSAGE_PATTERN_DUPLICATES:
         components = dedup_components(pattern, substr1, substr2, components)
     return "; ".join(sorted(components))
