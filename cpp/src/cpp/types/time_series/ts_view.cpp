@@ -17,7 +17,6 @@ TSView::TSView(const void* data, const TSMeta* ts_meta) noexcept
     : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _ts_meta(ts_meta)
     , _container(nullptr)
-    , _tracking_view()
     , _overlay(nullptr)
     , _root(nullptr)
     , _path()
@@ -27,27 +26,16 @@ TSView::TSView(const void* data, const TSMeta* ts_meta, const TSValue* container
     : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _ts_meta(ts_meta)
     , _container(container)
-    , _tracking_view()
     , _overlay(container ? const_cast<TSOverlayStorage*>(container->overlay()) : nullptr)
     , _root(container)  // Container is the root
     , _path()           // Empty path for root
 {}
 
-TSView::TSView(const void* data, const TSMeta* ts_meta, value::ConstValueView tracking_view) noexcept
-    : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
-    , _ts_meta(ts_meta)
-    , _container(nullptr)
-    , _tracking_view(tracking_view)
-    , _overlay(nullptr)
-    , _root(nullptr)
-    , _path()
-{}
 
 TSView::TSView(const void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay) noexcept
     : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _ts_meta(ts_meta)
     , _container(nullptr)
-    , _tracking_view()
     , _overlay(overlay)
     , _root(nullptr)
     , _path()
@@ -58,7 +46,6 @@ TSView::TSView(const void* data, const TSMeta* ts_meta, TSOverlayStorage* overla
     : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _ts_meta(ts_meta)
     , _container(nullptr)
-    , _tracking_view()
     , _overlay(overlay)
     , _root(root)
     , _path(std::move(path))
@@ -68,7 +55,6 @@ TSView::TSView(const TSValue& ts_value)
     : _view(ts_value.value().data(), ts_value.value_schema())
     , _ts_meta(ts_value.ts_meta())
     , _container(&ts_value)
-    , _tracking_view()  // Will use container's overlay-backed methods instead
     , _overlay(const_cast<TSOverlayStorage*>(ts_value.overlay()))
     , _root(&ts_value)  // Container is the root
     , _path()           // Empty path for root
@@ -290,35 +276,24 @@ TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta) noexcept
     : TSView(data, ts_meta)
     , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _mutable_container(nullptr)
-    , _mutable_tracking_view()
 {}
 
 TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, TSValue* container) noexcept
     : TSView(data, ts_meta, container)
     , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _mutable_container(container)
-    , _mutable_tracking_view()  // Will use container's overlay-backed methods instead
-{}
-
-TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, value::ValueView tracking_view) noexcept
-    : TSView(data, ts_meta, value::ConstValueView(tracking_view.data(), tracking_view.schema()))
-    , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
-    , _mutable_container(nullptr)
-    , _mutable_tracking_view(tracking_view)
 {}
 
 TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay) noexcept
     : TSView(data, ts_meta, overlay)
     , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _mutable_container(nullptr)
-    , _mutable_tracking_view()
 {}
 
 TSMutableView::TSMutableView(TSValue& ts_value)
     : TSView(ts_value)
     , _mutable_view(ts_value.value().data(), ts_value.value_schema())
     , _mutable_container(&ts_value)
-    , _mutable_tracking_view()  // Will use container's overlay-backed methods instead
 {}
 
 void TSMutableView::copy_from(const TSView& source) {
@@ -352,30 +327,22 @@ void TSMutableView::from_python(const nb::object& src) {
 }
 
 void TSMutableView::notify_modified(engine_time_t time) {
-    // Update overlay-based tracking if available (preferred)
+    // Update overlay-based tracking (canonical source)
     if (_overlay) {
         _overlay->mark_modified(time);
     }
-    // Update hierarchical tracking if available
-    if (_mutable_tracking_view.valid()) {
-        _mutable_tracking_view.as<engine_time_t>() = time;
-    }
-    // Also notify container for root-level tracking (if different from hierarchical)
+    // Notify container for root-level tracking
     if (_mutable_container) {
         _mutable_container->notify_modified(time);
     }
 }
 
 void TSMutableView::invalidate_ts() {
-    // Update overlay-based tracking if available (preferred)
+    // Update overlay-based tracking (canonical source)
     if (_overlay) {
         _overlay->mark_invalid();
     }
-    // Update hierarchical tracking if available
-    if (_mutable_tracking_view.valid()) {
-        _mutable_tracking_view.as<engine_time_t>() = MIN_DT;
-    }
-    // Also invalidate container for root-level tracking (if different from hierarchical)
+    // Invalidate container for root-level tracking
     if (_mutable_container) {
         _mutable_container->invalidate_ts();
     }

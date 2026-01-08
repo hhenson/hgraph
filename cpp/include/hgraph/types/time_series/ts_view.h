@@ -82,13 +82,6 @@ struct TSView {
      */
     TSView(const void* data, const TSMeta* ts_meta, const TSValue* container) noexcept;
 
-    /**
-     * @brief Construct from data pointer, schema, and tracking view (for child views).
-     *
-     * Used when creating views for bundle fields, list elements, etc.
-     * where we have hierarchical tracking but no direct container reference.
-     */
-    TSView(const void* data, const TSMeta* ts_meta, value::ConstValueView tracking_view) noexcept;
 
     /**
      * @brief Construct from data pointer, schema, and overlay (for overlay-based tracking).
@@ -225,20 +218,6 @@ struct TSView {
     [[nodiscard]] bool has_container() const noexcept { return _container != nullptr; }
 
     /**
-     * @brief Check if the view has tracking access (for hierarchical state queries).
-     */
-    [[nodiscard]] bool has_tracking() const noexcept { return _tracking_view.valid(); }
-
-    /**
-     * @brief Get the tracking view for this level.
-     *
-     * The tracking view contains engine_time_t timestamps following the
-     * same structure as the data. For scalar types, this is a single timestamp.
-     * For bundles/lists, navigate in parallel with the data.
-     */
-    [[nodiscard]] value::ConstValueView tracking_view() const noexcept { return _tracking_view; }
-
-    /**
      * @brief Check if the view has overlay access (for overlay-based state queries).
      */
     [[nodiscard]] bool has_overlay() const noexcept { return _overlay != nullptr; }
@@ -301,7 +280,6 @@ protected:
     value::ConstValueView _view;
     const TSMeta* _ts_meta{nullptr};
     const TSValue* _container{nullptr};       ///< Container for state access (can be null)
-    value::ConstValueView _tracking_view;     ///< Tracking view for this level (can be invalid)
     TSOverlayStorage* _overlay{nullptr};      ///< Overlay for modification tracking (can be null)
     const TSValue* _root{nullptr};            ///< Root TSValue for path tracking (can be null)
     LightweightPath _path;                    ///< Path from root to this view
@@ -330,14 +308,6 @@ struct TSMutableView : TSView {
      * @brief Construct from data pointer, schema, and container.
      */
     TSMutableView(void* data, const TSMeta* ts_meta, TSValue* container) noexcept;
-
-    /**
-     * @brief Construct from data pointer, schema, and tracking view (for child views).
-     *
-     * Used when creating mutable views for bundle fields, list elements, etc.
-     * where we have hierarchical tracking but no direct container reference.
-     */
-    TSMutableView(void* data, const TSMeta* ts_meta, value::ValueView tracking_view) noexcept;
 
     /**
      * @brief Construct from data pointer, schema, and overlay (for overlay-based tracking).
@@ -415,15 +385,9 @@ struct TSMutableView : TSView {
      */
     void from_python(const nb::object& src);
 
-    /**
-     * @brief Get the mutable tracking view for this level.
-     */
-    [[nodiscard]] value::ValueView mutable_tracking_view() { return _mutable_tracking_view; }
-
 private:
     value::ValueView _mutable_view;
     TSValue* _mutable_container{nullptr};     ///< Mutable container access
-    value::ValueView _mutable_tracking_view;  ///< Mutable tracking view for this level
 };
 
 /**

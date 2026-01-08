@@ -379,28 +379,6 @@ namespace hgraph {
      */
     void register_ts_type_meta_with_nanobind(nb::module_& m);
 
-    /**
-     * @brief Derive a tracking schema from a TSMeta.
-     *
-     * Creates a TypeMeta that mirrors the TSMeta structure but with
-     * engine_time_t at every leaf. This enables efficient modification
-     * tracking that follows the time-series hierarchy.
-     *
-     * Mapping:
-     * - TS<T> → engine_time_t
-     * - TSB<fields> → Bundle<tracking_schema(field)...>
-     * - TSL<T, N> → List<tracking_schema(T), N>
-     * - TSD<K, V> → Map<K, engine_time_t>
-     * - TSS<K> → Map<K, engine_time_t>
-     * - TSW<T> → engine_time_t
-     * - REF<T> → tracking_schema(T)
-     * - SIGNAL → engine_time_t
-     *
-     * @param ts_meta The time-series type metadata
-     * @return TypeMeta for tracking (owned by TypeRegistry)
-     */
-    [[nodiscard]] const value::TypeMeta* tracking_schema_from(const TSMeta* ts_meta);
-
 } // namespace hgraph
 
 #endif // HGRAPH_TS_TYPE_META_H
