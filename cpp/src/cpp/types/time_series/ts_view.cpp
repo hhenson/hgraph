@@ -336,14 +336,17 @@ void TSMutableView::from_python(const nb::object& src) {
     if (!valid()) {
         throw std::runtime_error("TSMutableView::from_python() called on invalid view");
     }
+
+    // If we have mutable container access, use its policy-aware from_python
+    // This properly invalidates Python cache and handles all policies
+    if (_mutable_container) {
+        _mutable_container->from_python(src);
+        return;
+    }
+
+    // No container - use direct conversion (no cache invalidation)
     const value::TypeMeta* schema = _ts_meta->value_schema();
     if (schema && schema->ops) {
-        // Phase 0 note: this bypasses `value::Value::from_python`, so it does not:
-        // - update/invalidate any python cache policy
-        // - update timestamps/validity (caller must define/perform `notify_modified(time)` semantics)
-        // - trigger hierarchical observer notifications
-        // See `ts_design_docs/Value_TSValue_MIGRATION_PLAN.md` Phase 0 checklist.
-        // TODO: fix that as we should not be bypassing the type-erased behavior
         schema->ops->from_python(_mutable_view.data(), src, schema);
     }
 }
