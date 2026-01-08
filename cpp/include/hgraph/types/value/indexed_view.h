@@ -1051,6 +1051,16 @@ public:
      */
     [[nodiscard]] ConstValueView at(size_t storage_idx) const;
 
+    /**
+     * @brief Find the backing-store slot index for a value.
+     *
+     * Returns std::nullopt if the value is not present.
+     */
+    [[nodiscard]] std::optional<size_t> find_index(const ConstValueView& value) const {
+        assert(valid() && "find_index() on invalid view");
+        return SetOps::find_index(_data, value.data(), _schema);
+    }
+
     // ========== Iteration ==========
 
     /**
@@ -1463,6 +1473,16 @@ public:
      * @return View to the value at that storage slot
      */
     [[nodiscard]] ConstValueView value_at(size_t storage_idx) const;
+
+    /**
+     * @brief Find the backing-store slot index for a key.
+     *
+     * Returns std::nullopt if the key is not present.
+     */
+    [[nodiscard]] std::optional<size_t> find_index(const ConstValueView& key) const {
+        assert(valid() && "find_index() on invalid view");
+        return MapOps::find_index(_data, key.data(), _schema);
+    }
 
     // ========== Key Set View ==========
 

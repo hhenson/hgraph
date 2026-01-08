@@ -8,6 +8,13 @@
  * They carry the TSMeta schema for type information and support navigation
  * through nested structures.
  *
+ * @note TRANSIENT: Views are transient and should be used immediately after
+ * obtaining them. They are invalidated by structural changes to the underlying
+ * container (insert, erase, swap operations on TSL/TSD/TSS). Do not hold views
+ * across operations that may modify the container structure. For stable
+ * references that survive structural changes, convert to StoredPath which uses
+ * actual key values rather than slot indices.
+ *
  * View Hierarchy:
  * - TSView: Read-only access with as_xxx() casting methods
  * - TSMutableView: Extends TSView with set() operations
@@ -30,10 +37,15 @@
  * @endcode
  */
 
+#include <optional>
+#include <string>
+
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/value/indexed_view.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_overlay_storage.h>
 #include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/time_series/ts_path.h>
 
 namespace hgraph {
 
@@ -85,6 +97,15 @@ struct TSView {
      * The overlay provides hierarchical timestamp tracking and delta information.
      */
     TSView(const void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay) noexcept;
+
+    /**
+     * @brief Construct from data pointer, schema, overlay, and path (for child views).
+     *
+     * Used when creating child views during navigation (field, element access).
+     * Propagates root and extends path for REF support.
+     */
+    TSView(const void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay,
+           const TSValue* root, LightweightPath path) noexcept;
 
     /**
      * @brief Construct from a TSValue (full access).
@@ -239,12 +260,51 @@ struct TSView {
      */
     [[nodiscard]] nb::object to_python() const;
 
+    // ========== Path Access ==========
+
+    /**
+     * @brief Get the root TSValue this view is derived from.
+     * @return Pointer to root TSValue, or nullptr if unknown
+     */
+    [[nodiscard]] const TSValue* root() const noexcept { return _root; }
+
+    /**
+     * @brief Get the lightweight path from root to this view.
+     * @return The path (empty for root views)
+     */
+    [[nodiscard]] const LightweightPath& path() const noexcept { return _path; }
+
+    /**
+     * @brief Get the path as a string for debugging.
+     * @return String representation of the path
+     */
+    [[nodiscard]] std::string path_string() const { return _path.to_string(); }
+
+    /**
+     * @brief Check if this view has path tracking.
+     * @return true if root is known and path is tracked
+     */
+    [[nodiscard]] bool has_path() const noexcept { return _root != nullptr; }
+
+    /**
+     * @brief Get the stored path for this view (for REF persistence).
+     *
+     * Converts the lightweight path to a fully serializable StoredPath
+     * that can be used by REF types for persistence.
+     *
+     * @return StoredPath if path is tracked, nullopt otherwise
+     * @throws std::runtime_error if path contains TSD ordinals (key value needed)
+     */
+    [[nodiscard]] std::optional<StoredPath> stored_path() const;
+
 protected:
     value::ConstValueView _view;
     const TSMeta* _ts_meta{nullptr};
     const TSValue* _container{nullptr};       ///< Container for state access (can be null)
     value::ConstValueView _tracking_view;     ///< Tracking view for this level (can be invalid)
     TSOverlayStorage* _overlay{nullptr};      ///< Overlay for modification tracking (can be null)
+    const TSValue* _root{nullptr};            ///< Root TSValue for path tracking (can be null)
+    LightweightPath _path;                    ///< Path from root to this view
 };
 
 /**
@@ -693,5 +753,70 @@ struct TSSView : TSView {
      */
     [[nodiscard]] SetTSOverlay* set_overlay() const noexcept;
 };
+
+// ============================================================================
+// Template Implementations
+// ============================================================================
+
+template<typename K>
+TSView TSDView::at(const K& key) const {
+    if (!valid()) {
+        throw std::runtime_error("TSDView::at() called on invalid view");
+    }
+
+    // Get the map view from value layer
+    value::ConstMapView map_view = _view.as_map();
+
+    // Find the slot index for this key
+    const value::TypeMeta* key_schema = dict_meta()->key_type();
+    value::ConstValueView key_view(&key, key_schema);
+    auto slot_idx = map_view.find_index(key_view);
+
+    if (!slot_idx) {
+        throw std::out_of_range("TSDView::at(): key not found");
+    }
+
+    // Get the value at this slot
+    value::ConstValueView value_view = map_view.value_at(*slot_idx);
+
+    // Get the element TS type
+    const TSMeta* value_ts_type = dict_meta()->value_ts_type();
+
+    // Extend path with the slot index (like list indices)
+    LightweightPath child_path = _path.with(*slot_idx);
+
+    // Get value overlay if available (MapTSOverlay uses value_overlay, not child)
+    if (auto* map_ov = map_overlay()) {
+        TSOverlayStorage* value_ov = map_ov->value_overlay(*slot_idx);
+        return TSView(value_view.data(), value_ts_type, value_ov, _root, std::move(child_path));
+    }
+
+    // No overlay - return view with path but without tracking
+    return TSView(value_view.data(), value_ts_type, nullptr, _root, std::move(child_path));
+}
+
+template<typename K>
+bool TSDView::contains(const K& key) const {
+    if (!valid()) {
+        return false;
+    }
+
+    value::ConstMapView map_view = _view.as_map();
+    const value::TypeMeta* key_schema = dict_meta()->key_type();
+    value::ConstValueView key_view(&key, key_schema);
+    return map_view.find_index(key_view).has_value();
+}
+
+template<typename T>
+bool TSSView::contains(const T& element) const {
+    if (!valid()) {
+        return false;
+    }
+
+    value::ConstSetView set_view = _view.as_set();
+    const value::TypeMeta* elem_schema = set_meta()->element_type();
+    value::ConstValueView elem_view(&element, elem_schema);
+    return set_view.find_index(elem_view).has_value();
+}
 
 }  // namespace hgraph

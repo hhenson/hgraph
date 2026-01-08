@@ -4,6 +4,7 @@
 
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_value.h>
+#include <hgraph/types/node.h>
 #include <stdexcept>
 
 namespace hgraph {
@@ -18,6 +19,8 @@ TSView::TSView(const void* data, const TSMeta* ts_meta) noexcept
     , _container(nullptr)
     , _tracking_view()
     , _overlay(nullptr)
+    , _root(nullptr)
+    , _path()
 {}
 
 TSView::TSView(const void* data, const TSMeta* ts_meta, const TSValue* container) noexcept
@@ -26,6 +29,8 @@ TSView::TSView(const void* data, const TSMeta* ts_meta, const TSValue* container
     , _container(container)
     , _tracking_view()
     , _overlay(container ? const_cast<TSOverlayStorage*>(container->overlay()) : nullptr)
+    , _root(container)  // Container is the root
+    , _path()           // Empty path for root
 {}
 
 TSView::TSView(const void* data, const TSMeta* ts_meta, value::ConstValueView tracking_view) noexcept
@@ -34,6 +39,8 @@ TSView::TSView(const void* data, const TSMeta* ts_meta, value::ConstValueView tr
     , _container(nullptr)
     , _tracking_view(tracking_view)
     , _overlay(nullptr)
+    , _root(nullptr)
+    , _path()
 {}
 
 TSView::TSView(const void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay) noexcept
@@ -42,6 +49,19 @@ TSView::TSView(const void* data, const TSMeta* ts_meta, TSOverlayStorage* overla
     , _container(nullptr)
     , _tracking_view()
     , _overlay(overlay)
+    , _root(nullptr)
+    , _path()
+{}
+
+TSView::TSView(const void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay,
+               const TSValue* root, LightweightPath path) noexcept
+    : _view(data, ts_meta ? ts_meta->value_schema() : nullptr)
+    , _ts_meta(ts_meta)
+    , _container(nullptr)
+    , _tracking_view()
+    , _overlay(overlay)
+    , _root(root)
+    , _path(std::move(path))
 {}
 
 TSView::TSView(const TSValue& ts_value)
@@ -50,6 +70,8 @@ TSView::TSView(const TSValue& ts_value)
     , _container(&ts_value)
     , _tracking_view()  // Will use container's overlay-backed methods instead
     , _overlay(const_cast<TSOverlayStorage*>(ts_value.overlay()))
+    , _root(&ts_value)  // Container is the root
+    , _path()           // Empty path for root
 {}
 
 bool TSView::valid() const noexcept {
@@ -65,7 +87,11 @@ TSBView TSView::as_bundle() const {
     }
     // Propagate overlay (schema guarantees type match)
     auto* composite = _overlay ? static_cast<CompositeTSOverlay*>(_overlay) : nullptr;
-    return TSBView(_view.data(), static_cast<const TSBTypeMeta*>(_ts_meta), composite);
+    TSBView result(_view.data(), static_cast<const TSBTypeMeta*>(_ts_meta), composite);
+    // Propagate path tracking
+    result._root = _root;
+    result._path = _path;
+    return result;
 }
 
 TSLView TSView::as_list() const {
@@ -77,7 +103,11 @@ TSLView TSView::as_list() const {
     }
     // Propagate overlay (schema guarantees type match)
     auto* list_ov = _overlay ? static_cast<ListTSOverlay*>(_overlay) : nullptr;
-    return TSLView(_view.data(), static_cast<const TSLTypeMeta*>(_ts_meta), list_ov);
+    TSLView result(_view.data(), static_cast<const TSLTypeMeta*>(_ts_meta), list_ov);
+    // Propagate path tracking
+    result._root = _root;
+    result._path = _path;
+    return result;
 }
 
 TSDView TSView::as_dict() const {
@@ -89,7 +119,11 @@ TSDView TSView::as_dict() const {
     }
     // Propagate overlay (schema guarantees type match)
     auto* map_ov = _overlay ? static_cast<MapTSOverlay*>(_overlay) : nullptr;
-    return TSDView(_view.data(), static_cast<const TSDTypeMeta*>(_ts_meta), map_ov);
+    TSDView result(_view.data(), static_cast<const TSDTypeMeta*>(_ts_meta), map_ov);
+    // Propagate path tracking
+    result._root = _root;
+    result._path = _path;
+    return result;
 }
 
 TSSView TSView::as_set() const {
@@ -101,7 +135,11 @@ TSSView TSView::as_set() const {
     }
     // Propagate overlay (schema guarantees type match)
     auto* set_ov = _overlay ? static_cast<SetTSOverlay*>(_overlay) : nullptr;
-    return TSSView(_view.data(), static_cast<const TSSTypeMeta*>(_ts_meta), set_ov);
+    TSSView result(_view.data(), static_cast<const TSSTypeMeta*>(_ts_meta), set_ov);
+    // Propagate path tracking
+    result._root = _root;
+    result._path = _path;
+    return result;
 }
 
 nb::object TSView::to_python() const {
@@ -148,6 +186,100 @@ Node* TSView::owning_node() const {
         return nullptr;  // No container means no node ownership
     }
     return _container->owning_node();
+}
+
+std::optional<StoredPath> TSView::stored_path() const {
+    if (!_root) {
+        return std::nullopt;  // No root means no path tracking
+    }
+
+    Node* node = _root->owning_node();
+    if (!node) {
+        return std::nullopt;  // Root has no owning node
+    }
+
+    // Create base stored path from root's node info, including output schema
+    StoredPath result(
+        node->owning_graph_id(),
+        static_cast<size_t>(node->node_ndx()),
+        _root->output_id(),
+        _root->ts_meta()  // Store the output schema for type checking during expansion
+    );
+
+    // Convert lightweight path elements to stored path elements
+    // This requires walking the schema AND data to know element types and lookup keys
+    const TSMeta* current_meta = _root->ts_meta();
+    const void* current_data = _root->value().data();
+
+    for (size_t ordinal : _path.elements) {
+        if (!current_meta) {
+            throw std::runtime_error("stored_path: lost schema during navigation");
+        }
+
+        switch (current_meta->kind()) {
+            case TSTypeKind::TSB: {
+                // Bundle: convert ordinal to field name
+                auto* bundle_meta = static_cast<const TSBTypeMeta*>(current_meta);
+                if (ordinal >= bundle_meta->field_count()) {
+                    throw std::runtime_error("stored_path: field index out of range");
+                }
+                const TSBFieldInfo& field_info = bundle_meta->field(ordinal);
+                result.elements.push_back(StoredValue::from_string(field_info.name));
+
+                // Navigate data to the field
+                value::ConstBundleView bundle_view(current_data, bundle_meta->value_schema());
+                current_data = bundle_view.at(field_info.name).data();
+                current_meta = field_info.type;
+                break;
+            }
+            case TSTypeKind::TSL: {
+                // List: ordinal is the index
+                auto* list_meta = static_cast<const TSLTypeMeta*>(current_meta);
+                result.elements.push_back(StoredValue::from_index(ordinal));
+
+                // Navigate data to the element
+                value::ConstListView list_view(current_data, list_meta->value_schema());
+                if (ordinal >= list_view.size()) {
+                    throw std::runtime_error("stored_path: list index out of range");
+                }
+                current_data = list_view.at(ordinal).data();
+                current_meta = list_meta->element_type();
+                break;
+            }
+            case TSTypeKind::TSD: {
+                // Dict: ordinal is the slot index - look up the actual key
+                auto* dict_meta = static_cast<const TSDTypeMeta*>(current_meta);
+                const value::TypeMeta* value_schema = dict_meta->value_schema();
+
+                // Build a map view from current position
+                value::ConstMapView map_view(current_data, value_schema);
+                if (ordinal >= map_view.size()) {
+                    throw std::runtime_error("stored_path: TSD slot index out of range");
+                }
+
+                // Get the key at this slot and store it as a Value
+                value::ConstValueView key_view = map_view.key_at(ordinal);
+                result.elements.push_back(StoredValue::from_view(key_view));
+
+                // Navigate to the value for next iteration
+                current_data = map_view.value_at(ordinal).data();
+                current_meta = dict_meta->value_ts_type();
+                break;
+            }
+            case TSTypeKind::TSS: {
+                // Set: elements don't have child time-series, this shouldn't happen
+                throw std::runtime_error(
+                    "stored_path: TSS elements do not have child time-series");
+            }
+            default: {
+                // Scalar types should not have path elements
+                throw std::runtime_error(
+                    "stored_path: unexpected path element for scalar type");
+            }
+        }
+    }
+
+    return result;
 }
 
 // ============================================================================
@@ -274,14 +406,17 @@ TSView TSBView::field(const std::string& name) const {
     value::ConstBundleView bundle_view = _view.as_bundle();
     value::ConstValueView field_value = bundle_view.at(name);
 
-    // Use overlay-based child navigation
+    // Extend path with field ordinal
+    LightweightPath child_path = _path.with(field_info->index);
+
+    // Use overlay-based child navigation with path
     if (auto* composite = composite_overlay()) {
         TSOverlayStorage* child_overlay = composite->child(field_info->index);
-        return TSView(field_value.data(), field_info->type, child_overlay);
+        return TSView(field_value.data(), field_info->type, child_overlay, _root, std::move(child_path));
     }
 
-    // No overlay - return view without tracking
-    return TSView(field_value.data(), field_info->type);
+    // No overlay - return view with path but without tracking
+    return TSView(field_value.data(), field_info->type, nullptr, _root, std::move(child_path));
 }
 
 TSView TSBView::field(size_t index) const {
@@ -302,14 +437,17 @@ TSView TSBView::field(size_t index) const {
     value::ConstBundleView bundle_view = _view.as_bundle();
     value::ConstValueView field_value = bundle_view.at(field_info.name);
 
-    // Use overlay-based child navigation
+    // Extend path with field ordinal
+    LightweightPath child_path = _path.with(index);
+
+    // Use overlay-based child navigation with path
     if (auto* composite = composite_overlay()) {
         TSOverlayStorage* child_overlay = composite->child(index);
-        return TSView(field_value.data(), field_info.type, child_overlay);
+        return TSView(field_value.data(), field_info.type, child_overlay, _root, std::move(child_path));
     }
 
-    // No overlay - return view without tracking
-    return TSView(field_value.data(), field_info.type);
+    // No overlay - return view with path but without tracking
+    return TSView(field_value.data(), field_info.type, nullptr, _root, std::move(child_path));
 }
 
 size_t TSBView::field_count() const noexcept {
@@ -370,14 +508,17 @@ TSView TSLView::element(size_t index) const {
 
     value::ConstValueView element_value = list_view.at(index);
 
-    // Use overlay-based child navigation
+    // Extend path with element index
+    LightweightPath child_path = _path.with(index);
+
+    // Use overlay-based child navigation with path
     if (auto* list_ov = list_overlay()) {
         TSOverlayStorage* child_overlay = list_ov->child(index);
-        return TSView(element_value.data(), element_type, child_overlay);
+        return TSView(element_value.data(), element_type, child_overlay, _root, std::move(child_path));
     }
 
-    // No overlay - return view without tracking
-    return TSView(element_value.data(), element_type);
+    // No overlay - return view with path but without tracking
+    return TSView(element_value.data(), element_type, nullptr, _root, std::move(child_path));
 }
 
 size_t TSLView::size() const noexcept {

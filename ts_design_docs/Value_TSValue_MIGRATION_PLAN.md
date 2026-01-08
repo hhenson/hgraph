@@ -191,6 +191,8 @@ This phase is now implemented in the Value layer as a composition-based (non-inh
 
 ### Phase 3 — Implement the zero-cost `Value` ↔ `TSValue` bridge
 
+**Status:** Complete (2026-01-08)
+
 1. Define bridging APIs:
    - `TSView`/`TSMutableView` wrapping a `ValueView` + `TSMeta` + overlay pointer/handle
    - `ValueView` extraction from `TSView`
@@ -200,6 +202,58 @@ This phase is now implemented in the Value layer as a composition-based (non-inh
    - TS overlay is referenced, not duplicated
 
 **Exit criteria:** bridging works for scalar + bundle + list + set/map paths.
+
+#### Phase 3 implementation notes (delivered)
+
+**Overlay-aware view constructors**
+
+- Added overlay-aware constructors to all specialized views:
+  - `TSBView(const void* data, const TSBTypeMeta* ts_meta, CompositeTSOverlay* overlay)`
+  - `TSLView(const void* data, const TSLTypeMeta* ts_meta, ListTSOverlay* overlay)`
+  - `TSDView(const void* data, const TSDTypeMeta* ts_meta, MapTSOverlay* overlay)`
+  - `TSSView(const void* data, const TSSTypeMeta* ts_meta, SetTSOverlay* overlay)`
+
+**Overlay propagation in type-cast methods**
+
+- `TSView::as_bundle()` - uses `static_cast<CompositeTSOverlay*>` (schema guarantees type match)
+- `TSView::as_list()` - uses `static_cast<ListTSOverlay*>` (schema guarantees type match)
+- `TSView::as_dict()` - uses `static_cast<MapTSOverlay*>` (schema guarantees type match)
+- `TSView::as_set()` - uses `static_cast<SetTSOverlay*>` (schema guarantees type match)
+
+**Cleanup: Removed legacy fallback paths**
+
+- Removed `_tracking_view` fallback paths in field/element navigation
+- Simplified ts_valid(), modified_at(), last_modified_time() to use overlay directly
+- No backwards compatibility - overlay is the canonical source for modification tracking
+
+**Child overlay navigation**
+
+- `TSBView::field()` - uses `CompositeTSOverlay::child(index)` to get child overlay
+- `TSLView::element()` - uses `ListTSOverlay::child(index)` to get child overlay
+
+**Auto-update timestamps on mutation**
+
+- `TSMutableView::set<T>(val, time)` now calls `notify_modified(time)` automatically
+
+**Python cache integration**
+
+- `TSView::to_python()` uses container's cached method when available
+
+**Python bindings extensions**
+
+- Extended `TSValueTestWrapper` with overlay methods:
+  - `ts_valid`, `last_modified_time`, `modified_at(time)`
+  - `mark_modified(time)`, `invalidate()`
+  - `has_overlay`, `overlay_kind`, `overlay_last_modified_time`, `overlay_mark_modified(time)`
+
+**Files modified:**
+- `cpp/include/hgraph/types/time_series/ts_view.h`
+- `cpp/src/cpp/types/time_series/ts_view.cpp`
+- `cpp/src/cpp/types/time_series/ts_value_test_bindings.cpp`
+
+**Tests:**
+- All C++ tests pass (303 assertions in overlay tests)
+- All Python type tests pass (896 passed, 97 skipped)
 
 ---
 
@@ -216,15 +270,38 @@ This phase is now implemented in the Value layer as a composition-based (non-inh
 
 ### Phase 5 — Observability: hierarchical subscriptions compatible with legacy `Notifiable`
 
+**Status:** Design Complete (2026-01-07)
+
+**Design Documents:**
+- `Phase5_Hierarchical_Subscriptions_DESIGN.md` - Technical design
+- `Phase5_Hierarchical_Subscriptions_USER_GUIDE.md` - User guide
+
 1. Provide subscription APIs that can model legacy behavior:
    - subscribe/unsubscribe at the root
 
 2. Add hierarchical options needed by TS containers:
    - subscribe to bundle fields
    - subscribe to specific keys/indices
-   - subscribe to “any element changed” for a container
+   - subscribe to "any element changed" for a container
 
 3. Define notification ordering and deduplication rules.
+
+**Key Design Decisions:**
+- Subscriptions at any level of the TS overlay hierarchy
+- Notifications propagate upward (child change notifies parent observers)
+- No downward propagation (parent change does not notify child observers)
+- Deduplication handled at observer level (matches legacy `_notify_time` pattern)
+- Structural changes: observers follow data in swap-with-last, orphaned on removal
+
+**Implementation Tasks:**
+1. Add `subscribe()`/`unsubscribe()` to `TSOverlayStorage` base (partially done)
+2. Add `subscribe_field()` to `CompositeTSOverlay`
+3. Add `subscribe_element()` to `ListTSOverlay`
+4. Add `subscribe_entry()` to `MapTSOverlay`
+5. Add `has_observers_in_subtree()` for optimization
+6. Integrate with `TSValue` public API
+7. Delegate from legacy `BaseTimeSeriesOutput`
+8. Expose via Python bindings
 
 **Exit criteria:** observers are correct under container swaps, key removals, and nested updates.
 
