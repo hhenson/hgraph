@@ -63,6 +63,15 @@ public:
     void unsubscribe(Notifiable* observer);
 
     /**
+     * @brief Check if an observer is subscribed at this level.
+     * @param observer The notifiable observer to check
+     * @return True if the observer is subscribed
+     */
+    [[nodiscard]] bool is_subscribed(Notifiable* observer) const noexcept {
+        return observer && _observers.find(observer) != _observers.end();
+    }
+
+    /**
      * @brief Check if there are any observers at this level.
      * @return True if at least one observer is subscribed
      */
@@ -197,6 +206,43 @@ struct TSOverlayStorage {
             _observers = std::make_unique<ObserverList>();
         }
         return *_observers;
+    }
+
+    /**
+     * @brief Subscribe an observer to this overlay (convenience method).
+     *
+     * This is a convenience wrapper around ensure_observers().subscribe().
+     * Lazily allocates the observer list if needed.
+     *
+     * @param observer The notifiable observer to add
+     */
+    void subscribe(Notifiable* observer) {
+        ensure_observers().subscribe(observer);
+    }
+
+    /**
+     * @brief Unsubscribe an observer from this overlay (convenience method).
+     *
+     * This is a convenience wrapper. Does nothing if observer list is not allocated.
+     *
+     * @param observer The notifiable observer to remove
+     */
+    void unsubscribe(Notifiable* observer) {
+        if (_observers) {
+            _observers->unsubscribe(observer);
+        }
+    }
+
+    /**
+     * @brief Check if an observer is subscribed to this overlay (convenience method).
+     *
+     * This is a convenience wrapper. Returns false if observer list is not allocated.
+     *
+     * @param observer The notifiable observer to check
+     * @return True if the observer is subscribed at this level
+     */
+    [[nodiscard]] bool is_subscribed(Notifiable* observer) const noexcept {
+        return _observers && _observers->is_subscribed(observer);
     }
 
 protected:

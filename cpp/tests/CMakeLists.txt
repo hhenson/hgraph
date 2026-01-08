@@ -88,6 +88,26 @@ target_compile_features(hgraph_ts_overlay_tests PRIVATE cxx_std_23)
 
 catch_discover_tests(hgraph_ts_overlay_tests)
 
+# -----------------------------------------------------------------------------
+# TS overlay subscription tests (Phase 1)
+# -----------------------------------------------------------------------------
+
+add_executable(hgraph_ts_overlay_subscription_tests
+    test_ts_overlay_subscriptions.cpp
+)
+
+target_link_libraries(hgraph_ts_overlay_subscription_tests PRIVATE
+    Catch2::Catch2WithMain
+    fmt::fmt
+    hgraph_core
+    nanobind-static
+    Python::Python
+)
+
+target_compile_features(hgraph_ts_overlay_subscription_tests PRIVATE cxx_std_23)
+
+catch_discover_tests(hgraph_ts_overlay_subscription_tests)
+
 # Optional: Add custom target to run tests
 add_custom_target(run_visitor_tests
     COMMAND hgraph_visitor_tests

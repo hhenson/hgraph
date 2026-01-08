@@ -26,12 +26,9 @@ void ObserverList::unsubscribe(Notifiable* observer) {
 }
 
 void ObserverList::notify(engine_time_t time) {
-    // Copy the set to avoid issues if observers modify the list during notification
-    auto observers_copy = _observers;
-    for (auto* observer : observers_copy) {
-        if (observer) {
-            observer->notify(time);
-        }
+    // Direct iteration - observers are for scheduling, no side effects
+    for (auto* observer : _observers) {
+        observer->notify(time);
     }
 }
 
