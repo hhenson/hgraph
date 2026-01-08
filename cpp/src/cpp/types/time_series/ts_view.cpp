@@ -63,7 +63,9 @@ TSBView TSView::as_bundle() const {
     if (_ts_meta->kind() != TSTypeKind::TSB) {
         throw std::runtime_error("TSView::as_bundle() called on non-bundle type");
     }
-    return TSBView(_view.data(), static_cast<const TSBTypeMeta*>(_ts_meta));
+    // Propagate overlay (schema guarantees type match)
+    auto* composite = _overlay ? static_cast<CompositeTSOverlay*>(_overlay) : nullptr;
+    return TSBView(_view.data(), static_cast<const TSBTypeMeta*>(_ts_meta), composite);
 }
 
 TSLView TSView::as_list() const {
@@ -73,7 +75,9 @@ TSLView TSView::as_list() const {
     if (_ts_meta->kind() != TSTypeKind::TSL) {
         throw std::runtime_error("TSView::as_list() called on non-list type");
     }
-    return TSLView(_view.data(), static_cast<const TSLTypeMeta*>(_ts_meta));
+    // Propagate overlay (schema guarantees type match)
+    auto* list_ov = _overlay ? static_cast<ListTSOverlay*>(_overlay) : nullptr;
+    return TSLView(_view.data(), static_cast<const TSLTypeMeta*>(_ts_meta), list_ov);
 }
 
 TSDView TSView::as_dict() const {
@@ -83,7 +87,9 @@ TSDView TSView::as_dict() const {
     if (_ts_meta->kind() != TSTypeKind::TSD) {
         throw std::runtime_error("TSView::as_dict() called on non-dict type");
     }
-    return TSDView(_view.data(), static_cast<const TSDTypeMeta*>(_ts_meta));
+    // Propagate overlay (schema guarantees type match)
+    auto* map_ov = _overlay ? static_cast<MapTSOverlay*>(_overlay) : nullptr;
+    return TSDView(_view.data(), static_cast<const TSDTypeMeta*>(_ts_meta), map_ov);
 }
 
 TSSView TSView::as_set() const {
@@ -93,71 +99,48 @@ TSSView TSView::as_set() const {
     if (_ts_meta->kind() != TSTypeKind::TSS) {
         throw std::runtime_error("TSView::as_set() called on non-set type");
     }
-    return TSSView(_view.data(), static_cast<const TSSTypeMeta*>(_ts_meta));
+    // Propagate overlay (schema guarantees type match)
+    auto* set_ov = _overlay ? static_cast<SetTSOverlay*>(_overlay) : nullptr;
+    return TSSView(_view.data(), static_cast<const TSSTypeMeta*>(_ts_meta), set_ov);
 }
 
 nb::object TSView::to_python() const {
     if (!valid()) {
         return nb::none();
     }
+
+    // If we have container access, use its policy-aware to_python (uses cache)
+    if (_container) {
+        return _container->to_python();
+    }
+
+    // No container - use direct conversion (no cache)
     const value::TypeMeta* schema = _ts_meta->value_schema();
-    // Phase 0 note: this conversion path calls `TypeMeta::ops` directly and therefore does not
-    // participate in `value::Value` policy behavior (e.g. `WithPythonCache`).
-    // See `ts_design_docs/Value_TSValue_MIGRATION_PLAN.md` Phase 0 checklist.
-    // TODO: fix that as we should not be bypassing the type-erased behavior
     return schema->ops->to_python(_view.data(), schema);
 }
 
 bool TSView::ts_valid() const {
-    // Use overlay-based tracking if available (preferred)
     if (_overlay) {
         return _overlay->last_modified_time() != MIN_DT;
     }
-    // Use hierarchical tracking if available
-    if (_tracking_view.valid()) {
-        // For scalar types, tracking is a single engine_time_t
-        // For containers, the root timestamp indicates overall validity
-        engine_time_t time = _tracking_view.as<engine_time_t>();
-        return time != MIN_DT;
-    }
-    // Fall back to container's root-level tracking
-    if (_container) {
-        return _container->ts_valid();
-    }
-    return valid();  // Fall back to structural validity
+    // No overlay means no time-series tracking
+    return valid();
 }
 
 bool TSView::modified_at(engine_time_t time) const {
-    // Use overlay-based tracking if available (preferred)
     if (_overlay) {
         return _overlay->last_modified_time() == time;
     }
-    // Use hierarchical tracking if available
-    if (_tracking_view.valid()) {
-        engine_time_t last_mod = _tracking_view.as<engine_time_t>();
-        return last_mod == time;
-    }
-    // Fall back to container's root-level tracking
-    if (_container) {
-        return _container->modified_at(time);
-    }
-    return false;  // No tracking means no modification tracking
+    // No overlay means no modification tracking
+    return false;
 }
 
 engine_time_t TSView::last_modified_time() const {
-    // Use overlay-based tracking if available (preferred)
     if (_overlay) {
         return _overlay->last_modified_time();
     }
-    // Use hierarchical tracking if available
-    if (_tracking_view.valid()) {
-        return _tracking_view.as<engine_time_t>();
-    }
-    // Fall back to container's root-level tracking
-    if (_container) {
-        return _container->last_modified_time();
-    }
-    return MIN_DT;  // No tracking means no modification tracking
+    // No overlay means no modification tracking
+    return MIN_DT;
 }
 
 Node* TSView::owning_node() const {
@@ -271,6 +254,10 @@ TSBView::TSBView(const void* data, const TSBTypeMeta* ts_meta) noexcept
     : TSView(data, ts_meta)
 {}
 
+TSBView::TSBView(const void* data, const TSBTypeMeta* ts_meta, CompositeTSOverlay* overlay) noexcept
+    : TSView(data, ts_meta, static_cast<TSOverlayStorage*>(overlay))
+{}
+
 TSView TSBView::field(const std::string& name) const {
     if (!valid()) {
         throw std::runtime_error("TSBView::field() called on invalid view");
@@ -287,14 +274,14 @@ TSView TSBView::field(const std::string& name) const {
     value::ConstBundleView bundle_view = _view.as_bundle();
     value::ConstValueView field_value = bundle_view.at(name);
 
-    // Navigate tracking in parallel if available
-    value::ConstValueView field_tracking;
-    if (_tracking_view.valid()) {
-        value::ConstBundleView tracking_bundle = _tracking_view.as_bundle();
-        field_tracking = tracking_bundle.at(name);
+    // Use overlay-based child navigation
+    if (auto* composite = composite_overlay()) {
+        TSOverlayStorage* child_overlay = composite->child(field_info->index);
+        return TSView(field_value.data(), field_info->type, child_overlay);
     }
 
-    return TSView(field_value.data(), field_info->type, field_tracking);
+    // No overlay - return view without tracking
+    return TSView(field_value.data(), field_info->type);
 }
 
 TSView TSBView::field(size_t index) const {
@@ -315,14 +302,14 @@ TSView TSBView::field(size_t index) const {
     value::ConstBundleView bundle_view = _view.as_bundle();
     value::ConstValueView field_value = bundle_view.at(field_info.name);
 
-    // Navigate tracking in parallel if available
-    value::ConstValueView field_tracking;
-    if (_tracking_view.valid()) {
-        value::ConstBundleView tracking_bundle = _tracking_view.as_bundle();
-        field_tracking = tracking_bundle.at(field_info.name);
+    // Use overlay-based child navigation
+    if (auto* composite = composite_overlay()) {
+        TSOverlayStorage* child_overlay = composite->child(index);
+        return TSView(field_value.data(), field_info.type, child_overlay);
     }
 
-    return TSView(field_value.data(), field_info.type, field_tracking);
+    // No overlay - return view without tracking
+    return TSView(field_value.data(), field_info.type);
 }
 
 size_t TSBView::field_count() const noexcept {
@@ -350,7 +337,7 @@ BundleDeltaView TSBView::delta_view(engine_time_t time) {
 
 CompositeTSOverlay* TSBView::composite_overlay() const noexcept {
     if (!_overlay) return nullptr;
-    return dynamic_cast<CompositeTSOverlay*>(_overlay);
+    return static_cast<CompositeTSOverlay*>(_overlay);
 }
 
 // ============================================================================
@@ -361,13 +348,17 @@ TSLView::TSLView(const void* data, const TSLTypeMeta* ts_meta) noexcept
     : TSView(data, ts_meta)
 {}
 
+TSLView::TSLView(const void* data, const TSLTypeMeta* ts_meta, ListTSOverlay* overlay) noexcept
+    : TSView(data, ts_meta, static_cast<TSOverlayStorage*>(overlay))
+{}
+
 TSView TSLView::element(size_t index) const {
     if (!valid()) {
         throw std::runtime_error("TSLView::element() called on invalid view");
     }
 
-    const TSLTypeMeta* list_meta = static_cast<const TSLTypeMeta*>(_ts_meta);
-    const TSMeta* element_type = list_meta->element_type();
+    const TSLTypeMeta* list_meta_ptr = static_cast<const TSLTypeMeta*>(_ts_meta);
+    const TSMeta* element_type = list_meta_ptr->element_type();
 
     // Navigate to the element data using the list view
     value::ConstListView list_view = _view.as_list();
@@ -379,16 +370,14 @@ TSView TSLView::element(size_t index) const {
 
     value::ConstValueView element_value = list_view.at(index);
 
-    // Navigate tracking in parallel if available
-    value::ConstValueView element_tracking;
-    if (_tracking_view.valid()) {
-        value::ConstListView tracking_list = _tracking_view.as_list();
-        if (index < tracking_list.size()) {
-            element_tracking = tracking_list.at(index);
-        }
+    // Use overlay-based child navigation
+    if (auto* list_ov = list_overlay()) {
+        TSOverlayStorage* child_overlay = list_ov->child(index);
+        return TSView(element_value.data(), element_type, child_overlay);
     }
 
-    return TSView(element_value.data(), element_type, element_tracking);
+    // No overlay - return view without tracking
+    return TSView(element_value.data(), element_type);
 }
 
 size_t TSLView::size() const noexcept {
@@ -421,7 +410,7 @@ ListDeltaView TSLView::delta_view(engine_time_t time) {
 
 ListTSOverlay* TSLView::list_overlay() const noexcept {
     if (!_overlay) return nullptr;
-    return dynamic_cast<ListTSOverlay*>(_overlay);
+    return static_cast<ListTSOverlay*>(_overlay);
 }
 
 // ============================================================================
@@ -430,6 +419,10 @@ ListTSOverlay* TSLView::list_overlay() const noexcept {
 
 TSDView::TSDView(const void* data, const TSDTypeMeta* ts_meta) noexcept
     : TSView(data, ts_meta)
+{}
+
+TSDView::TSDView(const void* data, const TSDTypeMeta* ts_meta, MapTSOverlay* overlay) noexcept
+    : TSView(data, ts_meta, static_cast<TSOverlayStorage*>(overlay))
 {}
 
 size_t TSDView::size() const noexcept {
@@ -464,7 +457,7 @@ KeySetOverlayView TSDView::key_set_view() const {
 
 MapTSOverlay* TSDView::map_overlay() const noexcept {
     if (!_overlay) return nullptr;
-    return dynamic_cast<MapTSOverlay*>(_overlay);
+    return static_cast<MapTSOverlay*>(_overlay);
 }
 
 // ============================================================================
@@ -473,6 +466,10 @@ MapTSOverlay* TSDView::map_overlay() const noexcept {
 
 TSSView::TSSView(const void* data, const TSSTypeMeta* ts_meta) noexcept
     : TSView(data, ts_meta)
+{}
+
+TSSView::TSSView(const void* data, const TSSTypeMeta* ts_meta, SetTSOverlay* overlay) noexcept
+    : TSView(data, ts_meta, static_cast<TSOverlayStorage*>(overlay))
 {}
 
 size_t TSSView::size() const noexcept {
@@ -498,7 +495,7 @@ SetDeltaView TSSView::delta_view(engine_time_t time) {
 
 SetTSOverlay* TSSView::set_overlay() const noexcept {
     if (!_overlay) return nullptr;
-    return dynamic_cast<SetTSOverlay*>(_overlay);
+    return static_cast<SetTSOverlay*>(_overlay);
 }
 
 }  // namespace hgraph

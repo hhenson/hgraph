@@ -312,9 +312,7 @@ struct TSMutableView : TSView {
     template<typename T>
     void set(const T& val, engine_time_t time) {
         _mutable_view.as<T>() = val;
-        // Phase 0 note: this currently does not update timestamps/validity.
-        // Call `notify_modified(time)` explicitly for now.
-        // See `ts_design_docs/Value_TSValue_MIGRATION_PLAN.md` Phase 0 checklist.
+        notify_modified(time);
     }
 
     /**
@@ -388,6 +386,15 @@ struct TSBView : TSView {
      * @param ts_meta TSBTypeMeta schema (must be bundle type)
      */
     TSBView(const void* data, const TSBTypeMeta* ts_meta) noexcept;
+
+    /**
+     * @brief Construct from data pointer, schema, and overlay.
+     *
+     * @param data Pointer to bundle data
+     * @param ts_meta TSBTypeMeta schema (must be bundle type)
+     * @param overlay CompositeTSOverlay for hierarchical tracking
+     */
+    TSBView(const void* data, const TSBTypeMeta* ts_meta, CompositeTSOverlay* overlay) noexcept;
 
     // ========== Bundle Schema ==========
 
@@ -467,6 +474,15 @@ struct TSLView : TSView {
     TSLView() noexcept = default;
     TSLView(const void* data, const TSLTypeMeta* ts_meta) noexcept;
 
+    /**
+     * @brief Construct from data pointer, schema, and overlay.
+     *
+     * @param data Pointer to list data
+     * @param ts_meta TSLTypeMeta schema (must be list type)
+     * @param overlay ListTSOverlay for hierarchical tracking
+     */
+    TSLView(const void* data, const TSLTypeMeta* ts_meta, ListTSOverlay* overlay) noexcept;
+
     // ========== List Schema ==========
 
     [[nodiscard]] const TSLTypeMeta* list_meta() const noexcept {
@@ -533,6 +549,15 @@ struct TSDView : TSView {
 
     TSDView() noexcept = default;
     TSDView(const void* data, const TSDTypeMeta* ts_meta) noexcept;
+
+    /**
+     * @brief Construct from data pointer, schema, and overlay.
+     *
+     * @param data Pointer to dict data
+     * @param ts_meta TSDTypeMeta schema (must be dict type)
+     * @param overlay MapTSOverlay for hierarchical tracking
+     */
+    TSDView(const void* data, const TSDTypeMeta* ts_meta, MapTSOverlay* overlay) noexcept;
 
     // ========== Dict Schema ==========
 
@@ -612,6 +637,15 @@ struct TSSView : TSView {
 
     TSSView() noexcept = default;
     TSSView(const void* data, const TSSTypeMeta* ts_meta) noexcept;
+
+    /**
+     * @brief Construct from data pointer, schema, and overlay.
+     *
+     * @param data Pointer to set data
+     * @param ts_meta TSSTypeMeta schema (must be set type)
+     * @param overlay SetTSOverlay for hierarchical tracking
+     */
+    TSSView(const void* data, const TSSTypeMeta* ts_meta, SetTSOverlay* overlay) noexcept;
 
     // ========== Set Schema ==========
 

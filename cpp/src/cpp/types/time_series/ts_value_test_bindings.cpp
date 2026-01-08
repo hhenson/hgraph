@@ -9,10 +9,13 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/ts_overlay_storage.h>
 #include <hgraph/types/value/type_meta.h>
+#include <hgraph/util/date_time.h>
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 #include <nanobind/stl/optional.h>
+#include <hgraph/python/chrono.h>
 
 namespace nb = nanobind;
 
@@ -136,6 +139,100 @@ public:
         return _ts_value.bundle_view().field_count();
     }
 
+    // ========== Overlay/Time-series state methods ==========
+
+    /**
+     * @brief Check if the time-series value is valid (has been set).
+     */
+    [[nodiscard]] bool ts_valid() const {
+        return _ts_value.ts_valid();
+    }
+
+    /**
+     * @brief Get the last modification time.
+     * @return The engine time when this value was last modified
+     */
+    [[nodiscard]] engine_time_t last_modified_time() const {
+        return _ts_value.last_modified_time();
+    }
+
+    /**
+     * @brief Check if modified at specific time.
+     * @param time The time to check against
+     * @return true if the value was modified at the given time
+     */
+    [[nodiscard]] bool modified_at(engine_time_t time) const {
+        return _ts_value.modified_at(time);
+    }
+
+    /**
+     * @brief Mark the value as modified at the given time.
+     * @param time The engine time of modification
+     */
+    void mark_modified(engine_time_t time) {
+        _ts_value.notify_modified(time);
+    }
+
+    /**
+     * @brief Invalidate the time-series value.
+     */
+    void invalidate() {
+        _ts_value.invalidate_ts();
+    }
+
+    /**
+     * @brief Check if this TSValue has an overlay.
+     */
+    [[nodiscard]] bool has_overlay() const {
+        return _ts_value.overlay() != nullptr;
+    }
+
+    /**
+     * @brief Get overlay kind as a string.
+     * Uses TSMeta kind to determine the overlay type (schema guarantees match).
+     */
+    [[nodiscard]] std::string overlay_kind() const {
+        if (!_ts_value.overlay()) return "none";
+        if (!_ts_value.ts_meta()) return "unknown";
+        // Use schema to determine overlay type
+        switch (_ts_value.ts_meta()->kind()) {
+            case TSTypeKind::TS:
+            case TSTypeKind::REF:
+            case TSTypeKind::SIGNAL:
+                return "Scalar";
+            case TSTypeKind::TSB:
+                return "Composite";
+            case TSTypeKind::TSL:
+            case TSTypeKind::TSW:
+                return "List";
+            case TSTypeKind::TSS:
+                return "Set";
+            case TSTypeKind::TSD:
+                return "Map";
+            default:
+                return "unknown";
+        }
+    }
+
+    /**
+     * @brief Get the overlay's last modified time directly.
+     */
+    [[nodiscard]] engine_time_t overlay_last_modified_time() const {
+        auto* overlay = _ts_value.overlay();
+        if (!overlay) return MIN_DT;
+        return overlay->last_modified_time();
+    }
+
+    /**
+     * @brief Mark modified via overlay.
+     */
+    void overlay_mark_modified(engine_time_t time) {
+        auto* overlay = _ts_value.overlay();
+        if (overlay) {
+            overlay->mark_modified(time);
+        }
+    }
+
 private:
     TSValue _ts_value;
 };
@@ -162,6 +259,16 @@ void register_ts_value_test_bindings(nb::module_& m) {
         .def("get_field", &TSValueTestWrapper::get_field, nb::arg("name"))
         .def("set_field", &TSValueTestWrapper::set_field, nb::arg("name"), nb::arg("value"))
         .def_prop_ro("field_count", &TSValueTestWrapper::field_count)
+        // Overlay/time-series state methods
+        .def_prop_ro("ts_valid", &TSValueTestWrapper::ts_valid)
+        .def_prop_ro("last_modified_time", &TSValueTestWrapper::last_modified_time)
+        .def("modified_at", &TSValueTestWrapper::modified_at, nb::arg("time"))
+        .def("mark_modified", &TSValueTestWrapper::mark_modified, nb::arg("time"))
+        .def("invalidate", &TSValueTestWrapper::invalidate)
+        .def_prop_ro("has_overlay", &TSValueTestWrapper::has_overlay)
+        .def_prop_ro("overlay_kind", &TSValueTestWrapper::overlay_kind)
+        .def_prop_ro("overlay_last_modified_time", &TSValueTestWrapper::overlay_last_modified_time)
+        .def("overlay_mark_modified", &TSValueTestWrapper::overlay_mark_modified, nb::arg("time"))
         .def("__repr__", [](const TSValueTestWrapper& self) {
             return "TSValueTestWrapper[" + self.schema_str() + "]";
         });
