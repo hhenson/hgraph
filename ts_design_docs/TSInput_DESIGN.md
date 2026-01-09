@@ -199,6 +199,13 @@ TSValue is extended to optionally support links at child positions.
 
 ### 4.1 New Members
 
+Link support data is consolidated into a separate `LinkSupport` struct to minimize memory overhead for TSValues that don't need it (the majority - all outputs).
+
+**Memory Optimization:**
+- Without optimization: ~48 bytes per TSValue (two empty vectors)
+- With optimization: 8 bytes per TSValue (one nullptr)
+- Savings: ~40 bytes per output TSValue
+
 ```cpp
 struct TSValue {
     // ========== Existing Members ==========
@@ -211,22 +218,39 @@ struct TSValue {
     // ========== Link Support (for inputs) ==========
 
     /**
-     * @brief Per-child link tracking for composite types.
+     * @brief Container for link support data.
      *
-     * Indexed by child position (field index for TSB, element index for TSL).
-     * - nullptr = local data (non-peered at this position)
-     * - non-null = linked to external output (peered)
+     * Separated into its own struct so that TSValues without link support
+     * (the majority - all outputs) only pay 8 bytes (nullptr) instead of
+     * ~48 bytes (two empty vectors).
      */
-    std::vector<std::unique_ptr<TSLink>> _child_links;
+    struct LinkSupport {
+        /**
+         * @brief Per-child link tracking for composite types.
+         *
+         * Indexed by child position (field index for TSB, element index for TSL).
+         * - nullptr = local data (non-peered at this position)
+         * - non-null = linked to external output (peered)
+         */
+        std::vector<std::unique_ptr<TSLink>> child_links;
+
+        /**
+         * @brief Per-child TSValue storage for non-peered composite children.
+         *
+         * When a child position is non-peered but is itself a composite type
+         * (TSB or TSL) that may have peered grandchildren, we need nested
+         * TSValues with their own link support.
+         */
+        std::vector<std::unique_ptr<TSValue>> child_values;
+    };
 
     /**
-     * @brief Per-child TSValue storage for non-peered composite children.
+     * @brief Optional link support data.
      *
-     * When a child position is non-peered but is itself a composite type
-     * (TSB or TSL) that may have peered grandchildren, we need nested
-     * TSValues with their own link support.
+     * Only allocated when enable_link_support() is called.
+     * nullptr for outputs and TSValues not used as inputs.
      */
-    std::vector<std::unique_ptr<TSValue>> _child_values;
+    std::unique_ptr<LinkSupport> _link_support;
 
     // ...
 };
@@ -238,13 +262,14 @@ struct TSValue {
 // ========== Query Methods ==========
 
 [[nodiscard]] bool has_link_support() const noexcept {
-    return !_child_links.empty();
+    return _link_support != nullptr;
 }
 
 [[nodiscard]] bool is_linked(size_t index) const noexcept {
-    return index < _child_links.size() &&
-           _child_links[index] != nullptr &&
-           _child_links[index]->bound();
+    if (!_link_support) return false;
+    return index < _link_support->child_links.size() &&
+           _link_support->child_links[index] != nullptr &&
+           _link_support->child_links[index]->bound();
 }
 
 [[nodiscard]] TSLink* link_at(size_t index) noexcept;
@@ -254,7 +279,7 @@ struct TSValue {
 [[nodiscard]] const TSValue* child_value(size_t index) const noexcept;
 
 [[nodiscard]] size_t child_count() const noexcept {
-    return _child_links.size();
+    return _link_support ? _link_support->child_links.size() : 0;
 }
 
 // ========== Modification Methods ==========
@@ -280,24 +305,24 @@ Link support is enabled recursively to handle arbitrary nesting depth (TSB -> TS
 void TSValue::enable_link_support() {
     if (!_ts_meta) return;
 
-    size_t child_count = 0;
+    size_t num_children = 0;
     std::vector<const TSMeta*> child_metas;
 
     switch (_ts_meta->kind()) {
         case TSTypeKind::TSB: {
             auto* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
-            child_count = bundle_meta->field_count();
+            num_children = bundle_meta->field_count();
             // Collect child schemas
-            for (size_t i = 0; i < child_count; ++i) {
+            for (size_t i = 0; i < num_children; ++i) {
                 child_metas.push_back(bundle_meta->field_meta(i));
             }
             break;
         }
         case TSTypeKind::TSL: {
             auto* list_meta = static_cast<const TSLTypeMeta*>(_ts_meta);
-            child_count = list_meta->fixed_size();
+            num_children = list_meta->fixed_size();
             const TSMeta* elem_type = list_meta->element_type();
-            for (size_t i = 0; i < child_count; ++i) {
+            for (size_t i = 0; i < num_children; ++i) {
                 child_metas.push_back(elem_type);
             }
             break;
@@ -306,19 +331,22 @@ void TSValue::enable_link_support() {
             return;  // Scalars, sets, etc. don't have child links
     }
 
-    _child_links.resize(child_count);
-    _child_values.resize(child_count);
+    // Allocate the link support structure (only when needed)
+    _link_support = std::make_unique<LinkSupport>();
+
+    _link_support->child_links.resize(num_children);
+    _link_support->child_values.resize(num_children);
 
     // RECURSIVE: Create child_values for all composite children
     // This ensures the entire nested structure is ready for navigation
-    for (size_t i = 0; i < child_count; ++i) {
+    for (size_t i = 0; i < num_children; ++i) {
         const TSMeta* child_meta = child_metas[i];
         if (child_meta &&
             (child_meta->kind() == TSTypeKind::TSB ||
              child_meta->kind() == TSTypeKind::TSL)) {
             // This child is a composite type - create its TSValue with link support
-            _child_values[i] = std::make_unique<TSValue>(child_meta, _owning_node);
-            _child_values[i]->enable_link_support();  // Recursive call
+            _link_support->child_values[i] = std::make_unique<TSValue>(child_meta, _owning_node);
+            _link_support->child_values[i]->enable_link_support();  // Recursive call
         }
         // For leaf types (TS, TSS, TSW, etc.), child_values[i] stays nullptr
     }
@@ -331,8 +359,8 @@ When binding a link, the output schema is validated against the expected schema:
 
 ```cpp
 void TSValue::create_link(size_t index, const TSValue* output) {
-    if (index >= _child_links.size()) {
-        throw std::out_of_range("TSValue::create_link: index out of bounds");
+    if (!_link_support || index >= _link_support->child_links.size()) {
+        throw std::out_of_range("TSValue::create_link: index out of bounds or link support not enabled");
     }
 
     // Get expected schema for this child position
@@ -387,17 +415,15 @@ void TSValue::create_link(size_t index, const TSValue* output) {
     }
 
     // Create link if it doesn't exist
-    if (!_child_links[index]) {
-        _child_links[index] = std::make_unique<TSLink>(_owning_node);
+    if (!_link_support->child_links[index]) {
+        _link_support->child_links[index] = std::make_unique<TSLink>(_owning_node);
     }
 
     // Bind to the output
-    _child_links[index]->bind(output);
+    _link_support->child_links[index]->bind(output);
 
     // Clear any child value at this position (it's now peered)
-    if (index < _child_values.size()) {
-        _child_values[index].reset();
-    }
+    _link_support->child_values[index].reset();
 }
 ```
 
@@ -732,19 +758,20 @@ Resulting Structure:
 
 TSInputRoot
 └── _value: TSValue (TSB, link support enabled)
-    └── _child_links[3]:
-        [0] TSLink → Output A          // price: peered
-        [1] nullptr                     // orders: non-peered (children peered individually)
-        [2] TSLink → Output E          // metadata: peered (entire bundle)
+    └── _link_support: unique_ptr<LinkSupport>
+        └── child_links[3]:
+            [0] TSLink → Output A          // price: peered
+            [1] nullptr                     // orders: non-peered (children peered individually)
+            [2] TSLink → Output E          // metadata: peered (entire bundle)
 
-    └── _child_values[3]:              // For non-peered children needing nested structure
-        [0] nullptr                     // price: peered, no local value
-        [1] TSValue (TSL, link support) // orders: non-peered list
-            └── _child_links[3]:
-                [0] TSLink → Output B
-                [1] TSLink → Output C
-                [2] TSLink → Output D
-        [2] nullptr                     // metadata: peered, no local value
+        └── child_values[3]:              // For non-peered children needing nested structure
+            [0] nullptr                     // price: peered, no local value
+            [1] TSValue (TSL, link support) // orders: non-peered list
+                └── _link_support->child_links[3]:
+                    [0] TSLink → Output B
+                    [1] TSLink → Output C
+                    [2] TSLink → Output D
+            [2] nullptr                     // metadata: peered, no local value
 ```
 
 Navigation:
@@ -827,3 +854,5 @@ if (input.modified_at(current_time)) {
 5. **Active state preserved across rebind**: Consistent with legacy behavior, simplifies rebinding logic.
 
 6. **_link_source in TSView**: Rather than using `_container` (which is for state access), we use a separate `_link_source` member specifically for link-aware navigation. This keeps concerns separated.
+
+7. **LinkSupport struct optimization**: Link support data (two vectors) is wrapped in a `LinkSupport` struct held via `unique_ptr`. This reduces memory overhead from ~48 bytes (two empty vectors) to 8 bytes (one nullptr) for TSValues that don't need link support - which is the majority (all outputs). The struct is only allocated when `enable_link_support()` is called.
