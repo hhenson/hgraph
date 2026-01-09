@@ -39,6 +39,9 @@
 
 #include <optional>
 #include <string>
+#include <string_view>
+#include <utility>
+#include <vector>
 
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/indexed_view.h>
@@ -523,6 +526,78 @@ struct TSBView : TSView {
      * @return CompositeTSOverlay pointer if overlay exists and is correct type, nullptr otherwise
      */
     [[nodiscard]] CompositeTSOverlay* composite_overlay() const noexcept;
+
+    // ========== Iteration ==========
+
+    /**
+     * @brief Get all field names.
+     *
+     * Returns a vector of field names in the bundle.
+     * This is equivalent to Python's `keys()` on TSB.
+     *
+     * @return Vector of field name string_views
+     */
+    [[nodiscard]] std::vector<std::string_view> keys() const;
+
+    /**
+     * @brief Get all field values as TSViews.
+     *
+     * Returns a vector of TSViews for all fields in the bundle.
+     * This is equivalent to Python's `values()` on TSB.
+     *
+     * @return Vector of TSView for each field
+     */
+    [[nodiscard]] std::vector<TSView> ts_values() const;
+
+    /**
+     * @brief Check if all child time-series are valid.
+     *
+     * For bundles, returns true only if ALL fields are valid (ts_valid() == true).
+     * This matches Python's `all_valid` property on TSB.
+     *
+     * @return true if all fields are valid
+     */
+    [[nodiscard]] bool all_valid() const;
+
+    /**
+     * @brief Get all field name-value pairs.
+     *
+     * Returns a vector of (name, value) pairs where name is a string_view
+     * and value is a TSView. This is equivalent to Python's `items()` on TSB.
+     *
+     * @return Vector of (name, TSView) pairs
+     */
+    [[nodiscard]] std::vector<std::pair<std::string_view, TSView>> items() const;
+
+    /**
+     * @brief Get field names where the value is valid (has been set).
+     *
+     * Returns only field names whose corresponding values have ts_valid() == true.
+     * This is equivalent to Python's `valid_keys()` on TSB.
+     *
+     * @return Vector of string_views for each valid field name
+     */
+    [[nodiscard]] std::vector<std::string_view> valid_keys() const;
+
+    /**
+     * @brief Get field values that are valid (have been set).
+     *
+     * Returns only field values where ts_valid() == true.
+     * This is equivalent to Python's `valid_values()` on TSB.
+     *
+     * @return Vector of TSView for each valid field
+     */
+    [[nodiscard]] std::vector<TSView> valid_values() const;
+
+    /**
+     * @brief Get field name-value pairs where the value is valid.
+     *
+     * Returns only pairs where the value has ts_valid() == true.
+     * This is equivalent to Python's `valid_items()` on TSB.
+     *
+     * @return Vector of (name, TSView) pairs for valid fields
+     */
+    [[nodiscard]] std::vector<std::pair<std::string_view, TSView>> valid_items() const;
 };
 
 /**
@@ -599,6 +674,58 @@ struct TSLView : TSView {
      * @return ListTSOverlay pointer if overlay exists and is correct type, nullptr otherwise
      */
     [[nodiscard]] ListTSOverlay* list_overlay() const noexcept;
+
+    // ========== Iteration ==========
+
+    /**
+     * @brief Get all elements as TSViews.
+     *
+     * Returns a vector of TSViews for all elements in the list.
+     * This is equivalent to Python's `values()` on TSL.
+     *
+     * @return Vector of TSView for each element
+     */
+    [[nodiscard]] std::vector<TSView> ts_values() const;
+
+    /**
+     * @brief Get elements that are valid (have been set).
+     *
+     * Returns only elements where ts_valid() == true.
+     * This is equivalent to Python's `valid_values()` on TSL.
+     *
+     * @return Vector of TSView for each valid element
+     */
+    [[nodiscard]] std::vector<TSView> valid_values() const;
+
+    /**
+     * @brief Get indices of elements that are valid (have been set).
+     *
+     * Returns indices where the element's ts_valid() == true.
+     * This is equivalent to Python's `valid_keys()` on TSL.
+     *
+     * @return Vector of valid indices
+     */
+    [[nodiscard]] std::vector<size_t> valid_indices() const;
+
+    /**
+     * @brief Get index-element pairs where the element is valid.
+     *
+     * Returns only pairs where the element has ts_valid() == true.
+     * This is equivalent to Python's `valid_items()` on TSL.
+     *
+     * @return Vector of (index, TSView) pairs for valid elements
+     */
+    [[nodiscard]] std::vector<std::pair<size_t, TSView>> valid_items() const;
+
+    /**
+     * @brief Check if all elements are valid.
+     *
+     * For lists, returns true only if ALL elements are valid (ts_valid() == true).
+     * This matches Python's `all_valid` property on TSL.
+     *
+     * @return true if all elements are valid
+     */
+    [[nodiscard]] bool all_valid() const;
 };
 
 /**
@@ -687,6 +814,78 @@ struct TSDView : TSView {
      * @return MapTSOverlay pointer if overlay exists and is correct type, nullptr otherwise
      */
     [[nodiscard]] MapTSOverlay* map_overlay() const noexcept;
+
+    // ========== Iteration ==========
+
+    /**
+     * @brief Get all keys as value views.
+     *
+     * Returns a vector of value views for all keys in the dict.
+     * This is equivalent to Python's `keys()` on TSD.
+     *
+     * @return Vector of ConstValueView for each key
+     */
+    [[nodiscard]] std::vector<value::ConstValueView> keys() const;
+
+    /**
+     * @brief Get all values as TSViews.
+     *
+     * Returns a vector of TSViews for all values in the dict.
+     * This is equivalent to Python's `values()` on TSD.
+     *
+     * @return Vector of TSView for each value
+     */
+    [[nodiscard]] std::vector<TSView> ts_values() const;
+
+    /**
+     * @brief Get all key-value pairs.
+     *
+     * Returns a vector of (key, value) pairs where key is a ConstValueView
+     * and value is a TSView. This is equivalent to Python's `items()` on TSD.
+     *
+     * @return Vector of (key, TSView) pairs
+     */
+    [[nodiscard]] std::vector<std::pair<value::ConstValueView, TSView>> items() const;
+
+    /**
+     * @brief Get keys where the value is valid (has been set).
+     *
+     * Returns only keys whose corresponding values have ts_valid() == true.
+     * This is equivalent to Python's `valid_keys()` on TSD.
+     *
+     * @return Vector of ConstValueView for each valid key
+     */
+    [[nodiscard]] std::vector<value::ConstValueView> valid_keys() const;
+
+    /**
+     * @brief Get values that are valid (have been set).
+     *
+     * Returns only values where ts_valid() == true.
+     * This is equivalent to Python's `valid_values()` on TSD.
+     *
+     * @return Vector of TSView for each valid value
+     */
+    [[nodiscard]] std::vector<TSView> valid_values() const;
+
+    /**
+     * @brief Get key-value pairs where the value is valid.
+     *
+     * Returns only pairs where the value has ts_valid() == true.
+     * This is equivalent to Python's `valid_items()` on TSD.
+     *
+     * @return Vector of (key, TSView) pairs for valid entries
+     */
+    [[nodiscard]] std::vector<std::pair<value::ConstValueView, TSView>> valid_items() const;
+
+    /**
+     * @brief Check if all values are valid.
+     *
+     * For dicts, returns true only if ALL values are valid (ts_valid() == true).
+     * This matches Python's `all_valid` property on TSD.
+     *
+     * @return true if all values are valid
+     */
+    [[nodiscard]] bool all_valid() const;
 };
 
 /**
@@ -754,6 +953,76 @@ struct TSSView : TSView {
      * @return SetTSOverlay pointer if overlay exists and is correct type, nullptr otherwise
      */
     [[nodiscard]] SetTSOverlay* set_overlay() const noexcept;
+
+    // ========== Iteration ==========
+
+    /**
+     * @brief Iterator for TSS values.
+     *
+     * Iterates over all elements in the set, yielding value views.
+     * Note: TSS elements are values, not time-series.
+     */
+    class const_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = value::ConstValueView;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const value::ConstValueView*;
+        using reference = value::ConstValueView;
+
+        const_iterator() = default;
+        const_iterator(const TSSView* view, size_t index) noexcept
+            : _view(view), _index(index) {}
+
+        reference operator*() const;
+
+        const_iterator& operator++() {
+            ++_index;
+            return *this;
+        }
+
+        const_iterator operator++(int) {
+            const_iterator tmp = *this;
+            ++_index;
+            return tmp;
+        }
+
+        bool operator==(const const_iterator& other) const {
+            return _view == other._view && _index == other._index;
+        }
+
+        bool operator!=(const const_iterator& other) const {
+            return !(*this == other);
+        }
+
+    private:
+        const TSSView* _view{nullptr};
+        size_t _index{0};
+    };
+
+    /**
+     * @brief Get iterator to the first element.
+     */
+    [[nodiscard]] const_iterator begin() const {
+        return const_iterator(this, 0);
+    }
+
+    /**
+     * @brief Get iterator past the last element.
+     */
+    [[nodiscard]] const_iterator end() const {
+        return const_iterator(this, size());
+    }
+
+    /**
+     * @brief Get all element values as views.
+     *
+     * Returns a vector of value views for all elements in the set.
+     * This is equivalent to Python's `values()` on TSS.
+     *
+     * @return Vector of ConstValueView for each element
+     */
+    [[nodiscard]] std::vector<value::ConstValueView> values() const;
 };
 
 // ============================================================================

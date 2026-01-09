@@ -689,4 +689,389 @@ SetTSOverlay* TSSView::set_overlay() const noexcept {
     return static_cast<SetTSOverlay*>(_overlay);
 }
 
+value::ConstValueView TSSView::const_iterator::operator*() const {
+    if (!_view || !_view->valid()) {
+        throw std::runtime_error("TSSView::const_iterator::operator*(): invalid view");
+    }
+    value::ConstSetView set_view = _view->value_view().as_set();
+    return set_view.at(_index);
+}
+
+std::vector<value::ConstValueView> TSSView::values() const {
+    std::vector<value::ConstValueView> result;
+    if (!valid()) return result;
+
+    result.reserve(size());
+    for (auto it = begin(); it != end(); ++it) {
+        result.push_back(*it);
+    }
+    return result;
+}
+
+// ============================================================================
+// TSBView Iteration Implementation
+// ============================================================================
+
+std::vector<std::string_view> TSBView::keys() const {
+    std::vector<std::string_view> result;
+    if (!valid()) return result;
+
+    const auto* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+    result.reserve(bundle_meta->field_count());
+
+    for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
+        result.push_back(bundle_meta->field(i).name);
+    }
+    return result;
+}
+
+std::vector<TSView> TSBView::ts_values() const {
+    std::vector<TSView> result;
+    if (!valid()) return result;
+
+    const auto* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+    result.reserve(bundle_meta->field_count());
+
+    for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
+        result.push_back(field(i));
+    }
+    return result;
+}
+
+std::vector<std::pair<std::string_view, TSView>> TSBView::items() const {
+    std::vector<std::pair<std::string_view, TSView>> result;
+    if (!valid()) return result;
+
+    const auto* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+    result.reserve(bundle_meta->field_count());
+
+    for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
+        result.emplace_back(bundle_meta->field(i).name, field(i));
+    }
+    return result;
+}
+
+std::vector<std::string_view> TSBView::valid_keys() const {
+    std::vector<std::string_view> result;
+    if (!valid()) return result;
+
+    const auto* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+
+    for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
+        TSView field_view = field(i);
+        if (field_view.ts_valid()) {
+            result.push_back(bundle_meta->field(i).name);
+        }
+    }
+    return result;
+}
+
+std::vector<TSView> TSBView::valid_values() const {
+    std::vector<TSView> result;
+    if (!valid()) return result;
+
+    const auto* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+
+    for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
+        TSView field_view = field(i);
+        if (field_view.ts_valid()) {
+            result.push_back(field_view);
+        }
+    }
+    return result;
+}
+
+std::vector<std::pair<std::string_view, TSView>> TSBView::valid_items() const {
+    std::vector<std::pair<std::string_view, TSView>> result;
+    if (!valid()) return result;
+
+    const auto* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+
+    for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
+        TSView field_view = field(i);
+        if (field_view.ts_valid()) {
+            result.emplace_back(bundle_meta->field(i).name, field_view);
+        }
+    }
+    return result;
+}
+
+// ============================================================================
+// TSLView Iteration Implementation
+// ============================================================================
+
+std::vector<TSView> TSLView::ts_values() const {
+    std::vector<TSView> result;
+    if (!valid()) return result;
+
+    size_t count = size();
+    result.reserve(count);
+
+    for (size_t i = 0; i < count; ++i) {
+        result.push_back(element(i));
+    }
+    return result;
+}
+
+std::vector<TSView> TSLView::valid_values() const {
+    std::vector<TSView> result;
+    if (!valid()) return result;
+
+    size_t count = size();
+
+    for (size_t i = 0; i < count; ++i) {
+        TSView elem_view = element(i);
+        if (elem_view.ts_valid()) {
+            result.push_back(elem_view);
+        }
+    }
+    return result;
+}
+
+std::vector<size_t> TSLView::valid_indices() const {
+    std::vector<size_t> result;
+    if (!valid()) return result;
+
+    size_t count = size();
+
+    for (size_t i = 0; i < count; ++i) {
+        TSView elem_view = element(i);
+        if (elem_view.ts_valid()) {
+            result.push_back(i);
+        }
+    }
+    return result;
+}
+
+std::vector<std::pair<size_t, TSView>> TSLView::valid_items() const {
+    std::vector<std::pair<size_t, TSView>> result;
+    if (!valid()) return result;
+
+    size_t count = size();
+
+    for (size_t i = 0; i < count; ++i) {
+        TSView elem_view = element(i);
+        if (elem_view.ts_valid()) {
+            result.emplace_back(i, elem_view);
+        }
+    }
+    return result;
+}
+
+// ============================================================================
+// TSDView Iteration Implementation
+// ============================================================================
+
+std::vector<value::ConstValueView> TSDView::keys() const {
+    std::vector<value::ConstValueView> result;
+    if (!valid()) return result;
+
+    value::ConstMapView map_view = _view.as_map();
+    size_t count = map_view.size();
+    result.reserve(count);
+
+    for (size_t i = 0; i < count; ++i) {
+        result.push_back(map_view.key_at(i));
+    }
+    return result;
+}
+
+std::vector<TSView> TSDView::ts_values() const {
+    std::vector<TSView> result;
+    if (!valid()) return result;
+
+    value::ConstMapView map_view = _view.as_map();
+    size_t count = map_view.size();
+    result.reserve(count);
+
+    const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
+    const TSMeta* value_ts_type = dict_meta->value_ts_type();
+
+    for (size_t i = 0; i < count; ++i) {
+        value::ConstValueView value_view = map_view.value_at(i);
+        LightweightPath child_path = _path.with(i);
+
+        if (auto* map_ov = map_overlay()) {
+            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            result.emplace_back(value_view.data(), value_ts_type, value_ov, _root, std::move(child_path));
+        } else {
+            result.emplace_back(value_view.data(), value_ts_type, nullptr, _root, std::move(child_path));
+        }
+    }
+    return result;
+}
+
+std::vector<std::pair<value::ConstValueView, TSView>> TSDView::items() const {
+    std::vector<std::pair<value::ConstValueView, TSView>> result;
+    if (!valid()) return result;
+
+    value::ConstMapView map_view = _view.as_map();
+    size_t count = map_view.size();
+    result.reserve(count);
+
+    const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
+    const TSMeta* value_ts_type = dict_meta->value_ts_type();
+
+    for (size_t i = 0; i < count; ++i) {
+        value::ConstValueView key_view = map_view.key_at(i);
+        value::ConstValueView value_view = map_view.value_at(i);
+        LightweightPath child_path = _path.with(i);
+
+        TSView ts_val;
+        if (auto* map_ov = map_overlay()) {
+            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            ts_val = TSView(value_view.data(), value_ts_type, value_ov, _root, std::move(child_path));
+        } else {
+            ts_val = TSView(value_view.data(), value_ts_type, nullptr, _root, std::move(child_path));
+        }
+        result.emplace_back(key_view, ts_val);
+    }
+    return result;
+}
+
+std::vector<value::ConstValueView> TSDView::valid_keys() const {
+    std::vector<value::ConstValueView> result;
+    if (!valid()) return result;
+
+    value::ConstMapView map_view = _view.as_map();
+    size_t count = map_view.size();
+
+    const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
+    const TSMeta* value_ts_type = dict_meta->value_ts_type();
+
+    for (size_t i = 0; i < count; ++i) {
+        value::ConstValueView value_view = map_view.value_at(i);
+
+        // Create TSView to check validity
+        TSView ts_val;
+        if (auto* map_ov = map_overlay()) {
+            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            ts_val = TSView(value_view.data(), value_ts_type, value_ov);
+        } else {
+            ts_val = TSView(value_view.data(), value_ts_type);
+        }
+
+        if (ts_val.ts_valid()) {
+            result.push_back(map_view.key_at(i));
+        }
+    }
+    return result;
+}
+
+std::vector<TSView> TSDView::valid_values() const {
+    std::vector<TSView> result;
+    if (!valid()) return result;
+
+    value::ConstMapView map_view = _view.as_map();
+    size_t count = map_view.size();
+
+    const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
+    const TSMeta* value_ts_type = dict_meta->value_ts_type();
+
+    for (size_t i = 0; i < count; ++i) {
+        value::ConstValueView value_view = map_view.value_at(i);
+        LightweightPath child_path = _path.with(i);
+
+        TSView ts_val;
+        if (auto* map_ov = map_overlay()) {
+            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            ts_val = TSView(value_view.data(), value_ts_type, value_ov, _root, std::move(child_path));
+        } else {
+            ts_val = TSView(value_view.data(), value_ts_type, nullptr, _root, std::move(child_path));
+        }
+
+        if (ts_val.ts_valid()) {
+            result.push_back(ts_val);
+        }
+    }
+    return result;
+}
+
+std::vector<std::pair<value::ConstValueView, TSView>> TSDView::valid_items() const {
+    std::vector<std::pair<value::ConstValueView, TSView>> result;
+    if (!valid()) return result;
+
+    value::ConstMapView map_view = _view.as_map();
+    size_t count = map_view.size();
+
+    const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
+    const TSMeta* value_ts_type = dict_meta->value_ts_type();
+
+    for (size_t i = 0; i < count; ++i) {
+        value::ConstValueView key_view = map_view.key_at(i);
+        value::ConstValueView value_view = map_view.value_at(i);
+        LightweightPath child_path = _path.with(i);
+
+        TSView ts_val;
+        if (auto* map_ov = map_overlay()) {
+            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            ts_val = TSView(value_view.data(), value_ts_type, value_ov, _root, std::move(child_path));
+        } else {
+            ts_val = TSView(value_view.data(), value_ts_type, nullptr, _root, std::move(child_path));
+        }
+
+        if (ts_val.ts_valid()) {
+            result.emplace_back(key_view, ts_val);
+        }
+    }
+    return result;
+}
+
+// ============================================================================
+// all_valid() Implementations
+// ============================================================================
+
+bool TSBView::all_valid() const {
+    if (!valid()) return false;
+
+    const auto* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+    for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
+        TSView field_view = field(i);
+        if (!field_view.ts_valid()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool TSLView::all_valid() const {
+    if (!valid()) return false;
+
+    size_t count = size();
+    for (size_t i = 0; i < count; ++i) {
+        TSView elem_view = element(i);
+        if (!elem_view.ts_valid()) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool TSDView::all_valid() const {
+    if (!valid()) return false;
+
+    value::ConstMapView map_view = _view.as_map();
+    size_t count = map_view.size();
+
+    const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
+    const TSMeta* value_ts_type = dict_meta->value_ts_type();
+
+    for (size_t i = 0; i < count; ++i) {
+        value::ConstValueView value_view = map_view.value_at(i);
+
+        TSView ts_val;
+        if (auto* map_ov = map_overlay()) {
+            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            ts_val = TSView(value_view.data(), value_ts_type, value_ov);
+        } else {
+            ts_val = TSView(value_view.data(), value_ts_type);
+        }
+
+        if (!ts_val.ts_valid()) {
+            return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace hgraph
