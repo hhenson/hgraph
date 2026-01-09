@@ -19,6 +19,7 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_overlay_storage.h>
 #include <hgraph/types/time_series/ts_link.h>
+#include <hgraph/types/time_series/ts_ref_target_link.h>
 
 namespace hgraph {
 
@@ -271,10 +272,14 @@ private:
          * @brief Per-child link tracking for composite types.
          *
          * Indexed by child position (field index for TSB, element index for TSL).
-         * - nullptr = local data (non-peered at this position)
-         * - non-null = linked to external output (peered)
+         * Uses LinkStorage variant to support both TSLink (non-REF) and
+         * TSRefTargetLink (REF->TS) with zero overhead for the common case.
+         *
+         * - monostate = local data (non-peered at this position)
+         * - TSLink = linked to non-REF external output
+         * - TSRefTargetLink = linked to REF external output
          */
-        std::vector<std::unique_ptr<TSLink>> child_links;
+        std::vector<LinkStorage> child_links;
 
         /**
          * @brief Per-child TSValue storage for non-peered composite children.
@@ -328,29 +333,72 @@ public:
      */
     [[nodiscard]] bool is_linked(size_t index) const noexcept {
         if (!_link_support) return false;
-        return index < _link_support->child_links.size() &&
-               _link_support->child_links[index] != nullptr &&
-               _link_support->child_links[index]->bound();
+        if (index >= _link_support->child_links.size()) return false;
+        return link_storage_bound(_link_support->child_links[index]);
     }
 
     /**
-     * @brief Get link at index (mutable).
+     * @brief Get TSLink at index (for non-REF bindings).
      * @param index Child position
-     * @return TSLink pointer, or nullptr if not linked
+     * @return TSLink pointer, or nullptr if not linked or is REF binding
      */
     [[nodiscard]] TSLink* link_at(size_t index) noexcept {
-        if (!_link_support) return nullptr;
-        return index < _link_support->child_links.size() ? _link_support->child_links[index].get() : nullptr;
+        if (!_link_support || index >= _link_support->child_links.size()) return nullptr;
+        auto* ptr = std::get_if<std::unique_ptr<TSLink>>(&_link_support->child_links[index]);
+        return ptr ? ptr->get() : nullptr;
     }
 
     /**
-     * @brief Get link at index (const).
+     * @brief Get TSLink at index (const, for non-REF bindings).
      * @param index Child position
-     * @return TSLink pointer, or nullptr if not linked
+     * @return TSLink pointer, or nullptr if not linked or is REF binding
      */
     [[nodiscard]] const TSLink* link_at(size_t index) const noexcept {
-        if (!_link_support) return nullptr;
-        return index < _link_support->child_links.size() ? _link_support->child_links[index].get() : nullptr;
+        if (!_link_support || index >= _link_support->child_links.size()) return nullptr;
+        auto* ptr = std::get_if<std::unique_ptr<TSLink>>(&_link_support->child_links[index]);
+        return ptr ? ptr->get() : nullptr;
+    }
+
+    /**
+     * @brief Get TSRefTargetLink at index (for REF->TS bindings).
+     * @param index Child position
+     * @return TSRefTargetLink pointer, or nullptr if not linked or is non-REF binding
+     */
+    [[nodiscard]] TSRefTargetLink* ref_link_at(size_t index) noexcept {
+        if (!_link_support || index >= _link_support->child_links.size()) return nullptr;
+        auto* ptr = std::get_if<std::unique_ptr<TSRefTargetLink>>(&_link_support->child_links[index]);
+        return ptr ? ptr->get() : nullptr;
+    }
+
+    /**
+     * @brief Get TSRefTargetLink at index (const, for REF->TS bindings).
+     * @param index Child position
+     * @return TSRefTargetLink pointer, or nullptr if not linked or is non-REF binding
+     */
+    [[nodiscard]] const TSRefTargetLink* ref_link_at(size_t index) const noexcept {
+        if (!_link_support || index >= _link_support->child_links.size()) return nullptr;
+        auto* ptr = std::get_if<std::unique_ptr<TSRefTargetLink>>(&_link_support->child_links[index]);
+        return ptr ? ptr->get() : nullptr;
+    }
+
+    /**
+     * @brief Get LinkStorage at index (for direct variant access).
+     * @param index Child position
+     * @return Pointer to LinkStorage, or nullptr if no link support
+     */
+    [[nodiscard]] LinkStorage* link_storage_at(size_t index) noexcept {
+        if (!_link_support || index >= _link_support->child_links.size()) return nullptr;
+        return &_link_support->child_links[index];
+    }
+
+    /**
+     * @brief Get LinkStorage at index (const).
+     * @param index Child position
+     * @return Pointer to const LinkStorage, or nullptr if no link support
+     */
+    [[nodiscard]] const LinkStorage* link_storage_at(size_t index) const noexcept {
+        if (!_link_support || index >= _link_support->child_links.size()) return nullptr;
+        return &_link_support->child_links[index];
     }
 
     /**

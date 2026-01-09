@@ -250,22 +250,47 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         }
     }
 
-    // Create link if it doesn't exist
-    if (!_link_support->child_links[index]) {
-        _link_support->child_links[index] = std::make_unique<TSLink>(_owning_node);
-    }
+    // Check if output is a REF type (requires TSRefTargetLink)
+    bool is_ref_output = output && output->ts_meta() && output->ts_meta()->is_reference();
 
-    // Bind to the output
-    _link_support->child_links[index]->bind(output);
+    if (is_ref_output) {
+        // REF->TS binding: use TSRefTargetLink
+        auto* existing_ref = ref_link_at(index);
+        if (!existing_ref) {
+            // Create new TSRefTargetLink
+            auto ref_link = std::make_unique<TSRefTargetLink>(_owning_node);
+            // NOTE: bind_ref() and observer registration should be done by caller
+            // For now, just bind the target link to the output (simplified path)
+            // Full REF integration requires TimeSeriesReferenceOutput integration
+            _link_support->child_links[index] = std::move(ref_link);
+        }
+        // The actual binding to REF output is handled by higher-level code
+        // that has access to the TimeSeriesReferenceOutput for observer registration
+    } else {
+        // Standard non-REF binding: use TSLink
+        auto* existing_link = link_at(index);
+        if (!existing_link) {
+            // Create new TSLink
+            _link_support->child_links[index] = std::make_unique<TSLink>(_owning_node);
+        }
+        // Bind to the output
+        link_at(index)->bind(output);
+    }
 
     // Clear any child value at this position (it's now peered)
     _link_support->child_values[index].reset();
 }
 
 void TSValue::remove_link(size_t index) {
-    if (_link_support && index < _link_support->child_links.size() && _link_support->child_links[index]) {
-        _link_support->child_links[index]->unbind();
-    }
+    if (!_link_support || index >= _link_support->child_links.size()) return;
+
+    // Unbind via visitor pattern
+    std::visit([](auto& link) {
+        using T = std::decay_t<decltype(link)>;
+        if constexpr (!std::is_same_v<T, std::monostate>) {
+            if (link) link->unbind();
+        }
+    }, _link_support->child_links[index]);
 }
 
 TSValue* TSValue::get_or_create_child_value(size_t index) {
@@ -314,9 +339,7 @@ void TSValue::make_links_active() {
 
     // Activate all direct links
     for (auto& link : _link_support->child_links) {
-        if (link) {
-            link->make_active();
-        }
+        link_storage_make_active(link);
     }
 
     // Recursively activate non-linked children that have links
@@ -332,9 +355,7 @@ void TSValue::make_links_passive() {
 
     // Deactivate all direct links
     for (auto& link : _link_support->child_links) {
-        if (link) {
-            link->make_passive();
-        }
+        link_storage_make_passive(link);
     }
 
     // Recursively deactivate non-linked children

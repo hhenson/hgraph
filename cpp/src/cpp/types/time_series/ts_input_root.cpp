@@ -3,6 +3,7 @@
 //
 
 #include <hgraph/types/time_series/ts_input_root.h>
+#include <hgraph/types/time_series/ts_ref_target_link.h>
 #include <stdexcept>
 
 namespace hgraph {
@@ -91,11 +92,10 @@ void TSInputRoot::bind_field(size_t index, const TSValue* output) {
 
     _value.create_link(index, output);
 
-    // If active, the link should auto-subscribe (handled in create_link via TSLink)
+    // If active, make the link active (handles both TSLink and TSRefTargetLink)
     if (_active) {
-        TSLink* link = _value.link_at(index);
-        if (link) {
-            link->make_active();
+        if (auto* storage = _value.link_storage_at(index)) {
+            link_storage_make_active(*storage);
         }
     }
 }
@@ -171,10 +171,10 @@ bool TSInputRoot::modified_at(engine_time_t time) const {
         return false;
     }
 
-    // Check all linked fields
+    // Check all linked fields (handles both TSLink and TSRefTargetLink)
     for (size_t i = 0; i < _value.child_count(); ++i) {
-        if (auto* link = _value.link_at(i)) {
-            if (link->modified_at(time)) {
+        if (auto* storage = _value.link_storage_at(i)) {
+            if (link_storage_modified_at(*storage, time)) {
                 return true;
             }
         }
@@ -189,10 +189,10 @@ bool TSInputRoot::all_valid() const {
         return false;
     }
 
-    // Check all linked fields
+    // Check all linked fields (handles both TSLink and TSRefTargetLink)
     for (size_t i = 0; i < _value.child_count(); ++i) {
-        if (auto* link = _value.link_at(i)) {
-            if (!link->valid()) {
+        if (auto* storage = _value.link_storage_at(i)) {
+            if (link_storage_bound(*storage) && !link_storage_valid(*storage)) {
                 return false;
             }
         }
@@ -209,10 +209,10 @@ engine_time_t TSInputRoot::last_modified_time() const {
 
     engine_time_t latest = MIN_DT;
 
-    // Find the most recent modification time
+    // Find the most recent modification time (handles both TSLink and TSRefTargetLink)
     for (size_t i = 0; i < _value.child_count(); ++i) {
-        if (auto* link = _value.link_at(i)) {
-            engine_time_t link_time = link->last_modified_time();
+        if (auto* storage = _value.link_storage_at(i)) {
+            engine_time_t link_time = link_storage_last_modified_time(*storage);
             if (link_time > latest) {
                 latest = link_time;
             }

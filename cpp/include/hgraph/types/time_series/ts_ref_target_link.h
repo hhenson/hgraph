@@ -18,6 +18,7 @@
 
 #include <hgraph/types/time_series/ts_link.h>
 #include <hgraph/types/time_series/ts_path.h>
+#include <hgraph/types/time_series/ts_view.h>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -27,7 +28,6 @@ namespace hgraph {
 
 // Forward declarations
 struct TSValue;
-struct TSView;
 struct TimeSeriesReferenceOutput;
 
 /**
