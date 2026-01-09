@@ -77,6 +77,8 @@ TSBView TSView::as_bundle() const {
     // Propagate path tracking
     result._root = _root;
     result._path = _path;
+    // Propagate link source for transparent link navigation
+    result._link_source = _link_source;
     return result;
 }
 
@@ -93,6 +95,8 @@ TSLView TSView::as_list() const {
     // Propagate path tracking
     result._root = _root;
     result._path = _path;
+    // Propagate link source for transparent link navigation
+    result._link_source = _link_source;
     return result;
 }
 
@@ -109,6 +113,8 @@ TSDView TSView::as_dict() const {
     // Propagate path tracking
     result._root = _root;
     result._path = _path;
+    // Propagate link source for transparent link navigation
+    result._link_source = _link_source;
     return result;
 }
 
@@ -125,6 +131,8 @@ TSSView TSView::as_set() const {
     // Propagate path tracking
     result._root = _root;
     result._path = _path;
+    // Propagate link source for transparent link navigation
+    result._link_source = _link_source;
     return result;
 }
 
@@ -372,21 +380,41 @@ TSView TSBView::field(const std::string& name) const {
         throw std::runtime_error("TSBView::field(): field '" + name + "' not found");
     }
 
+    size_t index = field_info->index;
+
+    // ===== Link Support: Check if this child is linked =====
+    if (_link_source && _link_source->is_linked(index)) {
+        // Follow the link - return view into the linked output
+        TSLink* link = const_cast<TSValue*>(_link_source)->link_at(index);
+        return link->view();
+    }
+
     // Navigate to the field data using the bundle view
     value::ConstBundleView bundle_view = _view.as_bundle();
     value::ConstValueView field_value = bundle_view.at(name);
 
     // Extend path with field ordinal
-    LightweightPath child_path = _path.with(field_info->index);
+    LightweightPath child_path = _path.with(index);
+
+    // ===== Link Support: Check for nested TSValue with links =====
+    const TSValue* child_link_source = nullptr;
+    if (_link_source) {
+        // Check if there's a nested non-peered child with link support
+        child_link_source = const_cast<TSValue*>(_link_source)->child_value(index);
+    }
 
     // Use overlay-based child navigation with path
     if (auto* composite = composite_overlay()) {
-        TSOverlayStorage* child_overlay = composite->child(field_info->index);
-        return TSView(field_value.data(), field_info->type, child_overlay, _root, std::move(child_path));
+        TSOverlayStorage* child_overlay = composite->child(index);
+        TSView result(field_value.data(), field_info->type, child_overlay, _root, std::move(child_path));
+        result.set_link_source(child_link_source);
+        return result;
     }
 
     // No overlay - return view with path but without tracking
-    return TSView(field_value.data(), field_info->type, nullptr, _root, std::move(child_path));
+    TSView result(field_value.data(), field_info->type, nullptr, _root, std::move(child_path));
+    result.set_link_source(child_link_source);
+    return result;
 }
 
 TSView TSBView::field(size_t index) const {
@@ -401,6 +429,13 @@ TSView TSBView::field(size_t index) const {
                                 " out of range (size=" + std::to_string(bundle_meta->field_count()) + ")");
     }
 
+    // ===== Link Support: Check if this child is linked =====
+    if (_link_source && _link_source->is_linked(index)) {
+        // Follow the link - return view into the linked output
+        TSLink* link = const_cast<TSValue*>(_link_source)->link_at(index);
+        return link->view();
+    }
+
     const TSBFieldInfo& field_info = bundle_meta->field(index);
 
     // Navigate to the field data using the bundle view by name
@@ -410,14 +445,25 @@ TSView TSBView::field(size_t index) const {
     // Extend path with field ordinal
     LightweightPath child_path = _path.with(index);
 
+    // ===== Link Support: Check for nested TSValue with links =====
+    const TSValue* child_link_source = nullptr;
+    if (_link_source) {
+        // Check if there's a nested non-peered child with link support
+        child_link_source = const_cast<TSValue*>(_link_source)->child_value(index);
+    }
+
     // Use overlay-based child navigation with path
     if (auto* composite = composite_overlay()) {
         TSOverlayStorage* child_overlay = composite->child(index);
-        return TSView(field_value.data(), field_info.type, child_overlay, _root, std::move(child_path));
+        TSView result(field_value.data(), field_info.type, child_overlay, _root, std::move(child_path));
+        result.set_link_source(child_link_source);
+        return result;
     }
 
     // No overlay - return view with path but without tracking
-    return TSView(field_value.data(), field_info.type, nullptr, _root, std::move(child_path));
+    TSView result(field_value.data(), field_info.type, nullptr, _root, std::move(child_path));
+    result.set_link_source(child_link_source);
+    return result;
 }
 
 size_t TSBView::field_count() const noexcept {
@@ -465,6 +511,13 @@ TSView TSLView::element(size_t index) const {
         throw std::runtime_error("TSLView::element() called on invalid view");
     }
 
+    // ===== Link Support: Check if this element is linked =====
+    if (_link_source && _link_source->is_linked(index)) {
+        // Follow the link - return view into the linked output
+        TSLink* link = const_cast<TSValue*>(_link_source)->link_at(index);
+        return link->view();
+    }
+
     const TSLTypeMeta* list_meta_ptr = static_cast<const TSLTypeMeta*>(_ts_meta);
     const TSMeta* element_type = list_meta_ptr->element_type();
 
@@ -481,14 +534,25 @@ TSView TSLView::element(size_t index) const {
     // Extend path with element index
     LightweightPath child_path = _path.with(index);
 
+    // ===== Link Support: Check for nested TSValue with links =====
+    const TSValue* child_link_source = nullptr;
+    if (_link_source) {
+        // Check if there's a nested non-peered child with link support
+        child_link_source = const_cast<TSValue*>(_link_source)->child_value(index);
+    }
+
     // Use overlay-based child navigation with path
     if (auto* list_ov = list_overlay()) {
         TSOverlayStorage* child_overlay = list_ov->child(index);
-        return TSView(element_value.data(), element_type, child_overlay, _root, std::move(child_path));
+        TSView result(element_value.data(), element_type, child_overlay, _root, std::move(child_path));
+        result.set_link_source(child_link_source);
+        return result;
     }
 
     // No overlay - return view with path but without tracking
-    return TSView(element_value.data(), element_type, nullptr, _root, std::move(child_path));
+    TSView result(element_value.data(), element_type, nullptr, _root, std::move(child_path));
+    result.set_link_source(child_link_source);
+    return result;
 }
 
 size_t TSLView::size() const noexcept {

@@ -18,6 +18,7 @@
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_overlay_storage.h>
+#include <hgraph/types/time_series/ts_link.h>
 
 namespace hgraph {
 
@@ -255,6 +256,177 @@ private:
     const TSMeta* _ts_meta{nullptr};                ///< Time-series schema
     Node* _owning_node{nullptr};                    ///< Owning node (not owned)
     int _output_id{OUTPUT_MAIN};                    ///< Output identifier
+
+    // ========== Link Support (for inputs) ==========
+
+    /**
+     * @brief Container for link support data.
+     *
+     * Separated into its own struct so that TSValues without link support
+     * (the majority - all outputs) only pay 8 bytes (nullptr) instead of
+     * ~48 bytes (two empty vectors).
+     */
+    struct LinkSupport {
+        /**
+         * @brief Per-child link tracking for composite types.
+         *
+         * Indexed by child position (field index for TSB, element index for TSL).
+         * - nullptr = local data (non-peered at this position)
+         * - non-null = linked to external output (peered)
+         */
+        std::vector<std::unique_ptr<TSLink>> child_links;
+
+        /**
+         * @brief Per-child TSValue storage for non-peered composite children.
+         *
+         * When a child position is non-peered but is itself a composite type
+         * (TSB or TSL) that may have peered grandchildren, we need nested
+         * TSValues with their own link support.
+         *
+         * - nullptr = child is either peered (use link) or a leaf type
+         * - non-null = child is a non-peered composite with nested structure
+         */
+        std::vector<std::unique_ptr<TSValue>> child_values;
+    };
+
+    /**
+     * @brief Optional link support data.
+     *
+     * Only allocated when enable_link_support() is called.
+     * nullptr for outputs and TSValues not used as inputs.
+     */
+    std::unique_ptr<LinkSupport> _link_support;
+
+public:
+    // ========== Link Support API ==========
+
+    /**
+     * @brief Check if this TSValue has link support enabled.
+     *
+     * Link support is enabled for TSValues used as inputs to allow
+     * binding child positions to external outputs.
+     */
+    [[nodiscard]] bool has_link_support() const noexcept {
+        return _link_support != nullptr;
+    }
+
+    /**
+     * @brief Enable link support for this TSValue.
+     *
+     * Allocates link slots for each child position based on schema.
+     * Initially all slots are nullptr (non-peered/local).
+     * Call this to make a TSValue usable as an input.
+     *
+     * Only valid for composite types (TSB, TSL). No-op for scalars.
+     */
+    void enable_link_support();
+
+    /**
+     * @brief Check if child at index is linked (peered).
+     * @param index Child position (field index for TSB, element index for TSL)
+     * @return true if the child is linked to an external output
+     */
+    [[nodiscard]] bool is_linked(size_t index) const noexcept {
+        if (!_link_support) return false;
+        return index < _link_support->child_links.size() &&
+               _link_support->child_links[index] != nullptr &&
+               _link_support->child_links[index]->bound();
+    }
+
+    /**
+     * @brief Get link at index (mutable).
+     * @param index Child position
+     * @return TSLink pointer, or nullptr if not linked
+     */
+    [[nodiscard]] TSLink* link_at(size_t index) noexcept {
+        if (!_link_support) return nullptr;
+        return index < _link_support->child_links.size() ? _link_support->child_links[index].get() : nullptr;
+    }
+
+    /**
+     * @brief Get link at index (const).
+     * @param index Child position
+     * @return TSLink pointer, or nullptr if not linked
+     */
+    [[nodiscard]] const TSLink* link_at(size_t index) const noexcept {
+        if (!_link_support) return nullptr;
+        return index < _link_support->child_links.size() ? _link_support->child_links[index].get() : nullptr;
+    }
+
+    /**
+     * @brief Create a link at child position (makes it peered).
+     *
+     * If a link already exists at this position, it is rebound.
+     *
+     * @param index Child position (field index or element index)
+     * @param output The TSValue output to link to
+     */
+    void create_link(size_t index, const TSValue* output);
+
+    /**
+     * @brief Remove link at child position (unbind).
+     *
+     * Active state of the link is preserved.
+     *
+     * @param index Child position
+     */
+    void remove_link(size_t index);
+
+    /**
+     * @brief Get nested TSValue for non-peered composite child.
+     *
+     * For non-peered children that are themselves composite types,
+     * this returns the nested TSValue that holds their link structure.
+     *
+     * @param index Child position
+     * @return Pointer to child TSValue, or nullptr if linked or leaf
+     */
+    [[nodiscard]] TSValue* child_value(size_t index) noexcept {
+        if (!_link_support) return nullptr;
+        return index < _link_support->child_values.size() ? _link_support->child_values[index].get() : nullptr;
+    }
+
+    /**
+     * @brief Get nested TSValue for non-peered composite child (const).
+     */
+    [[nodiscard]] const TSValue* child_value(size_t index) const noexcept {
+        if (!_link_support) return nullptr;
+        return index < _link_support->child_values.size() ? _link_support->child_values[index].get() : nullptr;
+    }
+
+    /**
+     * @brief Get or create a non-peered child TSValue at index.
+     *
+     * For non-peered children that are themselves collections,
+     * we need nested TSValues with their own link support.
+     *
+     * @param index Child position
+     * @return Pointer to child TSValue (created if needed)
+     */
+    TSValue* get_or_create_child_value(size_t index);
+
+    /**
+     * @brief Make all links active (subscribe to their outputs).
+     *
+     * Recursively activates any non-linked children that have links.
+     */
+    void make_links_active();
+
+    /**
+     * @brief Make all links passive (unsubscribe from their outputs).
+     *
+     * Recursively deactivates any non-linked children.
+     */
+    void make_links_passive();
+
+    /**
+     * @brief Get the number of child slots (for link support).
+     *
+     * Returns 0 if link support is not enabled.
+     */
+    [[nodiscard]] size_t child_count() const noexcept {
+        return _link_support ? _link_support->child_links.size() : 0;
+    }
 };
 
 // ============================================================================

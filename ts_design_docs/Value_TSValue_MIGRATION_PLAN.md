@@ -259,6 +259,8 @@ This phase is now implemented in the Value layer as a composition-based (non-inh
 
 ### Phase 4 — Replace `tracking_value` with overlay-driven tracking
 
+**Status:** Complete (2026-01-08)
+
 1. Deprecate the separate `tracking_schema_from(...)` / `tracking_value_type` approach for runtime behavior.
 2. Implement tracking and `ts_valid` semantics from the overlay storage directly.
 3. Ensure view-based mutation paths update timestamps consistently:
@@ -266,11 +268,46 @@ This phase is now implemented in the Value layer as a composition-based (non-inh
 
 **Exit criteria:** hierarchical timestamps are correct and consistent across all mutation routes.
 
+#### Phase 4 implementation notes (delivered)
+
+**Removed dead code:**
+- Removed `tracking_schema_from()` function from `ts_type_meta.cpp` and `ts_type_meta.h`
+  - This function created parallel timestamp schemas but was never called externally
+  - Only had recursive internal calls, completely dead code
+
+**Removed legacy tracking_view from TSView:**
+- Removed `_tracking_view` member variable
+- Removed constructor `TSView(data, ts_meta, tracking_view)`
+- Removed `has_tracking()` method
+- Removed `tracking_view()` accessor
+
+**Removed legacy tracking_view from TSMutableView:**
+- Removed `_mutable_tracking_view` member variable
+- Removed constructor `TSMutableView(data, ts_meta, tracking_view)`
+- Removed `mutable_tracking_view()` accessor
+
+**Already using overlay as canonical source:**
+- `notify_modified()` - uses `_overlay->mark_modified(time)`
+- `invalidate_ts()` - uses `_overlay->mark_invalid()`
+- `ts_valid()` - uses `_overlay->last_modified_time() != MIN_DT`
+- `modified_at()` - uses `_overlay->last_modified_time() == time`
+- `last_modified_time()` - uses `_overlay->last_modified_time()`
+
+**Files modified:**
+- `cpp/include/hgraph/types/time_series/ts_view.h`
+- `cpp/src/cpp/types/time_series/ts_view.cpp`
+- `cpp/include/hgraph/types/time_series/ts_type_meta.h`
+- `cpp/src/cpp/types/time_series/ts_type_meta.cpp`
+
+**Tests:**
+- All C++ tests pass (303 + 33 assertions)
+- All Python type tests pass (896 passed, 97 skipped)
+
 ---
 
 ### Phase 5 — Observability: hierarchical subscriptions compatible with legacy `Notifiable`
 
-**Status:** Design Complete (2026-01-07)
+**Status:** Complete (2026-01-08)
 
 **Design Documents:**
 - `Phase5_Hierarchical_Subscriptions_DESIGN.md` - Technical design
@@ -293,17 +330,45 @@ This phase is now implemented in the Value layer as a composition-based (non-inh
 - Deduplication handled at observer level (matches legacy `_notify_time` pattern)
 - Structural changes: observers follow data in swap-with-last, orphaned on removal
 
-**Implementation Tasks:**
-1. Add `subscribe()`/`unsubscribe()` to `TSOverlayStorage` base (partially done)
-2. Add `subscribe_field()` to `CompositeTSOverlay`
-3. Add `subscribe_element()` to `ListTSOverlay`
-4. Add `subscribe_entry()` to `MapTSOverlay`
-5. Add `has_observers_in_subtree()` for optimization
-6. Integrate with `TSValue` public API
-7. Delegate from legacy `BaseTimeSeriesOutput`
-8. Expose via Python bindings
-
 **Exit criteria:** observers are correct under container swaps, key removals, and nested updates.
+
+#### Phase 5 implementation notes (delivered)
+
+**TSOverlayStorage base class:**
+- `subscribe(Notifiable*)` and `unsubscribe(Notifiable*)` - already existed
+- Added `has_observers()` - check if observers at this level
+- Added virtual `has_observers_in_subtree()` - check if observers anywhere in subtree
+
+**CompositeTSOverlay (bundles):**
+- Added `subscribe_field(size_t index, Notifiable*)` - subscribe to field by index
+- Added `subscribe_field(std::string_view name, Notifiable*)` - subscribe to field by name
+- Added `unsubscribe_field(size_t index, Notifiable*)`
+- Added `unsubscribe_field(std::string_view name, Notifiable*)`
+- Overridden `has_observers_in_subtree()` - recursively checks children
+
+**ListTSOverlay:**
+- Added `subscribe_element(size_t index, Notifiable*)` - subscribe to element
+- Added `unsubscribe_element(size_t index, Notifiable*)`
+- Overridden `has_observers_in_subtree()` - recursively checks children
+
+**MapTSOverlay:**
+- Added `subscribe_entry(size_t index, Notifiable*)` - subscribe to value at slot
+- Added `unsubscribe_entry(size_t index, Notifiable*)`
+- Overridden `has_observers_in_subtree()` - recursively checks value overlays
+
+**TSValue:**
+- Added `subscribe(Notifiable*)` - convenience for root subscription
+- Added `unsubscribe(Notifiable*)`
+- Added `has_observers()` - checks entire subtree
+
+**Files modified:**
+- `cpp/include/hgraph/types/time_series/ts_overlay_storage.h`
+- `cpp/include/hgraph/types/time_series/ts_value.h`
+
+**Tests:**
+- Existing subscription tests pass (122 assertions in 49 test cases)
+- All overlay tests pass (303 assertions in 48 test cases)
+- All Python type tests pass (896 passed, 97 skipped)
 
 ---
 

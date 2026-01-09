@@ -114,6 +114,8 @@ set(HGRAPH_SOURCES
         types/time_series/ts_value_test_bindings.cpp
         types/time_series/ts_overlay_storage.cpp
         types/time_series/ts_delta.cpp
+        types/time_series/ts_link.cpp
+        types/time_series/ts_input_root.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp

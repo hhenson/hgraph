@@ -265,6 +265,32 @@ struct TSView {
      */
     [[nodiscard]] bool has_path() const noexcept { return _root != nullptr; }
 
+    // ========== Link Support ==========
+
+    /**
+     * @brief Check if this view has a link source for transparent link navigation.
+     *
+     * A link source is a TSValue with link support enabled (typically an input).
+     * When navigating through such a view, child accesses may follow links
+     * to external outputs transparently.
+     */
+    [[nodiscard]] bool has_link_source() const noexcept { return _link_source != nullptr; }
+
+    /**
+     * @brief Get the link source TSValue.
+     * @return TSValue with link support, or nullptr
+     */
+    [[nodiscard]] const TSValue* link_source() const noexcept { return _link_source; }
+
+    /**
+     * @brief Set the link source for child navigation.
+     *
+     * This is used when creating input views to enable transparent link following.
+     *
+     * @param source TSValue with link support
+     */
+    void set_link_source(const TSValue* source) noexcept { _link_source = source; }
+
     /**
      * @brief Get the stored path for this view (for REF persistence).
      *
@@ -283,6 +309,7 @@ protected:
     TSOverlayStorage* _overlay{nullptr};      ///< Overlay for modification tracking (can be null)
     const TSValue* _root{nullptr};            ///< Root TSValue for path tracking (can be null)
     LightweightPath _path;                    ///< Path from root to this view
+    const TSValue* _link_source{nullptr};     ///< TSValue with link support for transparent navigation (can be null)
 };
 
 /**
