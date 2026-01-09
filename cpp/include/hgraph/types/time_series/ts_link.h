@@ -187,11 +187,18 @@ struct TSLink : Notifiable {
     [[nodiscard]] engine_time_t last_modified_time() const;
 
     // ========== Sample Time ==========
+    // NOTE: Sample time tracking is provided for REF type support (Phase 6.75).
+    // For non-REF inputs, bindings are established during wiring and remain stable,
+    // so sample_time is not automatically set during bind(). When REF support is
+    // implemented, bind() should set _sample_time to current evaluation time on
+    // rebinding, and modified_at() should incorporate sampled_at() in its check.
 
     /**
      * @brief Set the sample time (when this link was bound).
      *
      * Used for detecting rebinding within an evaluation cycle.
+     * This is primarily needed for REF type support where dynamic rebinding
+     * can occur at runtime.
      *
      * @param time The sample time
      */
