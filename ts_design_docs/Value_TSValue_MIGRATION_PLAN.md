@@ -1,10 +1,14 @@
 # Value ↔ TSValue Migration Plan
 
 **Date**: 2026-01-07
-**Status**: Draft
+**Status**: In Progress (Phase 5 Complete, Phase 6 Designed)
 **Related**:
 - `Value_DESIGN.md`
 - `TSValue_DESIGN.md`
+- `TSInput_DESIGN.md`
+- `TSInput_USER_GUIDE.md`
+- `Phase5_Hierarchical_Subscriptions_DESIGN.md`
+- `Phase6_7_PyWrapper_Migration_DESIGN.md`
 
 ---
 
@@ -372,27 +376,64 @@ This phase is now implemented in the Value layer as a composition-based (non-inh
 
 ---
 
-### Phase 6 — Python and API parity validation
+### Phase 6 — Python Wrapper Migration
 
-1. Ensure python wrappers can be implemented against TS views without loss of required semantics:
-   - correct `value`/`delta_value`
-   - correct `modified`/`valid`/`all_valid`
-   - correct notification behavior for graph evaluation
+**Status:** Designed (2026-01-09)
+**Design Document:** `Phase6_7_PyWrapper_Migration_DESIGN.md`
 
-2. Decide and document caching rules:
-   - whether TS view conversions should reuse `Value`’s python cache or remain uncached
+Replace legacy `TimeSeriesInput`/`TimeSeriesOutput` types in Python wrappers with TSValue-based views while maintaining full API compatibility.
 
-**Exit criteria:** python-facing behavior matches required expectations for the replaced API.
+**Key Design Decisions:**
+- Wrappers hold views **by value** (not pointers) - lightweight facades
+- Views delegate all logic - wrappers are extremely thin
+- Created on demand as value objects (not shared_ptr)
+- Node wrapper remains as-is with ApiPtr for now
+- Delta values translated from delta views to legacy format in wrapper layer
+
+**Sub-phases:**
+
+- **6.1**: View-based wrappers foundation (PyTimeSeriesOutput/Input base)
+- **6.2**: Bundle wrappers using TSBView + TSInputRoot
+- **6.3**: Collection wrappers (List, Dict, Set) using TSLView/TSDView/TSSView
+- **6.4**: Wrapper factory update for all types
+- **6.5**: Builder integration (add ts_meta())
+- **6.6**: Node constructor update (create TSValue internally)
+- **6.75**: REF type handling (deferred due to complexity)
+
+**Exit criteria:**
+- [ ] All PyXxx wrappers work with view-based mode only
+- [ ] No `ApiPtr<TimeSeriesType>` usage in wrappers
+- [ ] All existing Python tests pass
+- [ ] Performance within 10% of legacy
 
 ---
 
-### Phase 7 — Decommission legacy TS types
+### Phase 7 — Decommission Legacy TS Types
 
-1. Provide temporary compatibility adapters (only if needed to reduce churn).
-2. Move builders and internal runtime code to create TSValue-based objects.
-3. Remove old types once parity tests are green.
+**Status:** Designed (2026-01-09)
+**Design Document:** `Phase6_7_PyWrapper_Migration_DESIGN.md`
 
-**Exit criteria:** legacy TS types are no longer required for core functionality.
+Remove all legacy TimeSeriesType classes once wrapper migration is complete.
+
+**Sub-phases:**
+
+- **7.1**: Identify all legacy type usages outside wrappers
+- **7.2**: Remove legacy classes:
+  - TimeSeriesValueOutput/Input
+  - TimeSeriesBundleOutput/Input
+  - TimeSeriesListOutput/Input
+  - TimeSeriesDictOutputImpl/InputImpl
+  - TimeSeriesSetOutput/Input
+  - BaseTimeSeriesOutput/Input
+  - TimeSeriesOutput/Input interfaces
+- **7.3**: Cleanup (remove ApiPtr from wrappers, clean builder code, update docs)
+
+**Exit criteria:**
+- [ ] All legacy TimeSeriesType classes removed
+- [ ] All legacy builder code removed
+- [ ] Codebase compiles without legacy types
+- [ ] All tests pass
+- [ ] Documentation updated
 
 ---
 
