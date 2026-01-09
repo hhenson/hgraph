@@ -1,9 +1,44 @@
 #include <hgraph/api/python/py_tss.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/value/set_delta_value.h>
 
 namespace hgraph
 {
+    // ============================================================
+    // Helper function for delta_value (shared by Input and Output)
+    // ============================================================
+
+    static nb::object tss_compute_delta_value(const TSView& view) {
+        TSSView set = view.as_set();
+        Node* n = view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            throw std::runtime_error("delta_value requires node context with evaluation time");
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+
+        // Get the delta view
+        SetDeltaView delta = set.delta_view(eval_time);
+
+        // Build Python frozensets for added/removed
+        nb::set py_added;
+        nb::set py_removed;
+
+        if (delta.valid()) {
+            for (auto& elem : delta.added_values()) {
+                py_added.add(elem.to_python());
+            }
+            for (auto& elem : delta.removed_values()) {
+                py_removed.add(elem.to_python());
+            }
+        }
+
+        // Import PythonSetDelta from Python and instantiate it
+        nb::module_ tss_impl = nb::module_::import_("hgraph._impl._types._tss_impl");
+        nb::object PythonSetDelta = tss_impl.attr("PythonSetDelta");
+        return PythonSetDelta(nb::frozenset(py_added), nb::frozenset(py_removed));
+    }
+
     // ========== PyTimeSeriesSetOutput ==========
 
     PyTimeSeriesSetOutput::PyTimeSeriesSetOutput(TSMutableView view)
@@ -62,6 +97,10 @@ namespace hgraph
         throw std::runtime_error("PyTimeSeriesSetOutput::is_empty_output not yet implemented for view-based wrappers");
     }
 
+    nb::object PyTimeSeriesSetOutput::delta_value() const {
+        return tss_compute_delta_value(_view);
+    }
+
     nb::str PyTimeSeriesSetOutput::py_str() const {
         auto s = fmt::format("TimeSeriesSetOutput[size={}, valid={}]", size(), _view.ts_valid());
         return nb::str(s.c_str());
@@ -107,6 +146,10 @@ namespace hgraph
         throw std::runtime_error("PyTimeSeriesSetInput::was_removed not yet implemented for view-based wrappers");
     }
 
+    nb::object PyTimeSeriesSetInput::delta_value() const {
+        return tss_compute_delta_value(_view);
+    }
+
     nb::str PyTimeSeriesSetInput::py_str() const {
         auto s = fmt::format("TimeSeriesSetInput[size={}, valid={}]", size(), _view.ts_valid());
         return nb::str(s.c_str());
@@ -129,6 +172,7 @@ namespace hgraph
             .def("removed", &PyTimeSeriesSetInput::removed)
             .def("was_added", &PyTimeSeriesSetInput::was_added)
             .def("was_removed", &PyTimeSeriesSetInput::was_removed)
+            .def_prop_ro("delta_value", &PyTimeSeriesSetInput::delta_value)
             .def("__str__", &PyTimeSeriesSetInput::py_str)
             .def("__repr__", &PyTimeSeriesSetInput::py_repr);
 
@@ -148,6 +192,7 @@ namespace hgraph
             .def("is_empty_output", &PyTimeSeriesSetOutput::is_empty_output)
             .def("get_contains_output", &PyTimeSeriesSetOutput::get_contains_output)
             .def("release_contains_output", &PyTimeSeriesSetOutput::release_contains_output)
+            .def_prop_ro("delta_value", &PyTimeSeriesSetOutput::delta_value)
             .def("__str__", &PyTimeSeriesSetOutput::py_str)
             .def("__repr__", &PyTimeSeriesSetOutput::py_repr);
     }

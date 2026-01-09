@@ -61,6 +61,8 @@ namespace hgraph
         [[nodiscard]] bool has_removed() const;
         [[nodiscard]] bool was_removed(const nb::object &key) const;
         [[nodiscard]] nb::object key_from_value(const nb::object &value) const;
+        // Override delta_value to return modified items and removed keys
+        [[nodiscard]] nb::object delta_value() const;
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
         void set_item(const nb::object &key, const nb::object &value);
@@ -125,6 +127,8 @@ namespace hgraph
         [[nodiscard]] bool has_removed() const;
         [[nodiscard]] bool was_removed(const nb::object &key) const;
         [[nodiscard]] nb::object key_from_value(const nb::object &value) const;
+        // Override delta_value to return modified items and removed keys
+        [[nodiscard]] nb::object delta_value() const;
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
         void on_key_added(const nb::object &key);

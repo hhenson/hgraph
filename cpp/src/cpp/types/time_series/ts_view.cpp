@@ -160,6 +160,24 @@ bool TSView::ts_valid() const {
     return valid();
 }
 
+bool TSView::all_valid() const {
+    if (!ts_valid()) {
+        return false;
+    }
+    // Dispatch based on type kind
+    switch (_ts_meta->kind()) {
+        case TSTypeKind::TSB:
+            return as_bundle().all_valid();
+        case TSTypeKind::TSL:
+            return as_list().all_valid();
+        case TSTypeKind::TSD:
+            return as_dict().all_valid();
+        default:
+            // For scalar types (TS, TSS, TSW, SIGNAL, REF), all_valid == ts_valid
+            return true;
+    }
+}
+
 bool TSView::modified_at(engine_time_t time) const {
     if (_overlay) {
         return _overlay->last_modified_time() == time;

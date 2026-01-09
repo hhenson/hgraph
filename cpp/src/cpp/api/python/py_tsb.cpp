@@ -7,6 +7,31 @@
 namespace hgraph
 {
     // ============================================================
+    // Helper function for delta_value (shared by Input and Output)
+    // ============================================================
+
+    static nb::object tsb_compute_delta_value(const TSView& view) {
+        TSBView bundle = view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        Node* n = view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            throw std::runtime_error("delta_value requires node context with evaluation time");
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::dict result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            // Python: {k: ts.delta_value for k, ts in self.items() if ts.modified and ts.valid}
+            if (field.modified_at(eval_time) && field.ts_valid()) {
+                nb::object wrapped = wrap_input_view(field);
+                nb::object delta = nb::getattr(wrapped, "delta_value");
+                result[nb::str(meta->field(i).name.c_str())] = delta;
+            }
+        }
+        return result;
+    }
+
+    // ============================================================
     // PyTimeSeriesBundleOutput
     // ============================================================
 
@@ -192,6 +217,10 @@ namespace hgraph
             }
         }
         return result;
+    }
+
+    nb::object PyTimeSeriesBundleOutput::delta_value() const {
+        return tsb_compute_delta_value(_view);
     }
 
     nb::str PyTimeSeriesBundleOutput::py_str() {
@@ -395,6 +424,10 @@ namespace hgraph
         return result;
     }
 
+    nb::object PyTimeSeriesBundleInput::delta_value() const {
+        return tsb_compute_delta_value(_view);
+    }
+
     nb::str PyTimeSeriesBundleInput::py_str() {
         TSBView bundle = _view.as_bundle();
         auto str = fmt::format("TimeSeriesBundleInput@{:p}[fields={}, valid={}]",
@@ -431,6 +464,7 @@ namespace hgraph
             .def("modified_items", &PyTimeSeriesBundleOutput::modified_items)
             .def("key_from_value", &PyTimeSeriesBundleOutput::key_from_value)
             .def_prop_ro("empty", &PyTimeSeriesBundleOutput::empty)
+            .def_prop_ro("delta_value", &PyTimeSeriesBundleOutput::delta_value)
             .def_prop_ro("as_schema", [](nb::handle self) { return self; })
             .def("__str__", &PyTimeSeriesBundleOutput::py_str)
             .def("__repr__", &PyTimeSeriesBundleOutput::py_repr);
@@ -453,6 +487,7 @@ namespace hgraph
             .def("modified_items", &PyTimeSeriesBundleInput::modified_items)
             .def("key_from_value", &PyTimeSeriesBundleInput::key_from_value)
             .def_prop_ro("empty", &PyTimeSeriesBundleInput::empty)
+            .def_prop_ro("delta_value", &PyTimeSeriesBundleInput::delta_value)
             .def_prop_ro("as_schema", [](nb::handle self) { return self; })
             .def("__str__", &PyTimeSeriesBundleInput::py_str)
             .def("__repr__", &PyTimeSeriesBundleInput::py_repr);

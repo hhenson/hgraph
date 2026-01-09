@@ -199,6 +199,14 @@ struct TSView {
     [[nodiscard]] bool ts_valid() const;
 
     /**
+     * @brief Check if all values are valid.
+     *
+     * For scalar types (TS, TSS, TSW, SIGNAL, REF), returns ts_valid().
+     * For collection types (TSB, TSL, TSD), returns true only if ALL children are valid.
+     */
+    [[nodiscard]] bool all_valid() const;
+
+    /**
      * @brief Check if modified at the given time.
      * @param time The time to check against
      */

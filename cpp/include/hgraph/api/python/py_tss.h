@@ -44,6 +44,10 @@ namespace hgraph
         [[nodiscard]] nb::object get_contains_output(const nb::object &item, const nb::object &requester) const;
         void release_contains_output(const nb::object &item, const nb::object &requester) const;
         [[nodiscard]] nb::object is_empty_output() const;
+
+        // Override delta_value to return added/removed elements as SetDeltaValue
+        [[nodiscard]] nb::object delta_value() const;
+
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
     };
@@ -82,6 +86,10 @@ namespace hgraph
         [[nodiscard]] nb::object removed() const;
         [[nodiscard]] nb::bool_ was_added(const nb::object &item) const;
         [[nodiscard]] nb::bool_ was_removed(const nb::object &item) const;
+
+        // Override delta_value to return added/removed elements as SetDeltaValue
+        [[nodiscard]] nb::object delta_value() const;
+
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
     };

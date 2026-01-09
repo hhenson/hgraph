@@ -56,9 +56,7 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesOutput::all_valid() const {
-        // For scalar types, all_valid == valid
-        // For collection types, this would need to check all children
-        return nb::bool_(_view.ts_valid());
+        return nb::bool_(_view.all_valid());
     }
 
     nb::bool_ PyTimeSeriesOutput::is_reference() const {
@@ -164,9 +162,7 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesInput::all_valid() const {
-        // For scalar types, all_valid == valid
-        // For collection types, this would need to check all children
-        return nb::bool_(_view.ts_valid());
+        return nb::bool_(_view.all_valid());
     }
 
     nb::bool_ PyTimeSeriesInput::is_reference() const {

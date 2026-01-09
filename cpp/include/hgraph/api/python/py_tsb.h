@@ -66,6 +66,9 @@ namespace hgraph
 
         [[nodiscard]] nb::object modified_items() const;
 
+        // Override delta_value to return modified fields with their delta_values
+        [[nodiscard]] nb::object delta_value() const;
+
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();
     };
@@ -130,6 +133,9 @@ namespace hgraph
         [[nodiscard]] nb::object valid_items() const;
 
         [[nodiscard]] nb::object modified_items() const;
+
+        // Override delta_value to return modified fields with their delta_values
+        [[nodiscard]] nb::object delta_value() const;
 
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();
