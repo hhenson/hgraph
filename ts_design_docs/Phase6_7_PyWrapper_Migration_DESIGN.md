@@ -830,7 +830,12 @@ REF types are deferred to a separate phase due to their unique complexity:
 3. REF navigation must follow to the referenced output
 4. Requires Phase 6.1-6.6 to be stable before tackling
 
-**Note**: REF infrastructure exists but integration is complex enough to warrant separate attention after the "mundane" types are complete.
+**Deferred items from Appendix D** (only needed for REF dynamic rebinding):
+- `_sample_time` handling in TSLink (D.1.1) - track binding changes for `_sampled` calculation
+- `_prev_output` tracking in TSLink (D.1.3) - compute correct TSS/TSD deltas across rebind
+- `TSView::_sample_time()` method (D.2) - expose sample time to wrappers
+
+**Note**: REF infrastructure exists but integration is complex enough to warrant separate attention after the "mundane" types are complete. For non-REF inputs, bindings are established during wiring and remain stable throughout execution, so sample_time tracking is unnecessary.
 
 ### Phase 7.1: Legacy Type Removal (Preparation)
 
@@ -1586,11 +1591,18 @@ def test_tsd_get_ref():
 
 ### D.1 Missing from Current Design
 
-1. **`_sample_time` handling**: Input wrappers need to track when binding changes to implement `_sampled` correctly.
+1. **`_sample_time` handling** *(Deferred to Phase 6.75 - REF)*: Input wrappers need to track when binding changes to implement `_sampled` correctly. This is primarily needed for REF types where rebinding occurs dynamically. For non-REF types, bindings are established during wiring and don't change at runtime.
 
-2. **`_notify_time` deduplication**: Inputs need per-input notification deduplication.
+   **Protocol (for Phase 6.75)**:
+   - `_sample_time` should be set to current evaluation time when:
+     - First bind (was previously unbound)
+     - Rebind to a *different* output (REF target change)
+   - `_sampled` = `(_sample_time == evaluation_time)`
+   - `modified` should incorporate `_sampled`: `modified = output.modified or _sampled`
 
-3. **`_prev_output` for TSS/TSD**: When rebinding, the previous output must be saved to compute correct deltas.
+2. **`_notify_time` deduplication**: Inputs need per-input notification deduplication. *(Implemented in TSLink)*
+
+3. **`_prev_output` for TSS/TSD** *(Deferred to Phase 6.75 - REF)*: When rebinding, the previous output must be saved to compute correct deltas. Only relevant when REF types cause dynamic rebinding of TSS/TSD inputs.
 
 4. **`mark_child_modified` propagation**: Parent outputs must track which children were modified.
 
@@ -1604,15 +1616,15 @@ def test_tsd_get_ref():
 
 The following view methods may need to be added to support wrapper implementation:
 
-| View Method | Purpose |
-|-------------|---------|
-| `TSView::_sample_time()` | Access to input's sample time for `_sampled` calculation |
-| `TSBView::modified_field_indices(time)` | Get indices of fields modified at given time |
-| `TSDView::_modified_keys()` | Access to modified key tracking |
-| `TSDView::_added_keys()` | Access to added key tracking |
-| `TSDView::_removed_keys()` | Access to removed key tracking |
-| `TSSView::_added()` | Access to added element tracking |
-| `TSSView::_removed()` | Access to removed element tracking |
+| View Method | Purpose | Phase |
+|-------------|---------|-------|
+| `TSView::_sample_time()` | Access to input's sample time for `_sampled` calculation | 6.75 (REF) |
+| `TSBView::modified_field_indices(time)` | Get indices of fields modified at given time | 6.2 |
+| `TSDView::_modified_keys()` | Access to modified key tracking | 6.3 |
+| `TSDView::_added_keys()` | Access to added key tracking | 6.3 |
+| `TSDView::_removed_keys()` | Access to removed key tracking | 6.3 |
+| `TSSView::_added()` | Access to added element tracking | 6.3 |
+| `TSSView::_removed()` | Access to removed element tracking | 6.3 |
 
 ### D.3 Overlay Extensions Needed
 
@@ -1631,11 +1643,14 @@ Each input wrapper needs:
 
 ```cpp
 struct InputState {
-    engine_time_t _sample_time{MIN_DT};     // When binding changed
-    engine_time_t _notify_time{MIN_DT};     // Last notification (dedup)
-    // For TSS/TSD:
-    const TSValue* _prev_output{nullptr};   // Previous output for delta computation
+    engine_time_t _notify_time{MIN_DT};     // Last notification (dedup) - Implemented in TSLink
+
+    // Deferred to Phase 6.75 (REF):
+    engine_time_t _sample_time{MIN_DT};     // When binding changed (for REF rebinding)
+    const TSValue* _prev_output{nullptr};   // Previous output for delta computation (TSS/TSD + REF)
 };
 ```
 
 This state must be tracked **per input instance**, not per view.
+
+**Note**: `_notify_time` is already implemented in TSLink. The `_sample_time` and `_prev_output` fields are only needed when REF types cause dynamic rebinding at runtime. For non-REF inputs, bindings are established during wiring and remain stable, so these fields can be deferred to Phase 6.75.
