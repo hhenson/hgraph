@@ -221,17 +221,30 @@ void TSValue::create_link(size_t index, const TSValue* output) {
             throw std::runtime_error("TSValue::create_link: output has no schema");
         }
 
-        // Schema validation: check kind matches
-        if (output_schema->kind() != expected_schema->kind()) {
+        // For REF types, compare against the referenced type instead
+        // This handles both REF input accepting TS output and TS input accepting REF output
+        const TSMeta* expected_to_compare = expected_schema;
+        if (expected_schema->is_reference()) {
+            expected_to_compare = static_cast<const REFTypeMeta*>(expected_schema)->referenced_type();
+        }
+
+        const TSMeta* output_to_compare = output_schema;
+        if (output_schema->is_reference()) {
+            output_to_compare = static_cast<const REFTypeMeta*>(output_schema)->referenced_type();
+        }
+
+        // Schema validation: check kind matches (after unwrapping REF)
+        if (expected_to_compare && output_to_compare &&
+            output_to_compare->kind() != expected_to_compare->kind()) {
             throw std::runtime_error(
                 "TSValue::create_link: schema mismatch at index " + std::to_string(index) +
-                " - expected kind " + std::to_string(static_cast<int>(expected_schema->kind())) +
-                " but got " + std::to_string(static_cast<int>(output_schema->kind())));
+                " - expected kind " + std::to_string(static_cast<int>(expected_to_compare->kind())) +
+                " but got " + std::to_string(static_cast<int>(output_to_compare->kind())));
         }
 
         // For deeper validation, check value schemas match
-        const value::TypeMeta* expected_value = expected_schema->value_schema();
-        const value::TypeMeta* output_value = output_schema->value_schema();
+        const value::TypeMeta* expected_value = expected_to_compare ? expected_to_compare->value_schema() : nullptr;
+        const value::TypeMeta* output_value = output_to_compare ? output_to_compare->value_schema() : nullptr;
         if (expected_value != output_value) {
             // Allow both being nullptr (e.g., SIGNAL)
             if (expected_value && output_value) {

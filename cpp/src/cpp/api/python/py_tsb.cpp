@@ -1,200 +1,461 @@
 #include <hgraph/api/python/py_tsb.h>
 #include <hgraph/api/python/wrapper_factory.h>
-#include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
+#include <fmt/format.h>
 
 namespace hgraph
 {
+    // ============================================================
+    // PyTimeSeriesBundleOutput
+    // ============================================================
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    PyTimeSeriesBundle<T_TS, T_U>::PyTimeSeriesBundle(api_ptr impl) : T_TS(std::move(impl)) {}
+    PyTimeSeriesBundleOutput::PyTimeSeriesBundleOutput(TSMutableView view)
+        : PyTimeSeriesOutput(view) {}
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::iter() const {
-        return nb::iter(list_to_list(impl()->values()));
+    nb::object PyTimeSeriesBundleOutput::iter() const {
+        return nb::iter(keys());
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::get_item(const nb::handle &key) const {
+    nb::object PyTimeSeriesBundleOutput::get_item(const nb::handle &key) const {
+        TSBView bundle = _view.as_bundle();
         if (nb::isinstance<nb::str>(key)) {
-            return wrap_time_series(impl()->operator[](nb::cast<std::string>(key)));
+            std::string name = nb::cast<std::string>(key);
+            if (bundle.has_field(name)) {
+                TSView field = bundle.field(name);
+                return wrap_input_view(field);
+            }
+            throw std::runtime_error(fmt::format("Field '{}' not found in bundle", name));
         }
         if (nb::isinstance<nb::int_>(key)) {
-            return wrap_time_series(impl()->operator[](nb::cast<size_t>(key)));
+            size_t index = nb::cast<size_t>(key);
+            TSView field = bundle.field(index);
+            return wrap_input_view(field);
         }
-        throw std::runtime_error("Invalid key type for TimeSeriesBundle");
+        throw std::runtime_error("Invalid key type for TimeSeriesBundleOutput");
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::get_attr(const nb::handle &key) const {
+    nb::object PyTimeSeriesBundleOutput::get_attr(const nb::handle &key) const {
         return get_item(key);
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::bool_ PyTimeSeriesBundle<T_TS, T_U>::contains(const nb::handle &key) const {
-        if (nb::isinstance<nb::str>(key)) { return nb::bool_(impl()->contains(nb::cast<std::string>(key))); }
+    nb::bool_ PyTimeSeriesBundleOutput::contains(const nb::handle &key) const {
+        if (nb::isinstance<nb::str>(key)) {
+            TSBView bundle = _view.as_bundle();
+            return nb::bool_(bundle.has_field(nb::cast<std::string>(key)));
+        }
         return nb::bool_(false);
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    const TimeSeriesSchema &PyTimeSeriesBundle<T_TS, T_U>::schema() const {
-        return impl()->schema();
+    nb::object PyTimeSeriesBundleOutput::key_from_value(const nb::handle &value) const {
+        // TODO: Implement key_from_value using view-based lookup
+        return nb::none();
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::key_from_value(const nb::handle &value) const {
-        constexpr auto is_input = std::is_same_v<T_U, TimeSeriesBundleInput>;
-        typedef std::conditional_t<is_input, time_series_input_s_ptr, time_series_output_s_ptr> TS_SPtr;
-        TS_SPtr p;
-        if constexpr (is_input) {
-            p = unwrap_input(value);
-        } else {
-            p = unwrap_output(value);
+    nb::object PyTimeSeriesBundleOutput::keys() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        nb::list result;
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            result.append(nb::str(meta->field(i).name.c_str()));
         }
-        if (!p) {
-            throw std::runtime_error("Value is not a valid TimeSeries");
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleOutput::values() const {
+        TSBView bundle = _view.as_bundle();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            result.append(wrap_input_view(bundle.field(i)));
         }
-        try {
-            auto key = impl()->key_from_value(p);
-            return nb::str(key.c_str());
-        } catch (const std::exception &e) {
-            return nb::none();
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleOutput::valid_keys() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.ts_valid()) {
+                result.append(nb::str(meta->field(i).name.c_str()));
+            }
         }
+        return result;
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::keys() const {
-        return set_to_list(impl()->keys());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::values() const {
-        return list_to_list(impl()->values());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_keys() const {
-        return set_to_list(impl()->valid_keys());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_values() const {
-        return list_to_list(impl()->valid_values());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_keys() const {
-        return set_to_list(impl()->modified_keys());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_values() const {
-        return list_to_list(impl()->modified_values());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::int_ PyTimeSeriesBundle<T_TS, T_U>::len() const {
-        return nb::int_(impl()->size());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::bool_ PyTimeSeriesBundle<T_TS, T_U>::empty() const {
-        return nb::bool_(impl()->empty());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::items() const {
-        return items_to_list(impl()->items());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::valid_items() const {
-        return items_to_list(impl()->valid_items());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::object PyTimeSeriesBundle<T_TS, T_U>::modified_items() const {
-        return items_to_list(impl()->modified_items());
-    }
-
-    template <typename T_TS, typename T_U> constexpr const char *get_bundle_type_name() {
-        if constexpr (std::is_same_v<T_TS, PyTimeSeriesInput>) {
-            return "TimeSeriesBundleInput@{:p}[keys={}, valid={}]";
-        } else {
-            return "TimeSeriesBundleOutput@{:p}[keys={}, valid={}]";
+    nb::object PyTimeSeriesBundleOutput::valid_values() const {
+        TSBView bundle = _view.as_bundle();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.ts_valid()) {
+                result.append(wrap_input_view(field));
+            }
         }
+        return result;
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::str PyTimeSeriesBundle<T_TS, T_U>::py_str() {
-        auto                  self = impl();
-        constexpr const char *name = get_bundle_type_name<T_TS, T_U>();
-        auto                  str  = fmt::format(name, static_cast<const void *>(self), self->keys().size(), self->valid());
+    nb::object PyTimeSeriesBundleOutput::modified_keys() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.modified_at(eval_time)) {
+                result.append(nb::str(meta->field(i).name.c_str()));
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleOutput::modified_values() const {
+        TSBView bundle = _view.as_bundle();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.modified_at(eval_time)) {
+                result.append(wrap_input_view(field));
+            }
+        }
+        return result;
+    }
+
+    nb::int_ PyTimeSeriesBundleOutput::len() const {
+        TSBView bundle = _view.as_bundle();
+        return nb::int_(bundle.field_count());
+    }
+
+    nb::bool_ PyTimeSeriesBundleOutput::empty() const {
+        TSBView bundle = _view.as_bundle();
+        return nb::bool_(bundle.field_count() == 0);
+    }
+
+    nb::object PyTimeSeriesBundleOutput::items() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            nb::tuple item = nb::make_tuple(
+                nb::str(meta->field(i).name.c_str()),
+                wrap_input_view(bundle.field(i))
+            );
+            result.append(item);
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleOutput::valid_items() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.ts_valid()) {
+                nb::tuple item = nb::make_tuple(
+                    nb::str(meta->field(i).name.c_str()),
+                    wrap_input_view(field)
+                );
+                result.append(item);
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleOutput::modified_items() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.modified_at(eval_time)) {
+                nb::tuple item = nb::make_tuple(
+                    nb::str(meta->field(i).name.c_str()),
+                    wrap_input_view(field)
+                );
+                result.append(item);
+            }
+        }
+        return result;
+    }
+
+    nb::str PyTimeSeriesBundleOutput::py_str() {
+        TSBView bundle = _view.as_bundle();
+        auto str = fmt::format("TimeSeriesBundleOutput@{:p}[fields={}, valid={}]",
+            static_cast<const void*>(_view.value_view().data()),
+            bundle.field_count(),
+            _view.ts_valid());
         return nb::str(str.c_str());
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    nb::str PyTimeSeriesBundle<T_TS, T_U>::py_repr() {
+    nb::str PyTimeSeriesBundleOutput::py_repr() {
         return py_str();
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
-    T_U *PyTimeSeriesBundle<T_TS, T_U>::impl() const {
-        return this->template static_cast_impl<T_U>();
+    // ============================================================
+    // PyTimeSeriesBundleInput
+    // ============================================================
+
+    PyTimeSeriesBundleInput::PyTimeSeriesBundleInput(TSView view)
+        : PyTimeSeriesInput(view) {}
+
+    nb::object PyTimeSeriesBundleInput::iter() const {
+        return nb::iter(keys());
     }
 
-    template struct PyTimeSeriesBundle<PyTimeSeriesOutput, TimeSeriesBundleOutput>;
-    template struct PyTimeSeriesBundle<PyTimeSeriesInput, TimeSeriesBundleInput>;
-
-    template <typename T_TS, typename T_U> void _register_tsb_with_nanobind(nb::module_ &m) {
-        using PyTS_Type = PyTimeSeriesBundle<T_TS, T_U>;
-        auto name{std::is_same_v<T_U, TimeSeriesBundleInput> ? "TimeSeriesBundleInput" : "TimeSeriesBundleOutput"};
-        // No need to re-register value property - base class handles it via TSView
-        nb::class_<PyTS_Type, T_TS>(m, name)
-            .def("__getitem__", &PyTS_Type::get_item)
-            .def("__getattr__", &PyTS_Type::get_attr)
-            .def("__iter__", &PyTS_Type::iter)
-            .def("__len__", &PyTS_Type::len)
-            .def("__contains__", &PyTS_Type::contains)
-            .def("keys", &PyTS_Type::keys)
-            .def("items", &PyTS_Type::items)
-            .def("values", &PyTS_Type::values)
-            .def("valid_keys", &PyTS_Type::valid_keys)
-            .def("valid_values", &PyTS_Type::valid_values)
-            .def("valid_items", &PyTS_Type::valid_items)
-            .def("modified_keys", &PyTS_Type::modified_keys)
-            .def("modified_values", &PyTS_Type::modified_values)
-            .def("modified_items", &PyTS_Type::modified_items)
-            .def("key_from_value", &PyTS_Type::key_from_value)
-            .def_prop_ro("empty", &PyTS_Type::empty)
-            .def_prop_ro("__schema__", &PyTS_Type::schema)
-            .def_prop_ro("as_schema", [](nb::handle self) { return self; })
-            .def("__str__", &PyTS_Type::py_str)
-            .def("__repr__", &PyTS_Type::py_repr);
+    nb::object PyTimeSeriesBundleInput::get_item(const nb::handle &key) const {
+        TSBView bundle = _view.as_bundle();
+        if (nb::isinstance<nb::str>(key)) {
+            std::string name = nb::cast<std::string>(key);
+            if (bundle.has_field(name)) {
+                TSView field = bundle.field(name);
+                return wrap_input_view(field);
+            }
+            throw std::runtime_error(fmt::format("Field '{}' not found in bundle", name));
+        }
+        if (nb::isinstance<nb::int_>(key)) {
+            size_t index = nb::cast<size_t>(key);
+            TSView field = bundle.field(index);
+            return wrap_input_view(field);
+        }
+        throw std::runtime_error("Invalid key type for TimeSeriesBundleInput");
     }
+
+    nb::object PyTimeSeriesBundleInput::get_attr(const nb::handle &key) const {
+        return get_item(key);
+    }
+
+    nb::bool_ PyTimeSeriesBundleInput::contains(const nb::handle &key) const {
+        if (nb::isinstance<nb::str>(key)) {
+            TSBView bundle = _view.as_bundle();
+            return nb::bool_(bundle.has_field(nb::cast<std::string>(key)));
+        }
+        return nb::bool_(false);
+    }
+
+    nb::object PyTimeSeriesBundleInput::key_from_value(const nb::handle &value) const {
+        // TODO: Implement key_from_value using view-based lookup
+        return nb::none();
+    }
+
+    nb::object PyTimeSeriesBundleInput::keys() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        nb::list result;
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            result.append(nb::str(meta->field(i).name.c_str()));
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleInput::values() const {
+        TSBView bundle = _view.as_bundle();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            result.append(wrap_input_view(bundle.field(i)));
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleInput::valid_keys() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.ts_valid()) {
+                result.append(nb::str(meta->field(i).name.c_str()));
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleInput::valid_values() const {
+        TSBView bundle = _view.as_bundle();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.ts_valid()) {
+                result.append(wrap_input_view(field));
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleInput::modified_keys() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.modified_at(eval_time)) {
+                result.append(nb::str(meta->field(i).name.c_str()));
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleInput::modified_values() const {
+        TSBView bundle = _view.as_bundle();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.modified_at(eval_time)) {
+                result.append(wrap_input_view(field));
+            }
+        }
+        return result;
+    }
+
+    nb::int_ PyTimeSeriesBundleInput::len() const {
+        TSBView bundle = _view.as_bundle();
+        return nb::int_(bundle.field_count());
+    }
+
+    nb::bool_ PyTimeSeriesBundleInput::empty() const {
+        TSBView bundle = _view.as_bundle();
+        return nb::bool_(bundle.field_count() == 0);
+    }
+
+    nb::object PyTimeSeriesBundleInput::items() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            nb::tuple item = nb::make_tuple(
+                nb::str(meta->field(i).name.c_str()),
+                wrap_input_view(bundle.field(i))
+            );
+            result.append(item);
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleInput::valid_items() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.ts_valid()) {
+                nb::tuple item = nb::make_tuple(
+                    nb::str(meta->field(i).name.c_str()),
+                    wrap_input_view(field)
+                );
+                result.append(item);
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesBundleInput::modified_items() const {
+        TSBView bundle = _view.as_bundle();
+        const TSBTypeMeta* meta = bundle.bundle_meta();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < bundle.field_count(); ++i) {
+            TSView field = bundle.field(i);
+            if (field.modified_at(eval_time)) {
+                nb::tuple item = nb::make_tuple(
+                    nb::str(meta->field(i).name.c_str()),
+                    wrap_input_view(field)
+                );
+                result.append(item);
+            }
+        }
+        return result;
+    }
+
+    nb::str PyTimeSeriesBundleInput::py_str() {
+        TSBView bundle = _view.as_bundle();
+        auto str = fmt::format("TimeSeriesBundleInput@{:p}[fields={}, valid={}]",
+            static_cast<const void*>(_view.value_view().data()),
+            bundle.field_count(),
+            _view.ts_valid());
+        return nb::str(str.c_str());
+    }
+
+    nb::str PyTimeSeriesBundleInput::py_repr() {
+        return py_str();
+    }
+
+    // ============================================================
+    // Registration
+    // ============================================================
 
     void tsb_register_with_nanobind(nb::module_ &m) {
-        _register_tsb_with_nanobind<PyTimeSeriesOutput, TimeSeriesBundleOutput>(m);
-        _register_tsb_with_nanobind<PyTimeSeriesInput, TimeSeriesBundleInput>(m);
+        // Register TimeSeriesBundleOutput
+        nb::class_<PyTimeSeriesBundleOutput, PyTimeSeriesOutput>(m, "TimeSeriesBundleOutput")
+            .def("__getitem__", &PyTimeSeriesBundleOutput::get_item)
+            .def("__getattr__", &PyTimeSeriesBundleOutput::get_attr)
+            .def("__iter__", &PyTimeSeriesBundleOutput::iter)
+            .def("__len__", &PyTimeSeriesBundleOutput::len)
+            .def("__contains__", &PyTimeSeriesBundleOutput::contains)
+            .def("keys", &PyTimeSeriesBundleOutput::keys)
+            .def("items", &PyTimeSeriesBundleOutput::items)
+            .def("values", &PyTimeSeriesBundleOutput::values)
+            .def("valid_keys", &PyTimeSeriesBundleOutput::valid_keys)
+            .def("valid_values", &PyTimeSeriesBundleOutput::valid_values)
+            .def("valid_items", &PyTimeSeriesBundleOutput::valid_items)
+            .def("modified_keys", &PyTimeSeriesBundleOutput::modified_keys)
+            .def("modified_values", &PyTimeSeriesBundleOutput::modified_values)
+            .def("modified_items", &PyTimeSeriesBundleOutput::modified_items)
+            .def("key_from_value", &PyTimeSeriesBundleOutput::key_from_value)
+            .def_prop_ro("empty", &PyTimeSeriesBundleOutput::empty)
+            .def_prop_ro("as_schema", [](nb::handle self) { return self; })
+            .def("__str__", &PyTimeSeriesBundleOutput::py_str)
+            .def("__repr__", &PyTimeSeriesBundleOutput::py_repr);
+
+        // Register TimeSeriesBundleInput
+        nb::class_<PyTimeSeriesBundleInput, PyTimeSeriesInput>(m, "TimeSeriesBundleInput")
+            .def("__getitem__", &PyTimeSeriesBundleInput::get_item)
+            .def("__getattr__", &PyTimeSeriesBundleInput::get_attr)
+            .def("__iter__", &PyTimeSeriesBundleInput::iter)
+            .def("__len__", &PyTimeSeriesBundleInput::len)
+            .def("__contains__", &PyTimeSeriesBundleInput::contains)
+            .def("keys", &PyTimeSeriesBundleInput::keys)
+            .def("items", &PyTimeSeriesBundleInput::items)
+            .def("values", &PyTimeSeriesBundleInput::values)
+            .def("valid_keys", &PyTimeSeriesBundleInput::valid_keys)
+            .def("valid_values", &PyTimeSeriesBundleInput::valid_values)
+            .def("valid_items", &PyTimeSeriesBundleInput::valid_items)
+            .def("modified_keys", &PyTimeSeriesBundleInput::modified_keys)
+            .def("modified_values", &PyTimeSeriesBundleInput::modified_values)
+            .def("modified_items", &PyTimeSeriesBundleInput::modified_items)
+            .def("key_from_value", &PyTimeSeriesBundleInput::key_from_value)
+            .def_prop_ro("empty", &PyTimeSeriesBundleInput::empty)
+            .def_prop_ro("as_schema", [](nb::handle self) { return self; })
+            .def("__str__", &PyTimeSeriesBundleInput::py_str)
+            .def("__repr__", &PyTimeSeriesBundleInput::py_repr);
     }
+
 }  // namespace hgraph

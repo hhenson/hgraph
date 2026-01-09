@@ -20,12 +20,16 @@ namespace hgraph {
     bool PushQueueNode::apply_message(nb::object message) {
         if (_batch) {
             // Batch mode: accumulate messages into a tuple
-            auto output_ptr = output();
+            // TODO: Migrate PushQueueNode to view-based wrapping
+            throw std::runtime_error("PushQueueNode::apply_message batch mode not yet implemented for view-based wrappers");
+
+            // Stub declarations to keep unreachable code compiling
+            TimeSeriesOutput* output_ptr = nullptr;
 
             if (_is_tsd) {
                 // TODO: This allows us to operate on the python level, would prefer to
                 //       Handle this better with correct type-matched objects.
-                auto tsd_output = wrap_time_series(output_ptr);
+                nb::object tsd_output = nb::none(); // Stub - was: wrap_time_series(output_ptr);
 
                 auto remove = get_remove();
                 auto remove_if_exist = get_remove_if_exists();
@@ -36,7 +40,7 @@ namespace hgraph {
                     if (val.is(remove) || val.is(remove_if_exist)) {
                         auto child_output = tsd_output.attr("get")(nb::cast<nb::object>(key), nb::none());
                         if (!child_output.is_none()) {
-                            auto unwrapped = unwrap_output(child_output);
+                            auto unwrapped = /*STUB*/ static_cast<TimeSeriesOutput*>(nullptr); (void)(child_output);
                             if (unwrapped && unwrapped->modified()) {
                                 return false; // reject message because cannot remove when there is unprocessed data
                            }
@@ -46,7 +50,7 @@ namespace hgraph {
                 for (auto [key, val]: msg_dict) {
                     if (!val.is(remove) && !val.is(remove_if_exist)) {
                         auto child_output_obj = tsd_output.attr("get_or_create")(nb::cast<nb::object>(key));
-                        auto child_output = unwrap_output(child_output_obj);
+                        auto child_output = /*STUB*/ static_cast<TimeSeriesOutput*>(nullptr); (void)(child_output_obj);
 
                         if (child_output->modified()) {
                             // Append to existing tuple

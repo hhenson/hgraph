@@ -9,7 +9,7 @@
 namespace hgraph {
 
 void CppTimeSeriesOutputBuilder::register_with_nanobind(nb::module_& m) {
-    nb::class_<CppTimeSeriesOutputBuilder, Builder>(m, "CppTimeSeriesOutputBuilder")
+    nb::class_<CppTimeSeriesOutputBuilder, OutputBuilder>(m, "CppTimeSeriesOutputBuilder")
         .def(nb::init<const TSMeta*>(), nb::arg("ts_meta"))
         .def_prop_ro("ts_meta", &CppTimeSeriesOutputBuilder::ts_meta,
                      nb::rv_policy::reference)
@@ -20,7 +20,7 @@ void CppTimeSeriesOutputBuilder::register_with_nanobind(nb::module_& m) {
 }
 
 void CppTimeSeriesInputBuilder::register_with_nanobind(nb::module_& m) {
-    nb::class_<CppTimeSeriesInputBuilder, Builder>(m, "CppTimeSeriesInputBuilder")
+    nb::class_<CppTimeSeriesInputBuilder, InputBuilder>(m, "CppTimeSeriesInputBuilder")
         .def(nb::init<const TSMeta*>(), nb::arg("ts_meta"))
         .def_prop_ro("ts_meta", &CppTimeSeriesInputBuilder::ts_meta,
                      nb::rv_policy::reference)

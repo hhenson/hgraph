@@ -1,18 +1,24 @@
 #pragma once
 
-#include "hgraph/types/tsw.h"
 #include <hgraph/api/python/py_time_series.h>
+#include <hgraph/hgraph_base.h>
 
 namespace hgraph
 {
     /**
-     * @brief Non-templated Python wrapper for TimeSeriesFixedWindowOutput.
+     * @brief Python wrapper for TimeSeriesFixedWindowOutput.
      */
     struct PyTimeSeriesFixedWindowOutput : PyTimeSeriesOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesFixedWindowOutput>;
+        // View-based constructor (the only supported mode)
+        explicit PyTimeSeriesFixedWindowOutput(TSMutableView view);
 
-        explicit PyTimeSeriesFixedWindowOutput(api_ptr impl);
+        // Move constructor/assignment
+        PyTimeSeriesFixedWindowOutput(PyTimeSeriesFixedWindowOutput&& other) noexcept
+            : PyTimeSeriesOutput(std::move(other)) {}
+        PyTimeSeriesFixedWindowOutput& operator=(PyTimeSeriesFixedWindowOutput&& other) noexcept = default;
+        PyTimeSeriesFixedWindowOutput(const PyTimeSeriesFixedWindowOutput&) = delete;
+        PyTimeSeriesFixedWindowOutput& operator=(const PyTimeSeriesFixedWindowOutput&) = delete;
 
         [[nodiscard]] nb::object value_times() const;
         [[nodiscard]] engine_time_t first_modified_time() const;
@@ -21,19 +27,22 @@ namespace hgraph
         [[nodiscard]] nb::bool_ has_removed_value() const;
         [[nodiscard]] nb::object removed_value() const;
         [[nodiscard]] nb::int_ len() const;
-
-    private:
-        [[nodiscard]] TimeSeriesFixedWindowOutput* impl() const;
     };
 
     /**
-     * @brief Non-templated Python wrapper for TimeSeriesTimeWindowOutput.
+     * @brief Python wrapper for TimeSeriesTimeWindowOutput.
      */
     struct PyTimeSeriesTimeWindowOutput : PyTimeSeriesOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesTimeWindowOutput>;
+        // View-based constructor (the only supported mode)
+        explicit PyTimeSeriesTimeWindowOutput(TSMutableView view);
 
-        explicit PyTimeSeriesTimeWindowOutput(api_ptr impl);
+        // Move constructor/assignment
+        PyTimeSeriesTimeWindowOutput(PyTimeSeriesTimeWindowOutput&& other) noexcept
+            : PyTimeSeriesOutput(std::move(other)) {}
+        PyTimeSeriesTimeWindowOutput& operator=(PyTimeSeriesTimeWindowOutput&& other) noexcept = default;
+        PyTimeSeriesTimeWindowOutput(const PyTimeSeriesTimeWindowOutput&) = delete;
+        PyTimeSeriesTimeWindowOutput& operator=(const PyTimeSeriesTimeWindowOutput&) = delete;
 
         [[nodiscard]] nb::object value_times() const;
         [[nodiscard]] engine_time_t first_modified_time() const;
@@ -42,28 +51,28 @@ namespace hgraph
         [[nodiscard]] nb::bool_ has_removed_value() const;
         [[nodiscard]] nb::object removed_value() const;
         [[nodiscard]] nb::int_ len() const;
-
-    private:
-        [[nodiscard]] TimeSeriesTimeWindowOutput* impl() const;
     };
 
     /**
-     * @brief Non-templated Python wrapper for TimeSeriesWindowInput.
+     * @brief Python wrapper for TimeSeriesWindowInput.
      */
     struct PyTimeSeriesWindowInput : PyTimeSeriesInput
     {
-        using api_ptr = ApiPtr<TimeSeriesWindowInput>;
+        // View-based constructor (the only supported mode)
+        explicit PyTimeSeriesWindowInput(TSView view);
 
-        explicit PyTimeSeriesWindowInput(api_ptr impl);
+        // Move constructor/assignment
+        PyTimeSeriesWindowInput(PyTimeSeriesWindowInput&& other) noexcept
+            : PyTimeSeriesInput(std::move(other)) {}
+        PyTimeSeriesWindowInput& operator=(PyTimeSeriesWindowInput&& other) noexcept = default;
+        PyTimeSeriesWindowInput(const PyTimeSeriesWindowInput&) = delete;
+        PyTimeSeriesWindowInput& operator=(const PyTimeSeriesWindowInput&) = delete;
 
         [[nodiscard]] nb::object value_times() const;
         [[nodiscard]] engine_time_t first_modified_time() const;
         [[nodiscard]] nb::bool_ has_removed_value() const;
         [[nodiscard]] nb::object removed_value() const;
         [[nodiscard]] nb::int_ len() const;
-
-    private:
-        [[nodiscard]] TimeSeriesWindowInput* impl() const;
     };
 
     // Registration

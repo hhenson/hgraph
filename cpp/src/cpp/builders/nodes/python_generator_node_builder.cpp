@@ -23,10 +23,10 @@ namespace hgraph {
 
     node_s_ptr PythonGeneratorNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id,
                                                        int64_t node_ndx) const {
+        // Node constructor creates TSValue storage internally when TSMeta is provided
         auto node = arena_make_shared_as<PythonGeneratorNode, Node>(
             node_ndx, owning_graph_id, signature, scalars, eval_fn, nb::callable{}, nb::callable{},
             input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
-        _build_inputs_and_outputs(node.get());
         return node;
     }
 

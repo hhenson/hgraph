@@ -5,45 +5,38 @@
 
 namespace hgraph
 {
-
-    template <typename T_TS, typename T_U>
-    concept is_py_tsl = ((std::is_same_v<T_TS, PyTimeSeriesInput> || std::is_same_v<T_TS, PyTimeSeriesOutput>) &&
-                         ((std::is_same_v<T_TS, PyTimeSeriesInput> && std::is_same_v<T_U, TimeSeriesListInput>) ||
-                          (std::is_same_v<T_TS, PyTimeSeriesOutput> && std::is_same_v<T_U, TimeSeriesListOutput>)));
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    struct PyTimeSeriesList : T_TS
+    /**
+     * @brief Python wrapper for TimeSeriesListOutput.
+     *
+     * Uses TSView/TSLView for all operations.
+     */
+    struct PyTimeSeriesListOutput : PyTimeSeriesOutput
     {
-        using underlying_type = T_U;
-        using api_ptr = ApiPtr<underlying_type>;
-
-        explicit PyTimeSeriesList(api_ptr impl);
-        explicit PyTimeSeriesList(underlying_type *impl, const control_block_ptr &cb);
-        explicit PyTimeSeriesList(underlying_type *impl);
+        // View-based constructor (the only supported mode)
+        explicit PyTimeSeriesListOutput(TSMutableView view);
 
         // Move constructor
-        PyTimeSeriesList(PyTimeSeriesList&& other) noexcept
-            : T_TS(std::move(other)) {}
+        PyTimeSeriesListOutput(PyTimeSeriesListOutput&& other) noexcept
+            : PyTimeSeriesOutput(std::move(other)) {}
 
         // Move assignment
-        PyTimeSeriesList& operator=(PyTimeSeriesList&& other) noexcept {
+        PyTimeSeriesListOutput& operator=(PyTimeSeriesListOutput&& other) noexcept {
             if (this != &other) {
-                T_TS::operator=(std::move(other));
+                PyTimeSeriesOutput::operator=(std::move(other));
             }
             return *this;
         }
 
         // Delete copy constructor and assignment
-        PyTimeSeriesList(const PyTimeSeriesList&) = delete;
-        PyTimeSeriesList& operator=(const PyTimeSeriesList&) = delete;
+        PyTimeSeriesListOutput(const PyTimeSeriesListOutput&) = delete;
+        PyTimeSeriesListOutput& operator=(const PyTimeSeriesListOutput&) = delete;
 
-        // Default iterator iterates over keys to keep this more consistent with Python (c.f. dict)
+        // Default iterator iterates over values
         [[nodiscard]] nb::object iter() const;
 
         [[nodiscard]] nb::object get_item(const nb::handle &key) const;
 
-        // Retrieves valid keys
+        // Retrieves keys (indices)
         [[nodiscard]] nb::object keys() const;
 
         [[nodiscard]] nb::object values() const;
@@ -54,7 +47,7 @@ namespace hgraph
 
         [[nodiscard]] nb::int_ len() const;
 
-        // Retrieves valid items
+        // Retrieves items (index, value pairs)
         [[nodiscard]] nb::object items() const;
 
         [[nodiscard]] nb::object valid_values() const;
@@ -69,15 +62,66 @@ namespace hgraph
 
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();
-
-      private:
-        underlying_type *impl() const;
     };
 
+    /**
+     * @brief Python wrapper for TimeSeriesListInput.
+     *
+     * Uses TSView/TSLView for all operations.
+     */
+    struct PyTimeSeriesListInput : PyTimeSeriesInput
+    {
+        // View-based constructor (the only supported mode)
+        explicit PyTimeSeriesListInput(TSView view);
 
-    using PyTimeSeriesListOutput = PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>;
+        // Move constructor
+        PyTimeSeriesListInput(PyTimeSeriesListInput&& other) noexcept
+            : PyTimeSeriesInput(std::move(other)) {}
 
-    using PyTimeSeriesListInput = PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>;
+        // Move assignment
+        PyTimeSeriesListInput& operator=(PyTimeSeriesListInput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesInput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesListInput(const PyTimeSeriesListInput&) = delete;
+        PyTimeSeriesListInput& operator=(const PyTimeSeriesListInput&) = delete;
+
+        // Default iterator iterates over values
+        [[nodiscard]] nb::object iter() const;
+
+        [[nodiscard]] nb::object get_item(const nb::handle &key) const;
+
+        // Retrieves keys (indices)
+        [[nodiscard]] nb::object keys() const;
+
+        [[nodiscard]] nb::object values() const;
+
+        [[nodiscard]] nb::object valid_keys() const;
+
+        [[nodiscard]] nb::object modified_keys() const;
+
+        [[nodiscard]] nb::int_ len() const;
+
+        // Retrieves items (index, value pairs)
+        [[nodiscard]] nb::object items() const;
+
+        [[nodiscard]] nb::object valid_values() const;
+
+        [[nodiscard]] nb::object valid_items() const;
+
+        [[nodiscard]] nb::object modified_values() const;
+
+        [[nodiscard]] nb::object modified_items() const;
+
+        [[nodiscard]] bool empty() const;
+
+        [[nodiscard]] nb::str py_str();
+        [[nodiscard]] nb::str py_repr();
+    };
 
     void tsl_register_with_nanobind(nb::module_ &m);
 

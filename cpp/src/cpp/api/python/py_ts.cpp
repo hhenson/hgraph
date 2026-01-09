@@ -1,24 +1,14 @@
 #include <hgraph/api/python/py_ts.h>
 
-#include <utility>
-
 namespace hgraph
 {
-    // ApiPtr-based constructor (to be removed once wrapping uses views)
-    PyTimeSeriesValueOutput::PyTimeSeriesValueOutput(api_ptr impl)
-        : PyTimeSeriesOutput(std::move(impl)) {}
-
-    // View-based constructor
+    // View-based constructor (the only supported mode)
     PyTimeSeriesValueOutput::PyTimeSeriesValueOutput(TSMutableView view)
-        : PyTimeSeriesOutput(std::move(view)) {}
+        : PyTimeSeriesOutput(view) {}
 
-    // ApiPtr-based constructor (to be removed once wrapping uses views)
-    PyTimeSeriesValueInput::PyTimeSeriesValueInput(api_ptr impl)
-        : PyTimeSeriesInput(std::move(impl)) {}
-
-    // View-based constructor
+    // View-based constructor (the only supported mode)
     PyTimeSeriesValueInput::PyTimeSeriesValueInput(TSView view)
-        : PyTimeSeriesInput(std::move(view)) {}
+        : PyTimeSeriesInput(view) {}
 
     void ts_register_with_nanobind(nb::module_ &m) {
         // No need to re-register value property - base class handles it via TSView

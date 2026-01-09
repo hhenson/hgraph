@@ -4,6 +4,7 @@
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_input_root.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <memory>
@@ -224,23 +225,25 @@ namespace hgraph
 
         void set_graph(graph_ptr value);
 
-        time_series_bundle_input_s_ptr &input();
-
-        const time_series_bundle_input_s_ptr &input() const;
-
         auto start_inputs() const { return _start_inputs; }
 
-        void set_input(const time_series_bundle_input_s_ptr &value);
+        // ========== Legacy Method Stubs ==========
+        // These methods throw runtime errors - callers need to migrate to TSValue-based access
+        // TODO: Remove these once all callers are migrated
 
-        virtual void reset_input(const time_series_bundle_input_s_ptr &value);
+        time_series_bundle_input_s_ptr& input();
+        const time_series_bundle_input_s_ptr& input() const;
+        void set_input(const time_series_bundle_input_s_ptr& value);
+        virtual void reset_input(const time_series_bundle_input_s_ptr& value);
 
-        time_series_output_s_ptr &output();
+        time_series_output_s_ptr& output();
+        void set_output(const time_series_output_s_ptr& value);
 
-        void set_output(const time_series_output_s_ptr &value);
+        time_series_output_s_ptr& error_output();
+        void set_error_output(const time_series_output_s_ptr& value);
 
-        time_series_bundle_output_s_ptr &recordable_state();
-
-        void set_recordable_state(const time_series_bundle_output_s_ptr &value);
+        time_series_bundle_output_s_ptr& recordable_state();
+        void set_recordable_state(const time_series_bundle_output_s_ptr& value);
 
         bool has_recordable_state() const;
 
@@ -250,15 +253,11 @@ namespace hgraph
 
         void unset_scheduler();
 
-        time_series_output_s_ptr &error_output();
-
-        void set_error_output(const time_series_output_s_ptr &value);
-
-        // ========== TSValue View Access Methods ==========
-        // These provide type-safe access to the new TSValue storage
+        // ========== TSInputRoot/TSValue Access Methods ==========
+        // These provide type-safe access to the new TSInputRoot/TSValue storage
 
         /**
-         * @brief Check if the node has TSValue-based input storage.
+         * @brief Check if the node has TSInputRoot-based input storage.
          */
         [[nodiscard]] bool has_ts_input() const { return _ts_input.has_value(); }
 
@@ -266,6 +265,50 @@ namespace hgraph
          * @brief Check if the node has TSValue-based output storage.
          */
         [[nodiscard]] bool has_ts_output() const { return _ts_output.has_value(); }
+
+        /**
+         * @brief Get the TSInputRoot for input binding and navigation.
+         * @return Reference to the input root
+         */
+        [[nodiscard]] TSInputRoot& ts_input() { return *_ts_input; }
+
+        /**
+         * @brief Get the TSInputRoot (const).
+         */
+        [[nodiscard]] const TSInputRoot& ts_input() const { return *_ts_input; }
+
+        /**
+         * @brief Get the TSValue for output binding.
+         * @return Pointer to the output TSValue, or nullptr if no output
+         */
+        [[nodiscard]] TSValue* ts_output() { return _ts_output.has_value() ? &*_ts_output : nullptr; }
+
+        /**
+         * @brief Get the TSValue for output binding (const).
+         */
+        [[nodiscard]] const TSValue* ts_output() const { return _ts_output.has_value() ? &*_ts_output : nullptr; }
+
+        /**
+         * @brief Get the TSValue for error output binding.
+         * @return Pointer to the error output TSValue, or nullptr if none
+         */
+        [[nodiscard]] TSValue* ts_error_output() { return _ts_error_output.has_value() ? &*_ts_error_output : nullptr; }
+
+        /**
+         * @brief Get the TSValue for error output binding (const).
+         */
+        [[nodiscard]] const TSValue* ts_error_output() const { return _ts_error_output.has_value() ? &*_ts_error_output : nullptr; }
+
+        /**
+         * @brief Get the TSValue for recordable state binding.
+         * @return Pointer to the recordable state TSValue, or nullptr if none
+         */
+        [[nodiscard]] TSValue* ts_recordable_state() { return _ts_recordable_state.has_value() ? &*_ts_recordable_state : nullptr; }
+
+        /**
+         * @brief Get the TSValue for recordable state binding (const).
+         */
+        [[nodiscard]] const TSValue* ts_recordable_state() const { return _ts_recordable_state.has_value() ? &*_ts_recordable_state : nullptr; }
 
         /**
          * @brief Get a bundle view of the input (always TSB).
@@ -338,27 +381,19 @@ namespace hgraph
         node_signature_s_ptr            _signature;
         nb::dict                        _scalars;
         graph_ptr                       _graph;             // back-pointer, not owned
-        time_series_bundle_input_s_ptr  _input;             // owned
-        time_series_output_s_ptr        _output;            // owned
-        time_series_output_s_ptr        _error_output;      // owned
-        time_series_bundle_output_s_ptr _recordable_state;  // owned
         NodeScheduler::s_ptr            _scheduler;         // owned
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.
         std::vector<time_series_reference_input_s_ptr> _start_inputs;  // owned
 
-        // Cache for these calculated values - not owned, just references
-        std::vector<time_series_input_ptr> _check_valid_inputs;
-        std::vector<time_series_input_ptr> _check_all_valid_inputs;
-
         // Performance optimization: Cache evaluation time pointer from graph
         // Set once when graph is assigned to node, never changes
         const engine_time_t *_cached_evaluation_time_ptr{nullptr};
 
-        // ========== New TSValue Storage ==========
+        // ========== New TSValue/TSInputRoot Storage ==========
         // These replace the shared_ptr-based time-series storage
-        std::optional<TSValue> _ts_input;            // Always TSB type
-        std::optional<TSValue> _ts_output;           // Any TS type
+        std::optional<TSInputRoot> _ts_input;        // Input with link support (always TSB)
+        std::optional<TSValue> _ts_output;           // Output storage (any TS type)
         std::optional<TSValue> _ts_error_output;     // Error output path
         std::optional<TSValue> _ts_recordable_state; // Recordable state path
     };

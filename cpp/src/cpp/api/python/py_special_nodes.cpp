@@ -11,15 +11,13 @@ namespace hgraph
     }
 
     void PyLastValuePullNode::copy_from_input(const nb::handle &input) {
-        auto input_ts{unwrap_input(input)};
-        if (!input_ts) {throw std::runtime_error("Invalid input type for LastValuePullNode");}
-        impl()->copy_from_input(*input_ts);
+        // Stub - copy_from_input requires view-based unwrap migration
+        throw std::runtime_error("PyLastValuePullNode::copy_from_input not yet implemented for view-based wrappers");
     }
 
     void PyLastValuePullNode::copy_from_output(const nb::handle &output) {
-        auto output_ts{unwrap_output(output)};
-        if (!output_ts) {throw std::runtime_error("Invalid output type for LastValuePullNode");}
-        impl()->copy_from_output(*output_ts);
+        // Stub - copy_from_output requires view-based unwrap migration
+        throw std::runtime_error("PyLastValuePullNode::copy_from_output not yet implemented for view-based wrappers");
     }
 
     LastValuePullNode *PyLastValuePullNode::impl() {

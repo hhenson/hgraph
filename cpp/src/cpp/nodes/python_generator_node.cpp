@@ -1,6 +1,7 @@
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/time_series/ts_view.h>
 
 namespace hgraph {
 
@@ -39,26 +40,31 @@ namespace hgraph {
             if (next_time >= et && !out.is_none()) { break; }
         }
 
+        // Use TSValue-based output via output_view()
+        auto view = output_view();
+
         // If next_time > MIN_TD then we entered the extraction loop and extracted a value
         // If next_time <= et then we are expecting to schedule the task.
         if (next_time > MIN_DT && next_time <= et) {
             // If we have a duplicate time, this will pick it up
-            if (output()->last_modified_time() == next_time) {
+            if (view.last_modified_time() == next_time) {
                 throw std::runtime_error(
                     fmt::format("Duplicate time produced by generator: [{:%FT%T%z}] - {}", next_time,
                                 nb::str(out).c_str()));
             }
             // If next_time is less than et we will schedule at et anyhow.
-            output()->apply_result(out);
+            view.from_python(out);
+            view.notify_modified(et);
             next_value = nb::none();
-            do_eval(); // We are going to apply now! Prepare next step
+            PythonGeneratorNode::do_eval(); // Recursive call to process next value
             return;
         }
 
         // If we get here, it may be that we are scheduled, let's see if there is anything pending delivery.
         if (next_value.is_valid() && !next_value.is_none()) {
             // There is, set the value and reset the next_value
-            output()->apply_result(next_value);
+            view.from_python(next_value);
+            view.notify_modified(et);
             next_value = nb::none();
         }
 

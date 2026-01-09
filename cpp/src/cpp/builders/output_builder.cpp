@@ -27,20 +27,9 @@ namespace hgraph {
                     "make_instance",
                     [](OutputBuilder::ptr self, nb::object owning_node,
                        nb::object owning_output) -> nb::object {
-                        if (!owning_node.is_none()) {
-                            auto node{unwrap_node(owning_node)};
-                            auto output_{self->make_instance(node.get())};
-                            return wrap_time_series(output_);
-                        }
-                        if (!owning_output.is_none()) {
-                            auto object_{unwrap_output(owning_output)};
-                            auto result_{self->make_instance(object_.get())};
-                            return wrap_time_series(result_);
-                        }
-                        // TODO: Here we need to create a standalone instance of the output
-
-                        // Allow both to be None to match Python behavior
-                        throw std::runtime_error("At least one of owning_node or owning_output must be provided");
+                        // Stub - OutputBuilder::make_instance requires view-based wrapping migration
+                        // This will be updated when the output builder system is migrated to TSValue
+                        throw std::runtime_error("OutputBuilder::make_instance not yet implemented for view-based wrappers");
                     },
                     "owning_node"_a = nb::none(), "owning_output"_a = nb::none())
                 .def("release_instance", &OutputBuilder::release_instance)

@@ -21,8 +21,11 @@
 namespace hgraph {
     ReduceNode::ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                            nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
-                           const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id)
-        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
+                           const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id,
+                           const TSMeta* input_meta, const TSMeta* output_meta,
+                           const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
+        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+                     input_meta, output_meta, error_output_meta, recordable_state_meta),
           nested_graph_builder_(std::move(nested_graph_builder)), input_node_ids_(input_node_ids),
           output_node_id_(output_node_id) {
     }
@@ -425,9 +428,10 @@ namespace hgraph {
     void register_reduce_node_with_nanobind(nb::module_ &m) {
         nb::class_<ReduceNode, NestedNode>(m, "ReduceNode")
                 .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::s_ptr, nb::dict, graph_builder_s_ptr,
-                         const std::tuple<int64_t, int64_t> &, int64_t>(),
+                         const std::tuple<int64_t, int64_t> &, int64_t, const TSMeta*, const TSMeta*, const TSMeta*, const TSMeta*>(),
                      "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a,
-                     "input_node_ids"_a, "output_node_id"_a)
+                     "input_node_ids"_a, "output_node_id"_a,
+                     "input_meta"_a = nullptr, "output_meta"_a = nullptr, "error_output_meta"_a = nullptr, "recordable_state_meta"_a = nullptr)
                 .def_prop_ro("nested_graph", &ReduceNode::nested_graph)
                 .def_prop_ro("nested_graphs", &ReduceNode::nested_graphs)
                 .def_prop_ro("ts", &ReduceNode::ts)

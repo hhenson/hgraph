@@ -57,10 +57,9 @@ namespace hgraph {
     }
 
     void NodeBuilder::release_instance(const node_s_ptr &item) const {
-        if (input_builder) { (*input_builder)->release_instance(item->input().get()); }
-        if (output_builder) { (*output_builder)->release_instance(item->output().get()); }
-        if (error_builder) { (*error_builder)->release_instance(item->error_output().get()); }
-        if (recordable_state_builder) { (*recordable_state_builder)->release_instance(item->recordable_state().get()); }
+        // Skip input/output/error/state release for TSValue-based nodes - these are stored in TSValue, not separate objects
+        // TSValue-based nodes use input_view(), output_view(), error_output_view(), state_view() instead
+        // The legacy accessors now throw, so we can't call them
         dispose_component(*item);
     }
 

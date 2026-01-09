@@ -44,9 +44,11 @@ namespace hgraph {
                    input_node_ids_map_ptr input_node_ids,
                    output_node_ids_map_ptr output_node_ids,
                    bool reload_on_ticked,
-                   graph_builder_s_ptr default_graph_builder = nullptr,
-                   std::unordered_map<std::string, int> default_input_node_ids = {},
-                   int default_output_node_id = -1);
+                   graph_builder_s_ptr default_graph_builder,
+                   std::unordered_map<std::string, int> default_input_node_ids,
+                   int default_output_node_id,
+                   const TSMeta* input_meta, const TSMeta* output_meta,
+                   const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         void initialise() override;
 

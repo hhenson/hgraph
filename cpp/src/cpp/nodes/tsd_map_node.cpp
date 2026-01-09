@@ -48,8 +48,12 @@ namespace hgraph
     TsdMapNode::TsdMapNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                            nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
                            const std::unordered_map<std::string, int64_t> &input_node_ids, int64_t output_node_id,
-                           const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg)
-        : NestedNode(node_ndx, owning_graph_id, signature, scalars), nested_graph_builder_(nested_graph_builder),
+                           const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg,
+                           const TSMeta* input_meta, const TSMeta* output_meta,
+                           const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
+        : NestedNode(node_ndx, owning_graph_id, signature, scalars,
+                     input_meta, output_meta, error_output_meta, recordable_state_meta),
+          nested_graph_builder_(nested_graph_builder),
           input_node_ids_(input_node_ids), output_node_id_(output_node_id), multiplexed_args_(multiplexed_args), key_arg_(key_arg) {
     }
 
@@ -330,9 +334,10 @@ namespace hgraph
         nb::class_<TsdMapNode, NestedNode>(m, "TsdMapNode")
             .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::s_ptr, nb::dict, graph_builder_s_ptr,
                           const std::unordered_map<std::string, int64_t> &, int64_t, const std::unordered_set<std::string> &,
-                          const std::string &>(),
+                          const std::string &, const TSMeta*, const TSMeta*, const TSMeta*, const TSMeta*>(),
                  "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a, "input_node_ids"_a,
-                 "output_node_id"_a, "multiplexed_args"_a, "key_arg"_a)
+                 "output_node_id"_a, "multiplexed_args"_a, "key_arg"_a,
+                 "input_meta"_a = nullptr, "output_meta"_a = nullptr, "error_output_meta"_a = nullptr, "recordable_state_meta"_a = nullptr)
             .def_prop_ro("nested_graphs", &TsdMapNode::py_nested_graphs);
     }
 }  // namespace hgraph

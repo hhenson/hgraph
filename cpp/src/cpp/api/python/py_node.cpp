@@ -7,6 +7,8 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
@@ -119,26 +121,38 @@ namespace hgraph
     }
 
     nb::object PyNode::input() const {
-        auto inp = _impl->input();
-        return inp ? wrap_input(inp) : nb::none();
+        // Use view-based wrapping via Node's input_view()
+        if (!_impl->has_input()) { return nb::none(); }
+        TSBView input_bv = _impl->input_view();
+        return wrap_bundle_input_view(input_bv);
     }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;
-        auto inp_ = _impl->input();
-        if (!inp_) { return d; }
-        for (const auto &key : inp_->schema().keys()) { d[key.c_str()] = wrap_input((*inp_)[key]); }
+        if (!_impl->has_input()) { return d; }
+        TSBView input_bv = _impl->input_view();
+        const TSBTypeMeta* meta = input_bv.bundle_meta();
+        for (size_t i = 0; i < meta->field_count(); ++i) {
+            TSView field = input_bv.field(i);
+            d[meta->field(i).name.c_str()] = wrap_input_view(field);
+        }
         return d;
     }
 
     nb::tuple PyNode::start_inputs() const { return nb::tuple(nb::cast(_impl->start_inputs())); }
 
     nb::object PyNode::output() {
-        auto out = _impl->output();
-        return out ? wrap_output(out) : nb::none();
+        // Use view-based wrapping via Node's output_view()
+        if (!_impl->has_output()) { return nb::none(); }
+        TSMutableView output_mv = _impl->output_view();
+        return wrap_output_view(output_mv);
     }
 
-    nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state()); }
+    nb::object PyNode::recordable_state() {
+        // Use view-based wrapping via Node's state_view()
+        TSMutableView state_mv = _impl->state_view();
+        return state_mv.valid() ? wrap_output_view(state_mv) : nb::none();
+    }
 
     nb::bool_ PyNode::has_recordable_state() const { return nb::bool_(_impl->has_recordable_state()); }
 
@@ -146,7 +160,11 @@ namespace hgraph
 
     nb::bool_ PyNode::has_scheduler() const { return nb::bool_(_impl->has_scheduler()); }
 
-    nb::object PyNode::error_output() { return wrap_output(_impl->error_output()); }
+    nb::object PyNode::error_output() {
+        // Use view-based wrapping via Node's error_output_view()
+        TSMutableView error_mv = _impl->error_output_view();
+        return error_mv.valid() ? wrap_output_view(error_mv) : nb::none();
+    }
 
     nb::bool_ PyNode::has_input() const { return nb::bool_(_impl->has_input()); }
 

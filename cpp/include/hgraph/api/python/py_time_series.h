@@ -1,112 +1,63 @@
 #pragma once
 
-#include "api_ptr.h"
-
 #include <hgraph/hgraph_base.h>
 #include <hgraph/types/time_series/ts_view.h>
-#include <optional>
 
 namespace hgraph
 {
+    /**
+     * @brief Base class for Python time-series wrappers.
+     *
+     * This is a marker base class with only a virtual destructor.
+     * All methods are implemented concretely in derived classes using the type-erased
+     * TSView/TSMutableView - no virtual dispatch needed since the view handles polymorphism.
+     */
     struct HGRAPH_EXPORT PyTimeSeriesType
     {
-        using api_ptr = ApiPtr<TimeSeriesType>;
-
         virtual ~PyTimeSeriesType() = default;
 
-        // Move constructor
-        PyTimeSeriesType(PyTimeSeriesType&& other) noexcept
-            : _impl(std::move(other._impl)) {}
-
-        // Move assignment
-        PyTimeSeriesType& operator=(PyTimeSeriesType&& other) noexcept {
-            if (this != &other) {
-                _impl = std::move(other._impl);
-            }
-            return *this;
-        }
+        // Default move constructor/assignment
+        PyTimeSeriesType(PyTimeSeriesType&& other) noexcept = default;
+        PyTimeSeriesType& operator=(PyTimeSeriesType&& other) noexcept = default;
 
         // Delete copy constructor and assignment
         PyTimeSeriesType(const PyTimeSeriesType&) = delete;
         PyTimeSeriesType& operator=(const PyTimeSeriesType&) = delete;
 
-        // Graph navigation methods. These may not be required
-        // (Other than for debugging) if we used the context approach
-        [[nodiscard]] nb::object owning_node() const;   // PyNode
-        [[nodiscard]] nb::object owning_graph() const;  // PyGraph
-        // Helper methods can be removed now we use ptr return types?
-        [[nodiscard]] nb::bool_ has_parent_or_node() const;
-        [[nodiscard]] nb::bool_ has_owning_node() const;
-
-        // Value of this node - for python API
-        [[nodiscard]] virtual nb::object value() const;
-        [[nodiscard]] nb::object delta_value() const;
-
-        // When was this time-series last modified?
-        [[nodiscard]] engine_time_t last_modified_time() const;
-        // State of the value checks (related to last_modified_time and event type)
-        [[nodiscard]] nb::bool_ modified() const;
-        [[nodiscard]] nb::bool_ valid() const;
-        [[nodiscard]] nb::bool_ all_valid() const;
-
-        [[nodiscard]] virtual nb::bool_ is_reference() const;
-
         static void register_with_nanobind(nb::module_ &m);
 
       protected:
-        explicit PyTimeSeriesType(api_ptr impl);
-
-        /**
-         * Check if this instance has a valid ApiPtr impl.
-         * Returns false for view-only instances.
-         */
-        [[nodiscard]] bool has_impl() const { return static_cast<bool>(_impl); }
-
-        [[nodiscard]] control_block_ptr control_block() const;
-
-        template <typename U> U *static_cast_impl() const { return _impl.static_cast_<U>(); }
-
-        template <typename U> U *dynamic_cast_impl() const { return _impl.dynamic_cast_<U>(); }
-
-        template <typename U> std::shared_ptr<U> impl_s_ptr() const { return _impl.control_block_typed<U>(); }
-
-      private:
-        api_ptr _impl;
+        PyTimeSeriesType() = default;
     };
 
+    // Forward declaration for copy_from_input
     struct PyTimeSeriesInput;
 
     struct HGRAPH_EXPORT PyTimeSeriesOutput : PyTimeSeriesType
     {
-        // ========== View-based construction (new system) ==========
+        // ========== View-based construction ==========
 
         /**
          * Construct from a TSMutableView.
-         * Used by wrap_output_view() for view-based time-series access.
          */
         explicit PyTimeSeriesOutput(TSMutableView view);
 
         /**
-         * Check if this wrapper is view-based (vs ApiPtr-based).
+         * Get the view.
          */
-        [[nodiscard]] bool is_view_based() const { return _view.has_value(); }
+        [[nodiscard]] TSMutableView view() const { return _view; }
 
-        /**
-         * Get the view (throws if not view-based).
-         */
-        [[nodiscard]] TSMutableView view() const;
+        // ========== Common time-series interface (concrete, non-virtual) ==========
 
-        // ========== Value access (works for both ApiPtr and view-based) ==========
-
-        /**
-         * Get value - delegates to view if view-based, else to impl.
-         */
-        [[nodiscard]] nb::object value() const override;
-
-        // ========== Output-specific navigation (ApiPtr-based only) ==========
-
-        [[nodiscard]] nb::object parent_output() const;
-        [[nodiscard]] nb::bool_  has_parent_output() const;
+        [[nodiscard]] nb::object value() const;
+        [[nodiscard]] nb::object delta_value() const;
+        [[nodiscard]] nb::object owning_node() const;
+        [[nodiscard]] nb::object owning_graph() const;
+        [[nodiscard]] engine_time_t last_modified_time() const;
+        [[nodiscard]] nb::bool_ modified() const;
+        [[nodiscard]] nb::bool_ valid() const;
+        [[nodiscard]] nb::bool_ all_valid() const;
+        [[nodiscard]] nb::bool_ is_reference() const;
 
         // ========== Mutation operations ==========
 
@@ -134,49 +85,37 @@ namespace hgraph
         static void register_with_nanobind(nb::module_ &m);
 
       protected:
-        using PyTimeSeriesType::PyTimeSeriesType;
-
-        // View storage for view-based instances
-        std::optional<TSMutableView> _view;
-
-      private:
-        friend time_series_output_s_ptr unwrap_output(const PyTimeSeriesOutput &output_);
-        [[nodiscard]] TimeSeriesOutput *impl() const;
+        // View storage - the only data member
+        TSMutableView _view;
     };
 
     struct HGRAPH_EXPORT PyTimeSeriesInput : PyTimeSeriesType
     {
-        using api_ptr = ApiPtr<TimeSeriesInput>;
-
-        // ========== View-based construction (new system) ==========
+        // ========== View-based construction ==========
 
         /**
          * Construct from a TSView.
-         * Used by wrap_input_view() for view-based time-series access.
          */
         explicit PyTimeSeriesInput(TSView view);
 
         /**
-         * Check if this wrapper is view-based (vs ApiPtr-based).
+         * Get the view.
          */
-        [[nodiscard]] bool is_view_based() const { return _view.has_value(); }
+        [[nodiscard]] TSView view() const { return _view; }
 
-        /**
-         * Get the view (throws if not view-based).
-         */
-        [[nodiscard]] TSView view() const;
+        // ========== Common time-series interface (concrete, non-virtual) ==========
 
-        // ========== Value access (works for both ApiPtr and view-based) ==========
+        [[nodiscard]] nb::object value() const;
+        [[nodiscard]] nb::object delta_value() const;
+        [[nodiscard]] nb::object owning_node() const;
+        [[nodiscard]] nb::object owning_graph() const;
+        [[nodiscard]] engine_time_t last_modified_time() const;
+        [[nodiscard]] nb::bool_ modified() const;
+        [[nodiscard]] nb::bool_ valid() const;
+        [[nodiscard]] nb::bool_ all_valid() const;
+        [[nodiscard]] nb::bool_ is_reference() const;
 
-        /**
-         * Get value - delegates to view if view-based, else to impl.
-         */
-        [[nodiscard]] nb::object value() const override;
-
-        // ========== Input-specific navigation (ApiPtr-based only) ==========
-
-        [[nodiscard]] nb::object parent_input() const;
-        [[nodiscard]] nb::bool_  has_parent_input() const;
+        // ========== Input-specific state methods ==========
 
         // This is used to indicate if the owner of this input is interested in being notified when
         // modifications are made to the value represented by this input.
@@ -184,34 +123,14 @@ namespace hgraph
         void                    make_active();
         void                    make_passive();
 
-        // Dealing with the various states the time-series can be found in, for the most part this
-        // should not need to be exposed as a client facing API, but is used for internal state management.
+        // Dealing with the various states the time-series can be found in
         [[nodiscard]] nb::bool_  bound() const;
-        [[nodiscard]] nb::bool_  has_peer() const;
-        [[nodiscard]] nb::object output() const;  // time_series_output_ptr
-        [[nodiscard]] nb::bool_  has_output() const;
-        nb::bool_                bind_output(nb::object output_);
-        void                     un_bind_output(bool unbind_refs);
-
-        // This is a feature used by the BackTrace tooling, this is not something that is generally
-        // Useful, it could be handled through a visitor, or some other means of extraction.
-        // This exposes internal implementation logic.
-        [[nodiscard]] nb::object reference_output() const;  // time_series_ref_ptr
-
-        // This is a hack to support REF time-series binding, this definitely needs to be revisited.
-        [[nodiscard]] nb::object get_input(size_t index) const;
 
         static void register_with_nanobind(nb::module_ &m);
 
       protected:
-        using PyTimeSeriesType::PyTimeSeriesType;
-
-        // View storage for view-based instances
-        std::optional<TSView> _view;
-
-      private:
-        [[nodiscard]] TimeSeriesInput *impl() const;
-        friend time_series_input_s_ptr unwrap_input(const PyTimeSeriesInput &input_);
+        // View storage - the only data member
+        TSView _view;
     };
 
 }  // namespace hgraph

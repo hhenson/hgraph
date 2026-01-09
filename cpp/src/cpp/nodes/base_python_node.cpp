@@ -7,6 +7,8 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/traits.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/util/date_time.h>
 
 namespace hgraph
@@ -50,8 +52,9 @@ namespace hgraph
                     if ((injectable & InjectableTypesEnum::NODE) != InjectableTypesEnum::NONE) {
                         wrapped_value = get_node_wrapper();
                     } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
-                        auto out = output();
-                        wrapped_value = wrap_time_series(out);
+                        // Use view-based wrapping via output_view()
+                        TSMutableView out_view = output_view();
+                        wrapped_value = out_view.valid() ? wrap_output_view(out_view) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
                         wrapped_value = wrap_node_scheduler(sched);
@@ -80,9 +83,10 @@ namespace hgraph
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
                         wrapped_value = g ? wrap_traits(&g->traits(), g->shared_from_this()) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
-                        auto recordable_state = this->recordable_state();
-                        if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }
-                        wrapped_value = wrap_time_series(recordable_state);
+                        // Use view-based wrapping via state_view()
+                        TSMutableView state_view_ = state_view();
+                        if (!state_view_.valid()) { throw std::runtime_error("Recordable state not set"); }
+                        wrapped_value = wrap_output_view(state_view_);
                     } else {
                         // Fallback: call injector with this node (same behaviour as python impl)
                         wrapped_value = value(get_node_wrapper());
@@ -109,20 +113,25 @@ namespace hgraph
         // This can be called during wiring in the current flow, would be worth looking into that to clean up, but for now protect
         if (graph() == nullptr) { return; }
         // If is not a compute node or sink node, there are no inputs to map
-        auto input_{input()};
-        if (!input_) { return; }
+        if (!has_input()) { return; }
+
+        // Use view-based access to input
+        TSBView input_bv = input_view();
+        const TSBTypeMeta* meta = input_bv.bundle_meta();
+
         auto &signature_args = signature().args;
         // Match main branch behavior: iterate over time_series_inputs
         for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0;
              i < l;
              ++i) {
-            auto key{input_->schema().keys()[i]};
+            auto key{meta->field(i).name};
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                auto wrapped = wrap_time_series(input_->operator[](i));
+                TSView field_view = input_bv.field(i);
+                auto wrapped = wrap_input_view(field_view);
                 if (wrapped.is_none()) {
                     throw std::runtime_error(
                         std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap time-series input '") +
-                        key + "' - wrap_time_series returned None. This indicates a bug in the wrapper factory.");
+                        key + "' - wrap_input_view returned None. This indicates a bug in the wrapper factory.");
                 }
                 _kwargs[key.c_str()] = wrapped;
             }
@@ -180,8 +189,8 @@ namespace hgraph
     }
 
     void BasePythonNode::reset_input(const time_series_bundle_input_s_ptr& value) {
-        Node::reset_input(value);
-        _initialise_kwarg_inputs();
+        // TODO: Migrate to TSValue-based input handling
+        throw std::runtime_error("BasePythonNode::reset_input not yet implemented for TSValue-based input");
     }
 
     class ContextManager
@@ -223,7 +232,12 @@ namespace hgraph
         ContextManager context_manager(*this);
         try {
             auto out{_eval_fn(**_kwargs)};
-            if (!out.is_none()) { output()->apply_result(out); }
+            if (!out.is_none()) {
+                // Use TSValue-based output via output_view()
+                auto view = output_view();
+                view.from_python(out);
+                view.notify_modified(graph()->evaluation_time());
+            }
         } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During Python node evaluation"); }
     }
 

@@ -1,25 +1,120 @@
 #include <hgraph/api/python/py_tss.h>
 #include <hgraph/api/python/wrapper_factory.h>
-#include <hgraph/types/tss.h>
+#include <hgraph/types/time_series/ts_view.h>
 
 namespace hgraph
 {
+    // ========== PyTimeSeriesSetOutput ==========
+
+    PyTimeSeriesSetOutput::PyTimeSeriesSetOutput(TSMutableView view)
+        : PyTimeSeriesOutput(view) {}
+
+    bool PyTimeSeriesSetOutput::contains(const nb::object &item) const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::contains not yet implemented for view-based wrappers");
+    }
+
+    size_t PyTimeSeriesSetOutput::size() const {
+        TSSView set = _view.as_set();
+        return set.size();
+    }
+
+    nb::bool_ PyTimeSeriesSetOutput::empty() const {
+        return nb::bool_(size() == 0);
+    }
+
+    nb::object PyTimeSeriesSetOutput::values() const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::values not yet implemented for view-based wrappers");
+    }
+
+    nb::object PyTimeSeriesSetOutput::added() const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::added not yet implemented for view-based wrappers");
+    }
+
+    nb::object PyTimeSeriesSetOutput::removed() const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::removed not yet implemented for view-based wrappers");
+    }
+
+    nb::bool_ PyTimeSeriesSetOutput::was_added(const nb::object &item) const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::was_added not yet implemented for view-based wrappers");
+    }
+
+    nb::bool_ PyTimeSeriesSetOutput::was_removed(const nb::object &item) const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::was_removed not yet implemented for view-based wrappers");
+    }
+
+    void PyTimeSeriesSetOutput::add(const nb::object &key) const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::add not yet implemented for view-based wrappers");
+    }
+
+    void PyTimeSeriesSetOutput::remove(const nb::object &key) const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::remove not yet implemented for view-based wrappers");
+    }
+
+    nb::object PyTimeSeriesSetOutput::get_contains_output(const nb::object &item, const nb::object &requester) const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::get_contains_output not yet implemented for view-based wrappers");
+    }
+
+    void PyTimeSeriesSetOutput::release_contains_output(const nb::object &item, const nb::object &requester) const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::release_contains_output not yet implemented for view-based wrappers");
+    }
+
+    nb::object PyTimeSeriesSetOutput::is_empty_output() const {
+        throw std::runtime_error("PyTimeSeriesSetOutput::is_empty_output not yet implemented for view-based wrappers");
+    }
+
     nb::str PyTimeSeriesSetOutput::py_str() const {
-        auto self{impl()};
-        auto s{fmt::format("TimeSeriesSetOutput@{:p}[size={}, valid={}]", static_cast<const void *>(self), self->size(),
-                           self->valid())};
+        auto s = fmt::format("TimeSeriesSetOutput[size={}, valid={}]", size(), _view.ts_valid());
         return nb::str(s.c_str());
     }
 
     nb::str PyTimeSeriesSetOutput::py_repr() const { return py_str(); }
 
+    // ========== PyTimeSeriesSetInput ==========
+
+    PyTimeSeriesSetInput::PyTimeSeriesSetInput(TSView view)
+        : PyTimeSeriesInput(view) {}
+
+    bool PyTimeSeriesSetInput::contains(const nb::object &item) const {
+        throw std::runtime_error("PyTimeSeriesSetInput::contains not yet implemented for view-based wrappers");
+    }
+
+    size_t PyTimeSeriesSetInput::size() const {
+        TSSView set = _view.as_set();
+        return set.size();
+    }
+
+    nb::bool_ PyTimeSeriesSetInput::empty() const {
+        return nb::bool_(size() == 0);
+    }
+
+    nb::object PyTimeSeriesSetInput::values() const {
+        throw std::runtime_error("PyTimeSeriesSetInput::values not yet implemented for view-based wrappers");
+    }
+
+    nb::object PyTimeSeriesSetInput::added() const {
+        throw std::runtime_error("PyTimeSeriesSetInput::added not yet implemented for view-based wrappers");
+    }
+
+    nb::object PyTimeSeriesSetInput::removed() const {
+        throw std::runtime_error("PyTimeSeriesSetInput::removed not yet implemented for view-based wrappers");
+    }
+
+    nb::bool_ PyTimeSeriesSetInput::was_added(const nb::object &item) const {
+        throw std::runtime_error("PyTimeSeriesSetInput::was_added not yet implemented for view-based wrappers");
+    }
+
+    nb::bool_ PyTimeSeriesSetInput::was_removed(const nb::object &item) const {
+        throw std::runtime_error("PyTimeSeriesSetInput::was_removed not yet implemented for view-based wrappers");
+    }
+
     nb::str PyTimeSeriesSetInput::py_str() const {
-        auto self{impl()};
-        auto s = fmt::format("TimeSeriesSetInput@{:p}[size={}, valid={}]", static_cast<const void *>(self), self->size(), self->valid());
+        auto s = fmt::format("TimeSeriesSetInput[size={}, valid={}]", size(), _view.ts_valid());
         return nb::str(s.c_str());
     }
 
     nb::str PyTimeSeriesSetInput::py_repr() const { return py_str(); }
+
+    // ========== Nanobind Registration ==========
 
     void tss_register_with_nanobind(nb::module_ &m) {
         // Register non-templated wrapper classes

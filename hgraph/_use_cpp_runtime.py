@@ -85,80 +85,41 @@ if is_feature_enabled("use_cpp"):
 
 
         class HgCppFactory(hgraph.TimeSeriesBuilderFactory):
+            """
+            C++ time-series builder factory that creates CppTimeSeriesInputBuilder/OutputBuilder
+            with TSMeta. This allows Node to create TSValue storage internally.
+            """
+
             def make_error_builder(self, value_tp):
                 return self.make_output_builder(value_tp)
 
-            def _make_tsw_input_builder(self, value_tp):
-                return _tsw_input_builder_for(value_tp.value_scalar_tp)
-
             def make_input_builder(self, value_tp):
-                return {
-                    hgraph.HgSignalMetaData: lambda: _hgraph.InputBuilder_TS_Signal(),
-                    hgraph.HgTSTypeMetaData: lambda: _ts_input_builder_type_for(value_tp.value_scalar_tp)(),
-                    hgraph.HgTSWTypeMetaData: lambda: self._make_tsw_input_builder(value_tp),
-                    hgraph.HgTSLTypeMetaData: lambda: _hgraph.InputBuilder_TSL(
-                        self.make_input_builder(value_tp.value_tp), value_tp.size_tp.py_type.SIZE
-                    ),
-                    hgraph.HgTSBTypeMetaData: lambda: _hgraph.InputBuilder_TSB(
-                        _hgraph.TimeSeriesSchema(
-                            keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys()), scalar_type=tp
-                        )
-                        if (tp := value_tp.bundle_schema_tp.py_type.scalar_type())
-                        else _hgraph.TimeSeriesSchema(keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys())),
-                        [self.make_input_builder(tp) for tp in value_tp.bundle_schema_tp.meta_data_schema.values()],
-                    ),
-                    hgraph.HgREFTypeMetaData: lambda: self._make_ref_input_builder(value_tp),
-                    hgraph.HgTSSTypeMetaData: lambda: _tss_input_builder_type_for(value_tp.value_scalar_tp)(),
-                    hgraph.HgTSDTypeMetaData: lambda: _tsd_input_builder_type_for(value_tp.key_tp)(
-                        self.make_input_builder(value_tp.value_tp),
-                    ),
-                    hgraph.HgCONTEXTTypeMetaData: lambda: self.make_input_builder(value_tp.ts_type),
-                }.get(type(value_tp), lambda: hgraph._impl._builder._ts_builder._throw(value_tp))()
-
-            def _make_tsw_output_builder(self, value_tp):
-                time_range = getattr(value_tp.size_tp.py_type, "TIME_RANGE", None)
-                is_time_based = time_range is not None
-                if is_time_based:
-                    return _ttsw_output_builder_for(
-                        value_tp.value_scalar_tp,
-                        value_tp.size_tp.py_type.TIME_RANGE,
-                        value_tp.min_size_tp.py_type.TIME_RANGE
-                        if getattr(value_tp.min_size_tp.py_type, "TIME_RANGE", None)
-                        else value_tp.min_size_tp.py_type.TIME_RANGE,
+                """
+                Create a CppTimeSeriesInputBuilder with TSMeta from the Python type metadata.
+                The Node constructor uses TSMeta to create TSValue storage internally.
+                """
+                # Get TSMeta from the Python type metadata
+                ts_meta = value_tp.cpp_type
+                if ts_meta is None:
+                    raise RuntimeError(
+                        f"HgCppFactory.make_input_builder: Cannot get cpp_type for {value_tp}. "
+                        f"Ensure the type is resolved and has C++ type support."
                     )
-                else:
-                    return _tsw_output_builder_for(
-                        value_tp.value_scalar_tp,
-                        value_tp.size_tp.py_type.SIZE,
-                        value_tp.min_size_tp.py_type.SIZE
-                        if getattr(value_tp.min_size_tp.py_type, "FIXED_SIZE", True)
-                        else 0,
-                    )
+                return _hgraph.CppTimeSeriesInputBuilder(ts_meta)
 
             def make_output_builder(self, value_tp):
-                return {
-                    hgraph.HgTSTypeMetaData: lambda: _ts_output_builder_for_tp(value_tp.value_scalar_tp)(),
-                    hgraph.HgTSLTypeMetaData: lambda: _hgraph.OutputBuilder_TSL(
-                        self.make_output_builder(value_tp.value_tp), value_tp.size_tp.py_type.SIZE
-                    ),
-                    hgraph.HgTSBTypeMetaData: lambda: _hgraph.OutputBuilder_TSB(
-                        schema=_hgraph.TimeSeriesSchema(
-                            keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys()), scalar_type=tp
-                        )
-                        if (tp := value_tp.bundle_schema_tp.py_type.scalar_type())
-                        else _hgraph.TimeSeriesSchema(keys=tuple(value_tp.bundle_schema_tp.meta_data_schema.keys())),
-                        output_builders=[
-                            self.make_output_builder(tp) for tp in value_tp.bundle_schema_tp.meta_data_schema.values()
-                        ],
-                    ),
-                    hgraph.HgREFTypeMetaData: lambda: self._make_ref_output_builder(value_tp),
-                    hgraph.HgTSSTypeMetaData: lambda: _tss_output_builder_for_tp(value_tp.value_scalar_tp)(),
-                    hgraph.HgTSDTypeMetaData: lambda: _tsd_output_builder_for_tp(value_tp.key_tp)(
-                        self.make_output_builder(value_tp.value_tp),
-                        self.make_output_builder(value_tp.value_tp.as_reference()),
-                    ),
-                    hgraph.HgTSWTypeMetaData: lambda: self._make_tsw_output_builder(value_tp),
-                }.get(type(value_tp), lambda: hgraph._impl._builder._ts_builder._throw(value_tp))()
+                """
+                Create a CppTimeSeriesOutputBuilder with TSMeta from the Python type metadata.
+                The Node constructor uses TSMeta to create TSValue storage internally.
+                """
+                # Get TSMeta from the Python type metadata
+                ts_meta = value_tp.cpp_type
+                if ts_meta is None:
+                    raise RuntimeError(
+                        f"HgCppFactory.make_output_builder: Cannot get cpp_type for {value_tp}. "
+                        f"Ensure the type is resolved and has C++ type support."
+                    )
+                return _hgraph.CppTimeSeriesOutputBuilder(ts_meta)
             
             def _make_ref_input_builder(self, ref_tp):
                 """Create specialized C++ reference input builder based on what's being referenced"""

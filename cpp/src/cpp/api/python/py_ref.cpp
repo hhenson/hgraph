@@ -1,8 +1,7 @@
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/ref.h>
-#include <hgraph/types/time_series_type.h>
-#include <hgraph/types/ts_indexed.h>
+#include <hgraph/types/time_series/ts_view.h>
 
 #include <utility>
 
@@ -26,12 +25,8 @@ namespace hgraph
             .def(
                 "bind_input",
                 [](TimeSeriesReference &self, PyTimeSeriesInput &ts_input) {
-                    auto input_{unwrap_input(ts_input)};
-                    if (input_) {
-                        self.bind_input(*input_);
-                    } else {
-                        throw std::runtime_error("Cannot bind to null input");
-                    }
+                    // Stub - legacy binding not supported
+                    throw std::runtime_error("TimeSeriesReference::bind_input not yet implemented for view-based wrappers");
                 },
                 "input_"_a)
             .def_prop_ro("has_output", &TimeSeriesReference::has_output)
@@ -39,41 +34,20 @@ namespace hgraph
             .def_prop_ro("is_bound", &TimeSeriesReference::is_bound)
             .def_prop_ro("is_unbound", &TimeSeriesReference::is_unbound)
             .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
-            .def_prop_ro("output", [](TimeSeriesReference &self) { return wrap_output(self.output()); })
+            .def_prop_ro("output", [](TimeSeriesReference &self) -> nb::object {
+                throw std::runtime_error("TimeSeriesReference::output not yet implemented for view-based wrappers");
+            })
             .def_prop_ro("items", &TimeSeriesReference::items)
             .def("__getitem__", &TimeSeriesReference::operator[])
             .def_static(
                 "make",
                 [](nb::object ts, nb::object items) -> TimeSeriesReference {
-                    if (!ts.is_none()) {
-                        if (nb::isinstance<PyTimeSeriesOutput>(ts))
-                            return TimeSeriesReference::make(unwrap_output(ts));
-                        if (nb::isinstance<PyTimeSeriesReferenceInput>(ts))
-                            return unwrap_input_as<TimeSeriesReferenceInput>(ts)->value();
-                        if (nb::isinstance<PyTimeSeriesInput>(ts)) {
-                            auto ts_input = unwrap_input(ts);
-                            if (ts_input->has_peer()) return TimeSeriesReference::make(ts_input->output());
-                            // Deal with list of inputs
-                            std::vector<TimeSeriesReference> items_list;
-                            auto                             ts_ndx{std::dynamic_pointer_cast<IndexedTimeSeriesInput>(ts_input)};
-                            items_list.reserve(ts_ndx->size());
-                            for (auto &ts_ptr : ts_ndx->values()) {
-                                auto ref_input{dynamic_cast<TimeSeriesReferenceInput *>(ts_ptr.get())};
-                                items_list.emplace_back(ref_input ? ref_input->value() : TimeSeriesReference::make());
-                            }
-                            return TimeSeriesReference::make(items_list);
-                        }
-                        // We may wish to raise an exception here?
-                    } else if (!items.is_none()) {
-                        auto items_list = nb::cast<std::vector<TimeSeriesReference>>(items);
-                        return TimeSeriesReference::make(items_list);
-                    }
-                    return TimeSeriesReference::make();
+                    // Stub - legacy TimeSeriesReference::make not supported
+                    throw std::runtime_error("TimeSeriesReference::make not yet implemented for view-based wrappers");
                 },
                 "ts"_a = nb::none(), "from_items"_a = nb::none());
 
-        // PyTS wrapper classes registration - left unregistered for now
-        // These may require additional setup in wrapper_factory or elsewhere
+        // PyTS wrapper classes registration
         PyTimeSeriesReferenceOutput::register_with_nanobind(m);
         PyTimeSeriesReferenceInput::register_with_nanobind(m);
         PyTimeSeriesValueReferenceInput::register_with_nanobind(m);
@@ -90,18 +64,18 @@ namespace hgraph
         PyTimeSeriesWindowReferenceOutput::register_with_nanobind(m);
     }
 
+    // ========== PyTimeSeriesReferenceOutput ==========
+
+    PyTimeSeriesReferenceOutput::PyTimeSeriesReferenceOutput(TSMutableView view)
+        : PyTimeSeriesOutput(view) {}
+
     nb::str PyTimeSeriesReferenceOutput::to_string() const {
-        auto impl_{impl()};
-        auto v{fmt::format("TimeSeriesReferenceOutput@{:p}[{}]", static_cast<const void *>(impl_),
-                           impl_->has_value() ? impl_->value().to_string() : "None")};
-        return nb::str(v.c_str());
+        auto s = fmt::format("TimeSeriesReferenceOutput[valid={}]", _view.ts_valid());
+        return nb::str(s.c_str());
     }
 
     nb::str PyTimeSeriesReferenceOutput::to_repr() const {
-        auto impl_{impl()};
-        auto v{fmt::format("TimeSeriesReferenceOutput@{:p}[{}]", static_cast<const void *>(impl_),
-                           impl_->has_value() ? impl_->value().to_string() : "None")};
-        return nb::str(v.c_str());
+        return to_string();
     }
 
     void PyTimeSeriesReferenceOutput::register_with_nanobind(nb::module_ &m) {
@@ -111,19 +85,14 @@ namespace hgraph
             .def("__repr__", &PyTimeSeriesReferenceOutput::to_repr);
     }
 
-    TimeSeriesReferenceOutput *PyTimeSeriesReferenceOutput::impl() const { return static_cast_impl<TimeSeriesReferenceOutput>(); }
+    // ========== PyTimeSeriesReferenceInput ==========
+
+    PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput(TSView view)
+        : PyTimeSeriesInput(view) {}
 
     nb::str PyTimeSeriesReferenceInput::to_string() const {
-        auto       *impl_{impl()};
-        std::string value_str = "None";
-        if (impl_->has_value()) {
-            value_str = impl_->raw_value()->to_string();
-        } else if (impl_->has_output()) {
-            value_str = "bound";
-        } else if (!impl_->items().empty()) {
-            value_str = fmt::format("{} items", impl_->items().size());
-        }
-        return nb::str(fmt::format("TimeSeriesReferenceInput@{:p}[{}]", static_cast<const void *>(impl_), value_str).c_str());
+        auto s = fmt::format("TimeSeriesReferenceInput[valid={}]", _view.ts_valid());
+        return nb::str(s.c_str());
     }
 
     nb::str PyTimeSeriesReferenceInput::to_repr() const { return to_string(); }
@@ -135,20 +104,20 @@ namespace hgraph
             .def("__repr__", &PyTimeSeriesReferenceInput::to_repr);
     }
 
-    TimeSeriesReferenceInput *PyTimeSeriesReferenceInput::impl() const { return static_cast_impl<TimeSeriesReferenceInput>(); }
+    // ========== Specialized Reference Input Classes ==========
 
-    PyTimeSeriesValueReferenceInput::PyTimeSeriesValueReferenceInput(api_ptr impl)
-        : PyTimeSeriesReferenceInput(std::move(impl)) {}
+    PyTimeSeriesValueReferenceInput::PyTimeSeriesValueReferenceInput(TSView view)
+        : PyTimeSeriesReferenceInput(view) {}
 
     void PyTimeSeriesValueReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesValueReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesValueReferenceInput");
     }
 
-    PyTimeSeriesListReferenceInput::PyTimeSeriesListReferenceInput(api_ptr impl)
-        : PyTimeSeriesReferenceInput(std::move(impl)) {}
+    PyTimeSeriesListReferenceInput::PyTimeSeriesListReferenceInput(TSView view)
+        : PyTimeSeriesReferenceInput(view) {}
 
     size_t PyTimeSeriesListReferenceInput::size() const {
-        return static_cast_impl<TimeSeriesListReferenceInput>()->size();
+        throw std::runtime_error("PyTimeSeriesListReferenceInput::size not yet implemented for view-based wrappers");
     }
 
     void PyTimeSeriesListReferenceInput::register_with_nanobind(nb::module_ &m) {
@@ -156,12 +125,11 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesListReferenceInput::size);
     }
 
-    PyTimeSeriesBundleReferenceInput::PyTimeSeriesBundleReferenceInput(api_ptr impl)
-        : PyTimeSeriesReferenceInput(std::move(impl)) {}
-
+    PyTimeSeriesBundleReferenceInput::PyTimeSeriesBundleReferenceInput(TSView view)
+        : PyTimeSeriesReferenceInput(view) {}
 
     nb::int_ PyTimeSeriesBundleReferenceInput::size() const {
-        return nb::int_(static_cast_impl<TimeSeriesBundleReferenceInput>()->size());
+        throw std::runtime_error("PyTimeSeriesBundleReferenceInput::size not yet implemented for view-based wrappers");
     }
 
     void PyTimeSeriesBundleReferenceInput::register_with_nanobind(nb::module_ &m) {
@@ -169,44 +137,41 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesBundleReferenceInput::size);
     }
 
-    PyTimeSeriesDictReferenceInput::PyTimeSeriesDictReferenceInput(api_ptr impl)
-        : PyTimeSeriesReferenceInput(std::move(impl)) {}
-
+    PyTimeSeriesDictReferenceInput::PyTimeSeriesDictReferenceInput(TSView view)
+        : PyTimeSeriesReferenceInput(view) {}
 
     void PyTimeSeriesDictReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesDictReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesDictReferenceInput");
     }
 
-    PyTimeSeriesSetReferenceInput::PyTimeSeriesSetReferenceInput(api_ptr impl)
-        : PyTimeSeriesReferenceInput(std::move(impl)) {}
-
+    PyTimeSeriesSetReferenceInput::PyTimeSeriesSetReferenceInput(TSView view)
+        : PyTimeSeriesReferenceInput(view) {}
 
     void PyTimeSeriesSetReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesSetReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesSetReferenceInput");
     }
 
-    PyTimeSeriesWindowReferenceInput::PyTimeSeriesWindowReferenceInput(api_ptr impl)
-        : PyTimeSeriesReferenceInput(std::move(impl)) {}
-
+    PyTimeSeriesWindowReferenceInput::PyTimeSeriesWindowReferenceInput(TSView view)
+        : PyTimeSeriesReferenceInput(view) {}
 
     void PyTimeSeriesWindowReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesWindowReferenceInput, PyTimeSeriesReferenceInput>(m, "TimeSeriesWindowReferenceInput");
     }
 
-    PyTimeSeriesValueReferenceOutput::PyTimeSeriesValueReferenceOutput(api_ptr impl)
-        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
+    // ========== Specialized Reference Output Classes ==========
 
+    PyTimeSeriesValueReferenceOutput::PyTimeSeriesValueReferenceOutput(TSMutableView view)
+        : PyTimeSeriesReferenceOutput(view) {}
 
     void PyTimeSeriesValueReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesValueReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesValueReferenceOutput");
     }
 
-    PyTimeSeriesListReferenceOutput::PyTimeSeriesListReferenceOutput(api_ptr impl)
-        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
-
+    PyTimeSeriesListReferenceOutput::PyTimeSeriesListReferenceOutput(TSMutableView view)
+        : PyTimeSeriesReferenceOutput(view) {}
 
     nb::int_ PyTimeSeriesListReferenceOutput::size() const {
-        return nb::int_(static_cast_impl<TimeSeriesListReferenceOutput>()->size());
+        throw std::runtime_error("PyTimeSeriesListReferenceOutput::size not yet implemented for view-based wrappers");
     }
 
     void PyTimeSeriesListReferenceOutput::register_with_nanobind(nb::module_ &m) {
@@ -214,12 +179,11 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesListReferenceOutput::size);
     }
 
-    PyTimeSeriesBundleReferenceOutput::PyTimeSeriesBundleReferenceOutput(api_ptr impl)
-        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
-
+    PyTimeSeriesBundleReferenceOutput::PyTimeSeriesBundleReferenceOutput(TSMutableView view)
+        : PyTimeSeriesReferenceOutput(view) {}
 
     nb::int_ PyTimeSeriesBundleReferenceOutput::size() const {
-        return nb::int_(static_cast_impl<TimeSeriesBundleReferenceOutput>()->size());
+        throw std::runtime_error("PyTimeSeriesBundleReferenceOutput::size not yet implemented for view-based wrappers");
     }
 
     void PyTimeSeriesBundleReferenceOutput::register_with_nanobind(nb::module_ &m) {
@@ -227,25 +191,22 @@ namespace hgraph
             .def("__len__", &PyTimeSeriesBundleReferenceOutput::size);
     }
 
-    PyTimeSeriesDictReferenceOutput::PyTimeSeriesDictReferenceOutput(api_ptr impl)
-        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
-
+    PyTimeSeriesDictReferenceOutput::PyTimeSeriesDictReferenceOutput(TSMutableView view)
+        : PyTimeSeriesReferenceOutput(view) {}
 
     void PyTimeSeriesDictReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesDictReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesDictReferenceOutput");
     }
 
-    PyTimeSeriesSetReferenceOutput::PyTimeSeriesSetReferenceOutput(api_ptr impl)
-        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
-
+    PyTimeSeriesSetReferenceOutput::PyTimeSeriesSetReferenceOutput(TSMutableView view)
+        : PyTimeSeriesReferenceOutput(view) {}
 
     void PyTimeSeriesSetReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesSetReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesSetReferenceOutput");
     }
 
-    PyTimeSeriesWindowReferenceOutput::PyTimeSeriesWindowReferenceOutput(api_ptr impl)
-        : PyTimeSeriesReferenceOutput(std::move(impl)) {}
-
+    PyTimeSeriesWindowReferenceOutput::PyTimeSeriesWindowReferenceOutput(TSMutableView view)
+        : PyTimeSeriesReferenceOutput(view) {}
 
     void PyTimeSeriesWindowReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesWindowReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesWindowReferenceOutput");

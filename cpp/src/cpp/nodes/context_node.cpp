@@ -80,32 +80,12 @@ namespace hgraph {
             throw std::runtime_error(fmt::format("Missing shared output for path: {}{}", key, diag));
         }
 
-        // We will capture the reference value and subscribe to the producing output when available
+        // TODO: Migrate ContextNode to view-based unwrapping
+        // The legacy unwrap_output_as/unwrap_input_as functions are no longer available
+        throw std::runtime_error("ContextNode GlobalState access not yet implemented for view-based wrappers");
+
         std::optional<TimeSeriesReference> value_ref;
         time_series_reference_output_s_ptr output_ts = nullptr;
-
-        // Case 1: direct TimeSeriesReferenceOutput stored in GlobalState
-        // Use nb::isinstance to handle both base and specialized reference types
-        if (nb::isinstance<PyTimeSeriesReferenceOutput>(shared)) {
-            output_ts = unwrap_output_as<TimeSeriesReferenceOutput>(shared);
-            if (output_ts->valid() && output_ts->has_value()) {
-                value_ref = output_ts->value();
-            }
-        }
-        // Case 2: TimeSeriesReferenceInput stored in GlobalState
-        else if (nb::isinstance<PyTimeSeriesReferenceInput>(shared)) {
-            auto ref = unwrap_input_as<TimeSeriesReferenceInput>(shared);
-            if (ref->has_peer()) {
-                // Use the bound peer output (stub remains a reference node)
-                output_ts = std::dynamic_pointer_cast<TimeSeriesReferenceOutput>(ref->output());
-            }
-            // Always use the value from the REF input (may be empty). Python sets value regardless of peer.
-            value_ref = ref->value();
-        } else {
-            throw std::runtime_error(
-                fmt::format("Context found an unknown output type bound to {}: {}", key,
-                            nb::str(shared.type()).c_str()));
-        }
 
         // Manage subscription if we have a producing output
         if (output_ts != nullptr) {

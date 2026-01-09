@@ -202,6 +202,17 @@ struct TSView {
     [[nodiscard]] bool modified_at(engine_time_t time) const;
 
     /**
+     * @brief Check if modified at the current evaluation time.
+     *
+     * This is a convenience method that gets the evaluation time from the owning
+     * node's graph and calls modified_at(). Only valid when the view has a
+     * container with an owning node that has a graph.
+     *
+     * @return true if modified at current evaluation time, false otherwise
+     */
+    [[nodiscard]] bool modified() const;
+
+    /**
      * @brief Get the last modification time.
      */
     [[nodiscard]] engine_time_t last_modified_time() const;

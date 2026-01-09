@@ -1,152 +1,373 @@
 #include <hgraph/api/python/py_tsl.h>
 #include <hgraph/api/python/wrapper_factory.h>
-#include <hgraph/types/tsl.h>
+#include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
+#include <fmt/format.h>
 
 namespace hgraph
 {
+    // ============================================================
+    // PyTimeSeriesListOutput
+    // ============================================================
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    PyTimeSeriesList<T_TS, T_U>::PyTimeSeriesList(api_ptr impl) : T_TS(std::move(impl)) {}
+    PyTimeSeriesListOutput::PyTimeSeriesListOutput(TSMutableView view)
+        : PyTimeSeriesOutput(view) {}
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::iter() const {
-        return nb::iter(list_to_list(impl()->values()));
+    nb::object PyTimeSeriesListOutput::iter() const {
+        return nb::iter(values());
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::get_item(const nb::handle &key) const {
+    nb::object PyTimeSeriesListOutput::get_item(const nb::handle &key) const {
         if (nb::isinstance<nb::int_>(key)) {
-            return wrap_time_series(impl()->operator[](nb::cast<size_t>(key)));
+            TSLView list = _view.as_list();
+            size_t index = nb::cast<size_t>(key);
+            TSView elem = list.element(index);
+            return wrap_input_view(elem);
         }
-        throw std::runtime_error("Invalid key type for TimeSeriesList");
+        throw std::runtime_error("Invalid key type for TimeSeriesListOutput");
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::keys() const {
-        return set_to_list(impl()->keys());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::values() const {
-        return list_to_list(impl()->values());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::valid_keys() const {
-        return set_to_list(impl()->valid_keys());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::modified_keys() const {
-        return set_to_list(impl()->modified_keys());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::int_ PyTimeSeriesList<T_TS, T_U>::len() const {
-        return nb::int_(impl()->size());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::items() const {
-        return items_to_list(impl()->items());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::valid_values() const {
-        return list_to_list(impl()->valid_values());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::valid_items() const {
-        return items_to_list(impl()->valid_items());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::modified_values() const {
-        return list_to_list(impl()->modified_values());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::object PyTimeSeriesList<T_TS, T_U>::modified_items() const {
-        return items_to_list(impl()->modified_items());
-    }
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    bool PyTimeSeriesList<T_TS, T_U>::empty() const {
-        return impl()->empty();
-    }
-
-    template <typename T_TS, typename T_U> constexpr const char *get_list_type_name() {
-        if constexpr (std::is_same_v<T_TS, PyTimeSeriesInput>) {
-            return "TimeSeriesListInput@{:p}[keys={}, valid={}]";
-        } else {
-            return "TimeSeriesListOutput@{:p}[keys={}, valid={}]";
+    nb::object PyTimeSeriesListOutput::keys() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            result.append(nb::int_(i));
         }
+        return result;
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::str PyTimeSeriesList<T_TS, T_U>::py_str() {
-        auto                  self = impl();
-        constexpr const char *name = get_list_type_name<T_TS, T_U>();
-        auto                  str  = fmt::format(name, static_cast<const void *>(self), self->keys().size(), self->valid());
+    nb::object PyTimeSeriesListOutput::values() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            result.append(wrap_input_view(list.element(i)));
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListOutput::valid_keys() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.ts_valid()) {
+                result.append(nb::int_(i));
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListOutput::modified_keys() const {
+        TSLView list = _view.as_list();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.modified_at(eval_time)) {
+                result.append(nb::int_(i));
+            }
+        }
+        return result;
+    }
+
+    nb::int_ PyTimeSeriesListOutput::len() const {
+        TSLView list = _view.as_list();
+        return nb::int_(list.size());
+    }
+
+    nb::object PyTimeSeriesListOutput::items() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            nb::tuple item = nb::make_tuple(nb::int_(i), wrap_input_view(list.element(i)));
+            result.append(item);
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListOutput::valid_values() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.ts_valid()) {
+                result.append(wrap_input_view(elem));
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListOutput::valid_items() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.ts_valid()) {
+                nb::tuple item = nb::make_tuple(nb::int_(i), wrap_input_view(elem));
+                result.append(item);
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListOutput::modified_values() const {
+        TSLView list = _view.as_list();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.modified_at(eval_time)) {
+                result.append(wrap_input_view(elem));
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListOutput::modified_items() const {
+        TSLView list = _view.as_list();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.modified_at(eval_time)) {
+                nb::tuple item = nb::make_tuple(nb::int_(i), wrap_input_view(elem));
+                result.append(item);
+            }
+        }
+        return result;
+    }
+
+    bool PyTimeSeriesListOutput::empty() const {
+        TSLView list = _view.as_list();
+        return list.size() == 0;
+    }
+
+    nb::str PyTimeSeriesListOutput::py_str() {
+        TSLView list = _view.as_list();
+        auto str = fmt::format("TimeSeriesListOutput@{:p}[size={}, valid={}]",
+            static_cast<const void*>(_view.value_view().data()),
+            list.size(),
+            _view.ts_valid());
         return nb::str(str.c_str());
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    nb::str PyTimeSeriesList<T_TS, T_U>::py_repr() {
+    nb::str PyTimeSeriesListOutput::py_repr() {
         return py_str();
     }
 
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsl<T_TS, T_U>)
-    T_U *PyTimeSeriesList<T_TS, T_U>::impl() const {
-        return this->template static_cast_impl<T_U>();
+    // ============================================================
+    // PyTimeSeriesListInput
+    // ============================================================
+
+    PyTimeSeriesListInput::PyTimeSeriesListInput(TSView view)
+        : PyTimeSeriesInput(view) {}
+
+    nb::object PyTimeSeriesListInput::iter() const {
+        return nb::iter(values());
     }
 
-    // Explicit template instantiations for constructors
-    template PyTimeSeriesList<PyTimeSeriesOutput, TimeSeriesListOutput>::PyTimeSeriesList(ApiPtr<TimeSeriesListOutput>);
-    template PyTimeSeriesList<PyTimeSeriesInput, TimeSeriesListInput>::PyTimeSeriesList(ApiPtr<TimeSeriesListInput>);
-
-    template <typename T_TS, typename T_U> void _register_tsl_with_nanobind(nb::module_ &m) {
-        using PyTS_Type = PyTimeSeriesList<T_TS, T_U>;
-
-        // No need to re-register value property - base class handles it via TSView
-        nb::class_<PyTS_Type, T_TS>(m, std::is_same_v<T_TS, PyTimeSeriesInput> ? "TimeSeriesListInput" : "TimeSeriesListOutput")
-            .def("__getitem__", &PyTS_Type::get_item)
-            .def("__iter__", &PyTS_Type::iter)
-            .def("__len__", &PyTS_Type::len)
-            .def_prop_ro("empty", &PyTS_Type::empty)
-            .def("values", &PyTS_Type::values)
-            .def("valid_values", &PyTS_Type::valid_values)
-            .def("modified_values", &PyTS_Type::modified_values)
-            .def("keys", &PyTS_Type::keys)
-            .def("items", &PyTS_Type::items)
-            .def("valid_keys", &PyTS_Type::valid_keys)
-            .def("valid_items", &PyTS_Type::valid_items)
-            .def("modified_keys", &PyTS_Type::modified_keys)
-            .def("modified_items", &PyTS_Type::modified_items)
-            .def("__str__", &PyTS_Type::py_str)
-            .def("__repr__", &PyTS_Type::py_repr);
+    nb::object PyTimeSeriesListInput::get_item(const nb::handle &key) const {
+        if (nb::isinstance<nb::int_>(key)) {
+            TSLView list = _view.as_list();
+            size_t index = nb::cast<size_t>(key);
+            TSView elem = list.element(index);
+            return wrap_input_view(elem);
+        }
+        throw std::runtime_error("Invalid key type for TimeSeriesListInput");
     }
+
+    nb::object PyTimeSeriesListInput::keys() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            result.append(nb::int_(i));
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListInput::values() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            result.append(wrap_input_view(list.element(i)));
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListInput::valid_keys() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.ts_valid()) {
+                result.append(nb::int_(i));
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListInput::modified_keys() const {
+        TSLView list = _view.as_list();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.modified_at(eval_time)) {
+                result.append(nb::int_(i));
+            }
+        }
+        return result;
+    }
+
+    nb::int_ PyTimeSeriesListInput::len() const {
+        TSLView list = _view.as_list();
+        return nb::int_(list.size());
+    }
+
+    nb::object PyTimeSeriesListInput::items() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            nb::tuple item = nb::make_tuple(nb::int_(i), wrap_input_view(list.element(i)));
+            result.append(item);
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListInput::valid_values() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.ts_valid()) {
+                result.append(wrap_input_view(elem));
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListInput::valid_items() const {
+        TSLView list = _view.as_list();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.ts_valid()) {
+                nb::tuple item = nb::make_tuple(nb::int_(i), wrap_input_view(elem));
+                result.append(item);
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListInput::modified_values() const {
+        TSLView list = _view.as_list();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.modified_at(eval_time)) {
+                result.append(wrap_input_view(elem));
+            }
+        }
+        return result;
+    }
+
+    nb::object PyTimeSeriesListInput::modified_items() const {
+        TSLView list = _view.as_list();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (size_t i = 0; i < list.size(); ++i) {
+            TSView elem = list.element(i);
+            if (elem.modified_at(eval_time)) {
+                nb::tuple item = nb::make_tuple(nb::int_(i), wrap_input_view(elem));
+                result.append(item);
+            }
+        }
+        return result;
+    }
+
+    bool PyTimeSeriesListInput::empty() const {
+        TSLView list = _view.as_list();
+        return list.size() == 0;
+    }
+
+    nb::str PyTimeSeriesListInput::py_str() {
+        TSLView list = _view.as_list();
+        auto str = fmt::format("TimeSeriesListInput@{:p}[size={}, valid={}]",
+            static_cast<const void*>(_view.value_view().data()),
+            list.size(),
+            _view.ts_valid());
+        return nb::str(str.c_str());
+    }
+
+    nb::str PyTimeSeriesListInput::py_repr() {
+        return py_str();
+    }
+
+    // ============================================================
+    // Registration
+    // ============================================================
 
     void tsl_register_with_nanobind(nb::module_ &m) {
-        _register_tsl_with_nanobind<PyTimeSeriesOutput, TimeSeriesListOutput>(m);
-        _register_tsl_with_nanobind<PyTimeSeriesInput, TimeSeriesListInput>(m);
+        // Register TimeSeriesListOutput
+        nb::class_<PyTimeSeriesListOutput, PyTimeSeriesOutput>(m, "TimeSeriesListOutput")
+            .def("__getitem__", &PyTimeSeriesListOutput::get_item)
+            .def("__iter__", &PyTimeSeriesListOutput::iter)
+            .def("__len__", &PyTimeSeriesListOutput::len)
+            .def_prop_ro("empty", &PyTimeSeriesListOutput::empty)
+            .def("values", &PyTimeSeriesListOutput::values)
+            .def("valid_values", &PyTimeSeriesListOutput::valid_values)
+            .def("modified_values", &PyTimeSeriesListOutput::modified_values)
+            .def("keys", &PyTimeSeriesListOutput::keys)
+            .def("items", &PyTimeSeriesListOutput::items)
+            .def("valid_keys", &PyTimeSeriesListOutput::valid_keys)
+            .def("valid_items", &PyTimeSeriesListOutput::valid_items)
+            .def("modified_keys", &PyTimeSeriesListOutput::modified_keys)
+            .def("modified_items", &PyTimeSeriesListOutput::modified_items)
+            .def("__str__", &PyTimeSeriesListOutput::py_str)
+            .def("__repr__", &PyTimeSeriesListOutput::py_repr);
+
+        // Register TimeSeriesListInput
+        nb::class_<PyTimeSeriesListInput, PyTimeSeriesInput>(m, "TimeSeriesListInput")
+            .def("__getitem__", &PyTimeSeriesListInput::get_item)
+            .def("__iter__", &PyTimeSeriesListInput::iter)
+            .def("__len__", &PyTimeSeriesListInput::len)
+            .def_prop_ro("empty", &PyTimeSeriesListInput::empty)
+            .def("values", &PyTimeSeriesListInput::values)
+            .def("valid_values", &PyTimeSeriesListInput::valid_values)
+            .def("modified_values", &PyTimeSeriesListInput::modified_values)
+            .def("keys", &PyTimeSeriesListInput::keys)
+            .def("items", &PyTimeSeriesListInput::items)
+            .def("valid_keys", &PyTimeSeriesListInput::valid_keys)
+            .def("valid_items", &PyTimeSeriesListInput::valid_items)
+            .def("modified_keys", &PyTimeSeriesListInput::modified_keys)
+            .def("modified_items", &PyTimeSeriesListInput::modified_items)
+            .def("__str__", &PyTimeSeriesListInput::py_str)
+            .def("__repr__", &PyTimeSeriesListInput::py_repr);
     }
+
 }  // namespace hgraph

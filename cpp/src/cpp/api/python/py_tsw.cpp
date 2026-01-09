@@ -1,108 +1,97 @@
 #include <hgraph/api/python/py_tsw.h>
+#include <hgraph/types/time_series/ts_view.h>
 
 namespace hgraph
 {
     // ========== PyTimeSeriesFixedWindowOutput ==========
 
-    PyTimeSeriesFixedWindowOutput::PyTimeSeriesFixedWindowOutput(api_ptr impl)
-        : PyTimeSeriesOutput(std::move(impl)) {}
-
-    TimeSeriesFixedWindowOutput* PyTimeSeriesFixedWindowOutput::impl() const {
-        return this->template static_cast_impl<TimeSeriesFixedWindowOutput>();
-    }
+    PyTimeSeriesFixedWindowOutput::PyTimeSeriesFixedWindowOutput(TSMutableView view)
+        : PyTimeSeriesOutput(view) {}
 
     nb::object PyTimeSeriesFixedWindowOutput::value_times() const {
-        return impl()->py_value_times();
+        throw std::runtime_error("PyTimeSeriesFixedWindowOutput::value_times not yet implemented for view-based wrappers");
     }
 
     engine_time_t PyTimeSeriesFixedWindowOutput::first_modified_time() const {
-        return impl()->first_modified_time();
+        throw std::runtime_error("PyTimeSeriesFixedWindowOutput::first_modified_time not yet implemented for view-based wrappers");
     }
 
     nb::int_ PyTimeSeriesFixedWindowOutput::size() const {
-        return nb::int_(impl()->size());
+        throw std::runtime_error("PyTimeSeriesFixedWindowOutput::size not yet implemented for view-based wrappers");
     }
 
     nb::int_ PyTimeSeriesFixedWindowOutput::min_size() const {
-        return nb::int_(impl()->min_size());
+        throw std::runtime_error("PyTimeSeriesFixedWindowOutput::min_size not yet implemented for view-based wrappers");
     }
 
     nb::bool_ PyTimeSeriesFixedWindowOutput::has_removed_value() const {
-        return nb::bool_(impl()->has_removed_value());
+        throw std::runtime_error("PyTimeSeriesFixedWindowOutput::has_removed_value not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesFixedWindowOutput::removed_value() const {
-        return impl()->py_removed_value();
+        throw std::runtime_error("PyTimeSeriesFixedWindowOutput::removed_value not yet implemented for view-based wrappers");
     }
 
     nb::int_ PyTimeSeriesFixedWindowOutput::len() const {
-        return nb::int_(impl()->len());
+        throw std::runtime_error("PyTimeSeriesFixedWindowOutput::len not yet implemented for view-based wrappers");
     }
 
     // ========== PyTimeSeriesTimeWindowOutput ==========
 
-    PyTimeSeriesTimeWindowOutput::PyTimeSeriesTimeWindowOutput(api_ptr impl)
-        : PyTimeSeriesOutput(std::move(impl)) {}
-
-    TimeSeriesTimeWindowOutput* PyTimeSeriesTimeWindowOutput::impl() const {
-        return this->template static_cast_impl<TimeSeriesTimeWindowOutput>();
-    }
+    PyTimeSeriesTimeWindowOutput::PyTimeSeriesTimeWindowOutput(TSMutableView view)
+        : PyTimeSeriesOutput(view) {}
 
     nb::object PyTimeSeriesTimeWindowOutput::value_times() const {
-        return impl()->py_value_times();
+        throw std::runtime_error("PyTimeSeriesTimeWindowOutput::value_times not yet implemented for view-based wrappers");
     }
 
     engine_time_t PyTimeSeriesTimeWindowOutput::first_modified_time() const {
-        return impl()->first_modified_time();
+        throw std::runtime_error("PyTimeSeriesTimeWindowOutput::first_modified_time not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesTimeWindowOutput::size() const {
-        return nb::cast(impl()->size());
+        throw std::runtime_error("PyTimeSeriesTimeWindowOutput::size not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesTimeWindowOutput::min_size() const {
-        return nb::cast(impl()->min_size());
+        throw std::runtime_error("PyTimeSeriesTimeWindowOutput::min_size not yet implemented for view-based wrappers");
     }
 
     nb::bool_ PyTimeSeriesTimeWindowOutput::has_removed_value() const {
-        return nb::bool_(impl()->has_removed_value());
+        throw std::runtime_error("PyTimeSeriesTimeWindowOutput::has_removed_value not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesTimeWindowOutput::removed_value() const {
-        return impl()->py_removed_value();
+        throw std::runtime_error("PyTimeSeriesTimeWindowOutput::removed_value not yet implemented for view-based wrappers");
     }
 
     nb::int_ PyTimeSeriesTimeWindowOutput::len() const {
-        return nb::int_(impl()->len());
+        throw std::runtime_error("PyTimeSeriesTimeWindowOutput::len not yet implemented for view-based wrappers");
     }
 
     // ========== PyTimeSeriesWindowInput ==========
 
-    PyTimeSeriesWindowInput::PyTimeSeriesWindowInput(api_ptr impl)
-        : PyTimeSeriesInput(std::move(impl)) {}
-
-    TimeSeriesWindowInput* PyTimeSeriesWindowInput::impl() const {
-        return this->template static_cast_impl<TimeSeriesWindowInput>();
-    }
+    PyTimeSeriesWindowInput::PyTimeSeriesWindowInput(TSView view)
+        : PyTimeSeriesInput(view) {}
 
     nb::object PyTimeSeriesWindowInput::value_times() const {
-        return impl()->py_value_times();
+        throw std::runtime_error("PyTimeSeriesWindowInput::value_times not yet implemented for view-based wrappers");
     }
 
     engine_time_t PyTimeSeriesWindowInput::first_modified_time() const {
-        return impl()->first_modified_time();
+        throw std::runtime_error("PyTimeSeriesWindowInput::first_modified_time not yet implemented for view-based wrappers");
     }
 
     nb::bool_ PyTimeSeriesWindowInput::has_removed_value() const {
-        return nb::bool_(impl()->has_removed_value());
+        throw std::runtime_error("PyTimeSeriesWindowInput::has_removed_value not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesWindowInput::removed_value() const {
-        return impl()->py_removed_value();
+        throw std::runtime_error("PyTimeSeriesWindowInput::removed_value not yet implemented for view-based wrappers");
     }
 
     nb::int_ PyTimeSeriesWindowInput::len() const {
-        return nb::int_(impl()->len());
+        throw std::runtime_error("PyTimeSeriesWindowInput::len not yet implemented for view-based wrappers");
     }
 
     // ========== Nanobind Registration ==========

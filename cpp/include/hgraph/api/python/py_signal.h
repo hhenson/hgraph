@@ -5,10 +5,16 @@ namespace hgraph
 {
     struct PyTimeSeriesSignalInput : PyTimeSeriesInput
     {
-        using api_ptr = ApiPtr<TimeSeriesType>;
-        explicit PyTimeSeriesSignalInput(api_ptr impl);
-        explicit PyTimeSeriesSignalInput(TimeSeriesType *ts, control_block_ptr control_block);
-        explicit PyTimeSeriesSignalInput(TimeSeriesType *ts);
+        // View-based constructor (the only supported mode)
+        explicit PyTimeSeriesSignalInput(TSView view);
+
+        // Move constructor/assignment use defaults
+        PyTimeSeriesSignalInput(PyTimeSeriesSignalInput&& other) noexcept = default;
+        PyTimeSeriesSignalInput& operator=(PyTimeSeriesSignalInput&& other) noexcept = default;
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesSignalInput(const PyTimeSeriesSignalInput&) = delete;
+        PyTimeSeriesSignalInput& operator=(const PyTimeSeriesSignalInput&) = delete;
     };
 
     void signal_register_with_nanobind(nb::module_ &m);

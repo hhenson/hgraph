@@ -614,10 +614,11 @@ namespace hgraph
                const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
         : _node_ndx{node_ndx}, _owning_graph_id{std::move(owning_graph_id)}, _signature{std::move(signature)},
           _scalars{std::move(scalars)} {
-        // Construct TSValue storage from provided TSMeta
+        // Construct TSInputRoot for input (wraps TSValue with link support)
         if (input_meta) {
-            _ts_input.emplace(input_meta, this);
+            _ts_input.emplace(input_meta, this);  // TSInputRoot validates that input_meta is TSB type
         }
+        // Construct TSValue for output
         if (output_meta) {
             _ts_output.emplace(output_meta, this, OUTPUT_MAIN);
         }
@@ -686,44 +687,61 @@ namespace hgraph
         _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
-    time_series_bundle_input_s_ptr& Node::input() { return _input; }
-    const time_series_bundle_input_s_ptr& Node::input() const { return _input; }
+    // ========== Legacy Method Stubs ==========
+    // These stub implementations are used during TSValue migration
+    // They throw runtime errors to make it clear which code paths need migration
+
+    // Static null pointers for returning references from stub methods
+    static time_series_bundle_input_s_ptr s_null_input{nullptr};
+    static time_series_output_s_ptr s_null_output{nullptr};
+    static time_series_bundle_output_s_ptr s_null_bundle_output{nullptr};
+
+    time_series_bundle_input_s_ptr& Node::input() {
+        throw std::runtime_error("Node::input() legacy accessor not available - use input_view() instead");
+        return s_null_input;  // Unreachable, needed for return type
+    }
+
+    const time_series_bundle_input_s_ptr& Node::input() const {
+        throw std::runtime_error("Node::input() const legacy accessor not available - use input_view() instead");
+        return s_null_input;  // Unreachable, needed for return type
+    }
 
     void Node::set_input(const time_series_bundle_input_s_ptr& value) {
-        if (has_input()) { throw std::runtime_error("Input already set on node: " + _signature->signature()); }
-        reset_input(value);
+        throw std::runtime_error("Node::set_input() not implemented for TSValue-based input");
     }
 
     void Node::reset_input(const time_series_bundle_input_s_ptr& value) {
-        _input = value;
-        _check_all_valid_inputs.clear();
-        _check_valid_inputs.clear();
-        _check_valid_inputs.reserve(signature().valid_inputs.has_value() ? signature().valid_inputs->size()
-                                                                         : signature().time_series_inputs->size());
-        if (signature().valid_inputs.has_value()) {
-            for (const auto &key : std::views::all(*signature().valid_inputs)) { _check_valid_inputs.push_back((*input())[key].get()); }
-        } else {
-            for (const auto &key : std::views::elements<0>(*signature().time_series_inputs)) {
-                // Do not treat context inputs as required by default
-                bool is_context = signature().context_inputs.has_value() && signature().context_inputs->contains(key);
-                if (!is_context) { _check_valid_inputs.push_back((*input())[key].get()); }
-            }
-        }
-        if (signature().all_valid_inputs.has_value()) {
-            _check_all_valid_inputs.reserve(signature().all_valid_inputs->size());
-            for (const auto &key : *signature().all_valid_inputs) { _check_all_valid_inputs.push_back((*input())[key].get()); }
-        }
+        throw std::runtime_error("Node::reset_input() not implemented for TSValue-based input");
     }
 
-    time_series_output_s_ptr& Node::output() { return _output; }
+    time_series_output_s_ptr& Node::output() {
+        throw std::runtime_error("Node::output() legacy accessor not available - use output_view() instead");
+        return s_null_output;  // Unreachable, needed for return type
+    }
 
-    void Node::set_output(const time_series_output_s_ptr& value) { _output = value; }
+    void Node::set_output(const time_series_output_s_ptr& value) {
+        throw std::runtime_error("Node::set_output() not implemented for TSValue-based output");
+    }
 
-    time_series_bundle_output_s_ptr& Node::recordable_state() { return _recordable_state; }
+    time_series_output_s_ptr& Node::error_output() {
+        throw std::runtime_error("Node::error_output() legacy accessor not available - use error_output_view() instead");
+        return s_null_output;  // Unreachable, needed for return type
+    }
 
-    void Node::set_recordable_state(const time_series_bundle_output_s_ptr& value) { _recordable_state = value; }
+    void Node::set_error_output(const time_series_output_s_ptr& value) {
+        throw std::runtime_error("Node::set_error_output() not implemented for TSValue-based error output");
+    }
 
-    bool Node::has_recordable_state() const { return _recordable_state != nullptr; }
+    time_series_bundle_output_s_ptr& Node::recordable_state() {
+        throw std::runtime_error("Node::recordable_state() legacy accessor not available - use state_view() instead");
+        return s_null_bundle_output;  // Unreachable, needed for return type
+    }
+
+    void Node::set_recordable_state(const time_series_bundle_output_s_ptr& value) {
+        throw std::runtime_error("Node::set_recordable_state() not implemented for TSValue-based recordable state");
+    }
+
+    bool Node::has_recordable_state() const { return _ts_recordable_state.has_value(); }
 
     NodeScheduler::s_ptr& Node::scheduler() {
         if (_scheduler.get() == nullptr) { _scheduler = std::make_shared<NodeScheduler>(this); }
@@ -734,15 +752,11 @@ namespace hgraph
 
     void Node::unset_scheduler() { _scheduler.reset(); }
 
-    time_series_output_s_ptr& Node::error_output() { return _error_output; }
-
-    void Node::set_error_output(const time_series_output_s_ptr& value) { _error_output = value; }
-
     void Node::add_start_input(const time_series_reference_input_s_ptr& input) { _start_inputs.push_back(input); }
 
-    bool Node::has_input() const { return _input.get() != nullptr; }
+    bool Node::has_input() const { return _ts_input.has_value(); }
 
-    bool Node::has_output() const { return _output.get() != nullptr; }
+    bool Node::has_output() const { return _ts_output.has_value(); }
 
     std::string Node::repr() const {
         static auto none_str    = std::string("None");
@@ -808,7 +822,10 @@ namespace hgraph
             Node *node;
 
             ~Cleanup() {
-                if (node->has_input()) { node->input()->un_bind_output(true); }
+                // Deactivate TSInputRoot links to unsubscribe from output overlays
+                if (node->_ts_input.has_value()) {
+                    node->_ts_input->make_passive();
+                }
                 if (node->has_scheduler()) { node->scheduler()->reset(); }
             }
         } cleanup{this};
@@ -821,84 +838,47 @@ namespace hgraph
             for (auto &start_input : _start_inputs) {
                 start_input->start();  // Assuming start_input is some time series type with a start method
             }
-            const std::unordered_set<std::string> *active_inputs =
-                signature().active_inputs.has_value() ? &signature().active_inputs.value() : nullptr;
-            for (size_t i = 0; i < signature().time_series_inputs->size(); ++i) {
-                // Apple does not yet support ranges::contains :(
-                if (!active_inputs ||
-                    (std::ranges::find(*active_inputs, signature().args[i]) != std::ranges::end(*active_inputs))) {
-                    (*input())[i]->make_active();  // Assuming `make_active` is a method of the `TimeSeriesInput` type
-                }
+            // Activate TSInputRoot links so they subscribe to output overlays for notifications
+            if (_ts_input.has_value()) {
+                _ts_input->make_active();
             }
         }
     }
 
+
     void Node::eval() {
+        // This is the core Node execution logic
         bool scheduled{has_scheduler() ? _scheduler->is_scheduled_now() : false};
         bool should_eval{true};
 
         if (has_input()) {
-            // Check validity of required inputs
-            should_eval = std::ranges::all_of(_check_valid_inputs, [](const auto &input_) { return input_->valid(); });
-
-            if (should_eval && signature().all_valid_inputs.has_value()) {
-                should_eval = std::ranges::all_of(_check_all_valid_inputs, [](const auto &input_) { return input_->all_valid(); });
-            }
-
-            // Check scheduler state
-            if (should_eval && _signature->uses_scheduler() && !scheduled) {
-                should_eval = !signature().time_series_inputs.has_value() ||
-                              std::ranges::any_of(input()->values(),
-                                                  [](const auto &input_) { return input_->modified() && input_->active(); });
-            }
+            // TODO: Migrate to TSValue-based input validity checking
+            // Legacy input validity checking removed - need TSInputRoot support for valid/all_valid/modified/active
+            // For now, always evaluate if we have input
         }
 
         if (should_eval) {
             try {
                 do_eval();
             } catch (const NodeException &e) {
-                if (signature().capture_exception && error_output().get() != nullptr) {
+                if (signature().capture_exception && _ts_error_output.has_value()) {
+                    // TODO: Migrate to TSValue-based error output
                     // Route captured error to the node's error output instead of rethrowing
-                    try {
-                        auto ne{static_cast<const NodeException &>(e)};
-                        auto error_ptr{nb::ref<NodeError>(new NodeError(ne))};
-                        error_output()->py_set_value(nb::cast(error_ptr));
-                    } catch (const std::exception &set_err) {
-                        // Fall back to setting a generic Python object (string) to avoid rethrow during error routing
-                        error_output()->py_set_value(nb::str(e.to_string().c_str()));
-                    } catch (...) {
-                        // As a last resort, set none to signal an error occurred without throwing
-                        error_output()->py_set_value(nb::none());
-                    }
-                    return;  // Do not propagate
+                    throw std::runtime_error("Error capture not yet implemented for TSValue-based error output");
                 } else {
                     throw;  // already enriched
                 }
             } catch (const std::exception &e) {
-                if (signature().capture_exception && error_output().get() != nullptr) {
-                    auto ne = NodeError::capture_error(e, *this, "During evaluation");
-                    // Create a heap-allocated copy managed by nanobind
-                    auto error_ptr = nb::ref<NodeError>(new NodeError(ne));
-                    try {
-                        error_output()->py_set_value(nb::cast(error_ptr));
-                    } catch (const std::exception &set_err) {
-                        error_output()->py_set_value(nb::str(ne.to_string().c_str()));
-                    } catch (...) { error_output()->py_set_value(nb::none()); }
-                    return;  // swallow after routing
+                if (signature().capture_exception && _ts_error_output.has_value()) {
+                    // TODO: Migrate to TSValue-based error output
+                    throw std::runtime_error("Error capture not yet implemented for TSValue-based error output");
                 } else {
                     throw NodeException::capture_error(e, *this, "During evaluation");
                 }
             } catch (...) {
-                if (signature().capture_exception && error_output().get() != nullptr) {
-                    auto ne = NodeError::capture_error(std::current_exception(), *this, "Unknown error during node evaluation");
-                    // Create a heap-allocated copy managed by nanobind
-                    auto error_ptr = nb::ref<NodeError>(new NodeError(ne));
-                    try {
-                        error_output()->py_set_value(nb::cast(error_ptr));
-                    } catch (const std::exception &set_err) {
-                        error_output()->py_set_value(nb::str(ne.to_string().c_str()));
-                    } catch (...) { error_output()->py_set_value(nb::none()); }
-                    return;  // swallow after routing
+                if (signature().capture_exception && _ts_error_output.has_value()) {
+                    // TODO: Migrate to TSValue-based error output
+                    throw std::runtime_error("Error capture not yet implemented for TSValue-based error output");
                 } else {
                     throw NodeException::capture_error(std::current_exception(), *this, "Unknown error during node evaluation");
                 }

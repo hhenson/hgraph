@@ -496,7 +496,8 @@ namespace hgraph
     }
 
     nb::object TimeSeriesDictOutputImpl::py_get_ref(const nb::object &key, const nb::object &requester) {
-        return wrap_time_series(get_ref(key, static_cast<const void *>(requester.ptr())));
+        // TODO: Migrate to view-based wrapping
+        throw std::runtime_error("TimeSeriesDictOutputImpl::py_get_ref not yet implemented for view-based wrappers");
     }
 
     void TimeSeriesDictOutputImpl::py_release_ref(const nb::object &key, const nb::object &requester) {

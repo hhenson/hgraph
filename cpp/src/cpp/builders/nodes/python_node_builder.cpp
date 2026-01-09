@@ -47,19 +47,16 @@ namespace hgraph {
             auto node = arena_make_shared_as<PushQueueNode, Node>(
                 node_ndx, owning_graph_id, signature, scalars,
                 input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
-            _build_inputs_and_outputs(node.get());
             // Provide the eval function so the node can expose a sender in start()
             node->set_eval_fn(eval_fn_to_use);
             return node;
         }
 
         // Create node with TSMeta for new TSValue-based storage
+        // Node constructor creates TSValue storage internally when TSMeta is provided
         auto node = arena_make_shared_as<PythonNode, Node>(
             node_ndx, owning_graph_id, signature, scalars, eval_fn_to_use, start_fn, stop_fn,
             input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
-
-        // Still build legacy shared_ptr-based inputs/outputs during transition
-        _build_inputs_and_outputs(node.get());
         return node;
     }
 

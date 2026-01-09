@@ -51,11 +51,12 @@ namespace hgraph {
     }
 
     node_s_ptr SwitchNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
+        // Node constructor creates TSValue storage internally when TSMeta is provided
         auto node = arena_make_shared_as<SwitchNode, Node>(
             node_ndx, owning_graph_id, signature, scalars,
             _key_type, _nested_graph_builders, _input_node_ids, _output_node_ids,
-            _reload_on_ticked, _default_graph_builder, _default_input_node_ids, _default_output_node_id);
-        _build_inputs_and_outputs(node.get());
+            _reload_on_ticked, _default_graph_builder, _default_input_node_ids, _default_output_node_id,
+            input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
         return node;
     }
 

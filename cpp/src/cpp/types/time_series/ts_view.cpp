@@ -5,6 +5,7 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
 #include <stdexcept>
 
 namespace hgraph {
@@ -165,6 +166,21 @@ bool TSView::modified_at(engine_time_t time) const {
     }
     // No overlay means no modification tracking
     return false;
+}
+
+bool TSView::modified() const {
+    // Get the owning node to access the evaluation time
+    Node* node = owning_node();
+    if (!node) {
+        return false;  // No owning node, can't determine current time
+    }
+
+    graph_ptr graph = node->graph();
+    if (!graph) {
+        return false;  // No graph, can't determine current time
+    }
+
+    return modified_at(graph->evaluation_time());
 }
 
 engine_time_t TSView::last_modified_time() const {

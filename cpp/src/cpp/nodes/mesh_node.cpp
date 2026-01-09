@@ -76,9 +76,12 @@ namespace hgraph {
                        graph_builder_s_ptr nested_graph_builder,
                        const std::unordered_map<std::string, int64_t> &input_node_ids,
                        int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args,
-                       const std::string &key_arg, const std::string &context_path)
+                       const std::string &key_arg, const std::string &context_path,
+                       const TSMeta* input_meta, const TSMeta* output_meta,
+                       const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
         : TsdMapNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
-                     std::move(nested_graph_builder), input_node_ids, output_node_id, multiplexed_args, key_arg) {
+                     std::move(nested_graph_builder), input_node_ids, output_node_id, multiplexed_args, key_arg,
+                     input_meta, output_meta, error_output_meta, recordable_state_meta) {
         // Build full context key using centralized key builder to match Python format
         full_context_path_ = keys::context_output_key(this->owning_graph_id(), context_path);
     }
@@ -114,8 +117,9 @@ namespace hgraph {
             auto reference = TimeSeriesReference::make(tsd_output_ptr);
             ref_output.set_value(reference);
 
-            // Store the ref output in GlobalState using shared_ptr-based wrapping
-            GlobalState::set(full_context_path_, wrap_output(ref_output.shared_from_this()));
+            // Store the ref output in GlobalState
+            // TODO: Update to view-based wrapping when MeshNode is fully migrated to TSValue
+            throw std::runtime_error("MeshNode GlobalState wrapping not yet implemented for view-based wrappers");
         } else {
             throw std::runtime_error("GlobalState instance required for MeshNode");
         }

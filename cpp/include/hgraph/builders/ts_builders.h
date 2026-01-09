@@ -1,7 +1,8 @@
 #ifndef TS_BUILDERS_H
 #define TS_BUILDERS_H
 
-#include <hgraph/builders/builder.h>
+#include <hgraph/builders/output_builder.h>
+#include <hgraph/builders/input_builder.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_value.h>
 
@@ -13,14 +14,17 @@ namespace hgraph {
  * This is a thin wrapper that delegates to TSMeta's factory methods.
  * It provides the bridge between the builder system and the new TSValue infrastructure.
  *
+ * Inherits from OutputBuilder so it can be used with node builders that expect OutputBuilder.
+ * The legacy make_instance methods throw - the new TSValue-based path should be used instead.
+ *
  * Usage:
  * @code
  * const TSMeta* ts_meta = TSTypeRegistry::instance().ts(value::int_type());
  * CppTimeSeriesOutputBuilder builder(ts_meta);
- * TSValue output = builder.make_ts_value(owning_node, OUTPUT_MAIN);
+ * // Node will use ts_meta() to create TSValue internally
  * @endcode
  */
-struct HGRAPH_EXPORT CppTimeSeriesOutputBuilder : Builder {
+struct HGRAPH_EXPORT CppTimeSeriesOutputBuilder : OutputBuilder {
     using ptr = nb::ref<CppTimeSeriesOutputBuilder>;
 
     /**
@@ -43,6 +47,16 @@ struct HGRAPH_EXPORT CppTimeSeriesOutputBuilder : Builder {
      */
     [[nodiscard]] TSValue make_ts_value(Node* owner, int output_id = OUTPUT_MAIN) const {
         return hgraph::make_ts_value(_ts_meta, owner, output_id);
+    }
+
+    // ========== OutputBuilder Interface (legacy - throws) ==========
+
+    time_series_output_s_ptr make_instance(node_ptr owning_node) const override {
+        throw std::runtime_error("CppTimeSeriesOutputBuilder: Legacy make_instance not supported. Use TSMeta-based path.");
+    }
+
+    time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override {
+        throw std::runtime_error("CppTimeSeriesOutputBuilder: Legacy make_instance not supported. Use TSMeta-based path.");
     }
 
     // ========== Builder Interface ==========
@@ -73,9 +87,10 @@ private:
  * @brief Builder for creating TSValue instances for inputs.
  *
  * Similar to CppTimeSeriesOutputBuilder but specifically for inputs.
- * For inputs that are always TSB, this provides bundle-specific views.
+ * Inherits from InputBuilder so it can be used with node builders that expect InputBuilder.
+ * The legacy make_instance methods throw - the new TSValue-based path should be used instead.
  */
-struct HGRAPH_EXPORT CppTimeSeriesInputBuilder : Builder {
+struct HGRAPH_EXPORT CppTimeSeriesInputBuilder : InputBuilder {
     using ptr = nb::ref<CppTimeSeriesInputBuilder>;
 
     /**
@@ -97,6 +112,16 @@ struct HGRAPH_EXPORT CppTimeSeriesInputBuilder : Builder {
      */
     [[nodiscard]] TSValue make_ts_value(Node* owner) const {
         return hgraph::make_ts_value(_ts_meta, owner);
+    }
+
+    // ========== InputBuilder Interface (legacy - throws) ==========
+
+    time_series_input_s_ptr make_instance(node_ptr owning_node) const override {
+        throw std::runtime_error("CppTimeSeriesInputBuilder: Legacy make_instance not supported. Use TSMeta-based path.");
+    }
+
+    time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override {
+        throw std::runtime_error("CppTimeSeriesInputBuilder: Legacy make_instance not supported. Use TSMeta-based path.");
     }
 
     // ========== Builder Interface ==========

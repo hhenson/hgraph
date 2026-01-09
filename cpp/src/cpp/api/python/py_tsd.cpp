@@ -1,51 +1,35 @@
 #include <hgraph/api/python/py_tsd.h>
 #include <hgraph/api/python/wrapper_factory.h>
-#include <hgraph/types/tsd.h>
-#include <hgraph/util/date_time.h>
+#include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
+#include <fmt/format.h>
 
 namespace hgraph
 {
-
     // ===== PyTimeSeriesDictOutput Implementation =====
 
-    TimeSeriesDictOutputImpl *PyTimeSeriesDictOutput::impl() const {
-        return static_cast_impl<TimeSeriesDictOutputImpl>();
-    }
-
-    value::Value<> PyTimeSeriesDictOutput::key_from_python(const nb::object &key) const {
-        auto self = impl();
-        const auto *key_schema = self->key_type_meta();
-        value::Value<> key_val(key_schema);
-        key_schema->ops->from_python(key_val.data(), key, key_schema);
-        return key_val;
-    }
+    PyTimeSeriesDictOutput::PyTimeSeriesDictOutput(TSMutableView view)
+        : PyTimeSeriesOutput(view) {}
 
     size_t PyTimeSeriesDictOutput::size() const {
-        return impl()->size();
+        TSDView dict = _view.as_dict();
+        return dict.size();
     }
 
     nb::object PyTimeSeriesDictOutput::get_item(const nb::object &item) const {
-        auto self = impl();
-        if (get_key_set_id().is(item)) { return key_set(); }
-        auto key_val = key_from_python(item);
-        return wrap_time_series(self->operator[](key_val.const_view()));
+        throw std::runtime_error("PyTimeSeriesDictOutput::get_item not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::get(const nb::object &item, const nb::object &default_value) const {
-        auto self = impl();
-        auto key_val = key_from_python(item);
-        if (self->contains(key_val.const_view())) { return wrap_time_series(self->operator[](key_val.const_view())); }
-        return default_value;
+        throw std::runtime_error("PyTimeSeriesDictOutput::get not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::get_or_create(const nb::object &key) {
-        auto key_val = key_from_python(key);
-        return wrap_time_series(impl()->get_or_create(key_val.const_view()));
+        throw std::runtime_error("PyTimeSeriesDictOutput::get_or_create not yet implemented for view-based wrappers");
     }
 
     void PyTimeSeriesDictOutput::create(const nb::object &item) {
-        auto key_val = key_from_python(item);
-        impl()->create(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictOutput::create not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::iter() const {
@@ -53,152 +37,102 @@ namespace hgraph
     }
 
     bool PyTimeSeriesDictOutput::contains(const nb::object &item) const {
-        auto key_val = key_from_python(item);
-        return impl()->contains(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictOutput::contains not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::key_set() const {
-        return wrap_time_series(impl()->key_set().shared_from_this());
+        throw std::runtime_error("PyTimeSeriesDictOutput::key_set not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::keys() const {
-        auto self = impl();
-        return keys_to_list(self->begin(), self->end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::keys not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::values() const {
-        auto self = impl();
-        return values_to_list(self->begin(), self->end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::values not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::items() const {
-        auto self = impl();
-        return items_to_list(self->begin(), self->end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::items not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::modified_keys() const {
-        auto self = impl();
-        const auto &items = self->modified_items();
-        return keys_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::modified_keys not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::modified_values() const {
-        auto self = impl();
-        const auto &items = self->modified_items();
-        return values_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::modified_values not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::modified_items() const {
-        auto self = impl();
-        const auto &items = self->modified_items();
-        return items_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::modified_items not yet implemented for view-based wrappers");
     }
 
     bool PyTimeSeriesDictOutput::was_modified(const nb::object &key) const {
-        auto key_val = key_from_python(key);
-        return impl()->was_modified(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictOutput::was_modified not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::valid_keys() const {
-        auto self = impl();
-        const auto& items = self->valid_items();
-        return keys_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::valid_keys not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::valid_values() const {
-        auto self = impl();
-        const auto& items = self->valid_items();
-        return values_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::valid_values not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::valid_items() const {
-        auto self = impl();
-        const auto& items = self->valid_items();
-        return items_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::valid_items not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::added_keys() const {
-        auto self = impl();
-        const auto &items = self->added_items();
-        return keys_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::added_keys not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::added_values() const {
-        auto self = impl();
-        const auto& items = self->added_items();
-        return values_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::added_values not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::added_items() const {
-        auto self = impl();
-        const auto& items = self->added_items();
-        return items_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::added_items not yet implemented for view-based wrappers");
     }
 
     bool PyTimeSeriesDictOutput::has_added() const {
-        return impl()->has_added();
+        return false;
     }
 
     bool PyTimeSeriesDictOutput::was_added(const nb::object &key) const {
-        auto key_val = key_from_python(key);
-        return impl()->was_added(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictOutput::was_added not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::removed_keys() const {
-        auto self = impl();
-        const auto &items = self->removed_items();
-        return keys_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictOutput::removed_keys not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::removed_values() const {
-        auto self = impl();
-        const auto &items = self->removed_items();
-        // removed_items now stores pair<value, was_valid>, extract value
-        nb::list result;
-        for (const auto &[_, pair] : items) {
-            result.append(wrap_time_series(pair.first));
-        }
-        return result;
+        throw std::runtime_error("PyTimeSeriesDictOutput::removed_values not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::removed_items() const {
-        auto self = impl();
-        const auto &items = self->removed_items();
-        // removed_items now stores pair<value, was_valid>, extract value
-        nb::list result;
-        for (const auto &[key, pair] : items) {
-            result.append(nb::make_tuple(key_to_python(key), wrap_time_series(pair.first)));
-        }
-        return result;
+        throw std::runtime_error("PyTimeSeriesDictOutput::removed_items not yet implemented for view-based wrappers");
     }
 
     bool PyTimeSeriesDictOutput::has_removed() const {
-        return impl()->has_removed();
+        return false;
     }
 
     bool PyTimeSeriesDictOutput::was_removed(const nb::object &key) const {
-        auto key_val = key_from_python(key);
-        return impl()->was_removed(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictOutput::was_removed not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::key_from_value(const nb::object &value) const {
-        auto p = unwrap_output(value).get();
-        if (p == nullptr) {
-            throw std::runtime_error("Value is not a valid TimeSeries");
-        }
-        try {
-            auto key_view = impl()->key_from_ts(p);
-            const auto *key_schema = impl()->key_type_meta();
-            return key_schema->ops->to_python(key_view.data(), key_schema);
-        } catch (const std::exception &e) {
-            return nb::none();
-        }
+        return nb::none();
     }
 
     nb::str PyTimeSeriesDictOutput::py_str() const {
-        auto self = impl();
+        TSDView dict = _view.as_dict();
         auto str = fmt::format("TimeSeriesDictOutput@{:p}[size={}, valid={}]",
-                               static_cast<const void *>(self), self->size(), self->valid());
+                               static_cast<const void*>(_view.value_view().data()),
+                               dict.size(), _view.ts_valid());
         return nb::str(str.c_str());
     }
 
@@ -207,65 +141,49 @@ namespace hgraph
     }
 
     void PyTimeSeriesDictOutput::set_item(const nb::object &key, const nb::object &value) {
-        impl()->py_set_item(key, value);
+        throw std::runtime_error("PyTimeSeriesDictOutput::set_item not yet implemented for view-based wrappers");
     }
 
     void PyTimeSeriesDictOutput::del_item(const nb::object &key) {
-        impl()->py_del_item(key);
+        throw std::runtime_error("PyTimeSeriesDictOutput::del_item not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::pop(const nb::object &key, const nb::object &default_value) {
-        return impl()->py_pop(key, default_value);
+        throw std::runtime_error("PyTimeSeriesDictOutput::pop not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::get_ref(const nb::object &key, const nb::object &requester) {
-        return impl()->py_get_ref(key, requester);
+        throw std::runtime_error("PyTimeSeriesDictOutput::get_ref not yet implemented for view-based wrappers");
     }
 
     void PyTimeSeriesDictOutput::release_ref(const nb::object &key, const nb::object &requester) {
-        impl()->py_release_ref(key, requester);
+        throw std::runtime_error("PyTimeSeriesDictOutput::release_ref not yet implemented for view-based wrappers");
     }
 
     // ===== PyTimeSeriesDictInput Implementation =====
 
-    TimeSeriesDictInputImpl *PyTimeSeriesDictInput::impl() const {
-        return static_cast_impl<TimeSeriesDictInputImpl>();
-    }
-
-    value::Value<> PyTimeSeriesDictInput::key_from_python(const nb::object &key) const {
-        auto self = impl();
-        const auto *key_schema = self->key_type_meta();
-        value::Value<> key_val(key_schema);
-        key_schema->ops->from_python(key_val.data(), key, key_schema);
-        return key_val;
-    }
+    PyTimeSeriesDictInput::PyTimeSeriesDictInput(TSView view)
+        : PyTimeSeriesInput(view) {}
 
     size_t PyTimeSeriesDictInput::size() const {
-        return impl()->size();
+        TSDView dict = _view.as_dict();
+        return dict.size();
     }
 
     nb::object PyTimeSeriesDictInput::get_item(const nb::object &item) const {
-        auto self = impl();
-        if (get_key_set_id().is(item)) { return key_set(); }
-        auto key_val = key_from_python(item);
-        return wrap_time_series(self->operator[](key_val.const_view()));
+        throw std::runtime_error("PyTimeSeriesDictInput::get_item not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::get(const nb::object &item, const nb::object &default_value) const {
-        auto self = impl();
-        auto key_val = key_from_python(item);
-        if (self->contains(key_val.const_view())) { return wrap_time_series(self->operator[](key_val.const_view())); }
-        return default_value;
+        throw std::runtime_error("PyTimeSeriesDictInput::get not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::get_or_create(const nb::object &key) {
-        auto key_val = key_from_python(key);
-        return wrap_time_series(impl()->get_or_create(key_val.const_view()));
+        throw std::runtime_error("PyTimeSeriesDictInput::get_or_create not yet implemented for view-based wrappers");
     }
 
     void PyTimeSeriesDictInput::create(const nb::object &item) {
-        auto key_val = key_from_python(item);
-        impl()->create(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictInput::create not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::iter() const {
@@ -273,142 +191,102 @@ namespace hgraph
     }
 
     bool PyTimeSeriesDictInput::contains(const nb::object &item) const {
-        auto key_val = key_from_python(item);
-        return impl()->contains(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictInput::contains not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::key_set() const {
-        return wrap_time_series(impl()->key_set().shared_from_this());
+        throw std::runtime_error("PyTimeSeriesDictInput::key_set not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::keys() const {
-        auto self = impl();
-        return keys_to_list(self->begin(), self->end());
+        throw std::runtime_error("PyTimeSeriesDictInput::keys not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::values() const {
-        auto self = impl();
-        return values_to_list(self->begin(), self->end());
+        throw std::runtime_error("PyTimeSeriesDictInput::values not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::items() const {
-        auto self = impl();
-        return items_to_list(self->begin(), self->end());
+        throw std::runtime_error("PyTimeSeriesDictInput::items not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::modified_keys() const {
-        auto self = impl();
-        const auto &items = self->modified_items();
-        return keys_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::modified_keys not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::modified_values() const {
-        auto self = impl();
-        const auto &items = self->modified_items();
-        return values_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::modified_values not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::modified_items() const {
-        auto self = impl();
-        const auto &items = self->modified_items();
-        return items_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::modified_items not yet implemented for view-based wrappers");
     }
 
     bool PyTimeSeriesDictInput::was_modified(const nb::object &key) const {
-        auto key_val = key_from_python(key);
-        return impl()->was_modified(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictInput::was_modified not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::valid_keys() const {
-        auto self = impl();
-        const auto& items = self->valid_items();
-        return keys_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::valid_keys not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::valid_values() const {
-        auto self = impl();
-        const auto& items = self->valid_items();
-        return values_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::valid_values not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::valid_items() const {
-        auto self = impl();
-        const auto& items = self->valid_items();
-        return items_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::valid_items not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::added_keys() const {
-        auto self = impl();
-        const auto &items = self->added_items();
-        return keys_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::added_keys not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::added_values() const {
-        auto self = impl();
-        const auto& items = self->added_items();
-        return values_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::added_values not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::added_items() const {
-        auto self = impl();
-        const auto& items = self->added_items();
-        return items_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::added_items not yet implemented for view-based wrappers");
     }
 
     bool PyTimeSeriesDictInput::has_added() const {
-        return impl()->has_added();
+        return false;
     }
 
     bool PyTimeSeriesDictInput::was_added(const nb::object &key) const {
-        auto key_val = key_from_python(key);
-        return impl()->was_added(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictInput::was_added not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::removed_keys() const {
-        auto self = impl();
-        const auto &items = self->removed_items();
-        return keys_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::removed_keys not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::removed_values() const {
-        auto self = impl();
-        const auto &items = self->removed_items();
-        return values_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::removed_values not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::removed_items() const {
-        auto self = impl();
-        const auto &items = self->removed_items();
-        return items_to_list(items.begin(), items.end());
+        throw std::runtime_error("PyTimeSeriesDictInput::removed_items not yet implemented for view-based wrappers");
     }
 
     bool PyTimeSeriesDictInput::has_removed() const {
-        return impl()->has_removed();
+        return false;
     }
 
     bool PyTimeSeriesDictInput::was_removed(const nb::object &key) const {
-        auto key_val = key_from_python(key);
-        return impl()->was_removed(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictInput::was_removed not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::key_from_value(const nb::object &value) const {
-        auto p = unwrap_input(value).get();
-        if (p == nullptr) {
-            throw std::runtime_error("Value is not a valid TimeSeries");
-        }
-        try {
-            auto key_view = impl()->key_from_ts(p);
-            const auto *key_schema = impl()->key_type_meta();
-            return key_schema->ops->to_python(key_view.data(), key_schema);
-        } catch (const std::exception &e) {
-            return nb::none();
-        }
+        return nb::none();
     }
 
     nb::str PyTimeSeriesDictInput::py_str() const {
-        auto self = impl();
+        TSDView dict = _view.as_dict();
         auto str = fmt::format("TimeSeriesDictInput@{:p}[size={}, valid={}]",
-                               static_cast<const void *>(self), self->size(), self->valid());
+                               static_cast<const void*>(_view.value_view().data()),
+                               dict.size(), _view.ts_valid());
         return nb::str(str.c_str());
     }
 
@@ -417,19 +295,16 @@ namespace hgraph
     }
 
     void PyTimeSeriesDictInput::on_key_added(const nb::object &key) {
-        auto key_val = key_from_python(key);
-        impl()->on_key_added(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictInput::on_key_added not yet implemented for view-based wrappers");
     }
 
     void PyTimeSeriesDictInput::on_key_removed(const nb::object &key) {
-        auto key_val = key_from_python(key);
-        impl()->on_key_removed(key_val.const_view());
+        throw std::runtime_error("PyTimeSeriesDictInput::on_key_removed not yet implemented for view-based wrappers");
     }
 
     // ===== Nanobind Registration =====
 
     void tsd_register_with_nanobind(nb::module_ &m) {
-        // No need to re-register value property - base class handles it via TSView
         nb::class_<PyTimeSeriesDictOutput, PyTimeSeriesOutput>(m, "TimeSeriesDictOutput")
             .def("__contains__", &PyTimeSeriesDictOutput::contains, "key"_a)
             .def("__getitem__", &PyTimeSeriesDictOutput::get_item, "key"_a)
@@ -469,7 +344,6 @@ namespace hgraph
             .def("__str__", &PyTimeSeriesDictOutput::py_str)
             .def("__repr__", &PyTimeSeriesDictOutput::py_repr);
 
-        // No need to re-register value property - base class handles it via TSView
         nb::class_<PyTimeSeriesDictInput, PyTimeSeriesInput>(m, "TimeSeriesDictInput")
             .def("__contains__", &PyTimeSeriesDictInput::contains, "key"_a)
             .def("__getitem__", &PyTimeSeriesDictInput::get_item, "key"_a)

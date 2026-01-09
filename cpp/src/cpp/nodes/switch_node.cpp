@@ -24,8 +24,11 @@ namespace hgraph {
                            bool reload_on_ticked,
                            graph_builder_s_ptr default_graph_builder,
                            std::unordered_map<std::string, int> default_input_node_ids,
-                           int default_output_node_id)
-        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
+                           int default_output_node_id,
+                           const TSMeta* input_meta, const TSMeta* output_meta,
+                           const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
+        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+                     input_meta, output_meta, error_output_meta, recordable_state_meta),
           _key_type(key_type),
           _nested_graph_builders(std::move(nested_graph_builders)),
           _input_node_ids(std::move(input_node_ids)),

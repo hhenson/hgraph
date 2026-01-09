@@ -1,5 +1,6 @@
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 
 namespace hgraph {
     void LastValuePullNode::do_start() {
@@ -26,7 +27,7 @@ namespace hgraph {
 
     void LastValuePullNode::_setup_combine_function() {
         // Determine which combine function to use based on the output type
-        if (!has_output()) {
+        if (!has_ts_output()) {
             // Default to simple replacement
             _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
                 return new_delta;
@@ -34,30 +35,29 @@ namespace hgraph {
             return;
         }
 
-        auto output_obj = output().get();
+        auto* ts_out = ts_output();
+        auto ts_kind = ts_out->ts_meta()->kind();
 
         // Check the type of the output and set the appropriate combine function
-        // TimeSeriesSet (TSS)
-        if (dynamic_cast<TimeSeriesSetOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tss_delta;
-        }
-        // TimeSeriesDict (TSD)
-        else if (dynamic_cast<TimeSeriesDictOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tsd_delta;
-        }
-        // TimeSeriesBundle (TSB)
-        else if (dynamic_cast<TimeSeriesBundleOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tsb_delta;
-        }
-        // TimeSeriesList (TSL)
-        else if (dynamic_cast<TimeSeriesListOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tsl_delta_value;
-        }
-        // Default: simple replacement
-        else {
-            _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
-                return new_delta;
-            };
+        switch (ts_kind) {
+            case TSTypeKind::TSS:
+                _delta_combine_fn = _combine_tss_delta;
+                break;
+            case TSTypeKind::TSD:
+                _delta_combine_fn = _combine_tsd_delta;
+                break;
+            case TSTypeKind::TSB:
+                _delta_combine_fn = _combine_tsb_delta;
+                break;
+            case TSTypeKind::TSL:
+                _delta_combine_fn = _combine_tsl_delta_value;
+                break;
+            default:
+                // Default: simple replacement
+                _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
+                    return new_delta;
+                };
+                break;
         }
     }
 
@@ -107,7 +107,9 @@ namespace hgraph {
 
     void LastValuePullNode::do_eval() {
         if (_delta_value.has_value()) {
-            output()->apply_result(_delta_value.value());
+            auto view = output_view();
+            view.from_python(_delta_value.value());
+            view.notify_modified(*cached_evaluation_time_ptr());
             _delta_value.reset();
         }
     }
