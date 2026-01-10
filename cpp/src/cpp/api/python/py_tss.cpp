@@ -1,9 +1,22 @@
 #include <hgraph/api/python/py_tss.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/time_series/ts_overlay_storage.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
 
 namespace hgraph
 {
+
+    // Helper to get current evaluation time from a view
+    static engine_time_t get_current_time(const TSView& view) {
+        Node* node = view.owning_node();
+        if (!node) return MIN_DT;
+        graph_ptr graph = node->graph();
+        if (!graph) return MIN_DT;
+        return graph->evaluation_time();
+    }
 
     // ========== PyTimeSeriesSetOutput ==========
 
@@ -11,7 +24,9 @@ namespace hgraph
         : PyTimeSeriesOutput(view) {}
 
     bool PyTimeSeriesSetOutput::contains(const nb::object &item) const {
-        throw std::runtime_error("PyTimeSeriesSetOutput::contains not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        // Use O(1) contains lookup via the backing store
+        return set_view.contains_python(item);
     }
 
     size_t PyTimeSeriesSetOutput::size() const {
@@ -24,23 +39,60 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesSetOutput::values() const {
-        throw std::runtime_error("PyTimeSeriesSetOutput::values not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        return set_view.to_python();  // Returns frozenset
     }
 
     nb::object PyTimeSeriesSetOutput::added() const {
-        throw std::runtime_error("PyTimeSeriesSetOutput::added not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        engine_time_t current_time = get_current_time(_view);
+
+        // Get delta view (need non-const for lazy cleanup)
+        TSSView* mut_view = const_cast<TSSView*>(&set_view);
+        SetDeltaView delta = mut_view->delta_view(current_time);
+
+        nb::set result;
+        if (delta.valid()) {
+            for (const auto& val : delta.added_values()) {
+                result.add(val.to_python());
+            }
+        }
+        return nb::frozenset(result);
     }
 
     nb::object PyTimeSeriesSetOutput::removed() const {
-        throw std::runtime_error("PyTimeSeriesSetOutput::removed not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        engine_time_t current_time = get_current_time(_view);
+
+        // Get delta view (need non-const for lazy cleanup)
+        TSSView* mut_view = const_cast<TSSView*>(&set_view);
+        SetDeltaView delta = mut_view->delta_view(current_time);
+
+        nb::set result;
+        if (delta.valid()) {
+            for (const auto& val : delta.removed_values()) {
+                result.add(val.to_python());
+            }
+        }
+        return nb::frozenset(result);
     }
 
     nb::bool_ PyTimeSeriesSetOutput::was_added(const nb::object &item) const {
-        throw std::runtime_error("PyTimeSeriesSetOutput::was_added not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        engine_time_t current_time = get_current_time(_view);
+
+        // Use view-layer method with time-check and C++ equality
+        TSSView* mut_view = const_cast<TSSView*>(&set_view);
+        return nb::bool_(mut_view->was_added_python(item, current_time));
     }
 
     nb::bool_ PyTimeSeriesSetOutput::was_removed(const nb::object &item) const {
-        throw std::runtime_error("PyTimeSeriesSetOutput::was_removed not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        engine_time_t current_time = get_current_time(_view);
+
+        // Use view-layer method with time-check and C++ equality
+        TSSView* mut_view = const_cast<TSSView*>(&set_view);
+        return nb::bool_(mut_view->was_removed_python(item, current_time));
     }
 
     void PyTimeSeriesSetOutput::add(const nb::object &key) const {
@@ -78,7 +130,9 @@ namespace hgraph
         : PyTimeSeriesInput(view) {}
 
     bool PyTimeSeriesSetInput::contains(const nb::object &item) const {
-        throw std::runtime_error("PyTimeSeriesSetInput::contains not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        // Use O(1) contains lookup via the backing store
+        return set_view.contains_python(item);
     }
 
     size_t PyTimeSeriesSetInput::size() const {
@@ -91,23 +145,60 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesSetInput::values() const {
-        throw std::runtime_error("PyTimeSeriesSetInput::values not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        return set_view.to_python();  // Returns frozenset
     }
 
     nb::object PyTimeSeriesSetInput::added() const {
-        throw std::runtime_error("PyTimeSeriesSetInput::added not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        engine_time_t current_time = get_current_time(_view);
+
+        // Get delta view (need non-const for lazy cleanup)
+        TSSView* mut_view = const_cast<TSSView*>(&set_view);
+        SetDeltaView delta = mut_view->delta_view(current_time);
+
+        nb::set result;
+        if (delta.valid()) {
+            for (const auto& val : delta.added_values()) {
+                result.add(val.to_python());
+            }
+        }
+        return nb::frozenset(result);
     }
 
     nb::object PyTimeSeriesSetInput::removed() const {
-        throw std::runtime_error("PyTimeSeriesSetInput::removed not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        engine_time_t current_time = get_current_time(_view);
+
+        // Get delta view (need non-const for lazy cleanup)
+        TSSView* mut_view = const_cast<TSSView*>(&set_view);
+        SetDeltaView delta = mut_view->delta_view(current_time);
+
+        nb::set result;
+        if (delta.valid()) {
+            for (const auto& val : delta.removed_values()) {
+                result.add(val.to_python());
+            }
+        }
+        return nb::frozenset(result);
     }
 
     nb::bool_ PyTimeSeriesSetInput::was_added(const nb::object &item) const {
-        throw std::runtime_error("PyTimeSeriesSetInput::was_added not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        engine_time_t current_time = get_current_time(_view);
+
+        // Use view-layer method with time-check and C++ equality
+        TSSView* mut_view = const_cast<TSSView*>(&set_view);
+        return nb::bool_(mut_view->was_added_python(item, current_time));
     }
 
     nb::bool_ PyTimeSeriesSetInput::was_removed(const nb::object &item) const {
-        throw std::runtime_error("PyTimeSeriesSetInput::was_removed not yet implemented for view-based wrappers");
+        TSSView set_view = _view.as_set();
+        engine_time_t current_time = get_current_time(_view);
+
+        // Use view-layer method with time-check and C++ equality
+        TSSView* mut_view = const_cast<TSSView*>(&set_view);
+        return nb::bool_(mut_view->was_removed_python(item, current_time));
     }
 
     // value() and delta_value() are inherited from base - view layer handles TSS specifics

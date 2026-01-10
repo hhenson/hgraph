@@ -841,6 +841,36 @@ struct TSDView : TSView {
     [[nodiscard]] bool contains(const K& key) const;
 
     /**
+     * @brief Check if a key exists (Python object version).
+     * Uses O(1) lookup via the backing store's index set.
+     */
+    [[nodiscard]] bool contains_python(const nb::object& key) const;
+
+    /**
+     * @brief Check if a key was added this tick (Python object version).
+     *
+     * Uses time-checked delta access and C++ level equality comparison.
+     * Returns false if time doesn't match last modification or key not in added set.
+     *
+     * @param key Python object to check
+     * @param time Current engine time for delta check
+     * @return True if key was added at the given time
+     */
+    [[nodiscard]] bool was_added_python(const nb::object& key, engine_time_t time);
+
+    /**
+     * @brief Check if a key was removed this tick (Python object version).
+     *
+     * Uses time-checked delta access and C++ level equality comparison.
+     * Returns false if time doesn't match last modification or key not in removed set.
+     *
+     * @param key Python object to check
+     * @param time Current engine time for delta check
+     * @return True if key was removed at the given time
+     */
+    [[nodiscard]] bool was_removed_python(const nb::object& key, engine_time_t time);
+
+    /**
      * @brief Get the number of entries.
      */
     [[nodiscard]] size_t size() const noexcept;
@@ -1010,6 +1040,36 @@ struct TSSView : TSView {
      */
     template<typename T>
     [[nodiscard]] bool contains(const T& element) const;
+
+    /**
+     * @brief Check if the set contains an element (Python object version).
+     * Uses O(1) lookup via the backing store's index set.
+     */
+    [[nodiscard]] bool contains_python(const nb::object& element) const;
+
+    /**
+     * @brief Check if an element was added this tick (Python object version).
+     *
+     * Uses time-checked delta access and C++ level equality comparison.
+     * Returns false if time doesn't match last modification or element not in added set.
+     *
+     * @param element Python object to check
+     * @param time Current engine time for delta check
+     * @return True if element was added at the given time
+     */
+    [[nodiscard]] bool was_added_python(const nb::object& element, engine_time_t time);
+
+    /**
+     * @brief Check if an element was removed this tick (Python object version).
+     *
+     * Uses time-checked delta access and C++ level equality comparison.
+     * Returns false if time doesn't match last modification or element not in removed set.
+     *
+     * @param element Python object to check
+     * @param time Current engine time for delta check
+     * @return True if element was removed at the given time
+     */
+    [[nodiscard]] bool was_removed_python(const nb::object& element, engine_time_t time);
 
     /**
      * @brief Get the number of elements.

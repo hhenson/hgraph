@@ -2,10 +2,22 @@
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/ts_delta.h>
+#include <hgraph/types/time_series/ts_overlay_storage.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
 #include <fmt/format.h>
 
 namespace hgraph
 {
+    // Helper to get current evaluation time from a view
+    static engine_time_t get_tsd_current_time(const TSView& view) {
+        Node* node = view.owning_node();
+        if (!node) return MIN_DT;
+        graph_ptr graph = node->graph();
+        if (!graph) return MIN_DT;
+        return graph->evaluation_time();
+    }
     // ===== PyTimeSeriesDictOutput Implementation =====
 
     PyTimeSeriesDictOutput::PyTimeSeriesDictOutput(TSMutableView view)
@@ -37,23 +49,43 @@ namespace hgraph
     }
 
     bool PyTimeSeriesDictOutput::contains(const nb::object &item) const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::contains not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        // Use O(1) contains lookup via the backing store
+        return dict.contains_python(item);
     }
 
     nb::object PyTimeSeriesDictOutput::key_set() const {
+        // TODO: Return a TimeSeriesSetInput wrapper for the key set
         throw std::runtime_error("PyTimeSeriesDictOutput::key_set not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictOutput::keys() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::keys not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& key : dict.keys()) {
+            result.append(key.to_python());
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::values() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::values not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& val : dict.ts_values()) {
+            // Wrap each TSView as a Python wrapper
+            result.append(wrap_input_view(val));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::items() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::items not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& [key, val] : dict.items()) {
+            nb::tuple pair = nb::make_tuple(key.to_python(), wrap_input_view(val));
+            result.append(pair);
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::modified_keys() const {
@@ -73,55 +105,162 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::valid_keys() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::valid_keys not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& key : dict.valid_keys()) {
+            result.append(key.to_python());
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::valid_values() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::valid_values not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& val : dict.valid_values()) {
+            result.append(wrap_input_view(val));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::valid_items() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::valid_items not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& [key, val] : dict.valid_items()) {
+            nb::tuple pair = nb::make_tuple(key.to_python(), wrap_input_view(val));
+            result.append(pair);
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::added_keys() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::added_keys not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        // Get delta view (need non-const for lazy cleanup)
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::list result;
+        if (delta.valid()) {
+            for (const auto& key : delta.added_keys()) {
+                result.append(key.to_python());
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::added_values() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::added_values not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::list result;
+        if (delta.valid()) {
+            // Get added values as raw ConstValueView and convert to Python
+            for (const auto& val : delta.added_values()) {
+                result.append(val.to_python());
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::added_items() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::added_items not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::list result;
+        if (delta.valid()) {
+            auto keys = delta.added_keys();
+            auto vals = delta.added_values();
+            for (size_t i = 0; i < keys.size() && i < vals.size(); ++i) {
+                nb::tuple pair = nb::make_tuple(keys[i].to_python(), vals[i].to_python());
+                result.append(pair);
+            }
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictOutput::has_added() const {
-        return false;
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        return delta.valid() && delta.has_added();
     }
 
     bool PyTimeSeriesDictOutput::was_added(const nb::object &key) const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::was_added not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        // Use view-layer method with time-check and C++ equality
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        return mut_dict->was_added_python(key, current_time);
     }
 
     nb::object PyTimeSeriesDictOutput::removed_keys() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::removed_keys not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::list result;
+        if (delta.valid()) {
+            for (const auto& key : delta.removed_keys()) {
+                result.append(key.to_python());
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::removed_values() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::removed_values not yet implemented for view-based wrappers");
+        // MapDeltaView doesn't have removed_values() - removed values aren't stored
+        // Return empty list for now
+        return nb::list();
     }
 
     nb::object PyTimeSeriesDictOutput::removed_items() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::removed_items not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::list result;
+        if (delta.valid()) {
+            // We only have removed keys, not values
+            for (const auto& key : delta.removed_keys()) {
+                nb::tuple pair = nb::make_tuple(key.to_python(), nb::none());
+                result.append(pair);
+            }
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictOutput::has_removed() const {
-        return false;
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        return delta.valid() && delta.has_removed();
     }
 
     bool PyTimeSeriesDictOutput::was_removed(const nb::object &key) const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::was_removed not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        // Use view-layer method with time-check and C++ equality
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        return mut_dict->was_removed_python(key, current_time);
     }
 
     nb::object PyTimeSeriesDictOutput::key_from_value(const nb::object &value) const {
@@ -193,23 +332,42 @@ namespace hgraph
     }
 
     bool PyTimeSeriesDictInput::contains(const nb::object &item) const {
-        throw std::runtime_error("PyTimeSeriesDictInput::contains not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        // Use O(1) contains lookup via the backing store
+        return dict.contains_python(item);
     }
 
     nb::object PyTimeSeriesDictInput::key_set() const {
+        // TODO: Return a TimeSeriesSetInput wrapper for the key set
         throw std::runtime_error("PyTimeSeriesDictInput::key_set not yet implemented for view-based wrappers");
     }
 
     nb::object PyTimeSeriesDictInput::keys() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::keys not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& key : dict.keys()) {
+            result.append(key.to_python());
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::values() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::values not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& val : dict.ts_values()) {
+            result.append(wrap_input_view(val));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::items() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::items not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& [key, val] : dict.items()) {
+            nb::tuple pair = nb::make_tuple(key.to_python(), wrap_input_view(val));
+            result.append(pair);
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::modified_keys() const {
@@ -229,55 +387,161 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictInput::valid_keys() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::valid_keys not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& key : dict.valid_keys()) {
+            result.append(key.to_python());
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::valid_values() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::valid_values not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& val : dict.valid_values()) {
+            result.append(wrap_input_view(val));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::valid_items() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::valid_items not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        nb::list result;
+        for (const auto& [key, val] : dict.valid_items()) {
+            nb::tuple pair = nb::make_tuple(key.to_python(), wrap_input_view(val));
+            result.append(pair);
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::added_keys() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::added_keys not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::list result;
+        if (delta.valid()) {
+            for (const auto& key : delta.added_keys()) {
+                result.append(key.to_python());
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::added_values() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::added_values not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::list result;
+        if (delta.valid()) {
+            // Get added values as raw ConstValueView and convert to Python
+            for (const auto& val : delta.added_values()) {
+                result.append(val.to_python());
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::added_items() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::added_items not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::list result;
+        if (delta.valid()) {
+            auto keys = delta.added_keys();
+            auto vals = delta.added_values();
+            for (size_t i = 0; i < keys.size() && i < vals.size(); ++i) {
+                nb::tuple pair = nb::make_tuple(keys[i].to_python(), vals[i].to_python());
+                result.append(pair);
+            }
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictInput::has_added() const {
-        return false;
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        return delta.valid() && delta.has_added();
     }
 
     bool PyTimeSeriesDictInput::was_added(const nb::object &key) const {
-        throw std::runtime_error("PyTimeSeriesDictInput::was_added not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        // Use view-layer method with time-check and C++ equality
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        return mut_dict->was_added_python(key, current_time);
     }
 
     nb::object PyTimeSeriesDictInput::removed_keys() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::removed_keys not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::list result;
+        if (delta.valid()) {
+            for (const auto& key : delta.removed_keys()) {
+                result.append(key.to_python());
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::removed_values() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::removed_values not yet implemented for view-based wrappers");
+        // MapDeltaView doesn't have removed_values() - removed values aren't stored
+        // Return empty list for now
+        return nb::list();
     }
 
     nb::object PyTimeSeriesDictInput::removed_items() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::removed_items not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::list result;
+        if (delta.valid()) {
+            // We only have removed keys, not values
+            for (const auto& key : delta.removed_keys()) {
+                nb::tuple pair = nb::make_tuple(key.to_python(), nb::none());
+                result.append(pair);
+            }
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictInput::has_removed() const {
-        return false;
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        return delta.valid() && delta.has_removed();
     }
 
     bool PyTimeSeriesDictInput::was_removed(const nb::object &key) const {
-        throw std::runtime_error("PyTimeSeriesDictInput::was_removed not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        // Use view-layer method with time-check and C++ equality
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        return mut_dict->was_removed_python(key, current_time);
     }
 
     nb::object PyTimeSeriesDictInput::key_from_value(const nb::object &value) const {

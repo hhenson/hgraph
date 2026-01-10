@@ -670,6 +670,228 @@ void TSMutableView::from_python(const nb::object& src) {
         return;
     }
 
+    // Special handling for TSS: compute delta (added/removed) and update overlay
+    if (_ts_meta->kind() == TSTypeKind::TSS) {
+        SetTSOverlay* set_overlay = nullptr;
+        if (_overlay) {
+            set_overlay = dynamic_cast<SetTSOverlay*>(_overlay);
+        }
+
+        // Get current time for tracking
+        engine_time_t current_time = MIN_DT;
+        Node* node = owning_node();
+        if (node) {
+            graph_ptr g = node->graph();
+            if (g) {
+                current_time = g->evaluation_time();
+            }
+        }
+
+        // Get the current set view to compare with new value
+        value::ConstSetView old_set = _view.as_set();
+        size_t old_size = old_set.size();
+
+        // Collect old set elements as Python objects for comparison
+        std::vector<nb::object> old_elements;
+        old_elements.reserve(old_size);
+        for (size_t i = 0; i < old_size; ++i) {
+            old_elements.push_back(old_set.at(i).to_python());
+        }
+
+        // Convert new value - accept set, frozenset, or PythonSetDelta
+        std::string type_name = nb::cast<std::string>(src.type().attr("__name__"));
+        bool is_set_delta = (type_name.find("SetDelta") != std::string::npos);
+
+        if (is_set_delta) {
+            // Handle PythonSetDelta: apply additions and removals
+            nb::object added = src.attr("added");
+            nb::object removed = src.attr("removed");
+
+            // Process removals first
+            if (set_overlay && !removed.is_none()) {
+                for (auto item : removed) {
+                    nb::object py_item = nb::borrow<nb::object>(item);
+                    // Find index of this item in old set
+                    for (size_t i = 0; i < old_elements.size(); ++i) {
+                        if (old_elements[i].equal(py_item)) {
+                            // Record removal with the value
+                            const value::TypeMeta* elem_type = static_cast<const TSSTypeMeta*>(_ts_meta)->element_type();
+                            value::PlainValue removed_val(elem_type);
+                            if (elem_type && elem_type->ops && elem_type->ops->from_python) {
+                                elem_type->ops->from_python(removed_val.data(), py_item, elem_type);
+                            }
+                            set_overlay->record_removed(i, current_time, std::move(removed_val));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Remove elements from the backing store
+            if (!removed.is_none()) {
+                const value::TypeMeta* schema = _ts_meta->value_schema();
+                for (auto item : removed) {
+                    nb::object py_item = nb::borrow<nb::object>(item);
+                    // Create temp value for removal
+                    const value::TypeMeta* elem_type = schema->element_type;
+                    if (elem_type && elem_type->ops) {
+                        std::vector<char> temp_storage(elem_type->size);
+                        void* temp = temp_storage.data();
+                        if (elem_type->ops->construct) {
+                            elem_type->ops->construct(temp, elem_type);
+                        }
+                        if (elem_type->ops->from_python) {
+                            elem_type->ops->from_python(temp, py_item, elem_type);
+                        }
+                        // Erase from set
+                        if (schema->ops->erase) {
+                            schema->ops->erase(_mutable_view.data(), temp, schema);
+                        }
+                        if (elem_type->ops->destruct) {
+                            elem_type->ops->destruct(temp, elem_type);
+                        }
+                    }
+                }
+            }
+
+            // Add elements to the backing store (only if not already present)
+            if (!added.is_none()) {
+                const value::TypeMeta* schema = _ts_meta->value_schema();
+                for (auto item : added) {
+                    nb::object py_item = nb::borrow<nb::object>(item);
+
+                    // Check if already in old set - skip if so
+                    bool already_exists = false;
+                    for (const auto& old_elem : old_elements) {
+                        if (old_elem.equal(py_item)) {
+                            already_exists = true;
+                            break;
+                        }
+                    }
+                    if (already_exists) {
+                        continue;  // Skip duplicate - no delta for existing element
+                    }
+
+                    // Create temp value for insertion
+                    const value::TypeMeta* elem_type = schema->element_type;
+                    if (elem_type && elem_type->ops) {
+                        std::vector<char> temp_storage(elem_type->size);
+                        void* temp = temp_storage.data();
+                        if (elem_type->ops->construct) {
+                            elem_type->ops->construct(temp, elem_type);
+                        }
+                        if (elem_type->ops->from_python) {
+                            elem_type->ops->from_python(temp, py_item, elem_type);
+                        }
+                        // Insert into set
+                        if (schema->ops->insert) {
+                            schema->ops->insert(_mutable_view.data(), temp, schema);
+                        }
+                        if (set_overlay) {
+                            // Get the actual index where it was inserted
+                            value::ConstSetView new_set = _view.as_set();
+                            for (size_t i = 0; i < new_set.size(); ++i) {
+                                if (new_set.at(i).to_python().equal(py_item)) {
+                                    set_overlay->record_added(i, current_time);
+                                    break;
+                                }
+                            }
+                        }
+                        if (elem_type->ops->destruct) {
+                            elem_type->ops->destruct(temp, elem_type);
+                        }
+                    }
+                }
+            }
+        } else {
+            // Handle set/frozenset: compute delta and replace
+            std::vector<nb::object> new_elements;
+            if (nb::isinstance<nb::set>(src) || nb::isinstance<nb::frozenset>(src)) {
+                for (auto item : src) {
+                    new_elements.push_back(nb::borrow<nb::object>(item));
+                }
+            } else if (nb::isinstance<nb::list>(src) || nb::isinstance<nb::tuple>(src)) {
+                nb::sequence seq = nb::cast<nb::sequence>(src);
+                for (size_t i = 0; i < nb::len(seq); ++i) {
+                    new_elements.push_back(nb::borrow<nb::object>(seq[i]));
+                }
+            } else {
+                throw std::runtime_error("TSMutableView::from_python: TSS expects set, frozenset, or SetDelta");
+            }
+
+            // Compute delta: removed = old - new, added = new - old
+            std::vector<nb::object> removed_items;
+            std::vector<nb::object> added_items;
+
+            // Find removed items (in old but not in new)
+            for (const auto& old_elem : old_elements) {
+                bool found = false;
+                for (const auto& new_elem : new_elements) {
+                    if (old_elem.equal(new_elem)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    removed_items.push_back(old_elem);
+                }
+            }
+
+            // Find added items (in new but not in old)
+            for (const auto& new_elem : new_elements) {
+                bool found = false;
+                for (const auto& old_elem : old_elements) {
+                    if (new_elem.equal(old_elem)) {
+                        found = true;
+                        break;
+                    }
+                }
+                if (!found) {
+                    added_items.push_back(new_elem);
+                }
+            }
+
+            // Record removals in overlay (before modifying backing store)
+            if (set_overlay) {
+                const value::TypeMeta* elem_type = static_cast<const TSSTypeMeta*>(_ts_meta)->element_type();
+                for (const auto& py_item : removed_items) {
+                    // Find index of this item in old set
+                    for (size_t i = 0; i < old_elements.size(); ++i) {
+                        if (old_elements[i].equal(py_item)) {
+                            value::PlainValue removed_val(elem_type);
+                            if (elem_type && elem_type->ops && elem_type->ops->from_python) {
+                                elem_type->ops->from_python(removed_val.data(), py_item, elem_type);
+                            }
+                            set_overlay->record_removed(i, current_time, std::move(removed_val));
+                            break;
+                        }
+                    }
+                }
+            }
+
+            // Update the backing store with new value
+            const value::TypeMeta* schema = _ts_meta->value_schema();
+            if (schema && schema->ops && schema->ops->from_python) {
+                schema->ops->from_python(_mutable_view.data(), src, schema);
+            }
+
+            // Record additions in overlay (after modifying backing store to get correct indices)
+            if (set_overlay) {
+                value::ConstSetView new_set = _view.as_set();
+                for (const auto& py_item : added_items) {
+                    // Find index of this item in new set
+                    for (size_t i = 0; i < new_set.size(); ++i) {
+                        if (new_set.at(i).to_python().equal(py_item)) {
+                            set_overlay->record_added(i, current_time);
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        return;
+    }
+
     // If we have mutable container access, use its policy-aware from_python
     // This properly invalidates Python cache and handles all policies
     if (_mutable_container) {
@@ -981,6 +1203,153 @@ size_t TSDView::size() const noexcept {
     return _view.as_map().size();
 }
 
+bool TSDView::contains_python(const nb::object& key) const {
+    if (!valid()) return false;
+
+    // Get key schema and use TypeOps::contains for O(1) lookup
+    const value::TypeMeta* key_schema = dict_meta()->key_type();
+    const value::TypeMeta* map_schema = _ts_meta->value_schema();
+
+    if (!key_schema || !key_schema->ops || !map_schema || !map_schema->ops || !map_schema->ops->contains) {
+        return false;
+    }
+
+    // Create temp key storage and convert from Python
+    std::vector<char> temp_storage(key_schema->size);
+    void* temp = temp_storage.data();
+
+    if (key_schema->ops->construct) {
+        key_schema->ops->construct(temp, key_schema);
+    }
+    if (key_schema->ops->from_python) {
+        try {
+            key_schema->ops->from_python(temp, key, key_schema);
+        } catch (...) {
+            if (key_schema->ops->destruct) {
+                key_schema->ops->destruct(temp, key_schema);
+            }
+            return false;  // Conversion failed - key can't be in map
+        }
+    }
+
+    // Use O(1) contains lookup
+    bool result = map_schema->ops->contains(_view.data(), temp, map_schema);
+
+    if (key_schema->ops->destruct) {
+        key_schema->ops->destruct(temp, key_schema);
+    }
+
+    return result;
+}
+
+bool TSDView::was_added_python(const nb::object& key, engine_time_t time) {
+    auto* overlay = map_overlay();
+    if (!overlay || !valid()) {
+        return false;
+    }
+
+    // Time check - if no delta at this time, return false
+    if (!overlay->has_delta_at(time)) {
+        return false;
+    }
+
+    // Get key schema for conversion and comparison
+    const value::TypeMeta* key_schema = dict_meta()->key_type();
+    if (!key_schema || !key_schema->ops) {
+        return false;
+    }
+
+    // Convert Python key to C++ representation once
+    std::vector<char> temp_storage(key_schema->size);
+    void* temp = temp_storage.data();
+
+    if (key_schema->ops->construct) {
+        key_schema->ops->construct(temp, key_schema);
+    }
+    if (key_schema->ops->from_python) {
+        try {
+            key_schema->ops->from_python(temp, key, key_schema);
+        } catch (...) {
+            if (key_schema->ops->destruct) {
+                key_schema->ops->destruct(temp, key_schema);
+            }
+            return false;  // Conversion failed
+        }
+    }
+
+    // Get the added key indices and check each key using C++ equality
+    value::ConstMapView map_view = _view.as_map();
+    const auto& added_indices = overlay->added_key_indices();
+
+    bool found = false;
+    for (size_t idx : added_indices) {
+        value::ConstValueView key_view = map_view.key_at(idx);
+        if (key_schema->ops->equals && key_schema->ops->equals(key_view.data(), temp, key_schema)) {
+            found = true;
+            break;
+        }
+    }
+
+    if (key_schema->ops->destruct) {
+        key_schema->ops->destruct(temp, key_schema);
+    }
+
+    return found;
+}
+
+bool TSDView::was_removed_python(const nb::object& key, engine_time_t time) {
+    auto* overlay = map_overlay();
+    if (!overlay || !valid()) {
+        return false;
+    }
+
+    // Time check - if no delta at this time, return false
+    if (!overlay->has_delta_at(time)) {
+        return false;
+    }
+
+    // Get key schema for conversion and comparison
+    const value::TypeMeta* key_schema = dict_meta()->key_type();
+    if (!key_schema || !key_schema->ops) {
+        return false;
+    }
+
+    // Convert Python key to C++ representation once
+    std::vector<char> temp_storage(key_schema->size);
+    void* temp = temp_storage.data();
+
+    if (key_schema->ops->construct) {
+        key_schema->ops->construct(temp, key_schema);
+    }
+    if (key_schema->ops->from_python) {
+        try {
+            key_schema->ops->from_python(temp, key, key_schema);
+        } catch (...) {
+            if (key_schema->ops->destruct) {
+                key_schema->ops->destruct(temp, key_schema);
+            }
+            return false;  // Conversion failed
+        }
+    }
+
+    // Check removed key values using C++ equality
+    const auto& removed_keys = overlay->removed_key_values();
+
+    bool found = false;
+    for (const auto& k : removed_keys) {
+        if (key_schema->ops->equals && key_schema->ops->equals(k.data(), temp, key_schema)) {
+            found = true;
+            break;
+        }
+    }
+
+    if (key_schema->ops->destruct) {
+        key_schema->ops->destruct(temp, key_schema);
+    }
+
+    return found;
+}
+
 MapDeltaView TSDView::delta_view(engine_time_t time) {
     auto* overlay = map_overlay();
     if (!overlay || !valid()) {
@@ -1026,6 +1395,153 @@ TSSView::TSSView(const void* data, const TSSTypeMeta* ts_meta, SetTSOverlay* ove
 size_t TSSView::size() const noexcept {
     if (!valid()) return 0;
     return _view.as_set().size();
+}
+
+bool TSSView::contains_python(const nb::object& element) const {
+    if (!valid()) return false;
+
+    // Get element schema and use TypeOps::contains for O(1) lookup
+    const value::TypeMeta* elem_schema = set_meta()->element_type();
+    const value::TypeMeta* set_schema = _ts_meta->value_schema();
+
+    if (!elem_schema || !elem_schema->ops || !set_schema || !set_schema->ops || !set_schema->ops->contains) {
+        return false;
+    }
+
+    // Create temp element storage and convert from Python
+    std::vector<char> temp_storage(elem_schema->size);
+    void* temp = temp_storage.data();
+
+    if (elem_schema->ops->construct) {
+        elem_schema->ops->construct(temp, elem_schema);
+    }
+    if (elem_schema->ops->from_python) {
+        try {
+            elem_schema->ops->from_python(temp, element, elem_schema);
+        } catch (...) {
+            if (elem_schema->ops->destruct) {
+                elem_schema->ops->destruct(temp, elem_schema);
+            }
+            return false;  // Conversion failed - element can't be in set
+        }
+    }
+
+    // Use O(1) contains lookup
+    bool result = set_schema->ops->contains(_view.data(), temp, set_schema);
+
+    if (elem_schema->ops->destruct) {
+        elem_schema->ops->destruct(temp, elem_schema);
+    }
+
+    return result;
+}
+
+bool TSSView::was_added_python(const nb::object& element, engine_time_t time) {
+    auto* overlay = set_overlay();
+    if (!overlay || !valid()) {
+        return false;
+    }
+
+    // Time check - if no delta at this time, return false
+    if (!overlay->has_delta_at(time)) {
+        return false;
+    }
+
+    // Get element schema for conversion and comparison
+    const value::TypeMeta* elem_schema = set_meta()->element_type();
+    if (!elem_schema || !elem_schema->ops) {
+        return false;
+    }
+
+    // Convert Python element to C++ representation once
+    std::vector<char> temp_storage(elem_schema->size);
+    void* temp = temp_storage.data();
+
+    if (elem_schema->ops->construct) {
+        elem_schema->ops->construct(temp, elem_schema);
+    }
+    if (elem_schema->ops->from_python) {
+        try {
+            elem_schema->ops->from_python(temp, element, elem_schema);
+        } catch (...) {
+            if (elem_schema->ops->destruct) {
+                elem_schema->ops->destruct(temp, elem_schema);
+            }
+            return false;  // Conversion failed
+        }
+    }
+
+    // Get the added indices and check each value using C++ equality
+    value::ConstSetView set_view = _view.as_set();
+    const auto& added_indices = overlay->added_indices();
+
+    bool found = false;
+    for (size_t idx : added_indices) {
+        value::ConstValueView val = set_view.at(idx);
+        if (elem_schema->ops->equals && elem_schema->ops->equals(val.data(), temp, elem_schema)) {
+            found = true;
+            break;
+        }
+    }
+
+    if (elem_schema->ops->destruct) {
+        elem_schema->ops->destruct(temp, elem_schema);
+    }
+
+    return found;
+}
+
+bool TSSView::was_removed_python(const nb::object& element, engine_time_t time) {
+    auto* overlay = set_overlay();
+    if (!overlay || !valid()) {
+        return false;
+    }
+
+    // Time check - if no delta at this time, return false
+    if (!overlay->has_delta_at(time)) {
+        return false;
+    }
+
+    // Get element schema for conversion and comparison
+    const value::TypeMeta* elem_schema = set_meta()->element_type();
+    if (!elem_schema || !elem_schema->ops) {
+        return false;
+    }
+
+    // Convert Python element to C++ representation once
+    std::vector<char> temp_storage(elem_schema->size);
+    void* temp = temp_storage.data();
+
+    if (elem_schema->ops->construct) {
+        elem_schema->ops->construct(temp, elem_schema);
+    }
+    if (elem_schema->ops->from_python) {
+        try {
+            elem_schema->ops->from_python(temp, element, elem_schema);
+        } catch (...) {
+            if (elem_schema->ops->destruct) {
+                elem_schema->ops->destruct(temp, elem_schema);
+            }
+            return false;  // Conversion failed
+        }
+    }
+
+    // Check removed values using C++ equality
+    const auto& removed_values = overlay->removed_values();
+
+    bool found = false;
+    for (const auto& val : removed_values) {
+        if (elem_schema->ops->equals && elem_schema->ops->equals(val.data(), temp, elem_schema)) {
+            found = true;
+            break;
+        }
+    }
+
+    if (elem_schema->ops->destruct) {
+        elem_schema->ops->destruct(temp, elem_schema);
+    }
+
+    return found;
 }
 
 SetDeltaView TSSView::delta_view(engine_time_t time) {
@@ -1579,10 +2095,39 @@ nb::object TSSView::to_python() const {
 nb::object TSSView::to_python_delta() const {
     if (!valid()) return nb::none();
 
-    // For TSS, delta shows added/removed elements
-    // TODO: Implement proper delta tracking
-    // For now, return the full set as delta
-    return to_python();
+    // Get the current evaluation time from the owning node
+    Node* node = owning_node();
+    engine_time_t current_time = MIN_DT;
+    if (node) {
+        graph_ptr graph = node->graph();
+        if (graph) {
+            current_time = graph->evaluation_time();
+        }
+    }
+
+    // Import Python SetDelta class
+    auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
+
+    // Get the set overlay for delta tracking
+    TSSView* self_mut = const_cast<TSSView*>(this);  // delta_view is non-const due to lazy cleanup
+    SetDeltaView delta = self_mut->delta_view(current_time);
+
+    // Build frozensets for added and removed
+    nb::set added_set;
+    nb::set removed_set;
+
+    if (delta.valid()) {
+        // Get added values from the current set
+        for (const auto& val : delta.added_values()) {
+            added_set.add(val.to_python());
+        }
+        // Get removed values from the overlay buffer
+        for (const auto& val : delta.removed_values()) {
+            removed_set.add(val.to_python());
+        }
+    }
+
+    return PythonSetDelta(nb::frozenset(added_set), nb::frozenset(removed_set));
 }
 
 }  // namespace hgraph
