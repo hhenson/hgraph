@@ -47,7 +47,8 @@ namespace hgraph
          */
         [[nodiscard]] TSMutableView view() const { return _view; }
 
-        // ========== Common time-series interface (concrete, non-virtual) ==========
+        // ========== Common time-series interface ==========
+        // All methods use the view layer for type-specific behavior (no virtual dispatch)
 
         [[nodiscard]] nb::object value() const;
         [[nodiscard]] nb::object delta_value() const;
@@ -103,7 +104,8 @@ namespace hgraph
          */
         [[nodiscard]] TSView view() const { return _view; }
 
-        // ========== Common time-series interface (concrete, non-virtual) ==========
+        // ========== Common time-series interface ==========
+        // All methods use the view layer for type-specific behavior (no virtual dispatch)
 
         [[nodiscard]] nb::object value() const;
         [[nodiscard]] nb::object delta_value() const;

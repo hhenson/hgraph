@@ -1,5 +1,6 @@
 #include "hgraph/api/python/wrapper_factory.h"
 
+#include <fmt/format.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/types/graph.h>
 
@@ -20,9 +21,8 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesOutput::delta_value() const {
-        // For scalar types, delta_value == value
-        // TODO: For collection types, this should return just the changes
-        return _view.to_python();
+        // Use view's delta conversion - handles Window types specially
+        return _view.to_python_delta();
     }
 
     nb::object PyTimeSeriesOutput::owning_node() const {
@@ -126,9 +126,8 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesInput::delta_value() const {
-        // For scalar types, delta_value == value
-        // TODO: For collection types, this should return just the changes
-        return _view.to_python();
+        // Use view's delta conversion - handles Window types specially
+        return _view.to_python_delta();
     }
 
     nb::object PyTimeSeriesInput::owning_node() const {

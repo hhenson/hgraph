@@ -9,10 +9,15 @@
 #include <hgraph/api/python/py_evaluation_clock.h>
 #include <hgraph/api/python/py_evaluation_engine.h>
 #include <hgraph/api/python/py_node.h>
+#include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/py_special_nodes.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/api/python/py_ts.h>
 #include <hgraph/api/python/py_tsb.h>
+#include <hgraph/api/python/py_tsd.h>
+#include <hgraph/api/python/py_tsl.h>
+#include <hgraph/api/python/py_tss.h>
+#include <hgraph/api/python/py_tsw.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/mesh_node.h>
@@ -109,8 +114,9 @@ namespace
     // ========================================================================
 
     nb::object wrap_input_view(const TSView& view) {
-        if (!view.valid()) { return nb::none(); }
-
+        // Note: We check only ts_meta, not view.valid(), because inputs may be linked
+        // to outputs that haven't ticked yet (e.g., nothing(TS[bool]) for SIGNAL inputs).
+        // The wrapper's valid() method will handle checking if data is actually available.
         const auto* meta = view.ts_meta();
         if (!meta) { return nb::none(); }
 
@@ -119,14 +125,18 @@ namespace
                 return nb::cast(PyTimeSeriesValueInput(view));
             case TSTypeKind::TSB:
                 return nb::cast(PyTimeSeriesBundleInput(view));
-            case TSTypeKind::TSL:
-            case TSTypeKind::TSD:
-            case TSTypeKind::TSS:
             case TSTypeKind::TSW:
-            case TSTypeKind::REF:
+                return nb::cast(PyTimeSeriesWindowInput(view));
+            case TSTypeKind::TSL:
+                return nb::cast(PyTimeSeriesListInput(view));
+            case TSTypeKind::TSD:
+                return nb::cast(PyTimeSeriesDictInput(view));
+            case TSTypeKind::TSS:
+                return nb::cast(PyTimeSeriesSetInput(view));
             case TSTypeKind::SIGNAL:
-                // For now, wrap as base input - these will need specialized wrappers
                 return nb::cast(PyTimeSeriesInput(view));
+            case TSTypeKind::REF:
+                return nb::cast(PyTimeSeriesReferenceInput(view));
             default:
                 throw std::runtime_error("wrap_input_view: Unknown TSTypeKind");
         }
@@ -143,14 +153,25 @@ namespace
                 return nb::cast(PyTimeSeriesValueOutput(view));
             case TSTypeKind::TSB:
                 return nb::cast(PyTimeSeriesBundleOutput(view));
+            case TSTypeKind::TSW: {
+                // Check if it's a time-based or fixed-size window
+                const auto* tsw_meta = static_cast<const TSWTypeMeta*>(meta);
+                if (tsw_meta->is_time_based()) {
+                    return nb::cast(PyTimeSeriesTimeWindowOutput(view));
+                } else {
+                    return nb::cast(PyTimeSeriesFixedWindowOutput(view));
+                }
+            }
             case TSTypeKind::TSL:
+                return nb::cast(PyTimeSeriesListOutput(view));
             case TSTypeKind::TSD:
+                return nb::cast(PyTimeSeriesDictOutput(view));
             case TSTypeKind::TSS:
-            case TSTypeKind::TSW:
-            case TSTypeKind::REF:
+                return nb::cast(PyTimeSeriesSetOutput(view));
             case TSTypeKind::SIGNAL:
-                // For now, wrap as base output - these will need specialized wrappers
                 return nb::cast(PyTimeSeriesOutput(view));
+            case TSTypeKind::REF:
+                return nb::cast(PyTimeSeriesReferenceOutput(view));
             default:
                 throw std::runtime_error("wrap_output_view: Unknown TSTypeKind");
         }

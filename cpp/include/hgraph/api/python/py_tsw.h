@@ -7,6 +7,9 @@ namespace hgraph
 {
     /**
      * @brief Python wrapper for TimeSeriesFixedWindowOutput.
+     *
+     * Note: value(), delta_value(), all_valid() are inherited from PyTimeSeriesOutput
+     * and work correctly through the view/ops layer (WindowStorageOps).
      */
     struct PyTimeSeriesFixedWindowOutput : PyTimeSeriesOutput
     {
@@ -20,6 +23,7 @@ namespace hgraph
         PyTimeSeriesFixedWindowOutput(const PyTimeSeriesFixedWindowOutput&) = delete;
         PyTimeSeriesFixedWindowOutput& operator=(const PyTimeSeriesFixedWindowOutput&) = delete;
 
+        // Window-specific accessors (not in base class)
         [[nodiscard]] nb::object value_times() const;
         [[nodiscard]] engine_time_t first_modified_time() const;
         [[nodiscard]] nb::int_ size() const;
@@ -55,6 +59,9 @@ namespace hgraph
 
     /**
      * @brief Python wrapper for TimeSeriesWindowInput.
+     *
+     * Note: value(), delta_value(), all_valid() are inherited from PyTimeSeriesInput
+     * and work correctly through the view/ops layer (WindowStorageOps).
      */
     struct PyTimeSeriesWindowInput : PyTimeSeriesInput
     {
@@ -68,6 +75,7 @@ namespace hgraph
         PyTimeSeriesWindowInput(const PyTimeSeriesWindowInput&) = delete;
         PyTimeSeriesWindowInput& operator=(const PyTimeSeriesWindowInput&) = delete;
 
+        // Window-specific accessors (not in base class)
         [[nodiscard]] nb::object value_times() const;
         [[nodiscard]] engine_time_t first_modified_time() const;
         [[nodiscard]] nb::bool_ has_removed_value() const;

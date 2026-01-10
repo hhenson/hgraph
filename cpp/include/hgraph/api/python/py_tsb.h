@@ -66,8 +66,7 @@ namespace hgraph
 
         [[nodiscard]] nb::object modified_items() const;
 
-        // Override delta_value to return modified fields with their delta_values
-        [[nodiscard]] nb::object delta_value() const;
+        // value() and delta_value() are inherited from base - view layer handles TSB specifics
 
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();
@@ -134,8 +133,7 @@ namespace hgraph
 
         [[nodiscard]] nb::object modified_items() const;
 
-        // Override delta_value to return modified fields with their delta_values
-        [[nodiscard]] nb::object delta_value() const;
+        // value() and delta_value() are inherited from base - view layer handles TSB specifics
 
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();

@@ -2,9 +2,17 @@
 
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/hgraph_base.h>
+#include <unordered_map>
 
 namespace hgraph
 {
+    // Forward declaration of TSValue
+    struct TSValue;
+
+    // Global cache for REF output values - maps TSValue* to TimeSeriesReference object
+    // This is used to store TimeSeriesReference values when set via from_python on REF outputs
+    // Declared here so it can be accessed from py_ts.cpp for dereferencing
+    extern std::unordered_map<const TSValue*, nb::object> g_ref_output_cache;
 
     void ref_register_with_nanobind(nb::module_ &m);
 
@@ -15,6 +23,10 @@ namespace hgraph
 
         [[nodiscard]] nb::str to_string() const;
         [[nodiscard]] nb::str to_repr() const;
+
+        // Note: value(), delta_value(), set_value(), apply_result() are inherited
+        // from PyTimeSeriesOutput. The view layer (TSView/TSMutableView) handles
+        // REF-specific behavior via TSTypeKind::REF dispatch.
 
         static void register_with_nanobind(nb::module_ &m);
 
@@ -33,6 +45,10 @@ namespace hgraph
 
         [[nodiscard]] nb::str to_string() const;
         [[nodiscard]] nb::str to_repr() const;
+
+        // Note: value() and delta_value() are inherited from PyTimeSeriesInput.
+        // The view layer (TSView::to_python()) handles REF-specific behavior
+        // via TSTypeKind::REF dispatch, including link navigation for inputs.
 
         static void register_with_nanobind(nb::module_ &m);
 

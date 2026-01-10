@@ -7,30 +7,6 @@
 namespace hgraph
 {
     // ============================================================
-    // Helper function for delta_value (shared by Input and Output)
-    // ============================================================
-
-    static nb::object tsl_compute_delta_value(const TSView& view) {
-        TSLView list = view.as_list();
-        Node* n = view.owning_node();
-        if (!n || !n->cached_evaluation_time_ptr()) {
-            throw std::runtime_error("delta_value requires node context with evaluation time");
-        }
-        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
-        nb::dict result;
-        for (size_t i = 0; i < list.size(); ++i) {
-            TSView elem = list.element(i);
-            // Python: {i: ts.delta_value for i, ts in enumerate(self._ts_values) if ts.modified}
-            if (elem.modified_at(eval_time)) {
-                nb::object wrapped = wrap_input_view(elem);
-                nb::object delta = nb::getattr(wrapped, "delta_value");
-                result[nb::int_(i)] = delta;
-            }
-        }
-        return result;
-    }
-
-    // ============================================================
     // PyTimeSeriesListOutput
     // ============================================================
 
@@ -178,9 +154,7 @@ namespace hgraph
         return list.size() == 0;
     }
 
-    nb::object PyTimeSeriesListOutput::delta_value() const {
-        return tsl_compute_delta_value(_view);
-    }
+    // value() and delta_value() are inherited from base - view layer handles TSL specifics
 
     nb::str PyTimeSeriesListOutput::py_str() {
         TSLView list = _view.as_list();
@@ -343,9 +317,7 @@ namespace hgraph
         return list.size() == 0;
     }
 
-    nb::object PyTimeSeriesListInput::delta_value() const {
-        return tsl_compute_delta_value(_view);
-    }
+    // value() and delta_value() are inherited from base - view layer handles TSL specifics
 
     nb::str PyTimeSeriesListInput::py_str() {
         TSLView list = _view.as_list();
@@ -371,7 +343,7 @@ namespace hgraph
             .def("__iter__", &PyTimeSeriesListOutput::iter)
             .def("__len__", &PyTimeSeriesListOutput::len)
             .def_prop_ro("empty", &PyTimeSeriesListOutput::empty)
-            .def_prop_ro("delta_value", &PyTimeSeriesListOutput::delta_value)
+            // value and delta_value are inherited from base class (uses view layer dispatch)
             .def("values", &PyTimeSeriesListOutput::values)
             .def("valid_values", &PyTimeSeriesListOutput::valid_values)
             .def("modified_values", &PyTimeSeriesListOutput::modified_values)
@@ -390,7 +362,7 @@ namespace hgraph
             .def("__iter__", &PyTimeSeriesListInput::iter)
             .def("__len__", &PyTimeSeriesListInput::len)
             .def_prop_ro("empty", &PyTimeSeriesListInput::empty)
-            .def_prop_ro("delta_value", &PyTimeSeriesListInput::delta_value)
+            // value and delta_value are inherited from base class (uses view layer dispatch)
             .def("values", &PyTimeSeriesListInput::values)
             .def("valid_values", &PyTimeSeriesListInput::valid_values)
             .def("modified_values", &PyTimeSeriesListInput::modified_values)

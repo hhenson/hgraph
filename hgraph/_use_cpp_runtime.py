@@ -679,6 +679,11 @@ if is_feature_enabled("use_cpp"):
         from hgraph.test._cpp_observers import setup_cpp_observers
         setup_cpp_observers()
 
+        # Register cleanup function for C++ REF output cache
+        # This prevents crashes during Python shutdown
+        import atexit
+        atexit.register(_hgraph._clear_ref_output_cache)
+
     except ImportError as e:
         import warnings
 

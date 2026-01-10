@@ -6,39 +6,6 @@
 
 namespace hgraph
 {
-    // ============================================================
-    // Helper function for delta_value (shared by Input and Output)
-    // ============================================================
-
-    static nb::object tsd_compute_delta_value(const TSView& view) {
-        // Python: frozendict(chain(
-        //     ((k, v.delta_value) for k, v in self.items() if v.modified and v.valid),
-        //     ((k, REMOVE) for k in self.removed_keys()),
-        // ))
-        TSDView dict = view.as_dict();
-        Node* n = view.owning_node();
-        if (!n || !n->cached_evaluation_time_ptr()) {
-            throw std::runtime_error("delta_value requires node context with evaluation time");
-        }
-        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
-        nb::dict result;
-
-        // Add modified items with their delta_values
-        for (auto item : dict.items()) {
-            TSView value_view = item.second;
-            if (value_view.modified_at(eval_time) && value_view.ts_valid()) {
-                nb::object wrapped = wrap_input_view(value_view);
-                nb::object delta = nb::getattr(wrapped, "delta_value");
-                result[item.first.to_python()] = delta;
-            }
-        }
-
-        // TODO: Add removed keys with REMOVE marker once overlay supports removal tracking
-        // For now, the removed keys are not included as the view doesn't track them
-
-        return result;
-    }
-
     // ===== PyTimeSeriesDictOutput Implementation =====
 
     PyTimeSeriesDictOutput::PyTimeSeriesDictOutput(TSMutableView view)
@@ -161,9 +128,7 @@ namespace hgraph
         return nb::none();
     }
 
-    nb::object PyTimeSeriesDictOutput::delta_value() const {
-        return tsd_compute_delta_value(_view);
-    }
+    // value() and delta_value() are inherited from base - view layer handles TSD specifics
 
     nb::str PyTimeSeriesDictOutput::py_str() const {
         TSDView dict = _view.as_dict();
@@ -319,9 +284,7 @@ namespace hgraph
         return nb::none();
     }
 
-    nb::object PyTimeSeriesDictInput::delta_value() const {
-        return tsd_compute_delta_value(_view);
-    }
+    // value() and delta_value() are inherited from base - view layer handles TSD specifics
 
     nb::str PyTimeSeriesDictInput::py_str() const {
         TSDView dict = _view.as_dict();
@@ -378,7 +341,7 @@ namespace hgraph
             .def("removed_items", &PyTimeSeriesDictOutput::removed_items)
             .def("was_removed", &PyTimeSeriesDictOutput::was_removed, "key"_a)
             .def("key_from_value", &PyTimeSeriesDictOutput::key_from_value, "value"_a)
-            .def_prop_ro("delta_value", &PyTimeSeriesDictOutput::delta_value)
+            // value and delta_value are inherited from base class (uses view layer dispatch)
             .def_prop_ro("has_removed", &PyTimeSeriesDictOutput::has_removed)
             .def("get_ref", &PyTimeSeriesDictOutput::get_ref, "key"_a, "requester"_a)
             .def("release_ref", &PyTimeSeriesDictOutput::release_ref, "key"_a, "requester"_a)
@@ -417,7 +380,7 @@ namespace hgraph
             .def("on_key_removed", &PyTimeSeriesDictInput::on_key_removed, "key"_a)
             .def("key_from_value", &PyTimeSeriesDictInput::key_from_value, "value"_a)
             .def_prop_ro("has_removed", &PyTimeSeriesDictInput::has_removed)
-            .def_prop_ro("delta_value", &PyTimeSeriesDictInput::delta_value)
+            // value and delta_value are inherited from base class (uses view layer dispatch)
             .def_prop_ro("key_set", &PyTimeSeriesDictInput::key_set)
             .def("__str__", &PyTimeSeriesDictInput::py_str)
             .def("__repr__", &PyTimeSeriesDictInput::py_repr);

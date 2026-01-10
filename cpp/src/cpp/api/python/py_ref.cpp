@@ -1,14 +1,24 @@
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_ref_target_link.h>
+#include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
 
+#include <unordered_map>
 #include <utility>
 
 namespace hgraph
 {
+    // Forward declarations
+    extern std::unordered_map<const TSValue*, nb::object> g_ref_output_cache;
+    void clear_ref_output_cache();
 
     void ref_register_with_nanobind(nb::module_ &m) {
+        // Register cleanup function to be called before shutdown
+        m.def("_clear_ref_output_cache", &clear_ref_output_cache,
+              "Clear the REF output cache - call this before shutdown to prevent crashes");
+
         nb::class_<TimeSeriesReference>(m, "TimeSeriesReference")
             .def("__str__", &TimeSeriesReference::to_string)
             .def("__repr__", &TimeSeriesReference::to_string)
@@ -35,7 +45,36 @@ namespace hgraph
             .def_prop_ro("is_unbound", &TimeSeriesReference::is_unbound)
             .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
             .def_prop_ro("output", [](TimeSeriesReference &self) -> nb::object {
-                throw std::runtime_error("TimeSeriesReference::output not yet implemented for view-based wrappers");
+                if (self.is_empty()) {
+                    return nb::none();
+                }
+                if (self.is_view_bound()) {
+                    // VIEW_BOUND - wrap the TSValue* as a Python input view (read-only)
+                    // We use an input wrapper since we only need read access (for .delta_value)
+                    const TSValue* view_out = self.view_output();
+                    if (!view_out) {
+                        return nb::none();
+                    }
+                    // Get the type metadata to determine the appropriate wrapper
+                    const auto* meta = view_out->ts_meta();
+                    if (!meta) {
+                        return nb::none();
+                    }
+                    // Create a TSView (read-only) from the const TSValue
+                    TSView view(*view_out);
+                    return wrap_input_view(view);
+                }
+                if (self.is_bound()) {
+                    // BOUND - return the wrapped legacy output
+                    const auto& ptr = self.output();
+                    if (!ptr) {
+                        return nb::none();
+                    }
+                    // Return it as a Python object - the user can call .delta_value on it
+                    return nb::cast(ptr);
+                }
+                // UNBOUND - no single output
+                return nb::none();
             })
             .def_prop_ro("items", &TimeSeriesReference::items)
             .def("__getitem__", &TimeSeriesReference::operator[])
@@ -78,8 +117,22 @@ namespace hgraph
         return to_string();
     }
 
+    // Global cache for REF output values (workaround for view-based storage)
+    // Key is the TSValue pointer, value is the stored TimeSeriesReference
+    // Used by TSView::to_python() and TSMutableView::from_python() for REF types
+    std::unordered_map<const TSValue*, nb::object> g_ref_output_cache;
+
+    // Cleanup function to clear the cache before Python shuts down
+    // This prevents crashes during module unload when Python objects are
+    // destroyed after the interpreter starts finalizing
+    void clear_ref_output_cache() {
+        g_ref_output_cache.clear();
+    }
+
     void PyTimeSeriesReferenceOutput::register_with_nanobind(nb::module_ &m) {
-        // No need to re-register value property - base class handles it via TSView
+        // Note: value, delta_value, set_value, apply_result are inherited from
+        // PyTimeSeriesOutput. The view layer handles REF-specific behavior via
+        // TSTypeKind::REF dispatch in TSView::to_python() and TSMutableView::from_python().
         nb::class_<PyTimeSeriesReferenceOutput, PyTimeSeriesOutput>(m, "TimeSeriesReferenceOutput")
             .def("__str__", &PyTimeSeriesReferenceOutput::to_string)
             .def("__repr__", &PyTimeSeriesReferenceOutput::to_repr);
@@ -88,7 +141,8 @@ namespace hgraph
     // ========== PyTimeSeriesReferenceInput ==========
 
     PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput(TSView view)
-        : PyTimeSeriesInput(view) {}
+        : PyTimeSeriesInput(view) {
+    }
 
     nb::str PyTimeSeriesReferenceInput::to_string() const {
         auto s = fmt::format("TimeSeriesReferenceInput[valid={}]", _view.ts_valid());
@@ -98,7 +152,9 @@ namespace hgraph
     nb::str PyTimeSeriesReferenceInput::to_repr() const { return to_string(); }
 
     void PyTimeSeriesReferenceInput::register_with_nanobind(nb::module_ &m) {
-        // No need to re-register value property - base class handles it via TSView
+        // Note: value and delta_value are inherited from PyTimeSeriesInput.
+        // The view layer handles REF-specific behavior via TSTypeKind::REF
+        // dispatch in TSView::to_python(), including link navigation for inputs.
         nb::class_<PyTimeSeriesReferenceInput, PyTimeSeriesInput>(m, "TimeSeriesReferenceInput")
             .def("__str__", &PyTimeSeriesReferenceInput::to_string)
             .def("__repr__", &PyTimeSeriesReferenceInput::to_repr);

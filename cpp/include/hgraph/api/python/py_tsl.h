@@ -60,8 +60,7 @@ namespace hgraph
 
         [[nodiscard]] bool empty() const;
 
-        // Override delta_value to return modified elements with their delta_values
-        [[nodiscard]] nb::object delta_value() const;
+        // value() and delta_value() are inherited from base - view layer handles TSL specifics
 
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();
@@ -122,8 +121,7 @@ namespace hgraph
 
         [[nodiscard]] bool empty() const;
 
-        // Override delta_value to return modified elements with their delta_values
-        [[nodiscard]] nb::object delta_value() const;
+        // value() and delta_value() are inherited from base - view layer handles TSL specifics
 
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();

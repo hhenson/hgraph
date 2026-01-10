@@ -5,9 +5,11 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/ts_ref_target_link.h>
 #include <hgraph/types/value/window_storage_ops.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/types/ref.h>
 #include <fmt/format.h>
 #include <stdexcept>
 #include <unordered_map>
@@ -161,15 +163,99 @@ nb::object TSView::to_python() const {
         case TSTypeKind::TSS:
             return as_set().to_python();
         case TSTypeKind::REF: {
-            // For REF types, check the cache
+            // For REF inputs with link support, navigate the link to find the bound output
+            if (_link_source && _link_source->has_link_support() && !_path.is_root()) {
+                // Navigate to find the link at our path position
+                const TSValue* current = _link_source;
+                for (size_t i = 0; i + 1 < _path.elements.size(); ++i) {
+                    current = current->child_value(_path.elements[i]);
+                    if (!current) {
+                        return nb::cast(TimeSeriesReference::make());
+                    }
+                }
+
+                size_t final_idx = _path.elements.back();
+                const LinkStorage* storage = current->link_storage_at(final_idx);
+                if (storage) {
+                    // Extract the bound output from the link
+                    const TSValue* bound_output = std::visit([](const auto& link) -> const TSValue* {
+                        using T = std::decay_t<decltype(link)>;
+                        if constexpr (std::is_same_v<T, std::monostate>) {
+                            return nullptr;
+                        } else if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
+                            return link ? link->output() : nullptr;
+                        } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
+                            return link ? link->ref_output() : nullptr;
+                        } else {
+                            return nullptr;
+                        }
+                    }, *storage);
+
+                    if (bound_output) {
+                        // Check cache for this bound output - it contains a TimeSeriesReference
+                        auto it = g_ref_output_cache.find(bound_output);
+                        if (it != g_ref_output_cache.end()) {
+                            // AUTOMATIC DEREFERENCING: if the cached value is a TimeSeriesReference,
+                            // follow it to get the actual value (mimics Python's rebinding behavior)
+                            nb::object cached = it->second;
+                            if (nb::isinstance<TimeSeriesReference>(cached)) {
+                                TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
+                                // Check VIEW_BOUND first since is_bound() returns true for both
+                                if (ref.is_view_bound()) {
+                                    // VIEW_BOUND reference: follow to the TSValue
+                                    const TSValue* target = ref.view_output();
+                                    if (target && target->ts_valid()) {
+                                        // Create a view of the target and get its value
+                                        TSView target_view(*target);
+                                        return target_view.to_python();
+                                    }
+                                } else if (ref.kind() == TimeSeriesReference::Kind::BOUND) {
+                                    // BOUND reference: follow to the legacy output
+                                    const auto& output = ref.output();
+                                    if (output && output->valid()) {
+                                        return output->py_delta_value();
+                                    }
+                                }
+                            }
+                            // If dereferencing failed or not applicable, return as-is
+                            return cached;
+                        }
+                        // Create view-bound reference to the bound output
+                        return nb::cast(TimeSeriesReference::make_view_bound(bound_output));
+                    }
+                }
+            }
+
+            // Fallback: For REF outputs (not linked inputs), check the cache using root
             if (_root) {
                 auto it = g_ref_output_cache.find(_root);
                 if (it != g_ref_output_cache.end()) {
-                    return it->second;
+                    // Found in cache - need to dereference if it's a TimeSeriesReference
+                    nb::object cached = it->second;
+                    if (nb::isinstance<TimeSeriesReference>(cached)) {
+                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
+                        // Check VIEW_BOUND first since is_bound() returns true for both BOUND and VIEW_BOUND
+                        if (ref.is_view_bound()) {
+                            const TSValue* target = ref.view_output();
+                            if (target && target->ts_valid()) {
+                                TSView target_view(*target);
+                                return target_view.to_python();
+                            }
+                        } else if (ref.kind() == TimeSeriesReference::Kind::BOUND) {
+                            const auto& output = ref.output();
+                            if (output && output->valid()) {
+                                return output->py_delta_value();
+                            }
+                        }
+                    }
+                    // Not a TimeSeriesReference or dereferencing failed, return as-is
+                    return cached;
                 }
+                // Not in cache - create a view-bound reference
+                return nb::cast(TimeSeriesReference::make_view_bound(_root));
             }
-            // Fall through to default conversion
-            break;
+            // No root - return empty reference
+            return nb::cast(TimeSeriesReference::make());
         }
         default:
             break;
@@ -206,6 +292,9 @@ nb::object TSView::to_python_delta() const {
             }
             break;
         }
+        case TSTypeKind::REF:
+            // For REF types, delta_value is the same as value
+            return to_python();
         default:
             break;
     }
