@@ -9,6 +9,7 @@
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/tsd.h>
 #include <hgraph/types/tss.h>
+#include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
 #include <algorithm>
@@ -30,6 +31,10 @@ namespace hgraph
 
     TimeSeriesReference::TimeSeriesReference(std::vector<TimeSeriesReference> items) : _kind(Kind::UNBOUND) {
         new (&_storage.unbound) std::vector<TimeSeriesReference>(std::move(items));
+    }
+
+    TimeSeriesReference::TimeSeriesReference(const TSValue* view_output) : _kind(Kind::VIEW_BOUND) {
+        _storage.view_bound = view_output;
     }
 
     // Copy constructor
@@ -68,6 +73,7 @@ namespace hgraph
             case Kind::EMPTY: break;
             case Kind::BOUND: _storage.bound.~shared_ptr(); break;  // Call shared_ptr destructor
             case Kind::UNBOUND: _storage.unbound.~vector(); break;
+            case Kind::VIEW_BOUND: break;  // Plain pointer, no destruction needed
         }
     }
 
@@ -76,6 +82,7 @@ namespace hgraph
             case Kind::EMPTY: break;
             case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(other._storage.bound); break;
             case Kind::UNBOUND: new (&_storage.unbound) std::vector<TimeSeriesReference>(other._storage.unbound); break;
+            case Kind::VIEW_BOUND: _storage.view_bound = other._storage.view_bound; break;
         }
     }
 
@@ -84,6 +91,7 @@ namespace hgraph
             case Kind::EMPTY: break;
             case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(std::move(other._storage.bound)); break;
             case Kind::UNBOUND: new (&_storage.unbound) std::vector<TimeSeriesReference>(std::move(other._storage.unbound)); break;
+            case Kind::VIEW_BOUND: _storage.view_bound = other._storage.view_bound; break;
         }
     }
 
@@ -91,6 +99,11 @@ namespace hgraph
     const time_series_output_s_ptr &TimeSeriesReference::output() const {
         if (_kind != Kind::BOUND) { throw std::runtime_error("TimeSeriesReference::output() called on non-bound reference"); }
         return _storage.bound;
+    }
+
+    const TSValue* TimeSeriesReference::view_output() const {
+        if (_kind != Kind::VIEW_BOUND) { throw std::runtime_error("TimeSeriesReference::view_output() called on non-view-bound reference"); }
+        return _storage.view_bound;
     }
 
     const std::vector<TimeSeriesReference> &TimeSeriesReference::items() const {
@@ -120,6 +133,12 @@ namespace hgraph
                     if (reactivate) { ts_input.make_active(); }
                     break;
                 }
+            case Kind::VIEW_BOUND:
+                {
+                    // View-bound references store a TSValue* instead of time_series_output_s_ptr
+                    // For now, throw - actual binding for view-based runtime uses a different mechanism
+                    throw std::runtime_error("TimeSeriesReference::bind_input() on VIEW_BOUND: use view-based binding instead");
+                }
             case Kind::UNBOUND:
                 {
                     bool reactivate = false;
@@ -144,6 +163,7 @@ namespace hgraph
         switch (_kind) {
             case Kind::EMPTY: return false;
             case Kind::BOUND: return true;
+            case Kind::VIEW_BOUND: return true;
             case Kind::UNBOUND: return false;
         }
         return false;
@@ -153,6 +173,7 @@ namespace hgraph
         switch (_kind) {
             case Kind::EMPTY: return false;
             case Kind::BOUND: return _storage.bound && _storage.bound->valid();
+            case Kind::VIEW_BOUND: return _storage.view_bound && _storage.view_bound->ts_valid();
             case Kind::UNBOUND:
                 return std::any_of(_storage.unbound.begin(), _storage.unbound.end(),
                                    [](const auto &item) { return item.is_valid(); });
@@ -166,6 +187,7 @@ namespace hgraph
         switch (_kind) {
             case Kind::EMPTY: return true;
             case Kind::BOUND: return _storage.bound == other._storage.bound;
+            case Kind::VIEW_BOUND: return _storage.view_bound == other._storage.view_bound;
             case Kind::UNBOUND: return _storage.unbound == other._storage.unbound;
         }
         return false;
@@ -178,6 +200,16 @@ namespace hgraph
                 return fmt::format("REF[{}<{}>.output@{:p}]", _storage.bound->owning_node()->signature().name,
                                    fmt::join(_storage.bound->owning_node()->node_id(), ", "),
                                    const_cast<void *>(static_cast<const void *>(_storage.bound.get())));
+            case Kind::VIEW_BOUND:
+                {
+                    Node* node = _storage.view_bound ? _storage.view_bound->owning_node() : nullptr;
+                    if (node) {
+                        return fmt::format("REF[{}<{}>.view_output@{:p}]", node->signature().name,
+                                           fmt::join(node->node_id(), ", "),
+                                           static_cast<const void*>(_storage.view_bound));
+                    }
+                    return fmt::format("REF[view@{:p}]", static_cast<const void*>(_storage.view_bound));
+                }
             case Kind::UNBOUND:
                 {
                     std::vector<std::string> string_items;
@@ -205,6 +237,12 @@ namespace hgraph
         return TimeSeriesReference(std::move(items));
     }
 
+    TimeSeriesReference TimeSeriesReference::make_view_bound(const TSValue* output) {
+        if (output == nullptr) {
+            return make();
+        }
+        return TimeSeriesReference(output);
+    }
 
     TimeSeriesReference TimeSeriesReference::make(const std::vector<TimeSeriesReferenceInput*>& items) {
         if (items.empty()) { return make(); }

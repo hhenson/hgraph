@@ -4,11 +4,19 @@
 
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_value.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/value/window_storage_ops.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
+#include <fmt/format.h>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace hgraph {
+
+// External cache for REF output values (defined in py_ref.cpp)
+// Key is the TSValue pointer, value is the stored TimeSeriesReference
+extern std::unordered_map<const TSValue*, nb::object> g_ref_output_cache;
 
 // ============================================================================
 // TSView Implementation
@@ -142,14 +150,68 @@ nb::object TSView::to_python() const {
         return nb::none();
     }
 
-    // If we have container access, use its policy-aware to_python (uses cache)
+    // Dispatch based on type kind for collection types
+    switch (_ts_meta->kind()) {
+        case TSTypeKind::TSB:
+            return as_bundle().to_python();
+        case TSTypeKind::TSL:
+            return as_list().to_python();
+        case TSTypeKind::TSD:
+            return as_dict().to_python();
+        case TSTypeKind::TSS:
+            return as_set().to_python();
+        case TSTypeKind::REF: {
+            // For REF types, check the cache
+            if (_root) {
+                auto it = g_ref_output_cache.find(_root);
+                if (it != g_ref_output_cache.end()) {
+                    return it->second;
+                }
+            }
+            // Fall through to default conversion
+            break;
+        }
+        default:
+            break;
+    }
+
+    // For scalar types (TS, SIGNAL, TSW), use direct conversion
     if (_container) {
         return _container->to_python();
     }
-
-    // No container - use direct conversion (no cache)
     const value::TypeMeta* schema = _ts_meta->value_schema();
     return schema->ops->to_python(_view.data(), schema);
+}
+
+nb::object TSView::to_python_delta() const {
+    if (!valid()) {
+        return nb::none();
+    }
+
+    // Dispatch based on type kind for collection types
+    switch (_ts_meta->kind()) {
+        case TSTypeKind::TSB:
+            return as_bundle().to_python_delta();
+        case TSTypeKind::TSL:
+            return as_list().to_python_delta();
+        case TSTypeKind::TSD:
+            return as_dict().to_python_delta();
+        case TSTypeKind::TSS:
+            return as_set().to_python_delta();
+        case TSTypeKind::TSW: {
+            // For Window types, return just the newest value (most recent addition)
+            const value::TypeMeta* schema = _ts_meta->value_schema();
+            if (schema->kind == value::TypeKind::Window) {
+                return value::WindowStorageOps::get_newest_value_python(_view.data(), schema);
+            }
+            break;
+        }
+        default:
+            break;
+    }
+
+    // For other scalar types, delta_value == value
+    return to_python();
 }
 
 bool TSView::ts_valid() const {
@@ -172,8 +234,17 @@ bool TSView::all_valid() const {
             return as_list().all_valid();
         case TSTypeKind::TSD:
             return as_dict().all_valid();
+        case TSTypeKind::TSW: {
+            // For TSW, all_valid means size >= min_size
+            const value::TypeMeta* schema = _ts_meta->value_schema();
+            if (schema->kind == value::TypeKind::Window) {
+                auto* storage = static_cast<const value::WindowStorage*>(_view.data());
+                return storage->size >= storage->min_size;
+            }
+            return true;  // Time-delta windows (fallback)
+        }
         default:
-            // For scalar types (TS, TSS, TSW, SIGNAL, REF), all_valid == ts_valid
+            // For scalar types (TS, TSS, SIGNAL, REF), all_valid == ts_valid
             return true;
     }
 }
@@ -210,10 +281,15 @@ engine_time_t TSView::last_modified_time() const {
 }
 
 Node* TSView::owning_node() const {
-    if (!_container) {
-        return nullptr;  // No container means no node ownership
+    // First check container (direct owner)
+    if (_container) {
+        return _container->owning_node();
     }
-    return _container->owning_node();
+    // Fall back to root (for child views navigated via path)
+    if (_root) {
+        return _root->owning_node();
+    }
+    return nullptr;  // No container or root means no node ownership
 }
 
 std::optional<StoredPath> TSView::stored_path() const {
@@ -354,6 +430,157 @@ void TSMutableView::from_python(const nb::object& src) {
         throw std::runtime_error("TSMutableView::from_python() called on invalid view");
     }
 
+    // Special handling for REF types: store TimeSeriesReference in cache
+    if (_ts_meta->kind() == TSTypeKind::REF) {
+        // REF outputs store TimeSeriesReference objects, not raw values
+        // We can't store Python objects in the C++ value storage (wrong schema),
+        // so we use a global cache keyed by the root TSValue pointer
+
+        if (src.is_none()) {
+            // Clear/invalidate - remove from cache
+            if (_root) {
+                g_ref_output_cache.erase(_root);
+            }
+            return;
+        }
+
+        // Check that we got a TimeSeriesReference (by checking type name)
+        std::string type_name = nb::cast<std::string>(src.type().attr("__name__"));
+        if (type_name.find("TimeSeriesReference") == std::string::npos &&
+            type_name.find("BoundTimeSeriesReference") == std::string::npos &&
+            type_name.find("EmptyTimeSeriesReference") == std::string::npos &&
+            type_name.find("UnBoundTimeSeriesReference") == std::string::npos) {
+            throw std::runtime_error(
+                "TSMutableView::from_python: REF output value must be a TimeSeriesReference, got " +
+                type_name);
+        }
+
+        // Store in global cache
+        if (_root) {
+            g_ref_output_cache[_root] = src;
+        } else if (_mutable_container) {
+            g_ref_output_cache[_mutable_container] = src;
+        }
+
+        // Note: modification notification is handled by caller (notify_modified)
+        return;
+    }
+
+    // Special handling for TSW types: use push_back semantics
+    if (_ts_meta->kind() == TSTypeKind::TSW) {
+        // Get the current engine time from the owning node
+        engine_time_t current_time = MIN_DT;
+        Node* node = owning_node();
+        if (node) {
+            graph_ptr g = node->graph();
+            if (g) {
+                current_time = g->evaluation_time();
+            }
+        }
+
+        // Use WindowStorageOps::push_back_python to append (value, time)
+        const value::TypeMeta* schema = _ts_meta->value_schema();
+        if (schema && schema->kind == value::TypeKind::Window) {
+            value::WindowStorageOps::push_back_python(
+                _mutable_view.data(), src, current_time, schema);
+            return;
+        }
+        // Fall through to default handling if schema kind doesn't match
+    }
+
+    // Special handling for TSB with dict input: need to mark child overlays
+    if (_ts_meta->kind() == TSTypeKind::TSB && nb::isinstance<nb::dict>(src)) {
+        // Get the CompositeTSOverlay to mark children
+        CompositeTSOverlay* composite_overlay = nullptr;
+        if (_overlay) {
+            composite_overlay = dynamic_cast<CompositeTSOverlay*>(_overlay);
+        }
+
+        // If we have mutable container access, use its policy-aware from_python
+        if (_mutable_container) {
+            _mutable_container->from_python(src);
+        } else {
+            // No container - use direct conversion
+            const value::TypeMeta* schema = _ts_meta->value_schema();
+            if (schema && schema->ops) {
+                schema->ops->from_python(_mutable_view.data(), src, schema);
+            }
+        }
+
+        // Now mark the child overlays that were set
+        if (composite_overlay) {
+            // Get current time for marking
+            engine_time_t current_time = MIN_DT;
+            Node* node = owning_node();
+            if (node) {
+                graph_ptr g = node->graph();
+                if (g) {
+                    current_time = g->evaluation_time();
+                }
+            }
+
+            // Mark each child overlay from the dict keys
+            nb::dict d = nb::cast<nb::dict>(src);
+            const TSBTypeMeta* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+            for (auto item : d) {
+                // Convert field name to index
+                std::string field_name = nb::cast<std::string>(item.first);
+                const TSBFieldInfo* field_info = bundle_meta->field(field_name);
+                if (field_info) {
+                    TSOverlayStorage* child_ov = composite_overlay->child(field_info->index);
+                    if (child_ov) {
+                        child_ov->mark_modified(current_time);
+                    }
+                }
+            }
+        }
+        return;
+    }
+
+    // Special handling for TSL with dict input: need to mark child overlays
+    if (_ts_meta->kind() == TSTypeKind::TSL && nb::isinstance<nb::dict>(src)) {
+        // Get the ListTSOverlay to mark children
+        ListTSOverlay* list_overlay = nullptr;
+        if (_overlay) {
+            list_overlay = dynamic_cast<ListTSOverlay*>(_overlay);
+        }
+
+        // If we have mutable container access, use its policy-aware from_python
+        if (_mutable_container) {
+            _mutable_container->from_python(src);
+        } else {
+            // No container - use direct conversion
+            const value::TypeMeta* schema = _ts_meta->value_schema();
+            if (schema && schema->ops) {
+                schema->ops->from_python(_mutable_view.data(), src, schema);
+            }
+        }
+
+        // Now mark the child overlays that were set
+        if (list_overlay) {
+            // Get current time for marking
+            engine_time_t current_time = MIN_DT;
+            Node* node = owning_node();
+            if (node) {
+                graph_ptr g = node->graph();
+                if (g) {
+                    current_time = g->evaluation_time();
+                }
+            }
+
+            // Mark each child overlay from the dict keys
+            nb::dict d = nb::cast<nb::dict>(src);
+            for (auto item : d) {
+                size_t idx = nb::cast<size_t>(item.first);
+                TSOverlayStorage* child_ov = list_overlay->child(idx);
+                if (child_ov) {
+                    child_ov->mark_modified(current_time);
+                }
+            }
+        }
+        return;
+    }
+
     // If we have mutable container access, use its policy-aware from_python
     // This properly invalidates Python cache and handles all policies
     if (_mutable_container) {
@@ -402,6 +629,10 @@ TSBView::TSBView(const void* data, const TSBTypeMeta* ts_meta, CompositeTSOverla
     : TSView(data, ts_meta, static_cast<TSOverlayStorage*>(overlay))
 {}
 
+TSBView::TSBView(const TSValue& ts_value) noexcept
+    : TSView(ts_value)
+{}
+
 TSView TSBView::field(const std::string& name) const {
     if (!valid()) {
         throw std::runtime_error("TSBView::field() called on invalid view");
@@ -417,10 +648,15 @@ TSView TSBView::field(const std::string& name) const {
     size_t index = field_info->index;
 
     // ===== Link Support: Check if this child is linked =====
-    if (_link_source && _link_source->is_linked(index)) {
+    // For REF types, don't follow the link - the REF wrapper handles link navigation
+    // to return a TimeSeriesReference. For non-REF types, follow the link to get the value.
+    if (_link_source && _link_source->is_linked(index) && !field_info->type->is_reference()) {
         // Follow the link - return view into the linked output
-        TSLink* link = const_cast<TSValue*>(_link_source)->link_at(index);
-        return link->view();
+        // Check for both TSLink and TSRefTargetLink
+        LinkStorage* storage = const_cast<TSValue*>(_link_source)->link_storage_at(index);
+        if (storage) {
+            return link_storage_view(*storage);
+        }
     }
 
     // Navigate to the field data using the bundle view
@@ -433,8 +669,14 @@ TSView TSBView::field(const std::string& name) const {
     // ===== Link Support: Check for nested TSValue with links =====
     const TSValue* child_link_source = nullptr;
     if (_link_source) {
-        // Check if there's a nested non-peered child with link support
-        child_link_source = const_cast<TSValue*>(_link_source)->child_value(index);
+        if (field_info->type->is_reference()) {
+            // For REF types, keep the parent as link source so the REF wrapper
+            // can access the link at this field's index via the path
+            child_link_source = _link_source;
+        } else {
+            // For non-REF types, check if there's a nested non-peered child with link support
+            child_link_source = const_cast<TSValue*>(_link_source)->child_value(index);
+        }
     }
 
     // Use overlay-based child navigation with path
@@ -463,14 +705,19 @@ TSView TSBView::field(size_t index) const {
                                 " out of range (size=" + std::to_string(bundle_meta->field_count()) + ")");
     }
 
-    // ===== Link Support: Check if this child is linked =====
-    if (_link_source && _link_source->is_linked(index)) {
-        // Follow the link - return view into the linked output
-        TSLink* link = const_cast<TSValue*>(_link_source)->link_at(index);
-        return link->view();
-    }
-
     const TSBFieldInfo& field_info = bundle_meta->field(index);
+
+    // ===== Link Support: Check if this child is linked =====
+    // For REF types, don't follow the link - the REF wrapper handles link navigation
+    // to return a TimeSeriesReference. For non-REF types, follow the link to get the value.
+    if (_link_source && _link_source->is_linked(index) && !field_info.type->is_reference()) {
+        // Follow the link - return view into the linked output
+        // Check for both TSLink and TSRefTargetLink
+        LinkStorage* storage = const_cast<TSValue*>(_link_source)->link_storage_at(index);
+        if (storage) {
+            return link_storage_view(*storage);
+        }
+    }
 
     // Navigate to the field data using the bundle view by name
     value::ConstBundleView bundle_view = _view.as_bundle();
@@ -482,8 +729,14 @@ TSView TSBView::field(size_t index) const {
     // ===== Link Support: Check for nested TSValue with links =====
     const TSValue* child_link_source = nullptr;
     if (_link_source) {
-        // Check if there's a nested non-peered child with link support
-        child_link_source = const_cast<TSValue*>(_link_source)->child_value(index);
+        if (field_info.type->is_reference()) {
+            // For REF types, keep the parent as link source so the REF wrapper
+            // can access the link at this field's index via the path
+            child_link_source = _link_source;
+        } else {
+            // For non-REF types, check if there's a nested non-peered child with link support
+            child_link_source = const_cast<TSValue*>(_link_source)->child_value(index);
+        }
     }
 
     // Use overlay-based child navigation with path
@@ -1090,6 +1343,157 @@ bool TSDView::all_valid() const {
         }
     }
     return true;
+}
+
+// ============================================================================
+// Python Conversion Methods for Specialized Views
+// ============================================================================
+
+nb::object TSBView::to_python() const {
+    if (!valid()) return nb::none();
+
+    // Python behavior: {name: field.value if field.valid else None for each field}
+    nb::dict result;
+    for (auto& key : keys()) {
+        TSView field_view = field(std::string(key));
+        if (field_view.ts_valid()) {
+            // Recursive call - let the field's view handle its own type
+            result[nb::cast(std::string(key))] = field_view.to_python();
+        } else {
+            result[nb::cast(std::string(key))] = nb::none();
+        }
+    }
+    return result;
+}
+
+nb::object TSBView::to_python_delta() const {
+    if (!valid()) return nb::none();
+
+    // Get current evaluation time
+    Node* n = owning_node();
+    if (!n || !n->cached_evaluation_time_ptr()) {
+        // No time context - return empty dict
+        return nb::dict();
+    }
+    engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+
+    // Python behavior: {name: field.delta_value for modified fields}
+    nb::dict result;
+    for (auto& key : keys()) {
+        TSView field_view = field(std::string(key));
+        if (field_view.modified_at(eval_time)) {
+            result[nb::cast(std::string(key))] = field_view.to_python_delta();
+        }
+    }
+    return result;
+}
+
+nb::object TSLView::to_python() const {
+    if (!valid()) return nb::none();
+
+    // Python behavior: tuple(elem.value if elem.valid else None for each element)
+    nb::list result;
+    size_t count = size();
+    for (size_t i = 0; i < count; ++i) {
+        TSView elem = element(i);
+        if (elem.ts_valid()) {
+            // Recursive call - let the element's view handle its own type
+            result.append(elem.to_python());
+        } else {
+            result.append(nb::none());
+        }
+    }
+    return nb::tuple(result);
+}
+
+nb::object TSLView::to_python_delta() const {
+    if (!valid()) return nb::none();
+
+    // Get current evaluation time
+    Node* n = owning_node();
+    if (!n || !n->cached_evaluation_time_ptr()) {
+        // No time context - return empty dict
+        return nb::dict();
+    }
+    engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+
+    // Python behavior: {i: elem.delta_value for i, elem in enumerate(elements) if elem.modified}
+    nb::dict result;
+    size_t count = size();
+    for (size_t i = 0; i < count; ++i) {
+        TSView elem = element(i);
+        if (elem.modified_at(eval_time)) {
+            result[nb::int_(i)] = elem.to_python_delta();
+        }
+    }
+    return result;
+}
+
+nb::object TSDView::to_python() const {
+    if (!valid()) return nb::none();
+
+    // Python behavior: {key: value.value if value.valid else None for each entry}
+    nb::dict result;
+    value::ConstMapView map_view = _view.as_map();
+    size_t count = map_view.size();
+    const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
+
+    for (size_t i = 0; i < count; ++i) {
+        value::ConstValueView key_view = map_view.key_at(i);
+        value::ConstValueView val_view = map_view.value_at(i);
+
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        TSView ts_val;
+        if (auto* map_ov = map_overlay()) {
+            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            ts_val = TSView(val_view.data(), value_ts_type, value_ov);
+        } else {
+            ts_val = TSView(val_view.data(), value_ts_type);
+        }
+
+        nb::object py_key = key_view.to_python();
+        if (ts_val.ts_valid()) {
+            result[py_key] = ts_val.to_python();
+        } else {
+            result[py_key] = nb::none();
+        }
+    }
+    return result;
+}
+
+nb::object TSDView::to_python_delta() const {
+    if (!valid()) return nb::none();
+
+    // For TSD, delta shows added/removed keys and modified values
+    // This is more complex - for now return the full dict as delta
+    // TODO: Implement proper delta with added_keys, removed_keys, modified_values
+    return to_python();
+}
+
+nb::object TSSView::to_python() const {
+    if (!valid()) return nb::none();
+
+    // Python behavior: frozenset of element values
+    nb::set result;
+    value::ConstSetView set_view = _view.as_set();
+    size_t count = set_view.size();
+    const auto* set_meta = static_cast<const TSSTypeMeta*>(_ts_meta);
+
+    for (size_t i = 0; i < count; ++i) {
+        value::ConstValueView elem_view = set_view.at(i);
+        nb::object py_elem = elem_view.to_python();
+        result.add(py_elem);
+    }
+    return nb::frozenset(result);
+}
+
+nb::object TSSView::to_python_delta() const {
+    if (!valid()) return nb::none();
+
+    // For TSS, delta shows added/removed elements
+    // TODO: Implement proper delta tracking
+    // For now, return the full set as delta
+    return to_python();
 }
 
 }  // namespace hgraph

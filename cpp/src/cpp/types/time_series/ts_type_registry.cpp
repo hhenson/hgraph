@@ -186,9 +186,9 @@ namespace hgraph {
             return it->second;
         }
 
-        // Construct the window value schema as a fixed-size list of the value type
+        // Construct the window value schema using Window storage (dual cyclic buffers for values + times)
         auto& type_registry = value::TypeRegistry::instance();
-        const value::TypeMeta* window_schema = type_registry.fixed_list(value_type, size).build();
+        const value::TypeMeta* window_schema = type_registry.window(value_type, size, min_size).build();
 
         auto meta = std::make_unique<TSWTypeMeta>(value_type, size, min_size, window_schema);
         auto* ptr = meta.get();

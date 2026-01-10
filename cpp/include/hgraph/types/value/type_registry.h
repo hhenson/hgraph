@@ -30,6 +30,7 @@ class SetTypeBuilder;
 class MapTypeBuilder;
 class CyclicBufferTypeBuilder;
 class QueueTypeBuilder;
+class WindowTypeBuilder;
 
 // ============================================================================
 // Type Registry
@@ -185,6 +186,19 @@ public:
      * @return A builder for constructing the queue type
      */
     QueueTypeBuilder queue(const TypeMeta* element_type);
+
+    /**
+     * @brief Create a window type builder (for TSW storage).
+     *
+     * Window types store values AND timestamps in parallel cyclic buffers.
+     * Used by Time Series Window (TSW) types.
+     *
+     * @param element_type The type of window elements
+     * @param capacity The fixed capacity of the window
+     * @param min_size The minimum size for the window to be considered "valid"
+     * @return A builder for constructing the window type
+     */
+    WindowTypeBuilder window(const TypeMeta* element_type, size_t capacity, size_t min_size);
 
     // ========== Named Bundle Lookup ==========
 
@@ -557,6 +571,31 @@ private:
     TypeRegistry& _registry;
     const TypeMeta* _element_type;
     size_t _max_capacity;
+};
+
+/**
+ * @brief Builder for window types (TSW storage).
+ *
+ * Window types store both values AND timestamps in parallel cyclic buffers.
+ * They are designed specifically for Time Series Window (TSW) types.
+ * Capacity+1 slots are allocated to preserve the removed value.
+ */
+class WindowTypeBuilder {
+public:
+    WindowTypeBuilder(TypeRegistry& registry, const TypeMeta* element_type, size_t capacity, size_t min_size)
+        : _registry(registry), _element_type(element_type), _capacity(capacity), _min_size(min_size) {}
+
+    /**
+     * @brief Build and register the window type.
+     * @return Pointer to the registered TypeMeta
+     */
+    const TypeMeta* build();
+
+private:
+    TypeRegistry& _registry;
+    const TypeMeta* _element_type;
+    size_t _capacity;
+    size_t _min_size;
 };
 
 } // namespace hgraph::value

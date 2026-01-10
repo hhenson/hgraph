@@ -42,7 +42,8 @@ enum class TypeKind : uint8_t {
     Map,           ///< Key-value pairs
     CyclicBuffer,  ///< Fixed-size circular buffer (re-centers on read)
     Queue,         ///< FIFO queue with optional max capacity
-    Ref            ///< Reference to another time-series (future)
+    Ref,           ///< Reference to another time-series (future)
+    Window         ///< TSW window storage: dual cyclic buffers for values + timestamps
 };
 
 // ============================================================================
@@ -239,6 +240,7 @@ struct TypeMeta {
     // ========== Fixed-Size Collection Information ==========
 
     size_t fixed_size;                 ///< 0 = dynamic, >0 = fixed capacity
+    size_t min_size;                   ///< Minimum size for validity (used by Window types)
 
     // ========== Python Type Information ==========
 

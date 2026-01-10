@@ -96,7 +96,8 @@ TSBView TSValue::bundle_view() const {
     if (_ts_meta->kind() != TSTypeKind::TSB) {
         throw std::runtime_error("TSValue::bundle_view() called on non-bundle type");
     }
-    return TSBView(_value.data(), static_cast<const TSBTypeMeta*>(_ts_meta));
+    // Use the TSValue constructor to properly set overlay, container, and root
+    return TSBView(*this);
 }
 
 nb::object TSValue::to_python() const {
@@ -234,8 +235,12 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         }
 
         // Schema validation: check kind matches (after unwrapping REF)
-        if (expected_to_compare && output_to_compare &&
-            output_to_compare->kind() != expected_to_compare->kind()) {
+        // Special case: SIGNAL accepts any time series type (it only cares about ticks, not values)
+        // This matches Python's HgSignalMetaData.matches() which returns True for any HgTimeSeriesTypeMetaData
+        bool kinds_compatible = (output_to_compare->kind() == expected_to_compare->kind()) ||
+                                (expected_to_compare->kind() == TSTypeKind::SIGNAL);
+
+        if (expected_to_compare && output_to_compare && !kinds_compatible) {
             throw std::runtime_error(
                 "TSValue::create_link: schema mismatch at index " + std::to_string(index) +
                 " - expected kind " + std::to_string(static_cast<int>(expected_to_compare->kind())) +
@@ -243,22 +248,25 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         }
 
         // For deeper validation, check value schemas match
-        const value::TypeMeta* expected_value = expected_to_compare ? expected_to_compare->value_schema() : nullptr;
-        const value::TypeMeta* output_value = output_to_compare ? output_to_compare->value_schema() : nullptr;
-        if (expected_value != output_value) {
-            // Allow both being nullptr (e.g., SIGNAL)
-            if (expected_value && output_value) {
-                // Check kind and size match as basic validation
-                if (expected_value->kind != output_value->kind ||
-                    expected_value->size != output_value->size) {
+        // Skip this check if expected is SIGNAL (SIGNAL accepts any time series regardless of value type)
+        if (expected_to_compare->kind() != TSTypeKind::SIGNAL) {
+            const value::TypeMeta* expected_value = expected_to_compare ? expected_to_compare->value_schema() : nullptr;
+            const value::TypeMeta* output_value = output_to_compare ? output_to_compare->value_schema() : nullptr;
+            if (expected_value != output_value) {
+                // Allow both being nullptr (e.g., SIGNAL)
+                if (expected_value && output_value) {
+                    // Check kind and size match as basic validation
+                    if (expected_value->kind != output_value->kind ||
+                        expected_value->size != output_value->size) {
+                        throw std::runtime_error(
+                            "TSValue::create_link: value schema mismatch at index " + std::to_string(index) +
+                            " - value type kind or size don't match");
+                    }
+                } else if (expected_value || output_value) {
                     throw std::runtime_error(
                         "TSValue::create_link: value schema mismatch at index " + std::to_string(index) +
-                        " - value type kind or size don't match");
+                        " - one has value schema, other doesn't");
                 }
-            } else if (expected_value || output_value) {
-                throw std::runtime_error(
-                    "TSValue::create_link: value schema mismatch at index " + std::to_string(index) +
-                    " - one has value schema, other doesn't");
             }
         }
     }
@@ -272,13 +280,17 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         if (!existing_ref) {
             // Create new TSRefTargetLink
             auto ref_link = std::make_unique<TSRefTargetLink>(_owning_node);
-            // NOTE: bind_ref() and observer registration should be done by caller
-            // For now, just bind the target link to the output (simplified path)
-            // Full REF integration requires TimeSeriesReferenceOutput integration
             _link_support->child_links[index] = std::move(ref_link);
         }
-        // The actual binding to REF output is handled by higher-level code
-        // that has access to the TimeSeriesReferenceOutput for observer registration
+        // Bind the TSRefTargetLink's ref_link channel to the REF output so we receive notifications
+        // This is a simplified binding - full REF semantics require bind_ref() with TimeSeriesReferenceOutput
+        TSRefTargetLink* ref_link_ptr = ref_link_at(index);
+        if (ref_link_ptr) {
+            // Use the ref_link channel for notifications
+            ref_link_ptr->ref_link().bind(output);
+            // CRITICAL: Make the ref_link active so it subscribes to the output's overlay
+            ref_link_ptr->ref_link().make_active();
+        }
     } else {
         // Standard non-REF binding: use TSLink
         auto* existing_link = link_at(index);

@@ -781,11 +781,32 @@ struct ListOps {
     }
 
     static void from_python(void* dst, const nb::object& src, const TypeMeta* schema) {
-        if (!nb::isinstance<nb::list>(src) && !nb::isinstance<nb::tuple>(src)) {
-            throw std::runtime_error("List.from_python expects a list or tuple");
+        const TypeMeta* elem_type = schema->element_type;
+
+        // Handle dict with integer keys (delta_value format for TSL)
+        if (nb::isinstance<nb::dict>(src)) {
+            nb::dict d = nb::cast<nb::dict>(src);
+            size_t list_size = is_fixed(schema) ? schema->fixed_size : size(dst, schema);
+            for (auto item : d) {
+                size_t idx = nb::cast<size_t>(item.first);
+                if (idx >= list_size) {
+                    throw std::runtime_error("List.from_python: dict key out of range");
+                }
+                nb::object val = nb::cast<nb::object>(item.second);
+                if (!val.is_none()) {
+                    void* elem_ptr = get_element_ptr(dst, idx, schema);
+                    if (elem_type && elem_type->ops && elem_type->ops->from_python) {
+                        elem_type->ops->from_python(elem_ptr, val, elem_type);
+                    }
+                }
+            }
+            return;
         }
 
-        const TypeMeta* elem_type = schema->element_type;
+        if (!nb::isinstance<nb::list>(src) && !nb::isinstance<nb::tuple>(src)) {
+            throw std::runtime_error("List.from_python expects a list, tuple, or dict");
+        }
+
         nb::sequence seq = nb::cast<nb::sequence>(src);
         size_t src_len = nb::len(seq);
 

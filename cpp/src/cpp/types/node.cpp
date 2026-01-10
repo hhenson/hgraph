@@ -851,10 +851,18 @@ namespace hgraph
         bool scheduled{has_scheduler() ? _scheduler->is_scheduled_now() : false};
         bool should_eval{true};
 
-        if (has_input()) {
-            // TODO: Migrate to TSValue-based input validity checking
-            // Legacy input validity checking removed - need TSInputRoot support for valid/all_valid/modified/active
-            // For now, always evaluate if we have input
+        // Check all_valid_inputs constraint - skip eval if any specified input is not all_valid
+        if (should_eval && signature().all_valid_inputs.has_value() && _ts_input.has_value()) {
+            TSBView inputs = _ts_input->bundle_view();
+            for (const auto& input_name : *signature().all_valid_inputs) {
+                if (inputs.has_field(input_name)) {
+                    TSView input = inputs.field(input_name);
+                    if (!input.all_valid()) {
+                        should_eval = false;
+                        break;
+                    }
+                }
+            }
         }
 
         if (should_eval) {

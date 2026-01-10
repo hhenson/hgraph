@@ -261,6 +261,14 @@ struct TSView {
      */
     [[nodiscard]] nb::object to_python() const;
 
+    /**
+     * @brief Convert to Python object as delta_value.
+     *
+     * For most types, this is the same as to_python(). For Window (TSW) types,
+     * this returns only the newest value (most recent addition to the window).
+     */
+    [[nodiscard]] nb::object to_python_delta() const;
+
     // ========== Path Access ==========
 
     /**
@@ -469,6 +477,13 @@ struct TSBView : TSView {
      */
     TSBView(const void* data, const TSBTypeMeta* ts_meta, CompositeTSOverlay* overlay) noexcept;
 
+    /**
+     * @brief Construct from TSValue (uses its overlay and container).
+     *
+     * @param ts_value The TSValue to create a bundle view from
+     */
+    explicit TSBView(const TSValue& ts_value) noexcept;
+
     // ========== Bundle Schema ==========
 
     /**
@@ -606,6 +621,28 @@ struct TSBView : TSView {
      * @return Vector of (name, TSView) pairs for valid fields
      */
     [[nodiscard]] std::vector<std::pair<std::string_view, TSView>> valid_items() const;
+
+    // ========== Python Conversion ==========
+
+    /**
+     * @brief Convert to Python object (bundle format).
+     *
+     * Returns dict of {name: field.value if field.valid else None} for all fields.
+     * This matches the Python TSB.value property behavior.
+     *
+     * @return Python dict of field values
+     */
+    [[nodiscard]] nb::object to_python() const;
+
+    /**
+     * @brief Convert to Python delta object.
+     *
+     * Returns dict of {name: field.delta_value for modified fields}.
+     * This matches the Python TSB.delta_value property behavior.
+     *
+     * @return Python dict of modified field names to delta values
+     */
+    [[nodiscard]] nb::object to_python_delta() const;
 };
 
 /**
@@ -734,6 +771,28 @@ struct TSLView : TSView {
      * @return true if all elements are valid
      */
     [[nodiscard]] bool all_valid() const;
+
+    // ========== Python Conversion ==========
+
+    /**
+     * @brief Convert to Python object (list format).
+     *
+     * Returns tuple(elem.value if elem.valid else None for each element).
+     * This matches the Python TSL.value property behavior.
+     *
+     * @return Python tuple of values
+     */
+    [[nodiscard]] nb::object to_python() const;
+
+    /**
+     * @brief Convert to Python delta object.
+     *
+     * Returns dict of {index: elem.delta_value for modified elements}.
+     * This matches the Python TSL.delta_value property behavior.
+     *
+     * @return Python dict of modified indices to delta values
+     */
+    [[nodiscard]] nb::object to_python_delta() const;
 };
 
 /**
@@ -894,6 +953,28 @@ struct TSDView : TSView {
      * @return true if all values are valid
      */
     [[nodiscard]] bool all_valid() const;
+
+    // ========== Python Conversion ==========
+
+    /**
+     * @brief Convert to Python object (dict format).
+     *
+     * Returns dict of {key: value.value if value.valid else None} for all entries.
+     * This matches the Python TSD.value property behavior.
+     *
+     * @return Python dict of key-value pairs
+     */
+    [[nodiscard]] nb::object to_python() const;
+
+    /**
+     * @brief Convert to Python delta object.
+     *
+     * Returns dict with added/removed key tracking.
+     * This matches the Python TSD.delta_value property behavior.
+     *
+     * @return Python object representing the delta
+     */
+    [[nodiscard]] nb::object to_python_delta() const;
 };
 
 /**
@@ -1031,6 +1112,28 @@ struct TSSView : TSView {
      * @return Vector of ConstValueView for each element
      */
     [[nodiscard]] std::vector<value::ConstValueView> values() const;
+
+    // ========== Python Conversion ==========
+
+    /**
+     * @brief Convert to Python object (frozenset format).
+     *
+     * Returns a frozenset of element values.
+     * This matches the Python TSS.value property behavior.
+     *
+     * @return Python frozenset of values
+     */
+    [[nodiscard]] nb::object to_python() const;
+
+    /**
+     * @brief Convert to Python delta object.
+     *
+     * Returns the added/removed elements as Python objects.
+     * This matches the Python TSS.delta_value property behavior.
+     *
+     * @return Python object representing the set delta (added/removed)
+     */
+    [[nodiscard]] nb::object to_python_delta() const;
 };
 
 // ============================================================================

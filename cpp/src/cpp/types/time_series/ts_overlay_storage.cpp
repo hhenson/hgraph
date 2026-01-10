@@ -6,6 +6,7 @@
 #include <hgraph/types/time_series/ts_overlay_storage.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <algorithm>
+#include <fmt/core.h>
 
 namespace hgraph {
 
@@ -271,13 +272,28 @@ ListTSOverlay::ListTSOverlay(const TSMeta* ts_meta)
     if (ts_meta->kind() == TSTypeKind::TSL) {
         auto* list_meta = static_cast<const TSLTypeMeta*>(ts_meta);
         _element_type = list_meta->element_type();
+
+        // For fixed-size TSL, pre-create child overlays
+        // This ensures element(i).ts_valid() works correctly by checking
+        // child overlay's last_modified_time instead of falling back to data validity
+        if (list_meta->is_fixed_size()) {
+            size_t fixed_size = list_meta->fixed_size();
+            _children.reserve(fixed_size);
+            for (size_t i = 0; i < fixed_size; ++i) {
+                auto child = create_child_overlay();
+                if (child) {
+                    child->set_parent(this);
+                }
+                _children.push_back(std::move(child));
+            }
+        }
     } else if (ts_meta->kind() == TSTypeKind::TSW) {
         // Windows (TSW) behave like lists with cyclic buffer semantics
         // Each window slot tracks when a value was added (scalar tracking)
         // We use nullptr to signal that elements should be scalar overlays
         _element_type = nullptr;  // Signals: create ScalarTSOverlay for each element
     }
-    // Note: _children starts empty; elements are added via push_back() or resize()
+    // Note: For dynamic TSL, _children starts empty; elements are added via push_back() or resize()
 }
 
 ListTSOverlay::ListTSOverlay(ListTSOverlay&& other) noexcept

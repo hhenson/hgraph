@@ -171,7 +171,13 @@ bool TSRefTargetLink::modified_at(engine_time_t time) const {
 
 TSView TSRefTargetLink::view() const {
     // Delegate to target link - user sees target data
-    return _target_link.view();
+    // If target_link is bound, use it; otherwise fall back to ref_link
+    // (This handles cases where only ref_link is bound for notifications)
+    if (_target_link.bound()) {
+        return _target_link.view();
+    }
+    // Fall back to ref_link view if target is not bound
+    return _ref_link.view();
 }
 
 // ============================================================================

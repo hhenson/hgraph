@@ -3,6 +3,7 @@
 #include <hgraph/types/value/composite_ops.h>
 #include <hgraph/types/value/cyclic_buffer_ops.h>
 #include <hgraph/types/value/queue_ops.h>
+#include <hgraph/types/value/window_storage_ops.h>
 
 namespace hgraph::value {
 
@@ -192,6 +193,10 @@ CyclicBufferTypeBuilder TypeRegistry::cyclic_buffer(const TypeMeta* element_type
 
 QueueTypeBuilder TypeRegistry::queue(const TypeMeta* element_type) {
     return QueueTypeBuilder(*this, element_type);
+}
+
+WindowTypeBuilder TypeRegistry::window(const TypeMeta* element_type, size_t capacity, size_t min_size) {
+    return WindowTypeBuilder(*this, element_type, capacity, min_size);
 }
 
 // ============================================================================
@@ -427,6 +432,27 @@ const TypeMeta* QueueTypeBuilder::build() {
     meta->key_type = nullptr;
     meta->fields = nullptr;
     meta->fixed_size = _max_capacity;  // 0 = unbounded, >0 = max capacity
+
+    return _registry.register_composite(std::move(meta));
+}
+
+// ============================================================================
+// WindowTypeBuilder::build()
+// ============================================================================
+
+const TypeMeta* WindowTypeBuilder::build() {
+    auto meta = std::make_unique<TypeMeta>();
+    meta->kind = TypeKind::Window;
+    meta->flags = TypeFlags::None;
+    meta->field_count = 0;
+    meta->size = sizeof(WindowStorage);
+    meta->alignment = alignof(WindowStorage);
+    meta->ops = WindowStorageOps::ops();
+    meta->element_type = _element_type;
+    meta->key_type = nullptr;
+    meta->fields = nullptr;
+    meta->fixed_size = _capacity;   // Store capacity (actual allocation will be capacity+1)
+    meta->min_size = _min_size;     // Minimum size for window to be "valid"
 
     return _registry.register_composite(std::move(meta));
 }

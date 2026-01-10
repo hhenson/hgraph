@@ -7,6 +7,7 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
+#include <fmt/core.h>
 
 namespace hgraph {
 

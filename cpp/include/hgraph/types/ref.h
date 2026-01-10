@@ -11,9 +11,12 @@
 
 namespace hgraph
 {
+    // Forward declarations for view-based references
+    struct TSValue;
+
     struct HGRAPH_EXPORT TimeSeriesReference
     {
-        enum class Kind : uint8_t { EMPTY = 0, BOUND = 1, UNBOUND = 2 };
+        enum class Kind : uint8_t { EMPTY = 0, BOUND = 1, UNBOUND = 2, VIEW_BOUND = 3 };
 
         // Copy/Move semantics
         TimeSeriesReference(const TimeSeriesReference &other);
@@ -25,13 +28,15 @@ namespace hgraph
         // Query methods
         [[nodiscard]] Kind kind() const noexcept { return _kind; }
         [[nodiscard]] bool is_empty() const noexcept { return _kind == Kind::EMPTY; }
-        [[nodiscard]] bool is_bound() const noexcept { return _kind == Kind::BOUND; }
+        [[nodiscard]] bool is_bound() const noexcept { return _kind == Kind::BOUND || _kind == Kind::VIEW_BOUND; }
+        [[nodiscard]] bool is_view_bound() const noexcept { return _kind == Kind::VIEW_BOUND; }
         [[nodiscard]] bool is_unbound() const noexcept { return _kind == Kind::UNBOUND; }
         [[nodiscard]] bool has_output() const;
         [[nodiscard]] bool is_valid() const;
 
         // Accessors (throw if wrong kind)
         [[nodiscard]] const time_series_output_s_ptr         &output() const;
+        [[nodiscard]] const TSValue*                          view_output() const;
         [[nodiscard]] const std::vector<TimeSeriesReference> &items() const;
         [[nodiscard]] const TimeSeriesReference              &operator[](size_t ndx) const;
 
@@ -47,15 +52,19 @@ namespace hgraph
         static TimeSeriesReference make(const std::vector<TimeSeriesReferenceInput*>& items);
         static TimeSeriesReference make(const std::vector<std::shared_ptr<TimeSeriesReferenceInput>>& items);
 
+        // View-based factory method for C++ runtime
+        static TimeSeriesReference make_view_bound(const TSValue* output);
+
       private:
         // Private constructors - must use make() factory methods
         TimeSeriesReference() noexcept;                                        // Empty
         explicit TimeSeriesReference(time_series_output_s_ptr output);         // Bound
         explicit TimeSeriesReference(std::vector<TimeSeriesReference> items);  // Unbound
+        explicit TimeSeriesReference(const TSValue* view_output);              // View-bound
 
         Kind _kind;
 
-        // Union for the three variants - only one is active at a time
+        // Union for the four variants - only one is active at a time
         union Storage {
             // Empty uses no storage
             char empty;
@@ -63,6 +72,8 @@ namespace hgraph
             time_series_output_s_ptr bound;
             // Unbound stores a vector of references
             std::vector<TimeSeriesReference> unbound;
+            // View-bound stores a pointer to the TSValue (for C++ view-based runtime)
+            const TSValue* view_bound;
 
             Storage() noexcept : empty{} {}
             ~Storage() {}  // Manual destruction based on kind
