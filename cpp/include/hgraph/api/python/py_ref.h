@@ -46,6 +46,9 @@ namespace hgraph
         [[nodiscard]] nb::str to_string() const;
         [[nodiscard]] nb::str to_repr() const;
 
+        // Note: valid() and modified() are inherited from PyTimeSeriesInput.
+        // The REF-specific logic is in TSView::ts_valid() and TSView::modified_at().
+
         // Note: value() and delta_value() are inherited from PyTimeSeriesInput.
         // The view layer (TSView::to_python()) handles REF-specific behavior
         // via TSTypeKind::REF dispatch, including link navigation for inputs.

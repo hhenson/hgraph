@@ -7,6 +7,7 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_ref_target_link.h>
 #include <hgraph/types/value/window_storage_ops.h>
+#include <hgraph/types/value/composite_ops.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/ref.h>
@@ -19,6 +20,65 @@ namespace hgraph {
 // External cache for REF output values (defined in py_ref.cpp)
 // Key is the TSValue pointer, value is the stored TimeSeriesReference
 extern std::unordered_map<const TSValue*, nb::object> g_ref_output_cache;
+
+// ============================================================================
+// Helper function to navigate REF links and find bound output
+// ============================================================================
+
+/**
+ * @brief Navigate a REF type's link to find the bound output.
+ *
+ * For REF inputs that are linked to a non-REF output, this function navigates
+ * the link structure to find the bound TSValue. This is used to check the
+ * bound output's validity and modification state instead of the REF overlay.
+ *
+ * @param view The TSView to navigate from
+ * @return Pointer to the bound TSValue, or nullptr if not found
+ */
+static const TSValue* navigate_ref_link(const TSView& view) {
+    if (!view.ts_meta() || view.ts_meta()->kind() != TSTypeKind::REF) {
+        return nullptr;
+    }
+
+    // Only navigate if we have link support and a valid path
+    if (!view.link_source() || !view.link_source()->has_link_support()) {
+        return nullptr;
+    }
+
+    const auto& path = view.path();
+    if (path.is_root()) {
+        return nullptr;
+    }
+
+    // Navigate to find the link at our path position
+    const TSValue* current = view.link_source();
+    for (size_t i = 0; i + 1 < path.elements.size(); ++i) {
+        current = current->child_value(path.elements[i]);
+        if (!current) {
+            return nullptr;
+        }
+    }
+
+    size_t final_idx = path.elements.back();
+    const LinkStorage* storage = current->link_storage_at(final_idx);
+    if (!storage) {
+        return nullptr;
+    }
+
+    // Extract the bound output from the link
+    return std::visit([](const auto& link) -> const TSValue* {
+        using T = std::decay_t<decltype(link)>;
+        if constexpr (std::is_same_v<T, std::monostate>) {
+            return nullptr;
+        } else if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
+            return link ? link->output() : nullptr;
+        } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
+            return link ? link->ref_output() : nullptr;
+        } else {
+            return nullptr;
+        }
+    }, *storage);
+}
 
 // ============================================================================
 // TSView Implementation
@@ -304,6 +364,14 @@ nb::object TSView::to_python_delta() const {
 }
 
 bool TSView::ts_valid() const {
+    // For REF types with link support, check the bound output's validity
+    if (_ts_meta && _ts_meta->kind() == TSTypeKind::REF) {
+        const TSValue* bound_output = navigate_ref_link(*this);
+        if (bound_output) {
+            return bound_output->ts_valid();
+        }
+    }
+
     if (_overlay) {
         return _overlay->last_modified_time() != MIN_DT;
     }
@@ -339,6 +407,14 @@ bool TSView::all_valid() const {
 }
 
 bool TSView::modified_at(engine_time_t time) const {
+    // For REF types with link support, check the bound output's modification
+    if (_ts_meta && _ts_meta->kind() == TSTypeKind::REF) {
+        const TSValue* bound_output = navigate_ref_link(*this);
+        if (bound_output) {
+            return bound_output->modified_at(time);
+        }
+    }
+
     if (_overlay) {
         return _overlay->last_modified_time() == time;
     }
@@ -362,6 +438,14 @@ bool TSView::modified() const {
 }
 
 engine_time_t TSView::last_modified_time() const {
+    // For REF types with link support, get the bound output's last modified time
+    if (_ts_meta && _ts_meta->kind() == TSTypeKind::REF) {
+        const TSValue* bound_output = navigate_ref_link(*this);
+        if (bound_output) {
+            return bound_output->last_modified_time();
+        }
+    }
+
     if (_overlay) {
         return _overlay->last_modified_time();
     }
@@ -670,6 +754,116 @@ void TSMutableView::from_python(const nb::object& src) {
         return;
     }
 
+    // Special handling for TSD with dict input: track key additions in overlay
+    // and set child time-series values properly.
+    if (_ts_meta->kind() == TSTypeKind::TSD && nb::isinstance<nb::dict>(src)) {
+        MapTSOverlay* map_overlay = nullptr;
+        if (_overlay) {
+            map_overlay = dynamic_cast<MapTSOverlay*>(_overlay);
+        }
+
+        // Get current time for tracking
+        engine_time_t current_time = MIN_DT;
+        Node* node = owning_node();
+        if (node) {
+            graph_ptr g = node->graph();
+            if (g) {
+                current_time = g->evaluation_time();
+            }
+        }
+
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        const value::TypeMeta* val_schema = value_ts_type ? value_ts_type->value_schema() : nullptr;
+        const value::TypeMeta* map_schema = _ts_meta->value_schema();
+
+        nb::dict input_dict = nb::cast<nb::dict>(src);
+        value::MapView mut_map(_mutable_view.data(), map_schema);
+
+        for (auto item : input_dict) {
+            nb::object py_key = nb::borrow<nb::object>(item.first);
+            nb::object py_value = nb::borrow<nb::object>(item.second);
+
+            // Check if value is a REMOVE or REMOVE_IF_EXISTS sentinel
+            std::string type_name = nb::cast<std::string>(py_value.type().attr("__name__"));
+            bool is_remove = (type_name == "Sentinel");
+
+            // Create key value for operations
+            value::PlainValue temp_key(key_schema);
+            if (key_schema->ops->from_python) {
+                key_schema->ops->from_python(temp_key.data(), py_key, key_schema);
+            }
+
+            if (is_remove) {
+                // Handle REMOVE marker
+                std::string sentinel_name = nb::cast<std::string>(py_value.attr("name"));
+                bool is_remove_if_exists = (sentinel_name == "REMOVE_IF_EXISTS");
+
+                auto key_index_opt = mut_map.find_index(temp_key.const_view());
+
+                if (!key_index_opt.has_value() && is_remove_if_exists) {
+                    continue;  // REMOVE_IF_EXISTS but key doesn't exist - skip
+                }
+
+                if (key_index_opt.has_value()) {
+                    size_t key_index = key_index_opt.value();
+
+                    // Record removal in overlay before modifying backing store
+                    if (map_overlay) {
+                        value::PlainValue removed_key(key_schema);
+                        key_schema->ops->copy_assign(removed_key.data(), temp_key.data(), key_schema);
+                        map_overlay->record_key_removed(key_index, current_time, std::move(removed_key));
+                    }
+
+                    // Erase from backing store
+                    if (map_schema->ops->erase) {
+                        map_schema->ops->erase(_mutable_view.data(), temp_key.data(), map_schema);
+                    }
+                }
+            } else {
+                // Regular value - add/update key and set child time-series value
+
+                // Create a temporary value for set_with_index (will be overwritten by child from_python)
+                value::PlainValue temp_val(val_schema);
+                if (val_schema->ops && val_schema->ops->construct) {
+                    val_schema->ops->construct(temp_val.data(), val_schema);
+                }
+
+                // Insert or update the key
+                value::MapSetResult result = mut_map.set_with_index(temp_key.const_view(), temp_val.const_view());
+
+                // If newly inserted, record key addition in overlay
+                if (result.inserted && map_overlay) {
+                    map_overlay->record_key_added(result.index, current_time);
+                }
+
+                // Get the value slot at this index and create a child TSMutableView
+                auto* storage = static_cast<value::MapStorage*>(_mutable_view.data());
+                void* val_ptr = storage->get_value_ptr(result.index);
+
+                // Create/get child overlay for this index (ensure it exists for tracking)
+                TSOverlayStorage* child_overlay = nullptr;
+                if (map_overlay) {
+                    child_overlay = map_overlay->ensure_value_overlay(result.index);
+                }
+
+                // Create a TSMutableView for the child time-series
+                TSMutableView child_view(val_ptr, value_ts_type, child_overlay);
+
+                // Set the value via the child's from_python
+                child_view.from_python(py_value);
+
+                // Mark the child as modified if we have an overlay
+                if (child_overlay) {
+                    child_overlay->mark_modified(current_time);
+                }
+            }
+        }
+
+        return;
+    }
+
     // Special handling for TSS: compute delta (added/removed) and update overlay
     if (_ts_meta->kind() == TSTypeKind::TSS) {
         SetTSOverlay* set_overlay = nullptr;
@@ -792,7 +986,12 @@ void TSMutableView::from_python(const nb::object& src) {
                             value::ConstSetView new_set = _view.as_set();
                             for (size_t i = 0; i < new_set.size(); ++i) {
                                 if (new_set.at(i).to_python().equal(py_item)) {
-                                    set_overlay->record_added(i, current_time);
+                                    // Create PlainValue copy for O(1) lookup tracking
+                                    value::PlainValue added_value(elem_type);
+                                    if (elem_type->ops->copy_assign) {
+                                        elem_type->ops->copy_assign(added_value.data(), temp, elem_type);
+                                    }
+                                    set_overlay->record_added(i, current_time, std::move(added_value));
                                     break;
                                 }
                             }
@@ -878,11 +1077,18 @@ void TSMutableView::from_python(const nb::object& src) {
             // Record additions in overlay (after modifying backing store to get correct indices)
             if (set_overlay) {
                 value::ConstSetView new_set = _view.as_set();
+                const auto* set_meta = static_cast<const TSSTypeMeta*>(_ts_meta);
+                const value::TypeMeta* elem_type = set_meta->element_type();
                 for (const auto& py_item : added_items) {
                     // Find index of this item in new set
                     for (size_t i = 0; i < new_set.size(); ++i) {
                         if (new_set.at(i).to_python().equal(py_item)) {
-                            set_overlay->record_added(i, current_time);
+                            // Create PlainValue for O(1) lookup tracking
+                            value::PlainValue added_value(elem_type);
+                            if (elem_type && elem_type->ops && elem_type->ops->from_python) {
+                                elem_type->ops->from_python(added_value.data(), py_item, elem_type);
+                            }
+                            set_overlay->record_added(i, current_time, std::move(added_value));
                             break;
                         }
                     }
@@ -1242,112 +1448,41 @@ bool TSDView::contains_python(const nb::object& key) const {
     return result;
 }
 
-bool TSDView::was_added_python(const nb::object& key, engine_time_t time) {
+bool TSDView::was_added(const value::ConstValueView& key, engine_time_t time) {
     auto* overlay = map_overlay();
-    if (!overlay || !valid()) {
+    if (!overlay || !valid() || !overlay->has_delta_at(time)) {
         return false;
     }
 
-    // Time check - if no delta at this time, return false
-    if (!overlay->has_delta_at(time)) {
-        return false;
-    }
-
-    // Get key schema for conversion and comparison
-    const value::TypeMeta* key_schema = dict_meta()->key_type();
-    if (!key_schema || !key_schema->ops) {
-        return false;
-    }
-
-    // Convert Python key to C++ representation once
-    std::vector<char> temp_storage(key_schema->size);
-    void* temp = temp_storage.data();
-
-    if (key_schema->ops->construct) {
-        key_schema->ops->construct(temp, key_schema);
-    }
-    if (key_schema->ops->from_python) {
-        try {
-            key_schema->ops->from_python(temp, key, key_schema);
-        } catch (...) {
-            if (key_schema->ops->destruct) {
-                key_schema->ops->destruct(temp, key_schema);
-            }
-            return false;  // Conversion failed
-        }
-    }
-
-    // Get the added key indices and check each key using C++ equality
     value::ConstMapView map_view = _view.as_map();
-    const auto& added_indices = overlay->added_key_indices();
-
-    bool found = false;
-    for (size_t idx : added_indices) {
-        value::ConstValueView key_view = map_view.key_at(idx);
-        if (key_schema->ops->equals && key_schema->ops->equals(key_view.data(), temp, key_schema)) {
-            found = true;
-            break;
+    for (size_t idx : overlay->added_key_indices()) {
+        if (key == map_view.key_at(idx)) {
+            return true;
         }
     }
+    return false;
+}
 
-    if (key_schema->ops->destruct) {
-        key_schema->ops->destruct(temp, key_schema);
+bool TSDView::was_added_python(const nb::object& key, engine_time_t time) {
+    return was_added(make_value(dict_meta()->key_type(), key).const_view(), time);
+}
+
+bool TSDView::was_removed(const value::ConstValueView& key, engine_time_t time) {
+    auto* overlay = map_overlay();
+    if (!overlay || !valid() || !overlay->has_delta_at(time)) {
+        return false;
     }
 
-    return found;
+    for (const auto& k : overlay->removed_key_values()) {
+        if (key == k.const_view()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 bool TSDView::was_removed_python(const nb::object& key, engine_time_t time) {
-    auto* overlay = map_overlay();
-    if (!overlay || !valid()) {
-        return false;
-    }
-
-    // Time check - if no delta at this time, return false
-    if (!overlay->has_delta_at(time)) {
-        return false;
-    }
-
-    // Get key schema for conversion and comparison
-    const value::TypeMeta* key_schema = dict_meta()->key_type();
-    if (!key_schema || !key_schema->ops) {
-        return false;
-    }
-
-    // Convert Python key to C++ representation once
-    std::vector<char> temp_storage(key_schema->size);
-    void* temp = temp_storage.data();
-
-    if (key_schema->ops->construct) {
-        key_schema->ops->construct(temp, key_schema);
-    }
-    if (key_schema->ops->from_python) {
-        try {
-            key_schema->ops->from_python(temp, key, key_schema);
-        } catch (...) {
-            if (key_schema->ops->destruct) {
-                key_schema->ops->destruct(temp, key_schema);
-            }
-            return false;  // Conversion failed
-        }
-    }
-
-    // Check removed key values using C++ equality
-    const auto& removed_keys = overlay->removed_key_values();
-
-    bool found = false;
-    for (const auto& k : removed_keys) {
-        if (key_schema->ops->equals && key_schema->ops->equals(k.data(), temp, key_schema)) {
-            found = true;
-            break;
-        }
-    }
-
-    if (key_schema->ops->destruct) {
-        key_schema->ops->destruct(temp, key_schema);
-    }
-
-    return found;
+    return was_removed(make_value(dict_meta()->key_type(), key).const_view(), time);
 }
 
 MapDeltaView TSDView::delta_view(engine_time_t time) {
@@ -1436,112 +1571,32 @@ bool TSSView::contains_python(const nb::object& element) const {
     return result;
 }
 
-bool TSSView::was_added_python(const nb::object& element, engine_time_t time) {
+bool TSSView::was_added(const value::ConstValueView& element, engine_time_t time) {
     auto* overlay = set_overlay();
-    if (!overlay || !valid()) {
+    if (!overlay || !valid() || !overlay->has_delta_at(time)) {
         return false;
     }
 
-    // Time check - if no delta at this time, return false
-    if (!overlay->has_delta_at(time)) {
+    // Use O(1) hash set lookup
+    return overlay->was_added_element(element);
+}
+
+bool TSSView::was_added_python(const nb::object& element, engine_time_t time) {
+    return was_added(make_value(set_meta()->element_type(), element).const_view(), time);
+}
+
+bool TSSView::was_removed(const value::ConstValueView& element, engine_time_t time) {
+    auto* overlay = set_overlay();
+    if (!overlay || !valid() || !overlay->has_delta_at(time)) {
         return false;
     }
 
-    // Get element schema for conversion and comparison
-    const value::TypeMeta* elem_schema = set_meta()->element_type();
-    if (!elem_schema || !elem_schema->ops) {
-        return false;
-    }
-
-    // Convert Python element to C++ representation once
-    std::vector<char> temp_storage(elem_schema->size);
-    void* temp = temp_storage.data();
-
-    if (elem_schema->ops->construct) {
-        elem_schema->ops->construct(temp, elem_schema);
-    }
-    if (elem_schema->ops->from_python) {
-        try {
-            elem_schema->ops->from_python(temp, element, elem_schema);
-        } catch (...) {
-            if (elem_schema->ops->destruct) {
-                elem_schema->ops->destruct(temp, elem_schema);
-            }
-            return false;  // Conversion failed
-        }
-    }
-
-    // Get the added indices and check each value using C++ equality
-    value::ConstSetView set_view = _view.as_set();
-    const auto& added_indices = overlay->added_indices();
-
-    bool found = false;
-    for (size_t idx : added_indices) {
-        value::ConstValueView val = set_view.at(idx);
-        if (elem_schema->ops->equals && elem_schema->ops->equals(val.data(), temp, elem_schema)) {
-            found = true;
-            break;
-        }
-    }
-
-    if (elem_schema->ops->destruct) {
-        elem_schema->ops->destruct(temp, elem_schema);
-    }
-
-    return found;
+    // Use O(1) hash set lookup
+    return overlay->was_removed_element(element);
 }
 
 bool TSSView::was_removed_python(const nb::object& element, engine_time_t time) {
-    auto* overlay = set_overlay();
-    if (!overlay || !valid()) {
-        return false;
-    }
-
-    // Time check - if no delta at this time, return false
-    if (!overlay->has_delta_at(time)) {
-        return false;
-    }
-
-    // Get element schema for conversion and comparison
-    const value::TypeMeta* elem_schema = set_meta()->element_type();
-    if (!elem_schema || !elem_schema->ops) {
-        return false;
-    }
-
-    // Convert Python element to C++ representation once
-    std::vector<char> temp_storage(elem_schema->size);
-    void* temp = temp_storage.data();
-
-    if (elem_schema->ops->construct) {
-        elem_schema->ops->construct(temp, elem_schema);
-    }
-    if (elem_schema->ops->from_python) {
-        try {
-            elem_schema->ops->from_python(temp, element, elem_schema);
-        } catch (...) {
-            if (elem_schema->ops->destruct) {
-                elem_schema->ops->destruct(temp, elem_schema);
-            }
-            return false;  // Conversion failed
-        }
-    }
-
-    // Check removed values using C++ equality
-    const auto& removed_values = overlay->removed_values();
-
-    bool found = false;
-    for (const auto& val : removed_values) {
-        if (elem_schema->ops->equals && elem_schema->ops->equals(val.data(), temp, elem_schema)) {
-            found = true;
-            break;
-        }
-    }
-
-    if (elem_schema->ops->destruct) {
-        elem_schema->ops->destruct(temp, elem_schema);
-    }
-
-    return found;
+    return was_removed(make_value(set_meta()->element_type(), element).const_view(), time);
 }
 
 SetDeltaView TSSView::delta_view(engine_time_t time) {
@@ -2069,10 +2124,89 @@ nb::object TSDView::to_python() const {
 nb::object TSDView::to_python_delta() const {
     if (!valid()) return nb::none();
 
-    // For TSD, delta shows added/removed keys and modified values
-    // This is more complex - for now return the full dict as delta
-    // TODO: Implement proper delta with added_keys, removed_keys, modified_values
-    return to_python();
+    // Get the current evaluation time from the owning node
+    Node* node = owning_node();
+    engine_time_t current_time = MIN_DT;
+    if (node) {
+        graph_ptr graph = node->graph();
+        if (graph) {
+            current_time = graph->evaluation_time();
+        }
+    }
+
+    // Import REMOVE sentinel from Python
+    auto REMOVE_marker = nb::module_::import_("hgraph._types._tsd_type").attr("REMOVE");
+
+    nb::dict result;
+    const auto* dict_meta_ptr = static_cast<const TSDTypeMeta*>(_ts_meta);
+
+    // Get overlay for delta info
+    auto* overlay = map_overlay();
+    if (!overlay) {
+        // No overlay - return empty dict
+        return nb::module_::import_("frozendict").attr("frozendict")(result);
+    }
+
+    // Check for any delta: structural changes (adds/removes) or value modifications
+    bool has_structural_delta = overlay->has_delta_at(current_time);
+    bool has_modified_values = overlay->has_modified_keys(current_time);
+
+    if (!has_structural_delta && !has_modified_values) {
+        // No delta this tick - return empty dict
+        return nb::module_::import_("frozendict").attr("frozendict")(result);
+    }
+
+    value::ConstMapView map_view = _view.as_map();
+    const TSMeta* value_ts_type = dict_meta_ptr->value_ts_type();
+
+    // Helper to create child TSView at a given index
+    auto make_child_view = [&](size_t idx) -> TSView {
+        value::ConstValueView val_view = map_view.value_at(idx);
+        if (auto* map_ov = map_overlay()) {
+            TSOverlayStorage* value_ov = map_ov->value_overlay(idx);
+            return TSView(val_view.data(), value_ts_type, value_ov);
+        }
+        return TSView(val_view.data(), value_ts_type);
+    };
+
+    // Include added keys with their delta values
+    for (size_t idx : overlay->added_key_indices()) {
+        nb::object py_key = map_view.key_at(idx).to_python();
+        // Get the child time-series view and its delta_value
+        TSView child_view = make_child_view(idx);
+        nb::object delta_val = child_view.to_python_delta();
+        if (!delta_val.is_none()) {
+            result[py_key] = delta_val;
+        }
+    }
+
+    // Include modified keys (not in added) with their delta values
+    for (size_t idx : overlay->modified_key_indices(current_time)) {
+        // Skip if already in added (added keys are also "modified")
+        bool is_added = false;
+        for (size_t added_idx : overlay->added_key_indices()) {
+            if (added_idx == idx) {
+                is_added = true;
+                break;
+            }
+        }
+        if (is_added) continue;
+
+        nb::object py_key = map_view.key_at(idx).to_python();
+        TSView child_view = make_child_view(idx);
+        nb::object delta_val = child_view.to_python_delta();
+        if (!delta_val.is_none()) {
+            result[py_key] = delta_val;
+        }
+    }
+
+    // Include removed keys with REMOVE marker
+    for (const auto& removed_key : overlay->removed_key_values()) {
+        nb::object py_key = removed_key.const_view().to_python();
+        result[py_key] = REMOVE_marker;
+    }
+
+    return nb::module_::import_("frozendict").attr("frozendict")(result);
 }
 
 nb::object TSSView::to_python() const {

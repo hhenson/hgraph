@@ -1,5 +1,6 @@
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/types/constants.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series/ts_ref_target_link.h>
 #include <hgraph/types/time_series/ts_value.h>
@@ -35,8 +36,19 @@ namespace hgraph
             .def(
                 "bind_input",
                 [](TimeSeriesReference &self, PyTimeSeriesInput &ts_input) {
-                    // Stub - legacy binding not supported
-                    throw std::runtime_error("TimeSeriesReference::bind_input not yet implemented for view-based wrappers");
+                    if (self.is_empty()) {
+                        // Empty reference - unbind
+                        ts_input.un_bind_output();
+                        return;
+                    }
+                    if (self.is_view_bound()) {
+                        // VIEW_BOUND - bind the passthrough input to the referenced output
+                        const TSValue* output = self.view_output();
+                        ts_input.set_bound_output(output);
+                        return;
+                    }
+                    // BOUND or UNBOUND - not supported for view-based wrappers yet
+                    throw std::runtime_error("TimeSeriesReference::bind_input: only VIEW_BOUND and EMPTY supported for view-based wrappers");
                 },
                 "input_"_a)
             .def_prop_ro("has_output", &TimeSeriesReference::has_output)
@@ -144,6 +156,9 @@ namespace hgraph
         : PyTimeSeriesInput(view) {
     }
 
+    // Note: valid() and modified() are inherited from PyTimeSeriesInput.
+    // The REF-specific logic is in TSView::ts_valid() and TSView::modified_at().
+
     nb::str PyTimeSeriesReferenceInput::to_string() const {
         auto s = fmt::format("TimeSeriesReferenceInput[valid={}]", _view.ts_valid());
         return nb::str(s.c_str());
@@ -155,6 +170,8 @@ namespace hgraph
         // Note: value and delta_value are inherited from PyTimeSeriesInput.
         // The view layer handles REF-specific behavior via TSTypeKind::REF
         // dispatch in TSView::to_python(), including link navigation for inputs.
+        // Note: valid and modified are inherited from PyTimeSeriesInput base class.
+        // The REF-specific logic is in TSView::ts_valid() and TSView::modified_at().
         nb::class_<PyTimeSeriesReferenceInput, PyTimeSeriesInput>(m, "TimeSeriesReferenceInput")
             .def("__str__", &PyTimeSeriesReferenceInput::to_string)
             .def("__repr__", &PyTimeSeriesReferenceInput::to_repr);

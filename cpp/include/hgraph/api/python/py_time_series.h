@@ -128,11 +128,28 @@ namespace hgraph
         // Dealing with the various states the time-series can be found in
         [[nodiscard]] nb::bool_  bound() const;
 
+        // Binding methods (used by valid operator and REF handling)
+        void bind_output(nb::object output);
+        void un_bind_output();
+
+        // Peer property (for REF binding detection)
+        [[nodiscard]] nb::bool_ has_peer() const;
+
         static void register_with_nanobind(nb::module_ &m);
+
+        // Store a bound output TSValue for passthrough inputs
+        void set_bound_output(const TSValue* output);
+        [[nodiscard]] const TSValue* bound_output() const;
 
       protected:
         // View storage - the only data member
         TSView _view;
+
+        // Binding state - for passthrough inputs (starts false, becomes true after bind_output)
+        bool _explicit_bound{false};
+
+        // Pointer to bound output TSValue (for passthrough inputs bound via REF)
+        const TSValue* _bound_output{nullptr};
     };
 
 }  // namespace hgraph

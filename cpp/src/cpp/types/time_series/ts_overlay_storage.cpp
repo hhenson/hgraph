@@ -5,6 +5,7 @@
 
 #include <hgraph/types/time_series/ts_overlay_storage.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/value/type_registry.h>
 #include <algorithm>
 #include <fmt/core.h>
 
@@ -456,6 +457,20 @@ SetTSOverlay::SetTSOverlay(const TSMeta* ts_meta)
     // Store the ts_meta for future use
     _element_type = ts_meta;
 
+    // Initialize hash sets for O(1) lookup if we have element type info
+    if (ts_meta->kind() == TSTypeKind::TSS) {
+        auto* tss_meta = static_cast<const TSSTypeMeta*>(ts_meta);
+        const value::TypeMeta* element_type = tss_meta->element_type();
+        if (element_type) {
+            // Create set schema for this element type and initialize the lookup sets
+            const value::TypeMeta* set_schema = value::TypeRegistry::instance().set(element_type).build();
+            if (set_schema) {
+                _added_values_set = value::PlainValue(set_schema);
+                _removed_values_set = value::PlainValue(set_schema);
+            }
+        }
+    }
+
     // Note: _added_indices and _removed_indices start empty
 }
 
@@ -465,6 +480,9 @@ SetTSOverlay::SetTSOverlay(SetTSOverlay&& other) noexcept
     , _added_indices(std::move(other._added_indices))
     , _removed_indices(std::move(other._removed_indices))
     , _removed_values(std::move(other._removed_values))
+    , _added_values(std::move(other._added_values))
+    , _added_values_set(std::move(other._added_values_set))
+    , _removed_values_set(std::move(other._removed_values_set))
     , _element_type(other._element_type)
 {
     // Move parent and observers from base class
@@ -484,6 +502,9 @@ SetTSOverlay& SetTSOverlay::operator=(SetTSOverlay&& other) noexcept {
         _added_indices = std::move(other._added_indices);
         _removed_indices = std::move(other._removed_indices);
         _removed_values = std::move(other._removed_values);
+        _added_values = std::move(other._added_values);
+        _added_values_set = std::move(other._added_values_set);
+        _removed_values_set = std::move(other._removed_values_set);
         _element_type = other._element_type;
         _parent = other._parent;
         _observers = std::move(other._observers);
@@ -555,12 +576,20 @@ void SetTSOverlay::hook_on_erase(void* ctx, size_t index) {
     (void)index;
 }
 
-void SetTSOverlay::record_added(size_t index, engine_time_t time) {
+void SetTSOverlay::record_added(size_t index, engine_time_t time, value::PlainValue added_value) {
     // Lazy cleanup: reset buffers if time changed since last modification
     maybe_reset_delta(time);
 
     // Record the addition
     _added_indices.push_back(index);
+
+    // Insert into hash set for O(1) lookup
+    if (_added_values_set.valid()) {
+        _added_values_set.view().as_set().insert(added_value.const_view());
+    }
+
+    // Buffer the added value
+    _added_values.push_back(std::move(added_value));
 
     // Update container-level modification time
     mark_modified(time);
@@ -573,11 +602,44 @@ void SetTSOverlay::record_removed(size_t index, engine_time_t time, value::Plain
     // Record the removal
     _removed_indices.push_back(index);
 
+    // Insert into hash set for O(1) lookup
+    if (_removed_values_set.valid()) {
+        _removed_values_set.view().as_set().insert(removed_value.const_view());
+    }
+
     // Buffer the removed value so it can be accessed until delta is cleared
     _removed_values.push_back(std::move(removed_value));
 
     // Update container-level modification time
     mark_modified(time);
+}
+
+bool SetTSOverlay::was_added_element(const value::ConstValueView& element) const {
+    // Use hash set for O(1) lookup
+    if (_added_values_set.valid()) {
+        return _added_values_set.const_view().as_set().contains(element);
+    }
+    // Fallback to linear scan if set not initialized
+    for (const auto& val : _added_values) {
+        if (element == val.const_view()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+bool SetTSOverlay::was_removed_element(const value::ConstValueView& element) const {
+    // Use hash set for O(1) lookup
+    if (_removed_values_set.valid()) {
+        return _removed_values_set.const_view().as_set().contains(element);
+    }
+    // Fallback to linear scan if set not initialized
+    for (const auto& val : _removed_values) {
+        if (element == val.const_view()) {
+            return true;
+        }
+    }
+    return false;
 }
 
 // ============================================================================

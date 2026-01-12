@@ -771,6 +771,28 @@ public:
         return !_removed_indices.empty();
     }
 
+    // ========== O(1) Element Lookup ==========
+
+    /**
+     * @brief Check if a specific element was added this tick (O(1) lookup).
+     *
+     * Uses hash set for O(1) containment check.
+     *
+     * @param element The element to check
+     * @return True if the element was added this tick
+     */
+    [[nodiscard]] bool was_added_element(const value::ConstValueView& element) const;
+
+    /**
+     * @brief Check if a specific element was removed this tick (O(1) lookup).
+     *
+     * Uses hash set for O(1) containment check.
+     *
+     * @param element The element to check
+     * @return True if the element was removed this tick
+     */
+    [[nodiscard]] bool was_removed_element(const value::ConstValueView& element) const;
+
     /**
      * @brief Record an element as added at a specific index.
      *
@@ -779,8 +801,9 @@ public:
      *
      * @param index The backing store slot index
      * @param time The engine time when the element was added
+     * @param added_value The value being added (optional, for O(1) lookup support)
      */
-    void record_added(size_t index, engine_time_t time);
+    void record_added(size_t index, engine_time_t time, value::PlainValue added_value = {});
 
     /**
      * @brief Record an element as removed at a specific index.
@@ -827,6 +850,14 @@ private:
         _added_indices.clear();
         _removed_indices.clear();
         _removed_values.clear();
+        _added_values.clear();
+        // Clear the lookup sets
+        if (_added_values_set.valid()) {
+            _added_values_set.view().as_set().clear();
+        }
+        if (_removed_values_set.valid()) {
+            _removed_values_set.view().as_set().clear();
+        }
     }
 
     /**
@@ -852,7 +883,10 @@ private:
     std::vector<size_t> _added_indices;               ///< Indices of elements added this tick
     std::vector<size_t> _removed_indices;             ///< Indices of elements removed this tick
     std::vector<value::PlainValue> _removed_values;    ///< Buffered removed values
-    const TSMeta* _element_type{nullptr};             ///< Element type schema (for future use)
+    std::vector<value::PlainValue> _added_values;      ///< Buffered added values
+    value::PlainValue _added_values_set;               ///< Hash set for O(1) added lookup
+    value::PlainValue _removed_values_set;             ///< Hash set for O(1) removed lookup
+    const TSMeta* _element_type{nullptr};             ///< Element type schema
 };
 
 // Forward declaration for KeySetOverlayView

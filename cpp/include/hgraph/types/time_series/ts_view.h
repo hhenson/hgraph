@@ -43,6 +43,9 @@
 #include <utility>
 #include <vector>
 
+#include <nanobind/nanobind.h>
+namespace nb = nanobind;
+
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/value/indexed_view.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
@@ -59,6 +62,26 @@ struct TSBView;
 struct TSLView;
 struct TSDView;
 struct TSSView;
+
+// ============================================================================
+// Utility Functions
+// ============================================================================
+
+/**
+ * @brief Create a PlainValue from a Python object.
+ *
+ * Convenience function for converting Python objects to type-erased values.
+ * The returned value uses RAII for automatic cleanup.
+ *
+ * @param schema The type schema
+ * @param obj Python object to convert
+ * @return PlainValue containing the converted data
+ */
+inline value::PlainValue make_value(const value::TypeMeta* schema, const nb::handle& obj) {
+    value::PlainValue val(schema);
+    val.from_python(nb::borrow(obj));
+    return val;
+}
 
 /**
  * @brief Read-only view of a time-series value.
@@ -847,26 +870,30 @@ struct TSDView : TSView {
     [[nodiscard]] bool contains_python(const nb::object& key) const;
 
     /**
-     * @brief Check if a key was added this tick (Python object version).
+     * @brief Check if a key was added this tick.
      *
-     * Uses time-checked delta access and C++ level equality comparison.
-     * Returns false if time doesn't match last modification or key not in added set.
-     *
-     * @param key Python object to check
+     * @param key Key value to check
      * @param time Current engine time for delta check
      * @return True if key was added at the given time
+     */
+    [[nodiscard]] bool was_added(const value::ConstValueView& key, engine_time_t time);
+
+    /**
+     * @brief Check if a key was added this tick (Python object version).
      */
     [[nodiscard]] bool was_added_python(const nb::object& key, engine_time_t time);
 
     /**
-     * @brief Check if a key was removed this tick (Python object version).
+     * @brief Check if a key was removed this tick.
      *
-     * Uses time-checked delta access and C++ level equality comparison.
-     * Returns false if time doesn't match last modification or key not in removed set.
-     *
-     * @param key Python object to check
+     * @param key Key value to check
      * @param time Current engine time for delta check
      * @return True if key was removed at the given time
+     */
+    [[nodiscard]] bool was_removed(const value::ConstValueView& key, engine_time_t time);
+
+    /**
+     * @brief Check if a key was removed this tick (Python object version).
      */
     [[nodiscard]] bool was_removed_python(const nb::object& key, engine_time_t time);
 
@@ -1048,26 +1075,30 @@ struct TSSView : TSView {
     [[nodiscard]] bool contains_python(const nb::object& element) const;
 
     /**
-     * @brief Check if an element was added this tick (Python object version).
+     * @brief Check if an element was added this tick.
      *
-     * Uses time-checked delta access and C++ level equality comparison.
-     * Returns false if time doesn't match last modification or element not in added set.
-     *
-     * @param element Python object to check
+     * @param element Element value to check
      * @param time Current engine time for delta check
      * @return True if element was added at the given time
+     */
+    [[nodiscard]] bool was_added(const value::ConstValueView& element, engine_time_t time);
+
+    /**
+     * @brief Check if an element was added this tick (Python object version).
      */
     [[nodiscard]] bool was_added_python(const nb::object& element, engine_time_t time);
 
     /**
-     * @brief Check if an element was removed this tick (Python object version).
+     * @brief Check if an element was removed this tick.
      *
-     * Uses time-checked delta access and C++ level equality comparison.
-     * Returns false if time doesn't match last modification or element not in removed set.
-     *
-     * @param element Python object to check
+     * @param element Element value to check
      * @param time Current engine time for delta check
      * @return True if element was removed at the given time
+     */
+    [[nodiscard]] bool was_removed(const value::ConstValueView& element, engine_time_t time);
+
+    /**
+     * @brief Check if an element was removed this tick (Python object version).
      */
     [[nodiscard]] bool was_removed_python(const nb::object& element, engine_time_t time);
 

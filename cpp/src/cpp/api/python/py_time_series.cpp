@@ -157,6 +157,10 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesInput::valid() const {
+        // If we have a bound output from REF binding, check its validity
+        if (_bound_output) {
+            return nb::bool_(_bound_output->ts_valid());
+        }
         return nb::bool_(_view.ts_valid());
     }
 
@@ -183,8 +187,35 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesInput::bound() const {
-        // View-based inputs are always "bound" to their data
-        return nb::bool_(true);
+        // For passthrough inputs (used by valid operator), track explicit binding state
+        return nb::bool_(_explicit_bound);
+    }
+
+    void PyTimeSeriesInput::bind_output(nb::object output) {
+        // Track explicit binding state for passthrough inputs
+        // This is called by the valid operator when binding a REF's output to a passthrough input
+        _explicit_bound = true;
+    }
+
+    void PyTimeSeriesInput::un_bind_output() {
+        // Track explicit binding state for passthrough inputs
+        // This is called by the valid operator when a REF's value changes
+        _explicit_bound = false;
+        _bound_output = nullptr;
+    }
+
+    nb::bool_ PyTimeSeriesInput::has_peer() const {
+        // View-based inputs don't have peer connections
+        return nb::bool_(false);
+    }
+
+    void PyTimeSeriesInput::set_bound_output(const TSValue* output) {
+        _bound_output = output;
+        _explicit_bound = (output != nullptr);
+    }
+
+    const TSValue* PyTimeSeriesInput::bound_output() const {
+        return _bound_output;
     }
 
     void PyTimeSeriesInput::register_with_nanobind(nb::module_ &m) {
@@ -203,6 +234,9 @@ namespace hgraph
             .def_prop_ro("bound", &PyTimeSeriesInput::bound)
             .def_prop_ro("active", &PyTimeSeriesInput::active)
             .def("make_active", &PyTimeSeriesInput::make_active)
-            .def("make_passive", &PyTimeSeriesInput::make_passive);
+            .def("make_passive", &PyTimeSeriesInput::make_passive)
+            .def("bind_output", &PyTimeSeriesInput::bind_output)
+            .def("un_bind_output", &PyTimeSeriesInput::un_bind_output)
+            .def_prop_ro("has_peer", &PyTimeSeriesInput::has_peer);
     }
 }  // namespace hgraph
