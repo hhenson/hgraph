@@ -21,6 +21,8 @@
 #include <hgraph/types/time_series/ts_link.h>
 #include <hgraph/types/time_series/ts_ref_target_link.h>
 
+#include <unordered_map>
+
 namespace hgraph {
 
 // Forward declarations
@@ -302,6 +304,43 @@ private:
      */
     std::unique_ptr<LinkSupport> _link_support;
 
+    // ========== Cast Cache (for outputs) ==========
+
+    /**
+     * @brief Cache of TSValues converted to different target schemas.
+     *
+     * When an input needs a different type view of this output
+     * (e.g., REF[TS[V]] from TS[V]), the converted value is cached here.
+     * Multiple inputs can share the same conversion.
+     *
+     * KEY: Target TSMeta* - the schema to cast TO
+     * VALUE: Converted TSValue with that target schema
+     *
+     * This allows a single source to have multiple different conversions
+     * cached simultaneously:
+     *   - TS[V] → REF[TS[V]]  (key: REF[TS[V]] schema)
+     *   - TSD[K, V] → TSD[K, REF[V]]  (key: TSD[K, REF[V]] schema)
+     *   - Future: other conversion types
+     *
+     * Casting is RECURSIVE - when casting a composite type, each child
+     * is also cast to its corresponding target type, creating a hierarchy
+     * of cached conversions.
+     */
+    std::unique_ptr<std::unordered_map<const TSMeta*, std::unique_ptr<TSValue>>> _cast_cache;
+
+    /**
+     * @brief For cast TSValues, points to the source TSValue this was cast from.
+     *
+     * When a TSValue is created via cast_to(), this pointer is set to the
+     * original source TSValue. This allows:
+     * - REF casts to synthesize TimeSeriesReference values pointing to source
+     * - Navigation back to source data for view access
+     * - Recursive cast chains to track their origin
+     *
+     * nullptr for non-cast TSValues (regular outputs/inputs).
+     */
+    const TSValue* _cast_source{nullptr};
+
 public:
     // ========== Link Support API ==========
 
@@ -475,6 +514,61 @@ public:
     [[nodiscard]] size_t child_count() const noexcept {
         return _link_support ? _link_support->child_links.size() : 0;
     }
+
+    // ========== Cast Cache API ==========
+
+    /**
+     * @brief Get or create a cast view of this TSValue.
+     *
+     * If the target schema matches this TSValue's schema, returns this.
+     * Otherwise, creates/returns a cached converted TSValue.
+     *
+     * For composite types (TSB, TSL, TSD), casting is recursive:
+     * - Each child element is cast to its corresponding target type
+     * - The cast TSValue links to child casts (not copies)
+     *
+     * This enables TS → REF conversions at any level of the hierarchy:
+     * - TS[V] → REF[TS[V]]
+     * - TSB[a: TS[V]] → TSB[a: REF[TS[V]]]
+     * - TSD[K, V] → TSD[K, REF[V]]
+     *
+     * @param target_schema The TSMeta schema to cast to
+     * @return Pointer to TSValue with target schema (this or cached)
+     */
+    TSValue* cast_to(const TSMeta* target_schema);
+
+    /**
+     * @brief Check if a cast to target schema is already cached.
+     */
+    [[nodiscard]] bool has_cast(const TSMeta* target_schema) const;
+
+    /**
+     * @brief Clear the cast cache (e.g., on invalidation).
+     */
+    void clear_cast_cache();
+
+    /**
+     * @brief Get the source TSValue this was cast from.
+     * @return Source TSValue pointer, or nullptr if not a cast value
+     */
+    [[nodiscard]] const TSValue* cast_source() const noexcept {
+        return _cast_source;
+    }
+
+    /**
+     * @brief Check if this is a cast TSValue.
+     */
+    [[nodiscard]] bool is_cast() const noexcept {
+        return _cast_source != nullptr;
+    }
+
+private:
+    // Cast creation helpers - dispatched by type kind
+    std::unique_ptr<TSValue> create_cast_value(const TSMeta* target_schema);
+    void setup_ts_to_ref_cast(TSValue& cast_value);
+    void setup_tsb_cast(TSValue& cast_value, const TSMeta* target_schema);
+    void setup_tsl_cast(TSValue& cast_value, const TSMeta* target_schema);
+    void setup_tsd_cast(TSValue& cast_value, const TSMeta* target_schema);
 };
 
 // ============================================================================

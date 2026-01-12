@@ -93,8 +93,74 @@ namespace hgraph
             .def_static(
                 "make",
                 [](nb::object ts, nb::object items) -> TimeSeriesReference {
-                    // Stub - legacy TimeSeriesReference::make not supported
-                    throw std::runtime_error("TimeSeriesReference::make not yet implemented for view-based wrappers");
+                    // Case 1: Empty reference
+                    if (ts.is_none() && items.is_none()) {
+                        return TimeSeriesReference::make();
+                    }
+
+                    // Case 2: from_items - create unbound reference
+                    if (!items.is_none()) {
+                        std::vector<TimeSeriesReference> refs;
+                        for (auto item : items) {
+                            // Each item should be a TimeSeriesReference
+                            if (nb::isinstance<TimeSeriesReference>(item)) {
+                                refs.push_back(nb::cast<TimeSeriesReference>(item));
+                            } else {
+                                throw std::runtime_error("TimeSeriesReference.make: from_items must contain TimeSeriesReference objects");
+                            }
+                        }
+                        return TimeSeriesReference::make(std::move(refs));
+                    }
+
+                    // Case 3: ts parameter provided
+                    // Check if it's a view-based output wrapper (PyTimeSeriesOutput)
+                    if (nb::isinstance<PyTimeSeriesOutput>(ts)) {
+                        auto& output = nb::cast<PyTimeSeriesOutput&>(ts);
+                        const TSValue* ts_value = output.view().root();
+                        if (ts_value) {
+                            return TimeSeriesReference::make_view_bound(ts_value);
+                        }
+                        throw std::runtime_error("TimeSeriesReference.make: PyTimeSeriesOutput has no root TSValue");
+                    }
+
+                    // Check if it's a view-based input wrapper (PyTimeSeriesInput)
+                    if (nb::isinstance<PyTimeSeriesInput>(ts)) {
+                        auto& input = nb::cast<PyTimeSeriesInput&>(ts);
+                        // For inputs, check if there's a bound output
+                        const TSValue* bound = input.bound_output();
+                        if (bound) {
+                            return TimeSeriesReference::make_view_bound(bound);
+                        }
+                        // No bound output - check the view's root
+                        const TSValue* ts_value = input.view().root();
+                        if (ts_value) {
+                            return TimeSeriesReference::make_view_bound(ts_value);
+                        }
+                        throw std::runtime_error("TimeSeriesReference.make: PyTimeSeriesInput has no bound output or root TSValue");
+                    }
+
+                    // Check if it's a TimeSeriesReferenceInput - return its value
+                    if (nb::isinstance<TimeSeriesReferenceInput>(ts)) {
+                        auto& ref_input = nb::cast<TimeSeriesReferenceInput&>(ts);
+                        return ref_input.value();
+                    }
+
+                    // Check if it's already a TimeSeriesReference - just return it
+                    if (nb::isinstance<TimeSeriesReference>(ts)) {
+                        return nb::cast<TimeSeriesReference>(ts);
+                    }
+
+                    // Check for legacy TimeSeriesOutput
+                    try {
+                        auto output_ptr = nb::cast<time_series_output_s_ptr>(ts);
+                        if (output_ptr) {
+                            return TimeSeriesReference::make(std::move(output_ptr));
+                        }
+                    } catch (...) {
+                        // Not a legacy output, continue checking
+                    }
+
+                    throw std::runtime_error("TimeSeriesReference.make: unsupported ts type");
                 },
                 "ts"_a = nb::none(), "from_items"_a = nb::none());
 

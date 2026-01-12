@@ -286,33 +286,44 @@ nb::object TSView::to_python() const {
                 }
             }
 
-            // Fallback: For REF outputs (not linked inputs), check the cache using root
+            // Fallback: For REF outputs (not linked inputs), check the cache
             if (_root) {
-                auto it = g_ref_output_cache.find(_root);
-                if (it != g_ref_output_cache.end()) {
-                    // Found in cache - need to dereference if it's a TimeSeriesReference
-                    nb::object cached = it->second;
-                    if (nb::isinstance<TimeSeriesReference>(cached)) {
-                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
-                        // Check VIEW_BOUND first since is_bound() returns true for both BOUND and VIEW_BOUND
-                        if (ref.is_view_bound()) {
-                            const TSValue* target = ref.view_output();
-                            if (target && target->ts_valid()) {
-                                TSView target_view(*target);
-                                return target_view.to_python();
-                            }
-                        } else if (ref.kind() == TimeSeriesReference::Kind::BOUND) {
-                            const auto& output = ref.output();
-                            if (output && output->valid()) {
-                                return output->py_delta_value();
+                // Determine the correct cache key:
+                // - For root-level REF: use _root
+                // - For bundle field REF: use the child TSValue (from path)
+                const TSValue* cache_key = _root;
+                if (!_path.is_root() && _root->has_link_support() && !_path.elements.empty()) {
+                    // Navigate to the child TSValue for bundle field REFs
+                    cache_key = _root->child_value(_path.elements.back());
+                }
+
+                if (cache_key) {
+                    auto it = g_ref_output_cache.find(cache_key);
+                    if (it != g_ref_output_cache.end()) {
+                        // Found in cache - need to dereference if it's a TimeSeriesReference
+                        nb::object cached = it->second;
+                        if (nb::isinstance<TimeSeriesReference>(cached)) {
+                            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
+                            // Check VIEW_BOUND first since is_bound() returns true for both BOUND and VIEW_BOUND
+                            if (ref.is_view_bound()) {
+                                const TSValue* target = ref.view_output();
+                                if (target && target->ts_valid()) {
+                                    TSView target_view(*target);
+                                    return target_view.to_python();
+                                }
+                            } else if (ref.kind() == TimeSeriesReference::Kind::BOUND) {
+                                const auto& output = ref.output();
+                                if (output && output->valid()) {
+                                    return output->py_delta_value();
+                                }
                             }
                         }
+                        // Not a TimeSeriesReference or dereferencing failed, return as-is
+                        return cached;
                     }
-                    // Not a TimeSeriesReference or dereferencing failed, return as-is
-                    return cached;
                 }
-                // Not in cache - create a view-bound reference
-                return nb::cast(TimeSeriesReference::make_view_bound(_root));
+                // Not in cache - create a view-bound reference using the cache key
+                return nb::cast(TimeSeriesReference::make_view_bound(cache_key ? cache_key : _root));
             }
             // No root - return empty reference
             return nb::cast(TimeSeriesReference::make());
@@ -364,12 +375,38 @@ nb::object TSView::to_python_delta() const {
 }
 
 bool TSView::ts_valid() const {
-    // For REF types with link support, check the bound output's validity
+    // For REF types, check validity based on input links or output cache
     if (_ts_meta && _ts_meta->kind() == TSTypeKind::REF) {
+        // For inputs with link support, check the bound output's validity
         const TSValue* bound_output = navigate_ref_link(*this);
         if (bound_output) {
             return bound_output->ts_valid();
         }
+
+        // For outputs (no link), check if the cached TimeSeriesReference is valid
+        // Use the same cache key logic as to_python
+        if (_root) {
+            const TSValue* cache_key = _root;
+            if (!_path.is_root() && _root->has_link_support() && !_path.elements.empty()) {
+                cache_key = _root->child_value(_path.elements.back());
+            }
+            if (cache_key) {
+                auto it = g_ref_output_cache.find(cache_key);
+                if (it != g_ref_output_cache.end()) {
+                    // Check if the cached value is a valid (non-empty) TimeSeriesReference
+                    nb::object cached = it->second;
+                    if (nb::isinstance<TimeSeriesReference>(cached)) {
+                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
+                        // REF is valid if it has output (not empty)
+                        return ref.has_output();
+                    }
+                    // If it's not a TimeSeriesReference, consider it valid
+                    return true;
+                }
+            }
+        }
+        // No cache entry - not valid
+        return false;
     }
 
     if (_overlay) {
@@ -662,47 +699,102 @@ void TSMutableView::from_python(const nb::object& src) {
     }
 
     // Special handling for TSB with dict input: need to mark child overlays
+    // and handle REF fields specially
     if (_ts_meta->kind() == TSTypeKind::TSB && nb::isinstance<nb::dict>(src)) {
+        const TSBTypeMeta* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+        nb::dict d = nb::cast<nb::dict>(src);
+
         // Get the CompositeTSOverlay to mark children
         CompositeTSOverlay* composite_overlay = nullptr;
         if (_overlay) {
             composite_overlay = dynamic_cast<CompositeTSOverlay*>(_overlay);
         }
 
-        // If we have mutable container access, use its policy-aware from_python
-        if (_mutable_container) {
-            _mutable_container->from_python(src);
-        } else {
-            // No container - use direct conversion
-            const value::TypeMeta* schema = _ts_meta->value_schema();
-            if (schema && schema->ops) {
-                schema->ops->from_python(_mutable_view.data(), src, schema);
+        // Get current time for marking
+        engine_time_t current_time = MIN_DT;
+        Node* node = owning_node();
+        if (node) {
+            graph_ptr g = node->graph();
+            if (g) {
+                current_time = g->evaluation_time();
             }
         }
 
-        // Now mark the child overlays that were set
-        if (composite_overlay) {
-            // Get current time for marking
-            engine_time_t current_time = MIN_DT;
-            Node* node = owning_node();
-            if (node) {
-                graph_ptr g = node->graph();
-                if (g) {
-                    current_time = g->evaluation_time();
-                }
+        // Check if any field is a REF type - if so, we need to handle each field individually
+        bool has_ref_fields = false;
+        for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
+            if (bundle_meta->field_meta(i)->kind() == TSTypeKind::REF) {
+                has_ref_fields = true;
+                break;
             }
+        }
 
-            // Mark each child overlay from the dict keys
-            nb::dict d = nb::cast<nb::dict>(src);
-            const TSBTypeMeta* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
+        if (has_ref_fields) {
+            // Handle each field individually to properly support REF fields
+            // Ensure link support is enabled on the container for child value access
+            if (_mutable_container && !_mutable_container->has_link_support()) {
+                _mutable_container->enable_link_support();
+            }
             for (auto item : d) {
-                // Convert field name to index
                 std::string field_name = nb::cast<std::string>(item.first);
                 const TSBFieldInfo* field_info = bundle_meta->field(field_name);
-                if (field_info) {
+                if (!field_info) continue;
+
+                const TSMeta* field_ts_meta = bundle_meta->field_meta(field_info->index);
+                nb::object field_value = nb::cast<nb::object>(item.second);
+
+                if (field_ts_meta->kind() == TSTypeKind::REF) {
+                    // REF field - store in cache using the field's child TSValue
+                    if (_mutable_container) {
+                        TSValue* field_ts_value = _mutable_container->get_or_create_child_value(field_info->index);
+                        if (field_ts_value && !field_value.is_none()) {
+                            g_ref_output_cache[field_ts_value] = field_value;
+                        } else if (field_ts_value && field_value.is_none()) {
+                            g_ref_output_cache.erase(field_ts_value);
+                        }
+                    }
+                } else {
+                    // Non-REF field - use value layer via child TSValue
+                    if (_mutable_container) {
+                        // Get the child TSValue and set its value
+                        TSValue* field_ts_value = _mutable_container->get_or_create_child_value(field_info->index);
+                        if (field_ts_value) {
+                            field_ts_value->from_python(field_value);
+                        }
+                    }
+                    // Note: if no mutable container and has REF fields, we can't handle this case
+                    // properly without container access. This shouldn't happen in normal usage.
+                }
+
+                // Mark overlay if available
+                if (composite_overlay) {
                     TSOverlayStorage* child_ov = composite_overlay->child(field_info->index);
                     if (child_ov) {
                         child_ov->mark_modified(current_time);
+                    }
+                }
+            }
+        } else {
+            // No REF fields - use existing path through value layer
+            if (_mutable_container) {
+                _mutable_container->from_python(src);
+            } else {
+                const value::TypeMeta* schema = _ts_meta->value_schema();
+                if (schema && schema->ops) {
+                    schema->ops->from_python(_mutable_view.data(), src, schema);
+                }
+            }
+
+            // Mark child overlays
+            if (composite_overlay) {
+                for (auto item : d) {
+                    std::string field_name = nb::cast<std::string>(item.first);
+                    const TSBFieldInfo* field_info = bundle_meta->field(field_name);
+                    if (field_info) {
+                        TSOverlayStorage* child_ov = composite_overlay->child(field_info->index);
+                        if (child_ov) {
+                            child_ov->mark_modified(current_time);
+                        }
                     }
                 }
             }
@@ -2037,11 +2129,11 @@ nb::object TSBView::to_python_delta() const {
     }
     engine_time_t eval_time = *n->cached_evaluation_time_ptr();
 
-    // Python behavior: {name: field.delta_value for modified fields}
+    // Python behavior: {name: field.delta_value for modified and valid fields}
     nb::dict result;
     for (auto& key : keys()) {
         TSView field_view = field(std::string(key));
-        if (field_view.modified_at(eval_time)) {
+        if (field_view.modified_at(eval_time) && field_view.ts_valid()) {
             result[nb::cast(std::string(key))] = field_view.to_python_delta();
         }
     }

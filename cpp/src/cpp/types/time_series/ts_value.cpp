@@ -346,15 +346,20 @@ TSValue* TSValue::get_or_create_child_value(size_t index) {
             return nullptr;  // No child values for non-composites
     }
 
-    // Only create child values for composite types that can have links
+    // Only create child values for composite types that can have links,
+    // or for REF types (which need child TSValue as a cache key)
     if (!child_meta || (child_meta->kind() != TSTypeKind::TSB &&
-                        child_meta->kind() != TSTypeKind::TSL)) {
-        return nullptr;  // Leaf types don't need nested TSValue
+                        child_meta->kind() != TSTypeKind::TSL &&
+                        child_meta->kind() != TSTypeKind::REF)) {
+        return nullptr;  // Leaf types (except REF) don't need nested TSValue
     }
 
     // Create the child TSValue
     _link_support->child_values[index] = std::make_unique<TSValue>(child_meta, _owning_node);
-    _link_support->child_values[index]->enable_link_support();
+    // Only enable link support for composite types (not for REF)
+    if (child_meta->kind() == TSTypeKind::TSB || child_meta->kind() == TSTypeKind::TSL) {
+        _link_support->child_values[index]->enable_link_support();
+    }
 
     return _link_support->child_values[index].get();
 }
@@ -389,6 +394,309 @@ void TSValue::make_links_passive() {
             child->make_links_passive();
         }
     }
+}
+
+// ============================================================================
+// Cast Cache Implementation
+// ============================================================================
+
+TSValue* TSValue::cast_to(const TSMeta* target_schema) {
+    // Same schema - return self
+    if (target_schema == _ts_meta) {
+        return this;
+    }
+
+    // Check cache
+    if (_cast_cache) {
+        auto it = _cast_cache->find(target_schema);
+        if (it != _cast_cache->end()) {
+            return it->second.get();
+        }
+    }
+
+    // Create cache if needed
+    if (!_cast_cache) {
+        _cast_cache = std::make_unique<std::unordered_map<const TSMeta*, std::unique_ptr<TSValue>>>();
+    }
+
+    // Create converted TSValue (dispatches by type kind)
+    auto converted = create_cast_value(target_schema);
+    auto* result = converted.get();
+    _cast_cache->emplace(target_schema, std::move(converted));
+
+    return result;
+}
+
+bool TSValue::has_cast(const TSMeta* target_schema) const {
+    if (!_cast_cache) return false;
+    return _cast_cache->find(target_schema) != _cast_cache->end();
+}
+
+void TSValue::clear_cast_cache() {
+    if (_cast_cache) {
+        _cast_cache->clear();
+    }
+}
+
+std::unique_ptr<TSValue> TSValue::create_cast_value(const TSMeta* target_schema) {
+    if (!_ts_meta || !target_schema) {
+        throw std::runtime_error("TSValue::create_cast_value: null schema");
+    }
+
+    // Create the cast TSValue with target schema
+    auto cast_value = std::make_unique<TSValue>(target_schema, _owning_node, _output_id);
+
+    // Set the cast source to point back to this source TSValue
+    cast_value->_cast_source = this;
+
+    // Dispatch by source type kind to set up the cast structure
+    switch (_ts_meta->kind()) {
+        case TSTypeKind::TS:
+            // Leaf TS → REF cast
+            if (target_schema->kind() == TSTypeKind::REF) {
+                setup_ts_to_ref_cast(*cast_value);
+            } else {
+                throw std::runtime_error("TSValue::create_cast_value: unsupported TS cast to " +
+                    std::to_string(static_cast<int>(target_schema->kind())));
+            }
+            break;
+
+        case TSTypeKind::TSB:
+            setup_tsb_cast(*cast_value, target_schema);
+            break;
+
+        case TSTypeKind::TSL:
+            setup_tsl_cast(*cast_value, target_schema);
+            break;
+
+        case TSTypeKind::TSD:
+            setup_tsd_cast(*cast_value, target_schema);
+            break;
+
+        default:
+            throw std::runtime_error("TSValue::create_cast_value: unsupported source type kind " +
+                std::to_string(static_cast<int>(_ts_meta->kind())));
+    }
+
+    return cast_value;
+}
+
+void TSValue::setup_ts_to_ref_cast(TSValue& cast_value) {
+    // This is the leaf case: TS[V] → REF[TS[V]]
+    //
+    // The cast TSValue represents a REF that points to this source TSValue.
+    // The _cast_source pointer (set by create_cast_value) points back to this.
+    //
+    // When the REF's value is accessed (e.g., through TSView::to_python() or
+    // when binding inputs), a TimeSeriesReference::make_view_bound(_cast_source)
+    // is created to provide the reference.
+    //
+    // The REF's modification time is the time it was "created" (conceptually
+    // when the binding was established). It does NOT change when the source
+    // data changes - the REF always points to the same source.
+    //
+    // The cast_value's _value storage is NOT used for storing a TimeSeriesReference.
+    // Instead, the reference is synthesized on-demand from _cast_source.
+
+    // Mark the REF overlay as modified to indicate it has been initialized.
+    // Using MIN_ST makes valid() return true (valid = last_modified_time > MIN_DT)
+    if (cast_value._overlay) {
+        cast_value._overlay->mark_modified(MIN_ST);
+    }
+
+    // Note: cast_value._cast_source was already set by create_cast_value()
+    // to point to 'this', enabling view access to synthesize TimeSeriesReference
+}
+
+void TSValue::setup_tsb_cast(TSValue& cast_value, const TSMeta* target_schema) {
+    // Bundle cast: recursively cast each field to its target type.
+    //
+    // For TSB[a: TS[V], b: TS[W]] → TSB[a: REF[TS[V]], b: REF[TS[W]]]:
+    // - Cast TSValue has _cast_source pointing to source bundle
+    // - Each field gets its own cast TSValue with target field schema
+    // - Field cast TSValues have _cast_source pointing to this source bundle
+    //
+    // When accessing field N of the cast bundle:
+    // - The child_values[N] provides the cast TSValue for that field
+    // - That cast TSValue's _cast_source is this source bundle
+    // - View navigation uses field index to access correct source data
+
+    if (target_schema->kind() != TSTypeKind::TSB) {
+        throw std::runtime_error("TSValue::setup_tsb_cast: target is not a bundle");
+    }
+
+    auto* source_bundle = static_cast<const TSBTypeMeta*>(_ts_meta);
+    auto* target_bundle = static_cast<const TSBTypeMeta*>(target_schema);
+
+    size_t field_count = source_bundle->field_count();
+    if (field_count != target_bundle->field_count()) {
+        throw std::runtime_error("TSValue::setup_tsb_cast: field count mismatch");
+    }
+
+    // Enable link support on cast value to store child cast TSValues
+    cast_value.enable_link_support();
+
+    for (size_t i = 0; i < field_count; ++i) {
+        const TSMeta* source_field_meta = source_bundle->field_meta(i);
+        const TSMeta* target_field_meta = target_bundle->field_meta(i);
+
+        if (source_field_meta == target_field_meta) {
+            // Same schema - no cast needed for this field.
+            // The cast bundle's view will navigate to source field directly.
+            continue;
+        }
+
+        // Different schemas - create cast TSValue for this field.
+        // The child cast will have _cast_source pointing to THIS source bundle,
+        // and the view will use the field index for navigation.
+        auto field_cast = std::make_unique<TSValue>(target_field_meta, _owning_node, _output_id);
+        field_cast->_cast_source = this;  // Point to source bundle
+
+        // For leaf fields (TS → REF), mark as initialized
+        if (target_field_meta->kind() == TSTypeKind::REF &&
+            source_field_meta->kind() == TSTypeKind::TS) {
+            if (field_cast->_overlay) {
+                field_cast->_overlay->mark_modified(MIN_ST);
+            }
+        }
+
+        // Store in cast value's child_values
+        if (cast_value._link_support && i < cast_value._link_support->child_values.size()) {
+            cast_value._link_support->child_values[i] = std::move(field_cast);
+        }
+    }
+
+    // Mark cast bundle overlay as initialized
+    if (cast_value._overlay) {
+        cast_value._overlay->mark_modified(MIN_ST);
+    }
+}
+
+void TSValue::setup_tsl_cast(TSValue& cast_value, const TSMeta* target_schema) {
+    // List cast: cast each element to its target type.
+    //
+    // For TSL[TS[V], N] → TSL[REF[TS[V]], N]:
+    // - Cast TSValue has _cast_source pointing to source list
+    // - Each element gets its own cast TSValue with target element schema
+    // - Element cast TSValues have _cast_source pointing to this source list
+    //
+    // When accessing element N of the cast list:
+    // - The child_values[N] provides the cast TSValue for that element
+    // - That cast TSValue's _cast_source is this source list
+    // - View navigation uses element index to access correct source data
+
+    if (target_schema->kind() != TSTypeKind::TSL) {
+        throw std::runtime_error("TSValue::setup_tsl_cast: target is not a list");
+    }
+
+    auto* source_list = static_cast<const TSLTypeMeta*>(_ts_meta);
+    auto* target_list = static_cast<const TSLTypeMeta*>(target_schema);
+
+    size_t size = source_list->fixed_size();
+    if (size != target_list->fixed_size()) {
+        throw std::runtime_error("TSValue::setup_tsl_cast: size mismatch");
+    }
+
+    const TSMeta* source_elem_meta = source_list->element_type();
+    const TSMeta* target_elem_meta = target_list->element_type();
+
+    if (source_elem_meta == target_elem_meta) {
+        // Same element schema - no cast needed.
+        // The cast list's view will navigate to source elements directly.
+        // Mark as initialized and return.
+        if (cast_value._overlay) {
+            cast_value._overlay->mark_modified(MIN_ST);
+        }
+        return;
+    }
+
+    // Enable link support on cast value to store child cast TSValues
+    cast_value.enable_link_support();
+
+    for (size_t i = 0; i < size; ++i) {
+        // Create cast TSValue for this element.
+        // The element cast will have _cast_source pointing to THIS source list,
+        // and the view will use the element index for navigation.
+        auto elem_cast = std::make_unique<TSValue>(target_elem_meta, _owning_node, _output_id);
+        elem_cast->_cast_source = this;  // Point to source list
+
+        // For leaf elements (TS → REF), mark as initialized
+        if (target_elem_meta->kind() == TSTypeKind::REF &&
+            source_elem_meta->kind() == TSTypeKind::TS) {
+            if (elem_cast->_overlay) {
+                elem_cast->_overlay->mark_modified(MIN_ST);
+            }
+        }
+
+        // Store in cast value's child_values
+        if (cast_value._link_support && i < cast_value._link_support->child_values.size()) {
+            cast_value._link_support->child_values[i] = std::move(elem_cast);
+        }
+    }
+
+    // Mark cast list overlay as initialized
+    if (cast_value._overlay) {
+        cast_value._overlay->mark_modified(MIN_ST);
+    }
+}
+
+void TSValue::setup_tsd_cast(TSValue& cast_value, const TSMeta* target_schema) {
+    // Dict cast: TSD[K, V] → TSD[K, REF[V]]
+    //
+    // TSD is dynamic - keys can be added/removed at runtime. The cast mechanism:
+    // 1. The cast TSD shares the key_set structure with source (same keys)
+    // 2. Each value access goes through _cast_source to get the source value
+    // 3. The value is then viewed as the target type (REF)
+    //
+    // Unlike TSB/TSL which have fixed structure and pre-create child casts,
+    // TSD casts are more view-based: the cast TSValue provides a lens over
+    // the source that presents values as REF types.
+    //
+    // Key aspects:
+    // - _cast_source points to source TSD
+    // - Source's key_set changes propagate to cast (shared structure)
+    // - Value access through cast view synthesizes REF on-demand
+
+    if (target_schema->kind() != TSTypeKind::TSD) {
+        throw std::runtime_error("TSValue::setup_tsd_cast: target is not a dict");
+    }
+
+    auto* source_tsd = static_cast<const TSDTypeMeta*>(_ts_meta);
+    auto* target_tsd = static_cast<const TSDTypeMeta*>(target_schema);
+
+    // Verify key types match
+    if (source_tsd->key_type() != target_tsd->key_type()) {
+        throw std::runtime_error("TSValue::setup_tsd_cast: key type mismatch");
+    }
+
+    // The cast TSD's overlay should share key modification tracking with source.
+    // This means when source keys are added/removed, cast reflects this.
+    //
+    // For value modifications:
+    // - Source value at key K is TS[V]
+    // - Cast presents it as REF[TS[V]]
+    // - The REF's modification time is when the binding was established
+    // - The underlying value modifications are accessed through the REF
+    //
+    // Implementation note: The MapTSOverlay could support sharing the key_set
+    // overlay. For now, we set up the basic structure.
+
+    // Mark the cast TSD as initialized
+    if (cast_value._overlay) {
+        cast_value._overlay->mark_modified(MIN_ST);
+    }
+
+    // The cast mechanism for TSD values works as follows:
+    // - When an input binds to cast_value[key], it gets a view of the REF
+    // - The REF view's _cast_source is this source TSD
+    // - Value access navigates: cast_value → _cast_source → source_value[key] → as REF
+    //
+    // The actual value casting happens in the view layer when accessing entries.
+    // The _cast_source pointer enables this navigation.
+    //
+    // Note: For full dynamic key tracking (add/remove callbacks), additional
+    // overlay support would be needed. The current implementation handles
+    // the static binding case where keys exist at binding time.
 }
 
 }  // namespace hgraph
