@@ -185,9 +185,7 @@ bool TSInputRoot::modified_at(engine_time_t time) const {
 }
 
 bool TSInputRoot::all_valid() const {
-    std::cerr << "[DEBUG TSInputRoot::all_valid] ENTRY" << std::endl;
     if (!valid()) {
-        std::cerr << "[DEBUG TSInputRoot::all_valid] not valid() -> false" << std::endl;
         return false;
     }
 
@@ -196,17 +194,13 @@ bool TSInputRoot::all_valid() const {
         if (auto* storage = _value.link_storage_at(i)) {
             bool bound = link_storage_bound(*storage);
             bool valid = bound ? link_storage_valid(*storage) : true;
-            std::cerr << "[DEBUG TSInputRoot::all_valid] field[" << i << "] bound=" << (bound ? "yes" : "no")
-                      << " valid=" << (valid ? "yes" : "no") << std::endl;
             if (bound && !valid) {
-                std::cerr << "[DEBUG TSInputRoot::all_valid] field[" << i << "] not valid -> false" << std::endl;
                 return false;
             }
         }
         // TODO: Check non-linked children with nested links recursively
     }
 
-    std::cerr << "[DEBUG TSInputRoot::all_valid] all fields valid -> true" << std::endl;
     return true;
 }
 

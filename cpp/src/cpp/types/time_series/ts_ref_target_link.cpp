@@ -9,7 +9,6 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
-#include <iostream>
 
 namespace hgraph {
 
@@ -108,11 +107,6 @@ void TSRefTargetLink::unbind() {
 void TSRefTargetLink::rebind_target(const TSValue* new_target, engine_time_t time) {
     const TSValue* old_target = _target_link.output();
 
-    std::cerr << "[DEBUG rebind_target] old_target=" << old_target
-              << " new_target=" << new_target
-              << " old==new=" << (old_target == new_target)
-              << std::endl;
-
     if (old_target == new_target) {
         return;  // No change
     }
@@ -124,7 +118,6 @@ void TSRefTargetLink::rebind_target(const TSValue* new_target, engine_time_t tim
 
     // Preserve active state
     bool was_active = _target_link.active();
-    std::cerr << "[DEBUG rebind_target] was_active=" << was_active << std::endl;
 
     // Unbind from old target
     _target_link.unbind();
@@ -132,9 +125,6 @@ void TSRefTargetLink::rebind_target(const TSValue* new_target, engine_time_t tim
     // Bind to new target
     if (new_target) {
         _target_link.bind(new_target);
-        std::cerr << "[DEBUG rebind_target] after bind, _target_link.bound()=" << _target_link.bound()
-                  << " _target_link.output()=" << _target_link.output()
-                  << std::endl;
     }
 
     // Restore active state
@@ -145,21 +135,12 @@ void TSRefTargetLink::rebind_target(const TSValue* new_target, engine_time_t tim
     // Set sample time to track rebinding
     _target_link.set_sample_time(time);
 
-    std::cerr << "[DEBUG rebind_target] DONE, _target_link.bound()=" << _target_link.bound()
-              << " _target_link.output()=" << _target_link.output()
-              << std::endl;
-
     // Clear element-based binding state since we're using direct TSValue binding
     _target_container = nullptr;
     _target_elem_index = -1;
 }
 
 void TSRefTargetLink::rebind_target_element(const TSValue* container, size_t elem_index, engine_time_t time) {
-    std::cerr << "[DEBUG rebind_target_element] container=" << container
-              << " elem_index=" << elem_index
-              << " time=" << time
-              << std::endl;
-
     // For element-based binding, we store container + index instead of using _target_link
     // This handles TSL elements that don't have separate TSValues
 
@@ -179,10 +160,6 @@ void TSRefTargetLink::rebind_target_element(const TSValue* container, size_t ele
     // Store element-based binding state
     _target_container = container;
     _target_elem_index = static_cast<int>(elem_index);
-
-    std::cerr << "[DEBUG rebind_target_element] DONE, _target_container=" << _target_container
-              << " _target_elem_index=" << _target_elem_index
-              << std::endl;
 }
 
 // ============================================================================
@@ -225,29 +202,16 @@ TSView TSRefTargetLink::view() const {
     // Delegate to target link - user sees target data
     // If target_link is bound, use it; otherwise check element-based binding;
     // finally fall back to ref_link (for notifications)
-    std::cerr << "[DEBUG TSRefTargetLink::view] target_bound=" << _target_link.bound()
-              << " ref_bound=" << _ref_link.bound()
-              << " target_output=" << _target_link.output()
-              << " ref_output=" << _ref_link.output()
-              << " target_container=" << _target_container
-              << " target_elem_index=" << _target_elem_index
-              << std::endl;
 
     // Check for element-based binding first (TSL elements)
     if (_target_container != nullptr && _target_elem_index >= 0) {
         // Navigate into the container at the specified element index
         TSView container_view = _target_container->view();
-        std::cerr << "[DEBUG TSRefTargetLink::view] using element-based binding, container kind="
-                  << (container_view.ts_meta() ? static_cast<int>(container_view.ts_meta()->kind()) : -1)
-                  << std::endl;
 
         // Use TSLView to navigate to the element
         if (container_view.ts_meta() && container_view.ts_meta()->kind() == TSTypeKind::TSL) {
             TSLView list_view = container_view.as_list();
             TSView elem_view = list_view.element(static_cast<size_t>(_target_elem_index));
-            std::cerr << "[DEBUG TSRefTargetLink::view] returning element view, kind="
-                      << (elem_view.ts_meta() ? static_cast<int>(elem_view.ts_meta()->kind()) : -1)
-                      << std::endl;
             return elem_view;
         }
         // For other container types, return container view (should not happen for element binding)
@@ -256,14 +220,10 @@ TSView TSRefTargetLink::view() const {
 
     if (_target_link.bound()) {
         TSView v = _target_link.view();
-        std::cerr << "[DEBUG TSRefTargetLink::view] returning target_link view, kind="
-                  << (v.ts_meta() ? static_cast<int>(v.ts_meta()->kind()) : -1) << std::endl;
         return v;
     }
     // Fall back to ref_link view if target is not bound
     TSView v = _ref_link.view();
-    std::cerr << "[DEBUG TSRefTargetLink::view] returning ref_link view, kind="
-              << (v.ts_meta() ? static_cast<int>(v.ts_meta()->kind()) : -1) << std::endl;
     return v;
 }
 

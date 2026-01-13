@@ -129,12 +129,6 @@ void TSLink::set_element_index(int idx) {
     int old_index = _element_index;
     _element_index = idx;
 
-    std::cerr << "[DEBUG TSLink::set_element_index] old=" << old_index << " new=" << idx
-              << " output=" << (_output ? "yes" : "null")
-              << " output_kind=" << (_output && _output->ts_meta() ? static_cast<int>(_output->ts_meta()->kind()) : -1)
-              << " active=" << (_active ? "yes" : "no")
-              << std::endl;
-
     // If we're bound to a TSL and the index changed, we need to switch overlays
     // This ensures we subscribe to the element's overlay, not the whole TSL
     if (_output && _output->ts_meta() &&
@@ -146,21 +140,12 @@ void TSLink::set_element_index(int idx) {
         auto* base_overlay = const_cast<TSOverlayStorage*>(_output->overlay());
         auto* list_overlay = dynamic_cast<ListTSOverlay*>(base_overlay);
 
-        std::cerr << "[DEBUG TSLink::set_element_index] list_overlay=" << (list_overlay ? "yes" : "null")
-                  << " child_count=" << (list_overlay ? list_overlay->child_count() : 0)
-                  << std::endl;
-
         if (list_overlay && idx >= 0 && static_cast<size_t>(idx) < list_overlay->child_count()) {
             // Use element overlay
             _output_overlay = list_overlay->child(static_cast<size_t>(idx));
-            std::cerr << "[DEBUG TSLink::set_element_index] Switched to element overlay for index " << idx << std::endl;
         } else if (old_index >= 0 && idx < 0) {
             // Switching from element to whole - use base overlay
             _output_overlay = base_overlay;
-            std::cerr << "[DEBUG TSLink::set_element_index] Switched to base TSL overlay" << std::endl;
-        } else {
-            std::cerr << "[DEBUG TSLink::set_element_index] Could not switch overlay (idx=" << idx
-                      << " child_count=" << (list_overlay ? list_overlay->child_count() : 0) << ")" << std::endl;
         }
 
         // Resubscribe if we were active
@@ -198,13 +183,6 @@ void TSLink::make_passive() {
 // ============================================================================
 
 void TSLink::notify(engine_time_t time) {
-    std::cerr << "[DEBUG TSLink::notify] time=" << time
-              << " active=" << (_active ? "yes" : "no")
-              << " element_index=" << _element_index
-              << " node=" << (_node ? (void*)_node : "null")
-              << " output_overlay=" << _output_overlay
-              << std::endl;
-
     if (!_active) {
         return;  // Ignore notifications when passive
     }
@@ -227,7 +205,6 @@ void TSLink::notify(engine_time_t time) {
     if (_notify_time != time) {
         _notify_time = time;
 
-        std::cerr << "[DEBUG TSLink::notify] Notifying node: " << (_node ? (void*)_node : "null") << std::endl;
 
         // Delegate to owning node
         if (_node && !is_graph_stopping()) {
@@ -288,10 +265,6 @@ engine_time_t TSLink::last_modified_time() const {
 
 void TSLink::subscribe_if_needed() {
     if (_active && _output_overlay) {
-        std::cerr << "[DEBUG TSLink::subscribe_if_needed] subscribing to overlay=" << _output_overlay
-                  << " element_index=" << _element_index
-                  << " node=" << (_node ? (void*)_node : "null")
-                  << std::endl;
         _output_overlay->subscribe(this);
     }
 }

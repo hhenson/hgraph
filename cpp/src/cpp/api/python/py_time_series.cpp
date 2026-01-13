@@ -139,29 +139,16 @@ namespace hgraph
         // This handles dynamic rebinding for inputs linked to REF outputs
         const TSValue* link_source = _view.link_source();
         const auto& path = _view.path();
-        std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] link_source=" << link_source
-                  << " _view.ts_meta_kind=" << (_view.ts_meta() ? static_cast<int>(_view.ts_meta()->kind()) : -1)
-                  << " path_size=" << path.depth()
-                  << std::endl;
         if (link_source && path.depth() > 0) {
             // Get the field index from the path (first element for bundle fields)
             size_t field_index = path.elements[0];
-            std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] field_index=" << field_index << std::endl;
             // Try to get the TSRefTargetLink at the field index
             TSRefTargetLink* ref_link = const_cast<TSValue*>(link_source)->ref_link_at(field_index);
-            std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] ref_link=" << (ref_link ? "yes" : "no")
-                      << std::endl;
             if (ref_link) {
                 const TSValue* target = ref_link->target_output();
-                std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] target=" << target
-                          << " is_element_binding=" << ref_link->is_element_binding()
-                          << std::endl;
                 if (target || ref_link->is_element_binding()) {
                     // Use ref_link->view() which properly navigates to elements for element-based bindings
                     TSView target_view = ref_link->view();
-                    std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] target_view kind="
-                              << (target_view.ts_meta() ? static_cast<int>(target_view.ts_meta()->kind()) : -1)
-                              << std::endl;
 
                     // Check if a rebind occurred at this tick - if so, return full value as delta
                     // When REF target changes, all elements are "new" from the perspective of the input
@@ -169,14 +156,10 @@ namespace hgraph
                     if (node && node->cached_evaluation_time_ptr()) {
                         engine_time_t eval_time = *node->cached_evaluation_time_ptr();
                         engine_time_t rebind_time = ref_link->target_sample_time();
-                        std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] eval_time=" << eval_time
-                                  << " rebind_time=" << rebind_time << std::endl;
                         if (rebind_time == eval_time) {
                             // Rebind occurred this tick - return full value as delta
                             // For TSL/TSD/TSS: build delta dict with all elements
                             // For TSB: return regular delta (bundle fields don't change)
-                            std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] rebind this tick - returning full delta"
-                                      << std::endl;
                             auto target_kind = target_view.ts_meta() ? target_view.ts_meta()->kind() : TSTypeKind::TS;
                             if (target_kind == TSTypeKind::TSL) {
                                 // Build dict with all TSL elements

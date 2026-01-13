@@ -93,22 +93,6 @@ namespace hgraph
             ? root_output
             : _extract_ts_output(root_output, output_path);
 
-        // Debug: show input path and output type
-        std::cerr << "[DEBUG _bind_ts_input] node_name=" << dst_node->signature().name
-                  << " input_path=[";
-        for (size_t i = 0; i < input_path.size(); ++i) {
-            if (i > 0) std::cerr << ",";
-            std::cerr << input_path[i];
-        }
-        std::cerr << "] output_path=[";
-        for (size_t i = 0; i < output_path.size(); ++i) {
-            if (i > 0) std::cerr << ",";
-            std::cerr << output_path[i];
-        }
-        std::cerr << "]"
-                  << " output_kind=" << (output && output->ts_meta() ? static_cast<int>(output->ts_meta()->kind()) : -1)
-                  << std::endl;
-
         TSInputRoot& input_root = dst_node->ts_input();
 
         if (input_path.size() == 1) {
@@ -139,16 +123,12 @@ namespace hgraph
                                         if (link) {
                                             // Use the first element of output_path as the element index
                                             link->set_element_index(static_cast<int>(output_path[0]));
-                                            std::cerr << "[DEBUG _bind_ts_input] Set element_index=" << output_path[0]
-                                                      << " for TSL->TS binding (TSLink)" << std::endl;
                                         }
                                     } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
                                         if (link) {
                                             // For TSRefTargetLink, set element_index on target_link
                                             // When the REF resolves to a TSL, target_link.view() will navigate to the element
                                             link->target_link().set_element_index(static_cast<int>(output_path[0]));
-                                            std::cerr << "[DEBUG _bind_ts_input] Set element_index=" << output_path[0]
-                                                      << " for TSL->TS binding (TSRefTargetLink)" << std::endl;
                                         }
                                     }
                                 }, *storage);
@@ -242,14 +222,10 @@ namespace hgraph
                                 if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
                                     if (link) {
                                         link->set_element_index(static_cast<int>(output_path[0]));
-                                        std::cerr << "[DEBUG _bind_ts_input nested] Set element_index=" << output_path[0]
-                                                  << " for TSL->TS binding (TSLink)" << std::endl;
                                     }
                                 } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
                                     if (link) {
                                         link->target_link().set_element_index(static_cast<int>(output_path[0]));
-                                        std::cerr << "[DEBUG _bind_ts_input nested] Set element_index=" << output_path[0]
-                                                  << " for TSL->TS binding (TSRefTargetLink)" << std::endl;
                                     }
                                 }
                             }, *storage);

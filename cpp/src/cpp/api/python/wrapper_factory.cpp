@@ -30,8 +30,6 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <stdexcept>
-#include <utility>
-#include <iostream>
 
 namespace hgraph
 {
@@ -163,20 +161,11 @@ namespace
         // Check if we need auto-dereference: expected is non-REF but actual is REF
         bool needs_auto_deref = (expected_kind != TSTypeKind::REF && meta->kind() == TSTypeKind::REF);
 
-        std::cerr << "[DEBUG wrap_input_view] expected_kind=" << static_cast<int>(expected_kind)
-                  << " actual_kind=" << static_cast<int>(meta->kind())
-                  << " needs_auto_deref=" << needs_auto_deref
-                  << " view.link_source=" << view.link_source()
-                  << std::endl;
-
         // Create a mutable copy of the view to set auto-deref flag if needed
         TSView view_copy = view;
         if (needs_auto_deref) {
             view_copy.set_auto_deref(true);
         }
-
-        std::cerr << "[DEBUG wrap_input_view] after copy, view_copy.link_source=" << view_copy.link_source()
-                  << std::endl;
 
         // Use expected_kind for wrapper selection
         TSTypeKind kind_to_use = expected_kind;

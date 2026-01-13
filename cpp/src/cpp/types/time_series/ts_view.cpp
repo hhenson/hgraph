@@ -293,9 +293,6 @@ nb::object TSView::to_python() const {
             // and set it via set_bound_output(), use it directly to create a TimeSeriesReference.
             if (_bound_output) {
                 auto bound_kind = _bound_output->ts_meta() ? _bound_output->ts_meta()->kind() : TSTypeKind::TS;
-                std::cerr << "[DEBUG REF to_python] _bound_output=" << _bound_output
-                          << " kind=" << static_cast<int>(bound_kind)
-                          << " elem_index=" << _bound_output_elem_index << std::endl;
 
                 // Check if bound_output is a container and we have an element index
                 if (_bound_output_elem_index >= 0 && bound_kind == TSTypeKind::TSL) {
@@ -303,8 +300,6 @@ nb::object TSView::to_python() const {
                     // because the element is a whole container, not a scalar
                     const TSLTypeMeta* list_meta = static_cast<const TSLTypeMeta*>(_bound_output->ts_meta());
                     const TSMeta* elem_meta = list_meta->element_type();
-                    std::cerr << "[DEBUG REF to_python] element_type_kind="
-                              << static_cast<int>(elem_meta->kind()) << std::endl;
 
                     // Only use elem_index for scalar elements (like TS), not for container elements (like TSL)
                     // For container elements, the element itself should be returned whole
@@ -312,18 +307,14 @@ nb::object TSView::to_python() const {
                         elem_meta->kind() == TSTypeKind::TSD || elem_meta->kind() == TSTypeKind::TSS) {
                         // Container element - don't use elem_index, navigate to get the container
                         // and return a direct reference to it
-                        std::cerr << "[DEBUG REF to_python] Container element - navigating to whole element" << std::endl;
                         // TODO: Navigate to the element and return TimeSeriesReference to it directly
                         // For now, fallthrough to use elem_index (which may be wrong)
                     }
 
                     // Create a view-bound reference with the element path
-                    std::cerr << "[DEBUG REF to_python] Using _bound_output TSL with elem_index="
-                              << _bound_output_elem_index << std::endl;
                     return nb::cast(TimeSeriesReference::make_view_bound(
                         _bound_output, static_cast<size_t>(_bound_output_elem_index)));
                 }
-                std::cerr << "[DEBUG REF to_python] Using _bound_output directly" << std::endl;
                 return nb::cast(TimeSeriesReference::make_view_bound(_bound_output));
             }
 
@@ -441,7 +432,6 @@ nb::object TSView::to_python() const {
                             }
                         }
                         if (has_nested_links) {
-                            std::cerr << "[DEBUG REF to_python] Using child_value with nested links" << std::endl;
                             // Create view-bound reference to the child_value (the inner TSL with links)
                             return nb::cast(TimeSeriesReference::make_view_bound(child));
                         }
@@ -1089,15 +1079,6 @@ bool TSMutableView::from_python(const nb::object& src) {
 
         // Store in global cache
         if (cache_key) {
-            std::string store_owner = "unknown";
-            Node* owner = owning_node();
-            if (owner) {
-                store_owner = owner->signature().name;
-            }
-            std::cerr << "[DEBUG REF CACHE] Storing at key=" << cache_key
-                      << " owner=" << store_owner
-                      << " value_type=" << nb::cast<std::string>(src.type().attr("__name__"))
-                      << std::endl;
             g_ref_output_cache[cache_key] = src;
 
             // Notify REF observers to rebind to the target
@@ -1108,30 +1089,21 @@ bool TSMutableView::from_python(const nb::object& src) {
                 if (ref.is_view_bound()) {
                     const TSValue* container = ref.view_output();
                     int elem_index = ref.view_element_index();
-                    std::cerr << "[DEBUG REF CACHE] view_output=" << container
-                              << " elem_index=" << elem_index << std::endl;
 
                     if (elem_index >= 0 && container) {
                         // Element-based reference (e.g., TSL element) - use element notification
-                        std::cerr << "[DEBUG REF CACHE] Using element-based notification"
-                                  << std::endl;
                         const_cast<TSValue*>(cache_key)->notify_ref_observers_element(
                             container, static_cast<size_t>(elem_index));
                     } else if (container) {
                         // Direct TSValue reference
-                        std::cerr << "[DEBUG REF CACHE] Notifying observers with direct target="
-                                  << container << std::endl;
                         const_cast<TSValue*>(cache_key)->notify_ref_observers(container);
                     } else {
                         // Null target
-                        std::cerr << "[DEBUG REF CACHE] Notifying observers with null target"
-                                  << std::endl;
                         const_cast<TSValue*>(cache_key)->notify_ref_observers(nullptr);
                     }
                 }
             } catch (...) {
                 // Ignore cast errors - might be an empty reference
-                std::cerr << "[DEBUG REF CACHE] Failed to cast TimeSeriesReference for observer notification" << std::endl;
             }
         }
 
@@ -1906,22 +1878,6 @@ TSView TSBView::field(size_t index) const {
 
     const TSBFieldInfo& field_info = bundle_meta->field(index);
 
-    // DEBUG: Trace field access with owning node info
-    std::string owner_name = "unknown";
-    if (_link_source) {
-        Node* owner = _link_source->owning_node();
-        if (owner) {
-            owner_name = owner->signature().name;
-        }
-    }
-    std::cerr << "[DEBUG TSBView::field] index=" << index << " name=" << field_info.name
-              << " owner=" << owner_name
-              << " type_kind=" << static_cast<int>(field_info.type->kind())
-              << " _link_source=" << (_link_source ? "yes" : "no")
-              << " is_linked=" << (_link_source ? (_link_source->is_linked(index) ? "yes" : "no") : "n/a")
-              << " is_ref=" << (field_info.type->is_reference() ? "yes" : "no")
-              << std::endl;
-
     // ===== Link Support: Check if this child is linked =====
     // For REF types, don't follow the link - the REF wrapper handles link navigation
     // to return a TimeSeriesReference. For non-REF types, follow the link to get the value.
@@ -1931,14 +1887,6 @@ TSView TSBView::field(size_t index) const {
         LinkStorage* storage = const_cast<TSValue*>(_link_source)->link_storage_at(index);
         if (storage) {
             TSView linked_view = link_storage_view(*storage);
-
-            // DEBUG: trace auto-deref check
-            std::cerr << "[DEBUG TSBView::field auto-deref] index=" << index
-                      << " linked_view.valid()=" << linked_view.valid()
-                      << " has_meta=" << (linked_view.ts_meta() != nullptr)
-                      << " meta_kind=" << (linked_view.ts_meta() ? static_cast<int>(linked_view.ts_meta()->kind()) : -1)
-                      << " is_ref=" << (linked_view.ts_meta() ? linked_view.ts_meta()->is_reference() : false)
-                      << std::endl;
 
             // Check if the linked output is a REF but input expects non-REF
             // This happens when a non-REF input (e.g., TIME_SERIES_TYPE resolved to TS[int])
@@ -1955,7 +1903,6 @@ TSView TSBView::field(size_t index) const {
                 }, *storage);
 
                 if (direct_target) {
-                    std::cerr << "[DEBUG TSBView::field auto-deref] TSRefTargetLink target=" << direct_target << std::endl;
                     return direct_target->view();
                 }
 
@@ -1973,22 +1920,17 @@ TSView TSBView::field(size_t index) const {
                     }
                 }, *storage);
 
-                std::cerr << "[DEBUG TSBView::field auto-deref] ref_output=" << ref_output << std::endl;
 
                 if (ref_output) {
                     // Look up the TimeSeriesReference value in the cache
                     auto it = g_ref_output_cache.find(ref_output);
-                    std::cerr << "[DEBUG TSBView::field auto-deref] cache_found=" << (it != g_ref_output_cache.end()) << std::endl;
                     if (it != g_ref_output_cache.end()) {
                         // Cast to TimeSeriesReference and check if it points to a target
                         TimeSeriesReference ref = nb::cast<TimeSeriesReference>(it->second);
-                        std::cerr << "[DEBUG TSBView::field auto-deref] is_view_bound=" << ref.is_view_bound() << std::endl;
                         if (ref.is_view_bound()) {
                             // Get the target TSValue and return a view into it
                             const TSValue* target = ref.view_output();
-                            std::cerr << "[DEBUG TSBView::field auto-deref] target=" << target << std::endl;
                             if (target) {
-                                std::cerr << "[DEBUG TSBView::field auto-deref] RETURNING target->view()" << std::endl;
                                 return target->view();
                             }
                         }
@@ -2004,8 +1946,6 @@ TSView TSBView::field(size_t index) const {
                 TSView result(linked_view.value_view().data(), linked_view.ts_meta(),
                               linked_view.overlay(), _root, std::move(child_path));
                 result.set_link_source(_link_source);
-                std::cerr << "[DEBUG TSBView::field auto-deref] Preserving link_source for REF output, link_source="
-                          << _link_source << std::endl;
                 return result;
             }
 
@@ -2149,14 +2089,6 @@ TSView TSLView::element(size_t index) const {
     const TSLTypeMeta* list_meta_ptr = static_cast<const TSLTypeMeta*>(_ts_meta);
     const TSMeta* element_type = list_meta_ptr->element_type();
 
-    std::cerr << "[DEBUG TSLView::element] index=" << index
-              << " element_type_kind=" << static_cast<int>(element_type->kind())
-              << " _container=" << (_container ? "yes" : "no")
-              << " is_cast=" << (_container && _container->is_cast() ? "yes" : "no")
-              << " _link_source=" << (_link_source ? "yes" : "no")
-              << " is_linked=" << (_link_source ? (_link_source->is_linked(index) ? "yes" : "no") : "n/a")
-              << std::endl;
-
     // ===== Cast TSValue: For TS→REF conversions, elements are in child_values =====
     // When this view was created from a cast TSValue (via TSBView::field() cast_to()),
     // the element TSValues are stored in the cast's link_support->child_values.
@@ -2165,7 +2097,6 @@ TSView TSLView::element(size_t index) const {
         if (elem_ts_value) {
             // Return a view of the element TSValue
             // The element is a REF TSValue with _cast_source pointing to the source list
-            std::cerr << "[DEBUG TSLView::element] Using cast TSValue path" << std::endl;
             return elem_ts_value->view();
         }
     }
@@ -2176,10 +2107,6 @@ TSView TSLView::element(size_t index) const {
         // Handle both TSLink (non-REF bindings) and TSRefTargetLink (REF bindings)
         TSLink* ts_link = const_cast<TSValue*>(_link_source)->link_at(index);
         TSRefTargetLink* ref_link = const_cast<TSValue*>(_link_source)->ref_link_at(index);
-
-        std::cerr << "[DEBUG TSLView::element LINKED] ts_link=" << (ts_link ? "yes" : "null")
-                  << " ref_link=" << (ref_link ? "yes" : "null")
-                  << std::endl;
 
         const TSValue* bound_output = nullptr;
         TSView linked_view;
@@ -2213,21 +2140,11 @@ TSView TSLView::element(size_t index) const {
             }
         }
 
-        std::cerr << "[DEBUG TSLView::element LINKED] bound_output=" << (bound_output ? "yes" : "null")
-                  << " bound_output_kind=" << (bound_output && bound_output->ts_meta() ? static_cast<int>(bound_output->ts_meta()->kind()) : -1)
-                  << " linked_view_kind=" << (linked_view.ts_meta() ? static_cast<int>(linked_view.ts_meta()->kind()) : -1)
-                  << std::endl;
-
         if (!linked_view.valid()) {
             // Link exists but no output bound yet - return invalid view
             LightweightPath child_path = _path.with(index);
             return TSView(nullptr, element_type, nullptr, _root, std::move(child_path));
         }
-
-        std::cerr << "[DEBUG TSLView::element] linked_view.ts_meta_kind="
-                  << (linked_view.ts_meta() ? static_cast<int>(linked_view.ts_meta()->kind()) : -1)
-                  << " element_type_kind=" << static_cast<int>(element_type->kind())
-                  << std::endl;
 
         // Handle TSL[REF[T]] → TSL[T] binding:
         // When bound_output is a container (e.g., TSL) but input element is REF,
@@ -2241,8 +2158,6 @@ TSView TSLView::element(size_t index) const {
             const TSMeta* target_type = ref_meta->referenced_type();
             TSTypeKind target_kind = target_type ? target_type->kind() : TSTypeKind::TS;
 
-            std::cerr << "[DEBUG TSLView::element] REF target_kind="
-                      << static_cast<int>(target_kind) << std::endl;
 
             // bound_output is the whole TSL - extract element view at index
             const TSLTypeMeta* list_meta = static_cast<const TSLTypeMeta*>(linked_view.ts_meta());
@@ -2250,18 +2165,11 @@ TSView TSLView::element(size_t index) const {
                            static_cast<ListTSOverlay*>(linked_view.overlay()));
             TSView elem_view = as_list.element(index);
 
-            std::cerr << "[DEBUG TSLView::element] Navigated into TSL: elem_view_kind="
-                      << static_cast<int>(elem_view.ts_meta()->kind())
-                      << std::endl;
-
             // For container elements (TSL, TSB, TSD, TSS), return a REF to the element
             // WITHOUT using elem_index - the REF points to the whole container, not an element within it
             // The bound_output (ref_output) IS the target container itself
             if (target_kind == TSTypeKind::TSL || target_kind == TSTypeKind::TSB ||
                 target_kind == TSTypeKind::TSD || target_kind == TSTypeKind::TSS) {
-                std::cerr << "[DEBUG TSLView::element] Container element - REF points to whole container"
-                          << " bound_output=" << bound_output
-                          << " index=" << index << std::endl;
                 // Create REF view pointing to the whole container (no element navigation)
                 LightweightPath child_path;
                 child_path.elements.push_back(index);
@@ -2331,7 +2239,6 @@ TSView TSLView::element(size_t index) const {
                 }
             }
             if (has_nested_links) {
-                std::cerr << "[DEBUG TSLView::element] REF with nested links at index=" << index << std::endl;
                 // Return a REF view with proper path and link_source setup
                 // Path is just [index] relative to _link_source (the parent TSL)
                 LightweightPath child_path;
@@ -2391,11 +2298,6 @@ TSView TSLView::element(size_t index) const {
     // Use overlay-based child navigation with path
     if (auto* list_ov = list_overlay()) {
         TSOverlayStorage* child_overlay = list_ov->child(index);
-        std::cerr << "[DEBUG TSLView::element] list_ov=" << list_ov
-                  << " list_ov->last_mod=" << list_ov->last_modified_time()
-                  << " child_overlay=" << child_overlay
-                  << " child_overlay->last_mod=" << (child_overlay ? child_overlay->last_modified_time() : MIN_DT)
-                  << std::endl;
         TSView result(element_value.data(), element_type, child_overlay, _root, std::move(child_path));
         result.set_link_source(child_link_source);
         return result;
@@ -3144,23 +3046,12 @@ nb::object TSLView::to_python() const {
 }
 
 nb::object TSLView::to_python_delta() const {
-    std::cerr << "[DEBUG TSLView::to_python_delta] valid=" << (valid() ? "yes" : "no")
-              << " _link_source=" << (_link_source ? "yes" : "no")
-              << " _container=" << (_container ? "yes" : "no")
-              << " _overlay=" << (_overlay ? "yes" : "no")
-              << " list_overlay=" << (list_overlay() ? "yes" : "no")
-              << std::endl;
-    if (_container) {
-        std::cerr << "[DEBUG TSLView::to_python_delta] container->overlay=" << (_container->overlay() ? "yes" : "no")
-                  << std::endl;
-    }
     if (!valid()) return nb::none();
 
     // Get current evaluation time
     Node* n = owning_node();
     if (!n || !n->cached_evaluation_time_ptr()) {
         // No time context - return empty dict
-        std::cerr << "[DEBUG TSLView::to_python_delta] No time context" << std::endl;
         return nb::dict();
     }
     engine_time_t eval_time = *n->cached_evaluation_time_ptr();
@@ -3168,15 +3059,9 @@ nb::object TSLView::to_python_delta() const {
     // Python behavior: {i: elem.delta_value for i, elem in enumerate(elements) if elem.modified}
     nb::dict result;
     size_t count = size();
-    std::cerr << "[DEBUG TSLView::to_python_delta] count=" << count << " eval_time=" << eval_time << std::endl;
     for (size_t i = 0; i < count; ++i) {
         TSView elem = element(i);
         bool modified = elem.modified_at(eval_time);
-        std::cerr << "[DEBUG TSLView::to_python_delta] elem[" << i << "] modified=" << (modified ? "yes" : "no")
-                  << " elem.ts_meta_kind=" << (elem.ts_meta() ? static_cast<int>(elem.ts_meta()->kind()) : -1)
-                  << " elem._overlay=" << (elem.overlay() ? "yes" : "no")
-                  << " elem.last_mod=" << elem.last_modified_time()
-                  << std::endl;
         if (modified) {
             result[nb::int_(i)] = elem.to_python_delta();
         }

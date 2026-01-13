@@ -102,12 +102,9 @@ TSView TSValue::view() const {
     if (_link_support && _ts_meta->kind() == TSTypeKind::TS) {
         // Check if link at index 0 is a TSRefTargetLink with a bound target
         TSRefTargetLink* ref_link = const_cast<TSValue*>(this)->ref_link_at(0);
-        std::cerr << "[DEBUG view()] _link_support=yes kind=TS ref_link=" << (ref_link ? "yes" : "no") << std::endl;
         if (ref_link) {
             const TSValue* target = ref_link->target_output();
-            std::cerr << "[DEBUG view()] ref_link found, target=" << target << std::endl;
             if (target) {
-                std::cerr << "[DEBUG view()] Delegating to target view, target_kind=" << static_cast<int>(target->ts_meta()->kind()) << std::endl;
                 // Delegate to target's view - this gives the actual data
                 return target->view();
             }
@@ -256,23 +253,11 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         throw std::out_of_range("TSValue::create_link: index out of bounds or link support not enabled");
     }
 
-    std::cerr << "[DEBUG create_link] ENTRY: index=" << index
-              << " this_kind=" << static_cast<int>(_ts_meta->kind())
-              << " output=" << (output ? "yes" : "null")
-              << " output_kind=" << (output && output->ts_meta() ? static_cast<int>(output->ts_meta()->kind()) : -1)
-              << std::endl;
-
     // Get expected schema for this child position
     const TSMeta* expected_schema = nullptr;
     switch (_ts_meta->kind()) {
         case TSTypeKind::TSB: {
             auto* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
-            std::cerr << "[DEBUG create_link] bundle_meta field_count=" << bundle_meta->field_count() << std::endl;
-            for (size_t i = 0; i < bundle_meta->field_count(); ++i) {
-                auto& f = bundle_meta->fields()[i];
-                std::cerr << "[DEBUG create_link] field[" << i << "] name=" << f.name
-                          << " kind=" << (f.type ? static_cast<int>(f.type->kind()) : -1) << std::endl;
-            }
             if (index < bundle_meta->field_count()) {
                 expected_schema = bundle_meta->field_meta(index);
             }
@@ -286,11 +271,6 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         default:
             throw std::runtime_error("TSValue::create_link: not a composite type");
     }
-
-    std::cerr << "[DEBUG create_link] expected_schema=" << (expected_schema ? "yes" : "null")
-              << " expected_kind=" << (expected_schema ? static_cast<int>(expected_schema->kind()) : -1)
-              << " expected_is_ref=" << (expected_schema && expected_schema->is_reference() ? "yes" : "no")
-              << std::endl;
 
     // Validate output schema matches expected
     if (output && expected_schema) {
@@ -334,7 +314,6 @@ void TSValue::create_link(size_t index, const TSValue* output) {
                 // Element type matches - allow binding
                 kinds_compatible = true;
                 is_tsl_element_binding = true;
-                std::cerr << "[DEBUG create_link] Allowing TSL->TS element binding at index " << index << std::endl;
             }
         }
 
@@ -378,11 +357,6 @@ void TSValue::create_link(size_t index, const TSValue* output) {
     bool is_ref_input = expected_schema && expected_schema->is_reference();
     bool is_ts_to_ref = is_ref_input && !is_ref_output;
 
-    std::cerr << "[DEBUG create_link] is_ref_input=" << (is_ref_input ? "yes" : "no")
-              << " is_ref_output=" << (is_ref_output ? "yes" : "no")
-              << " is_ts_to_ref=" << (is_ts_to_ref ? "yes" : "no")
-              << std::endl;
-
     // Check for composite element TS→REF conversion
     // This handles cases like TSL[REF[T]] binding to TSL[T] where we need element-by-element binding
     bool needs_element_wise_ref_binding = false;
@@ -406,14 +380,11 @@ void TSValue::create_link(size_t index, const TSValue* output) {
     if (needs_element_wise_ref_binding) {
         // TSL[REF[T]] input binding to TSL[T] output
         // We need to create element-by-element links with TS→REF conversion
-        std::cerr << "[DEBUG create_link] needs_element_wise_ref_binding=true for index=" << index << std::endl;
 
         // Get or create child value for the TSL input
         TSValue* input_child = get_or_create_child_value(index);
-        std::cerr << "[DEBUG create_link] input_child=" << (input_child ? "exists" : "null") << std::endl;
         if (!input_child) {
             // No child value - just bind normally (fall through)
-            std::cerr << "[DEBUG create_link] falling through to normal binding" << std::endl;
         } else {
             // Enable link support on the input TSL child
             input_child->enable_link_support();
@@ -482,17 +453,14 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         // This implements Python's observer pattern: when REF output sets its value,
         // all observing inputs are rebound to the target that the REF points to.
         const_cast<TSValue*>(output)->observe_ref(this, index);
-        std::cerr << "[DEBUG create_link] Registered observer for REF output at index=" << index << std::endl;
     } else if (is_ts_to_ref) {
         // TS→REF binding: input expects REF but output is non-REF
         // Create TSRefTargetLink to track the target output
         // The REF input's value will be a TimeSeriesReference pointing to this output
-        std::cerr << "[DEBUG create_link] ENTERING is_ts_to_ref branch for index=" << index << std::endl;
         auto* existing_ref = ref_link_at(index);
         if (!existing_ref) {
             auto ref_link = std::make_unique<TSRefTargetLink>(_owning_node);
             _link_support->child_links[index] = std::move(ref_link);
-            std::cerr << "[DEBUG create_link] Created TSRefTargetLink for TS→REF binding" << std::endl;
         }
         TSRefTargetLink* ref_link_ptr = ref_link_at(index);
         if (ref_link_ptr) {
@@ -501,7 +469,6 @@ void TSValue::create_link(size_t index, const TSValue* output) {
             ref_link_ptr->ref_link().bind(output);
             // Make active so we receive notifications when target ticks
             ref_link_ptr->ref_link().make_active();
-            std::cerr << "[DEBUG create_link] Bound and activated TSRefTargetLink for TS→REF" << std::endl;
         }
         // DON'T clear child_value - REF inputs don't peer, they reference
         return;
@@ -969,10 +936,6 @@ void TSValue::stop_observing_ref(TSValue* input_ts_value, size_t link_index) {
 void TSValue::notify_ref_observers(const TSValue* target) {
     if (!_ref_observers || _ref_observers->empty()) return;
 
-    std::cerr << "[DEBUG notify_ref_observers] target=" << target
-              << " observer_count=" << _ref_observers->size()
-              << std::endl;
-
     // Get current engine time from owning node if available
     engine_time_t current_time = MIN_DT;
     if (_owning_node) {
@@ -985,9 +948,6 @@ void TSValue::notify_ref_observers(const TSValue* target) {
     for (const auto& [input_ts_value, link_index] : *_ref_observers) {
         if (!input_ts_value) continue;
 
-        std::cerr << "[DEBUG notify_ref_observers] Rebinding input at index=" << link_index
-                  << std::endl;
-
         // Get the link at this index
         TSLink* link = input_ts_value->link_at(link_index);
         TSRefTargetLink* ref_link = input_ts_value->ref_link_at(link_index);
@@ -995,7 +955,6 @@ void TSValue::notify_ref_observers(const TSValue* target) {
         if (ref_link) {
             // TSRefTargetLink: use rebind_target which handles both binding and activation
             ref_link->rebind_target(target, current_time);
-            std::cerr << "[DEBUG notify_ref_observers] Rebound TSRefTargetLink to target" << std::endl;
         } else if (link) {
             // Regular TSLink: rebind to target
             if (target) {
@@ -1003,7 +962,6 @@ void TSValue::notify_ref_observers(const TSValue* target) {
                 if (was_active) link->make_passive();
                 link->bind(target);
                 if (was_active) link->make_active();
-                std::cerr << "[DEBUG notify_ref_observers] Rebound TSLink to target" << std::endl;
             } else {
                 link->unbind();
             }
@@ -1014,11 +972,6 @@ void TSValue::notify_ref_observers(const TSValue* target) {
 void TSValue::notify_ref_observers_element(const TSValue* container, size_t elem_index) {
     if (!_ref_observers || _ref_observers->empty()) return;
 
-    std::cerr << "[DEBUG notify_ref_observers_element] container=" << container
-              << " elem_index=" << elem_index
-              << " observer_count=" << _ref_observers->size()
-              << std::endl;
-
     // Get current engine time from owning node if available
     engine_time_t current_time = MIN_DT;
     if (_owning_node) {
@@ -1031,21 +984,14 @@ void TSValue::notify_ref_observers_element(const TSValue* container, size_t elem
     for (const auto& [input_ts_value, link_index] : *_ref_observers) {
         if (!input_ts_value) continue;
 
-        std::cerr << "[DEBUG notify_ref_observers_element] Rebinding input at index=" << link_index
-                  << std::endl;
-
         // Get the link at this index - for element-based refs, we need TSRefTargetLink
         TSRefTargetLink* ref_link = input_ts_value->ref_link_at(link_index);
 
         if (ref_link) {
             // TSRefTargetLink: use rebind_target_element for container element references
             ref_link->rebind_target_element(container, elem_index, current_time);
-            std::cerr << "[DEBUG notify_ref_observers_element] Rebound TSRefTargetLink to element"
-                      << std::endl;
         } else {
             // Regular TSLink cannot handle element-based binding (needs direct TSValue*)
-            std::cerr << "[DEBUG notify_ref_observers_element] Warning: TSLink cannot handle element binding"
-                      << std::endl;
         }
     }
 }
