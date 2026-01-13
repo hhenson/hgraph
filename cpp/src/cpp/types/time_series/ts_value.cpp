@@ -415,23 +415,24 @@ void TSValue::create_link(size_t index, const TSValue* output) {
                 // We need the output's TSValue for element i
                 const TSValue* output_elem = output->child_value(i);
                 if (!output_elem) {
-                    // Output might not have child values - need to create ref target link directly
-                    // The element is expected to be REF, output is non-REF
-                    // We store the output pointer in a TSRefTargetLink at this position
+                    // Output might not have child values - use plain TSLink for TS→REF element binding
+                    // Note: DON'T use notify_once here because the TSL itself (not just the REF)
+                    // should trigger node notification when underlying values change
                     if (!input_child->has_link_support()) {
                         continue;  // Skip if we can't create links
                     }
-                    auto existing_ref = input_child->ref_link_at(i);
-                    if (!existing_ref) {
-                        auto ref_link = std::make_unique<TSRefTargetLink>(_owning_node);
-                        input_child->_link_support->child_links[i] = std::move(ref_link);
+                    auto* existing_link = input_child->link_at(i);
+                    if (!existing_link) {
+                        auto link = std::make_unique<TSLink>(_owning_node);
+                        // DON'T set notify_once - TSL elements need continuous notification
+                        link->set_element_index(static_cast<int>(i));  // Set element index for TSL navigation
+                        input_child->_link_support->child_links[i] = std::move(link);
                     }
-                    TSRefTargetLink* ref_link_ptr = input_child->ref_link_at(i);
-                    if (ref_link_ptr) {
-                        // Store reference to output for this element
-                        // NOTE: We store the whole output TSL - element access goes through view
-                        ref_link_ptr->ref_link().bind(output);
-                        ref_link_ptr->ref_link().make_active();
+                    TSLink* link_ptr = input_child->link_at(i);
+                    if (link_ptr) {
+                        // Bind to the whole output TSL - element access uses element_index
+                        link_ptr->bind(output);
+                        link_ptr->make_active();
                     }
                 } else {
                     // Have specific output element - create link to it
@@ -467,20 +468,19 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         const_cast<TSValue*>(output)->observe_ref(this, index);
     } else if (is_ts_to_ref) {
         // TS→REF binding: input expects REF but output is non-REF
-        // Create TSRefTargetLink to track the target output
-        // The REF input's value will be a TimeSeriesReference pointing to this output
-        auto* existing_ref = ref_link_at(index);
-        if (!existing_ref) {
-            auto ref_link = std::make_unique<TSRefTargetLink>(_owning_node);
-            _link_support->child_links[index] = std::move(ref_link);
+        // According to design, use plain TSLink with notify_once=true for TS→REF
+        // (TSRefTargetLink is only for REF→TS, where REF output binds to non-REF input)
+        auto* existing_link = link_at(index);
+        if (!existing_link) {
+            auto link = std::make_unique<TSLink>(_owning_node);
+            // Set notify_once so REF input only reports modified on first tick (matches Python _sampled)
+            link->set_notify_once(true);
+            _link_support->child_links[index] = std::move(link);
         }
-        TSRefTargetLink* ref_link_ptr = ref_link_at(index);
-        if (ref_link_ptr) {
-            // Use ref_link channel to track the target output
-            // This binds directly to the non-REF output (unlike bind_ref which takes a REF output)
-            ref_link_ptr->ref_link().bind(output);
-            // Make active so we receive notifications when target ticks
-            ref_link_ptr->ref_link().make_active();
+        TSLink* link_ptr = link_at(index);
+        if (link_ptr) {
+            link_ptr->bind(output);
+            link_ptr->make_active();
         }
         // DON'T clear child_value - REF inputs don't peer, they reference
         return;
