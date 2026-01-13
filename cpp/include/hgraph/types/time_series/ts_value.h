@@ -22,6 +22,7 @@
 #include <hgraph/types/time_series/ts_ref_target_link.h>
 
 #include <unordered_map>
+#include <any>
 
 namespace hgraph {
 
@@ -98,6 +99,11 @@ struct TSValue {
     // Copying disabled - use explicit copy methods
     TSValue(const TSValue&) = delete;
     TSValue& operator=(const TSValue&) = delete;
+
+    /**
+     * @brief Destructor.
+     */
+    ~TSValue() = default;
 
     /**
      * @brief Create a copy of a TSValue.
@@ -259,6 +265,41 @@ private:
     const TSMeta* _ts_meta{nullptr};                ///< Time-series schema
     Node* _owning_node{nullptr};                    ///< Owning node (not owned)
     int _output_id{OUTPUT_MAIN};                    ///< Output identifier
+
+    // ========== REF Output Cache ==========
+    /**
+     * @brief Cached Python object for REF outputs.
+     *
+     * When this TSValue is a REF output, stores the TimeSeriesReference
+     * Python object so views can auto-dereference to the target.
+     * Uses std::any to avoid nanobind dependency in header.
+     */
+    mutable std::any _ref_cache;
+
+public:
+    /**
+     * @brief Set the REF output cache value.
+     * @param value The Python object to cache (should be nb::object)
+     */
+    void set_ref_cache(std::any value) const { _ref_cache = std::move(value); }
+
+    /**
+     * @brief Get the REF output cache value.
+     * @return Reference to the cached any, or empty any if not set
+     */
+    [[nodiscard]] const std::any& ref_cache() const noexcept { return _ref_cache; }
+
+    /**
+     * @brief Check if REF cache has a value.
+     */
+    [[nodiscard]] bool has_ref_cache() const noexcept { return _ref_cache.has_value(); }
+
+    /**
+     * @brief Clear the REF cache.
+     */
+    void clear_ref_cache() const { _ref_cache.reset(); }
+
+private:
 
     // ========== Link Support (for inputs) ==========
 

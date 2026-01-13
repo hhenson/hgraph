@@ -137,6 +137,44 @@ namespace hgraph
                     }
                 }
             }
+
+            // Check for TSB->field binding:
+            // If output is TSB but input expects non-TSB, the output_path indicates which field to bind to.
+            // This happens when we couldn't navigate to the specific output field (no child_values).
+            // We store the field index in the link so view() can navigate to the correct field.
+            if (output && output->ts_meta() && output->ts_meta()->kind() == TSTypeKind::TSB && !output_path.empty()) {
+                size_t field_idx = static_cast<size_t>(input_path[0]);
+                TSBView bundle = input_root.bundle_view();
+                const TSValue* link_source = bundle.link_source();
+
+                if (link_source) {
+                    const TSBTypeMeta* input_bundle_meta = static_cast<const TSBTypeMeta*>(link_source->ts_meta());
+                    if (input_bundle_meta && field_idx < input_bundle_meta->field_count()) {
+                        const TSMeta* expected_field_type = input_bundle_meta->field(field_idx).type;
+                        // If input expects non-TSB, this is a field binding
+                        if (expected_field_type && expected_field_type->kind() != TSTypeKind::TSB) {
+                            // Set the field index on the link
+                            LinkStorage* storage = const_cast<TSValue*>(link_source)->link_storage_at(field_idx);
+                            if (storage) {
+                                std::visit([&output_path](auto& link) {
+                                    using T = std::decay_t<decltype(link)>;
+                                    if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
+                                        if (link) {
+                                            // Use the first element of output_path as the field index
+                                            link->set_field_index(static_cast<int>(output_path[0]));
+                                        }
+                                    } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
+                                        if (link) {
+                                            // For TSRefTargetLink, set field_index on target_link
+                                            link->target_link().set_field_index(static_cast<int>(output_path[0]));
+                                        }
+                                    }
+                                }, *storage);
+                            }
+                        }
+                    }
+                }
+            }
         } else {
             // Nested path - navigate through child_value() to reach the target level
             // Access the underlying TSValue via bundle_view's link source

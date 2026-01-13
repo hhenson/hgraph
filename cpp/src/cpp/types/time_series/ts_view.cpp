@@ -334,46 +334,47 @@ nb::object TSView::to_python() const {
                     size_t final_idx = _path.elements.back();
                     const LinkStorage* storage = current->link_storage_at(final_idx);
                     if (storage) {
-                        const TSValue* bound_output = std::visit([](const auto& link) -> const TSValue* {
+                        // For auto-deref, get the actual TARGET, not the REF output
+                        const TSValue* target_output = std::visit([](const auto& link) -> const TSValue* {
                             using T = std::decay_t<decltype(link)>;
                             if constexpr (std::is_same_v<T, std::monostate>) {
                                 return nullptr;
                             } else if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
                                 return link ? link->output() : nullptr;
                             } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
-                                return link ? link->ref_output() : nullptr;
+                                // For REF bindings, get target_output (the actual data), not ref_output
+                                return link ? link->target_output() : nullptr;
                             } else {
                                 return nullptr;
                             }
                         }, *storage);
 
-                        if (bound_output) {
+                        if (target_output) {
                             // DEREFERENCE: Return the target's value, not the TimeSeriesReference
-                            TSView target_view = bound_output->view();
+                            TSView target_view = target_output->view();
                             return target_view.to_python();
                         }
                     }
                 }
-                // Fallback for auto-deref: get target from cache
+                // Fallback for auto-deref: get target from TSValue's ref_cache
                 // The _root is the REF output's TSValue. Look up its TimeSeriesReference
                 // in the cache and get the target it points to.
-                if (_root) {
-                    auto it = g_ref_output_cache.find(_root);
-                    if (it != g_ref_output_cache.end()) {
-                        try {
-                            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(it->second);
-                            if (ref.is_view_bound()) {
-                                const TSValue* target = ref.view_output();
-                                if (target) {
-                                    // DEREFERENCE: Return the target's value
-                                    TSView target_view = target->view();
-                                    nb::object result = target_view.to_python();
-                                    return result;
-                                }
+                if (_root && _root->has_ref_cache()) {
+                    try {
+                        nb::object cached = std::any_cast<nb::object>(_root->ref_cache());
+                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
+                        if (ref.is_view_bound()) {
+                            const TSValue* target = ref.view_output();
+                            if (target) {
+                                // DEREFERENCE: Return the target's value
+                                TSView target_view = target->view();
+                                nb::object result = target_view.to_python();
+                                return result;
                             }
-                        } catch (const std::exception& e) {
-                        } catch (...) {
                         }
+                    } catch (const std::bad_any_cast&) {
+                    } catch (const std::exception& e) {
+                    } catch (...) {
                     }
                 }
                 return nb::none();
@@ -408,13 +409,16 @@ nb::object TSView::to_python() const {
                     }, *storage);
 
                     if (bound_output) {
-                        // Check cache for this bound output - it contains a TimeSeriesReference
-                        auto it = g_ref_output_cache.find(bound_output);
-                        if (it != g_ref_output_cache.end()) {
-                            // Return the cached TimeSeriesReference directly (NO automatic dereferencing)
-                            // Python's REF.value returns the TimeSeriesReference, not the dereferenced value.
-                            // Users who want the underlying data should use .output.value
-                            return it->second;
+                        // Check TSValue's ref_cache for this bound output - it contains a TimeSeriesReference
+                        if (bound_output->has_ref_cache()) {
+                            try {
+                                // Return the cached TimeSeriesReference directly (NO automatic dereferencing)
+                                // Python's REF.value returns the TimeSeriesReference, not the dereferenced value.
+                                // Users who want the underlying data should use .output.value
+                                return std::any_cast<nb::object>(bound_output->ref_cache());
+                            } catch (const std::bad_any_cast&) {
+                                // Fall through to create reference
+                            }
                         }
                         // Create view-bound reference to the bound output
                         return nb::cast(TimeSeriesReference::make_view_bound(bound_output));
@@ -450,12 +454,13 @@ nb::object TSView::to_python() const {
                     cache_key = _root->child_value(_path.elements.back());
                 }
 
-                if (cache_key) {
-                    auto it = g_ref_output_cache.find(cache_key);
-                    if (it != g_ref_output_cache.end()) {
+                if (cache_key && cache_key->has_ref_cache()) {
+                    try {
                         // Return the cached value directly (NO automatic dereferencing)
                         // Python's REF.value returns the TimeSeriesReference, not the dereferenced value.
-                        return it->second;
+                        return std::any_cast<nb::object>(cache_key->ref_cache());
+                    } catch (const std::bad_any_cast&) {
+                        // Fall through to create reference
                     }
                 }
                 // Not in cache - create a view-bound reference using the cache key
@@ -536,56 +541,55 @@ nb::object TSView::to_python_delta() const {
                         }
                     }
                 }
-                // Fallback for auto-deref: get target from cache
-                if (_root) {
-                    auto it = g_ref_output_cache.find(_root);
-                    if (it != g_ref_output_cache.end()) {
-                        try {
-                            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(it->second);
-                            if (ref.is_view_bound()) {
-                                const TSValue* target = ref.view_output();
-                                if (target) {
-                                    // Check if REF target changed by comparing to cached previous target
-                                    auto prev_it = g_ref_prev_target_cache.find(_root);
-                                    bool target_changed = false;
-                                    if (prev_it == g_ref_prev_target_cache.end()) {
-                                        // First time seeing this REF - target "changed" (is new)
-                                        target_changed = true;
-                                        g_ref_prev_target_cache[_root] = target;
-                                    } else if (prev_it->second != target) {
-                                        // Target pointer changed
-                                        target_changed = true;
-                                        g_ref_prev_target_cache[_root] = target;
-                                    }
-                                    // If target didn't change, prev_target stays the same
-
-                                    TSView target_view = target->view();
-
-                                    if (target_changed) {
-                                        // REF target changed - return full value as delta
-                                        // For TSL, convert value to {index: value} dict format
-                                        if (target->ts_meta() && target->ts_meta()->kind() == TSTypeKind::TSL) {
-                                            nb::object full_value = target_view.to_python();
-                                            if (nb::isinstance<nb::tuple>(full_value)) {
-                                                nb::dict result;
-                                                nb::tuple tpl = nb::cast<nb::tuple>(full_value);
-                                                for (size_t i = 0; i < nb::len(tpl); ++i) {
-                                                    result[nb::int_(i)] = tpl[i];
-                                                }
-                                                return result;
-                                            }
-                                            return full_value;  // Already dict or other format
-                                        }
-                                        // For other types, return full value
-                                        return target_view.to_python();
-                                    }
-
-                                    // REF target didn't change - return target's delta
-                                    return target_view.to_python_delta();
+                // Fallback for auto-deref: get target from TSValue's ref_cache
+                if (_root && _root->has_ref_cache()) {
+                    try {
+                        nb::object cached = std::any_cast<nb::object>(_root->ref_cache());
+                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
+                        if (ref.is_view_bound()) {
+                            const TSValue* target = ref.view_output();
+                            if (target) {
+                                // Check if REF target changed by comparing to cached previous target
+                                auto prev_it = g_ref_prev_target_cache.find(_root);
+                                bool target_changed = false;
+                                if (prev_it == g_ref_prev_target_cache.end()) {
+                                    // First time seeing this REF - target "changed" (is new)
+                                    target_changed = true;
+                                    g_ref_prev_target_cache[_root] = target;
+                                } else if (prev_it->second != target) {
+                                    // Target pointer changed
+                                    target_changed = true;
+                                    g_ref_prev_target_cache[_root] = target;
                                 }
+                                // If target didn't change, prev_target stays the same
+
+                                TSView target_view = target->view();
+
+                                if (target_changed) {
+                                    // REF target changed - return full value as delta
+                                    // For TSL, convert value to {index: value} dict format
+                                    if (target->ts_meta() && target->ts_meta()->kind() == TSTypeKind::TSL) {
+                                        nb::object full_value = target_view.to_python();
+                                        if (nb::isinstance<nb::tuple>(full_value)) {
+                                            nb::dict result;
+                                            nb::tuple tpl = nb::cast<nb::tuple>(full_value);
+                                            for (size_t i = 0; i < nb::len(tpl); ++i) {
+                                                result[nb::int_(i)] = tpl[i];
+                                            }
+                                            return result;
+                                        }
+                                        return full_value;  // Already dict or other format
+                                    }
+                                    // For other types, return full value
+                                    return target_view.to_python();
+                                }
+
+                                // REF target didn't change - return target's delta
+                                return target_view.to_python_delta();
                             }
-                        } catch (...) {}
-                    }
+                        }
+                    } catch (const std::bad_any_cast&) {
+                    } catch (...) {}
                 }
                 return nb::none();
             }
@@ -721,11 +725,10 @@ bool TSView::ts_valid() const {
             if (!_path.is_root() && _root->has_link_support() && !_path.elements.empty()) {
                 cache_key = _root->child_value(_path.elements.back());
             }
-            if (cache_key) {
-                auto it = g_ref_output_cache.find(cache_key);
-                if (it != g_ref_output_cache.end()) {
+            if (cache_key && cache_key->has_ref_cache()) {
+                try {
                     // Check if the cached value is a valid (non-empty) TimeSeriesReference
-                    nb::object cached = it->second;
+                    nb::object cached = std::any_cast<nb::object>(cache_key->ref_cache());
                     if (nb::isinstance<TimeSeriesReference>(cached)) {
                         TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
                         // REF is valid if it has output (not empty)
@@ -733,6 +736,8 @@ bool TSView::ts_valid() const {
                     }
                     // If it's not a TimeSeriesReference, consider it valid
                     return true;
+                } catch (const std::bad_any_cast&) {
+                    // Fall through to return false
                 }
             }
         }
@@ -1007,12 +1012,12 @@ bool TSMutableView::from_python(const nb::object& src) {
     if (_ts_meta->kind() == TSTypeKind::REF) {
         // REF outputs store TimeSeriesReference objects, not raw values
         // We can't store Python objects in the C++ value storage (wrong schema),
-        // so we use a global cache keyed by the root TSValue pointer
+        // so we use the TSValue's ref_cache member
 
         if (src.is_none()) {
             // Clear/invalidate - remove from cache
             if (_root) {
-                g_ref_output_cache.erase(_root);
+                _root->clear_ref_cache();
                 g_ref_old_target_cache.erase(_root);
             }
             return true;  // Invalidating is a change
@@ -1034,10 +1039,9 @@ bool TSMutableView::from_python(const nb::object& src) {
 
         // BEFORE storing new value: cache old target's delta info for TSS types
         // This allows computing correct delta when REF switches targets
-        if (cache_key) {
-            auto old_it = g_ref_output_cache.find(cache_key);
-            if (old_it != g_ref_output_cache.end()) {
-                nb::object old_cached = old_it->second;
+        if (cache_key && cache_key->has_ref_cache()) {
+            try {
+                nb::object old_cached = std::any_cast<nb::object>(cache_key->ref_cache());
                 if (nb::isinstance<TimeSeriesReference>(old_cached)) {
                     TimeSeriesReference old_ref = nb::cast<TimeSeriesReference>(old_cached);
                     if (old_ref.is_view_bound()) {
@@ -1074,12 +1078,14 @@ bool TSMutableView::from_python(const nb::object& src) {
                         }
                     }
                 }
+            } catch (const std::bad_any_cast&) {
+                // Ignore if cache doesn't contain an nb::object
             }
         }
 
-        // Store in global cache
+        // Store in TSValue's ref_cache
         if (cache_key) {
-            g_ref_output_cache[cache_key] = src;
+            cache_key->set_ref_cache(src);
 
             // Notify REF observers to rebind to the target
             // This implements Python's observer pattern where inputs linked to REF outputs
@@ -1179,13 +1185,13 @@ bool TSMutableView::from_python(const nb::object& src) {
                 nb::object field_value = nb::cast<nb::object>(item.second);
 
                 if (field_ts_meta->kind() == TSTypeKind::REF) {
-                    // REF field - store in cache using the field's child TSValue
+                    // REF field - store in TSValue's ref_cache using the field's child TSValue
                     if (_mutable_container) {
                         TSValue* field_ts_value = _mutable_container->get_or_create_child_value(field_info->index);
                         if (field_ts_value && !field_value.is_none()) {
-                            g_ref_output_cache[field_ts_value] = field_value;
+                            field_ts_value->set_ref_cache(field_value);
                         } else if (field_ts_value && field_value.is_none()) {
-                            g_ref_output_cache.erase(field_ts_value);
+                            field_ts_value->clear_ref_cache();
                         }
                     }
                 } else {
@@ -1801,12 +1807,12 @@ TSView TSBView::field(const std::string& name) const {
                     }
                 }, *storage);
 
-                if (ref_output) {
-                    // Look up the TimeSeriesReference value in the cache
-                    auto it = g_ref_output_cache.find(ref_output);
-                    if (it != g_ref_output_cache.end()) {
+                if (ref_output && ref_output->has_ref_cache()) {
+                    // Look up the TimeSeriesReference value in the TSValue's ref_cache
+                    try {
+                        nb::object cached = std::any_cast<nb::object>(ref_output->ref_cache());
                         // Cast to TimeSeriesReference and check if it points to a target
-                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(it->second);
+                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
                         if (ref.is_view_bound()) {
                             // Get the target TSValue and return a view into it
                             const TSValue* target = ref.view_output();
@@ -1814,15 +1820,19 @@ TSView TSBView::field(const std::string& name) const {
                                 return target->view();
                             }
                         }
+                    } catch (const std::bad_any_cast&) {
+                        // Fall through
                     }
                 }
 
                 // For REF outputs where auto-deref is needed but cache not populated yet,
                 // preserve link_source so delta_value() can dynamically resolve via TSRefTargetLink
+                // Also set auto_deref so to_python() knows to dereference the REF
                 LightweightPath child_path = _path.with(index);
                 TSView result(linked_view.value_view().data(), linked_view.ts_meta(),
                               linked_view.overlay(), _root, std::move(child_path));
                 result.set_link_source(_link_source);
+                result.set_auto_deref(true);  // Enable auto-dereference for REF->non-REF binding
                 return result;
             }
 
@@ -1921,12 +1931,12 @@ TSView TSBView::field(size_t index) const {
                 }, *storage);
 
 
-                if (ref_output) {
-                    // Look up the TimeSeriesReference value in the cache
-                    auto it = g_ref_output_cache.find(ref_output);
-                    if (it != g_ref_output_cache.end()) {
+                if (ref_output && ref_output->has_ref_cache()) {
+                    // Look up the TimeSeriesReference value in the TSValue's cache
+                    try {
+                        nb::object cached = std::any_cast<nb::object>(ref_output->ref_cache());
                         // Cast to TimeSeriesReference and check if it points to a target
-                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(it->second);
+                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
                         if (ref.is_view_bound()) {
                             // Get the target TSValue and return a view into it
                             const TSValue* target = ref.view_output();
@@ -1934,18 +1944,22 @@ TSView TSBView::field(size_t index) const {
                                 return target->view();
                             }
                         }
+                    } catch (const std::bad_any_cast&) {
+                        // Cache contains wrong type, ignore
                     }
                 }
             }
 
             // For REF outputs where auto-deref is needed but cache not populated yet,
             // preserve link_source so delta_value() can dynamically resolve via TSRefTargetLink
+            // Also set auto_deref so to_python() knows to dereference the REF
             if (linked_view.valid() && linked_view.ts_meta() && linked_view.ts_meta()->is_reference()) {
                 // Create a new view with link_source and path so delta_value can resolve.
                 LightweightPath child_path = _path.with(index);
                 TSView result(linked_view.value_view().data(), linked_view.ts_meta(),
                               linked_view.overlay(), _root, std::move(child_path));
                 result.set_link_source(_link_source);
+                result.set_auto_deref(true);  // Enable auto-dereference for REF->non-REF binding
                 return result;
             }
 

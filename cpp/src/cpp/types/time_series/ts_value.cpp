@@ -317,6 +317,18 @@ void TSValue::create_link(size_t index, const TSValue* output) {
             }
         }
 
+        // Allow TSB->field binding for field access (when navigation failed)
+        // This happens when the output is a root TSB that couldn't be navigated
+        // The field_index will be set by the graph builder to indicate which field to use
+        bool is_tsb_field_binding = false;
+        if (!kinds_compatible &&
+            output_to_compare->kind() == TSTypeKind::TSB) {
+            // Output is a TSB - this is likely a field binding where navigation failed
+            // Allow it; the graph builder will set field_index on the link
+            kinds_compatible = true;
+            is_tsb_field_binding = true;
+        }
+
         if (expected_to_compare && output_to_compare && !kinds_compatible) {
             throw std::runtime_error(
                 "TSValue::create_link: schema mismatch at index " + std::to_string(index) +
@@ -326,8 +338,8 @@ void TSValue::create_link(size_t index, const TSValue* output) {
 
         // For deeper validation, check value schemas match
         // Skip this check if expected is SIGNAL (SIGNAL accepts any time series regardless of value type)
-        // Also skip for TSL->TS element binding (element type is implicitly correct from earlier check)
-        if (expected_to_compare->kind() != TSTypeKind::SIGNAL && !is_tsl_element_binding) {
+        // Also skip for TSL->TS element binding and TSB->field binding (will be resolved at runtime)
+        if (expected_to_compare->kind() != TSTypeKind::SIGNAL && !is_tsl_element_binding && !is_tsb_field_binding) {
             const value::TypeMeta* expected_value = expected_to_compare ? expected_to_compare->value_schema() : nullptr;
             const value::TypeMeta* output_value = output_to_compare ? output_to_compare->value_schema() : nullptr;
             if (expected_value != output_value) {

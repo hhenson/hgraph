@@ -261,6 +261,28 @@ struct TSLink : Notifiable {
      */
     [[nodiscard]] bool is_element_binding() const noexcept { return _element_index >= 0; }
 
+    /**
+     * @brief Set the field index for TSB->field binding.
+     *
+     * When the output is a TSB bundle but we need a specific field,
+     * the field index indicates which field within the bundle this link
+     * refers to. -1 means the whole bundle.
+     *
+     * @param idx Field index, or -1 for whole bundle
+     */
+    void set_field_index(int idx) { _field_index = idx; }
+
+    /**
+     * @brief Get the field index.
+     * @return Field index, or -1 if linking to whole bundle
+     */
+    [[nodiscard]] int field_index() const noexcept { return _field_index; }
+
+    /**
+     * @brief Check if this link refers to a specific field within a TSB.
+     */
+    [[nodiscard]] bool is_field_binding() const noexcept { return _field_index >= 0; }
+
 private:
     // ========== Binding State ==========
     const TSValue* _output{nullptr};
@@ -273,6 +295,7 @@ private:
     engine_time_t _sample_time{MIN_DT};
     engine_time_t _notify_time{MIN_DT};
     int _element_index{-1};            ///< Element index for TSL->TS binding (-1 = whole container)
+    int _field_index{-1};              ///< Field index for TSB->field binding (-1 = whole bundle)
 
     // ========== Helpers ==========
 

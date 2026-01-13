@@ -231,6 +231,15 @@ TSView TSLink::view() const {
         // Not a list - fall back to whole container
     }
 
+    // For field bindings (TSB->field), navigate to the specific field
+    if (_field_index >= 0) {
+        TSView container_view = _output->view();
+        if (container_view.ts_meta() && container_view.ts_meta()->kind() == TSTypeKind::TSB) {
+            return container_view.as_bundle().field(static_cast<size_t>(_field_index));
+        }
+        // Not a bundle - fall back to whole container
+    }
+
     return _output->view();
 }
 
