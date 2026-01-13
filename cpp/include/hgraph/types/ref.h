@@ -55,6 +55,12 @@ namespace hgraph
         // View-based factory method for C++ runtime
         static TimeSeriesReference make_view_bound(const TSValue* output);
 
+        // View-based factory with element index - for container element references
+        static TimeSeriesReference make_view_bound(const TSValue* container, size_t element_index);
+
+        // Get element index for VIEW_BOUND container references (-1 if not applicable)
+        [[nodiscard]] int view_element_index() const noexcept { return _view_elem_index; }
+
       private:
         // Private constructors - must use make() factory methods
         TimeSeriesReference() noexcept;                                        // Empty
@@ -63,6 +69,7 @@ namespace hgraph
         explicit TimeSeriesReference(const TSValue* view_output);              // View-bound
 
         Kind _kind;
+        int _view_elem_index{-1};  ///< Element index for VIEW_BOUND container references (-1 if not applicable)
 
         // Union for the four variants - only one is active at a time
         union Storage {

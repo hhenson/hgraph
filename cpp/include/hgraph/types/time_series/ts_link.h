@@ -216,6 +216,51 @@ struct TSLink : Notifiable {
         return _sample_time == time;
     }
 
+    // ========== REF Support ==========
+
+    /**
+     * @brief Set whether this link only notifies once (for REF inputs).
+     *
+     * REF inputs bound to non-REF outputs should only notify on the first
+     * tick (when the binding takes effect), not on subsequent ticks when
+     * underlying values change. This matches Python's _sampled semantics.
+     *
+     * @param notify_once If true, only notify on first notification
+     */
+    void set_notify_once(bool notify_once) noexcept { _notify_once = notify_once; }
+
+    /**
+     * @brief Check if this link only notifies once.
+     */
+    [[nodiscard]] bool notify_once() const noexcept { return _notify_once; }
+
+    // ========== Element Index Support (for TSL->TS binding) ==========
+
+    /**
+     * @brief Set the element index within the linked container.
+     *
+     * When binding to a TSL element (e.g., TSL output to TS input),
+     * the element index indicates which element within the container
+     * this link refers to. -1 means the whole container.
+     *
+     * If already bound to a TSL and active, this will switch the subscription
+     * from the whole TSL overlay to the specific element's overlay.
+     *
+     * @param idx Element index, or -1 for whole container
+     */
+    void set_element_index(int idx);
+
+    /**
+     * @brief Get the element index.
+     * @return Element index, or -1 if linking to whole container
+     */
+    [[nodiscard]] int element_index() const noexcept { return _element_index; }
+
+    /**
+     * @brief Check if this link refers to a specific element.
+     */
+    [[nodiscard]] bool is_element_binding() const noexcept { return _element_index >= 0; }
+
 private:
     // ========== Binding State ==========
     const TSValue* _output{nullptr};
@@ -224,8 +269,10 @@ private:
     // ========== Notification ==========
     Node* _node{nullptr};
     bool _active{false};
+    bool _notify_once{false};          ///< For REF: only notify on first tick
     engine_time_t _sample_time{MIN_DT};
     engine_time_t _notify_time{MIN_DT};
+    int _element_index{-1};            ///< Element index for TSL->TS binding (-1 = whole container)
 
     // ========== Helpers ==========
 

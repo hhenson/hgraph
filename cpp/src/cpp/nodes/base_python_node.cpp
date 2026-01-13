@@ -127,7 +127,35 @@ namespace hgraph
             auto key{meta->field(i).name};
             if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
                 TSView field_view = input_bv.field(i);
-                auto wrapped = wrap_input_view(field_view);
+
+                // Get the expected type kind from the signature's resolved type metadata.
+                // This handles REF auto-dereference: when input expects non-REF (e.g., TS[int])
+                // but the actual input is REF (because output is REF), Python auto-dereferences.
+                TSTypeKind actual_kind = meta->field(i).type->kind();
+                TSTypeKind expected_kind = actual_kind;  // Default to actual
+
+                // Check if signature expects a non-REF type
+                if (actual_kind == TSTypeKind::REF && signature().time_series_inputs.has_value()) {
+                    auto it = signature().time_series_inputs->find(key);
+                    if (it != signature().time_series_inputs->end()) {
+                        nb::object type_meta = it->second;
+                        try {
+                            // If signature's type is NOT a REF, we need auto-dereference
+                            bool sig_is_ref = nb::hasattr(type_meta, "is_reference") &&
+                                              nb::cast<bool>(type_meta.attr("is_reference"));
+                            if (!sig_is_ref) {
+                                // Signature expects non-REF (e.g., TIME_SERIES_TYPE resolved to TS[int])
+                                // Get the referenced type's kind for the wrapper
+                                auto* ref_meta = static_cast<const REFTypeMeta*>(meta->field(i).type);
+                                expected_kind = ref_meta->referenced_type()->kind();
+                            }
+                        } catch (...) {
+                            // Fallback to actual kind on error
+                        }
+                    }
+                }
+
+                auto wrapped = wrap_input_view(field_view, expected_kind);
                 if (wrapped.is_none()) {
                     throw std::runtime_error(
                         std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap time-series input '") +
@@ -235,8 +263,11 @@ namespace hgraph
             if (!out.is_none()) {
                 // Use TSValue-based output via output_view()
                 auto view = output_view();
-                view.from_python(out);
-                view.notify_modified(graph()->evaluation_time());
+                // Only notify if from_python actually made changes
+                // (For TSS, this prevents false modification when adding duplicate elements)
+                if (view.from_python(out)) {
+                    view.notify_modified(graph()->evaluation_time());
+                }
             }
         } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During Python node evaluation"); }
     }

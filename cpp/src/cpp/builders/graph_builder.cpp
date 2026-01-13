@@ -8,11 +8,12 @@
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/time_series/ts_input_root.h>
 #include <hgraph/types/time_series/ts_value.h>
+#include <hgraph/types/time_series/ts_ref_target_link.h>
 #include <hgraph/types/traits.h>
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/tsb.h>
-
-#include <string_view>
+#include <iostream>
+#include <variant>
 
 namespace hgraph
 {
@@ -74,9 +75,11 @@ namespace hgraph
      *
      * @param dst_node The destination node whose input will be bound
      * @param input_path Path to the input field (e.g., [0] means field 0, [0, 1] means field 1 of field 0)
-     * @param output The output TSValue to bind to
+     * @param root_output The root output TSValue from the source node
+     * @param output_path Path to navigate within the output
      */
-    void _bind_ts_input_to_output(Node* dst_node, const std::vector<int64_t> &input_path, const TSValue* output) {
+    void _bind_ts_input_to_output(Node* dst_node, const std::vector<int64_t> &input_path,
+                                   const TSValue* root_output, const std::vector<int64_t> &output_path) {
         if (input_path.empty()) {
             throw std::runtime_error("Cannot bind input with empty path");
         }
@@ -85,24 +88,78 @@ namespace hgraph
             throw std::runtime_error("Node does not have TSInputRoot for binding");
         }
 
+        // Navigate output to the default (deepest) level
+        const TSValue* output = output_path.empty()
+            ? root_output
+            : _extract_ts_output(root_output, output_path);
+
+        // Debug: show input path and output type
+        std::cerr << "[DEBUG _bind_ts_input] node_name=" << dst_node->signature().name
+                  << " input_path=[";
+        for (size_t i = 0; i < input_path.size(); ++i) {
+            if (i > 0) std::cerr << ",";
+            std::cerr << input_path[i];
+        }
+        std::cerr << "] output_path=[";
+        for (size_t i = 0; i < output_path.size(); ++i) {
+            if (i > 0) std::cerr << ",";
+            std::cerr << output_path[i];
+        }
+        std::cerr << "]"
+                  << " output_kind=" << (output && output->ts_meta() ? static_cast<int>(output->ts_meta()->kind()) : -1)
+                  << std::endl;
+
         TSInputRoot& input_root = dst_node->ts_input();
 
         if (input_path.size() == 1) {
             // Single-level path - bind directly on the root
             input_root.bind_field(static_cast<size_t>(input_path[0]), output);
+
+            // Check for TSL->TS element binding:
+            // If output is TSL but input expects TS, the output_path indicates which element to bind to.
+            // We need to store this element index in the link so view() can navigate to the correct element.
+            if (output && output->ts_meta() && output->ts_meta()->kind() == TSTypeKind::TSL && !output_path.empty()) {
+                // Get the expected field type from the input bundle
+                size_t field_idx = static_cast<size_t>(input_path[0]);
+                TSBView bundle = input_root.bundle_view();
+                const TSValue* link_source = bundle.link_source();
+
+                if (link_source) {
+                    const TSBTypeMeta* input_bundle_meta = static_cast<const TSBTypeMeta*>(link_source->ts_meta());
+                    if (input_bundle_meta && field_idx < input_bundle_meta->field_count()) {
+                        const TSMeta* expected_field_type = input_bundle_meta->field(field_idx).type;
+                        // If input expects TS (not TSL), this is an element binding
+                        if (expected_field_type && expected_field_type->kind() == TSTypeKind::TS) {
+                            // Set the element index on the link
+                            LinkStorage* storage = const_cast<TSValue*>(link_source)->link_storage_at(field_idx);
+                            if (storage) {
+                                std::visit([&output_path](auto& link) {
+                                    using T = std::decay_t<decltype(link)>;
+                                    if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
+                                        if (link) {
+                                            // Use the first element of output_path as the element index
+                                            link->set_element_index(static_cast<int>(output_path[0]));
+                                            std::cerr << "[DEBUG _bind_ts_input] Set element_index=" << output_path[0]
+                                                      << " for TSL->TS binding (TSLink)" << std::endl;
+                                        }
+                                    } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
+                                        if (link) {
+                                            // For TSRefTargetLink, set element_index on target_link
+                                            // When the REF resolves to a TSL, target_link.view() will navigate to the element
+                                            link->target_link().set_element_index(static_cast<int>(output_path[0]));
+                                            std::cerr << "[DEBUG _bind_ts_input] Set element_index=" << output_path[0]
+                                                      << " for TSL->TS binding (TSRefTargetLink)" << std::endl;
+                                        }
+                                    }
+                                }, *storage);
+                            }
+                        }
+                    }
+                }
+            }
         } else {
             // Nested path - navigate through child_value() to reach the target level
-            // Start from the root's underlying TSValue (accessed via bundle_view)
-            // We need to access the TSValue's link support structure directly
-
-            // Get the root TSValue from input_root via the bundle_view's underlying data
-            // The root TSValue has link support enabled with nested child_values
-
-            // Navigate to the parent of the final binding location
-            // For path [0, 1], we need to get child_value(0), then create_link(1, output)
-
             // Access the underlying TSValue via bundle_view's link source
-            // which is the underlying TSValue
             TSBView bundle = input_root.bundle_view();
             const TSValue* link_source = bundle.link_source();
 
@@ -114,10 +171,50 @@ namespace hgraph
             // We need mutable access, so we const_cast (safe because we own this structure)
             TSValue* parent = const_cast<TSValue*>(link_source);
 
+            // Check if the first path element is a REF field - if so, links should notify once
+            // This matches Python's behavior where REF inputs don't subscribe to output overlays
+            bool is_ref_binding = false;
+            if (!input_path.empty() && parent->ts_meta()) {
+                auto* bundle_meta = dynamic_cast<const TSBTypeMeta*>(parent->ts_meta());
+                if (bundle_meta) {
+                    size_t first_idx = static_cast<size_t>(input_path[0]);
+                    if (first_idx < bundle_meta->field_count()) {
+                        const auto& field_info = bundle_meta->field(first_idx);
+                        is_ref_binding = (field_info.type && field_info.type->kind() == TSTypeKind::REF);
+                    }
+                }
+            }
+
             for (size_t i = 0; i < input_path.size() - 1; ++i) {
                 size_t idx = static_cast<size_t>(input_path[i]);
                 TSValue* child = parent->child_value(idx);
+
                 if (!child) {
+                    // Special case: If there's no child_value, check if this is a REF type
+                    // REF types don't have nested children - instead, we should bind
+                    // the REF directly to the output. The remaining path indices describe
+                    // the inner structure of what the REF points to, not navigation targets.
+                    // For example, REF[TSB[AB]] has path [0, 0] where:
+                    //   - First 0 = the REF field in the input bundle
+                    //   - Second 0 = first field of the TSB the REF points to
+                    // In this case, bind the REF (at idx) directly to the output.
+                    if (i == 0) {
+                        // We're at the first level - bind directly at this index
+                        parent->create_link(idx, output);
+                        TSLink* link = parent->link_at(idx);
+                        if (link) {
+                            // Set notify_once for REF bindings BEFORE make_active
+                            // This must be done regardless of active state
+                            if (is_ref_binding) {
+                                link->set_notify_once(true);
+                            }
+                            if (input_root.active()) {
+                                link->make_active();
+                            }
+                        }
+                        return;  // Early exit - binding complete
+                    }
+
                     throw std::runtime_error(
                         "TSValue binding: no nested TSValue at path index " + std::to_string(i) +
                         " - the intermediate field may not be a composite type");
@@ -129,10 +226,47 @@ namespace hgraph
             size_t final_idx = static_cast<size_t>(input_path.back());
             parent->create_link(final_idx, output);
 
-            // If the input is active, activate the new link
-            if (input_root.active()) {
-                TSLink* link = parent->link_at(final_idx);
-                if (link) {
+            // Check for TSL->TS element binding (same logic as single-level path)
+            if (output && output->ts_meta() && output->ts_meta()->kind() == TSTypeKind::TSL && !output_path.empty()) {
+                // Get the expected field type from parent's bundle
+                const TSBTypeMeta* parent_bundle_meta = dynamic_cast<const TSBTypeMeta*>(parent->ts_meta());
+                if (parent_bundle_meta && final_idx < parent_bundle_meta->field_count()) {
+                    const TSMeta* expected_field_type = parent_bundle_meta->field(final_idx).type;
+                    // If input expects TS (not TSL), this is an element binding
+                    if (expected_field_type && expected_field_type->kind() == TSTypeKind::TS) {
+                        // Set the element index on the link
+                        LinkStorage* storage = parent->link_storage_at(final_idx);
+                        if (storage) {
+                            std::visit([&output_path](auto& link) {
+                                using T = std::decay_t<decltype(link)>;
+                                if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
+                                    if (link) {
+                                        link->set_element_index(static_cast<int>(output_path[0]));
+                                        std::cerr << "[DEBUG _bind_ts_input nested] Set element_index=" << output_path[0]
+                                                  << " for TSL->TS binding (TSLink)" << std::endl;
+                                    }
+                                } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
+                                    if (link) {
+                                        link->target_link().set_element_index(static_cast<int>(output_path[0]));
+                                        std::cerr << "[DEBUG _bind_ts_input nested] Set element_index=" << output_path[0]
+                                                  << " for TSL->TS binding (TSRefTargetLink)" << std::endl;
+                                    }
+                                }
+                            }, *storage);
+                        }
+                    }
+                }
+            }
+
+            // Set notify_once for REF bindings and activate if needed
+            TSLink* link = parent->link_at(final_idx);
+            if (link) {
+                // Set notify_once for REF bindings BEFORE make_active
+                // This must be done regardless of active state
+                if (is_ref_binding) {
+                    link->set_notify_once(true);
+                }
+                if (input_root.active()) {
                     link->make_active();
                 }
             }
@@ -231,18 +365,18 @@ namespace hgraph
             auto dst_node = nodes[edge.dst_node].get();
 
             // Use new TSValue-based binding
-            const TSValue* output = nullptr;
+            // For TS→REF conversion, we need access to intermediate output levels,
+            // so we pass root output and output_path separately.
+            const TSValue* root_output = nullptr;
             if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
-                output = src_node->ts_error_output();
+                root_output = src_node->ts_error_output();
             } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
-                output = src_node->ts_recordable_state();
+                root_output = src_node->ts_recordable_state();
             } else {
-                output = edge.output_path.empty()
-                    ? src_node->ts_output()
-                    : _extract_ts_output(src_node->ts_output(), edge.output_path);
+                root_output = src_node->ts_output();
             }
 
-            _bind_ts_input_to_output(dst_node, edge.input_path, output);
+            _bind_ts_input_to_output(dst_node, edge.input_path, root_output, edge.output_path);
         }
 
         return nodes;

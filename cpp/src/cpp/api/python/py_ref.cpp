@@ -2,7 +2,9 @@
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/time_series/ts_overlay_storage.h>
 #include <hgraph/types/time_series/ts_ref_target_link.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
 
@@ -67,6 +69,19 @@ namespace hgraph
                     if (!view_out) {
                         return nb::none();
                     }
+
+                    // Check if this is a reference to an element within a container
+                    int elem_idx = self.view_element_index();
+                    if (elem_idx >= 0 && view_out->ts_meta() && view_out->ts_meta()->kind() == TSTypeKind::TSL) {
+                        // Navigate to the element within the TSL
+                        TSView container_view(*view_out);
+                        TSLView list_view(container_view.value_view().data(),
+                                         static_cast<const TSLTypeMeta*>(view_out->ts_meta()),
+                                         static_cast<ListTSOverlay*>(container_view.overlay()));
+                        TSView elem_view = list_view.element(static_cast<size_t>(elem_idx));
+                        return wrap_input_view(elem_view);
+                    }
+
                     // Get the type metadata to determine the appropriate wrapper
                     const auto* meta = view_out->ts_meta();
                     if (!meta) {
@@ -200,11 +215,16 @@ namespace hgraph
     // Used by TSView::to_python() and TSMutableView::from_python() for REF types
     std::unordered_map<const TSValue*, nb::object> g_ref_output_cache;
 
-    // Cleanup function to clear the cache before Python shuts down
+    // Global cache for OLD target's delta information when REF changes target.
+    // Key: TSValue* (the REF output), Value: tuple(old_value, delta_added, delta_removed)
+    std::unordered_map<const TSValue*, nb::object> g_ref_old_target_cache;
+
+    // Cleanup function to clear the caches before Python shuts down
     // This prevents crashes during module unload when Python objects are
     // destroyed after the interpreter starts finalizing
     void clear_ref_output_cache() {
         g_ref_output_cache.clear();
+        g_ref_old_target_cache.clear();
     }
 
     void PyTimeSeriesReferenceOutput::register_with_nanobind(nb::module_ &m) {

@@ -174,8 +174,26 @@ struct TSRefTargetLink {
 
     /**
      * @brief Get the resolved target output (data channel).
+     *
+     * For element-based bindings (TSL elements), returns the container.
      */
-    [[nodiscard]] const TSValue* target_output() const noexcept { return _target_link.output(); }
+    [[nodiscard]] const TSValue* target_output() const noexcept {
+        if (_target_elem_index >= 0) {
+            return _target_container;
+        }
+        return _target_link.output();
+    }
+
+    /**
+     * @brief Check if this is an element-based binding (into a container like TSL).
+     */
+    [[nodiscard]] bool is_element_binding() const noexcept { return _target_elem_index >= 0; }
+
+    /**
+     * @brief Get the element index for element-based bindings.
+     * @return Element index, or -1 if not element-based
+     */
+    [[nodiscard]] int target_element_index() const noexcept { return _target_elem_index; }
 
     // ========== Target Management (Called by REF output) ==========
 
@@ -191,6 +209,19 @@ struct TSRefTargetLink {
      * @param time Current engine time
      */
     void rebind_target(const TSValue* new_target, engine_time_t time);
+
+    /**
+     * @brief Rebind data channel to an element within a container.
+     *
+     * Used when the REF points to an element in a container (like TSL) that
+     * doesn't have its own TSValue. The view() method will navigate into
+     * the container at the specified index.
+     *
+     * @param container The container TSValue
+     * @param elem_index Element index within the container
+     * @param time Current engine time
+     */
+    void rebind_target_element(const TSValue* container, size_t elem_index, engine_time_t time);
 
     // ========== Subscription Control (User-Facing) ==========
 
@@ -299,6 +330,20 @@ struct TSRefTargetLink {
      */
     [[nodiscard]] TSLink& ref_link() noexcept { return _ref_link; }
 
+    /**
+     * @brief Get the target link for setting properties.
+     *
+     * Used when the wiring needs to configure element index for TSL->TS binding.
+     */
+    [[nodiscard]] TSLink& target_link() noexcept { return _target_link; }
+
+    /**
+     * @brief Get the target link's sample time (when last rebound).
+     *
+     * Used to detect if a rebind occurred at a specific time.
+     */
+    [[nodiscard]] engine_time_t target_sample_time() const noexcept { return _target_link.sample_time(); }
+
 private:
     // Control channel: always-active to REF output
     TSLink _ref_link;
@@ -311,6 +356,10 @@ private:
 
     // Reference to the REF output for observer cleanup
     TimeSeriesReferenceOutput* _ref_output_ptr{nullptr};
+
+    // Element-based binding support (for TSL elements that don't have separate TSValues)
+    const TSValue* _target_container{nullptr};
+    int _target_elem_index{-1};
 
     // ========== Helpers ==========
 

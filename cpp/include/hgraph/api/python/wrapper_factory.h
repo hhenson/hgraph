@@ -16,6 +16,7 @@
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/value/value.h>
 #include <memory>
 #include <type_traits>
@@ -62,6 +63,20 @@ namespace hgraph
      * Handles: TS, TSB, TSL, TSD, TSS, TSW, REF, SIGNAL.
      */
     nb::object wrap_input_view(const TSView& view);
+
+    /**
+     * Wrap a TSView in a PyTimeSeriesInput wrapper with expected type override.
+     *
+     * When the view's type is REF but expected_kind is non-REF, this creates
+     * a non-REF wrapper. This handles the case where a generic input (e.g.,
+     * TIME_SERIES_TYPE resolved to TS[int]) binds to a REF output - Python
+     * auto-dereferences in this case, so C++ must create the non-REF wrapper.
+     *
+     * @param view The TSView to wrap
+     * @param expected_kind The expected type kind from the input signature
+     * @return Wrapped time-series input
+     */
+    nb::object wrap_input_view(const TSView& view, TSTypeKind expected_kind);
 
     /**
      * Wrap a TSMutableView in a PyTimeSeriesOutput wrapper.

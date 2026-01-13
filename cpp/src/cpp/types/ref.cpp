@@ -78,6 +78,7 @@ namespace hgraph
     }
 
     void TimeSeriesReference::copy_from(const TimeSeriesReference &other) {
+        _view_elem_index = other._view_elem_index;
         switch (other._kind) {
             case Kind::EMPTY: break;
             case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(other._storage.bound); break;
@@ -87,6 +88,7 @@ namespace hgraph
     }
 
     void TimeSeriesReference::move_from(TimeSeriesReference &&other) noexcept {
+        _view_elem_index = other._view_elem_index;
         switch (other._kind) {
             case Kind::EMPTY: break;
             case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(std::move(other._storage.bound)); break;
@@ -242,6 +244,15 @@ namespace hgraph
             return make();
         }
         return TimeSeriesReference(output);
+    }
+
+    TimeSeriesReference TimeSeriesReference::make_view_bound(const TSValue* container, size_t element_index) {
+        if (container == nullptr) {
+            return make();
+        }
+        TimeSeriesReference ref(container);
+        ref._view_elem_index = static_cast<int>(element_index);
+        return ref;
     }
 
     TimeSeriesReference TimeSeriesReference::make(const std::vector<TimeSeriesReferenceInput*>& items) {

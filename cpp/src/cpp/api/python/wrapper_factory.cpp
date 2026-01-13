@@ -31,6 +31,7 @@
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <stdexcept>
 #include <utility>
+#include <iostream>
 
 namespace hgraph
 {
@@ -120,6 +121,16 @@ namespace
         const auto* meta = view.ts_meta();
         if (!meta) { return nb::none(); }
 
+        // Check for TS→REF conversion case: input expects REF but output has non-REF.
+        // In this case, should_wrap_elements_as_ref() is true and expected_element_ref_meta()
+        // gives us the REF type that Python expects.
+        if (view.should_wrap_elements_as_ref()) {
+            // Wrap as REF with the expected REF meta
+            // The view has the actual (non-REF) element type for data access,
+            // but we wrap it as REF for Python.
+            return nb::cast(PyTimeSeriesReferenceInput(view));
+        }
+
         switch (meta->kind()) {
             case TSTypeKind::TS:
                 return nb::cast(PyTimeSeriesValueInput(view));
@@ -137,6 +148,56 @@ namespace
                 return nb::cast(PyTimeSeriesInput(view));
             case TSTypeKind::REF:
                 return nb::cast(PyTimeSeriesReferenceInput(view));
+            default:
+                throw std::runtime_error("wrap_input_view: Unknown TSTypeKind");
+        }
+    }
+
+    nb::object wrap_input_view(const TSView& view, TSTypeKind expected_kind) {
+        // When expected_kind differs from view's kind, use expected_kind for wrapper selection.
+        // This handles REF auto-dereference: when input expects non-REF (e.g., TS[int]) but
+        // output is REF, Python auto-dereferences. C++ must create the non-REF wrapper.
+        const auto* meta = view.ts_meta();
+        if (!meta) { return nb::none(); }
+
+        // Check if we need auto-dereference: expected is non-REF but actual is REF
+        bool needs_auto_deref = (expected_kind != TSTypeKind::REF && meta->kind() == TSTypeKind::REF);
+
+        std::cerr << "[DEBUG wrap_input_view] expected_kind=" << static_cast<int>(expected_kind)
+                  << " actual_kind=" << static_cast<int>(meta->kind())
+                  << " needs_auto_deref=" << needs_auto_deref
+                  << " view.link_source=" << view.link_source()
+                  << std::endl;
+
+        // Create a mutable copy of the view to set auto-deref flag if needed
+        TSView view_copy = view;
+        if (needs_auto_deref) {
+            view_copy.set_auto_deref(true);
+        }
+
+        std::cerr << "[DEBUG wrap_input_view] after copy, view_copy.link_source=" << view_copy.link_source()
+                  << std::endl;
+
+        // Use expected_kind for wrapper selection
+        TSTypeKind kind_to_use = expected_kind;
+
+        switch (kind_to_use) {
+            case TSTypeKind::TS:
+                return nb::cast(PyTimeSeriesValueInput(view_copy));
+            case TSTypeKind::TSB:
+                return nb::cast(PyTimeSeriesBundleInput(view_copy));
+            case TSTypeKind::TSW:
+                return nb::cast(PyTimeSeriesWindowInput(view_copy));
+            case TSTypeKind::TSL:
+                return nb::cast(PyTimeSeriesListInput(view_copy));
+            case TSTypeKind::TSD:
+                return nb::cast(PyTimeSeriesDictInput(view_copy));
+            case TSTypeKind::TSS:
+                return nb::cast(PyTimeSeriesSetInput(view_copy));
+            case TSTypeKind::SIGNAL:
+                return nb::cast(PyTimeSeriesInput(view_copy));
+            case TSTypeKind::REF:
+                return nb::cast(PyTimeSeriesReferenceInput(view_copy));
             default:
                 throw std::runtime_error("wrap_input_view: Unknown TSTypeKind");
         }

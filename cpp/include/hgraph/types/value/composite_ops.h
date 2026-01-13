@@ -1286,17 +1286,20 @@ struct SetOps {
     static nb::object to_python(const void* obj, const TypeMeta* schema) {
         auto* storage = static_cast<const SetStorage*>(obj);
         const TypeMeta* elem_type = schema->element_type;
-        nb::set result;
+        // Build elements in a set first (nb::frozenset has no add method)
+        nb::set temp_set;
 
         if (storage->index_set) {
             for (size_t idx : *storage->index_set) {
                 const void* elem_ptr = storage->get_element_ptr(idx);
                 if (elem_type && elem_type->ops && elem_type->ops->to_python) {
-                    result.add(elem_type->ops->to_python(elem_ptr, elem_type));
+                    temp_set.add(elem_type->ops->to_python(elem_ptr, elem_type));
                 }
             }
         }
-        return result;
+        // Return as frozenset - sets in hgraph are immutable values,
+        // and frozenset enables proper replacement semantics in TSS
+        return nb::frozenset(temp_set);
     }
 
     static void from_python(void* dst, const nb::object& src, const TypeMeta* schema) {

@@ -341,6 +341,80 @@ private:
      */
     const TSValue* _cast_source{nullptr};
 
+    /**
+     * @brief Index within parent container for cast TSValues.
+     *
+     * For list/bundle element casts where _cast_source points to the container,
+     * this stores the element index for proper source data access.
+     * -1 if not applicable (root cast or non-indexed).
+     */
+    int64_t _cast_index{-1};
+
+    /**
+     * @brief Source element TSValue for element wrapper casts.
+     *
+     * For TS→REF element conversions in lists/bundles, this points to a
+     * source element TSValue (with non-REF schema like TS[V]) that provides
+     * the actual element data. The TimeSeriesReference is created from this.
+     *
+     * When _cast_source is a container (list/bundle) and _cast_index >= 0,
+     * this provides the element-level TSValue for TimeSeriesReference creation.
+     */
+    TSValue* _source_element{nullptr};
+
+    // ========== REF Observer Support (for REF outputs) ==========
+
+    /**
+     * @brief Observers that should be rebound when this REF output's value changes.
+     *
+     * When a non-REF input binds to a REF output, Python's observer pattern
+     * causes the input to be REBOUND to the target when the REF value is set.
+     * This mimics Python's TimeSeriesReferenceOutput._reference_observers.
+     *
+     * Each entry is (input_ts_value, link_index) - the input TSValue with a
+     * link at link_index that should be rebound to the target.
+     *
+     * Only allocated for REF outputs that have observers registered.
+     */
+    std::unique_ptr<std::vector<std::pair<TSValue*, size_t>>> _ref_observers;
+
+public:
+    // ========== REF Observer API ==========
+
+    /**
+     * @brief Register as an observer of this REF output.
+     *
+     * When this REF output's value changes, the input at link_index will
+     * be rebound to the new target.
+     *
+     * @param input_ts_value The input TSValue containing the link
+     * @param link_index The index within input_ts_value where the link is
+     */
+    void observe_ref(TSValue* input_ts_value, size_t link_index);
+
+    /**
+     * @brief Unregister as an observer of this REF output.
+     */
+    void stop_observing_ref(TSValue* input_ts_value, size_t link_index);
+
+    /**
+     * @brief Notify all REF observers to rebind to the target.
+     *
+     * Called when this REF output's value (TimeSeriesReference) changes.
+     * @param target The target TSValue that the TimeSeriesReference points to
+     */
+    void notify_ref_observers(const TSValue* target);
+
+    /**
+     * @brief Notify all REF observers to rebind to an element within a container.
+     *
+     * Called when this REF output's value references an element in a container
+     * (like TSL) that doesn't have its own TSValue.
+     * @param container The container TSValue
+     * @param elem_index The element index within the container
+     */
+    void notify_ref_observers_element(const TSValue* container, size_t elem_index);
+
 public:
     // ========== Link Support API ==========
 
@@ -560,6 +634,22 @@ public:
      */
     [[nodiscard]] bool is_cast() const noexcept {
         return _cast_source != nullptr;
+    }
+
+    /**
+     * @brief Get the element index for container element casts.
+     * @return Element index, or -1 if not an indexed cast
+     */
+    [[nodiscard]] int64_t cast_index() const noexcept {
+        return _cast_index;
+    }
+
+    /**
+     * @brief Get the source element TSValue for element wrapper casts.
+     * @return Source element TSValue, or nullptr if not an element cast
+     */
+    [[nodiscard]] TSValue* source_element() const noexcept {
+        return _source_element;
     }
 
 private:

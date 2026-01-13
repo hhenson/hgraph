@@ -14,6 +14,11 @@ namespace hgraph
     // Declared here so it can be accessed from py_ts.cpp for dereferencing
     extern std::unordered_map<const TSValue*, nb::object> g_ref_output_cache;
 
+    // Global cache for OLD target's delta information when REF changes target.
+    // Key: TSValue* (the REF output), Value: tuple(old_value, delta_added, delta_removed)
+    // This allows computing the correct delta when REF switches from one TSS to another.
+    extern std::unordered_map<const TSValue*, nb::object> g_ref_old_target_cache;
+
     void ref_register_with_nanobind(nb::module_ &m);
 
     struct PyTimeSeriesReferenceOutput : PyTimeSeriesOutput

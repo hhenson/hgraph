@@ -355,6 +355,83 @@ struct TSView {
      */
     [[nodiscard]] std::optional<StoredPath> stored_path() const;
 
+    // ========== Auto-Dereference Support ==========
+
+    /**
+     * @brief Check if this view should auto-dereference REF values.
+     *
+     * When true, to_python() will dereference REF values and return
+     * the underlying target value instead of the TimeSeriesReference.
+     * This is set when a non-REF input is bound to a REF output.
+     */
+    [[nodiscard]] bool should_auto_deref() const noexcept { return _auto_deref_ref; }
+
+    /**
+     * @brief Set the auto-dereference flag.
+     *
+     * Called during view creation when a non-REF input binds to a REF output.
+     */
+    void set_auto_deref(bool deref) noexcept { _auto_deref_ref = deref; }
+
+    // ========== Element REF Wrapping Support ==========
+
+    /**
+     * @brief Check if elements should be wrapped as REF.
+     *
+     * When true, element()/at() accesses on TSL/TSD will wrap non-REF elements
+     * as REF (creating TimeSeriesReference). This is set when an input expects
+     * TSL[REF[TS[T]]] but is bound to a TSL[TS[T]] output.
+     */
+    [[nodiscard]] bool should_wrap_elements_as_ref() const noexcept { return _expected_element_ref_meta != nullptr; }
+
+    /**
+     * @brief Get the expected REF element meta for wrapping.
+     * @return REFTypeMeta if elements should be wrapped as REF, nullptr otherwise
+     */
+    [[nodiscard]] const TSMeta* expected_element_ref_meta() const noexcept { return _expected_element_ref_meta; }
+
+    /**
+     * @brief Set the expected element REF meta for REF wrapping.
+     *
+     * Called when a container with non-REF elements is bound to an input expecting REF elements.
+     */
+    void set_expected_element_ref_meta(const TSMeta* meta) noexcept { _expected_element_ref_meta = meta; }
+
+    // ========== Bound Output for TS→REF Conversion ==========
+
+    /**
+     * @brief Get the bound output TSValue for TS→REF conversion.
+     *
+     * When an input expects REF elements but the output has non-REF elements,
+     * this stores the output TSValue so that element() can later create
+     * TimeSeriesReference objects pointing to the correct output elements.
+     *
+     * @return Pointer to the output TSValue, or nullptr if not set
+     */
+    [[nodiscard]] const TSValue* bound_output() const noexcept { return _bound_output; }
+
+    /**
+     * @brief Set the bound output TSValue for TS→REF conversion.
+     *
+     * Called when a container with non-REF elements is linked to an input expecting REF elements.
+     * The output TSValue is stored so that element accesses can create TimeSeriesReference.
+     */
+    void set_bound_output(const TSValue* output) noexcept { _bound_output = output; }
+
+    /**
+     * @brief Set the element index within bound_output for container → REF element conversion.
+     *
+     * When bound_output is a container (e.g., TSL) and this view is a REF element,
+     * the elem_index indicates which element within bound_output this REF points to.
+     */
+    void set_bound_output_elem_index(int idx) noexcept { _bound_output_elem_index = idx; }
+
+    /**
+     * @brief Get the bound output element index.
+     * @return Element index, or -1 if not set
+     */
+    [[nodiscard]] int bound_output_elem_index() const noexcept { return _bound_output_elem_index; }
+
 protected:
     value::ConstValueView _view;
     const TSMeta* _ts_meta{nullptr};
@@ -363,6 +440,10 @@ protected:
     const TSValue* _root{nullptr};            ///< Root TSValue for path tracking (can be null)
     LightweightPath _path;                    ///< Path from root to this view
     const TSValue* _link_source{nullptr};     ///< TSValue with link support for transparent navigation (can be null)
+    bool _auto_deref_ref{false};              ///< If true, dereference REF to get target value
+    const TSMeta* _expected_element_ref_meta{nullptr};  ///< REF type meta for element wrapping (when input expects REF but output has non-REF)
+    const TSValue* _bound_output{nullptr};    ///< Output TSValue for TS→REF conversion (to create TimeSeriesReference)
+    int _bound_output_elem_index{-1};         ///< Element index within bound_output container (-1 if not applicable)
 };
 
 /**
@@ -462,8 +543,9 @@ struct TSMutableView : TSView {
 
     /**
      * @brief Set value from Python object.
+     * @return true if the value was actually modified (for TSS, this means elements were added/removed)
      */
-    void from_python(const nb::object& src);
+    bool from_python(const nb::object& src);
 
 private:
     value::ValueView _mutable_view;

@@ -3,6 +3,8 @@
 #include <fmt/format.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/types/time_series/ts_ref_target_link.h>
+#include <iostream>
 
 namespace hgraph
 {
@@ -126,6 +128,81 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesInput::delta_value() const {
+        // If we have a bound output from REF binding, use its delta value
+        // This handles the case where a non-REF input is linked to a REF output
+        // and the target has been rebound after initialization
+        if (_bound_output) {
+            return _bound_output->view().to_python_delta();
+        }
+
+        // Check if the view's link_source has a TSRefTargetLink with a bound target
+        // This handles dynamic rebinding for inputs linked to REF outputs
+        const TSValue* link_source = _view.link_source();
+        const auto& path = _view.path();
+        std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] link_source=" << link_source
+                  << " _view.ts_meta_kind=" << (_view.ts_meta() ? static_cast<int>(_view.ts_meta()->kind()) : -1)
+                  << " path_size=" << path.depth()
+                  << std::endl;
+        if (link_source && path.depth() > 0) {
+            // Get the field index from the path (first element for bundle fields)
+            size_t field_index = path.elements[0];
+            std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] field_index=" << field_index << std::endl;
+            // Try to get the TSRefTargetLink at the field index
+            TSRefTargetLink* ref_link = const_cast<TSValue*>(link_source)->ref_link_at(field_index);
+            std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] ref_link=" << (ref_link ? "yes" : "no")
+                      << std::endl;
+            if (ref_link) {
+                const TSValue* target = ref_link->target_output();
+                std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] target=" << target
+                          << " is_element_binding=" << ref_link->is_element_binding()
+                          << std::endl;
+                if (target || ref_link->is_element_binding()) {
+                    // Use ref_link->view() which properly navigates to elements for element-based bindings
+                    TSView target_view = ref_link->view();
+                    std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] target_view kind="
+                              << (target_view.ts_meta() ? static_cast<int>(target_view.ts_meta()->kind()) : -1)
+                              << std::endl;
+
+                    // Check if a rebind occurred at this tick - if so, return full value as delta
+                    // When REF target changes, all elements are "new" from the perspective of the input
+                    Node* node = _view.owning_node();
+                    if (node && node->cached_evaluation_time_ptr()) {
+                        engine_time_t eval_time = *node->cached_evaluation_time_ptr();
+                        engine_time_t rebind_time = ref_link->target_sample_time();
+                        std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] eval_time=" << eval_time
+                                  << " rebind_time=" << rebind_time << std::endl;
+                        if (rebind_time == eval_time) {
+                            // Rebind occurred this tick - return full value as delta
+                            // For TSL/TSD/TSS: build delta dict with all elements
+                            // For TSB: return regular delta (bundle fields don't change)
+                            std::cerr << "[DEBUG PyTimeSeriesInput::delta_value] rebind this tick - returning full delta"
+                                      << std::endl;
+                            auto target_kind = target_view.ts_meta() ? target_view.ts_meta()->kind() : TSTypeKind::TS;
+                            if (target_kind == TSTypeKind::TSL) {
+                                // Build dict with all TSL elements
+                                nb::dict result;
+                                TSLView list_view = target_view.as_list();
+                                size_t count = list_view.size();
+                                for (size_t i = 0; i < count; ++i) {
+                                    TSView elem = list_view.element(i);
+                                    result[nb::int_(i)] = elem.to_python();
+                                }
+                                return result;
+                            } else if (target_kind == TSTypeKind::TSD) {
+                                // For TSD, return all key-value pairs
+                                return target_view.to_python();  // TSD already returns dict
+                            } else {
+                                // For scalars and other types, return value
+                                return target_view.to_python();
+                            }
+                        }
+                    }
+
+                    return target_view.to_python_delta();
+                }
+            }
+        }
+
         // Use view's delta conversion - handles Window types specially
         return _view.to_python_delta();
     }

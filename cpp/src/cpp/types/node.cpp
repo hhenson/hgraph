@@ -851,6 +851,34 @@ namespace hgraph
         bool scheduled{has_scheduler() ? _scheduler->is_scheduled_now() : false};
         bool should_eval{true};
 
+        // Check valid_inputs constraint - skip eval if any specified input is not valid
+        // This matches Python's behavior in _node.py lines 196-198:
+        //   args = (valid_inputs if valid_inputs is not None else time_series_inputs.keys())
+        //   if not all(self.input[k].valid for k in args): eval = False
+        //
+        // NOTE: We check validity via TSInputRoot::all_links_valid() which uses the TSLink's
+        // overlay (which may be an element overlay for TSL->TS bindings) rather than
+        // the field's overlay from bundle_view(). This ensures element-level validity is checked.
+        if (should_eval && _ts_input.has_value() && signature().valid_inputs.has_value()) {
+            // Check only the specified valid_inputs
+            TSBView inputs = _ts_input->bundle_view();
+            for (const auto& input_name : *signature().valid_inputs) {
+                if (inputs.has_field(input_name)) {
+                    TSView input = inputs.field(input_name);
+                    if (!input.ts_valid()) {
+                        should_eval = false;
+                        break;
+                    }
+                }
+            }
+        } else if (should_eval && _ts_input.has_value() && !signature().valid_inputs.has_value()) {
+            // Default: check all linked inputs via TSInputRoot
+            // Use link-based validity which correctly handles TSL->TS element bindings
+            if (!_ts_input->all_valid()) {
+                should_eval = false;
+            }
+        }
+
         // Check all_valid_inputs constraint - skip eval if any specified input is not all_valid
         if (should_eval && signature().all_valid_inputs.has_value() && _ts_input.has_value()) {
             TSBView inputs = _ts_input->bundle_view();

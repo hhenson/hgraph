@@ -192,22 +192,27 @@ namespace hgraph {
             std::unordered_map<std::string, engine_time_t> input_last_modified_time;
 
             if (node->has_input()) {
-                for (const auto &[input_name, input]: node->input()->items()) {
-                    capture_input(active_inputs, *input, input_name, capture_values, depth);
+                // Use view-based input access (TSBView) instead of legacy input()
+                TSBView input_bundle = node->input_view();
+                for (const auto &[input_name, input_view]: input_bundle.items()) {
+                    // Note: capture_input requires TimeSeriesInput reference, but we have TSView
+                    // For now, skip the recursive traversal and just capture values
+                    // TODO: Refactor capture_input to work with TSView
 
                     if (capture_values) {
                         // Convert values to strings via Python's str() to avoid C++ cast issues (std::bad_cast)
-                        nb::str py_val_str = nb::str(input->py_value());
+                        nb::str py_val_str = nb::str(input_view.to_python());
                         std::string value_str = nb::cast<std::string>(py_val_str);
                         size_t newline_pos = value_str.find('\n');
                         if (newline_pos != std::string::npos) { value_str = value_str.substr(0, newline_pos); }
 
-                        input_short_values[input_name] =
+                        std::string name_str(input_name);
+                        input_short_values[name_str] =
                                 value_str.substr(0, 32) + (value_str.length() > 32 ? "..." : "");
-                        std::string delta_str = nb::cast<std::string>(nb::str(input->py_delta_value()));
-                        input_delta_values[input_name] = delta_str;
-                        input_values[input_name] = value_str;
-                        input_last_modified_time[input_name] = input->last_modified_time();
+                        std::string delta_str = nb::cast<std::string>(nb::str(input_view.to_python_delta()));
+                        input_delta_values[name_str] = delta_str;
+                        input_values[name_str] = value_str;
+                        input_last_modified_time[name_str] = input_view.last_modified_time();
                     }
                 }
             }
