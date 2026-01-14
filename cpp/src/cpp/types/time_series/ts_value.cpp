@@ -363,7 +363,7 @@ void TSValue::create_link(size_t index, const TSValue* output) {
 
     // Check if output is a REF type (requires TSRefTargetLink)
     bool is_ref_output = output && output->ts_meta() && output->ts_meta()->is_reference();
-    bool output_is_ref = is_ref_output;  // Alias for clarity
+    // Note: is_ref_output used below in binding decisions
 
     // Check if input expects REF but output is non-REF (TS→REF conversion)
     bool is_ref_input = expected_schema && expected_schema->is_reference();
@@ -444,8 +444,9 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         }
     }
 
-    if (is_ref_output) {
-        // REF->TS binding: use TSRefTargetLink
+    if (is_ref_output && !is_ref_input) {
+        // REF→TS binding: use TSRefTargetLink (REF output, non-REF input)
+        // This is the ONLY case for TSRefTargetLink - it handles dynamic rebinding
         auto* existing_ref = ref_link_at(index);
         if (!existing_ref) {
             // Create new TSRefTargetLink
@@ -466,6 +467,20 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         // This implements Python's observer pattern: when REF output sets its value,
         // all observing inputs are rebound to the target that the REF points to.
         const_cast<TSValue*>(output)->observe_ref(this, index);
+    } else if (is_ref_output && is_ref_input) {
+        // REF→REF binding: use plain TSLink (both sides are REF)
+        // The REF input peers to the REF output - when the output sets a new reference,
+        // the input sees the same reference value.
+        auto* existing_link = link_at(index);
+        if (!existing_link) {
+            _link_support->child_links[index] = std::make_unique<TSLink>(_owning_node);
+        }
+        TSLink* link_ptr = link_at(index);
+        if (link_ptr) {
+            link_ptr->bind(output);
+            link_ptr->make_active();
+        }
+        // child_value will be cleared by fall-through to end of function (peered)
     } else if (is_ts_to_ref) {
         // TS→REF binding: input expects REF but output is non-REF
         // According to design, use plain TSLink with notify_once=true for TS→REF

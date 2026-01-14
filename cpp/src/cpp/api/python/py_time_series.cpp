@@ -62,8 +62,8 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesOutput::is_reference() const {
-        // TODO: Check if this is a REF type via TSMeta
-        return nb::bool_(false);
+        const TSMeta* meta = _view.ts_meta();
+        return nb::bool_(meta && meta->is_reference());
     }
 
     void PyTimeSeriesOutput::set_value(nb::object value) {
@@ -229,8 +229,8 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesInput::is_reference() const {
-        // TODO: Check if this is a REF type via TSMeta
-        return nb::bool_(false);
+        const TSMeta* meta = _view.ts_meta();
+        return nb::bool_(meta && meta->is_reference());
     }
 
     nb::bool_ PyTimeSeriesInput::active() const {
