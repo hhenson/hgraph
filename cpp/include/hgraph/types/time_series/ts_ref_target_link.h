@@ -361,6 +361,31 @@ private:
     const TSValue* _target_container{nullptr};
     int _target_elem_index{-1};
 
+    // Previous target tracking for delta computation during rebind
+    // Stored during rebind_target() and cleared at end of evaluation cycle
+    const TSValue* _prev_target_output{nullptr};
+
+public:
+    /**
+     * @brief Get the previous target output (from before rebind).
+     *
+     * Used for delta computation when REF target changes. Returns the
+     * target that was bound before the most recent rebind_target() call.
+     *
+     * @return Previous target TSValue, or nullptr if no rebind occurred
+     */
+    [[nodiscard]] const TSValue* prev_target_output() const noexcept { return _prev_target_output; }
+
+    /**
+     * @brief Clear the previous target reference.
+     *
+     * Should be called at the end of each evaluation cycle after delta
+     * computation is complete.
+     */
+    void clear_prev_target() noexcept { _prev_target_output = nullptr; }
+
+private:
+
     // ========== Helpers ==========
 
     /**

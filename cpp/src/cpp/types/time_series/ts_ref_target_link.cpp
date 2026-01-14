@@ -111,6 +111,10 @@ void TSRefTargetLink::rebind_target(const TSValue* new_target, engine_time_t tim
         return;  // No change
     }
 
+    // Store the previous target for delta computation
+    // This allows delta_value to compute the difference between old and new targets
+    _prev_target_output = old_target;
+
     // Compute delta eagerly while both targets are valid
     if (old_target != nullptr || new_target != nullptr) {
         compute_delta(old_target, new_target);

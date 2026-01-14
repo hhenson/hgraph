@@ -215,16 +215,11 @@ namespace hgraph
     // Used by TSView::to_python() and TSMutableView::from_python() for REF types
     std::unordered_map<const TSValue*, nb::object> g_ref_output_cache;
 
-    // Global cache for OLD target's delta information when REF changes target.
-    // Key: TSValue* (the REF output), Value: tuple(old_value, delta_added, delta_removed)
-    std::unordered_map<const TSValue*, nb::object> g_ref_old_target_cache;
-
     // Cleanup function to clear the caches before Python shuts down
     // This prevents crashes during module unload when Python objects are
     // destroyed after the interpreter starts finalizing
     void clear_ref_output_cache() {
         g_ref_output_cache.clear();
-        g_ref_old_target_cache.clear();
     }
 
     void PyTimeSeriesReferenceOutput::register_with_nanobind(nb::module_ &m) {

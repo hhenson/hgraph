@@ -8,8 +8,6 @@
 
 namespace hgraph
 {
-    // External declaration for REF old target cache (defined in py_ref.cpp)
-    extern std::unordered_map<const TSValue*, nb::object> g_ref_old_target_cache;
     void PyTimeSeriesType::register_with_nanobind(nb::module_ &m) {
         // Base class is a marker - no methods, just the type for isinstance checks
         nb::class_<PyTimeSeriesType>(m, "TimeSeriesType");
@@ -187,67 +185,42 @@ namespace hgraph
                                 // For TSD, return all key-value pairs
                                 return target_view.to_python();  // TSD already returns dict
                             } else if (target_kind == TSTypeKind::TSS) {
-                                // For TSS, compute proper delta using cached old target info
+                                // For TSS, compute proper delta using previous target from TSRefTargetLink
                                 nb::object new_value = target_view.to_python();  // frozenset
                                 auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
 
-                                // Get the REF output's TSValue to check for cached old target info
-                                // The cache key is set in from_python when REF value changes
-                                const TSValue* ref_output = ref_link->ref_output();
-                                if (ref_output) {
-                                    auto old_it = g_ref_old_target_cache.find(ref_output);
-                                    if (old_it != g_ref_old_target_cache.end()) {
-                                        // We have old target info - compute proper delta
-                                        nb::tuple old_info = nb::cast<nb::tuple>(old_it->second);
-                                        nb::object old_value = old_info[0];
-                                        nb::object old_delta_added = old_info[1];
-                                        nb::object old_delta_removed = old_info[2];
+                                // Get the previous target from TSRefTargetLink
+                                // This was stored during rebind_target() before the target changed
+                                const TSValue* prev_target = ref_link->prev_target_output();
+                                if (prev_target) {
+                                    // Get the previous target's value
+                                    TSView prev_view = prev_target->view();
+                                    nb::object old_value = prev_view.to_python();  // frozenset
 
-                                        // Clear cache after consuming (one-shot delta)
-                                        g_ref_old_target_cache.erase(old_it);
+                                    // Compute delta = new_value vs old_value
+                                    nb::set added_set;
+                                    nb::set removed_set;
 
-                                        // Reconstruct old_previous = old_value - delta_added + delta_removed
-                                        nb::set old_previous_set;
-                                        for (auto item : old_value) {
-                                            old_previous_set.add(item);
+                                    // Items in new but not in old are added
+                                    for (auto item : new_value) {
+                                        if (!nb::cast<nb::frozenset>(old_value).contains(item)) {
+                                            added_set.add(item);
                                         }
-                                        for (auto item : old_delta_added) {
-                                            old_previous_set.discard(item);
-                                        }
-                                        for (auto item : old_delta_removed) {
-                                            old_previous_set.add(item);
-                                        }
-                                        nb::frozenset old_previous = nb::frozenset(old_previous_set);
-
-                                        // Compute delta = new_value - old_previous
-                                        nb::set added_set;
-                                        nb::set removed_set;
-
-                                        // Items in new but not in old_previous are added
-                                        for (auto item : new_value) {
-                                            if (!old_previous.contains(item)) {
-                                                added_set.add(item);
-                                            }
-                                        }
-                                        // Items in old_previous but not in new are removed
-                                        for (auto item : old_previous) {
-                                            bool found = false;
-                                            for (auto new_item : new_value) {
-                                                if (nb::cast<nb::object>(item).equal(nb::cast<nb::object>(new_item))) {
-                                                    found = true;
-                                                    break;
-                                                }
-                                            }
-                                            if (!found) {
-                                                removed_set.add(item);
-                                            }
-                                        }
-
-                                        return PythonSetDelta(nb::frozenset(added_set), nb::frozenset(removed_set));
                                     }
+                                    // Items in old but not in new are removed
+                                    for (auto item : old_value) {
+                                        if (!nb::cast<nb::frozenset>(new_value).contains(item)) {
+                                            removed_set.add(item);
+                                        }
+                                    }
+
+                                    // Clear the previous target after use (consumed)
+                                    ref_link->clear_prev_target();
+
+                                    return PythonSetDelta(nb::frozenset(added_set), nb::frozenset(removed_set));
                                 }
 
-                                // No cache - return all as added (fallback for first time)
+                                // No previous target - return all as added (first time binding)
                                 return PythonSetDelta(new_value, nb::frozenset());
                             } else {
                                 // For scalars and other types, return value

@@ -23,15 +23,6 @@ namespace hgraph {
 // Key is the TSValue pointer, value is the stored TimeSeriesReference
 extern std::unordered_map<const TSValue*, nb::object> g_ref_output_cache;
 
-// External cache for OLD target's delta information when REF changes target.
-// Key: TSValue* (the REF output), Value: tuple(old_value, delta_added, delta_removed)
-extern std::unordered_map<const TSValue*, nb::object> g_ref_old_target_cache;
-
-// Cache for tracking previous REF target pointer (for non-TSS types).
-// Key: TSValue* (the REF output), Value: const TSValue* (previous target)
-// Used to detect when REF target changes so we can return full value as delta.
-static std::unordered_map<const TSValue*, const TSValue*> g_ref_prev_target_cache;
-
 // ============================================================================
 // Helper function to navigate REF links and find bound output
 // ============================================================================
@@ -543,6 +534,9 @@ nb::object TSView::to_python_delta() const {
                     }
                 }
                 // Fallback for auto-deref: get target from TSValue's ref_cache
+                // Note: Proper delta computation for REF target switches is handled by
+                // TSRefTargetLink in PyTimeSeriesInput::delta_value(). This fallback
+                // just delegates to the target's delta_value.
                 if (_root && _root->has_ref_cache()) {
                     try {
                         nb::object cached = std::any_cast<nb::object>(_root->ref_cache());
@@ -550,95 +544,7 @@ nb::object TSView::to_python_delta() const {
                         if (ref.is_view_bound()) {
                             const TSValue* target = ref.view_output();
                             if (target) {
-                                // Check if REF target changed by comparing to cached previous target
-                                auto prev_it = g_ref_prev_target_cache.find(_root);
-                                bool target_changed = false;
-                                if (prev_it == g_ref_prev_target_cache.end()) {
-                                    // First time seeing this REF - target "changed" (is new)
-                                    target_changed = true;
-                                    g_ref_prev_target_cache[_root] = target;
-                                } else if (prev_it->second != target) {
-                                    // Target pointer changed
-                                    target_changed = true;
-                                    g_ref_prev_target_cache[_root] = target;
-                                }
-                                // If target didn't change, prev_target stays the same
-
                                 TSView target_view = target->view();
-
-                                if (target_changed) {
-                                    // REF target changed - compute delta between old and new targets
-                                    // Use g_ref_old_target_cache if available (set in from_python when REF value changes)
-
-                                    // For TSL, convert value to {index: value} dict format
-                                    if (target->ts_meta() && target->ts_meta()->kind() == TSTypeKind::TSL) {
-                                        nb::object full_value = target_view.to_python();
-                                        if (nb::isinstance<nb::tuple>(full_value)) {
-                                            nb::dict result;
-                                            nb::tuple tpl = nb::cast<nb::tuple>(full_value);
-                                            for (size_t i = 0; i < nb::len(tpl); ++i) {
-                                                result[nb::int_(i)] = tpl[i];
-                                            }
-                                            return result;
-                                        }
-                                        return full_value;  // Already dict or other format
-                                    }
-                                    // For TSS, compute proper delta using cached old target value
-                                    if (target->ts_meta() && target->ts_meta()->kind() == TSTypeKind::TSS) {
-                                        nb::object new_value = target_view.to_python();  // frozenset
-                                        auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
-
-                                        // Check for cached old target info
-                                        auto old_it = g_ref_old_target_cache.find(_root);
-                                        if (old_it != g_ref_old_target_cache.end()) {
-                                            // We have old target info - compute proper delta
-                                            nb::tuple old_info = nb::cast<nb::tuple>(old_it->second);
-                                            nb::object old_value = old_info[0];
-                                            // Clear cache after consuming (one-shot delta)
-                                            g_ref_old_target_cache.erase(old_it);
-
-                                            // Compute delta: added = new - old, removed = old - new
-                                            nb::set added_set;
-                                            nb::set removed_set;
-
-                                            // Items in new but not in old are added
-                                            for (auto item : new_value) {
-                                                bool found = false;
-                                                for (auto old_item : old_value) {
-                                                    if (nb::cast<nb::object>(item).equal(nb::cast<nb::object>(old_item))) {
-                                                        found = true;
-                                                        break;
-                                                    }
-                                                }
-                                                if (!found) {
-                                                    added_set.add(item);
-                                                }
-                                            }
-                                            // Items in old but not in new are removed
-                                            for (auto item : old_value) {
-                                                bool found = false;
-                                                for (auto new_item : new_value) {
-                                                    if (nb::cast<nb::object>(item).equal(nb::cast<nb::object>(new_item))) {
-                                                        found = true;
-                                                        break;
-                                                    }
-                                                }
-                                                if (!found) {
-                                                    removed_set.add(item);
-                                                }
-                                            }
-
-                                            return PythonSetDelta(nb::frozenset(added_set), nb::frozenset(removed_set));
-                                        }
-
-                                        // No cache - return all as added (fallback for first time)
-                                        return PythonSetDelta(new_value, nb::frozenset());
-                                    }
-                                    // For other types, return full value
-                                    return target_view.to_python();
-                                }
-
-                                // REF target didn't change - return target's delta
                                 return target_view.to_python_delta();
                             }
                         }
@@ -775,76 +681,9 @@ nb::object TSView::to_python_delta() const {
                 }
             }
 
-            // For REF types pointing to TSS, compute delta when target changes
-            // Check if there's cached old target info (this path is a fallback - main path is above)
-            const TSValue* cache_key = _root;
-            if (cache_key) {
-                auto old_it = g_ref_old_target_cache.find(cache_key);
-                if (old_it != g_ref_old_target_cache.end()) {
-                    // We have old target info - compute delta
-                    nb::tuple old_info = nb::cast<nb::tuple>(old_it->second);
-
-                    // Extract tuple (old_value, delta_added, delta_removed)
-                    nb::object old_value = old_info[0];
-                    nb::object old_delta_added = old_info[1];
-                    nb::object old_delta_removed = old_info[2];
-
-                    // Clear cache after consuming (one-shot delta)
-                    g_ref_old_target_cache.erase(old_it);
-
-                    // Get new target's value
-                    nb::object new_value = to_python();
-                    if (new_value.is_none()) {
-                        // New target is empty - everything removed
-                        auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
-                        return PythonSetDelta(nb::frozenset(), nb::frozenset(old_value));
-                    }
-
-                    // Compute old_previous = old_value - delta_added + delta_removed
-                    // This reconstructs what the old target's value was BEFORE the current tick
-                    nb::set old_previous_set;
-                    for (auto item : old_value) {
-                        old_previous_set.add(item);
-                    }
-                    // Remove items that were added in delta (they weren't in previous)
-                    for (auto item : old_delta_added) {
-                        old_previous_set.discard(item);
-                    }
-                    // Add items that were removed in delta (they were in previous)
-                    for (auto item : old_delta_removed) {
-                        old_previous_set.add(item);
-                    }
-                    nb::frozenset old_previous = nb::frozenset(old_previous_set);
-
-                    // Compute delta = new_value - old_previous
-                    nb::set added_set;
-                    nb::set removed_set;
-
-                    // Items in new but not in old_previous are added
-                    for (auto item : new_value) {
-                        if (!old_previous.contains(item)) {
-                            added_set.add(item);
-                        }
-                    }
-                    // Items in old_previous but not in new are removed
-                    for (auto item : old_previous) {
-                        bool found = false;
-                        for (auto new_item : new_value) {
-                            if (nb::cast<nb::object>(item).equal(nb::cast<nb::object>(new_item))) {
-                                found = true;
-                                break;
-                            }
-                        }
-                        if (!found) {
-                            removed_set.add(item);
-                        }
-                    }
-
-                    auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
-                    return PythonSetDelta(nb::frozenset(added_set), nb::frozenset(removed_set));
-                }
-            }
-            // No old target cache - delta_value is the same as value
+            // Note: REF target switch delta computation is handled by
+            // TSRefTargetLink in PyTimeSeriesInput::delta_value()
+            // For TSS, delta_value is the same as value when accessed directly
             return to_python();
         }
         default:
@@ -1199,7 +1038,6 @@ bool TSMutableView::from_python(const nb::object& src) {
             // Clear/invalidate - remove from cache
             if (_root) {
                 _root->clear_ref_cache();
-                g_ref_old_target_cache.erase(_root);
             }
             return true;  // Invalidating is a change
         }
@@ -1218,51 +1056,8 @@ bool TSMutableView::from_python(const nb::object& src) {
         // Determine cache key
         const TSValue* cache_key = _root ? _root : _mutable_container;
 
-        // BEFORE storing new value: cache old target's delta info for TSS types
-        // This allows computing correct delta when REF switches targets
-        if (cache_key && cache_key->has_ref_cache()) {
-            try {
-                nb::object old_cached = std::any_cast<nb::object>(cache_key->ref_cache());
-                if (nb::isinstance<TimeSeriesReference>(old_cached)) {
-                    TimeSeriesReference old_ref = nb::cast<TimeSeriesReference>(old_cached);
-                    if (old_ref.is_view_bound()) {
-                        const TSValue* old_target = old_ref.view_output();
-                        if (old_target && old_target->ts_meta() &&
-                            old_target->ts_meta()->kind() == TSTypeKind::TSS) {
-                            // Cache old target's current value and delta for later delta computation
-                            // We cache (value, delta_added, delta_removed) as a tuple
-                            TSView old_target_view(*old_target);
-                            TSSView old_tss_view = old_target_view.as_set();
-                            nb::object old_value = old_tss_view.to_python();
-                            nb::object old_delta = old_tss_view.to_python_delta();
-
-                            // Extract added/removed from delta (PythonSetDelta)
-                            nb::object delta_added = nb::frozenset();
-                            nb::object delta_removed = nb::frozenset();
-                            if (!old_delta.is_none()) {
-                                try {
-                                    delta_added = old_delta.attr("added");
-                                    nb::object removed = old_delta.attr("removed");
-                                    // Convert removed to frozenset if it's a regular set
-                                    if (nb::hasattr(removed, "__iter__") && !nb::isinstance<nb::frozenset>(removed)) {
-                                        delta_removed = nb::frozenset(removed);
-                                    } else {
-                                        delta_removed = removed;
-                                    }
-                                } catch (...) {
-                                    // If delta doesn't have added/removed, use empty frozensets
-                                }
-                            }
-
-                            // Store tuple (value, delta_added, delta_removed)
-                            g_ref_old_target_cache[cache_key] = nb::make_tuple(old_value, delta_added, delta_removed);
-                        }
-                    }
-                }
-            } catch (const std::bad_any_cast&) {
-                // Ignore if cache doesn't contain an nb::object
-            }
-        }
+        // Note: Delta computation for REF target switches is now handled by
+        // TSRefTargetLink's prev_target_output() in PyTimeSeriesInput::delta_value()
 
         // Store in TSValue's ref_cache
         if (cache_key) {
