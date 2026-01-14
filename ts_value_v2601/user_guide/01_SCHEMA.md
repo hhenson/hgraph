@@ -1,0 +1,975 @@
+# Schema: Defining Types
+
+**Parent**: [Overview](00_OVERVIEW.md)
+
+---
+
+## What Is a Schema?
+
+A **schema** describes the structure and capabilities of a type. It defines:
+- What kind of type it is (atomic, bundle, list, etc.)
+- For composites: the structure of children
+- For time-series: the temporal overlay structure
+
+Schemas are **metadata** - they describe data, not the data itself.
+
+---
+
+## Two Schema Layers
+
+### Value Schema (TypeMeta)
+
+Describes how data is laid out in memory:
+
+```
+TypeMeta for a Point bundle:
+├── kind: Bundle
+├── name: "Point"
+├── size: 24 bytes (three doubles)
+├── fields:
+│   ├── field[0]: name="x", type=double, offset=0
+│   ├── field[1]: name="y", type=double, offset=8
+│   └── field[2]: name="z", type=double, offset=16
+└── ops: (operations vtable)
+```
+
+Value schema knows nothing about time.
+
+### Time-Series Schema (TSMeta)
+
+Describes the time-series structure on top of data:
+
+```
+TSMeta for a Quote TSB:
+├── kind: TSB
+├── value_schema: → Point TypeMeta
+├── fields:
+│   ├── field[0]: name="bid", ts_type=TS[double]
+│   ├── field[1]: name="ask", ts_type=TS[double]
+│   └── field[2]: name="time", ts_type=TS[engine_time_t]
+└── ops: (ts operations vtable)
+```
+
+TS schema adds change tracking structure.
+
+### Relationship
+
+```
+┌───────────────────────────────────────┐
+│           TSMeta (TS[int])            │
+│  ┌─────────────────────────────────┐  │
+│  │     TypeMeta (int)              │  │
+│  │     (data layout)               │  │
+│  └─────────────────────────────────┘  │
+│  + modification tracking structure    │
+│  + observer attachment points         │
+└───────────────────────────────────────┘
+```
+
+Every TSMeta references a TypeMeta for its data storage.
+
+---
+
+## Type Registration
+
+Types must be registered with the type system before use. This establishes the mapping between type identifiers and their schemas.
+
+**Note:** Registration is a C++ operation. The Python TypeMeta API provides read-only access (`get`) to retrieve schemas, but does not support registration.
+
+### Registering Types
+
+All type registration uses `register_type`. The API has three forms:
+
+```cpp
+TypeRegistry& registry = TypeRegistry::instance();
+
+// 1. Template with auto-generated ops (for simple/atomic types)
+//    Generates type_ops from the atomic ops generator
+registry.register_type<bool>("bool");
+registry.register_type<int64_t>("int");
+registry.register_type<double>("float");
+registry.register_type<engine_date_t>("date");
+registry.register_type<engine_time_t>("datetime");
+registry.register_type<engine_time_delta_t>("timedelta");
+registry.register_type<nb::object>("object");  // Important: arbitrary Python objects
+
+// 2. Template with explicit ops (for types needing custom behavior)
+//    Populates both name and type caches
+registry.register_type<MyCustomType>("MyCustomType", my_type_ops);
+
+// 3. Name-only with explicit ops (no template shortcut)
+//    Only populates name cache
+registry.register_type("MyCustomType", my_type_ops);
+```
+
+After registration, retrieve schema by name:
+
+```cpp
+const TypeMeta& int_schema = TypeMeta::get("int");
+const TypeMeta& float_schema = TypeMeta::get("float");
+const TypeMeta& object_schema = TypeMeta::get("object");
+```
+
+### Template Shortcut API
+
+When a type is registered with `register_type<T>("name")` (template form), the registry maintains two caches:
+1. **Name cache**: Maps string name → TypeMeta (e.g., `"int"` → int TypeMeta)
+2. **Type cache**: Maps C++ type → TypeMeta (e.g., `int64_t` → int TypeMeta)
+
+This enables a template shortcut for retrieval:
+
+```cpp
+// These are equivalent for template-registered types:
+const TypeMeta& schema1 = TypeMeta::get("int");      // Name-based (primary)
+const TypeMeta& schema2 = TypeMeta::get<int64_t>();  // Template shortcut
+
+// The template version looks up the C++ type in the type cache
+// and returns the same TypeMeta as the name-based version
+```
+
+The template shortcut extends to time-series types:
+
+```cpp
+// TS<int64_t> internally resolves to TS with TypeMeta::get("int")
+using PriceTS = TS<double>;      // Resolves via TypeMeta::get<double>() → "float"
+using FlagTS = TS<bool>;         // Resolves via TypeMeta::get<bool>() → "bool"
+```
+
+**Important**: The template shortcut only works for types registered using the template form of `register_type<T>()`. Types registered only by name must use the name-based API.
+
+### Built-in Atomic Types
+
+| Type | Python | C++ | Size | Notes |
+|------|--------|-----|------|-------|
+| `bool` | `bool` | `bool` | 1 byte | |
+| `int` | `int` | `int64_t` | 8 bytes | 64-bit signed |
+| `float` | `float` | `double` | 8 bytes | 64-bit IEEE |
+| `date` | `datetime.date` | `engine_date_t` | 4 bytes | Year-month-day |
+| `datetime` | `datetime.datetime` | `engine_time_t` | 8 bytes | Microsecond precision |
+| `timedelta` | `datetime.timedelta` | `engine_time_delta_t` | 8 bytes | Microsecond precision |
+| `object` | `object` | `nb::object` | varies | Arbitrary Python object (critical for interop) |
+
+**Note**: String (`str`) is not currently supported but the type system is extensible.
+
+---
+
+## Compound Scalars
+
+User-defined scalar types that are treated atomically (no per-field change tracking).
+
+### Named vs Unnamed Types
+
+Compound types are uniquely determined by their fields and field order. The type system supports both named and unnamed registration:
+
+- **Unnamed**: The structural schema (fields + order) is registered without a name. The schema's name property returns `"UnNamedCompoundScalar"`.
+- **Named**: A name is associated with a structural schema. Multiple names can alias the same underlying structure.
+
+```cpp
+// Register unnamed (structural only)
+const TypeMeta& unnamed = BundleBuilder()
+    .add_field("x", TypeMeta::get("float"))
+    .add_field("y", TypeMeta::get("float"))
+    .build();
+// unnamed.name() == "UnNamedCompoundScalar"
+
+// Register named (wraps structural schema with name)
+const TypeMeta& point = BundleBuilder()
+    .set_name("Point")
+    .add_field("x", TypeMeta::get("float"))
+    .add_field("y", TypeMeta::get("float"))
+    .build();
+// point.name() == "Point"
+
+// Same structure can have multiple name aliases
+const TypeMeta& vec2d = BundleBuilder()
+    .set_name("Vec2D")
+    .add_field("x", TypeMeta::get("float"))
+    .add_field("y", TypeMeta::get("float"))
+    .build();
+// vec2d.name() == "Vec2D", but underlying structure is same as Point
+```
+
+When looking up a schema by name, you get the named schema (which holds both the name and the structural type schema). The structural schema can be shared across multiple named types.
+
+**Equality semantics:**
+
+```cpp
+// Unnamed == Named: compares underlying structural schema only
+unnamed == point;   // true (same fields and order)
+unnamed == vec2d;   // true (same fields and order)
+
+// Named == Named: requires name to match
+point == vec2d;     // false (different names, even though same structure)
+point == point;     // true
+```
+
+### Python Definition
+
+Compound scalars are defined in Python by inheriting from `CompoundScalar`:
+
+```python
+from hgraph import CompoundScalar
+from dataclasses import dataclass
+
+@dataclass
+class Point(CompoundScalar):
+    x: float
+    y: float
+    z: float
+
+@dataclass
+class Money(CompoundScalar):
+    amount: float
+    currency_code: int
+
+# Used in time-series (treated as single value)
+position: TS[Point]
+balance: TS[Money]
+```
+
+### C++ Schema Definition
+
+**Option 1: Static type definition (fully compile-time)**
+```cpp
+using PointSchema = Bundle<
+    name<"Point">,
+    field<"x", double>,
+    field<"y", double>,
+    field<"z", double>
+>;
+
+using MoneySchema = Bundle<
+    name<"Money">,
+    field<"amount", double>,
+    field<"currency_code", int64_t>
+>;
+
+// Get TypeMeta by name (after registration)
+const TypeMeta& point_schema = TypeMeta::get("Point");
+const TypeMeta& money_schema = TypeMeta::get("Money");
+```
+
+**Option 2: Fluent builder (runtime construction)**
+```cpp
+const TypeMeta& point_schema = BundleBuilder()
+    .set_name("Point")
+    .add_field("x", TypeMeta::get("float"))
+    .add_field("y", TypeMeta::get("float"))
+    .add_field("z", TypeMeta::get("float"))
+    .build();
+
+const TypeMeta& money_schema = BundleBuilder()
+    .set_name("Money")
+    .add_field("amount", TypeMeta::get("float"))
+    .add_field("currency_code", TypeMeta::get("int"))
+    .build();
+```
+
+**Option 3: From Python type**
+```cpp
+// Retrieve schema from registered Python CompoundScalar type
+const TypeMeta& point_schema = TypeMeta::from_python_type(point_py_type);
+```
+
+### Working with Compound Scalar Values
+
+```cpp
+// Create value
+Value point(point_schema);
+point.at("x").set<double>(1.0);
+point.at("y").set<double>(2.0);
+point.at("z").set<double>(3.0);
+
+// Read value
+View v = point.view();
+double x = v.at("x").as<double>();
+double y = v.at("y").as<double>();
+double z = v.at("z").as<double>();
+
+// Interop with Python CompoundScalar instances
+point.from_python(py_point_obj);
+nb::object py_obj = point.to_python();
+```
+
+---
+
+## Composite Value Types
+
+### List
+
+Homogeneous sequence of values.
+
+**Static Definition:**
+```cpp
+// Dynamic list of doubles
+using PriceList = List<double>;
+
+// Fixed-size list (capacity 10)
+using FixedPriceList = List<double, 10>;
+
+// List of Python objects
+using ObjectList = List<nb::object>;
+```
+
+**Builder:**
+```cpp
+// Dynamic list
+const TypeMeta& list_schema = ListBuilder()
+    .set_element_type(TypeMeta::get("float"))
+    .build();
+
+// Fixed-size list
+const TypeMeta& fixed_list_schema = ListBuilder()
+    .set_element_type(TypeMeta::get("float"))
+    .set_size(10)
+    .build();
+```
+
+### Set
+
+Unordered collection of unique hashable values.
+
+**Static Definition:**
+```cpp
+using IdSet = Set<int64_t>;
+```
+
+**Builder:**
+```cpp
+const TypeMeta& set_schema = SetBuilder()
+    .set_element_type(TypeMeta::get("int"))
+    .build();
+```
+
+### Map
+
+Key-value pairs with hashable keys.
+
+**Static Definition:**
+```cpp
+using ScoreMap = Map<int64_t, double>;
+
+// Map with object values
+using DataMap = Map<int64_t, nb::object>;
+```
+
+**Builder:**
+```cpp
+const TypeMeta& map_schema = MapBuilder()
+    .set_key_type(TypeMeta::get("int"))
+    .set_value_type(TypeMeta::get("float"))
+    .build();
+```
+
+### Tuple
+
+Positional-only bundle (no field names).
+
+**Static Definition:**
+```cpp
+using Pair = Tuple<int64_t, double>;
+using Triple = Tuple<double, double, double>;
+```
+
+**Builder:**
+```cpp
+const TypeMeta& pair_schema = TupleBuilder()
+    .add_element(TypeMeta::get("int"))
+    .add_element(TypeMeta::get("float"))
+    .build();
+```
+
+---
+
+## Time-Series Types
+
+Time-series schemas wrap value schemas and add temporal tracking.
+
+### TS[T] - Scalar Time-Series
+
+```cpp
+using PriceTS = TS<double>;
+using FlagTS = TS<bool>;
+using TimeTS = TS<engine_time_t>;
+using PointTS = TS<PointSchema>;    // Compound scalar
+using ObjectTS = TS<nb::object>;    // Arbitrary Python object
+```
+
+### TSB - Bundle Time-Series
+
+Each field is independently tracked.
+
+**C++ Static Definition:**
+```cpp
+using QuoteSchema = TSB<
+    name<"Quote">,
+    field<"bid", TS<double>>,
+    field<"ask", TS<double>>,
+    field<"time", TS<engine_time_t>>
+>;
+```
+
+**Python Definition (TimeSeriesSchema):**
+```python
+from hgraph import TimeSeriesSchema, TS
+from dataclasses import dataclass
+
+@dataclass
+class Quote(TimeSeriesSchema):
+    bid: TS[float]
+    ask: TS[float]
+    time: TS[datetime]
+
+# In type hints
+quote: TSB[Quote]
+```
+
+### TSL - List Time-Series
+
+List of independent time-series elements.
+
+```cpp
+// Fixed-size list of 10 float time-series
+using PriceListTS = TSL<TS<double>, 10>;
+
+// Dynamic list (size 0)
+using DynamicPriceListTS = TSL<TS<double>, 0>;
+
+// List of bundles
+using QuoteListTS = TSL<TSB<QuoteSchema>, 5>;
+
+// List of object time-series
+using ObjectListTS = TSL<TS<nb::object>, 0>;
+```
+
+### TSD - Dict Time-Series
+
+Scalar keys mapping to time-series values.
+
+```cpp
+using PriceDictTS = TSD<int64_t, TS<double>>;
+using OrderDictTS = TSD<int64_t, TSB<QuoteSchema>>;
+```
+
+### TSS - Set Time-Series
+
+Set of scalar values that changes over time.
+
+```cpp
+using ActiveIdsTS = TSS<int64_t>;
+```
+
+### REF - Reference Time-Series
+
+Dynamic reference to another time-series.
+
+```cpp
+using PriceRefTS = REF<TS<double>>;
+using QuoteRefTS = REF<TSB<QuoteSchema>>;
+```
+
+### SIGNAL
+
+Tick notification with no data.
+
+```cpp
+using HeartbeatTS = SIGNAL;
+```
+
+---
+
+## TypeMeta API
+
+### Core Properties
+
+```cpp
+const TypeMeta& schema = ...;
+
+// Kind
+TypeKind kind = schema.kind();          // TypeKind::Bundle, List, etc.
+
+// Name (for named types)
+std::string_view name = schema.name();  // "Point", "Money", etc.
+
+// Size
+size_t byte_size = schema.byte_size();  // Memory size in bytes
+bool is_fixed = schema.is_fixed_size(); // True if size is fixed
+```
+
+### Bundle/Tuple Field Access
+
+```cpp
+const TypeMeta& bundle_schema = ...;
+
+// Field count
+size_t count = bundle_schema.field_count();
+
+// Field by index
+std::string_view name = bundle_schema.field_name(0);
+const TypeMeta& field_type = bundle_schema.field_type(0);
+size_t offset = bundle_schema.field_offset(0);
+
+// Field by name
+size_t index = bundle_schema.field_index("x");
+const TypeMeta& field_type = bundle_schema.field_type("x");
+```
+
+### Container Element Access
+
+```cpp
+// Given a list schema (from builder or registration)
+const TypeMeta& list_schema = ...;
+const TypeMeta& element_type = list_schema.element_type();
+
+// Given a map schema
+const TypeMeta& map_schema = ...;
+const TypeMeta& key_type = map_schema.key_type();
+const TypeMeta& value_type = map_schema.value_type();
+
+// Container size (for fixed-size containers)
+size_t fixed_size = list_schema.container_size();  // 0 for dynamic
+```
+
+---
+
+## TSMeta API
+
+### Core Properties
+
+```cpp
+// Given a TS schema (from builder or registration)
+const TSMeta& ts_meta = ...;
+
+// Kind
+TSKind kind = ts_meta.kind();           // TSKind::TS, TSB, TSL, etc.
+
+// Underlying value schema
+const TypeMeta& value_schema = ts_meta.value_schema();
+```
+
+### TSB Field Access
+
+```cpp
+// Given a TSB schema
+const TSMeta& tsb_meta = ...;
+
+// Field count
+size_t count = tsb_meta.field_count();
+
+// Field by index
+std::string_view name = tsb_meta.field_name(0);
+const TSMeta& field_ts_meta = tsb_meta.field_ts_meta(0);
+
+// Field by name
+const TSMeta& bid_meta = tsb_meta.field_ts_meta("bid");
+```
+
+### Container TS Access
+
+```cpp
+// Given a TSL schema
+const TSMeta& tsl_meta = ...;
+const TSMeta& element_ts = tsl_meta.element_ts_meta();
+size_t fixed_size = tsl_meta.container_size();  // 10 for TSL<..., 10>, 0 for dynamic
+
+// Given a TSD schema
+const TSMeta& tsd_meta = ...;
+const TypeMeta& key_type = tsd_meta.key_type();
+const TSMeta& value_ts = tsd_meta.value_ts_meta();
+```
+
+---
+
+## Schema Composition
+
+Schemas can nest arbitrarily:
+
+```cpp
+// Bundle containing list of bundles
+using PositionSchema = Bundle<
+    name<"Position">,
+    field<"symbol", int64_t>,
+    field<"quantity", int64_t>,
+    field<"price", double>
+>;
+
+using PortfolioSchema = TSB<
+    name<"Portfolio">,
+    field<"id", TS<int64_t>>,
+    field<"positions", TSL<TSB<PositionSchema>, 0>>
+>;
+
+// Nested dicts
+using NestedDictTS = TSD<int64_t, TSD<int64_t, TS<double>>>;
+
+// With object types for flexibility
+using FlexibleSchema = TSB<
+    name<"Flexible">,
+    field<"data", TS<nb::object>>,
+    field<"metadata", TS<nb::object>>
+>;
+```
+
+---
+
+## Memory Layout
+
+### Contiguous Data
+
+Value schemas describe contiguous memory layouts where possible:
+
+```
+Bundle with fields [x: double, y: double, z: double]
+
+Memory: [x: 8 bytes][y: 8 bytes][z: 8 bytes] = 24 bytes
+        offset 0    offset 8    offset 16
+```
+
+This enables:
+- Direct memory mapping
+- Efficient bulk operations
+- Buffer protocol compatibility
+
+### Variable-Size Types
+
+Some types have variable size:
+- Dynamic `List` (variable elements)
+- `Set` and `Map` (variable entries)
+- `nb::object` (arbitrary Python objects)
+
+These use indirect storage (pointers to heap).
+
+---
+
+## Core API Structure
+
+### Class Diagram - Value Schema
+
+```mermaid
+classDiagram
+    class TypeRegistry {
+        -map~string, TypeMeta*~ name_cache_
+        -map~type_index, TypeMeta*~ type_cache_
+        +instance() TypeRegistry&
+        +register_type~T~(name: string) void
+        +register_type~T~(name: string, ops: type_ops) void
+        +register_type(name: string, ops: type_ops) void
+        +get(name: string) const TypeMeta&
+        +get~T~() const TypeMeta&
+        +from_python_type(py_type) const TypeMeta&
+    }
+
+    class TypeMeta {
+        -TypeKind kind_
+        -string name_
+        -size_t byte_size_
+        -type_ops* ops_
+        +kind() TypeKind
+        +name() string_view
+        +byte_size() size_t
+        +is_fixed_size() bool
+    }
+
+    class BundleMeta {
+        -vector~FieldInfo~ fields_
+        +field_count() size_t
+        +field_name(index: size_t) string_view
+        +field_type(index: size_t) const TypeMeta&
+        +field_type(name: string) const TypeMeta&
+        +field_offset(index: size_t) size_t
+        +field_index(name: string) size_t
+    }
+
+    class TupleMeta {
+        -vector~TypeMeta*~ elements_
+        +element_count() size_t
+        +element_type(index: size_t) const TypeMeta&
+    }
+
+    class ListMeta {
+        -TypeMeta* element_type_
+        -size_t fixed_size_
+        +element_type() const TypeMeta&
+        +container_size() size_t
+    }
+
+    class SetMeta {
+        -TypeMeta* element_type_
+        +element_type() const TypeMeta&
+    }
+
+    class MapMeta {
+        -TypeMeta* key_type_
+        -TypeMeta* value_type_
+        +key_type() const TypeMeta&
+        +value_type() const TypeMeta&
+    }
+
+    class type_ops {
+        +copy(dst: void*, src: void*) void
+        +move(dst: void*, src: void*) void
+        +destroy(ptr: void*) void
+        +construct(ptr: void*) void
+        +equals(a: void*, b: void*) bool
+        +hash(ptr: void*) size_t
+        +to_python(ptr: void*) nb::object
+        +from_python(ptr: void*, obj: nb::object) void
+    }
+
+    class TypeKind {
+        <<enumeration>>
+        Atomic
+        Bundle
+        Tuple
+        List
+        Set
+        Map
+    }
+
+    TypeMeta <|-- BundleMeta
+    TypeMeta <|-- TupleMeta
+    TypeMeta <|-- ListMeta
+    TypeMeta <|-- SetMeta
+    TypeMeta <|-- MapMeta
+    TypeRegistry --> TypeMeta : manages
+    TypeMeta --> type_ops : uses
+    TypeMeta --> TypeKind : has
+```
+
+### Class Diagram - Value Builders
+
+```mermaid
+classDiagram
+    class BundleBuilder {
+        -string name_
+        -vector~FieldInfo~ fields_
+        +set_name(name: string) BundleBuilder&
+        +add_field(name: string, type: TypeMeta&) BundleBuilder&
+        +build() const TypeMeta&
+    }
+
+    class TupleBuilder {
+        -vector~TypeMeta*~ elements_
+        +add_element(type: TypeMeta&) TupleBuilder&
+        +build() const TypeMeta&
+    }
+
+    class ListBuilder {
+        -TypeMeta* element_type_
+        -size_t fixed_size_
+        +set_element_type(type: TypeMeta&) ListBuilder&
+        +set_size(size: size_t) ListBuilder&
+        +build() const TypeMeta&
+    }
+
+    class SetBuilder {
+        -TypeMeta* element_type_
+        +set_element_type(type: TypeMeta&) SetBuilder&
+        +build() const TypeMeta&
+    }
+
+    class MapBuilder {
+        -TypeMeta* key_type_
+        -TypeMeta* value_type_
+        +set_key_type(type: TypeMeta&) MapBuilder&
+        +set_value_type(type: TypeMeta&) MapBuilder&
+        +build() const TypeMeta&
+    }
+
+    BundleBuilder --> BundleMeta : creates
+    TupleBuilder --> TupleMeta : creates
+    ListBuilder --> ListMeta : creates
+    SetBuilder --> SetMeta : creates
+    MapBuilder --> MapMeta : creates
+```
+
+### Class Diagram - Time-Series Schema
+
+```mermaid
+classDiagram
+    class TSRegistry {
+        -map~string, TSMeta*~ name_cache_
+        -map~type_index, TSMeta*~ type_cache_
+        +instance() TSRegistry&
+        +register_type~T~(name: string) void
+        +register_type~T~(name: string, ops: ts_ops) void
+        +register_type(name: string, ops: ts_ops) void
+        +get(name: string) const TSMeta&
+        +get~T~() const TSMeta&
+    }
+
+    class TSMeta {
+        -TSKind kind_
+        -TypeMeta* value_schema_
+        +kind() TSKind
+        +value_schema() const TypeMeta&
+    }
+
+    class TSBMeta {
+        -vector~TSFieldInfo~ fields_
+        +field_count() size_t
+        +field_name(index: size_t) string_view
+        +field_ts_meta(index: size_t) const TSMeta&
+        +field_ts_meta(name: string) const TSMeta&
+    }
+
+    class TSLMeta {
+        -TSMeta* element_ts_
+        -size_t fixed_size_
+        +element_ts_meta() const TSMeta&
+        +container_size() size_t
+    }
+
+    class TSDMeta {
+        -TypeMeta* key_type_
+        -TSMeta* value_ts_
+        +key_type() const TypeMeta&
+        +value_ts_meta() const TSMeta&
+    }
+
+    class TSSMeta {
+        -TypeMeta* element_type_
+        +element_type() const TypeMeta&
+    }
+
+    class REFMeta {
+        -TSMeta* target_ts_
+        +target_ts_meta() const TSMeta&
+    }
+
+    class SIGNALMeta {
+    }
+
+    class TSKind {
+        <<enumeration>>
+        TS
+        TSB
+        TSL
+        TSD
+        TSS
+        REF
+        SIGNAL
+    }
+
+    TSMeta <|-- TSBMeta
+    TSMeta <|-- TSLMeta
+    TSMeta <|-- TSDMeta
+    TSMeta <|-- TSSMeta
+    TSMeta <|-- REFMeta
+    TSMeta <|-- SIGNALMeta
+    TSRegistry --> TSMeta : manages
+    TSMeta --> TypeMeta : references value schema
+    TSMeta --> TSKind : has
+```
+
+### Class Diagram - Time-Series Builders
+
+```mermaid
+classDiagram
+    class TSBuilder {
+        -TypeMeta* value_type_
+        +set_value_type(type: TypeMeta&) TSBuilder&
+        +build() const TSMeta&
+    }
+
+    class TSBBuilder {
+        -string name_
+        -vector~TSFieldInfo~ fields_
+        +set_name(name: string) TSBBuilder&
+        +add_field(name: string, ts: TSMeta&) TSBBuilder&
+        +build() const TSMeta&
+    }
+
+    class TSLBuilder {
+        -TSMeta* element_ts_
+        -size_t fixed_size_
+        +set_element_ts(ts: TSMeta&) TSLBuilder&
+        +set_size(size: size_t) TSLBuilder&
+        +build() const TSMeta&
+    }
+
+    class TSDBuilder {
+        -TypeMeta* key_type_
+        -TSMeta* value_ts_
+        +set_key_type(type: TypeMeta&) TSDBuilder&
+        +set_value_ts(ts: TSMeta&) TSDBuilder&
+        +build() const TSMeta&
+    }
+
+    class TSSBuilder {
+        -TypeMeta* element_type_
+        +set_element_type(type: TypeMeta&) TSSBuilder&
+        +build() const TSMeta&
+    }
+
+    class REFBuilder {
+        -TSMeta* target_ts_
+        +set_target_ts(ts: TSMeta&) REFBuilder&
+        +build() const TSMeta&
+    }
+
+    TSBuilder --> TSMeta : creates
+    TSBBuilder --> TSBMeta : creates
+    TSLBuilder --> TSLMeta : creates
+    TSDBuilder --> TSDMeta : creates
+    TSSBuilder --> TSSMeta : creates
+    REFBuilder --> REFMeta : creates
+```
+
+### Relationships Overview
+
+```mermaid
+flowchart TD
+    subgraph Value Layer
+        TR[TypeRegistry]
+        TM[TypeMeta]
+        TO[type_ops]
+        VB[Value Builders]
+    end
+
+    subgraph TS Layer
+        TSR[TSRegistry]
+        TSM[TSMeta]
+        TSO[ts_ops]
+        TSB[TS Builders]
+    end
+
+    TR -->|manages| TM
+    TM -->|uses| TO
+    VB -->|creates| TM
+
+    TSR -->|manages| TSM
+    TSM -->|uses| TSO
+    TSM -->|references| TM
+    TSB -->|creates| TSM
+```
+
+### Static Type Templates
+
+For compile-time type definitions:
+
+```cpp
+// Value types
+Bundle<name<"Name">, field<"f1", T1>, field<"f2", T2>, ...>
+Tuple<T1, T2, ...>
+List<T>
+List<T, Size>
+Set<T>
+Map<K, V>
+
+// Time-series types
+TS<T>
+TSB<name<"Name">, field<"f1", TS<T1>>, ...>
+TSL<TSType, Size>
+TSD<K, TSType>
+TSS<T>
+REF<TSType>
+SIGNAL
+```
+
+---
+
+## Next
+
+- [Value](02_VALUE.md) - Constructing and operating on values
+- [Time-Series](03_TIME_SERIES.md) - Adding time semantics to values
