@@ -580,6 +580,12 @@ nb::object TSView::to_python_delta() const {
                                         }
                                         return full_value;  // Already dict or other format
                                     }
+                                    // For TSS, return PythonSetDelta with all values as added
+                                    if (target->ts_meta() && target->ts_meta()->kind() == TSTypeKind::TSS) {
+                                        nb::object full_value = target_view.to_python();  // frozenset
+                                        auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
+                                        return PythonSetDelta(full_value, nb::frozenset());  // all added, none removed
+                                    }
                                     // For other types, return full value
                                     return target_view.to_python();
                                 }
@@ -592,6 +598,133 @@ nb::object TSView::to_python_delta() const {
                     } catch (...) {}
                 }
                 return nb::none();
+            }
+
+            // For REF inputs: Python rebinds the input to the underlying target (TSS, TSL, etc).
+            // In C++, we emulate this by returning the target's delta_value instead of TimeSeriesReference.
+            // Two cases to handle:
+            // 1. TS→REF binding (non-REF output → REF input): return bound output's delta directly
+            // 2. REF→REF binding (REF output → REF input): get TimeSeriesReference, then target's delta
+            //
+            // Helper lambda to get target's delta from a bound output
+            auto get_target_delta = [](const TSValue* bound_output) -> std::optional<nb::object> {
+                if (!bound_output) {
+                    return std::nullopt;
+                }
+
+                const TSMeta* bound_meta = bound_output->ts_meta();
+                if (!bound_meta) {
+                    return std::nullopt;
+                }
+
+                // Case 1: TS→REF binding - bound output is non-REF (TSS, TSL, TS, etc.)
+                // Return the non-REF output's delta_value directly
+                if (bound_meta->kind() != TSTypeKind::REF) {
+                    TSView target_view = bound_output->view();
+                    return target_view.to_python_delta();
+                }
+
+                // Case 2: REF→REF binding - bound output is REF
+                // Get the TimeSeriesReference from ref_cache and return target's delta
+                if (bound_output->has_ref_cache()) {
+                    try {
+                        nb::object cached = std::any_cast<nb::object>(bound_output->ref_cache());
+                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
+                        if (ref.is_view_bound()) {
+                            const TSValue* target = ref.view_output();
+                            if (target) {
+                                const TSMeta* target_meta = target->ts_meta();
+                                if (target_meta && target_meta->kind() != TSTypeKind::REF) {
+                                    TSView target_view = target->view();
+                                    return target_view.to_python_delta();
+                                }
+                            }
+                        }
+                    } catch (const std::bad_any_cast&) {
+                    } catch (const std::exception&) {
+                    }
+                }
+                return std::nullopt;
+            };
+
+            // Check for nested REF input (bundle field, etc.)
+            if (_link_source && _link_source->has_link_support() && !_path.is_root()) {
+                const TSValue* current = _link_source;
+                for (size_t i = 0; i + 1 < _path.elements.size(); ++i) {
+                    current = current->child_value(_path.elements[i]);
+                    if (!current) {
+                        break;
+                    }
+                }
+
+                if (current) {
+                    size_t final_idx = _path.elements.back();
+                    const LinkStorage* storage = current->link_storage_at(final_idx);
+                    if (storage) {
+                        // For TSRefTargetLink, use view() which returns the dereferenced target view
+                        // For TSLink, get the output directly
+                        auto [bound_output, is_ref_target_link] = std::visit([](const auto& link) -> std::pair<const TSValue*, bool> {
+                            using T = std::decay_t<decltype(link)>;
+                            if constexpr (std::is_same_v<T, std::monostate>) {
+                                return {nullptr, false};
+                            } else if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
+                                return {link ? link->output() : nullptr, false};
+                            } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
+                                // Return target_output for direct delta access
+                                return {link ? link->target_output() : nullptr, true};
+                            } else {
+                                return {nullptr, false};
+                            }
+                        }, *storage);
+
+                        // For TSRefTargetLink, the bound_output is already the target - get its delta directly
+                        if (is_ref_target_link && bound_output) {
+                            const TSMeta* target_meta = bound_output->ts_meta();
+                            if (target_meta && target_meta->kind() != TSTypeKind::REF) {
+                                TSView target_view = bound_output->view();
+                                return target_view.to_python_delta();
+                            }
+                        }
+
+                        auto result = get_target_delta(bound_output);
+                        if (result) return *result;
+                    }
+                }
+            }
+
+            // Check for root-level REF input
+            if (_root && _root->has_link_support() && _path.is_root()) {
+                // Root-level input - check for link at index 0 (the whole input is linked)
+                const LinkStorage* storage = _root->link_storage_at(0);
+                if (storage) {
+                    // For TSRefTargetLink, use target_output which returns the dereferenced target
+                    // For TSLink, get the output directly
+                    auto [bound_output, is_ref_target_link] = std::visit([](const auto& link) -> std::pair<const TSValue*, bool> {
+                        using T = std::decay_t<decltype(link)>;
+                        if constexpr (std::is_same_v<T, std::monostate>) {
+                            return {nullptr, false};
+                        } else if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
+                            return {link ? link->output() : nullptr, false};
+                        } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
+                            // Return target_output for direct delta access
+                            return {link ? link->target_output() : nullptr, true};
+                        } else {
+                            return {nullptr, false};
+                        }
+                    }, *storage);
+
+                    // For TSRefTargetLink, the bound_output is already the target - get its delta directly
+                    if (is_ref_target_link && bound_output) {
+                        const TSMeta* target_meta = bound_output->ts_meta();
+                        if (target_meta && target_meta->kind() != TSTypeKind::REF) {
+                            TSView target_view = bound_output->view();
+                            return target_view.to_python_delta();
+                        }
+                    }
+
+                    auto result = get_target_delta(bound_output);
+                    if (result) return *result;
+                }
             }
 
             // For REF types pointing to TSS, compute delta when target changes

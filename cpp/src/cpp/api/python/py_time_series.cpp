@@ -128,6 +128,16 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesInput::delta_value() const {
+        // For actual REF inputs (declared as REF[...]), delta_value should equal value
+        // (both return TimeSeriesReference). Only auto-dereference for non-REF inputs
+        // that are bound to REF outputs (e.g., TIME_SERIES_TYPE bound to REF output).
+        const TSMeta* meta = _view.ts_meta();
+        if (meta && meta->kind() == TSTypeKind::REF && !_view.should_auto_deref()) {
+            // This is an actual REF input (not an auto-dereferencing non-REF input bound to REF)
+            // For actual REF inputs, delta_value equals value (both return TimeSeriesReference)
+            return _view.to_python();
+        }
+
         // If we have a bound output from REF binding, use its delta value
         // This handles the case where a non-REF input is linked to a REF output
         // and the target has been rebound after initialization
@@ -174,6 +184,11 @@ namespace hgraph
                             } else if (target_kind == TSTypeKind::TSD) {
                                 // For TSD, return all key-value pairs
                                 return target_view.to_python();  // TSD already returns dict
+                            } else if (target_kind == TSTypeKind::TSS) {
+                                // For TSS, return PythonSetDelta with all elements as added
+                                nb::object full_value = target_view.to_python();  // frozenset
+                                auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
+                                return PythonSetDelta(full_value, nb::frozenset());  // all added, none removed
                             } else {
                                 // For scalars and other types, return value
                                 return target_view.to_python();
