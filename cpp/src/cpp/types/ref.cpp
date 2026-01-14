@@ -471,8 +471,14 @@ namespace hgraph
             return BaseTimeSeriesInput::do_bind_output(output_);
         }
         // We are binding directly to a concrete output: wrap it as a reference value
-        // Get shared_ptr to keep the output alive while this reference holds it
-        _value = TimeSeriesReference::make(std::move(output_));
+        // Store in _value for reference semantics (copy, not move - shared_ptr copy is cheap)
+        _value = TimeSeriesReference::make(output_);
+
+        // Also set up subscription via base class - this stores in _output and enables
+        // make_active() to subscribe to notifications when the underlying output changes.
+        // This ensures the owning node is scheduled when the bound output is modified.
+        BaseTimeSeriesInput::do_bind_output(output_);
+
         if (owning_node()->is_started()) {
             set_sample_time(owning_graph()->evaluation_time());
             notify(sample_time());

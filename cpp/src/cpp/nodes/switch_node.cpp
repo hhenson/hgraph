@@ -161,6 +161,35 @@ namespace hgraph {
 
         // Evaluate the active graph if it exists
         if (_active_graph != nullptr) {
+            // Notify inner nodes when outer inputs (other than key) are modified
+            // This ensures the inner graph's nodes are scheduled when their bound inputs change
+            if (_active_key.has_value()) {
+                auto active_key_view = _active_key->const_view();
+
+                // Find the appropriate input_node_ids (key-specific or default)
+                const std::unordered_map<std::string, int> *input_ids_to_use = nullptr;
+                auto input_ids_it = _input_node_ids->find(active_key_view);
+                if (input_ids_it != _input_node_ids->end()) {
+                    input_ids_to_use = &input_ids_it->second;
+                } else if (!_default_input_node_ids.empty()) {
+                    input_ids_to_use = &_default_input_node_ids;
+                }
+
+                if (input_ids_to_use) {
+                    for (const auto &[arg, node_ndx] : *input_ids_to_use) {
+                        if (arg == "key") continue;  // Skip the key input
+
+                        // Check if the outer input was modified
+                        auto outer_any = (*input())[arg];
+                        if (outer_any && outer_any->modified()) {
+                            // Notify the corresponding inner node
+                            auto node = _active_graph->nodes()[node_ndx];
+                            node->notify();
+                        }
+                    }
+                }
+            }
+
             if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(_active_graph->evaluation_engine_clock().get())) {
                 nec->reset_next_scheduled_evaluation_time();
             }

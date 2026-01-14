@@ -483,12 +483,17 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         // child_value will be cleared by fall-through to end of function (peered)
     } else if (is_ts_to_ref) {
         // TS→REF binding: input expects REF but output is non-REF
-        // According to design, use plain TSLink with notify_once=true for TS→REF
-        // (TSRefTargetLink is only for REF→TS, where REF output binds to non-REF input)
+        // Use plain TSLink (TSRefTargetLink is only for REF→TS, where REF output binds to non-REF input).
+        // The REF input wraps the non-REF output in a TimeSeriesReference.
+        // The reference itself doesn't change when the underlying output's value changes.
+        // Use notify_once=true so the node is only notified when the binding is first established,
+        // not on every target modification. This matches Python's behavior where REF.modified()
+        // is only True when the binding (_sampled) changes, not when the target changes.
         auto* existing_link = link_at(index);
         if (!existing_link) {
             auto link = std::make_unique<TSLink>(_owning_node);
-            // Set notify_once so REF input only reports modified on first tick (matches Python _sampled)
+            // Set notify_once=true for TS→REF bindings - the REF input's "value" is a reference
+            // to the output, and that reference doesn't change when the output's value changes.
             link->set_notify_once(true);
             _link_support->child_links[index] = std::move(link);
         }

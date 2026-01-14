@@ -11,6 +11,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/ref.h>
+#include <hgraph/types/constants.h>
 #include <fmt/format.h>
 #include <stdexcept>
 #include <unordered_map>
@@ -566,7 +567,9 @@ nb::object TSView::to_python_delta() const {
                                 TSView target_view = target->view();
 
                                 if (target_changed) {
-                                    // REF target changed - return full value as delta
+                                    // REF target changed - compute delta between old and new targets
+                                    // Use g_ref_old_target_cache if available (set in from_python when REF value changes)
+
                                     // For TSL, convert value to {index: value} dict format
                                     if (target->ts_meta() && target->ts_meta()->kind() == TSTypeKind::TSL) {
                                         nb::object full_value = target_view.to_python();
@@ -580,11 +583,56 @@ nb::object TSView::to_python_delta() const {
                                         }
                                         return full_value;  // Already dict or other format
                                     }
-                                    // For TSS, return PythonSetDelta with all values as added
+                                    // For TSS, compute proper delta using cached old target value
                                     if (target->ts_meta() && target->ts_meta()->kind() == TSTypeKind::TSS) {
-                                        nb::object full_value = target_view.to_python();  // frozenset
+                                        nb::object new_value = target_view.to_python();  // frozenset
                                         auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
-                                        return PythonSetDelta(full_value, nb::frozenset());  // all added, none removed
+
+                                        // Check for cached old target info
+                                        auto old_it = g_ref_old_target_cache.find(_root);
+                                        if (old_it != g_ref_old_target_cache.end()) {
+                                            // We have old target info - compute proper delta
+                                            nb::tuple old_info = nb::cast<nb::tuple>(old_it->second);
+                                            nb::object old_value = old_info[0];
+                                            // Clear cache after consuming (one-shot delta)
+                                            g_ref_old_target_cache.erase(old_it);
+
+                                            // Compute delta: added = new - old, removed = old - new
+                                            nb::set added_set;
+                                            nb::set removed_set;
+
+                                            // Items in new but not in old are added
+                                            for (auto item : new_value) {
+                                                bool found = false;
+                                                for (auto old_item : old_value) {
+                                                    if (nb::cast<nb::object>(item).equal(nb::cast<nb::object>(old_item))) {
+                                                        found = true;
+                                                        break;
+                                                    }
+                                                }
+                                                if (!found) {
+                                                    added_set.add(item);
+                                                }
+                                            }
+                                            // Items in old but not in new are removed
+                                            for (auto item : old_value) {
+                                                bool found = false;
+                                                for (auto new_item : new_value) {
+                                                    if (nb::cast<nb::object>(item).equal(nb::cast<nb::object>(new_item))) {
+                                                        found = true;
+                                                        break;
+                                                    }
+                                                }
+                                                if (!found) {
+                                                    removed_set.add(item);
+                                                }
+                                            }
+
+                                            return PythonSetDelta(nb::frozenset(added_set), nb::frozenset(removed_set));
+                                        }
+
+                                        // No cache - return all as added (fallback for first time)
+                                        return PythonSetDelta(new_value, nb::frozenset());
                                     }
                                     // For other types, return full value
                                     return target_view.to_python();
@@ -728,7 +776,7 @@ nb::object TSView::to_python_delta() const {
             }
 
             // For REF types pointing to TSS, compute delta when target changes
-            // Check if there's cached old target info
+            // Check if there's cached old target info (this path is a fallback - main path is above)
             const TSValue* cache_key = _root;
             if (cache_key) {
                 auto old_it = g_ref_old_target_cache.find(cache_key);
@@ -1726,22 +1774,55 @@ bool TSMutableView::from_python(const nb::object& src) {
             // Python TSS semantics:
             // - frozenset: replacement semantics (replaces entire set, computing added and removed)
             // - set/list/tuple: incremental semantics (add items not in set, no automatic removal)
+            // - Removed() wrappers: explicit removal markers
             bool is_frozenset = nb::isinstance<nb::frozenset>(src);
             std::vector<nb::object> new_elements;
+            std::vector<nb::object> explicit_removals;  // From Removed() wrappers
+
+            // Get the Removed class for isinstance checks
+            nb::object removed_class = get_removed();
+
             if (nb::isinstance<nb::set>(src) || is_frozenset) {
                 for (auto item : src) {
-                    new_elements.push_back(nb::borrow<nb::object>(item));
+                    nb::object elem = nb::borrow<nb::object>(item);
+                    // Check for Removed() wrapper
+                    if (nb::isinstance(elem, removed_class)) {
+                        // Extract the inner item and mark for removal
+                        nb::object inner_item = elem.attr("item");
+                        explicit_removals.push_back(inner_item);
+                    } else {
+                        new_elements.push_back(elem);
+                    }
                 }
             } else if (nb::isinstance<nb::list>(src) || nb::isinstance<nb::tuple>(src)) {
                 nb::sequence seq = nb::cast<nb::sequence>(src);
                 for (size_t i = 0; i < nb::len(seq); ++i) {
-                    new_elements.push_back(nb::borrow<nb::object>(seq[i]));
+                    nb::object elem = nb::borrow<nb::object>(seq[i]);
+                    // Check for Removed() wrapper
+                    if (nb::isinstance(elem, removed_class)) {
+                        // Extract the inner item and mark for removal
+                        nb::object inner_item = elem.attr("item");
+                        explicit_removals.push_back(inner_item);
+                    } else {
+                        new_elements.push_back(elem);
+                    }
                 }
             } else {
                 throw std::runtime_error("TSMutableView::from_python: TSS expects set, frozenset, or SetDelta");
             }
             std::vector<nb::object> removed_items;
             std::vector<nb::object> added_items;
+
+            // Process explicit removals (from Removed() wrappers)
+            // Only remove if the item is actually in the current set
+            for (const auto& removal : explicit_removals) {
+                for (const auto& old_elem : old_elements) {
+                    if (removal.equal(old_elem)) {
+                        removed_items.push_back(removal);
+                        break;
+                    }
+                }
+            }
 
             // Find added items (in new but not in old)
             for (const auto& new_elem : new_elements) {
@@ -1758,8 +1839,20 @@ bool TSMutableView::from_python(const nb::object& src) {
             }
 
             // Find removed items (only for frozenset - replacement semantics)
+            // Combine with explicit removals
             if (is_frozenset) {
                 for (const auto& old_elem : old_elements) {
+                    // Skip if already marked for explicit removal
+                    bool already_removed = false;
+                    for (const auto& removal : explicit_removals) {
+                        if (old_elem.equal(removal)) {
+                            already_removed = true;
+                            break;
+                        }
+                    }
+                    if (already_removed) continue;
+
+                    // Check if in new elements
                     bool found = false;
                     for (const auto& new_elem : new_elements) {
                         if (old_elem.equal(new_elem)) {
@@ -1805,9 +1898,19 @@ bool TSMutableView::from_python(const nb::object& src) {
                     new_set_py.add(elem);
                 }
             } else {
-                // Incremental semantics: merge old elements with added items
+                // Incremental semantics: merge old elements with added items, excluding explicit removals
                 for (const auto& elem : old_elements) {
-                    new_set_py.add(elem);
+                    // Skip if this element was explicitly removed
+                    bool was_removed = false;
+                    for (const auto& removal : removed_items) {
+                        if (elem.equal(removal)) {
+                            was_removed = true;
+                            break;
+                        }
+                    }
+                    if (!was_removed) {
+                        new_set_py.add(elem);
+                    }
                 }
                 for (const auto& elem : added_items) {
                     new_set_py.add(elem);
