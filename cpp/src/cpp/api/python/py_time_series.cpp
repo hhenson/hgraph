@@ -124,6 +124,18 @@ namespace hgraph
         : _view(view) {}
 
     nb::object PyTimeSeriesInput::value() const {
+        // Check if we have a TSRefTargetLink that may have rebound
+        const TSValue* link_source = _view.link_source();
+        const auto& path = _view.path();
+        if (link_source && path.depth() > 0) {
+            size_t field_index = path.elements[0];
+            TSRefTargetLink* ref_link = const_cast<TSValue*>(link_source)->ref_link_at(field_index);
+            if (ref_link && ref_link->valid()) {
+                // Get the current target view from ref_link
+                TSView target_view = ref_link->view();
+                return target_view.to_python();
+            }
+        }
         return _view.to_python();
     }
 
@@ -302,11 +314,25 @@ namespace hgraph
 
     nb::bool_ PyTimeSeriesInput::modified() const {
         Node* n = _view.owning_node();
-        if (n && n->cached_evaluation_time_ptr()) {
-            engine_time_t eval_time = *n->cached_evaluation_time_ptr();
-            return nb::bool_(_view.modified_at(eval_time));
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::bool_(false);
         }
-        return nb::bool_(false);
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+
+        // Check if we have a TSRefTargetLink that may have rebound
+        const TSValue* link_source = _view.link_source();
+        const auto& path = _view.path();
+        if (link_source && path.depth() > 0) {
+            size_t field_index = path.elements[0];
+            TSRefTargetLink* ref_link = const_cast<TSValue*>(link_source)->ref_link_at(field_index);
+            if (ref_link) {
+                // Use TSRefTargetLink's modified_at which considers rebind notifications
+                return nb::bool_(ref_link->modified_at(eval_time));
+            }
+        }
+
+        // Fall back to view's modified check
+        return nb::bool_(_view.modified_at(eval_time));
     }
 
     nb::bool_ PyTimeSeriesInput::valid() const {
@@ -314,6 +340,20 @@ namespace hgraph
         if (_bound_output) {
             return nb::bool_(_bound_output->ts_valid());
         }
+
+        // Check if we have a TSRefTargetLink that may have rebound
+        const TSValue* link_source = _view.link_source();
+        const auto& path = _view.path();
+        if (link_source && path.depth() > 0) {
+            size_t field_index = path.elements[0];
+            TSRefTargetLink* ref_link = const_cast<TSValue*>(link_source)->ref_link_at(field_index);
+            if (ref_link && ref_link->valid()) {
+                // Get the current target view from ref_link
+                TSView target_view = ref_link->view();
+                return nb::bool_(target_view.ts_valid());
+            }
+        }
+
         return nb::bool_(_view.ts_valid());
     }
 

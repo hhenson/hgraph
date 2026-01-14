@@ -1059,37 +1059,25 @@ bool TSMutableView::from_python(const nb::object& src) {
         // Note: Delta computation for REF target switches is now handled by
         // TSRefTargetLink's prev_target_output() in PyTimeSeriesInput::delta_value()
 
-        // Store in TSValue's ref_cache
+        // Store in TSValue's ref_cache and mark overlay as modified
         if (cache_key) {
             cache_key->set_ref_cache(src);
 
-            // Notify REF observers to rebind to the target
-            // This implements Python's observer pattern where inputs linked to REF outputs
-            // get rebound to the target when the REF value changes.
-            try {
-                TimeSeriesReference ref = nb::cast<TimeSeriesReference>(src);
-                if (ref.is_view_bound()) {
-                    const TSValue* container = ref.view_output();
-                    int elem_index = ref.view_element_index();
-
-                    if (elem_index >= 0 && container) {
-                        // Element-based reference (e.g., TSL element) - use element notification
-                        const_cast<TSValue*>(cache_key)->notify_ref_observers_element(
-                            container, static_cast<size_t>(elem_index));
-                    } else if (container) {
-                        // Direct TSValue reference
-                        const_cast<TSValue*>(cache_key)->notify_ref_observers(container);
-                    } else {
-                        // Null target
-                        const_cast<TSValue*>(cache_key)->notify_ref_observers(nullptr);
-                    }
+            // Get current engine time and mark overlay as modified
+            // This triggers bottom-up notification to subscribers (TSRefTargetLink, TSLink)
+            engine_time_t current_time = MIN_DT;
+            Node* node = owning_node();
+            if (node) {
+                graph_ptr g = node->graph();
+                if (g) {
+                    current_time = g->evaluation_time();
                 }
-            } catch (...) {
-                // Ignore cast errors - might be an empty reference
+            }
+            if (_overlay) {
+                _overlay->mark_modified(current_time);
             }
         }
 
-        // Note: modification notification is handled by caller (notify_modified)
         return true;
     }
 
@@ -1166,37 +1154,11 @@ bool TSMutableView::from_python(const nb::object& src) {
                         TSValue* field_ts_value = _mutable_container->get_or_create_child_value(field_info->index);
                         if (field_ts_value && !field_value.is_none()) {
                             field_ts_value->set_ref_cache(field_value);
-
-                            // Notify REF observers to rebind to the target
-                            // This implements Python's observer pattern where inputs linked to REF outputs
-                            // get rebound to the target when the REF value changes.
-                            // NOTE: Observers are registered on _mutable_container (the TSB output),
-                            // not on field_ts_value, so we call notify on the container with field index.
-                            try {
-                                TimeSeriesReference ref = nb::cast<TimeSeriesReference>(field_value);
-                                if (ref.is_view_bound()) {
-                                    const TSValue* container = ref.view_output();
-                                    int elem_index = ref.view_element_index();
-
-                                    if (elem_index >= 0 && container) {
-                                        // Element-based reference (e.g., TSL element) - use element notification
-                                        _mutable_container->notify_ref_observers_element_for_field(
-                                            field_info->index, container, static_cast<size_t>(elem_index));
-                                    } else if (container) {
-                                        // Direct TSValue reference
-                                        _mutable_container->notify_ref_observers_for_field(field_info->index, container);
-                                    } else {
-                                        // Null target
-                                        _mutable_container->notify_ref_observers_for_field(field_info->index, nullptr);
-                                    }
-                                }
-                            } catch (...) {
-                                // Ignore cast errors - might be an empty reference
-                            }
+                            // Note: REF observer notification is handled bottom-up via overlay subscription.
+                            // TSRefTargetLink subscribes to the REF field's overlay and resolves the
+                            // TimeSeriesReference in its notify() when the overlay is modified.
                         } else if (field_ts_value && field_value.is_none()) {
                             field_ts_value->clear_ref_cache();
-                            // Notify observers about unbinding
-                            _mutable_container->notify_ref_observers_for_field(field_info->index, nullptr);
                         }
                     }
                 } else {
@@ -2021,6 +1983,39 @@ TSView TSBView::field(size_t index) const {
                 result.set_link_source(_link_source);
                 result.set_auto_deref(true);  // Enable auto-dereference for REF->non-REF binding
                 return result;
+            }
+
+            // Handle TSRefTargetLink during initialization when target is not bound yet.
+            // In this case linked_view.valid() is false but we still need to set up
+            // link_source and path so the wrapper can dynamically resolve the TSRefTargetLink.
+            bool is_ref_target_link = std::visit([](const auto& link) -> bool {
+                using T = std::decay_t<decltype(link)>;
+                if constexpr (std::is_same_v<T, std::monostate>) {
+                    return false;
+                } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
+                    return link != nullptr;
+                } else {
+                    return false;
+                }
+            }, *storage);
+
+            if (is_ref_target_link) {
+                // Get the expected element type from TSRefTargetLink (or linked_view if available)
+                const TSMeta* expected_meta = linked_view.ts_meta();
+                TSRefTargetLink* ref_link = std::get<std::unique_ptr<TSRefTargetLink>>(*storage).get();
+                if (!expected_meta && ref_link) {
+                    expected_meta = ref_link->expected_element_meta();
+                }
+
+                if (expected_meta) {
+                    // Create a view with link_source and path for dynamic resolution
+                    LightweightPath child_path = _path.with(index);
+                    TSView result(nullptr, expected_meta, static_cast<TSOverlayStorage*>(nullptr),
+                                  _root, std::move(child_path));
+                    result.set_link_source(_link_source);
+                    result.set_auto_deref(true);
+                    return result;
+                }
             }
 
             // Check if input and output have different element types that require conversion.

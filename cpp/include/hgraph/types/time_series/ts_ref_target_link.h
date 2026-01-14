@@ -7,8 +7,14 @@
  * Also defines LinkStorage variant for zero-overhead link abstraction.
  *
  * TSRefTargetLink is used when a REF output binds to a non-REF input. It maintains:
- * 1. Control channel (_ref_link): Always-active subscription to REF output
+ * 1. Control channel: Always-active subscription to REF output's overlay
  * 2. Data channel (_target_link): User-controlled subscription to resolved target
+ *
+ * When the REF output is modified, TSRefTargetLink's notify() is called, which:
+ * - Reads the TimeSeriesReference value from the REF output
+ * - Resolves it to get the target TSValue
+ * - Rebinds _target_link to the new target
+ * - Notifies the owning node
  *
  * This enables zero-overhead for non-REF bindings while supporting dynamic
  * rebinding when REF is involved.
@@ -19,6 +25,7 @@
 #include <hgraph/types/time_series/ts_link.h>
 #include <hgraph/types/time_series/ts_path.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/notifiable.h>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -29,6 +36,7 @@ namespace hgraph {
 // Forward declarations
 struct TSValue;
 struct TimeSeriesReferenceOutput;
+struct TSOverlayStorage;
 
 /**
  * @brief Delta storage for collection rebind.
@@ -76,38 +84,19 @@ struct RebindDelta {
 /**
  * @brief Extended link for REF->TS binding with two-channel architecture.
  *
- * TSRefTargetLink maintains two subscriptions:
- * 1. Control channel (_ref_link): Always-active subscription to REF output
- * 2. Data channel (_target_link): User-controlled subscription to resolved target
+ * TSRefTargetLink implements Notifiable and subscribes directly to the REF
+ * output's overlay (control channel). When notified:
+ * 1. Reads the TimeSeriesReference from the REF output
+ * 2. Resolves it to get the target TSValue
+ * 3. Rebinds _target_link (data channel) to the new target
+ * 4. Notifies the owning node
  *
  * This is ONLY used when binding to a REF output that resolves to a non-REF target.
  * For all other bindings (TS->TS, TS->REF, REF->REF), use TSLink directly.
  *
- * Size: ~112 bytes (two TSLinks + delta storage pointer + ref output pointer)
- *
- * Usage:
- * @code
- * TSRefTargetLink link;
- * link.set_node(owning_node);
- *
- * // Bind to a REF output (sets up control channel)
- * link.bind_ref(ref_output, current_time);
- *
- * // User controls data channel
- * link.make_active();  // Subscribes target_link
- *
- * // Get view into resolved target data
- * TSView view = link.view();
- * float price = view.as<float>();
- *
- * // When REF output ticks, on_ref_modified() is called internally
- * // This may rebind target_link to a new resolved target
- *
- * // Clear delta after cycle
- * link.clear_rebind_delta();
- * @endcode
+ * Size: ~96 bytes (TSLink + subscription state + delta storage pointer)
  */
-struct TSRefTargetLink {
+struct TSRefTargetLink : Notifiable {
     // ========== Construction ==========
 
     TSRefTargetLink() noexcept = default;
@@ -126,7 +115,7 @@ struct TSRefTargetLink {
     TSRefTargetLink(TSRefTargetLink&& other) noexcept;
     TSRefTargetLink& operator=(TSRefTargetLink&& other) noexcept;
 
-    ~TSRefTargetLink();
+    ~TSRefTargetLink() override;
 
     // ========== Node Association ==========
 
@@ -139,21 +128,21 @@ struct TSRefTargetLink {
     /**
      * @brief Get the owning node.
      */
-    [[nodiscard]] Node* node() const noexcept { return _ref_link.node(); }
+    [[nodiscard]] Node* node() const noexcept { return _node; }
 
-    // ========== REF Binding ==========
+    // ========== REF Binding (Control Channel) ==========
 
     /**
      * @brief Bind to a REF output.
      *
-     * This sets up the control channel (always-active subscription to REF)
-     * and resolves the initial target for the data channel.
+     * This sets up the control channel (always-active subscription to REF output's overlay).
+     * When the REF output is modified, this TSRefTargetLink's notify() will be called,
+     * which resolves the TimeSeriesReference and rebinds the target.
      *
-     * @param ref_output The REF output to observe (its TSValue containing the path)
-     * @param ref_output_ptr Pointer to the TimeSeriesReferenceOutput for observer registration
-     * @param time Current engine time
+     * @param ref_output The REF output to observe
+     * @param field_index Optional field index within a parent bundle (default -1 for direct REF)
      */
-    void bind_ref(const TSValue* ref_output, TimeSeriesReferenceOutput* ref_output_ptr, engine_time_t time);
+    void bind_ref(const TSValue* ref_output, int field_index = -1);
 
     /**
      * @brief Unbind from REF output.
@@ -165,12 +154,12 @@ struct TSRefTargetLink {
     /**
      * @brief Check if bound to a REF output.
      */
-    [[nodiscard]] bool bound() const noexcept { return _ref_link.bound(); }
+    [[nodiscard]] bool bound() const noexcept { return _ref_output != nullptr; }
 
     /**
      * @brief Get the REF output being observed (control channel).
      */
-    [[nodiscard]] const TSValue* ref_output() const noexcept { return _ref_link.output(); }
+    [[nodiscard]] const TSValue* ref_output() const noexcept { return _ref_output; }
 
     /**
      * @brief Get the resolved target output (data channel).
@@ -195,40 +184,28 @@ struct TSRefTargetLink {
      */
     [[nodiscard]] int target_element_index() const noexcept { return _target_elem_index; }
 
-    // ========== Target Management (Called by REF output) ==========
+    // ========== Notifiable Implementation ==========
 
     /**
-     * @brief Rebind data channel to a new target.
+     * @brief Called when the REF output is modified.
      *
-     * This is the primary interface for REF→TS rebinding. Called by the
-     * observer mechanism when the REF output's target changes.
+     * This is the core of the bottom-up notification pattern:
+     * 1. Read the TimeSeriesReference from the REF output
+     * 2. Resolve it to get the target TSValue
+     * 3. Rebind _target_link to the new target
+     * 4. If active, ensure _target_link is subscribed to new target
+     * 5. Notify the owning node
      *
-     * Computes delta eagerly if target changed, then updates binding.
-     *
-     * @param new_target New target TSValue (nullptr to unbind target)
-     * @param time Current engine time
+     * @param time The engine time of the modification
      */
-    void rebind_target(const TSValue* new_target, engine_time_t time);
-
-    /**
-     * @brief Rebind data channel to an element within a container.
-     *
-     * Used when the REF points to an element in a container (like TSL) that
-     * doesn't have its own TSValue. The view() method will navigate into
-     * the container at the specified index.
-     *
-     * @param container The container TSValue
-     * @param elem_index Element index within the container
-     * @param time Current engine time
-     */
-    void rebind_target_element(const TSValue* container, size_t elem_index, engine_time_t time);
+    void notify(engine_time_t time) override;
 
     // ========== Subscription Control (User-Facing) ==========
 
     /**
      * @brief Make data channel active (user-controlled).
      *
-     * Note: Control channel (_ref_link) is always active and not
+     * Note: Control channel (REF subscription) is always active and not
      * affected by this call.
      */
     void make_active();
@@ -262,15 +239,8 @@ struct TSRefTargetLink {
 
     /**
      * @brief Last modified time - max of ref and target times.
-     *
-     * This derived value ensures that rebinding naturally shows
-     * as modified without explicit _sample_time tracking.
      */
-    [[nodiscard]] engine_time_t last_modified_time() const {
-        engine_time_t ref_time = _ref_link.last_modified_time();
-        engine_time_t target_time = _target_link.last_modified_time();
-        return std::max(ref_time, target_time);
-    }
+    [[nodiscard]] engine_time_t last_modified_time() const;
 
     // ========== View Access ==========
 
@@ -287,8 +257,6 @@ struct TSRefTargetLink {
 
     /**
      * @brief Check if there is a precomputed rebind delta.
-     *
-     * True when rebind occurred this cycle and delta was computed eagerly.
      */
     [[nodiscard]] bool has_rebind_delta() const noexcept {
         return _rebind_delta != nullptr && _rebind_delta->has_delta();
@@ -296,8 +264,6 @@ struct TSRefTargetLink {
 
     /**
      * @brief Get the rebind delta storage (for specialized inputs).
-     *
-     * Returns nullptr if no delta stored.
      */
     [[nodiscard]] RebindDelta* rebind_delta() noexcept {
         return _rebind_delta.get();
@@ -312,8 +278,6 @@ struct TSRefTargetLink {
 
     /**
      * @brief Clear rebind delta after evaluation cycle.
-     *
-     * Should be called at the end of each cycle where rebinding occurred.
      */
     void clear_rebind_delta() noexcept {
         if (_rebind_delta) {
@@ -321,72 +285,87 @@ struct TSRefTargetLink {
         }
     }
 
-    // ========== Notifiable Support ==========
+    // ========== Target Link Access ==========
 
     /**
-     * @brief Get the ref link's notify interface for direct notification.
-     *
-     * Used when the REF output needs to notify this link directly.
-     */
-    [[nodiscard]] TSLink& ref_link() noexcept { return _ref_link; }
-
-    /**
-     * @brief Get the target link for setting properties.
-     *
-     * Used when the wiring needs to configure element index for TSL->TS binding.
+     * @brief Get the target link for configuration.
      */
     [[nodiscard]] TSLink& target_link() noexcept { return _target_link; }
 
     /**
      * @brief Get the target link's sample time (when last rebound).
-     *
-     * Used to detect if a rebind occurred at a specific time.
      */
     [[nodiscard]] engine_time_t target_sample_time() const noexcept { return _target_link.sample_time(); }
 
-private:
-    // Control channel: always-active to REF output
-    TSLink _ref_link;
-
-    // Data channel: user-controlled to resolved target
-    TSLink _target_link;
-
-    // Lazy-allocated delta storage (only when rebinding)
-    std::unique_ptr<RebindDelta> _rebind_delta;
-
-    // Reference to the REF output for observer cleanup
-    TimeSeriesReferenceOutput* _ref_output_ptr{nullptr};
-
-    // Element-based binding support (for TSL elements that don't have separate TSValues)
-    const TSValue* _target_container{nullptr};
-    int _target_elem_index{-1};
-
-    // Previous target tracking for delta computation during rebind
-    // Stored during rebind_target() and cleared at end of evaluation cycle
-    const TSValue* _prev_target_output{nullptr};
-
-public:
     /**
      * @brief Get the previous target output (from before rebind).
-     *
-     * Used for delta computation when REF target changes. Returns the
-     * target that was bound before the most recent rebind_target() call.
-     *
-     * @return Previous target TSValue, or nullptr if no rebind occurred
      */
     [[nodiscard]] const TSValue* prev_target_output() const noexcept { return _prev_target_output; }
 
     /**
      * @brief Clear the previous target reference.
-     *
-     * Should be called at the end of each evaluation cycle after delta
-     * computation is complete.
      */
     void clear_prev_target() noexcept { _prev_target_output = nullptr; }
 
+    /**
+     * @brief Get the expected element type for auto-dereferenced REF inputs.
+     *
+     * This is the type that the input expects to receive (e.g., TS[int] when the
+     * REF output is REF[TS[int]]). Used by TSBView::field() to create a view
+     * with the correct metadata during initialization before the target is bound.
+     */
+    [[nodiscard]] const TSMeta* expected_element_meta() const noexcept { return _expected_element_meta; }
+
 private:
+    // ========== Control Channel (REF subscription) ==========
+    const TSValue* _ref_output{nullptr};
+    TSOverlayStorage* _ref_overlay{nullptr};
+    bool _ref_subscribed{false};
+    int _field_index{-1};  // Field index within parent bundle (-1 for direct REF binding)
+
+    // ========== Data Channel (target subscription) ==========
+    TSLink _target_link;
+
+    // ========== Node ==========
+    Node* _node{nullptr};
+
+    // ========== Lazy-allocated delta storage ==========
+    std::unique_ptr<RebindDelta> _rebind_delta;
+
+    // ========== Element-based binding support ==========
+    const TSValue* _target_container{nullptr};
+    int _target_elem_index{-1};
+
+    // ========== Previous target for delta computation ==========
+    const TSValue* _prev_target_output{nullptr};
+
+    // ========== Notification deduplication ==========
+    engine_time_t _notify_time{MIN_DT};
+
+    // ========== Expected element type (for view when no target bound) ==========
+    const TSMeta* _expected_element_meta{nullptr};
 
     // ========== Helpers ==========
+
+    /**
+     * @brief Subscribe to REF output's overlay.
+     */
+    void subscribe_ref();
+
+    /**
+     * @brief Unsubscribe from REF output's overlay.
+     */
+    void unsubscribe_ref();
+
+    /**
+     * @brief Rebind data channel to a new target.
+     */
+    void rebind_target(const TSValue* new_target, engine_time_t time);
+
+    /**
+     * @brief Rebind data channel to an element within a container.
+     */
+    void rebind_target_element(const TSValue* container, size_t elem_index, engine_time_t time);
 
     /**
      * @brief Ensure delta storage is allocated.
@@ -395,15 +374,13 @@ private:
 
     /**
      * @brief Compute delta between old and new targets.
-     *
-     * Called during rebind_target() to eagerly compute collection deltas.
-     * For scalar types, this is a no-op. For TSS/TSD/TSL/TSB, this computes
-     * added/removed elements.
-     *
-     * @param old_target Previous target (may be nullptr)
-     * @param new_target New target (may be nullptr)
      */
     void compute_delta(const TSValue* old_target, const TSValue* new_target);
+
+    /**
+     * @brief Check if the owning node's graph is stopping.
+     */
+    [[nodiscard]] bool is_graph_stopping() const;
 };
 
 // ============================================================================
@@ -412,33 +389,6 @@ private:
 
 /**
  * @brief Type-erased link storage using variant.
- *
- * Uses std::variant for static dispatch - no virtual overhead.
- *
- * States:
- * - std::monostate: No link (unbound)
- * - std::unique_ptr<TSLink>: Standard non-REF binding
- * - std::unique_ptr<TSRefTargetLink>: REF->TS binding with two channels
- *
- * Usage:
- * @code
- * LinkStorage storage;
- *
- * // For non-REF output
- * storage = std::make_unique<TSLink>(node);
- * std::get<std::unique_ptr<TSLink>>(storage)->bind(output);
- *
- * // For REF output
- * storage = std::make_unique<TSRefTargetLink>(node);
- * std::get<std::unique_ptr<TSRefTargetLink>>(storage)->bind_ref(ref_output, ...);
- *
- * // Access via visit
- * std::visit([](auto& link) {
- *     if constexpr (!std::is_same_v<std::decay_t<decltype(link)>, std::monostate>) {
- *         if (link) link->make_active();
- *     }
- * }, storage);
- * @endcode
  */
 using LinkStorage = std::variant<
     std::monostate,

@@ -78,7 +78,10 @@ const value::TypeMeta* TSValue::value_schema() const noexcept {
 }
 
 TSView TSValue::view() const {
-    if (!valid()) {
+    // For wrapper factory, we need ts_meta even if _value is not valid yet.
+    // This handles inputs that haven't received data yet during initialization.
+    // The wrapper's valid() method will check if actual data is available.
+    if (!_ts_meta) {
         return TSView();
     }
 
@@ -453,20 +456,17 @@ void TSValue::create_link(size_t index, const TSValue* output) {
             auto ref_link = std::make_unique<TSRefTargetLink>(_owning_node);
             _link_support->child_links[index] = std::move(ref_link);
         }
-        // Bind the TSRefTargetLink's ref_link channel to the REF output so we receive notifications
-        // This is a simplified binding - full REF semantics require bind_ref() with TimeSeriesReferenceOutput
+        // Bind the TSRefTargetLink to the REF output
+        // This subscribes to the output's overlay (always active).
+        // When the REF output is modified, TSRefTargetLink::notify() is called,
+        // which reads the TimeSeriesReference and rebinds _target_link.
         TSRefTargetLink* ref_link_ptr = ref_link_at(index);
         if (ref_link_ptr) {
-            // Use the ref_link channel for notifications
-            ref_link_ptr->ref_link().bind(output);
-            // CRITICAL: Make the ref_link active so it subscribes to the output's overlay
-            ref_link_ptr->ref_link().make_active();
+            ref_link_ptr->bind_ref(output);
+            // Make the data channel active so subsequent target modifications
+            // notify the owning node
+            ref_link_ptr->make_active();
         }
-
-        // Register as observer of the REF output so we get rebound when its value changes
-        // This implements Python's observer pattern: when REF output sets its value,
-        // all observing inputs are rebound to the target that the REF points to.
-        const_cast<TSValue*>(output)->observe_ref(this, index);
     } else if (is_ref_output && is_ref_input) {
         // REF→REF binding: use plain TSLink (both sides are REF)
         // The REF input peers to the REF output - when the output sets a new reference,
@@ -562,25 +562,19 @@ void TSValue::create_link(size_t index, const TSValue* output) {
 
                 if (output_child) {
                     // Output has child TSValue for this REF field
-                    // Bind ref_link to the output child (the REF output)
+                    // Bind TSRefTargetLink to the output child (the REF output)
+                    // TSRefTargetLink::notify() will handle resolving the TimeSeriesReference
                     if (ref_link_ptr) {
-                        ref_link_ptr->ref_link().bind(output_child);
-                        ref_link_ptr->ref_link().make_active();
+                        ref_link_ptr->bind_ref(output_child);
                     }
-                    // Register as observer on the REF child output
-                    // Observer is the field_child, link_index is i (matching where the link is stored)
-                    const_cast<TSValue*>(output_child)->observe_ref(field_child, i);
                 } else {
-                    // Output doesn't have child values - bind at parent level with field navigation
-                    // The link will handle field navigation via field_index
+                    // Output doesn't have child values - bind at parent level
+                    // The TSRefTargetLink will subscribe to the parent's overlay
+                    // and resolve the TimeSeriesReference when notified
+                    // Pass field index so notify() can navigate to correct field
                     if (ref_link_ptr) {
-                        ref_link_ptr->ref_link().bind(output);
-                        ref_link_ptr->ref_link().set_field_index(static_cast<int>(i));
-                        ref_link_ptr->ref_link().make_active();
+                        ref_link_ptr->bind_ref(output, static_cast<int>(i));
                     }
-                    // Register as observer on the parent output (with field index for filtering)
-                    // Observer is the field_child, but we need the parent to know which field
-                    const_cast<TSValue*>(output)->observe_ref(field_child, i);
                 }
             }
         }
@@ -1024,168 +1018,6 @@ void TSValue::setup_tsd_cast(TSValue& cast_value, const TSMeta* target_schema) {
     // Note: For full dynamic key tracking (add/remove callbacks), additional
     // overlay support would be needed. The current implementation handles
     // the static binding case where keys exist at binding time.
-}
-
-// ============================================================================
-// REF Observer Support
-// ============================================================================
-
-void TSValue::observe_ref(TSValue* input_ts_value, size_t link_index) {
-    if (!_ref_observers) {
-        _ref_observers = std::make_unique<std::vector<std::pair<TSValue*, size_t>>>();
-    }
-    // Check if already registered
-    for (const auto& [input, idx] : *_ref_observers) {
-        if (input == input_ts_value && idx == link_index) {
-            return;  // Already registered
-        }
-    }
-    _ref_observers->emplace_back(input_ts_value, link_index);
-}
-
-void TSValue::stop_observing_ref(TSValue* input_ts_value, size_t link_index) {
-    if (!_ref_observers) return;
-
-    auto it = std::remove_if(_ref_observers->begin(), _ref_observers->end(),
-        [input_ts_value, link_index](const auto& pair) {
-            return pair.first == input_ts_value && pair.second == link_index;
-        });
-    _ref_observers->erase(it, _ref_observers->end());
-
-    // Clean up if empty
-    if (_ref_observers->empty()) {
-        _ref_observers.reset();
-    }
-}
-
-void TSValue::notify_ref_observers(const TSValue* target) {
-    if (!_ref_observers || _ref_observers->empty()) return;
-
-    // Get current engine time from owning node if available
-    engine_time_t current_time = MIN_DT;
-    if (_owning_node) {
-        auto g = _owning_node->graph();
-        if (g) {
-            current_time = g->evaluation_time();
-        }
-    }
-
-    for (const auto& [input_ts_value, link_index] : *_ref_observers) {
-        if (!input_ts_value) continue;
-
-        // Get the link at this index
-        TSLink* link = input_ts_value->link_at(link_index);
-        TSRefTargetLink* ref_link = input_ts_value->ref_link_at(link_index);
-
-        if (ref_link) {
-            // TSRefTargetLink: use rebind_target which handles both binding and activation
-            ref_link->rebind_target(target, current_time);
-        } else if (link) {
-            // Regular TSLink: rebind to target
-            if (target) {
-                bool was_active = link->active();
-                if (was_active) link->make_passive();
-                link->bind(target);
-                if (was_active) link->make_active();
-            } else {
-                link->unbind();
-            }
-        }
-    }
-}
-
-void TSValue::notify_ref_observers_for_field(size_t field_index, const TSValue* target) {
-    if (!_ref_observers || _ref_observers->empty()) return;
-
-    // Get current engine time from owning node if available
-    engine_time_t current_time = MIN_DT;
-    if (_owning_node) {
-        auto g = _owning_node->graph();
-        if (g) {
-            current_time = g->evaluation_time();
-        }
-    }
-
-    for (const auto& [input_ts_value, link_index] : *_ref_observers) {
-        if (!input_ts_value) continue;
-
-        // Only notify observers registered for this specific field
-        if (link_index != field_index) continue;
-
-        // Get the link at this index
-        TSLink* link = input_ts_value->link_at(link_index);
-        TSRefTargetLink* ref_link = input_ts_value->ref_link_at(link_index);
-
-        if (ref_link) {
-            // TSRefTargetLink: use rebind_target which handles both binding and activation
-            ref_link->rebind_target(target, current_time);
-        } else if (link) {
-            // Regular TSLink: rebind to target
-            if (target) {
-                bool was_active = link->active();
-                if (was_active) link->make_passive();
-                link->bind(target);
-                if (was_active) link->make_active();
-            } else {
-                link->unbind();
-            }
-        }
-    }
-}
-
-void TSValue::notify_ref_observers_element_for_field(size_t field_index, const TSValue* container, size_t elem_index) {
-    if (!_ref_observers || _ref_observers->empty()) return;
-
-    // Get current engine time from owning node if available
-    engine_time_t current_time = MIN_DT;
-    if (_owning_node) {
-        auto g = _owning_node->graph();
-        if (g) {
-            current_time = g->evaluation_time();
-        }
-    }
-
-    for (const auto& [input_ts_value, link_index] : *_ref_observers) {
-        if (!input_ts_value) continue;
-
-        // Only notify observers registered for this specific field
-        if (link_index != field_index) continue;
-
-        // Get the link at this index - for element-based refs, we need TSRefTargetLink
-        TSRefTargetLink* ref_link = input_ts_value->ref_link_at(link_index);
-
-        if (ref_link) {
-            // TSRefTargetLink: use rebind_target_element for container element references
-            ref_link->rebind_target_element(container, elem_index, current_time);
-        }
-    }
-}
-
-void TSValue::notify_ref_observers_element(const TSValue* container, size_t elem_index) {
-    if (!_ref_observers || _ref_observers->empty()) return;
-
-    // Get current engine time from owning node if available
-    engine_time_t current_time = MIN_DT;
-    if (_owning_node) {
-        auto g = _owning_node->graph();
-        if (g) {
-            current_time = g->evaluation_time();
-        }
-    }
-
-    for (const auto& [input_ts_value, link_index] : *_ref_observers) {
-        if (!input_ts_value) continue;
-
-        // Get the link at this index - for element-based refs, we need TSRefTargetLink
-        TSRefTargetLink* ref_link = input_ts_value->ref_link_at(link_index);
-
-        if (ref_link) {
-            // TSRefTargetLink: use rebind_target_element for container element references
-            ref_link->rebind_target_element(container, elem_index, current_time);
-        } else {
-            // Regular TSLink cannot handle element-based binding (needs direct TSValue*)
-        }
-    }
 }
 
 }  // namespace hgraph
