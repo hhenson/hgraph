@@ -182,8 +182,53 @@ namespace hgraph
                                 }
                                 return result;
                             } else if (target_kind == TSTypeKind::TSD) {
-                                // For TSD, return all key-value pairs
-                                return target_view.to_python();  // TSD already returns dict
+                                // For TSD, compute proper delta using previous target from TSRefTargetLink
+                                nb::object new_value = target_view.to_python();  // frozendict
+
+                                // Get the previous target from TSRefTargetLink
+                                const TSValue* prev_target = ref_link->prev_target_output();
+                                if (prev_target) {
+                                    // Get the previous target's value
+                                    TSView prev_view = prev_target->view();
+                                    nb::object old_value = prev_view.to_python();  // frozendict
+
+                                    // Get REMOVE sentinel
+                                    auto REMOVE = nb::module_::import_("hgraph._types._tsd_type").attr("REMOVE");
+
+                                    // Compute delta = new_value vs old_value
+                                    nb::dict delta_dict;
+
+                                    // Items in new: add with their values
+                                    for (auto item : new_value) {
+                                        nb::object key = nb::cast<nb::object>(item);
+                                        delta_dict[key] = new_value[key];
+                                    }
+                                    // Items in old but not in new: add as REMOVE
+                                    for (auto item : old_value) {
+                                        nb::object key = nb::cast<nb::object>(item);
+                                        // Check if key exists in new_value using Python's 'in' operator
+                                        bool in_new = false;
+                                        for (auto new_item : new_value) {
+                                            if (nb::cast<nb::object>(new_item).equal(key)) {
+                                                in_new = true;
+                                                break;
+                                            }
+                                        }
+                                        if (!in_new) {
+                                            delta_dict[key] = REMOVE;
+                                        }
+                                    }
+
+                                    // Clear the previous target after use (consumed)
+                                    ref_link->clear_prev_target();
+
+                                    // Return as frozendict for consistency with Python TSD.delta_value
+                                    auto frozendict_type = nb::module_::import_("frozendict").attr("frozendict");
+                                    return frozendict_type(delta_dict);
+                                }
+
+                                // No previous target - return all as added (first time binding)
+                                return new_value;
                             } else if (target_kind == TSTypeKind::TSS) {
                                 // For TSS, compute proper delta using previous target from TSRefTargetLink
                                 nb::object new_value = target_view.to_python();  // frozenset
