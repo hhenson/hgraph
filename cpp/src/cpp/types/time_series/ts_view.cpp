@@ -1166,8 +1166,37 @@ bool TSMutableView::from_python(const nb::object& src) {
                         TSValue* field_ts_value = _mutable_container->get_or_create_child_value(field_info->index);
                         if (field_ts_value && !field_value.is_none()) {
                             field_ts_value->set_ref_cache(field_value);
+
+                            // Notify REF observers to rebind to the target
+                            // This implements Python's observer pattern where inputs linked to REF outputs
+                            // get rebound to the target when the REF value changes.
+                            // NOTE: Observers are registered on _mutable_container (the TSB output),
+                            // not on field_ts_value, so we call notify on the container with field index.
+                            try {
+                                TimeSeriesReference ref = nb::cast<TimeSeriesReference>(field_value);
+                                if (ref.is_view_bound()) {
+                                    const TSValue* container = ref.view_output();
+                                    int elem_index = ref.view_element_index();
+
+                                    if (elem_index >= 0 && container) {
+                                        // Element-based reference (e.g., TSL element) - use element notification
+                                        _mutable_container->notify_ref_observers_element_for_field(
+                                            field_info->index, container, static_cast<size_t>(elem_index));
+                                    } else if (container) {
+                                        // Direct TSValue reference
+                                        _mutable_container->notify_ref_observers_for_field(field_info->index, container);
+                                    } else {
+                                        // Null target
+                                        _mutable_container->notify_ref_observers_for_field(field_info->index, nullptr);
+                                    }
+                                }
+                            } catch (...) {
+                                // Ignore cast errors - might be an empty reference
+                            }
                         } else if (field_ts_value && field_value.is_none()) {
                             field_ts_value->clear_ref_cache();
+                            // Notify observers about unbinding
+                            _mutable_container->notify_ref_observers_for_field(field_info->index, nullptr);
                         }
                     }
                 } else {
@@ -3036,36 +3065,48 @@ nb::object TSBView::to_python_delta() const {
     // IMPORTANT: Python auto-dereferences REF outputs at binding time, so when iterating
     // over bundle fields for delta_value, REF fields that have TimeSeriesReferences
     // pointing to targets should return the target's delta_value, not TimeSeriesReference.
+    //
+    // For REF OUTPUT fields, we need to check TWO things:
+    // 1. If the REF value itself changed (new TimeSeriesReference binding)
+    // 2. If the REF's TARGET value changed (underlying ts modified)
+    // This mirrors Python's observe_reference mechanism where sink inputs are bound
+    // directly to targets and detect target changes.
     nb::dict result;
     const TSBTypeMeta* bundle_meta = static_cast<const TSBTypeMeta*>(_ts_meta);
 
     for (auto& key : keys()) {
         TSView field_view = field(std::string(key));
-        if (field_view.modified_at(eval_time) && field_view.ts_valid()) {
-            // Check if this field is a REF type that needs auto-dereference
-            const TSBFieldInfo* field_info = bundle_meta->field(std::string(key));
+        const TSBFieldInfo* field_info = bundle_meta->field(std::string(key));
 
-            if (field_info && field_info->type->is_reference()) {
-                // REF field - try to auto-dereference like Python does at binding time
-                // Get the REF's value (TimeSeriesReference)
-                nb::object ref_value = field_view.to_python();
-                if (!ref_value.is_none()) {
-                    try {
-                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value);
-                        if (ref.is_view_bound()) {
-                            // Get the target TSValue and return its delta_value
-                            const TSValue* target = ref.view_output();
-                            if (target) {
+        // Check if this is a REF field - needs special handling for target modification
+        if (field_info && field_info->type->is_reference() && field_view.ts_valid()) {
+            // REF field - check both REF modification AND target modification
+            nb::object ref_value = field_view.to_python();
+            if (!ref_value.is_none()) {
+                try {
+                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value);
+                    if (ref.is_view_bound()) {
+                        const TSValue* target = ref.view_output();
+                        if (target) {
+                            // Check if REF itself changed OR target is modified
+                            bool ref_modified = field_view.modified_at(eval_time);
+                            bool target_modified = target->modified_at(eval_time);
+                            if (ref_modified || target_modified) {
                                 result[nb::cast(std::string(key))] = target->view().to_python_delta();
-                                continue;
                             }
+                            continue;
                         }
-                    } catch (...) {
-                        // Cast failed - use normal path
                     }
+                } catch (...) {
+                    // Cast failed - use normal path
                 }
             }
-            // Normal case (non-REF or no auto-dereference needed)
+            // REF field but couldn't get target - check if REF itself modified
+            if (field_view.modified_at(eval_time)) {
+                result[nb::cast(std::string(key))] = field_view.to_python_delta();
+            }
+        } else if (field_view.modified_at(eval_time) && field_view.ts_valid()) {
+            // Normal case (non-REF field)
             result[nb::cast(std::string(key))] = field_view.to_python_delta();
         }
     }

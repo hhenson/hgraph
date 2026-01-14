@@ -447,6 +447,25 @@ public:
     void notify_ref_observers(const TSValue* target);
 
     /**
+     * @brief Notify REF observers for a specific field index to rebind to the target.
+     *
+     * Used for TSB outputs with REF fields - only notifies observers registered
+     * with matching link_index (field index).
+     * @param field_index The field index to filter by
+     * @param target The target TSValue that the TimeSeriesReference points to
+     */
+    void notify_ref_observers_for_field(size_t field_index, const TSValue* target);
+
+    /**
+     * @brief Notify REF observers for a specific field to rebind to a container element.
+     *
+     * @param field_index The field index to filter by
+     * @param container The container TSValue
+     * @param elem_index The element index within the container
+     */
+    void notify_ref_observers_element_for_field(size_t field_index, const TSValue* container, size_t elem_index);
+
+    /**
      * @brief Notify all REF observers to rebind to an element within a container.
      *
      * Called when this REF output's value references an element in a container

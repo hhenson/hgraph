@@ -504,6 +504,99 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         }
         // DON'T clear child_value - REF inputs don't peer, they reference
         return;
+    } else if (expected_schema && expected_schema->kind() == TSTypeKind::TSB &&
+               output && output->ts_meta() && output->ts_meta()->kind() == TSTypeKind::TSB) {
+        // TSB→TSB binding: need to handle REF fields specially
+        // For each REF field in the output, create a TSRefTargetLink so we can observe
+        // when the REF target changes
+        auto* output_bundle_meta = static_cast<const TSBTypeMeta*>(output->ts_meta());
+        auto* input_bundle_meta = static_cast<const TSBTypeMeta*>(expected_schema);
+
+        bool has_ref_fields = false;
+        for (size_t i = 0; i < output_bundle_meta->field_count() && i < input_bundle_meta->field_count(); ++i) {
+            const auto& output_field = output_bundle_meta->field(i);
+            const auto& input_field = input_bundle_meta->field(i);
+
+            // Check if output field is REF and input field is not REF (or is resolved differently)
+            bool output_is_ref = output_field.type && output_field.type->kind() == TSTypeKind::REF;
+            bool input_is_ref = input_field.type && input_field.type->kind() == TSTypeKind::REF;
+
+            if (output_is_ref && !input_is_ref) {
+                has_ref_fields = true;
+                // Create a TSRefTargetLink for this field
+                // Store in a child TSValue to avoid conflicting with the bind-position link
+                // Each REF field gets its own child TSValue at field index i
+
+                // Ensure we have space for child values
+                if (i >= _link_support->child_values.size()) {
+                    _link_support->child_values.resize(i + 1);
+                }
+
+                // Create a child TSValue for this field (used just to hold the link)
+                if (!_link_support->child_values[i]) {
+                    // Use the resolved (non-REF) type for the input
+                    _link_support->child_values[i] = std::make_unique<TSValue>(input_field.type, _owning_node);
+                }
+                TSValue* field_child = _link_support->child_values[i].get();
+
+                // enable_link_support() returns early for scalar types, so we need to
+                // manually create _link_support if needed
+                if (!field_child->_link_support) {
+                    field_child->_link_support = std::make_unique<LinkSupport>();
+                }
+
+                // Ensure the field_child has enough space for the link at index i
+                if (i >= field_child->_link_support->child_links.size()) {
+                    field_child->_link_support->child_links.resize(i + 1);
+                    field_child->_link_support->child_values.resize(i + 1);
+                }
+
+                // Get the output's child TSValue for this field if it exists
+                const TSValue* output_child = output->child_value(i);
+                auto* existing_ref = field_child->ref_link_at(i);
+                if (!existing_ref) {
+                    auto ref_link = std::make_unique<TSRefTargetLink>(_owning_node);
+                    field_child->_link_support->child_links[i] = std::move(ref_link);
+                }
+                TSRefTargetLink* ref_link_ptr = field_child->ref_link_at(i);
+
+                if (output_child) {
+                    // Output has child TSValue for this REF field
+                    // Bind ref_link to the output child (the REF output)
+                    if (ref_link_ptr) {
+                        ref_link_ptr->ref_link().bind(output_child);
+                        ref_link_ptr->ref_link().make_active();
+                    }
+                    // Register as observer on the REF child output
+                    // Observer is the field_child, link_index is i (matching where the link is stored)
+                    const_cast<TSValue*>(output_child)->observe_ref(field_child, i);
+                } else {
+                    // Output doesn't have child values - bind at parent level with field navigation
+                    // The link will handle field navigation via field_index
+                    if (ref_link_ptr) {
+                        ref_link_ptr->ref_link().bind(output);
+                        ref_link_ptr->ref_link().set_field_index(static_cast<int>(i));
+                        ref_link_ptr->ref_link().make_active();
+                    }
+                    // Register as observer on the parent output (with field index for filtering)
+                    // Observer is the field_child, but we need the parent to know which field
+                    const_cast<TSValue*>(output)->observe_ref(field_child, i);
+                }
+            }
+        }
+
+        // Also create a standard TSLink for the overall binding (for non-REF field access)
+        // The per-field REF links are stored in child_values, so child_links[index] is available
+        auto* existing_link = link_at(index);
+        if (!existing_link) {
+            _link_support->child_links[index] = std::make_unique<TSLink>(_owning_node);
+        }
+        link_at(index)->bind(output);
+
+        // Don't clear child value if we created nested structure for REF fields
+        if (!has_ref_fields) {
+            _link_support->child_values[index].reset();
+        }
     } else {
         // Standard non-REF binding: use TSLink
         auto* existing_link = link_at(index);
@@ -513,10 +606,10 @@ void TSValue::create_link(size_t index, const TSValue* output) {
         }
         // Bind to the output
         link_at(index)->bind(output);
-    }
 
-    // Clear any child value at this position (it's now peered)
-    _link_support->child_values[index].reset();
+        // Clear any child value at this position (it's now peered)
+        _link_support->child_values[index].reset();
+    }
 }
 
 void TSValue::remove_link(size_t index) {
@@ -997,6 +1090,73 @@ void TSValue::notify_ref_observers(const TSValue* target) {
             } else {
                 link->unbind();
             }
+        }
+    }
+}
+
+void TSValue::notify_ref_observers_for_field(size_t field_index, const TSValue* target) {
+    if (!_ref_observers || _ref_observers->empty()) return;
+
+    // Get current engine time from owning node if available
+    engine_time_t current_time = MIN_DT;
+    if (_owning_node) {
+        auto g = _owning_node->graph();
+        if (g) {
+            current_time = g->evaluation_time();
+        }
+    }
+
+    for (const auto& [input_ts_value, link_index] : *_ref_observers) {
+        if (!input_ts_value) continue;
+
+        // Only notify observers registered for this specific field
+        if (link_index != field_index) continue;
+
+        // Get the link at this index
+        TSLink* link = input_ts_value->link_at(link_index);
+        TSRefTargetLink* ref_link = input_ts_value->ref_link_at(link_index);
+
+        if (ref_link) {
+            // TSRefTargetLink: use rebind_target which handles both binding and activation
+            ref_link->rebind_target(target, current_time);
+        } else if (link) {
+            // Regular TSLink: rebind to target
+            if (target) {
+                bool was_active = link->active();
+                if (was_active) link->make_passive();
+                link->bind(target);
+                if (was_active) link->make_active();
+            } else {
+                link->unbind();
+            }
+        }
+    }
+}
+
+void TSValue::notify_ref_observers_element_for_field(size_t field_index, const TSValue* container, size_t elem_index) {
+    if (!_ref_observers || _ref_observers->empty()) return;
+
+    // Get current engine time from owning node if available
+    engine_time_t current_time = MIN_DT;
+    if (_owning_node) {
+        auto g = _owning_node->graph();
+        if (g) {
+            current_time = g->evaluation_time();
+        }
+    }
+
+    for (const auto& [input_ts_value, link_index] : *_ref_observers) {
+        if (!input_ts_value) continue;
+
+        // Only notify observers registered for this specific field
+        if (link_index != field_index) continue;
+
+        // Get the link at this index - for element-based refs, we need TSRefTargetLink
+        TSRefTargetLink* ref_link = input_ts_value->ref_link_at(link_index);
+
+        if (ref_link) {
+            // TSRefTargetLink: use rebind_target_element for container element references
+            ref_link->rebind_target_element(container, elem_index, current_time);
         }
     }
 }
