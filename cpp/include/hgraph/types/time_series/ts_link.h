@@ -234,7 +234,10 @@ struct TSLink : Notifiable {
      */
     [[nodiscard]] bool notify_once() const noexcept { return _notify_once; }
 
-    // ========== Element Index Support (for TSL->TS binding) ==========
+    // ========== Element Index Support (for TSL->TS and TSD->TSS binding) ==========
+
+    /// Special index for KEY_SET navigation (TSD.key_set)
+    static constexpr int KEY_SET_INDEX = -3;
 
     /**
      * @brief Set the element index within the linked container.
@@ -243,16 +246,20 @@ struct TSLink : Notifiable {
      * the element index indicates which element within the container
      * this link refers to. -1 means the whole container.
      *
+     * Special value KEY_SET_INDEX (-3) indicates this link views a TSD
+     * as a TSS (the key_set). In this mode, view() returns a TSSView
+     * that reads keys directly from the TSD.
+     *
      * If already bound to a TSL and active, this will switch the subscription
      * from the whole TSL overlay to the specific element's overlay.
      *
-     * @param idx Element index, or -1 for whole container
+     * @param idx Element index, -1 for whole container, or KEY_SET_INDEX for key_set view
      */
     void set_element_index(int idx);
 
     /**
      * @brief Get the element index.
-     * @return Element index, or -1 if linking to whole container
+     * @return Element index, -1 if linking to whole container, or KEY_SET_INDEX for key_set
      */
     [[nodiscard]] int element_index() const noexcept { return _element_index; }
 
@@ -260,6 +267,11 @@ struct TSLink : Notifiable {
      * @brief Check if this link refers to a specific element.
      */
     [[nodiscard]] bool is_element_binding() const noexcept { return _element_index >= 0; }
+
+    /**
+     * @brief Check if this link views a TSD as a key_set (TSS).
+     */
+    [[nodiscard]] bool is_key_set_binding() const noexcept { return _element_index == KEY_SET_INDEX; }
 
     /**
      * @brief Set the field index for TSB->field binding.

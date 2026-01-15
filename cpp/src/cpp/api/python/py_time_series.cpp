@@ -3,6 +3,7 @@
 #include <fmt/format.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/types/time_series/ts_link.h>
 #include <hgraph/types/time_series/ts_ref_target_link.h>
 #include <iostream>
 
@@ -134,6 +135,13 @@ namespace hgraph
                 // Get the current target view from ref_link
                 TSView target_view = ref_link->view();
                 return target_view.to_python();
+            }
+
+            // Check for TSLink with KEY_SET binding (TSD viewed as TSS)
+            TSLink* link = const_cast<TSValue*>(link_source)->link_at(field_index);
+            if (link && link->is_key_set_binding() && link->valid()) {
+                // TSLink::view() returns a TSSView of the TSD's keys
+                return link->view().to_python();
             }
         }
         return _view.to_python();
@@ -288,6 +296,13 @@ namespace hgraph
 
                     return target_view.to_python_delta();
                 }
+            }
+
+            // Check for TSLink with KEY_SET binding (TSD viewed as TSS)
+            TSLink* link = const_cast<TSValue*>(link_source)->link_at(field_index);
+            if (link && link->is_key_set_binding() && link->valid()) {
+                // TSLink::view() returns a TSSView of the TSD's keys
+                return link->view().to_python_delta();
             }
         }
 

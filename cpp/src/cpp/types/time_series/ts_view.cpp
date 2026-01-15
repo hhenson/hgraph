@@ -6,6 +6,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
 #include <hgraph/types/time_series/ts_ref_target_link.h>
+#include <hgraph/types/time_series/ts_link.h>
 #include <hgraph/types/value/window_storage_ops.h>
 #include <hgraph/types/value/composite_ops.h>
 #include <hgraph/types/node.h>
@@ -151,7 +152,30 @@ TSView::TSView(const TSValue& ts_value)
     , _overlay(const_cast<TSOverlayStorage*>(ts_value.overlay()))
     , _root(&ts_value)  // Container is the root
     , _path()           // Empty path for root
-{}
+{
+    // Handle key_set view case: if this is a TSS backed by a TSD (via _cast_source),
+    // we need to sync the keys from the source TSD before creating the view.
+    // This handles the case where the TSD has been modified since the key_set was created.
+    if (_ts_meta && _ts_meta->kind() == TSTypeKind::TSS && ts_value.cast_source() != nullptr) {
+        const TSValue* source = ts_value.cast_source();
+        if (source->ts_meta() && source->ts_meta()->kind() == TSTypeKind::TSD &&
+            source->value().valid()) {
+            // Sync keys from TSD to key_set
+            auto tsd_view = source->value().view().as_map();
+            auto& key_set_value = const_cast<TSValue&>(ts_value).value();
+            auto key_set_view = key_set_value.view().as_set();
+            key_set_view.clear();
+            for (size_t i = 0; i < tsd_view.size(); ++i) {
+                auto key = tsd_view.key_at(i);
+                key_set_view.insert(key);
+            }
+            // Also sync the overlay modification time from the source TSD
+            if (_overlay && source->overlay()) {
+                _overlay->mark_modified(source->overlay()->last_modified_time());
+            }
+        }
+    }
+}
 
 bool TSView::valid() const noexcept {
     return _ts_meta != nullptr && _view.valid();
@@ -240,6 +264,8 @@ TSSView TSView::as_set() const {
     result._path = _path;
     // Propagate link source for transparent link navigation
     result._link_source = _link_source;
+    // Propagate container for cast TSValue handling (key_set sync)
+    result._container = _container;
     return result;
 }
 
@@ -475,6 +501,47 @@ nb::object TSView::to_python() const {
 }
 
 nb::object TSView::to_python_delta() const {
+    // ===== KEY_SET support: Handle TSD source views as TSS =====
+    // When _tsd_source is set, this is a key_set view of a TSD.
+    // Build delta directly from TSD's MapTSOverlay.
+    if (_tsd_source) {
+        const TSMeta* source_meta = _tsd_source->ts_meta();
+        if (source_meta && source_meta->kind() == TSTypeKind::TSD) {
+            // Get delta directly from TSD's MapTSOverlay
+            auto* tsd_overlay = dynamic_cast<const MapTSOverlay*>(_tsd_source->overlay());
+
+            if (tsd_overlay) {
+                nb::set added_set;
+                nb::set removed_set;
+
+                // Get added keys from TSD
+                const auto& added_key_indices = tsd_overlay->added_key_indices();
+                if (!added_key_indices.empty()) {
+                    // Access the TSD's data to get the actual key values
+                    value::ConstMapView tsd_map = _tsd_source->value().view().as_map();
+                    for (size_t idx : added_key_indices) {
+                        if (idx < tsd_map.size()) {
+                            auto added_key = tsd_map.key_at(idx);
+                            added_set.add(added_key.to_python());
+                        }
+                    }
+                }
+
+                // Get removed keys from TSD (stored in overlay)
+                const auto& removed_keys = tsd_overlay->removed_key_values();
+                for (const auto& removed_key : removed_keys) {
+                    removed_set.add(removed_key.view().to_python());
+                }
+
+                // Import Python SetDelta class and return
+                auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
+                return PythonSetDelta(nb::frozenset(added_set), nb::frozenset(removed_set));
+            }
+        }
+        // If we get here, something is wrong with the key_set setup
+        return nb::none();
+    }
+
     if (!valid()) {
         return nb::none();
     }
@@ -765,6 +832,8 @@ bool TSView::ts_valid() const {
         return false;
     }
 
+    // Note: For TSSView key_set views, the constructor sets _overlay to the TSD's overlay,
+    // so the regular overlay check below works correctly.
     if (_overlay) {
         return _overlay->last_modified_time() != MIN_DT;
     }
@@ -840,6 +909,8 @@ bool TSView::modified_at(engine_time_t time) const {
         }
     }
 
+    // Note: For TSSView key_set views, the constructor sets _overlay to the TSD's overlay,
+    // so the regular overlay check below works correctly.
     if (_overlay) {
         return _overlay->last_modified_time() == time;
     }
@@ -871,6 +942,8 @@ engine_time_t TSView::last_modified_time() const {
         }
     }
 
+    // Note: For TSSView key_set views, the constructor sets _overlay to the TSD's overlay,
+    // so the regular overlay check below works correctly.
     if (_overlay) {
         return _overlay->last_modified_time();
     }
@@ -1810,6 +1883,33 @@ TSView TSBView::field(const std::string& name) const {
         if (storage) {
             TSView linked_view = link_storage_view(*storage);
 
+            // Check for KEY_SET binding (TSD viewed as TSS)
+            // For KEY_SET, linked_view is a TSSView from TSLink::view().
+            // We need to preserve link_source and path so PyTimeSeriesInput::delta_value()
+            // can find the TSLink and call its view() method dynamically.
+            bool is_key_set = std::visit([](const auto& link) -> bool {
+                using T = std::decay_t<decltype(link)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
+                    std::cerr << "[DEBUG] TSLink element_index=" << (link ? link->element_index() : -999) << std::endl;
+                    return link && link->is_key_set_binding();
+                }
+                return false;
+            }, *storage);
+
+            std::cerr << "[DEBUG] TSBView::field(name) index=" << index
+                      << " is_key_set=" << (is_key_set ? "yes" : "no")
+                      << " linked_view.valid=" << (linked_view.valid() ? "yes" : "no") << std::endl;
+
+            if (is_key_set && linked_view.valid()) {
+                // Create a new view that preserves link_source for KEY_SET resolution
+                LightweightPath child_path = _path.with(index);
+                std::cerr << "[DEBUG] TSBView::field creating KEY_SET view" << std::endl;
+                TSView result(linked_view.value_view().data(), linked_view.ts_meta(),
+                              linked_view.overlay(), _root, std::move(child_path));
+                result.set_link_source(_link_source);
+                return result;
+            }
+
             // Check if the linked output is a REF but input expects non-REF
             // This happens when a non-REF input (e.g., TIME_SERIES_TYPE resolved to TS[int])
             // is wired to a REF output. We need to dereference to get the target's view.
@@ -1919,6 +2019,32 @@ TSView TSBView::field(size_t index) const {
         LinkStorage* storage = const_cast<TSValue*>(_link_source)->link_storage_at(index);
         if (storage) {
             TSView linked_view = link_storage_view(*storage);
+
+            // Check for KEY_SET binding (TSD viewed as TSS)
+            // For KEY_SET, linked_view is a TSSView from TSLink::view().
+            // We need to preserve link_source and path so PyTimeSeriesInput::delta_value()
+            // can find the TSLink and call its view() method dynamically.
+            bool is_key_set = std::visit([](const auto& link) -> bool {
+                using T = std::decay_t<decltype(link)>;
+                if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
+                    return link && link->is_key_set_binding();
+                }
+                return false;
+            }, *storage);
+
+            if (is_key_set) {
+                // For KEY_SET bindings, create a view that preserves link_source for KEY_SET resolution.
+                // We don't require linked_view.valid() because the TSSView reads directly from
+                // the TSD source, which may not have been modified yet. The view is still usable
+                // for accessing the TSD's keys through the _tsd_source pointer.
+                LightweightPath child_path = _path.with(index);
+                // Use the linked_view's metadata (TSSTypeMeta) and overlay
+                // The data pointer is null for KEY_SET views since they read from _tsd_source
+                TSView result(linked_view.value_view().data(), linked_view.ts_meta(),
+                              linked_view.overlay(), _root, std::move(child_path));
+                result.set_link_source(_link_source);
+                return result;
+            }
 
             // Check if the linked output is a REF but input expects non-REF
             // This happens when a non-REF input (e.g., TIME_SERIES_TYPE resolved to TS[int])
@@ -2546,7 +2672,24 @@ TSSView::TSSView(const void* data, const TSSTypeMeta* ts_meta, SetTSOverlay* ove
     : TSView(data, ts_meta, static_cast<TSOverlayStorage*>(overlay))
 {}
 
+TSSView::TSSView(const TSValue* tsd_source_ptr, const TSSTypeMeta* tss_meta) noexcept
+    : TSView(nullptr, tss_meta)  // No direct data - we read from _tsd_source
+{
+    // Set the base class's _tsd_source member (moved from TSSView to TSView to prevent slicing)
+    _tsd_source = tsd_source_ptr;
+
+    // For key_set views, the overlay is the TSD's MapTSOverlay
+    // This enables ts_valid(), modified_at(), etc. to work correctly
+    if (tsd_source_ptr) {
+        _overlay = const_cast<TSOverlayStorage*>(tsd_source_ptr->overlay());
+    }
+}
+
 size_t TSSView::size() const noexcept {
+    // For key_set views, get size from TSD's map
+    if (_tsd_source) {
+        return _tsd_source->value().view().as_map().size();
+    }
     if (!valid()) return 0;
     return _view.as_set().size();
 }
@@ -3271,13 +3414,27 @@ nb::object TSDView::to_python_delta() const {
 }
 
 nb::object TSSView::to_python() const {
+    // ===== Key_set view: Read keys directly from TSD source =====
+    // This is the correct approach - view the TSD as a TSS without creating a separate TSValue
+    if (_tsd_source) {
+        const TSMeta* source_meta = _tsd_source->ts_meta();
+        if (source_meta && source_meta->kind() == TSTypeKind::TSD) {
+            // Return keys from TSD directly as a frozenset
+            value::ConstMapView tsd_map = _tsd_source->value().view().as_map();
+            nb::set result;
+            for (size_t i = 0; i < tsd_map.size(); ++i) {
+                result.add(tsd_map.key_at(i).to_python());
+            }
+            return nb::frozenset(result);
+        }
+    }
+
     if (!valid()) return nb::none();
 
     // Python behavior: frozenset of element values
     nb::set result;
     value::ConstSetView set_view = _view.as_set();
     size_t count = set_view.size();
-    const auto* set_meta = static_cast<const TSSTypeMeta*>(_ts_meta);
 
     for (size_t i = 0; i < count; ++i) {
         value::ConstValueView elem_view = set_view.at(i);
@@ -3288,8 +3445,6 @@ nb::object TSSView::to_python() const {
 }
 
 nb::object TSSView::to_python_delta() const {
-    if (!valid()) return nb::none();
-
     // Get the current evaluation time from the owning node
     Node* node = owning_node();
     engine_time_t current_time = MIN_DT;
@@ -3300,6 +3455,47 @@ nb::object TSSView::to_python_delta() const {
         }
     }
 
+    // ===== Key_set view: Build delta directly from TSD's overlay =====
+    // This is the correct approach - view the TSD as a TSS without creating a separate TSValue
+    if (_tsd_source) {
+        const TSMeta* source_meta = _tsd_source->ts_meta();
+        if (source_meta && source_meta->kind() == TSTypeKind::TSD) {
+            // Get delta directly from TSD's MapTSOverlay
+            auto* tsd_overlay = dynamic_cast<const MapTSOverlay*>(_tsd_source->overlay());
+
+            if (tsd_overlay) {
+                nb::set added_set;
+                nb::set removed_set;
+
+                // Get added keys from TSD
+                const auto& added_key_indices = tsd_overlay->added_key_indices();
+                if (!added_key_indices.empty()) {
+                    // Access the TSD's data to get the actual key values
+                    value::ConstMapView tsd_map = _tsd_source->value().view().as_map();
+                    for (size_t idx : added_key_indices) {
+                        if (idx < tsd_map.size()) {
+                            auto added_key = tsd_map.key_at(idx);
+                            added_set.add(added_key.to_python());
+                        }
+                    }
+                }
+
+                // Get removed keys from TSD (stored in overlay)
+                const auto& removed_keys = tsd_overlay->removed_key_values();
+                for (const auto& removed_key : removed_keys) {
+                    removed_set.add(removed_key.view().to_python());
+                }
+
+                // Import Python SetDelta class and return
+                auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
+                return PythonSetDelta(nb::frozenset(added_set), nb::frozenset(removed_set));
+            }
+        }
+    }
+
+    if (!valid()) return nb::none();
+
+    // ===== Normal TSS case: Use SetDeltaView =====
     // Import Python SetDelta class
     auto PythonSetDelta = nb::module_::import_("hgraph._impl._types._tss").attr("PythonSetDelta");
 

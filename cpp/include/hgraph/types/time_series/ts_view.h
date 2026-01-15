@@ -432,6 +432,26 @@ struct TSView {
      */
     [[nodiscard]] int bound_output_elem_index() const noexcept { return _bound_output_elem_index; }
 
+    // ========== KEY_SET Support ==========
+
+    /**
+     * @brief Get the TSD source for key_set views.
+     *
+     * For KEY_SET bindings (TSD.key_set viewed as TSS), this returns the source TSD.
+     * The TSSView::to_python_delta() uses this to build delta directly from the TSD's
+     * MapTSOverlay rather than requiring a separate TSS TSValue.
+     *
+     * @return Pointer to the source TSD TSValue, or nullptr if not a key_set view
+     */
+    [[nodiscard]] const TSValue* tsd_source() const noexcept { return _tsd_source; }
+
+    /**
+     * @brief Set the TSD source for key_set views.
+     *
+     * Called when creating a TSSView that reads keys from a TSD.
+     */
+    void set_tsd_source(const TSValue* source) noexcept { _tsd_source = source; }
+
 protected:
     value::ConstValueView _view;
     const TSMeta* _ts_meta{nullptr};
@@ -444,6 +464,7 @@ protected:
     const TSMeta* _expected_element_ref_meta{nullptr};  ///< REF type meta for element wrapping (when input expects REF but output has non-REF)
     const TSValue* _bound_output{nullptr};    ///< Output TSValue for TS→REF conversion (to create TimeSeriesReference)
     int _bound_output_elem_index{-1};         ///< Element index within bound_output container (-1 if not applicable)
+    const TSValue* _tsd_source{nullptr};      ///< TSD source for KEY_SET views (TSD viewed as TSS)
 };
 
 /**
@@ -1120,6 +1141,7 @@ struct TSDView : TSView {
  * @brief Set-specific view (for TSS types).
  *
  * Provides set operations for set time-series types.
+ * Also supports viewing a TSD's key_set by setting _tsd_source.
  */
 struct TSSView : TSView {
     // ========== Construction ==========
@@ -1135,6 +1157,31 @@ struct TSSView : TSView {
      * @param overlay SetTSOverlay for hierarchical tracking
      */
     TSSView(const void* data, const TSSTypeMeta* ts_meta, SetTSOverlay* overlay) noexcept;
+
+    /**
+     * @brief Construct as a key_set view of a TSD.
+     *
+     * This is the correct approach for TSD.key_set - it creates a TSSView
+     * that reads keys directly from the TSD without creating a separate TSValue.
+     *
+     * @param tsd_source The TSD to view as a set of keys
+     * @param tss_meta TSSTypeMeta for the key type
+     */
+    TSSView(const TSValue* tsd_source, const TSSTypeMeta* tss_meta) noexcept;
+
+    // ========== Key Set Source ==========
+
+    /**
+     * @brief Check if this is a key_set view of a TSD.
+     *
+     * Uses the base class tsd_source() which is preserved even when
+     * returning a TSSView as TSView (no object slicing for this member).
+     */
+    [[nodiscard]] bool is_key_set_view() const noexcept { return tsd_source() != nullptr; }
+
+    // tsd_source() is inherited from TSView
+
+public:
 
     // ========== Set Schema ==========
 

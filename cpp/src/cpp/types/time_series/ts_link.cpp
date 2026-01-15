@@ -7,6 +7,7 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_overlay_storage.h>
 #include <hgraph/types/time_series/ts_type_meta.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <fmt/core.h>
@@ -94,7 +95,12 @@ void TSLink::bind(const TSValue* output) {
     // the specific element we're bound to is modified, not when any element is modified.
     _output_overlay = nullptr;
     if (output) {
-        if (_element_index >= 0 && output->ts_meta() &&
+        if (_element_index == KEY_SET_INDEX && output->ts_meta() &&
+            output->ts_meta()->kind() == TSTypeKind::TSD) {
+            // KEY_SET binding - subscribe to the TSD's overlay directly
+            // The TSD's MapTSOverlay tracks key additions/removals
+            _output_overlay = const_cast<TSOverlayStorage*>(output->overlay());
+        } else if (_element_index >= 0 && output->ts_meta() &&
             output->ts_meta()->kind() == TSTypeKind::TSL) {
             // We're binding to a TSL element - use the element's overlay
             auto* list_overlay = dynamic_cast<ListTSOverlay*>(
@@ -220,6 +226,20 @@ void TSLink::notify(engine_time_t time) {
 TSView TSLink::view() const {
     if (!_output) {
         return TSView{};  // Invalid view if unbound
+    }
+
+    // For KEY_SET bindings (TSD->TSS), return a TSSView that reads TSD keys directly
+    if (_element_index == KEY_SET_INDEX) {
+        if (_output->ts_meta() && _output->ts_meta()->kind() == TSTypeKind::TSD) {
+            // Get the TSD's key type and create the TSS schema
+            auto* tsd_meta = static_cast<const TSDTypeMeta*>(_output->ts_meta());
+            const value::TypeMeta* key_type = tsd_meta->key_type();
+            const TSSTypeMeta* tss_meta = TSTypeRegistry::instance().tss(key_type);
+
+            // Create a TSSView that reads keys from the TSD (no separate TSValue!)
+            return TSSView(_output, tss_meta);
+        }
+        // Not a TSD - fall back to whole container
     }
 
     // For element bindings (TSL->TS), navigate to the specific element

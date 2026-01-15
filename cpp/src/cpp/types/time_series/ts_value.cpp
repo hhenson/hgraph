@@ -4,6 +4,7 @@
 
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <stdexcept>
@@ -98,6 +99,11 @@ TSView TSValue::view() const {
 
         return TSView(elem_ptr, _ts_meta, this);
     }
+
+    // Note: Key_set view case (TSS derived from TSD) is handled in TSSView::to_python()
+    // and TSSView::to_python_delta() directly by checking cast_source and accessing
+    // the TSD's data/overlay. This avoids issues with incorrect indices when the
+    // key_set's underlying set storage is not populated.
 
     // For scalar inputs with TSRefTargetLink: delegate to the target's view.
     // This handles the case where a non-REF input (e.g., TS[int]) is bound to a REF output
@@ -332,6 +338,23 @@ void TSValue::create_link(size_t index, const TSValue* output) {
             is_tsb_field_binding = true;
         }
 
+        // Allow TSD->TSS binding for key_set views
+        // This happens when input expects TSS (key_set) but output is TSD.
+        // The element_index will be set to KEY_SET_INDEX by graph_builder to
+        // indicate TSLink::view() should return a TSSView of the TSD's keys.
+        bool is_tsd_key_set_binding = false;
+        if (!kinds_compatible &&
+            expected_to_compare->kind() == TSTypeKind::TSS &&
+            output_to_compare->kind() == TSTypeKind::TSD) {
+            // Check if key types match (TSD key type should match TSS element type)
+            auto* tss_meta = static_cast<const TSSTypeMeta*>(expected_to_compare);
+            auto* tsd_meta = static_cast<const TSDTypeMeta*>(output_to_compare);
+            if (tss_meta->element_type() == tsd_meta->key_type()) {
+                kinds_compatible = true;
+                is_tsd_key_set_binding = true;
+            }
+        }
+
         if (expected_to_compare && output_to_compare && !kinds_compatible) {
             throw std::runtime_error(
                 "TSValue::create_link: schema mismatch at index " + std::to_string(index) +
@@ -341,8 +364,10 @@ void TSValue::create_link(size_t index, const TSValue* output) {
 
         // For deeper validation, check value schemas match
         // Skip this check if expected is SIGNAL (SIGNAL accepts any time series regardless of value type)
-        // Also skip for TSL->TS element binding and TSB->field binding (will be resolved at runtime)
-        if (expected_to_compare->kind() != TSTypeKind::SIGNAL && !is_tsl_element_binding && !is_tsb_field_binding) {
+        // Also skip for TSL->TS element binding, TSB->field binding, and TSD->TSS key_set binding
+        // (these will be resolved at runtime via view layer)
+        if (expected_to_compare->kind() != TSTypeKind::SIGNAL && !is_tsl_element_binding &&
+            !is_tsb_field_binding && !is_tsd_key_set_binding) {
             const value::TypeMeta* expected_value = expected_to_compare ? expected_to_compare->value_schema() : nullptr;
             const value::TypeMeta* output_value = output_to_compare ? output_to_compare->value_schema() : nullptr;
             if (expected_value != output_value) {

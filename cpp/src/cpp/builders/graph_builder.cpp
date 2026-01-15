@@ -46,8 +46,10 @@ namespace hgraph
         const TSValue* current = output;
         for (auto index : path) {
             if (index == KEY_SET) {
-                // TSD key_set access requires special handling
-                throw std::runtime_error("TSValue: KEY_SET navigation not yet supported in Phase 6.5");
+                // KEY_SET navigation: Don't change current - the TSD is the output
+                // The binding will set element_index=KEY_SET_INDEX on the link
+                // so TSLink::view() returns a TSSView of the TSD's keys
+                continue;
             }
 
             // Try to get child TSValue at this index
@@ -173,6 +175,37 @@ namespace hgraph
                             }
                         }
                     }
+                }
+            }
+
+            // Check for TSD->TSS key_set binding:
+            // If output_path contains KEY_SET, this is a key_set binding (TSD viewed as TSS).
+            // Set element_index to KEY_SET_INDEX so TSLink::view() returns a TSSView of TSD keys.
+            for (auto idx : output_path) {
+                if (idx == KEY_SET) {
+                    size_t field_idx = static_cast<size_t>(input_path[0]);
+                    TSBView bundle = input_root.bundle_view();
+                    const TSValue* link_source = bundle.link_source();
+
+                    if (link_source) {
+                        LinkStorage* storage = const_cast<TSValue*>(link_source)->link_storage_at(field_idx);
+                        if (storage) {
+                            std::visit([](auto& link) {
+                                using T = std::decay_t<decltype(link)>;
+                                if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
+                                    if (link) {
+                                        // Set KEY_SET_INDEX so view() creates TSSView of TSD keys
+                                        link->set_element_index(TSLink::KEY_SET_INDEX);
+                                    }
+                                } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
+                                    if (link) {
+                                        link->target_link().set_element_index(TSLink::KEY_SET_INDEX);
+                                    }
+                                }
+                            }, *storage);
+                        }
+                    }
+                    break;  // Only need to handle one KEY_SET
                 }
             }
         } else {
