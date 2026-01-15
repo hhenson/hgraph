@@ -1,0 +1,441 @@
+# Access Patterns: Reading, Writing, and Iteration
+
+**Parent**: [Overview](00_OVERVIEW.md)
+
+---
+
+## Overview
+
+This document describes how users interact with time-series data:
+- Reading values
+- Writing to outputs
+- Navigating composite structures
+- Iterating over collections
+
+---
+
+## Reading Values
+
+### Scalar TS[T]
+
+```cpp
+TSView<double> price = ...;  // Input
+
+// Get current value
+double current = price.value();  // → double
+
+// Check state
+if (price.modified()) {
+    std::cout << "Price changed to " << price.value() << "\n";
+}
+
+if (!price.valid()) {
+    std::cout << "No price yet\n";
+}
+```
+
+### Bundle TSB
+
+```cpp
+TSBView quote = ...;  // TSB[bid: TS[float], ask: TS[float]]
+
+// Access by field name
+double bid_price = quote.field("bid").value<double>();
+double ask_price = quote.field("ask").value<double>();
+
+// Access by index
+double first_field = quote[0].value<double>();  // Same as bid
+
+// Check individual field modification
+if (quote.field("bid").modified()) {
+    std::cout << "Bid updated\n";
+}
+
+// Check any field modification
+if (quote.modified()) {
+    std::cout << "Something in quote changed\n";
+}
+
+// Get all values as Python object (dict or dataclass)
+nb::object data = quote.to_python();
+```
+
+### List TSL
+
+```cpp
+TSLView<TSView<double>, 10> prices = ...;
+
+// Access by index
+double first = prices[0].value();
+double last = prices[prices.size() - 1].value();  // No negative indexing
+
+// Bounds
+size_t count = prices.size();
+
+// Check element modification
+if (prices[3].modified()) {
+    std::cout << "Element 3 changed: " << prices[3].value() << "\n";
+}
+
+// Get all as Python list
+nb::object all_values = prices.to_python();
+```
+
+### Dict TSD
+
+```cpp
+TSDView stock_prices = ...;  // TSD[int, TS[float]]
+
+// Access by key
+double price_123 = stock_prices[123].value();
+
+// Check key existence
+if (stock_prices.contains(456)) {
+    double price_456 = stock_prices[456].value();
+}
+
+// Key iteration
+for (int64_t key : stock_prices.keys()) {
+    std::cout << key << ": " << stock_prices[key].value() << "\n";
+}
+
+// Key-value iteration
+for (auto [key, ts] : stock_prices.items()) {
+    if (ts.modified()) {
+        std::cout << key << " updated to " << ts.value() << "\n";
+    }
+}
+```
+
+### Set TSS
+
+```cpp
+TSSView active_ids = ...;  // TSS[int]
+
+// Membership test
+if (active_ids.contains(42)) {
+    std::cout << "ID 42 is active\n";
+}
+
+// Count
+size_t count = active_ids.size();
+
+// Iteration over current values
+for (int64_t id : active_ids.values()) {
+    std::cout << id << "\n";
+}
+```
+
+---
+
+## Writing to Outputs
+
+### Scalar Output
+
+```cpp
+void node_impl(TSView<double> data, TSOutput<double>& output) {
+    output.set_value(data.value() * 2.0);  // Set new value
+}
+```
+
+### Bundle Output
+
+```cpp
+// Write entire bundle (from Python dict)
+output.set_from_python(nb::dict("x"_a=1.0, "y"_a=2.0));
+
+// Write individual fields
+output.field("x").set_value(1.0);
+output.field("y").set_value(2.0);
+```
+
+### List Output
+
+```cpp
+// Write individual elements
+output[0].set_value(1.0);
+
+// Resize (dynamic lists only)
+output.resize(5);
+output.append(6.0);
+```
+
+### Dict Output
+
+```cpp
+// Add/update entry (int keys)
+output[123].set_value(150.0);
+
+// Remove entry
+output.remove(456);
+
+// Bulk update (from Python dict)
+output.set_from_python(nb::dict(nb::arg(123)=150.0, nb::arg(456)=140.0));
+```
+
+### Set Output
+
+```cpp
+// Add element (int values)
+output.add(42);
+
+// Remove element
+output.remove(99);
+
+// Bulk update (from Python set)
+output.set_from_python(nb::set(nb::int_(42), nb::int_(100)));
+```
+
+---
+
+## Invalidation
+
+Outputs can be invalidated (marked as having no valid data):
+
+```cpp
+void maybe_value(TSView<bool> condition, TSView<double> value, TSOutput<double>& output) {
+    if (condition.value()) {
+        output.set_value(value.value());
+    } else {
+        output.invalidate();  // Mark as having no valid data
+    }
+}
+```
+
+Invalidated outputs:
+- Have `valid() == false`
+- Have `modified() == true` (invalidation is a change)
+- Notify observers
+
+---
+
+## Path Navigation
+
+For deeply nested structures, use path navigation:
+
+```cpp
+// Navigate to nested element
+int alice_score_3 = data.field("users")[42].field("scores")[3].value<int>();
+
+// Path as string (for dynamic access)
+auto ts = data.navigate("users.42.scores.3");
+int value = ts.value<int>();
+```
+
+### Safe Navigation
+
+```cpp
+// Check existence at each level
+if (data.field("users").contains(42)) {
+    auto user = data.field("users")[42];
+    if (user.field("scores").valid()) {
+        int score = user.field("scores")[3].value<int>();
+    }
+}
+```
+
+---
+
+## Iteration Patterns
+
+### Iterate Over Bundle Fields
+
+```cpp
+TSBView quote = ...;
+
+// By name
+for (const auto& field_name : quote.keys()) {
+    std::cout << field_name << ": " << quote.field(field_name).to_string() << "\n";
+}
+
+// Key-value iteration
+for (auto [name, ts] : quote.items()) {
+    std::cout << name << ": " << ts.to_string() << "\n";
+}
+```
+
+### Iterate Over List Elements
+
+```cpp
+TSLView<TSView<double>, 10> prices = ...;
+
+// Simple iteration
+for (auto ts_elem : prices.values()) {
+    std::cout << ts_elem.value() << "\n";
+}
+
+// With index
+for (auto [idx, ts_elem] : prices.items()) {
+    if (ts_elem.modified()) {
+        std::cout << "Element " << idx << " changed to " << ts_elem.value() << "\n";
+    }
+}
+
+// Only modified elements
+for (auto idx : prices.modified_keys()) {
+    std::cout << "Changed: " << prices[idx].value() << "\n";
+}
+```
+
+### Iterate Over Dict Entries
+
+```cpp
+TSDView stock_prices = ...;  // TSD[int, TS[float]]
+
+// Keys only
+for (int64_t key : stock_prices.keys()) {
+    // ...
+}
+
+// Values only (time-series)
+for (auto ts_value : stock_prices.values()) {
+    if (ts_value.modified()) {
+        // ...
+    }
+}
+
+// Key-value pairs
+for (auto [key, ts_value] : stock_prices.items()) {
+    std::cout << key << ": " << ts_value.value() << "\n";
+}
+
+// Modified entries
+for (int64_t key : stock_prices.modified_keys()) {
+    std::cout << "Updated: " << key << "\n";
+}
+```
+
+### Iterate Over Set Elements
+
+```cpp
+TSSView active_ids = ...;  // TSS[int]
+
+// All current elements
+for (int64_t id : active_ids.values()) {
+    std::cout << id << "\n";
+}
+
+// Delta iteration
+for (int64_t id : active_ids.added()) {
+    std::cout << "Added: " << id << "\n";
+}
+
+for (int64_t id : active_ids.removed()) {
+    std::cout << "Removed: " << id << "\n";
+}
+```
+
+---
+
+## Bulk Operations
+
+### Copy Between Values
+
+```cpp
+// Copy entire value
+output.copy_from(input);
+
+// Copy with transformation
+output.set_value(transform(input.value()));
+```
+
+### Slice Access (Lists)
+
+```cpp
+TSLView<TSView<double>, 100> prices = ...;
+
+// Read slice (returns a view)
+auto subset = prices.slice(10, 20);  // View from index 10 to 19
+```
+
+### Buffer Access (Advanced)
+
+For high-performance scenarios, access underlying buffer:
+
+```cpp
+// Direct buffer access (for contiguous numeric data)
+std::span<double> buffer = prices.as_span();  // Zero-copy view
+
+// Bulk operations
+double total = std::accumulate(buffer.begin(), buffer.end(), 0.0);
+```
+
+This requires:
+- Contiguous memory layout
+- Compatible element type (numeric scalars)
+
+---
+
+## Performance Considerations
+
+### Prefer Field Access Over `.to_python()`
+
+```cpp
+// Less efficient - converts to Python dict
+nb::object data = quote.to_python();  // Python conversion overhead
+
+// More efficient - direct field access
+double bid = quote.field("bid").value<double>();  // No Python conversion
+```
+
+### Check `modified` Before Processing
+
+```cpp
+// Efficient - skip unchanged data
+if (prices.modified()) {
+    for (auto idx : prices.modified_keys()) {
+        process(prices[idx].value());
+    }
+}
+
+// Less efficient - process everything
+for (auto ts : prices.values()) {
+    process(ts.value());  // Even if nothing changed
+}
+```
+
+### Use Bulk Operations for Large Data
+
+```cpp
+// Fast - direct buffer access
+auto buffer = prices.as_span();
+double total = std::accumulate(buffer.begin(), buffer.end(), 0.0);
+```
+
+---
+
+## Error Handling
+
+### Invalid Access
+
+```cpp
+// Accessing invalid time-series
+if (!price.valid()) {
+    // price.value() behavior depends on implementation
+    // May return default, throw, or have undefined behavior
+}
+
+// Accessing non-existent key
+if (!stock_prices.contains(456)) {
+    // stock_prices[456] throws std::out_of_range or similar
+}
+
+// Out of bounds
+if (i >= prices.size()) {
+    // prices[i] throws std::out_of_range
+}
+```
+
+### Type Mismatches
+
+```cpp
+// Type safety enforced at compile time where possible
+// Runtime type errors throw exceptions
+output.set_value("not a float");  // Won't compile for TSOutput<double>
+```
+
+---
+
+## Next
+
+- [Delta and Change Tracking](06_DELTA.md) - Incremental processing patterns
