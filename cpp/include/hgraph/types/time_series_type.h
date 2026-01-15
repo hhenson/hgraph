@@ -104,8 +104,6 @@ namespace hgraph
         [[nodiscard]] virtual bool is_same_type(const TimeSeriesType *other) const = 0;
         [[nodiscard]] virtual bool is_reference() const                            = 0;
         [[nodiscard]] virtual bool has_reference() const                           = 0;
-
-        static inline time_series_type_s_ptr null_ptr{};
     };
 
     struct TimeSeriesInput;

@@ -14,16 +14,6 @@ namespace hgraph {
         : InputBuilder(), schema{std::move(schema)}, input_builders{std::move(input_builders)} {
     }
 
-    time_series_input_s_ptr TimeSeriesBundleInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v = arena_make_shared_as<TimeSeriesBundleInput, TimeSeriesInput>(owning_node, schema);
-        return make_and_set_inputs(v);
-    }
-
-    time_series_input_s_ptr TimeSeriesBundleInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        auto v = arena_make_shared_as<TimeSeriesBundleInput, TimeSeriesInput>(owning_input, schema);
-        return make_and_set_inputs(v);
-    }
-
     bool TimeSeriesBundleInputBuilder::has_reference() const {
         return std::ranges::any_of(input_builders, [](const auto &builder) { return builder->has_reference(); });
     }
@@ -37,27 +27,6 @@ namespace hgraph {
             return true;
         }
         return false;
-    }
-
-    void TimeSeriesBundleInputBuilder::release_instance(time_series_input_ptr item) const {
-        InputBuilder::release_instance(item);
-        auto bundle = dynamic_cast<TimeSeriesBundleInput *>(item);
-        if (bundle == nullptr) {
-            throw std::runtime_error("TimeSeriesBundleInputBuilder::release_instance: expected TimeSeriesBundleInput but got different type");
-        }
-        for (size_t i = 0; i < input_builders.size(); ++i) {
-            input_builders[i]->release_instance(bundle->_ts_values[i].get());
-        }
-    }
-
-    time_series_input_s_ptr TimeSeriesBundleInputBuilder::make_and_set_inputs(time_series_bundle_input_s_ptr input) const {
-        TimeSeriesBundleInput::collection_type inputs;
-        inputs.reserve(input_builders.size());
-        for (const auto &builder : input_builders) {
-            inputs.push_back(builder->make_instance(input.get()));
-        }
-        input->set_ts_values(std::move(inputs));
-        return input;
     }
 
     size_t TimeSeriesBundleInputBuilder::memory_size() const {

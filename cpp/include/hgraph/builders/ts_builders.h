@@ -49,16 +49,6 @@ struct HGRAPH_EXPORT CppTimeSeriesOutputBuilder : OutputBuilder {
         return hgraph::make_ts_value(_ts_meta, owner, output_id);
     }
 
-    // ========== OutputBuilder Interface (legacy - throws) ==========
-
-    time_series_output_s_ptr make_instance(node_ptr owning_node) const override {
-        throw std::runtime_error("CppTimeSeriesOutputBuilder: Legacy make_instance not supported. Use TSMeta-based path.");
-    }
-
-    time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override {
-        throw std::runtime_error("CppTimeSeriesOutputBuilder: Legacy make_instance not supported. Use TSMeta-based path.");
-    }
-
     // ========== Builder Interface ==========
 
     [[nodiscard]] size_t memory_size() const override {
@@ -112,16 +102,6 @@ struct HGRAPH_EXPORT CppTimeSeriesInputBuilder : InputBuilder {
      */
     [[nodiscard]] TSValue make_ts_value(Node* owner) const {
         return hgraph::make_ts_value(_ts_meta, owner);
-    }
-
-    // ========== InputBuilder Interface (legacy - throws) ==========
-
-    time_series_input_s_ptr make_instance(node_ptr owning_node) const override {
-        throw std::runtime_error("CppTimeSeriesInputBuilder: Legacy make_instance not supported. Use TSMeta-based path.");
-    }
-
-    time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override {
-        throw std::runtime_error("CppTimeSeriesInputBuilder: Legacy make_instance not supported. Use TSMeta-based path.");
     }
 
     // ========== Builder Interface ==========

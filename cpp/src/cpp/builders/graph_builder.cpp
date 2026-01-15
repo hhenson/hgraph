@@ -287,35 +287,6 @@ namespace hgraph
         }
     }
 
-    // ========== Legacy binding (kept for reference, should be removed after migration) ==========
-
-    time_series_output_s_ptr _extract_output(node_ptr node, const std::vector<int64_t> &path) {
-        if (path.empty()) { throw std::runtime_error("No path to find an output for"); }
-
-        time_series_output_s_ptr output = node->output();
-        for (auto index : path) {
-            if (index == KEY_SET) {
-                auto tsd_output = std::dynamic_pointer_cast<TimeSeriesDictOutput>(output);
-                if (!tsd_output) { throw std::runtime_error("Output is not a TSD for KEY_SET access"); }
-                output = tsd_output->key_set().shared_from_this();
-            } else {
-                auto indexed_output = std::dynamic_pointer_cast<IndexedTimeSeriesOutput>(output);
-                if (!indexed_output) { throw std::runtime_error("Output is not an indexed time series"); }
-                output = (*indexed_output)[index];
-            }
-        }
-        return output;
-    }
-
-    time_series_input_s_ptr _extract_input(node_ptr node, const std::vector<int64_t> &path) {
-        if (path.empty()) { throw std::runtime_error("No path to find an input for"); }
-
-        time_series_input_s_ptr input = std::static_pointer_cast<TimeSeriesInput>(node->input());
-
-        for (const auto &ndx : path) { input = input->get_input(ndx); }
-        return input;
-    }
-
     GraphBuilder::GraphBuilder(std::vector<node_builder_s_ptr> node_builders_, std::vector<Edge> edges_)
         : node_builders{std::move(node_builders_)}, edges{std::move(edges_)} {
         // Calculate and cache memory size in the same order as allocation (nodes first, then graph)

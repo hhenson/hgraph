@@ -687,59 +687,7 @@ namespace hgraph
         _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
-    // ========== Legacy Method Stubs ==========
-    // These stub implementations are used during TSValue migration
-    // They throw runtime errors to make it clear which code paths need migration
-
-    // Static null pointers for returning references from stub methods
-    static time_series_bundle_input_s_ptr s_null_input{nullptr};
-    static time_series_output_s_ptr s_null_output{nullptr};
-    static time_series_bundle_output_s_ptr s_null_bundle_output{nullptr};
-
-    time_series_bundle_input_s_ptr& Node::input() {
-        throw std::runtime_error("Node::input() legacy accessor not available - use input_view() instead");
-        return s_null_input;  // Unreachable, needed for return type
-    }
-
-    const time_series_bundle_input_s_ptr& Node::input() const {
-        throw std::runtime_error("Node::input() const legacy accessor not available - use input_view() instead");
-        return s_null_input;  // Unreachable, needed for return type
-    }
-
-    void Node::set_input(const time_series_bundle_input_s_ptr& value) {
-        throw std::runtime_error("Node::set_input() not implemented for TSValue-based input");
-    }
-
-    void Node::reset_input(const time_series_bundle_input_s_ptr& value) {
-        throw std::runtime_error("Node::reset_input() not implemented for TSValue-based input");
-    }
-
-    time_series_output_s_ptr& Node::output() {
-        throw std::runtime_error("Node::output() legacy accessor not available - use output_view() instead");
-        return s_null_output;  // Unreachable, needed for return type
-    }
-
-    void Node::set_output(const time_series_output_s_ptr& value) {
-        throw std::runtime_error("Node::set_output() not implemented for TSValue-based output");
-    }
-
-    time_series_output_s_ptr& Node::error_output() {
-        throw std::runtime_error("Node::error_output() legacy accessor not available - use error_output_view() instead");
-        return s_null_output;  // Unreachable, needed for return type
-    }
-
-    void Node::set_error_output(const time_series_output_s_ptr& value) {
-        throw std::runtime_error("Node::set_error_output() not implemented for TSValue-based error output");
-    }
-
-    time_series_bundle_output_s_ptr& Node::recordable_state() {
-        throw std::runtime_error("Node::recordable_state() legacy accessor not available - use state_view() instead");
-        return s_null_bundle_output;  // Unreachable, needed for return type
-    }
-
-    void Node::set_recordable_state(const time_series_bundle_output_s_ptr& value) {
-        throw std::runtime_error("Node::set_recordable_state() not implemented for TSValue-based recordable state");
-    }
+    // ========== Scheduler and State ==========
 
     bool Node::has_recordable_state() const { return _ts_recordable_state.has_value(); }
 
@@ -753,6 +701,59 @@ namespace hgraph
     void Node::unset_scheduler() { _scheduler.reset(); }
 
     void Node::add_start_input(const time_series_reference_input_s_ptr& input) { _start_inputs.push_back(input); }
+
+    // ========== Legacy Stub Implementations (throw at runtime) ==========
+    time_series_bundle_input_s_ptr Node::input() {
+        throw std::runtime_error("Node::input() legacy method called - migrate to ts_input()");
+    }
+
+    const time_series_bundle_input_s_ptr& Node::input() const {
+        throw std::runtime_error("Node::input() const legacy method called - migrate to ts_input()");
+    }
+
+    void Node::set_input(const time_series_bundle_input_s_ptr& /*value*/) {
+        throw std::runtime_error("Node::set_input() legacy method called - Node constructor now creates TSInputRoot from TSMeta");
+    }
+
+    void Node::reset_input(const time_series_bundle_input_s_ptr& /*value*/) {
+        throw std::runtime_error("Node::reset_input() legacy method called - needs TSValue migration");
+    }
+
+    time_series_output_s_ptr& Node::output() {
+        throw std::runtime_error("Node::output() legacy method called - migrate to ts_output()");
+    }
+
+    const time_series_output_s_ptr& Node::output() const {
+        throw std::runtime_error("Node::output() const legacy method called - migrate to ts_output()");
+    }
+
+    void Node::set_output(const time_series_output_s_ptr& /*value*/) {
+        throw std::runtime_error("Node::set_output() legacy method called - Node constructor now creates TSValue from TSMeta");
+    }
+
+    time_series_output_s_ptr& Node::error_output() {
+        throw std::runtime_error("Node::error_output() legacy method called - migrate to ts_error_output()");
+    }
+
+    const time_series_output_s_ptr& Node::error_output() const {
+        throw std::runtime_error("Node::error_output() const legacy method called - migrate to ts_error_output()");
+    }
+
+    void Node::set_error_output(const time_series_output_s_ptr& /*value*/) {
+        throw std::runtime_error("Node::set_error_output() legacy method called - Node constructor now creates TSValue from TSMeta");
+    }
+
+    time_series_bundle_output_s_ptr& Node::recordable_state() {
+        throw std::runtime_error("Node::recordable_state() legacy method called - migrate to ts_recordable_state()");
+    }
+
+    const time_series_bundle_output_s_ptr& Node::recordable_state() const {
+        throw std::runtime_error("Node::recordable_state() const legacy method called - migrate to ts_recordable_state()");
+    }
+
+    void Node::set_recordable_state(const time_series_bundle_output_s_ptr& /*value*/) {
+        throw std::runtime_error("Node::set_recordable_state() legacy method called - Node constructor now creates TSValue from TSMeta");
+    }
 
     bool Node::has_input() const { return _ts_input.has_value(); }
 

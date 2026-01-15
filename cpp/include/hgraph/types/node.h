@@ -227,23 +227,7 @@ namespace hgraph
 
         auto start_inputs() const { return _start_inputs; }
 
-        // ========== Legacy Method Stubs ==========
-        // These methods throw runtime errors - callers need to migrate to TSValue-based access
-        // TODO: Remove these once all callers are migrated
-
-        time_series_bundle_input_s_ptr& input();
-        const time_series_bundle_input_s_ptr& input() const;
-        void set_input(const time_series_bundle_input_s_ptr& value);
-        virtual void reset_input(const time_series_bundle_input_s_ptr& value);
-
-        time_series_output_s_ptr& output();
-        void set_output(const time_series_output_s_ptr& value);
-
-        time_series_output_s_ptr& error_output();
-        void set_error_output(const time_series_output_s_ptr& value);
-
-        time_series_bundle_output_s_ptr& recordable_state();
-        void set_recordable_state(const time_series_bundle_output_s_ptr& value);
+        // ========== Scheduler and State ==========
 
         bool has_recordable_state() const;
 
@@ -351,6 +335,23 @@ namespace hgraph
 
         friend struct Graph;
         friend struct NodeScheduler;
+
+        // ========== Legacy Stub Methods (throw at runtime) ==========
+        // These are kept temporarily to allow compilation while migrating to TSValue.
+        // They throw runtime errors if called - tests will reveal which features need migration.
+        [[nodiscard]] time_series_bundle_input_s_ptr input();
+        [[nodiscard]] const time_series_bundle_input_s_ptr& input() const;
+        void set_input(const time_series_bundle_input_s_ptr& value);
+        virtual void reset_input(const time_series_bundle_input_s_ptr& value);
+        [[nodiscard]] time_series_output_s_ptr& output();
+        [[nodiscard]] const time_series_output_s_ptr& output() const;
+        void set_output(const time_series_output_s_ptr& value);
+        [[nodiscard]] time_series_output_s_ptr& error_output();
+        [[nodiscard]] const time_series_output_s_ptr& error_output() const;
+        void set_error_output(const time_series_output_s_ptr& value);
+        [[nodiscard]] time_series_bundle_output_s_ptr& recordable_state();
+        [[nodiscard]] const time_series_bundle_output_s_ptr& recordable_state() const;
+        void set_recordable_state(const time_series_bundle_output_s_ptr& value);
 
         void add_start_input(const time_series_reference_input_s_ptr &input);
 

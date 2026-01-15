@@ -19,12 +19,6 @@ namespace hgraph {
 
         TimeSeriesWindowOutputBuilder(size_t size, size_t min_size, const value::TypeMeta* element_type);
 
-        time_series_output_s_ptr make_instance(node_ptr owning_node) const override;
-
-        time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
-
-        void release_instance(time_series_output_ptr item) const override;
-
         [[nodiscard]] size_t memory_size() const override;
         [[nodiscard]] size_t type_alignment() const override;
 
@@ -44,12 +38,6 @@ namespace hgraph {
 
         TimeSeriesTimeWindowOutputBuilder(engine_time_delta_t size, engine_time_delta_t min_size,
                                           const value::TypeMeta* element_type);
-
-        time_series_output_s_ptr make_instance(node_ptr owning_node) const override;
-
-        time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
-
-        void release_instance(time_series_output_ptr item) const override;
 
         [[nodiscard]] size_t memory_size() const override;
         [[nodiscard]] size_t type_alignment() const override;

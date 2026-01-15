@@ -11,31 +11,12 @@ namespace hgraph {
         : InputBuilder(), ts_builder{std::move(ts_builder)}, key_type_meta{key_type_meta} {
     }
 
-    time_series_input_s_ptr TimeSeriesDictInputBuilder::make_instance(node_ptr owning_node) const {
-        return arena_make_shared_as<TimeSeriesDictInputImpl, TimeSeriesInput>(
-            owning_node, ts_builder, key_type_meta);
-    }
-
-    time_series_input_s_ptr TimeSeriesDictInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return arena_make_shared_as<TimeSeriesDictInputImpl, TimeSeriesInput>(
-            owning_input, ts_builder, key_type_meta);
-    }
-
     bool TimeSeriesDictInputBuilder::is_same_type(const Builder &other) const {
         if (auto other_b = dynamic_cast<const TimeSeriesDictInputBuilder *>(&other)) {
             return ts_builder->is_same_type(*other_b->ts_builder) &&
                    key_type_meta == other_b->key_type_meta;
         }
         return false;
-    }
-
-    void TimeSeriesDictInputBuilder::release_instance(time_series_input_ptr item) const {
-        InputBuilder::release_instance(item);
-        auto dict = dynamic_cast<TimeSeriesDictInputImpl *>(item);
-        if (dict == nullptr) {
-            throw std::runtime_error("TimeSeriesDictInputBuilder::release_instance: expected TimeSeriesDictInputImpl but got different type");
-        }
-        for (auto &value: dict->_ts_values) { ts_builder->release_instance(value.second.get()); }
     }
 
     size_t TimeSeriesDictInputBuilder::memory_size() const {

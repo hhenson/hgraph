@@ -19,13 +19,7 @@ namespace hgraph {
 
         bool has_reference() const override { return ts_builder->has_reference(); }
 
-        time_series_output_s_ptr make_instance(node_ptr owning_node) const override;
-
-        time_series_output_s_ptr make_instance(time_series_output_ptr owning_output) const override;
-
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
-
-        void release_instance(time_series_output_ptr item) const override;
 
         [[nodiscard]] size_t memory_size() const override;
 

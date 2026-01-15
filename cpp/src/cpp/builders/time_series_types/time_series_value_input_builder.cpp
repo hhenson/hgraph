@@ -5,14 +5,6 @@
 
 namespace hgraph {
 
-    time_series_input_s_ptr TimeSeriesValueInputBuilder::make_instance(node_ptr owning_node) const {
-        return arena_make_shared_as<TimeSeriesValueInput, TimeSeriesInput>(owning_node);
-    }
-
-    time_series_input_s_ptr TimeSeriesValueInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return arena_make_shared_as<TimeSeriesValueInput, TimeSeriesInput>(owning_input);
-    }
-
     size_t TimeSeriesValueInputBuilder::memory_size() const {
         return add_canary_size(sizeof(TimeSeriesValueInput));
     }

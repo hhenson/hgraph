@@ -8,14 +8,6 @@ namespace hgraph {
     TimeSeriesWindowInputBuilder::TimeSeriesWindowInputBuilder(const value::TypeMeta* element_type)
         : InputBuilder(), _element_type(element_type) {}
 
-    time_series_input_s_ptr TimeSeriesWindowInputBuilder::make_instance(node_ptr owning_node) const {
-        return arena_make_shared_as<TimeSeriesWindowInput, TimeSeriesInput>(owning_node, _element_type);
-    }
-
-    time_series_input_s_ptr TimeSeriesWindowInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        return arena_make_shared_as<TimeSeriesWindowInput, TimeSeriesInput>(owning_input, _element_type);
-    }
-
     size_t TimeSeriesWindowInputBuilder::memory_size() const {
         return add_canary_size(sizeof(TimeSeriesWindowInput));
     }

@@ -520,17 +520,17 @@ namespace hgraph
 
     void TimeSeriesDictOutputImpl::_dispose() {
         // Release all removed items first (now stores pair<value, was_valid>)
-        for (auto &[_, pair] : _removed_items) { _ts_builder->release_instance(pair.first.get()); }
+        for (auto &[_, pair] : _removed_items) { _ts_builder->release_instance(pair.first); }
         _removed_items.clear();
 
         // Release all current values
-        for (auto &[_, value] : _ts_values) { _ts_builder->release_instance(value.get()); }
+        for (auto &[_, value] : _ts_values) { _ts_builder->release_instance(value); }
         _ts_values.clear();
     }
 
     void TimeSeriesDictOutputImpl::_clear_key_changes() {
         // Release removed instances before clearing (now stores pair<value, was_valid>)
-        for (auto &[_, pair] : _removed_items) { _ts_builder->release_instance(pair.first.get()); }
+        for (auto &[_, pair] : _removed_items) { _ts_builder->release_instance(pair.first); }
         _removed_items.clear();
     }
 
@@ -950,7 +950,7 @@ namespace hgraph
             auto builder  = _ts_builder;
             auto instance = value;
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification(
-                [builder, instance]() { builder->release_instance(instance.get()); });
+                [builder, instance]() { builder->release_instance(instance); });
         }
 
         _removed_items.clear();
@@ -1093,7 +1093,7 @@ namespace hgraph
 
         // If the key was removed in this cycle, clean up the removed tracking
         if (auto it = _removed_items.find(key_view); it != _removed_items.end()) {
-            _ts_builder->release_instance(it->second.first.get());  // pair<value, was_valid>.first
+            _ts_builder->release_instance(it->second.first);  // pair<value, was_valid>.first
             _removed_items.erase(it);
         }
 

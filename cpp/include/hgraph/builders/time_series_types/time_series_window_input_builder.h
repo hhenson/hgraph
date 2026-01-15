@@ -20,10 +20,6 @@ namespace hgraph {
 
         explicit TimeSeriesWindowInputBuilder(const value::TypeMeta* element_type = nullptr);
 
-        time_series_input_s_ptr make_instance(node_ptr owning_node) const override;
-
-        time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
-
         [[nodiscard]] size_t memory_size() const override;
         [[nodiscard]] size_t type_alignment() const override;
 

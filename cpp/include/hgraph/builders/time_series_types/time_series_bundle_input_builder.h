@@ -15,15 +15,9 @@ namespace hgraph {
 
         TimeSeriesBundleInputBuilder(time_series_schema_s_ptr schema, std::vector<InputBuilder::ptr> input_builders);
 
-        time_series_input_s_ptr make_instance(node_ptr owning_node) const override;
-
-        time_series_input_s_ptr make_instance(time_series_input_ptr owning_input) const override;
-
         bool has_reference() const override;
 
         [[nodiscard]] bool is_same_type(const Builder &other) const override;
-
-        void release_instance(time_series_input_ptr item) const override;
 
         [[nodiscard]] size_t memory_size() const override;
 

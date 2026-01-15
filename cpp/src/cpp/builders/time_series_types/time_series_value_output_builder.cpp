@@ -8,24 +8,6 @@ namespace hgraph {
     TimeSeriesValueOutputBuilder::TimeSeriesValueOutputBuilder(const value::TypeMeta* schema)
         : OutputBuilder(), _schema(schema) {}
 
-    time_series_output_s_ptr TimeSeriesValueOutputBuilder::make_instance(node_ptr owning_node) const {
-        return arena_make_shared_as<TimeSeriesValueOutput, TimeSeriesOutput>(owning_node, _schema);
-    }
-
-    time_series_output_s_ptr TimeSeriesValueOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        return arena_make_shared_as<TimeSeriesValueOutput, TimeSeriesOutput>(owning_output, _schema);
-    }
-
-    void TimeSeriesValueOutputBuilder::release_instance(time_series_output_ptr item) const {
-        OutputBuilder::release_instance(item);
-        auto* ts = dynamic_cast<TimeSeriesValueOutput*>(item);
-        if (ts == nullptr) {
-            throw std::runtime_error(
-                "TimeSeriesValueOutputBuilder::release_instance: expected TimeSeriesValueOutput but got different type");
-        }
-        ts->reset_value();
-    }
-
     size_t TimeSeriesValueOutputBuilder::memory_size() const {
         return add_canary_size(sizeof(TimeSeriesValueOutput));
     }

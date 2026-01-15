@@ -67,80 +67,54 @@ namespace hgraph {
     using output_builder_ptr = OutputBuilder*;
     using output_builder_s_ptr = nb::ref<OutputBuilder>;
 
-    // TimeSeriesType - converted to shared_ptr
+    // ============================================================================
+    // LEGACY TIME-SERIES TYPES (DEPRECATED)
+    // These types are being phased out in favor of TSValue-based storage.
+    // They are kept temporarily for backwards compatibility during migration.
+    // TODO: Remove once all code is migrated to TSValue
+    // ============================================================================
+
+    // TimeSeriesType - legacy abstract interface
     struct TimeSeriesType;
     using time_series_type_ptr = TimeSeriesType*;
-    using time_series_type_s_ptr = std::shared_ptr<TimeSeriesType>;
 
-    // TimeSeriesInput - converted to shared_ptr
+    // TimeSeriesInput - legacy input interface
     struct TimeSeriesInput;
-    struct BaseTimeSeriesInput;
     using time_series_input_ptr = TimeSeriesInput*;
     using time_series_input_s_ptr = std::shared_ptr<TimeSeriesInput>;
 
-    // TimeSeriesBundleInput - converted to shared_ptr
-    struct TimeSeriesBundleInput;
-    using time_series_bundle_input_ptr = TimeSeriesBundleInput*;
-    using time_series_bundle_input_s_ptr = std::shared_ptr<TimeSeriesBundleInput>;
-
-    // TimeSeriesBundleOutput - converted to shared_ptr
-    struct TimeSeriesBundleOutput;
-    using time_series_bundle_output_ptr = TimeSeriesBundleOutput*;
-    using time_series_bundle_output_s_ptr = std::shared_ptr<TimeSeriesBundleOutput>;
-
-    // TimeSeriesOutput - converted to shared_ptr
+    // TimeSeriesOutput - legacy output interface
     struct TimeSeriesOutput;
-    struct BaseTimeSeriesOutput;
     using time_series_output_ptr = TimeSeriesOutput*;
-    using const_time_series_output_ptr = const TimeSeriesOutput*;
     using time_series_output_s_ptr = std::shared_ptr<TimeSeriesOutput>;
 
-    // TimeSeriesReference - converted to shared_ptr
-    struct TimeSeriesReference;
-    using time_series_reference_ptr = TimeSeriesReference*;
-    using time_series_reference_s_ptr = std::shared_ptr<TimeSeriesReference>;
-
-    // TimeSeriesReferenceInput - converted to shared_ptr
+    // TimeSeriesReferenceOutput - still used for start_inputs and feature_extension
+    struct TimeSeriesReferenceOutput;
     struct TimeSeriesReferenceInput;
     using time_series_reference_input_ptr = TimeSeriesReferenceInput*;
     using time_series_reference_input_s_ptr = std::shared_ptr<TimeSeriesReferenceInput>;
-
-    // TimeSeriesReferenceOutput - converted to shared_ptr
-    struct TimeSeriesReferenceOutput;
-    using time_series_reference_output_ptr = TimeSeriesReferenceOutput*;
     using time_series_reference_output_s_ptr = std::shared_ptr<TimeSeriesReferenceOutput>;
 
-    // TimeSeriesListInput - converted to shared_ptr
-    struct TimeSeriesListInput;
-    using time_series_list_input_ptr = TimeSeriesListInput*;
-    using time_series_list_input_s_ptr = std::shared_ptr<TimeSeriesListInput>;
-
-    // TimeSeriesListOutput - converted to shared_ptr
-    struct TimeSeriesListOutput;
-    using time_series_list_output_ptr = TimeSeriesListOutput*;
-    using time_series_list_output_s_ptr = std::shared_ptr<TimeSeriesListOutput>;
-
-    // TimeSeriesSetInput - converted to shared_ptr
-    struct TimeSeriesSetInput;
-    using time_series_set_input_ptr = TimeSeriesSetInput*;
-    using time_series_set_input_s_ptr = std::shared_ptr<TimeSeriesSetInput>;
-
-    // TimeSeriesSetOutput - converted to shared_ptr
-    struct TimeSeriesSetOutput;
-    using time_series_set_output_ptr = TimeSeriesSetOutput*;
-    using time_series_set_output_s_ptr = std::shared_ptr<TimeSeriesSetOutput>;
-
-    // TimeSeriesSchema - keeps nb::ref
-    struct TimeSeriesSchema;
-    using time_series_schema_ptr = TimeSeriesSchema*;
-    using time_series_schema_s_ptr = nb::ref<TimeSeriesSchema>;
-
-    using c_string_ref = std::reference_wrapper<const std::string>;
-
+    // Legacy concept for type constraints (still used by tss.h)
     template<typename T_TS>
     concept TimeSeriesT = std::is_base_of_v<TimeSeriesInput, T_TS> || std::is_base_of_v<TimeSeriesOutput, T_TS>;
 
+    using c_string_ref = std::reference_wrapper<const std::string>;
+
+    // ============================================================================
+    // LEGACY CONCRETE TIME-SERIES TYPES (DEPRECATED)
+    // These are forward declarations for types being phased out.
+    // The visitor patterns in time_series_type.h still reference some of these.
+    // TODO: Remove once visitor patterns are also migrated
+    // ============================================================================
+
+    // Legacy base types (for visitor patterns)
+    struct BaseTimeSeriesInput;
+    struct BaseTimeSeriesOutput;
     struct TimeSeriesValueInputBase;
+    struct TimeSeriesValueOutputBase;
+
+    // Legacy concrete input types
     struct TimeSeriesSignalInput;
     struct IndexedTimeSeriesInput;
     struct TimeSeriesDictInput;
@@ -150,7 +124,20 @@ namespace hgraph {
     struct TimeSeriesSetReferenceInput;
     struct TimeSeriesDictReferenceInput;
     struct TimeSeriesBundleReferenceInput;
-    struct TimeSeriesValueOutputBase;
+    struct TimeSeriesValueInput;
+    struct TimeSeriesListInput;
+    using time_series_list_input_s_ptr = std::shared_ptr<TimeSeriesListInput>;
+    struct TimeSeriesSetInput;
+    struct TimeSeriesBundleInput;
+    struct TimeSeriesDictInputImpl;
+    struct TimeSeriesWindowInput;
+
+    // Legacy schema type (used by builders)
+    struct TimeSeriesSchema;
+    using time_series_schema_ptr = TimeSeriesSchema*;
+    using time_series_schema_s_ptr = nb::ref<TimeSeriesSchema>;
+
+    // Legacy concrete output types
     struct IndexedTimeSeriesOutput;
     struct TimeSeriesDictOutput;
     struct TimeSeriesValueReferenceOutput;
@@ -159,25 +146,18 @@ namespace hgraph {
     struct TimeSeriesSetReferenceOutput;
     struct TimeSeriesDictReferenceOutput;
     struct TimeSeriesBundleReferenceOutput;
-
-    // Non-templated time series value types (use Value system with TypeMeta)
-    struct TimeSeriesValueInput;
     struct TimeSeriesValueOutput;
     using time_series_value_output_ptr = TimeSeriesValueOutput*;
     using time_series_value_output_s_ptr = std::shared_ptr<TimeSeriesValueOutput>;
-
-    // Non-templated TSD types (use Value system with TypeMeta for keys)
-    struct TimeSeriesDictInputImpl;
-    struct TimeSeriesDictOutputImpl;
-
-    // Non-templated TSS types (use Value system with TypeMeta)
-    struct TimeSeriesSetInput;
+    struct TimeSeriesListOutput;
+    using time_series_list_output_s_ptr = std::shared_ptr<TimeSeriesListOutput>;
     struct TimeSeriesSetOutput;
-
-    // Non-templated TSW types (use Value system with TypeMeta)
-    struct TimeSeriesWindowInput;
+    struct TimeSeriesBundleOutput;
+    using time_series_bundle_output_s_ptr = std::shared_ptr<TimeSeriesBundleOutput>;
+    struct TimeSeriesDictOutputImpl;
     struct TimeSeriesFixedWindowOutput;
     struct TimeSeriesTimeWindowOutput;
+    using time_series_bundle_input_s_ptr = std::shared_ptr<TimeSeriesBundleInput>;
 
     struct ContextStubSourceNode;
     struct NestedNode;

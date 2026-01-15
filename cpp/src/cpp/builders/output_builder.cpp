@@ -1,6 +1,6 @@
+#include <fmt/format.h>
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/time_series_type.h>
 
 // Include all the extracted builder headers
 #include "hgraph/api/python/py_node.h"
@@ -15,24 +15,22 @@
 #include <hgraph/api/python/wrapper_factory.h>
 
 namespace hgraph {
-    void OutputBuilder::release_instance(time_series_output_ptr item) const {
-        // Perform minimal teardown - builder_release_cleanup handles subscriber cleanup
-        item->builder_release_cleanup();
-        item->reset_parent_or_node();
+
+    // Legacy stub implementations - throw at runtime
+    time_series_output_s_ptr OutputBuilder::make_instance(node_ptr /*owning_node*/) {
+        throw std::runtime_error("OutputBuilder::make_instance(node_ptr) legacy method called - migrate to TSMeta-based API");
+    }
+
+    time_series_output_s_ptr OutputBuilder::make_instance(time_series_type_ptr /*owning_ts*/) {
+        throw std::runtime_error("OutputBuilder::make_instance(time_series_type_ptr) legacy method called - migrate to TSMeta-based API");
+    }
+
+    void OutputBuilder::release_instance(time_series_output_s_ptr /*output*/) const {
+        throw std::runtime_error("OutputBuilder::release_instance() legacy method called - no longer needed with TSValue");
     }
 
     void OutputBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_<OutputBuilder, Builder>(m, "OutputBuilder")
-                .def(
-                    "make_instance",
-                    [](OutputBuilder::ptr self, nb::object owning_node,
-                       nb::object owning_output) -> nb::object {
-                        // Stub - OutputBuilder::make_instance requires view-based wrapping migration
-                        // This will be updated when the output builder system is migrated to TSValue
-                        throw std::runtime_error("OutputBuilder::make_instance not yet implemented for view-based wrappers");
-                    },
-                    "owning_node"_a = nb::none(), "owning_output"_a = nb::none())
-                .def("release_instance", &OutputBuilder::release_instance)
                 .def("__str__", [](const OutputBuilder &self) {
                     return fmt::format("OutputBuilder@{:p}", static_cast<const void *>(&self));
                 })
@@ -42,7 +40,7 @@ namespace hgraph {
 
         // Call the register functions from each builder type
         time_series_value_output_builder_register_with_nanobind(m);
-        
+
         // Specialized reference output builders
         TimeSeriesValueRefOutputBuilder::register_with_nanobind(m);
         TimeSeriesListRefOutputBuilder::register_with_nanobind(m);
@@ -50,11 +48,12 @@ namespace hgraph {
         TimeSeriesDictRefOutputBuilder::register_with_nanobind(m);
         TimeSeriesSetRefOutputBuilder::register_with_nanobind(m);
         TimeSeriesWindowRefOutputBuilder::register_with_nanobind(m);
-        
+
         TimeSeriesListOutputBuilder::register_with_nanobind(m);
         TimeSeriesBundleOutputBuilder::register_with_nanobind(m);
         time_series_set_output_builder_register_with_nanobind(m);
         time_series_window_output_builder_register_with_nanobind(m);
         time_series_dict_output_builder_register_with_nanobind(m);
     }
+
 } // namespace hgraph

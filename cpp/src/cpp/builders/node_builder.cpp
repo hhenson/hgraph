@@ -181,27 +181,8 @@ namespace hgraph {
         last_value_pull_node_builder_register_with_nanobind(m);
     }
 
-    void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node) const {
-        if (input_builder.has_value()) {
-            auto ts_input = (*input_builder)->make_instance(node);
-            // The input is always a TimeSeriesBundleInput at this level.
-            node->set_input(std::static_pointer_cast<TimeSeriesBundleInput>(ts_input));
-        }
-
-        if (output_builder.has_value()) {
-            auto ts_output = (*output_builder)->make_instance(node);
-            node->set_output(ts_output);
-        }
-
-        if (error_builder.has_value()) {
-            auto ts_error_output = (*error_builder)->make_instance(node);
-            node->set_error_output(ts_error_output);
-        }
-
-        if (recordable_state_builder.has_value()) {
-            auto ts_recordable_state = (*recordable_state_builder)->make_instance(node);
-            // The recordable_state is always a TimeSeriesBundleOutput at this level.
-            node->set_recordable_state(std::static_pointer_cast<TimeSeriesBundleOutput>(ts_recordable_state));
-        }
+    void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr /*node*/) const {
+        // No-op: Node constructor now creates TSValue/TSInputRoot internally from TSMeta.
+        // Legacy make_instance/set_xxx pattern is no longer used.
     }
 } // namespace hgraph

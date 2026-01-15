@@ -14,16 +14,6 @@ namespace hgraph {
         : OutputBuilder(), schema{std::move(schema)}, output_builders{std::move(output_builders)} {
     }
 
-    time_series_output_s_ptr TimeSeriesBundleOutputBuilder::make_instance(node_ptr owning_node) const {
-        auto v = arena_make_shared_as<TimeSeriesBundleOutput, TimeSeriesOutput>(owning_node, schema);
-        return make_and_set_outputs(v);
-    }
-
-    time_series_output_s_ptr TimeSeriesBundleOutputBuilder::make_instance(time_series_output_ptr owning_output) const {
-        auto v = arena_make_shared_as<TimeSeriesBundleOutput, TimeSeriesOutput>(owning_output, schema);
-        return make_and_set_outputs(v);
-    }
-
     bool TimeSeriesBundleOutputBuilder::has_reference() const {
         return std::ranges::any_of(output_builders, [](const auto &builder) { return builder->has_reference(); });
     }
@@ -37,27 +27,6 @@ namespace hgraph {
             return true;
         }
         return false;
-    }
-
-    void TimeSeriesBundleOutputBuilder::release_instance(time_series_output_ptr item) const {
-        OutputBuilder::release_instance(item);
-        auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(item);
-        if (bundle == nullptr) {
-            throw std::runtime_error("TimeSeriesBundleOutputBuilder::release_instance: expected TimeSeriesBundleOutput but got different type");
-        }
-        auto &outputs = bundle->ts_values();
-        for (size_t i = 0; i < output_builders.size(); ++i) { output_builders[i]->release_instance(outputs[i].get()); }
-    }
-
-    time_series_output_s_ptr TimeSeriesBundleOutputBuilder::make_and_set_outputs(time_series_bundle_output_s_ptr output) const {
-        std::vector<time_series_output_s_ptr> outputs;
-        outputs.reserve(output_builders.size());
-        std::ranges::copy(output_builders | std::views::transform([&](auto &builder) {
-                              return builder->make_instance(output.get());
-                          }),
-                          std::back_inserter(outputs));
-        output->set_ts_values(outputs);
-        return output;
     }
 
     size_t TimeSeriesBundleOutputBuilder::memory_size() const {

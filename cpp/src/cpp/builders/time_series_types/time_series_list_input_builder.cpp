@@ -12,16 +12,6 @@ namespace hgraph {
         : input_builder{std::move(input_builder)}, size{size} {
     }
 
-    time_series_input_s_ptr TimeSeriesListInputBuilder::make_instance(node_ptr owning_node) const {
-        auto v = arena_make_shared_as<TimeSeriesListInput, TimeSeriesInput>(owning_node);
-        return make_and_set_inputs(v);
-    }
-
-    time_series_input_s_ptr TimeSeriesListInputBuilder::make_instance(time_series_input_ptr owning_input) const {
-        auto v = arena_make_shared_as<TimeSeriesListInput, TimeSeriesInput>(owning_input);
-        return make_and_set_inputs(v);
-    }
-
     bool TimeSeriesListInputBuilder::has_reference() const { return input_builder->has_reference(); }
 
     bool TimeSeriesListInputBuilder::is_same_type(const Builder &other) const {
@@ -30,25 +20,6 @@ namespace hgraph {
             return input_builder->is_same_type(*other_b->input_builder);
         }
         return false;
-    }
-
-    void TimeSeriesListInputBuilder::release_instance(time_series_input_ptr item) const {
-        InputBuilder::release_instance(item);
-        auto list = dynamic_cast<TimeSeriesListInput *>(item);
-        if (list == nullptr) {
-            throw std::runtime_error("TimeSeriesListInputBuilder::release_instance: expected TimeSeriesListInput but got different type");
-        }
-        for (auto &value: list->_ts_values) { input_builder->release_instance(value.get()); }
-    }
-
-    time_series_input_s_ptr TimeSeriesListInputBuilder::make_and_set_inputs(time_series_list_input_s_ptr input) const {
-        TimeSeriesListInput::collection_type inputs;
-        inputs.reserve(size);
-        for (size_t i = 0; i < size; ++i) {
-            inputs.push_back(input_builder->make_instance(input.get()));
-        }
-        input->set_ts_values(std::move(inputs));
-        return input;
     }
 
     size_t TimeSeriesListInputBuilder::memory_size() const {
