@@ -11,13 +11,9 @@ The HGraph time-series system provides **type-erased, schema-driven data structu
 
 This guide describes what you interact with as a user. It does not cover runtime internals.
 
-### Python and C++ APIs
+### C++ API
 
-The system has two parallel APIs:
-- **Python API**: The existing reference implementation, used for node authoring and scripting
-- **C++ API**: The high-performance implementation, API-compatible with Python
-
-Throughout this guide, we show both APIs side by side. The Python API defines the expected behavior; the C++ API provides the performance.
+This guide focuses on the **C++ API** - the high-performance implementation used for building nodes and accessing time-series data. The API provides type-erased access to data via Views, with schema-driven operations.
 
 ---
 
@@ -111,21 +107,40 @@ All Value types are scalar (scalar in time). This includes atomic values (`int`,
 ```python
 @compute_node
 def moving_average(
-    values: TS[float],          # Input: linked to some output
+    ts: TS[float],          # Input: linked to some output
     window_size: int = 10       # Scalar parameter (not time-series)
 ) -> TS[float]:                 # Output: owned by this node
 
     # Check if input changed this tick
-    if values.modified:
-        current = values.value   # Read current value
+    if ts.modified:
+        current = ts.value   # Read current value
         # ... compute average ...
+        result = ...
         return result            # Write to output (marks it modified)
 ```
 
+This is loosely the C++ equivalent:
+
+```cpp
+void moving_average(
+    const TSView<double> ts,        // Input: linked to some output (inputs are marked const)
+    int window_size,              // Scalar parameter (not time-series)
+    TSView<double>& output      // Output: owned by this node (outputs are non-const i.e. mutable)
+) {
+    // Check if input changed this tick
+    if (ts.modified()) {
+        double current = ts.value().as<double>();   // Read current value
+        // ... compute average ...
+        double result = ...
+        output.set_value(value_from(result));          // Write to output (marks it modified)
+    }
+}
+```
+
 The user sees:
-- `values` - an input that tracks changes
-- `values.modified` - did it change this tick?
-- `values.value` - the current data
-- `return result` - write to output
+- `ts` - an input that tracks changes
+- `ts.modified()` - did it change this tick?
+- `ts.value()` - the current data
+- `output.set_value()` - write to output
 
 Everything else (links, notifications, schema) is handled by the runtime.

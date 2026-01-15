@@ -203,9 +203,11 @@ point == vec2d;     // false (different names, even though same structure)
 point == point;     // true
 ```
 
-### Python Definition
+### Python Mapping
 
-Compound scalars are defined in Python by inheriting from `CompoundScalar`:
+In Python, compound scalars are defined by inheriting from `CompoundScalar`. The C++ schema system can retrieve these schemas via `TypeMeta::from_python_type()`. When a Python `CompoundScalar` is registered, both the structural schema and the Python type association are stored.
+
+For example:
 
 ```python
 from hgraph import CompoundScalar
@@ -216,15 +218,6 @@ class Point(CompoundScalar):
     x: float
     y: float
     z: float
-
-@dataclass
-class Money(CompoundScalar):
-    amount: float
-    currency_code: int
-
-# Used in time-series (treated as single value)
-position: TS[Point]
-balance: TS[Money]
 ```
 
 ### C++ Schema Definition
@@ -271,6 +264,46 @@ const TypeMeta& money_schema = BundleBuilder()
 const TypeMeta& point_schema = TypeMeta::from_python_type(point_py_type);
 ```
 
+### Binding Python Types (Optional)
+
+A Python dataclass type can be bound to a compound scalar schema to enable proper Python object construction during `to_python()` conversion. Without a binding, `to_python()` returns a dict; with a binding, it returns an instance of the bound type.
+
+```cpp
+// Retroactive binding - bind after schema already exists
+// Useful when schema was created via static template definition
+const TypeMeta& point_schema = TypeMeta::get("Point");
+point_schema.bind_python_type(point_py_type);
+
+// Binding during builder construction
+const TypeMeta& point_schema = BundleBuilder()
+    .set_name("Point")
+    .add_field("x", TypeMeta::get("float"))
+    .add_field("y", TypeMeta::get("float"))
+    .add_field("z", TypeMeta::get("float"))
+    .set_python_type(point_py_type)  // Optional binding
+    .build();
+```
+
+Retroactive binding is particularly useful when schemas are defined using static templates:
+
+```cpp
+// Static template definition (no Python type available at compile time)
+using PointSchema = Bundle<
+    name<"Point">,
+    field<"x", double>,
+    field<"y", double>,
+    field<"z", double>
+>;
+
+// Later, when Python type becomes available, bind it retroactively
+const TypeMeta& schema = TypeMeta::get("Point");
+schema.bind_python_type(point_py_type);
+```
+
+The binding affects `to_python()` behavior:
+- **Without binding**: Returns a Python `dict` with field names as keys
+- **With binding**: Constructs an instance of the bound type using the dict as `**kwargs`
+
 ### Working with Compound Scalar Values
 
 ```cpp
@@ -291,6 +324,10 @@ point.from_python(py_point_obj);
 nb::object py_obj = point.to_python();
 ```
 
+Note: ``from_python`` can convert from a python dictionary or a schema complient class. 
+      The ``to_python`` will convert the value to a dictionary if no python schema type is 
+      bound to the c++ schema, alternatively it will attempt to convert to the bound python
+      implementation type. This is done by applying the dict as kwargs to the type's constructor.
 ---
 
 ## Composite Value Types
@@ -397,32 +434,66 @@ using ObjectTS = TS<nb::object>;    // Arbitrary Python object
 
 ### TSB - Bundle Time-Series
 
-Each field is independently tracked.
+Each field is independently tracked. In Python, TSB schemas are defined by inheriting from `TimeSeriesSchema`. The C++ schema system can retrieve these via the TSRegistry.
 
-**C++ Static Definition:**
 ```cpp
+// Static definition
 using QuoteSchema = TSB<
     name<"Quote">,
     field<"bid", TS<double>>,
     field<"ask", TS<double>>,
     field<"time", TS<engine_time_t>>
 >;
+
+// Or via builder
+const TSMeta& quote_ts = TSBBuilder()
+    .set_name("Quote")
+    .add_field("bid", TSBuilder().set_value_type(TypeMeta::get("float")).build())
+    .add_field("ask", TSBuilder().set_value_type(TypeMeta::get("float")).build())
+    .add_field("time", TSBuilder().set_value_type(TypeMeta::get("datetime")).build())
+    .build();
 ```
 
-**Python Definition (TimeSeriesSchema):**
-```python
-from hgraph import TimeSeriesSchema, TS
-from dataclasses import dataclass
+#### Binding Python Types for TSB (Optional)
 
+TSB schemas can bind two optional Python types:
+
+1. **Scalar type**: The Python dataclass (CompoundScalar) representing the underlying value structure. Used by `to_python()` on the scalar value.
+2. **Schema type**: The Python TimeSeriesSchema class. This serves dual purpose - it defines the TS schema in Python and instances of it represent the time-series type.
+
+```cpp
+// Bind both types during builder construction
+const TSMeta& quote_ts = TSBBuilder()
+    .set_name("Quote")
+    .add_field("bid", TSBuilder().set_value_type(TypeMeta::get("float")).build())
+    .add_field("ask", TSBuilder().set_value_type(TypeMeta::get("float")).build())
+    .add_field("time", TSBuilder().set_value_type(TypeMeta::get("datetime")).build())
+    .set_scalar_type(quote_scalar_py_type)   // Optional: Python CompoundScalar
+    .set_schema_type(quote_schema_py_type)   // Optional: Python TimeSeriesSchema
+    .build();
+
+// Retroactive binding for static template definitions
+const TSMeta& quote_ts = TSMeta::get("Quote");
+quote_ts.bind_scalar_type(quote_scalar_py_type);
+quote_ts.bind_schema_type(quote_schema_py_type);
+```
+
+In Python, these types are typically defined as:
+
+```python
 @dataclass
-class Quote(TimeSeriesSchema):
+class Quote(CompoundScalar):
+    bid: float
+    ask: float
+    time: datetime
+
+class QuoteSchema(TimeSeriesSchema):
     bid: TS[float]
     ask: TS[float]
     time: TS[datetime]
-
-# In type hints
-quote: TSB[Quote]
 ```
+
+The scalar type binding affects value conversion (same as compound scalars). The schema type binding enables proper Python type representation when working with the time-series schema from Python.
 
 ### TSL - List Time-Series
 
