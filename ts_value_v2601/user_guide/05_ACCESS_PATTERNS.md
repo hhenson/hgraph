@@ -95,14 +95,14 @@ if (stock_prices.contains(456)) {
 }
 
 // Key iteration
-for (int64_t key : stock_prices.keys()) {
-    std::cout << key << ": " << stock_prices[key].value() << "\n";
+for (auto key : stock_prices.keys()) {
+    std::cout << key.as<int64_t>() << ": " << stock_prices[key].value() << "\n";
 }
 
 // Key-value iteration
 for (auto [key, ts] : stock_prices.items()) {
     if (ts.modified()) {
-        std::cout << key << " updated to " << ts.value() << "\n";
+        std::cout << key.as<int64_t>() << " updated to " << ts.value() << "\n";
     }
 }
 ```
@@ -121,8 +121,8 @@ if (active_ids.contains(42)) {
 size_t count = active_ids.size();
 
 // Iteration over current values
-for (int64_t id : active_ids.values()) {
-    std::cout << id << "\n";
+for (auto id : active_ids.values()) {
+    std::cout << id.as<int64_t>() << "\n";
 }
 ```
 
@@ -271,9 +271,14 @@ for (auto [idx, ts_elem] : prices.items()) {
     }
 }
 
-// Only modified elements
-for (auto idx : prices.modified_keys()) {
-    std::cout << "Changed: " << prices[idx].value() << "\n";
+// Only modified elements (values only)
+for (auto ts_elem : prices.modified_values()) {
+    std::cout << "Changed: " << ts_elem.value() << "\n";
+}
+
+// Modified elements with indices
+for (auto [idx, ts_elem] : prices.modified_items()) {
+    std::cout << "Element " << idx << " changed to " << ts_elem.value() << "\n";
 }
 ```
 
@@ -283,25 +288,30 @@ for (auto idx : prices.modified_keys()) {
 TSDView stock_prices = ...;  // TSD[int, TS[float]]
 
 // Keys only
-for (int64_t key : stock_prices.keys()) {
-    // ...
-}
-
-// Values only (time-series)
-for (auto ts_value : stock_prices.values()) {
-    if (ts_value.modified()) {
-        // ...
-    }
+for (auto key : stock_prices.keys()) {
+    // key is a View of the key value
 }
 
 // Key-value pairs
 for (auto [key, ts_value] : stock_prices.items()) {
-    std::cout << key << ": " << ts_value.value() << "\n";
+    std::cout << key.as<int64_t>() << ": " << ts_value.value() << "\n";
 }
 
-// Modified entries
-for (int64_t key : stock_prices.modified_keys()) {
-    std::cout << "Updated: " << key << "\n";
+// Filter for modified entries
+for (auto [key, ts_value] : stock_prices.items()) {
+    if (ts_value.modified()) {
+        std::cout << key.as<int64_t>() << " was modified\n";
+    }
+}
+
+// Modified entries (keys only)
+for (auto key : stock_prices.modified_keys()) {
+    std::cout << "Updated: " << key.as<int64_t>() << "\n";
+}
+
+// Modified entries (key-value pairs)
+for (auto [key, ts_value] : stock_prices.modified_items()) {
+    std::cout << key.as<int64_t>() << " = " << ts_value.value() << "\n";
 }
 ```
 
@@ -311,17 +321,17 @@ for (int64_t key : stock_prices.modified_keys()) {
 TSSView active_ids = ...;  // TSS[int]
 
 // All current elements
-for (int64_t id : active_ids.values()) {
-    std::cout << id << "\n";
+for (auto id : active_ids.values()) {
+    std::cout << id.as<int64_t>() << "\n";
 }
 
 // Delta iteration
-for (int64_t id : active_ids.added()) {
-    std::cout << "Added: " << id << "\n";
+for (auto id : active_ids.added()) {
+    std::cout << "Added: " << id.as<int64_t>() << "\n";
 }
 
-for (int64_t id : active_ids.removed()) {
-    std::cout << "Removed: " << id << "\n";
+for (auto id : active_ids.removed()) {
+    std::cout << "Removed: " << id.as<int64_t>() << "\n";
 }
 ```
 
@@ -383,8 +393,8 @@ double bid = quote.field("bid").value<double>();  // No Python conversion
 ```cpp
 // Efficient - skip unchanged data
 if (prices.modified()) {
-    for (auto idx : prices.modified_keys()) {
-        process(prices[idx].value());
+    for (auto ts : prices.modified_values()) {
+        process(ts.value());
     }
 }
 

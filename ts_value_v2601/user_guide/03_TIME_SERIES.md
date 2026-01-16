@@ -45,7 +45,7 @@ When you extract a delta view from a time-series view, it inherits the time bind
 TSView<double> price = ts.view(current_time);
 
 // Delta is bound to the same time as the parent view
-DeltaValue delta = price.delta();  // Delta at current_time
+DeltaView delta = price.delta();  // Delta at current_time
 ```
 
 This ensures consistency - the delta represents exactly what changed at the view's bound time.
@@ -152,9 +152,9 @@ bool changed = stock_prices[123].modified();  // Did this key change?
 bool has_key = stock_prices.contains(123);    // Is key present?
 
 // Key iteration
-for (int64_t key : stock_prices.keys()) {
+for (auto key : stock_prices.keys()) {
     if (stock_prices[key].modified()) {
-        std::cout << key << ": " << stock_prices[key].value() << "\n";
+        std::cout << key.as<int64_t>() << ": " << stock_prices[key].value() << "\n";
     }
 }
 
@@ -176,11 +176,11 @@ bool is_active = active_ids.contains(42);   // Is 42 in the set?
 size_t count = active_ids.size();           // Number of elements
 
 // Change tracking (set-level delta)
-for (int64_t id : active_ids.added()) {     // Elements added this tick
-    std::cout << "Added: " << id << "\n";
+for (auto id : active_ids.added()) {        // Elements added this tick
+    std::cout << "Added: " << id.as<int64_t>() << "\n";
 }
-for (int64_t id : active_ids.removed()) {   // Elements removed this tick
-    std::cout << "Removed: " << id << "\n";
+for (auto id : active_ids.removed()) {      // Elements removed this tick
+    std::cout << "Removed: " << id.as<int64_t>() << "\n";
 }
 
 // Check specific element changes
@@ -188,8 +188,8 @@ bool was_added = active_ids.was_added(42);
 bool was_removed = active_ids.was_removed(99);
 
 // Iteration over current values
-for (int64_t id : active_ids.values()) {
-    std::cout << id << "\n";
+for (auto id : active_ids.values()) {
+    std::cout << id.as<int64_t>() << "\n";
 }
 ```
 
@@ -358,15 +358,20 @@ if (!price.valid()) {
 process(price.value());
 ```
 
-### `.all_valid()` (Composites Only)
+### `.all_valid()`
 
-True if the container **and all children** are valid:
+True if the time-series **and all children** are valid. For scalars, returns the same as `.valid()`. For composites, checks all descendants:
 
 ```cpp
 // Bundle: all fields must be valid
 if (quote.all_valid()) {
     // Safe to access all fields
     double spread = quote.field("ask").value<double>() - quote.field("bid").value<double>();
+}
+
+// Scalar: same as valid()
+if (price.all_valid()) {  // Equivalent to price.valid()
+    process(price.value());
 }
 ```
 
@@ -424,23 +429,23 @@ for (auto [name, ts] : quote.modified_items()) {
 
 // List: which indices changed?
 for (auto [idx, ts] : prices.modified_items()) {
-    std::cout << "prices[" << idx << "] = " << ts.value() << "\n";
+    std::cout << "prices[" << idx.as<size_t>() << "] = " << ts.value() << "\n";
 }
 
 // Set: what was added/removed?
-for (const auto& elem : active_ids.added()) {
-    std::cout << "Added: " << elem << "\n";
+for (auto elem : active_ids.added()) {
+    std::cout << "Added: " << elem.as<int64_t>() << "\n";
 }
-for (const auto& elem : active_ids.removed()) {
-    std::cout << "Removed: " << elem << "\n";
+for (auto elem : active_ids.removed()) {
+    std::cout << "Removed: " << elem.as<int64_t>() << "\n";
 }
 
 // Dict: key changes + value changes
-for (const auto& key : stock_prices.added_keys()) {
-    std::cout << "New key: " << key << "\n";
+for (auto key : stock_prices.added_keys()) {
+    std::cout << "New key: " << key.as<int64_t>() << "\n";
 }
 for (auto [key, ts] : stock_prices.modified_items()) {
-    std::cout << "Price update: " << key << " = " << ts.value() << "\n";
+    std::cout << "Price update: " << key.as<int64_t>() << " = " << ts.value() << "\n";
 }
 ```
 

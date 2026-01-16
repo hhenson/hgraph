@@ -605,7 +605,7 @@ nb::object py_val = price.to_python();    // Get as Python object
 // Time-series properties
 bool changed = price.modified();          // True if changed this tick
 bool is_set = price.valid();              // True if ever been set
-EngineTime last_mod = price.last_modified_time();  // Time of last modification
+engine_time_t last_mod = price.last_modified_time();  // Time of last modification
 
 // Output (read-write)
 TSOutput price_out = ...;

@@ -8,7 +8,7 @@
 
 Efficient reactive systems process **only what changed**. The time-series system provides rich delta information so you can:
 - Know *that* something changed (`.modified()`)
-- Know *what* changed (`.delta_value()`, `.modified_keys()`, etc.)
+- Know *what* changed (`.delta()`, `.modified_items()`, `.modified_values()`, etc.)
 - Know *how* it changed (added, removed, updated)
 
 ---
@@ -155,13 +155,13 @@ Sets track **membership changes**:
 TSSView active_ids = ...;  // TSS[int]
 
 // Elements added this tick
-for (int64_t id : active_ids.added()) {
-    std::cout << "ID added: " << id << "\n";
+for (auto id : active_ids.added()) {
+    std::cout << "ID added: " << id.as<int64_t>() << "\n";
 }
 
 // Elements removed this tick
-for (int64_t id : active_ids.removed()) {
-    std::cout << "ID removed: " << id << "\n";
+for (auto id : active_ids.removed()) {
+    std::cout << "ID removed: " << id.as<int64_t>() << "\n";
 }
 
 // Check specific element
@@ -203,18 +203,18 @@ Dicts track **key changes** and **value changes** separately:
 TSDView stock_prices = ...;  // TSD[int, TS[float]]
 
 // Keys added this tick
-for (int64_t key : stock_prices.added_keys()) {
-    std::cout << "New key: " << key << "\n";
+for (auto key : stock_prices.added_keys()) {
+    std::cout << "New key: " << key.as<int64_t>() << "\n";
 }
 
 // Keys removed this tick
-for (int64_t key : stock_prices.removed_keys()) {
-    std::cout << "Removed key: " << key << "\n";
+for (auto key : stock_prices.removed_keys()) {
+    std::cout << "Removed key: " << key.as<int64_t>() << "\n";
 }
 
 // Added/removed with their values
 for (auto [key, ts] : stock_prices.added_items()) {
-    std::cout << "New: " << key << " = " << ts.value() << "\n";
+    std::cout << "New: " << key.as<int64_t>() << " = " << ts.value() << "\n";
 }
 ```
 
@@ -222,12 +222,12 @@ for (auto [key, ts] : stock_prices.added_items()) {
 
 ```cpp
 // Keys whose TS values changed (excludes newly added keys)
-for (int64_t key : stock_prices.modified_keys()) {
-    std::cout << key << " updated to " << stock_prices[key].value() << "\n";
+for (auto key : stock_prices.modified_keys()) {
+    std::cout << key.as<int64_t>() << " updated to " << stock_prices[key].value() << "\n";
 }
 
 for (auto [key, ts] : stock_prices.modified_items()) {
-    std::cout << key << ": " << ts.value() << "\n";
+    std::cout << key.as<int64_t>() << ": " << ts.value() << "\n";
 }
 ```
 
@@ -238,8 +238,8 @@ for (auto [key, ts] : stock_prices.modified_items()) {
 auto key_set = stock_prices.key_set();
 
 // Key set has TSS semantics
-for (int64_t key : key_set.added()) {
-    std::cout << "New key: " << key << "\n";
+for (auto key : key_set.added()) {
+    std::cout << "New key: " << key.as<int64_t>() << "\n";
 }
 ```
 
@@ -321,7 +321,7 @@ Time-series delta tracking is built on top of the **DeltaValue** concept from th
 ┌─────────────────────────────────────────────┐
 │         Time-Series Layer                   │
 │  .modified(), .added(), .removed()          │
-│  .delta_to_python(), .modified_keys()       │
+│  .delta_to_python(), .delta()               │
 │  ┌───────────────────────────────────────┐  │
 │  │        Value Layer (DeltaValue)       │  │
 │  │  Represents the actual change data    │  │
@@ -336,16 +336,16 @@ Time-series delta tracking is built on top of the **DeltaValue** concept from th
 - **Value layer**: `DeltaValue` holds the raw change data (what was added, removed, updated)
 - **Time-series layer**: Adds temporal tracking and provides convenient query APIs
 
-### Extracting DeltaValue from Time-Series
+### Extracting Delta from Time-Series
 
-You can extract the underlying `DeltaValue` for use elsewhere:
+You can extract the delta as a `DeltaView` for use elsewhere:
 
 ```cpp
 TSSView active_ids = ...;  // TSS[int]
 
 if (active_ids.modified()) {
-    // Extract the delta as a DeltaValue
-    DeltaValue delta = active_ids.delta();
+    // Extract the delta as a DeltaView
+    DeltaView delta = active_ids.delta();
 
     // Apply to another value
     Value other_set(set_schema);
@@ -430,13 +430,13 @@ local_cache.modified();  // True this tick
 
 ```cpp
 // Delta approach - O(changes)
-for (int64_t key : stock_prices.modified_keys()) {
-    process(key, stock_prices[key].value());
+for (auto key : stock_prices.modified_keys()) {
+    process(key.as<int64_t>(), stock_prices[key].value());
 }
 
 // Full approach - O(total size)
 for (auto [key, ts] : stock_prices.items()) {
-    process(key, ts.value());
+    process(key.as<int64_t>(), ts.value());
 }
 ```
 
