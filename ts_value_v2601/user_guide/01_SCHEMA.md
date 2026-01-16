@@ -147,7 +147,7 @@ using FlagTS = TS<bool>;         // Resolves via TypeMeta::get<bool>() → "bool
 | `date` | `datetime.date` | `engine_date_t` | 4 bytes | Year-month-day |
 | `datetime` | `datetime.datetime` | `engine_time_t` | 8 bytes | Microsecond precision |
 | `timedelta` | `datetime.timedelta` | `engine_time_delta_t` | 8 bytes | Microsecond precision |
-| `object` | `object` | `nb::object` | varies | Arbitrary Python object (critical for interop) |
+| `object` | `object` | `nb::object` | 8 bytes | Wrapper around PyObject* (arbitrary Python object) |
 
 **Note**: String (`str`) is not currently supported but the type system is extensible.
 
@@ -706,9 +706,381 @@ This enables:
 Some types have variable size:
 - Dynamic `List` (variable elements)
 - `Set` and `Map` (variable entries)
-- `nb::object` (arbitrary Python objects)
 
 These use indirect storage (pointers to heap).
+
+**Note**: `nb::object` is fixed size (8 bytes) as it's a wrapper around `PyObject*`. The Python object itself lives on the Python heap, but the `nb::object` holder is just a pointer.
+
+---
+
+## Adding New Types
+
+Custom types can be added to the type system by implementing the required operations and registering with the TypeRegistry.
+
+### type_ops Architecture
+
+The `type_ops` structure uses a **tag + union** design that balances memory efficiency with extensibility. See [Schema Research](01_SCHEMA_research.md) for the full design analysis.
+
+```cpp
+struct type_ops {
+    // Common operations (all types must implement)
+    void (*construct)(void* dst);
+    void (*destroy)(void* ptr);
+    void (*copy)(void* dst, const void* src);
+    void (*move)(void* dst, void* src);
+    bool (*equals)(const void* a, const void* b);
+    size_t (*hash)(const void* ptr);
+    std::string (*to_string)(const void* ptr);
+    nb::object (*to_python)(const void* ptr);
+    void (*from_python)(void* ptr, nb::object obj);
+
+    // Kind-specific operations via tagged union
+    TypeKind kind;
+    union {
+        atomic_ops atomic;
+        bundle_ops bundle;
+        list_ops list;
+        set_ops set;
+        map_ops map;
+    } specific;
+};
+```
+
+**Design rationale:**
+- **Union reuses memory**: Kind-specific ops don't waste space for other kinds
+- **No heap allocation**: All function pointers stored inline or in static tables
+- **Single indirection**: Common ops called directly via function pointer
+- **Type-safe dispatch**: Kind tag ensures correct union member access
+
+### Kind-Specific Operations
+
+Each kind has its own operations table:
+
+```cpp
+struct atomic_ops {
+    // Atomic types have no additional ops beyond common
+};
+
+struct bundle_ops {
+    View (*field_at_index)(void* ptr, size_t idx);
+    View (*field_at_name)(void* ptr, std::string_view name);
+    size_t (*field_count)(const void* ptr);
+    std::string_view (*field_name)(const void* ptr, size_t idx);
+};
+
+struct list_ops {
+    View (*at)(void* ptr, size_t idx);
+    void (*append)(void* ptr, const void* elem);
+    void (*clear)(void* ptr);
+    size_t (*size)(const void* ptr);
+};
+
+struct set_ops {
+    bool (*contains)(const void* ptr, const void* elem);
+    void (*add)(void* ptr, const void* elem);
+    bool (*remove)(void* ptr, const void* elem);
+    void (*clear)(void* ptr);
+    size_t (*size)(const void* ptr);
+};
+
+struct map_ops {
+    View (*at)(void* ptr, const void* key);
+    bool (*contains)(const void* ptr, const void* key);
+    void (*set_item)(void* ptr, const void* key, const void* val);
+    bool (*remove)(void* ptr, const void* key);
+    void (*clear)(void* ptr);
+    size_t (*size)(const void* ptr);
+};
+```
+
+### Implementing a Custom Atomic Type
+
+To add a new atomic type:
+
+```cpp
+// 1. Define the operations
+namespace my_type_impl {
+    void construct(void* dst) {
+        new(dst) MyType();
+    }
+
+    void destroy(void* ptr) {
+        static_cast<MyType*>(ptr)->~MyType();
+    }
+
+    void copy(void* dst, const void* src) {
+        new(dst) MyType(*static_cast<const MyType*>(src));
+    }
+
+    void move(void* dst, void* src) {
+        new(dst) MyType(std::move(*static_cast<MyType*>(src)));
+    }
+
+    bool equals(const void* a, const void* b) {
+        return *static_cast<const MyType*>(a) == *static_cast<const MyType*>(b);
+    }
+
+    size_t hash(const void* ptr) {
+        return std::hash<MyType>{}(*static_cast<const MyType*>(ptr));
+    }
+
+    std::string to_string(const void* ptr) {
+        return static_cast<const MyType*>(ptr)->to_string();
+    }
+
+    nb::object to_python(const void* ptr) {
+        return nb::cast(*static_cast<const MyType*>(ptr));
+    }
+
+    void from_python(void* ptr, nb::object obj) {
+        *static_cast<MyType*>(ptr) = nb::cast<MyType>(obj);
+    }
+}
+
+// 2. Create the ops table
+static const type_ops MY_TYPE_OPS = {
+    .construct = my_type_impl::construct,
+    .destroy = my_type_impl::destroy,
+    .copy = my_type_impl::copy,
+    .move = my_type_impl::move,
+    .equals = my_type_impl::equals,
+    .hash = my_type_impl::hash,
+    .to_string = my_type_impl::to_string,
+    .to_python = my_type_impl::to_python,
+    .from_python = my_type_impl::from_python,
+    .kind = TypeKind::Atomic,
+    .specific = { .atomic = {} }
+};
+
+// 3. Register the type
+TypeRegistry::instance().register_type<MyType>("my_type", MY_TYPE_OPS);
+```
+
+### Implementing a Custom Collection Type
+
+For collection types, implement both common ops and kind-specific ops:
+
+```cpp
+// For a custom list-like type
+static const list_ops MY_LIST_SPECIFIC_OPS = {
+    .at = my_list_impl::at,
+    .append = my_list_impl::append,
+    .clear = my_list_impl::clear,
+    .size = my_list_impl::size
+};
+
+static const type_ops MY_LIST_OPS = {
+    .construct = my_list_impl::construct,
+    .destroy = my_list_impl::destroy,
+    // ... common ops
+    .kind = TypeKind::List,
+    .specific = { .list = MY_LIST_SPECIFIC_OPS }
+};
+```
+
+### Operations Contract
+
+All types must satisfy these contracts:
+
+| Operation | Contract |
+|-----------|----------|
+| `construct` | Initialize memory to valid default state |
+| `destroy` | Release all resources, leave memory uninitialized |
+| `copy` | Create independent copy in uninitialized memory |
+| `move` | Transfer ownership, source left in valid but unspecified state |
+| `equals` | Reflexive, symmetric, transitive equality |
+| `hash` | Equal values must have equal hashes |
+| `to_string` | Human-readable representation for debugging |
+| `to_python` | Convert to appropriate Python object |
+| `from_python` | Parse Python object, throw on type mismatch |
+
+---
+
+## Adding New Time-Series Types
+
+Time-series types require their own operations table (`ts_ops`) in addition to the underlying value's `type_ops`.
+
+### ts_ops Architecture
+
+The `ts_ops` structure follows the same **tag + union** design as `type_ops`:
+
+```cpp
+struct ts_ops {
+    // Common operations (all TS types must implement)
+    void (*construct)(void* dst, engine_time_t time);
+    void (*destroy)(void* ptr);
+    void (*copy)(void* dst, const void* src);
+    bool (*modified)(const void* ptr, engine_time_t time);
+    bool (*valid)(const void* ptr);
+    engine_time_t (*last_modified_time)(const void* ptr);
+    void (*set_modified_time)(void* ptr, engine_time_t time);
+
+    // Value access (all TS types)
+    View (*value)(const void* ptr);
+    void (*set_value)(void* ptr, View value);
+    void (*apply_delta)(void* ptr, DeltaView delta);
+
+    // Python interop
+    nb::object (*to_python)(const void* ptr);
+    nb::object (*delta_to_python)(const void* ptr);
+    DeltaView (*delta)(const void* ptr);
+
+    // Kind-specific operations via tagged union
+    TSKind kind;
+    union {
+        ts_scalar_ops scalar;      // TS[T]
+        tsb_ops bundle;            // TSB
+        tsl_ops list;              // TSL
+        tsd_ops dict;              // TSD
+        tss_ops set;               // TSS
+        ref_ops ref;               // REF
+        signal_ops signal;         // SIGNAL
+    } specific;
+};
+```
+
+### TS Kind-Specific Operations
+
+```cpp
+struct ts_scalar_ops {
+    // Scalar TS has no additional ops beyond common
+};
+
+struct tsb_ops {
+    TSView (*field_at_index)(void* ptr, size_t idx);
+    TSView (*field_at_name)(void* ptr, std::string_view name);
+    size_t (*field_count)(const void* ptr);
+    // Standard iteration (all fields)
+    Iterator (*begin)(void* ptr);
+    Iterator (*end)(void* ptr);
+    // Filtered iteration
+    ValidItemsRange (*valid_items)(const void* ptr);
+    ModifiedItemsRange (*modified_items)(const void* ptr);
+};
+
+struct tsl_ops {
+    TSView (*at)(void* ptr, size_t idx);
+    size_t (*size)(const void* ptr);
+    // Standard iteration (all elements)
+    Iterator (*begin)(void* ptr);
+    Iterator (*end)(void* ptr);
+    // Filtered iteration
+    ValidKeysRange (*valid_keys)(const void* ptr);
+    ValidItemsRange (*valid_items)(const void* ptr);
+    ModifiedKeysRange (*modified_keys)(const void* ptr);
+    ModifiedItemsRange (*modified_items)(const void* ptr);
+};
+
+struct tsd_ops {
+    TSView (*at)(void* ptr, View key);
+    bool (*contains)(const void* ptr, View key);
+    void (*set_item)(void* ptr, View key, TSView value);
+    bool (*remove)(void* ptr, View key);
+    size_t (*size)(const void* ptr);
+    // Standard iteration (all entries)
+    Iterator (*begin)(void* ptr);
+    Iterator (*end)(void* ptr);
+    KeysRange (*keys)(const void* ptr);
+    ItemsRange (*items)(const void* ptr);
+    // Filtered iteration
+    ValidKeysRange (*valid_keys)(const void* ptr);
+    ValidItemsRange (*valid_items)(const void* ptr);
+    AddedKeysRange (*added_keys)(const void* ptr);
+    RemovedKeysRange (*removed_keys)(const void* ptr);
+    ModifiedKeysRange (*modified_keys)(const void* ptr);
+};
+
+struct tss_ops {
+    bool (*contains)(const void* ptr, View elem);
+    void (*add)(void* ptr, View elem);
+    bool (*remove)(void* ptr, View elem);
+    size_t (*size)(const void* ptr);
+    // Standard iteration (all elements)
+    Iterator (*begin)(void* ptr);
+    Iterator (*end)(void* ptr);
+    ValuesRange (*values)(const void* ptr);
+    // Delta iteration
+    AddedRange (*added)(const void* ptr);
+    RemovedRange (*removed)(const void* ptr);
+    bool (*was_added)(const void* ptr, View elem);
+    bool (*was_removed)(const void* ptr, View elem);
+};
+
+struct ref_ops {
+    void (*set_ref)(void* ptr, TimeSeriesReference ref);
+    TimeSeriesReference (*get_ref)(const void* ptr);
+};
+
+struct signal_ops {
+    void (*tick)(void* ptr);
+};
+```
+
+### Implementing a Custom TS Type
+
+```cpp
+// 1. Define common TS operations
+namespace my_ts_impl {
+    void construct(void* dst, engine_time_t time) {
+        new(dst) MyTS(time);
+    }
+
+    bool modified(const void* ptr, engine_time_t time) {
+        return static_cast<const MyTS*>(ptr)->last_modified_time() == time;
+    }
+
+    bool valid(const void* ptr) {
+        return static_cast<const MyTS*>(ptr)->valid();
+    }
+
+    engine_time_t last_modified_time(const void* ptr) {
+        return static_cast<const MyTS*>(ptr)->last_modified_time();
+    }
+
+    // ... etc
+}
+
+// 2. Define kind-specific operations
+static const ts_scalar_ops MY_TS_SCALAR_OPS = {
+    .set_value = my_ts_impl::set_value,
+    .value = my_ts_impl::value
+};
+
+// 3. Create the ops table
+static const ts_ops MY_TS_OPS = {
+    .construct = my_ts_impl::construct,
+    .destroy = my_ts_impl::destroy,
+    .copy = my_ts_impl::copy,
+    .modified = my_ts_impl::modified,
+    .valid = my_ts_impl::valid,
+    .last_modified_time = my_ts_impl::last_modified_time,
+    .set_modified_time = my_ts_impl::set_modified_time,
+    .to_python = my_ts_impl::to_python,
+    .delta_to_python = my_ts_impl::delta_to_python,
+    .delta = my_ts_impl::delta,
+    .kind = TSKind::TS,
+    .specific = { .scalar = MY_TS_SCALAR_OPS }
+};
+
+// 4. Register the TS type
+TSRegistry::instance().register_type("my_ts", MY_TS_OPS);
+```
+
+### TS Operations Contract
+
+| Operation | Contract |
+|-----------|----------|
+| `construct` | Initialize with given time, default to invalid state |
+| `modified` | True if last_modified_time equals given time |
+| `valid` | True if time-series has been set at least once |
+| `last_modified_time` | Engine time of most recent modification |
+| `set_modified_time` | Update modification time (triggers observer notification) |
+| `value` | Return View of current value (all TS types) |
+| `set_value` | Set value from View, marks as modified (all TS types) |
+| `apply_delta` | Apply DeltaView to current value, marks as modified |
+| `to_python` | Convert current value to Python object |
+| `delta_to_python` | Convert delta to Python object |
+| `delta` | Return DeltaView representing current tick's changes |
 
 ---
 
@@ -777,14 +1149,60 @@ classDiagram
     }
 
     class type_ops {
+        +construct(dst: void*) void
+        +destroy(ptr: void*) void
         +copy(dst: void*, src: void*) void
         +move(dst: void*, src: void*) void
-        +destroy(ptr: void*) void
-        +construct(ptr: void*) void
         +equals(a: void*, b: void*) bool
         +hash(ptr: void*) size_t
+        +to_string(ptr: void*) string
         +to_python(ptr: void*) nb::object
         +from_python(ptr: void*, obj: nb::object) void
+        +kind: TypeKind
+        +specific: kind_ops_union
+    }
+
+    class kind_ops_union {
+        <<union>>
+        +atomic: atomic_ops
+        +bundle: bundle_ops
+        +list: list_ops
+        +set: set_ops
+        +map: map_ops
+    }
+
+    class atomic_ops {
+    }
+
+    class bundle_ops {
+        +field_at_index(ptr: void*, idx: size_t) View
+        +field_at_name(ptr: void*, name: string_view) View
+        +field_count(ptr: void*) size_t
+        +field_name(ptr: void*, idx: size_t) string_view
+    }
+
+    class list_ops {
+        +at(ptr: void*, idx: size_t) View
+        +append(ptr: void*, elem: void*) void
+        +clear(ptr: void*) void
+        +size(ptr: void*) size_t
+    }
+
+    class set_ops {
+        +contains(ptr: void*, elem: void*) bool
+        +add(ptr: void*, elem: void*) void
+        +remove(ptr: void*, elem: void*) bool
+        +clear(ptr: void*) void
+        +size(ptr: void*) size_t
+    }
+
+    class map_ops {
+        +at(ptr: void*, key: void*) View
+        +contains(ptr: void*, key: void*) bool
+        +set_item(ptr: void*, key: void*, val: void*) void
+        +remove(ptr: void*, key: void*) bool
+        +clear(ptr: void*) void
+        +size(ptr: void*) size_t
     }
 
     class TypeKind {
@@ -805,6 +1223,13 @@ classDiagram
     TypeRegistry --> TypeMeta : manages
     TypeMeta --> type_ops : uses
     TypeMeta --> TypeKind : has
+    type_ops --> kind_ops_union : contains
+    type_ops --> TypeKind : tagged by
+    kind_ops_union --> atomic_ops : variant
+    kind_ops_union --> bundle_ops : variant
+    kind_ops_union --> list_ops : variant
+    kind_ops_union --> set_ops : variant
+    kind_ops_union --> map_ops : variant
 ```
 
 ### Class Diagram - Value Builders
@@ -872,6 +1297,7 @@ classDiagram
     class TSMeta {
         -TSKind kind_
         -TypeMeta* value_schema_
+        -ts_ops* ops_
         +kind() TSKind
         +value_schema() const TypeMeta&
     }
@@ -911,6 +1337,100 @@ classDiagram
     class SIGNALMeta {
     }
 
+    class ts_ops {
+        +construct(dst: void*, time: engine_time_t) void
+        +destroy(ptr: void*) void
+        +copy(dst: void*, src: void*) void
+        +modified(ptr: void*, time: engine_time_t) bool
+        +valid(ptr: void*) bool
+        +last_modified_time(ptr: void*) engine_time_t
+        +set_modified_time(ptr: void*, time: engine_time_t) void
+        +value(ptr: void*) View
+        +set_value(ptr: void*, value: View) void
+        +apply_delta(ptr: void*, delta: DeltaView) void
+        +to_python(ptr: void*) nb::object
+        +delta_to_python(ptr: void*) nb::object
+        +delta(ptr: void*) DeltaView
+        +kind: TSKind
+        +specific: ts_kind_ops_union
+    }
+
+    class ts_kind_ops_union {
+        <<union>>
+        +scalar: ts_scalar_ops
+        +bundle: tsb_ops
+        +list: tsl_ops
+        +dict: tsd_ops
+        +set: tss_ops
+        +ref: ref_ops
+        +signal: signal_ops
+    }
+
+    class ts_scalar_ops {
+        <<empty>>
+    }
+
+    class tsb_ops {
+        +field_at_index(ptr: void*, idx: size_t) TSView
+        +field_at_name(ptr: void*, name: string_view) TSView
+        +field_count(ptr: void*) size_t
+        +begin(ptr: void*) Iterator
+        +end(ptr: void*) Iterator
+        +valid_items(ptr: void*) ValidItemsRange
+        +modified_items(ptr: void*) ModifiedItemsRange
+    }
+
+    class tsl_ops {
+        +at(ptr: void*, idx: size_t) TSView
+        +size(ptr: void*) size_t
+        +begin(ptr: void*) Iterator
+        +end(ptr: void*) Iterator
+        +valid_keys(ptr: void*) ValidKeysRange
+        +valid_items(ptr: void*) ValidItemsRange
+        +modified_keys(ptr: void*) ModifiedKeysRange
+        +modified_items(ptr: void*) ModifiedItemsRange
+    }
+
+    class tsd_ops {
+        +at(ptr: void*, key: View) TSView
+        +contains(ptr: void*, key: View) bool
+        +set_item(ptr: void*, key: View, value: TSView) void
+        +remove(ptr: void*, key: View) bool
+        +size(ptr: void*) size_t
+        +begin(ptr: void*) Iterator
+        +end(ptr: void*) Iterator
+        +keys(ptr: void*) KeysRange
+        +items(ptr: void*) ItemsRange
+        +valid_keys(ptr: void*) ValidKeysRange
+        +valid_items(ptr: void*) ValidItemsRange
+        +added_keys(ptr: void*) AddedKeysRange
+        +removed_keys(ptr: void*) RemovedKeysRange
+        +modified_keys(ptr: void*) ModifiedKeysRange
+    }
+
+    class tss_ops {
+        +contains(ptr: void*, elem: View) bool
+        +add(ptr: void*, elem: View) void
+        +remove(ptr: void*, elem: View) bool
+        +size(ptr: void*) size_t
+        +begin(ptr: void*) Iterator
+        +end(ptr: void*) Iterator
+        +values(ptr: void*) ValuesRange
+        +added(ptr: void*) AddedRange
+        +removed(ptr: void*) RemovedRange
+        +was_added(ptr: void*, elem: View) bool
+        +was_removed(ptr: void*, elem: View) bool
+    }
+
+    class ref_ops {
+        +set_ref(ptr: void*, ref: TimeSeriesReference) void
+        +get_ref(ptr: void*) TimeSeriesReference
+    }
+
+    class signal_ops {
+        +tick(ptr: void*) void
+    }
+
     class TSKind {
         <<enumeration>>
         TS
@@ -931,6 +1451,16 @@ classDiagram
     TSRegistry --> TSMeta : manages
     TSMeta --> TypeMeta : references value schema
     TSMeta --> TSKind : has
+    TSMeta --> ts_ops : uses
+    ts_ops --> ts_kind_ops_union : contains
+    ts_ops --> TSKind : tagged by
+    ts_kind_ops_union --> ts_scalar_ops : variant
+    ts_kind_ops_union --> tsb_ops : variant
+    ts_kind_ops_union --> tsl_ops : variant
+    ts_kind_ops_union --> tsd_ops : variant
+    ts_kind_ops_union --> tss_ops : variant
+    ts_kind_ops_union --> ref_ops : variant
+    ts_kind_ops_union --> signal_ops : variant
 ```
 
 ### Class Diagram - Time-Series Builders

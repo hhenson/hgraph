@@ -96,9 +96,48 @@ MapView mv = value.as_map();        // Map-specific API
 The base `View` provides common operations. Kind-specific views add the accessors relevant to that structure (field access for bundles, index access for lists, etc.).
 
 ```cpp
-// Views are cheap to copy (pointer + schema)
+// Views are cheap to copy (pointer + schema + owner + path)
 View v2 = v;                        // Shallow copy
 ```
+
+### View Owner and Path
+
+Every View maintains a reference to its **owning Value** and the **path** traversed to reach it:
+
+```cpp
+Value point(point_schema);
+point.at("x").set<double>(1.0);
+
+// Get a nested view
+View x_view = point.view().at("x");
+
+// Access owner and path
+Value& owner = x_view.owner();        // Reference to 'point'
+const Path& path = x_view.path();     // Path: ["x"]
+std::string path_str = path.to_string();  // "x"
+
+// Deeper nesting
+Value nested(nested_schema);
+View deep = nested.view().at("a").at(0).at("b");
+// deep.path() → ["a", 0, "b"]
+// deep.owner() → reference to 'nested'
+```
+
+The path tracks both named access (fields) and indexed access (list elements):
+
+```cpp
+// Path elements can be names or indices
+for (size_t i = 0; i < path.size(); ++i) {
+    const PathElement& elem = path[i];
+    if (elem.is_name()) {
+        std::cout << "." << elem.name;
+    } else {
+        std::cout << "[" << elem.index << "]";
+    }
+}
+```
+
+This enables navigation back to the root and understanding the view's context within the value structure.
 
 ### Reading Atomic Values
 
@@ -304,6 +343,85 @@ scores.clear();
 
 // Set all at once from Python dict
 scores.from_python(nb::dict(nb::arg(42)=150.0, nb::arg(99)=140.0));
+```
+
+### Bulk Operations on Collections
+
+Collections support bulk value assignment and delta application.
+
+#### Full Value Assignment
+
+Replace entire collection contents from another value of the same schema:
+
+```cpp
+Value prices1(list_schema);
+Value prices2(list_schema);
+
+// Populate prices1...
+prices1.append(100.0);
+prices1.append(101.0);
+
+// Copy entire value
+prices2.set(prices1);              // Full replacement
+prices2.copy_from(prices1);        // Equivalent
+```
+
+#### Delta Values
+
+A **DeltaValue** represents changes to apply to a collection. Unlike a regular Value which represents complete state, a DeltaValue represents a transition: additions, removals, and updates.
+
+```cpp
+// Create a delta for a set
+DeltaValue set_delta(set_schema);
+set_delta.mark_added(42);          // Element to add
+set_delta.mark_added(43);
+set_delta.mark_removed(99);        // Element to remove
+
+// Create a delta for a map
+DeltaValue map_delta(map_schema);
+map_delta.mark_added(42, 150.0);   // Key-value to add
+map_delta.mark_updated(43, 160.0); // Key-value to update
+map_delta.mark_removed(99);        // Key to remove
+
+// Create a delta for a list (index-based)
+DeltaValue list_delta(list_schema);
+list_delta.mark_updated(0, 100.5); // Update element at index
+```
+
+#### Applying Deltas
+
+Apply a delta to transform a value:
+
+```cpp
+Value active_ids(set_schema);
+active_ids.add(99);
+active_ids.add(100);
+
+DeltaValue delta(set_schema);
+delta.mark_added(42);
+delta.mark_removed(99);
+
+// Apply the delta
+active_ids.apply_delta(delta);
+// Result: active_ids contains {42, 100}
+```
+
+#### Delta Schema
+
+Each collection type has an associated delta schema:
+
+| Value Type | Delta Representation |
+|------------|---------------------|
+| List | Index → new value (updates only) |
+| Set | Added elements + removed elements |
+| Map | Added entries + updated entries + removed keys |
+
+```cpp
+// Get delta schema from value schema
+const TypeMeta& delta_schema = value_schema.delta_schema();
+
+// Create delta with explicit schema
+DeltaValue delta(delta_schema);
 ```
 
 ---
@@ -522,6 +640,257 @@ The conversion follows the schema:
 - Lists map to Python lists
 - Sets map to Python frozensets
 - Maps map to Python dicts (or frozendicts)
+
+---
+
+## Core API Structure
+
+### Class Diagram - Value
+
+```mermaid
+classDiagram
+    class Value {
+        -void* data_
+        -TypeMeta* schema_
+        +Value(schema: TypeMeta&)
+        +Value(schema: TypeMeta&, py_obj: nb::object)
+        +schema() const TypeMeta&
+        +view() View
+        +as_bundle() BundleView
+        +as_list() ListView
+        +as_set() SetView
+        +as_map() MapView
+        +copy() Value
+        +copy_from(source: View) void
+        +set(source: Value&) void
+        +apply_delta(delta: DeltaValue&) void
+        +from_python(obj: nb::object) void
+        +to_python() nb::object
+    }
+
+    class View {
+        -void* data_
+        -TypeMeta* schema_
+        -Value* owner_
+        -Path path_
+        +schema() const TypeMeta&
+        +owner() Value&
+        +path() const Path&
+        +size() size_t
+        +at(index: size_t) View
+        +at(name: string) View
+        +as~T~() T
+        +data~T~() T*
+        +equals(other: View) bool
+        +hash() size_t
+        +to_string() string
+        +to_python() nb::object
+    }
+
+    class Path {
+        -vector~PathElement~ elements_
+        +empty() bool
+        +size() size_t
+        +operator[](index: size_t) PathElement&
+        +push(element: PathElement) void
+        +to_string() string
+    }
+
+    class PathElement {
+        <<union>>
+        +index: size_t
+        +name: string_view
+        +is_index() bool
+        +is_name() bool
+    }
+
+    class BundleView {
+        +field_count() size_t
+        +at(index: size_t) View
+        +at(name: string) View
+        +field_name(index: size_t) string_view
+    }
+
+    class ListView {
+        +size() size_t
+        +at(index: size_t) View
+        +append~T~(value: T) void
+        +clear() void
+        +begin() iterator
+        +end() iterator
+    }
+
+    class SetView {
+        +size() size_t
+        +contains~T~(value: T) bool
+        +add~T~(value: T) void
+        +remove~T~(value: T) bool
+        +discard~T~(value: T) void
+        +clear() void
+        +begin() iterator
+        +end() iterator
+    }
+
+    class MapView {
+        +size() size_t
+        +at~K~(key: K) View
+        +contains~K~(key: K) bool
+        +set_item~K,V~(key: K, value: V) void
+        +remove~K~(key: K) bool
+        +clear() void
+        +keys() key_range
+        +items() item_range
+    }
+
+    Value --> View : creates
+    View <|-- BundleView
+    View <|-- ListView
+    View <|-- SetView
+    View <|-- MapView
+    Value --> TypeMeta : references
+    View --> TypeMeta : references
+    View --> Value : references owner
+    View --> Path : contains
+    Path --> PathElement : contains
+```
+
+### Class Diagram - DeltaValue and DeltaView
+
+```mermaid
+classDiagram
+    class DeltaValue {
+        -void* data_
+        -TypeMeta* delta_schema_
+        +DeltaValue(schema: TypeMeta&)
+        +schema() const TypeMeta&
+        +view() DeltaView
+        +clear() void
+        +apply_to(target: Value&) void
+    }
+
+    class DeltaView {
+        -void* data_
+        -TypeMeta* delta_schema_
+        -DeltaValue* owner_
+        +schema() const TypeMeta&
+        +owner() DeltaValue&
+        +empty() bool
+        +to_string() string
+    }
+
+    class SetDeltaView {
+        +added() range
+        +removed() range
+    }
+
+    class MapDeltaView {
+        +added_keys() range
+        +updated_keys() range
+        +removed_keys() range
+        +added_items() range
+        +updated_items() range
+    }
+
+    class ListDeltaView {
+        +updated_indices() range
+        +updated_items() range
+    }
+
+    class SetDeltaValue {
+        +mark_added~T~(value: T) void
+        +mark_removed~T~(value: T) void
+    }
+
+    class MapDeltaValue {
+        +mark_added~K,V~(key: K, value: V) void
+        +mark_updated~K,V~(key: K, value: V) void
+        +mark_removed~K~(key: K) void
+    }
+
+    class ListDeltaValue {
+        +mark_updated~T~(index: size_t, value: T) void
+    }
+
+    DeltaValue --> DeltaView : creates
+    DeltaView <|-- SetDeltaView
+    DeltaView <|-- MapDeltaView
+    DeltaView <|-- ListDeltaView
+    DeltaValue <|-- SetDeltaValue
+    DeltaValue <|-- MapDeltaValue
+    DeltaValue <|-- ListDeltaValue
+    DeltaValue --> TypeMeta : references delta_schema
+    DeltaView --> TypeMeta : references delta_schema
+    DeltaView --> DeltaValue : references owner
+```
+
+### Relationships Overview
+
+```mermaid
+flowchart TD
+    subgraph Schema Layer
+        TM[TypeMeta]
+        DS[Delta Schema]
+    end
+
+    subgraph Value Layer
+        V[Value]
+        VW[View]
+        BV[BundleView]
+        LV[ListView]
+        SV[SetView]
+        MV[MapView]
+    end
+
+    subgraph Delta Layer
+        DV[DeltaValue]
+        DVW[DeltaView]
+        SDV[SetDeltaValue]
+        MDV[MapDeltaValue]
+        LDV[ListDeltaValue]
+    end
+
+    TM -->|describes| V
+    TM -->|has| DS
+    V -->|creates| VW
+    VW -->|specializes to| BV
+    VW -->|specializes to| LV
+    VW -->|specializes to| SV
+    VW -->|specializes to| MV
+
+    DS -->|describes| DV
+    DV -->|creates| DVW
+    DV -->|specializes to| SDV
+    DV -->|specializes to| MDV
+    DV -->|specializes to| LDV
+
+    DVW -->|applied to| V
+```
+
+### Value Operations Summary
+
+```mermaid
+flowchart LR
+    subgraph Construction
+        S[Schema] --> V[Value]
+        PY1[Python Object] --> V
+    end
+
+    subgraph Access
+        V --> VW[View]
+        VW --> R[Read via as~T~]
+        VW --> W[Write via set~T~]
+    end
+
+    subgraph Bulk Ops
+        V2[Other Value] -->|copy_from| V
+        D[DeltaView] -->|apply_delta| V
+    end
+
+    subgraph Conversion
+        V --> PY2[to_python]
+        PY3[from_python] --> V
+    end
+```
 
 ---
 

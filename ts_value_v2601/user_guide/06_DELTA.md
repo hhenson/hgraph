@@ -310,6 +310,78 @@ You don't need to clear deltas manually - the system handles it.
 
 ---
 
+## Value-Layer Delta (DeltaValue)
+
+Time-series delta tracking is built on top of the **DeltaValue** concept from the [Value](02_VALUE.md) layer. Understanding this relationship helps when working with deltas programmatically.
+
+### Two Layers of Delta
+
+```
+┌─────────────────────────────────────────────┐
+│         Time-Series Layer                   │
+│  .modified(), .added(), .removed()          │
+│  .delta_to_python(), .modified_keys()       │
+│  ┌───────────────────────────────────────┐  │
+│  │        Value Layer (DeltaValue)       │  │
+│  │  Represents the actual change data    │  │
+│  │  Added elements, removed elements,    │  │
+│  │  updated entries                      │  │
+│  └───────────────────────────────────────┘  │
+│  + modification time tracking               │
+│  + observer notifications                   │
+└─────────────────────────────────────────────┘
+```
+
+- **Value layer**: `DeltaValue` holds the raw change data (what was added, removed, updated)
+- **Time-series layer**: Adds temporal tracking and provides convenient query APIs
+
+### Extracting DeltaValue from Time-Series
+
+You can extract the underlying `DeltaValue` for use elsewhere:
+
+```cpp
+TSSView active_ids = ...;  // TSS[int]
+
+if (active_ids.modified()) {
+    // Extract the delta as a DeltaValue
+    DeltaValue delta = active_ids.delta();
+
+    // Apply to another value
+    Value other_set(set_schema);
+    other_set.apply_delta(delta);
+}
+```
+
+### Creating Time-Series Changes from DeltaValue
+
+When writing to a time-series output, you can apply a `DeltaValue`:
+
+```cpp
+TSSOutput active_ids_out = ...;
+
+// Build a delta
+DeltaValue delta(set_schema);
+delta.mark_added(42);
+delta.mark_removed(99);
+
+// Apply to time-series (marks modified, notifies observers)
+active_ids_out.apply_delta(delta);
+```
+
+This is more efficient than individual `add()`/`remove()` calls when making multiple changes.
+
+### DeltaValue for Each Collection Type
+
+| TS Type | DeltaValue Contents |
+|---------|---------------------|
+| **TSL** | Map of index → new value |
+| **TSS** | Set of added + set of removed |
+| **TSD** | Added entries + updated entries + removed keys |
+
+See [Value: Bulk Operations](02_VALUE.md#bulk-operations-on-collections) for full `DeltaValue` API.
+
+---
+
 ## Delta and Links
 
 ### Linked Inputs

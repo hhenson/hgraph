@@ -15,6 +15,57 @@ Time-series are the primary abstraction users work with in graph code.
 
 ---
 
+## Time-Series Views and Time Binding
+
+A time-series **view** must be created with a specific **datetime** value. The view is bound to that time and is only meaningful at that point.
+
+```cpp
+// Create a view bound to a specific time
+engine_time_t current_time = engine.current_time();
+TSView<double> price = ts.view(current_time);
+
+// The view is meaningful only at this time
+bool changed = price.modified();  // Modified at current_time?
+double val = price.value();       // Value at current_time
+```
+
+### Why Time Binding?
+
+Time-series track changes across ticks. The view needs to know "when" in order to answer:
+- `.modified()` - Was this modified **at this time**?
+- `.delta()` - What changed **at this time**?
+
+A view created at time T₁ will report different `modified()` results than a view created at time T₂.
+
+### Delta Views Inherit Time Binding
+
+When you extract a delta view from a time-series view, it inherits the time binding:
+
+```cpp
+TSView<double> price = ts.view(current_time);
+
+// Delta is bound to the same time as the parent view
+DeltaValue delta = price.delta();  // Delta at current_time
+```
+
+This ensures consistency - the delta represents exactly what changed at the view's bound time.
+
+### In Node Context
+
+Within graph nodes, views are typically provided pre-bound to the current engine time:
+
+```cpp
+void my_node(TSView<double> price) {
+    // price is already bound to current engine time
+    // No need to specify time explicitly
+    if (price.modified()) {
+        // ...
+    }
+}
+```
+
+---
+
 ## Time-Series Kinds
 
 ### TS[T] - Scalar Time-Series
