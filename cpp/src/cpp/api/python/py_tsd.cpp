@@ -7,6 +7,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
 #include <fmt/format.h>
+#include <optional>
 
 namespace hgraph
 {
@@ -55,8 +56,10 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::key_set() const {
-        // TODO: Return a TimeSeriesSetInput wrapper for the key set
-        throw std::runtime_error("PyTimeSeriesDictOutput::key_set not yet implemented for view-based wrappers");
+        // Return a C++ wrapper that provides TSS output interface for TSD keys
+        // The wrapper stores a copy of the view directly, making it independent of this Python wrapper's lifetime
+        auto* wrapper = new CppKeySetOutputWrapper(_view);
+        return nb::cast(wrapper, nb::rv_policy::take_ownership);
     }
 
     nb::object PyTimeSeriesDictOutput::keys() const {
@@ -294,11 +297,77 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::get_ref(const nb::object &key, const nb::object &requester) {
-        throw std::runtime_error("PyTimeSeriesDictOutput::get_ref not yet implemented for view-based wrappers");
+        // For view-based wrappers, we simply return the element at the given key wrapped as an output.
+        // Python's bind_output will create a TimeSeriesReference.make(output) from it.
+        // Note: requester parameter is for reference counting which is not implemented in view-based system.
+
+        TSDView dict = _view.as_dict();
+        if (!dict.valid()) {
+            return nb::none();
+        }
+
+        // Get key schema and convert Python key to value
+        const TSDTypeMeta* dict_meta = dict.dict_meta();
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+
+        if (!key_schema || !key_schema->ops) {
+            throw std::runtime_error("PyTimeSeriesDictOutput::get_ref: invalid key schema");
+        }
+
+        // Create temp key storage and convert from Python
+        std::vector<char> temp_key(key_schema->size);
+        void* key_ptr = temp_key.data();
+
+        if (key_schema->ops->construct) {
+            key_schema->ops->construct(key_ptr, key_schema);
+        }
+
+        try {
+            if (key_schema->ops->from_python) {
+                key_schema->ops->from_python(key_ptr, key, key_schema);
+            }
+        } catch (...) {
+            if (key_schema->ops->destruct) {
+                key_schema->ops->destruct(key_ptr, key_schema);
+            }
+            throw std::runtime_error("PyTimeSeriesDictOutput::get_ref: failed to convert key from Python");
+        }
+
+        // Find the slot index for this key
+        value::ConstMapView map_view = dict.value_view().as_map();
+        value::ConstValueView key_view(key_ptr, key_schema);
+        auto slot_idx = map_view.find_index(key_view);
+
+        // Clean up key
+        if (key_schema->ops->destruct) {
+            key_schema->ops->destruct(key_ptr, key_schema);
+        }
+
+        if (!slot_idx) {
+            throw std::out_of_range("PyTimeSeriesDictOutput::get_ref: key not found");
+        }
+
+        // Get the value view at this slot
+        value::ConstValueView value_view = map_view.value_at(*slot_idx);
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+
+        // Get value overlay if available (for mutable access)
+        TSOverlayStorage* value_ov = nullptr;
+        if (auto* map_ov = dict.map_overlay()) {
+            value_ov = map_ov->value_overlay(*slot_idx);
+        }
+
+        // Create a mutable view for the element (using const_cast since underlying is mutable)
+        TSMutableView elem_view(const_cast<void*>(value_view.data()), value_ts_type, value_ov);
+
+        // Return wrapped as output
+        return wrap_output_view(elem_view);
     }
 
     void PyTimeSeriesDictOutput::release_ref(const nb::object &key, const nb::object &requester) {
-        throw std::runtime_error("PyTimeSeriesDictOutput::release_ref not yet implemented for view-based wrappers");
+        // For view-based wrappers, release_ref is a no-op.
+        // Reference counting is not implemented in the view-based system.
+        // The view will remain valid until the underlying TSD is modified.
     }
 
     // ===== PyTimeSeriesDictInput Implementation =====
@@ -338,8 +407,10 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictInput::key_set() const {
-        // TODO: Return a TimeSeriesSetInput wrapper for the key set
-        throw std::runtime_error("PyTimeSeriesDictInput::key_set not yet implemented for view-based wrappers");
+        // Return a C++ wrapper that provides TSS input interface for TSD keys
+        // The wrapper stores a copy of the view directly, making it independent of this Python wrapper's lifetime
+        auto* wrapper = new CppKeySetInputWrapper(_view);
+        return nb::cast(wrapper, nb::rv_policy::take_ownership);
     }
 
     nb::object PyTimeSeriesDictInput::keys() const {
@@ -570,6 +641,360 @@ namespace hgraph
         throw std::runtime_error("PyTimeSeriesDictInput::on_key_removed not yet implemented for view-based wrappers");
     }
 
+    // ===== CppKeySetOutputWrapper Implementation =====
+
+    CppKeySetOutputWrapper::CppKeySetOutputWrapper(TSMutableView view)
+        : _view(view), _is_empty_output_cache(nullptr) {}
+
+    nb::object CppKeySetOutputWrapper::value() const {
+        // Return current keys as frozenset
+        TSDView dict = _view.as_dict();
+        nb::set key_set;
+        for (const auto& key : dict.keys()) {
+            key_set.add(key.to_python());
+        }
+        return nb::frozenset(key_set);
+    }
+
+    nb::object CppKeySetOutputWrapper::delta_value() const {
+        // For TSS, delta_value equals value
+        return value();
+    }
+
+    bool CppKeySetOutputWrapper::valid() const {
+        // The key_set is always valid because it's a property of the TSD that
+        // always exists. It always has a value (the current set of keys, even if empty).
+        // This matches Python where the key_set output is a TimeSeriesSetOutput
+        // that's always considered valid as a property of the TSD.
+        return true;
+    }
+
+    bool CppKeySetOutputWrapper::modified() const {
+        return _view.modified();
+    }
+
+    nb::object CppKeySetOutputWrapper::last_modified_time() const {
+        return nb::cast(_view.last_modified_time());
+    }
+
+    nb::object CppKeySetOutputWrapper::added() const {
+        // Return added keys as frozenset
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::set key_set;
+        if (delta.valid()) {
+            for (const auto& key : delta.added_keys()) {
+                key_set.add(key.to_python());
+            }
+        }
+        return nb::frozenset(key_set);
+    }
+
+    nb::object CppKeySetOutputWrapper::removed() const {
+        // Return removed keys as frozenset
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::set key_set;
+        if (delta.valid()) {
+            for (const auto& key : delta.removed_keys()) {
+                key_set.add(key.to_python());
+            }
+        }
+        return nb::frozenset(key_set);
+    }
+
+    bool CppKeySetOutputWrapper::was_added(const nb::object& item) const {
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        return mut_dict->was_added_python(item, current_time);
+    }
+
+    bool CppKeySetOutputWrapper::was_removed(const nb::object& item) const {
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        return mut_dict->was_removed_python(item, current_time);
+    }
+
+    size_t CppKeySetOutputWrapper::size() const {
+        TSDView dict = _view.as_dict();
+        return dict.size();
+    }
+
+    bool CppKeySetOutputWrapper::contains(const nb::object& item) const {
+        TSDView dict = _view.as_dict();
+        return dict.contains_python(item);
+    }
+
+    nb::object CppKeySetOutputWrapper::values() const {
+        // Same as value() for TSS
+        return value();
+    }
+
+    nb::object CppKeySetOutputWrapper::is_empty_output() {
+        if (!_is_empty_output_cache) {
+            _is_empty_output_cache = std::make_shared<CppKeySetIsEmptyOutput>(_view);
+        }
+        return nb::cast(_is_empty_output_cache.get(), nb::rv_policy::reference);
+    }
+
+    nb::object CppKeySetOutputWrapper::owning_node() const {
+        Node* node = _view.owning_node();
+        if (!node) return nb::none();
+        return wrap_node(node->shared_from_this());
+    }
+
+    nb::object CppKeySetOutputWrapper::owning_graph() const {
+        Node* node = _view.owning_node();
+        if (!node) return nb::none();
+        graph_ptr graph = node->graph();
+        if (!graph) return nb::none();
+        return wrap_graph(graph->shared_from_this());
+    }
+
+    nb::str CppKeySetOutputWrapper::py_str() const {
+        auto str = fmt::format("CppKeySetOutputWrapper[size={}, valid={}]", size(), valid());
+        return nb::str(str.c_str());
+    }
+
+    nb::str CppKeySetOutputWrapper::py_repr() const {
+        return py_str();
+    }
+
+    // ===== CppKeySetIsEmptyOutput Implementation =====
+
+    CppKeySetIsEmptyOutput::CppKeySetIsEmptyOutput(TSMutableView view)
+        : _view(view), _last_empty_state(std::nullopt),
+          _last_check_time(MIN_DT), _cached_modified(false) {}
+
+    bool CppKeySetIsEmptyOutput::value() const {
+        TSDView dict = _view.as_dict();
+        return dict.size() == 0;
+    }
+
+    bool CppKeySetIsEmptyOutput::delta_value() const {
+        return value();
+    }
+
+    bool CppKeySetIsEmptyOutput::valid() const {
+        // The is_empty output is always valid because it's derived from the key_set
+        // which always exists. It always has a valid boolean value (whether the set is empty).
+        return true;
+    }
+
+    bool CppKeySetIsEmptyOutput::modified() {
+        // Get current time to avoid recalculating on multiple calls per tick
+        engine_time_t current_time = _view.last_modified_time();
+
+        // If we already computed modified for this tick, return cached result
+        if (_last_check_time == current_time && _last_empty_state.has_value()) {
+            return _cached_modified;
+        }
+
+        // Update check time
+        _last_check_time = current_time;
+
+        // Check if the empty state changed
+        TSDView dict = _view.as_dict();
+        bool current_empty = (dict.size() == 0);
+
+        // Handle first value - need to emit regardless of TSD modification
+        if (!_last_empty_state.has_value()) {
+            _last_empty_state = current_empty;
+            _cached_modified = true;
+            return true;
+        }
+
+        // For subsequent ticks, only report modified if TSD was modified AND value changed
+        if (!_view.modified()) {
+            _cached_modified = false;
+            return false;
+        }
+
+        bool previous_empty = *_last_empty_state;
+        _last_empty_state = current_empty;
+
+        // Modified only if the empty state actually changed
+        _cached_modified = (current_empty != previous_empty);
+        return _cached_modified;
+    }
+
+    nb::object CppKeySetIsEmptyOutput::last_modified_time() const {
+        return nb::cast(_view.last_modified_time());
+    }
+
+    bool CppKeySetIsEmptyOutput::all_valid() const {
+        return valid();
+    }
+
+    nb::object CppKeySetIsEmptyOutput::owning_node() const {
+        Node* node = _view.owning_node();
+        if (!node) return nb::none();
+        return wrap_node(node->shared_from_this());
+    }
+
+    nb::object CppKeySetIsEmptyOutput::owning_graph() const {
+        Node* node = _view.owning_node();
+        if (!node) return nb::none();
+        graph_ptr graph = node->graph();
+        if (!graph) return nb::none();
+        return wrap_graph(graph->shared_from_this());
+    }
+
+    nb::str CppKeySetIsEmptyOutput::py_str() const {
+        auto str = fmt::format("CppKeySetIsEmptyOutput[value={}, valid={}]", value(), valid());
+        return nb::str(str.c_str());
+    }
+
+    nb::str CppKeySetIsEmptyOutput::py_repr() const {
+        return py_str();
+    }
+
+    // ===== CppKeySetInputWrapper Implementation =====
+
+    CppKeySetInputWrapper::CppKeySetInputWrapper(TSView view)
+        : _view(view) {}
+
+    nb::object CppKeySetInputWrapper::value() const {
+        // Return current keys as frozenset
+        TSDView dict = _view.as_dict();
+        nb::set key_set;
+        for (const auto& key : dict.keys()) {
+            key_set.add(key.to_python());
+        }
+        return nb::frozenset(key_set);
+    }
+
+    nb::object CppKeySetInputWrapper::delta_value() const {
+        return value();
+    }
+
+    bool CppKeySetInputWrapper::valid() const {
+        return _view.ts_valid();
+    }
+
+    bool CppKeySetInputWrapper::modified() const {
+        return _view.modified();
+    }
+
+    nb::object CppKeySetInputWrapper::last_modified_time() const {
+        return nb::cast(_view.last_modified_time());
+    }
+
+    nb::object CppKeySetInputWrapper::added() const {
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::set key_set;
+        if (delta.valid()) {
+            for (const auto& key : delta.added_keys()) {
+                key_set.add(key.to_python());
+            }
+        }
+        return nb::frozenset(key_set);
+    }
+
+    nb::object CppKeySetInputWrapper::removed() const {
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        MapDeltaView delta = mut_dict->delta_view(current_time);
+
+        nb::set key_set;
+        if (delta.valid()) {
+            for (const auto& key : delta.removed_keys()) {
+                key_set.add(key.to_python());
+            }
+        }
+        return nb::frozenset(key_set);
+    }
+
+    bool CppKeySetInputWrapper::was_added(const nb::object& item) const {
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        return mut_dict->was_added_python(item, current_time);
+    }
+
+    bool CppKeySetInputWrapper::was_removed(const nb::object& item) const {
+        TSDView dict = _view.as_dict();
+        engine_time_t current_time = get_tsd_current_time(_view);
+        TSDView* mut_dict = const_cast<TSDView*>(&dict);
+        return mut_dict->was_removed_python(item, current_time);
+    }
+
+    size_t CppKeySetInputWrapper::size() const {
+        TSDView dict = _view.as_dict();
+        return dict.size();
+    }
+
+    bool CppKeySetInputWrapper::contains(const nb::object& item) const {
+        TSDView dict = _view.as_dict();
+        return dict.contains_python(item);
+    }
+
+    nb::object CppKeySetInputWrapper::values() const {
+        return value();
+    }
+
+    bool CppKeySetInputWrapper::all_valid() const {
+        return valid();
+    }
+
+    bool CppKeySetInputWrapper::bound() const {
+        // For a view-based input, check if it's bound by looking at the bound flag
+        // In the view-based system, binding is tracked differently
+        return _view.ts_valid();  // Simplified - valid means bound for passthrough inputs
+    }
+
+    bool CppKeySetInputWrapper::has_peer() const {
+        // For view-based input, check if there's a peer connection
+        return _view.ts_valid();  // Simplified
+    }
+
+    nb::object CppKeySetInputWrapper::output() const {
+        // For key_set input wrappers, we need to return the output side's key_set
+        // Create a CppKeySetOutputWrapper for the output view
+        // Note: For inputs, we need to get the output side - this requires bound_output tracking
+        // For now, return a new output wrapper with the same view (cast to mutable)
+        TSMutableView mut_view = TSMutableView(const_cast<void*>(_view.value_view().data()),
+                                                _view.ts_meta(), static_cast<TSValue*>(nullptr));
+        auto* wrapper = new CppKeySetOutputWrapper(mut_view);
+        return nb::cast(wrapper, nb::rv_policy::take_ownership);
+    }
+
+    nb::object CppKeySetInputWrapper::owning_node() const {
+        Node* node = _view.owning_node();
+        if (!node) return nb::none();
+        return wrap_node(node->shared_from_this());
+    }
+
+    nb::object CppKeySetInputWrapper::owning_graph() const {
+        Node* node = _view.owning_node();
+        if (!node) return nb::none();
+        graph_ptr graph = node->graph();
+        if (!graph) return nb::none();
+        return wrap_graph(graph->shared_from_this());
+    }
+
+    nb::str CppKeySetInputWrapper::py_str() const {
+        auto str = fmt::format("CppKeySetInputWrapper[size={}, valid={}]", size(), valid());
+        return nb::str(str.c_str());
+    }
+
+    nb::str CppKeySetInputWrapper::py_repr() const {
+        return py_str();
+    }
+
     // ===== Nanobind Registration =====
 
     void tsd_register_with_nanobind(nb::module_ &m) {
@@ -648,5 +1073,61 @@ namespace hgraph
             .def_prop_ro("key_set", &PyTimeSeriesDictInput::key_set)
             .def("__str__", &PyTimeSeriesDictInput::py_str)
             .def("__repr__", &PyTimeSeriesDictInput::py_repr);
+
+        // Register CppKeySetOutputWrapper - TSS output interface for TSD keys
+        nb::class_<CppKeySetOutputWrapper>(m, "CppKeySetOutputWrapper")
+            .def_prop_ro("value", &CppKeySetOutputWrapper::value)
+            .def_prop_ro("delta_value", &CppKeySetOutputWrapper::delta_value)
+            .def_prop_ro("valid", &CppKeySetOutputWrapper::valid)
+            .def_prop_ro("modified", &CppKeySetOutputWrapper::modified)
+            .def_prop_ro("last_modified_time", &CppKeySetOutputWrapper::last_modified_time)
+            .def("added", &CppKeySetOutputWrapper::added)
+            .def("removed", &CppKeySetOutputWrapper::removed)
+            .def("was_added", &CppKeySetOutputWrapper::was_added, "item"_a)
+            .def("was_removed", &CppKeySetOutputWrapper::was_removed, "item"_a)
+            .def("__len__", &CppKeySetOutputWrapper::size)
+            .def("__contains__", &CppKeySetOutputWrapper::contains, "item"_a)
+            .def("values", &CppKeySetOutputWrapper::values)
+            .def("is_empty_output", &CppKeySetOutputWrapper::is_empty_output)
+            .def_prop_ro("owning_node", &CppKeySetOutputWrapper::owning_node)
+            .def_prop_ro("owning_graph", &CppKeySetOutputWrapper::owning_graph)
+            .def("__str__", &CppKeySetOutputWrapper::py_str)
+            .def("__repr__", &CppKeySetOutputWrapper::py_repr);
+
+        // Register CppKeySetIsEmptyOutput - TS[bool] output for is_empty
+        nb::class_<CppKeySetIsEmptyOutput>(m, "CppKeySetIsEmptyOutput")
+            .def_prop_ro("value", &CppKeySetIsEmptyOutput::value)
+            .def_prop_ro("delta_value", &CppKeySetIsEmptyOutput::delta_value)
+            .def_prop_ro("valid", &CppKeySetIsEmptyOutput::valid)
+            .def_prop_ro("modified", &CppKeySetIsEmptyOutput::modified)
+            .def_prop_ro("last_modified_time", &CppKeySetIsEmptyOutput::last_modified_time)
+            .def_prop_ro("all_valid", &CppKeySetIsEmptyOutput::all_valid)
+            .def_prop_ro("owning_node", &CppKeySetIsEmptyOutput::owning_node)
+            .def_prop_ro("owning_graph", &CppKeySetIsEmptyOutput::owning_graph)
+            .def("__str__", &CppKeySetIsEmptyOutput::py_str)
+            .def("__repr__", &CppKeySetIsEmptyOutput::py_repr);
+
+        // Register CppKeySetInputWrapper - TSS input interface for TSD keys
+        nb::class_<CppKeySetInputWrapper>(m, "CppKeySetInputWrapper")
+            .def_prop_ro("value", &CppKeySetInputWrapper::value)
+            .def_prop_ro("delta_value", &CppKeySetInputWrapper::delta_value)
+            .def_prop_ro("valid", &CppKeySetInputWrapper::valid)
+            .def_prop_ro("modified", &CppKeySetInputWrapper::modified)
+            .def_prop_ro("last_modified_time", &CppKeySetInputWrapper::last_modified_time)
+            .def("added", &CppKeySetInputWrapper::added)
+            .def("removed", &CppKeySetInputWrapper::removed)
+            .def("was_added", &CppKeySetInputWrapper::was_added, "item"_a)
+            .def("was_removed", &CppKeySetInputWrapper::was_removed, "item"_a)
+            .def("__len__", &CppKeySetInputWrapper::size)
+            .def("__contains__", &CppKeySetInputWrapper::contains, "item"_a)
+            .def("values", &CppKeySetInputWrapper::values)
+            .def_prop_ro("all_valid", &CppKeySetInputWrapper::all_valid)
+            .def_prop_ro("bound", &CppKeySetInputWrapper::bound)
+            .def_prop_ro("has_peer", &CppKeySetInputWrapper::has_peer)
+            .def_prop_ro("output", &CppKeySetInputWrapper::output)
+            .def_prop_ro("owning_node", &CppKeySetInputWrapper::owning_node)
+            .def_prop_ro("owning_graph", &CppKeySetInputWrapper::owning_graph)
+            .def("__str__", &CppKeySetInputWrapper::py_str)
+            .def("__repr__", &CppKeySetInputWrapper::py_repr);
     }
 }  // namespace hgraph

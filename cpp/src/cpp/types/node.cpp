@@ -842,6 +842,12 @@ namespace hgraph
             // Activate TSInputRoot links so they subscribe to output overlays for notifications
             if (_ts_input.has_value()) {
                 _ts_input->make_active();
+
+                // For REF bindings (notify_once mode), ensure the owning node runs on the first tick
+                // even if the underlying output wasn't modified. This matches Python's behavior
+                // where PythonTimeSeriesReferenceInput.make_active() calls notify() when valid.
+                // The check_links_startup_notify() triggers deferred notifications set during make_active().
+                _ts_input->check_links_startup_notify(_graph->evaluation_time());
             }
         }
     }

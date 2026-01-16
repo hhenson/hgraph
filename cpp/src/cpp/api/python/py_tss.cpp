@@ -150,6 +150,40 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesSetInput::added() const {
+        // Check for TSLink with KEY_SET binding (TSD->TSS)
+        const TSValue* link_source = _view.link_source();
+        const auto& path = _view.path();
+        if (link_source && path.depth() > 0) {
+            size_t field_index = path.elements[0];
+            TSLink* link = const_cast<TSValue*>(link_source)->link_at(field_index);
+            if (link && link->is_key_set_binding() && link->valid()) {
+                // For KEY_SET bindings, access TSD's MapTSOverlay directly
+                // (delta_view() doesn't work for TSD source since there's no TSS data)
+                TSView link_view = link->view();
+                const TSValue* tsd_source = link_view.tsd_source();
+                if (tsd_source) {
+                    auto* tsd_overlay = dynamic_cast<const MapTSOverlay*>(tsd_source->overlay());
+                    if (tsd_overlay) {
+                        nb::set result;
+                        // Get added keys from TSD's MapTSOverlay
+                        const auto& added_key_indices = tsd_overlay->added_key_indices();
+                        if (!added_key_indices.empty()) {
+                            // Access the TSD's map to get actual key values
+                            value::ConstMapView tsd_map = tsd_source->value().view().as_map();
+                            for (size_t idx : added_key_indices) {
+                                if (idx < tsd_map.size()) {
+                                    auto added_key = tsd_map.key_at(idx);
+                                    result.add(added_key.to_python());
+                                }
+                            }
+                        }
+                        return nb::frozenset(result);
+                    }
+                }
+            }
+        }
+
+        // Normal TSS case
         TSSView set_view = _view.as_set();
         engine_time_t current_time = get_current_time(_view);
 
@@ -167,6 +201,34 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesSetInput::removed() const {
+        // Check for TSLink with KEY_SET binding (TSD->TSS)
+        const TSValue* link_source = _view.link_source();
+        const auto& path = _view.path();
+        if (link_source && path.depth() > 0) {
+            size_t field_index = path.elements[0];
+            TSLink* link = const_cast<TSValue*>(link_source)->link_at(field_index);
+            if (link && link->is_key_set_binding() && link->valid()) {
+                // For KEY_SET bindings, access TSD's MapTSOverlay directly
+                // (delta_view() doesn't work for TSD source since there's no TSS data)
+                TSView link_view = link->view();
+                const TSValue* tsd_source = link_view.tsd_source();
+                if (tsd_source) {
+                    auto* tsd_overlay = dynamic_cast<const MapTSOverlay*>(tsd_source->overlay());
+                    if (tsd_overlay) {
+                        nb::set result;
+                        // Get removed keys directly from TSD's MapTSOverlay
+                        // (removed values are stored in the overlay since they're no longer in the map)
+                        const auto& removed_keys = tsd_overlay->removed_key_values();
+                        for (const auto& removed_key : removed_keys) {
+                            result.add(removed_key.view().to_python());
+                        }
+                        return nb::frozenset(result);
+                    }
+                }
+            }
+        }
+
+        // Normal TSS case
         TSSView set_view = _view.as_set();
         engine_time_t current_time = get_current_time(_view);
 

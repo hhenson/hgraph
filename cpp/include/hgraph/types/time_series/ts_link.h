@@ -295,6 +295,27 @@ struct TSLink : Notifiable {
      */
     [[nodiscard]] bool is_field_binding() const noexcept { return _field_index >= 0; }
 
+    // ========== Startup Notification Support ==========
+
+    /**
+     * @brief Check if this link needs startup notification and trigger it.
+     *
+     * For REF bindings (notify_once mode), we need to ensure the owning node
+     * runs on tick 1 even if the underlying output wasn't modified. This
+     * matches Python's PythonTimeSeriesReferenceInput behavior.
+     *
+     * This method is called from Node::_initialise_inputs() after the graph
+     * has been fully constructed and the node is about to start.
+     *
+     * @param start_time The graph start time for notification
+     */
+    void check_startup_notify(engine_time_t start_time);
+
+    /**
+     * @brief Check if this link needs startup notification.
+     */
+    [[nodiscard]] bool needs_startup_notify() const noexcept { return _needs_startup_notify; }
+
 private:
     // ========== Binding State ==========
     const TSValue* _output{nullptr};
@@ -304,6 +325,7 @@ private:
     Node* _node{nullptr};
     bool _active{false};
     bool _notify_once{false};          ///< For REF: only notify on first tick
+    bool _needs_startup_notify{false}; ///< For REF: needs notification on graph startup
     engine_time_t _sample_time{MIN_DT};
     engine_time_t _notify_time{MIN_DT};
     int _element_index{-1};            ///< Element index for TSL->TS binding (-1 = whole container)

@@ -1,4 +1,5 @@
 #include <hgraph/api/python/py_ref.h>
+#include <hgraph/api/python/py_tsd.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/types/ref.h>
@@ -63,8 +64,9 @@ namespace hgraph
                     return nb::none();
                 }
                 if (self.is_view_bound()) {
-                    // VIEW_BOUND - wrap the TSValue* as a Python input view (read-only)
-                    // We use an input wrapper since we only need read access (for .delta_value)
+                    // VIEW_BOUND - wrap the TSValue* as a Python output view
+                    // The underlying TSValue is actually mutable (it's an output node's value)
+                    // We need output wrapper to support methods like get_ref, release_ref, etc.
                     const TSValue* view_out = self.view_output();
                     if (!view_out) {
                         return nb::none();
@@ -74,6 +76,7 @@ namespace hgraph
                     int elem_idx = self.view_element_index();
                     if (elem_idx >= 0 && view_out->ts_meta() && view_out->ts_meta()->kind() == TSTypeKind::TSL) {
                         // Navigate to the element within the TSL
+                        // For TSL elements, use input view for now (output methods not commonly needed)
                         TSView container_view(*view_out);
                         TSLView list_view(container_view.value_view().data(),
                                          static_cast<const TSLTypeMeta*>(view_out->ts_meta()),
@@ -87,9 +90,10 @@ namespace hgraph
                     if (!meta) {
                         return nb::none();
                     }
-                    // Create a TSView (read-only) from the const TSValue
-                    TSView view(*view_out);
-                    return wrap_input_view(view);
+                    // Create a TSMutableView from the TSValue (safe since it's actually mutable)
+                    TSValue* mutable_view_out = const_cast<TSValue*>(view_out);
+                    TSMutableView view(*mutable_view_out);
+                    return wrap_output_view(view);
                 }
                 if (self.is_bound()) {
                     // BOUND - return the wrapped legacy output
@@ -107,10 +111,10 @@ namespace hgraph
             .def("__getitem__", &TimeSeriesReference::operator[])
             .def_static(
                 "make",
-                [](nb::object ts, nb::object items) -> TimeSeriesReference {
+                [](nb::object ts, nb::object items) -> nb::object {
                     // Case 1: Empty reference
                     if (ts.is_none() && items.is_none()) {
-                        return TimeSeriesReference::make();
+                        return nb::cast(TimeSeriesReference::make());
                     }
 
                     // Case 2: from_items - create unbound reference
@@ -124,7 +128,7 @@ namespace hgraph
                                 throw std::runtime_error("TimeSeriesReference.make: from_items must contain TimeSeriesReference objects");
                             }
                         }
-                        return TimeSeriesReference::make(std::move(refs));
+                        return nb::cast(TimeSeriesReference::make(std::move(refs)));
                     }
 
                     // Case 3: ts parameter provided
@@ -133,7 +137,7 @@ namespace hgraph
                         auto& output = nb::cast<PyTimeSeriesOutput&>(ts);
                         const TSValue* ts_value = output.view().root();
                         if (ts_value) {
-                            return TimeSeriesReference::make_view_bound(ts_value);
+                            return nb::cast(TimeSeriesReference::make_view_bound(ts_value));
                         }
                         throw std::runtime_error("TimeSeriesReference.make: PyTimeSeriesOutput has no root TSValue");
                     }
@@ -144,12 +148,12 @@ namespace hgraph
                         // For inputs, check if there's a bound output
                         const TSValue* bound = input.bound_output();
                         if (bound) {
-                            return TimeSeriesReference::make_view_bound(bound);
+                            return nb::cast(TimeSeriesReference::make_view_bound(bound));
                         }
                         // No bound output - check the view's root
                         const TSValue* ts_value = input.view().root();
                         if (ts_value) {
-                            return TimeSeriesReference::make_view_bound(ts_value);
+                            return nb::cast(TimeSeriesReference::make_view_bound(ts_value));
                         }
                         throw std::runtime_error("TimeSeriesReference.make: PyTimeSeriesInput has no bound output or root TSValue");
                     }
@@ -157,19 +161,29 @@ namespace hgraph
                     // Check if it's a TimeSeriesReferenceInput - return its value
                     if (nb::isinstance<TimeSeriesReferenceInput>(ts)) {
                         auto& ref_input = nb::cast<TimeSeriesReferenceInput&>(ts);
-                        return ref_input.value();
+                        return nb::cast(ref_input.value());
                     }
 
                     // Check if it's already a TimeSeriesReference - just return it
                     if (nb::isinstance<TimeSeriesReference>(ts)) {
-                        return nb::cast<TimeSeriesReference>(ts);
+                        return ts;  // Already a Python object wrapping TimeSeriesReference
+                    }
+
+                    // Check for CppKeySetIsEmptyOutput - use Python's BoundTimeSeriesReference
+                    // CppKeySetIsEmptyOutput doesn't have an underlying TSValue, so we need to
+                    // use Python's BoundTimeSeriesReference which can wrap any object with
+                    // value/valid/modified properties.
+                    if (nb::isinstance<CppKeySetIsEmptyOutput>(ts)) {
+                        auto ref_module = nb::module_::import_("hgraph._impl._types._ref");
+                        auto bound_ref_class = ref_module.attr("BoundTimeSeriesReference");
+                        return bound_ref_class(ts);  // Return Python BoundTimeSeriesReference
                     }
 
                     // Check for legacy TimeSeriesOutput
                     try {
                         auto output_ptr = nb::cast<time_series_output_s_ptr>(ts);
                         if (output_ptr) {
-                            return TimeSeriesReference::make(std::move(output_ptr));
+                            return nb::cast(TimeSeriesReference::make(std::move(output_ptr)));
                         }
                     } catch (...) {
                         // Not a legacy output, continue checking

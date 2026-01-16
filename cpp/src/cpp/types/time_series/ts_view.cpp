@@ -13,6 +13,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/constants.h>
+#include <hgraph/api/python/wrapper_factory.h>
 #include <fmt/format.h>
 #include <stdexcept>
 #include <unordered_map>
@@ -178,6 +179,10 @@ TSView::TSView(const TSValue& ts_value)
 }
 
 bool TSView::valid() const noexcept {
+    // For key_set views (TSD->TSS), _tsd_source is set but _view may be null
+    if (_tsd_source && _ts_meta) {
+        return true;  // Valid as long as we have a TSD source to read from
+    }
     return _ts_meta != nullptr && _view.valid();
 }
 
@@ -250,12 +255,27 @@ TSDView TSView::as_dict() const {
 }
 
 TSSView TSView::as_set() const {
+    // Check for key_set views first - they have _tsd_source but no direct data
+    if (_tsd_source) {
+        if (_ts_meta->kind() != TSTypeKind::TSS) {
+            throw std::runtime_error("TSView::as_set() called on non-set type (key_set)");
+        }
+        TSSView result(_tsd_source, static_cast<const TSSTypeMeta*>(_ts_meta));
+        // Propagate path tracking
+        result._root = _root;
+        result._path = _path;
+        result._link_source = _link_source;
+        result._container = _container;
+        return result;
+    }
+
     if (!valid()) {
         throw std::runtime_error("TSView::as_set() called on invalid view");
     }
     if (_ts_meta->kind() != TSTypeKind::TSS) {
         throw std::runtime_error("TSView::as_set() called on non-set type");
     }
+
     // Propagate overlay (schema guarantees type match)
     auto* set_ov = _overlay ? static_cast<SetTSOverlay*>(_overlay) : nullptr;
     TSSView result(_view.data(), static_cast<const TSSTypeMeta*>(_ts_meta), set_ov);
@@ -270,6 +290,13 @@ TSSView TSView::as_set() const {
 }
 
 nb::object TSView::to_python() const {
+    // For REF types, handle validity differently - REF values are stored in cache, not data buffer
+    // We check this early to avoid the generic valid() check that would fail for REF types
+    if (_ts_meta && _ts_meta->kind() == TSTypeKind::REF) {
+        // Jump to REF handling - it has its own validity logic
+        goto handle_ref;
+    }
+
     if (!valid()) {
         return nb::none();
     }
@@ -293,7 +320,8 @@ nb::object TSView::to_python() const {
             return as_dict().to_python();
         case TSTypeKind::TSS:
             return as_set().to_python();
-        case TSTypeKind::REF: {
+        case TSTypeKind::REF:
+        handle_ref: {
             // Cast TSValue REF: When this is a cast REF element (from TSL[TS] → TSL[REF[TS]]),
             // create a TimeSeriesReference pointing to the source element
             if (_container && _container->is_cast()) {
@@ -380,14 +408,42 @@ nb::object TSView::to_python() const {
                 if (_root && _root->has_ref_cache()) {
                     try {
                         nb::object cached = std::any_cast<nb::object>(_root->ref_cache());
-                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
-                        if (ref.is_view_bound()) {
-                            const TSValue* target = ref.view_output();
-                            if (target) {
-                                // DEREFERENCE: Return the target's value
-                                TSView target_view = target->view();
-                                nb::object result = target_view.to_python();
-                                return result;
+
+                        // First try C++ TimeSeriesReference
+                        if (nb::isinstance<TimeSeriesReference>(cached)) {
+                            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
+                            if (ref.is_view_bound()) {
+                                const TSValue* target = ref.view_output();
+                                if (target) {
+                                    // DEREFERENCE: Return the target's value
+                                    TSView target_view = target->view();
+                                    nb::object result = target_view.to_python();
+                                    return result;
+                                }
+                            }
+                        }
+
+                        // Check for Python TimeSeriesReference subclasses (BoundTimeSeriesReference, etc.)
+                        auto ref_type_module = nb::module_::import_("hgraph._types._ref_type");
+                        auto ts_ref_class = ref_type_module.attr("TimeSeriesReference");
+                        if (nb::isinstance(cached, ts_ref_class)) {
+                            // It's a Python TimeSeriesReference - check if it has an output
+                            if (nb::hasattr(cached, "output") && nb::hasattr(cached, "has_output")) {
+                                bool has_output = nb::cast<bool>(cached.attr("has_output"));
+                                if (has_output) {
+                                    nb::object output = cached.attr("output");
+                                    // Get the value from the output
+                                    if (nb::hasattr(output, "value")) {
+                                        return output.attr("value");
+                                    }
+                                }
+                            }
+                            // Check is_empty for EmptyTimeSeriesReference
+                            if (nb::hasattr(cached, "is_empty")) {
+                                bool is_empty = nb::cast<bool>(cached.attr("is_empty"));
+                                if (is_empty) {
+                                    return nb::none();
+                                }
                             }
                         }
                     } catch (const std::bad_any_cast&) {
@@ -412,21 +468,43 @@ nb::object TSView::to_python() const {
                 size_t final_idx = _path.elements.back();
                 const LinkStorage* storage = current->link_storage_at(final_idx);
                 if (storage) {
-                    // Extract the bound output from the link
-                    const TSValue* bound_output = std::visit([](const auto& link) -> const TSValue* {
+                    // Extract the bound output and check for KEY_SET binding
+                    struct LinkInfo {
+                        const TSValue* output = nullptr;
+                        bool is_key_set = false;
+                    };
+                    LinkInfo link_info = std::visit([](const auto& link) -> LinkInfo {
                         using T = std::decay_t<decltype(link)>;
                         if constexpr (std::is_same_v<T, std::monostate>) {
-                            return nullptr;
+                            return {nullptr, false};
                         } else if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
-                            return link ? link->output() : nullptr;
+                            return {link ? link->output() : nullptr,
+                                    link ? link->is_key_set_binding() : false};
                         } else if constexpr (std::is_same_v<T, std::unique_ptr<TSRefTargetLink>>) {
-                            return link ? link->ref_output() : nullptr;
+                            return {link ? link->ref_output() : nullptr, false};
                         } else {
-                            return nullptr;
+                            return {nullptr, false};
                         }
                     }, *storage);
 
+                    const TSValue* bound_output = link_info.output;
                     if (bound_output) {
+                        // For KEY_SET bindings, wrap the TSD's key_set as a TSS output
+                        if (link_info.is_key_set && bound_output->ts_meta() &&
+                            bound_output->ts_meta()->kind() == TSTypeKind::TSD) {
+                            // Get the TSD output and access its key_set property
+                            // This returns a CppKeySetOutputWrapper which has TSS output interface
+                            TSMutableView tsd_view = const_cast<TSValue*>(bound_output)->mutable_view();
+                            nb::object tsd_output = wrap_output_view(tsd_view);
+                            if (!tsd_output.is_none() && nb::hasattr(tsd_output, "key_set")) {
+                                nb::object key_set_output = tsd_output.attr("key_set");
+                                // Wrap in BoundTimeSeriesReference for proper REF interface
+                                auto ref_module = nb::module_::import_("hgraph._types._ref_type");
+                                auto bound_ref_class = ref_module.attr("BoundTimeSeriesReference");
+                                return bound_ref_class(key_set_output);
+                            }
+                        }
+
                         // Check TSValue's ref_cache for this bound output - it contains a TimeSeriesReference
                         if (bound_output->has_ref_cache()) {
                             try {
@@ -757,7 +835,18 @@ nb::object TSView::to_python_delta() const {
             break;
     }
 
-    // For other scalar types, delta_value == value
+    // For scalar types, delta_value == value ONLY if modified at current time
+    // If not modified, return None (matching Python behavior)
+    if (_overlay) {
+        // Get current evaluation time from owning node
+        Node* node = owning_node();
+        if (node && node->cached_evaluation_time_ptr()) {
+            engine_time_t eval_time = *node->cached_evaluation_time_ptr();
+            if (_overlay->last_modified_time() != eval_time) {
+                return nb::none();  // Not modified this tick
+            }
+        }
+    }
     return to_python();
 }
 
@@ -801,8 +890,11 @@ bool TSView::ts_valid() const {
                     return all_valid;
                 }
             }
-            // Fall back to regular ts_valid check on bound_output
-            return bound_output->ts_valid();
+            // For REF inputs, having a bound output means the binding exists,
+            // so the REF is valid. The underlying output's data validity doesn't
+            // determine the REF's validity - it only determines what value.output.valid returns.
+            // This matches Python where REF.valid = (self._value is not None).
+            return true;
         }
 
         // For outputs (no link), check if the cached TimeSeriesReference is valid
@@ -1148,6 +1240,7 @@ bool TSMutableView::from_python(const nb::object& src) {
             }
             if (_overlay) {
                 _overlay->mark_modified(current_time);
+            } else {
             }
         }
 
@@ -1890,20 +1983,14 @@ TSView TSBView::field(const std::string& name) const {
             bool is_key_set = std::visit([](const auto& link) -> bool {
                 using T = std::decay_t<decltype(link)>;
                 if constexpr (std::is_same_v<T, std::unique_ptr<TSLink>>) {
-                    std::cerr << "[DEBUG] TSLink element_index=" << (link ? link->element_index() : -999) << std::endl;
                     return link && link->is_key_set_binding();
                 }
                 return false;
             }, *storage);
 
-            std::cerr << "[DEBUG] TSBView::field(name) index=" << index
-                      << " is_key_set=" << (is_key_set ? "yes" : "no")
-                      << " linked_view.valid=" << (linked_view.valid() ? "yes" : "no") << std::endl;
-
             if (is_key_set && linked_view.valid()) {
                 // Create a new view that preserves link_source for KEY_SET resolution
                 LightweightPath child_path = _path.with(index);
-                std::cerr << "[DEBUG] TSBView::field creating KEY_SET view" << std::endl;
                 TSView result(linked_view.value_view().data(), linked_view.ts_meta(),
                               linked_view.overlay(), _root, std::move(child_path));
                 result.set_link_source(_link_source);
@@ -2043,6 +2130,8 @@ TSView TSBView::field(size_t index) const {
                 TSView result(linked_view.value_view().data(), linked_view.ts_meta(),
                               linked_view.overlay(), _root, std::move(child_path));
                 result.set_link_source(_link_source);
+                // CRITICAL: Preserve _tsd_source for KEY_SET views so as_set() works correctly
+                result.set_tsd_source(linked_view.tsd_source());
                 return result;
             }
 

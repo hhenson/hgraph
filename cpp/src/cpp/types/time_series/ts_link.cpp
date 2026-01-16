@@ -168,11 +168,16 @@ void TSLink::make_active() {
         _active = true;
         subscribe_if_needed();
 
-        // Check if we should notify immediately
-        // (output is valid and modified at current time)
-        if (_output_overlay && _output_overlay->last_modified_time() > MIN_DT) {
-            // The output has valid data - we might need to notify
-            // This will be handled by the caller checking modified state
+        // For REF bindings (notify_once mode), we need to ensure the owning node
+        // runs on tick 1. This matches Python's PythonTimeSeriesReferenceInput.make_active()
+        // behavior which calls notify() when valid. Without this, nodes like is_empty_tss
+        // wouldn't run on tick 1 because the TSD's key_set hasn't been "modified" yet.
+        //
+        // NOTE: During graph construction, we set a flag that will be checked during
+        // node startup. The actual scheduling happens in TSLink::activate_on_start()
+        // which is called from Node::_initialise_inputs().
+        if (_notify_once && _output) {
+            _needs_startup_notify = true;
         }
     }
 }
@@ -181,6 +186,15 @@ void TSLink::make_passive() {
     if (_active) {
         _active = false;
         unsubscribe_if_needed();
+    }
+}
+
+void TSLink::check_startup_notify(engine_time_t start_time) {
+    if (_needs_startup_notify && _active && _output) {
+        _needs_startup_notify = false;  // Clear flag
+        // Trigger notification which will schedule the owning node
+        // The notify() method handles sample_time setup for first notification
+        notify(start_time);
     }
 }
 
@@ -210,7 +224,6 @@ void TSLink::notify(engine_time_t time) {
 
     if (_notify_time != time) {
         _notify_time = time;
-
 
         // Delegate to owning node
         if (_node && !is_graph_stopping()) {
@@ -271,6 +284,14 @@ bool TSLink::valid() const {
     if (!_output_overlay) {
         return false;
     }
+
+    // For REF inputs (notify_once mode), the link is valid when the binding
+    // has been established (sample_time set), not when the underlying output
+    // is modified. This matches Python's PythonTimeSeriesReferenceInput behavior.
+    if (_notify_once) {
+        return _sample_time > MIN_DT;
+    }
+
     return _output_overlay->last_modified_time() > MIN_DT;
 }
 

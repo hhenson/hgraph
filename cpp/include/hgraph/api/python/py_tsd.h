@@ -137,5 +137,122 @@ namespace hgraph
         void on_key_removed(const nb::object &key);
     };
 
+    // Forward declarations
+    struct CppKeySetOutputWrapper;
+    struct CppKeySetIsEmptyOutput;
+
+    /**
+     * @brief C++ wrapper providing TSS output interface for TSD's key_set.
+     *
+     * This provides the expected TSS output interface by delegating to the
+     * underlying TSD's key tracking.
+     *
+     * Note: Stores TSMutableView directly to be independent of Python wrapper lifetime.
+     */
+    struct CppKeySetOutputWrapper
+    {
+        explicit CppKeySetOutputWrapper(TSMutableView view);
+
+        // TSS output interface
+        [[nodiscard]] nb::object value() const;
+        [[nodiscard]] nb::object delta_value() const;
+        [[nodiscard]] bool valid() const;
+        [[nodiscard]] bool modified() const;
+        [[nodiscard]] nb::object last_modified_time() const;
+        [[nodiscard]] nb::object added() const;
+        [[nodiscard]] nb::object removed() const;
+        [[nodiscard]] bool was_added(const nb::object& item) const;
+        [[nodiscard]] bool was_removed(const nb::object& item) const;
+        [[nodiscard]] size_t size() const;
+        [[nodiscard]] bool contains(const nb::object& item) const;
+        [[nodiscard]] nb::object values() const;
+
+        // Required for is_empty operator
+        [[nodiscard]] nb::object is_empty_output();
+
+        // Node/Graph access
+        [[nodiscard]] nb::object owning_node() const;
+        [[nodiscard]] nb::object owning_graph() const;
+
+        [[nodiscard]] nb::str py_str() const;
+        [[nodiscard]] nb::str py_repr() const;
+
+    private:
+        TSMutableView _view;  // Direct view storage - independent of Python wrapper
+        std::shared_ptr<CppKeySetIsEmptyOutput> _is_empty_output_cache;
+    };
+
+    /**
+     * @brief C++ wrapper providing TS[bool] output interface for key_set is_empty.
+     *
+     * Tracks whether the TSD's key set is empty and provides the time series
+     * interface needed for REF[TS[bool]] return.
+     *
+     * Note: Stores TSMutableView directly to be independent of Python wrapper lifetime.
+     */
+    struct CppKeySetIsEmptyOutput
+    {
+        explicit CppKeySetIsEmptyOutput(TSMutableView view);
+
+        // TS[bool] output interface
+        [[nodiscard]] bool value() const;
+        [[nodiscard]] bool delta_value() const;
+        [[nodiscard]] bool valid() const;
+        [[nodiscard]] bool modified();
+        [[nodiscard]] nb::object last_modified_time() const;
+        [[nodiscard]] bool all_valid() const;
+
+        // Node/Graph access
+        [[nodiscard]] nb::object owning_node() const;
+        [[nodiscard]] nb::object owning_graph() const;
+
+        [[nodiscard]] nb::str py_str() const;
+        [[nodiscard]] nb::str py_repr() const;
+
+    private:
+        TSMutableView _view;  // Direct view storage - independent of Python wrapper
+        std::optional<bool> _last_empty_state;
+        engine_time_t _last_check_time{MIN_DT};
+        bool _cached_modified{false};
+    };
+
+    /**
+     * @brief C++ wrapper providing TSS input interface for TSD input's key_set.
+     *
+     * Note: Stores TSView directly to be independent of Python wrapper lifetime.
+     */
+    struct CppKeySetInputWrapper
+    {
+        explicit CppKeySetInputWrapper(TSView view);
+
+        // TSS input interface
+        [[nodiscard]] nb::object value() const;
+        [[nodiscard]] nb::object delta_value() const;
+        [[nodiscard]] bool valid() const;
+        [[nodiscard]] bool modified() const;
+        [[nodiscard]] nb::object last_modified_time() const;
+        [[nodiscard]] nb::object added() const;
+        [[nodiscard]] nb::object removed() const;
+        [[nodiscard]] bool was_added(const nb::object& item) const;
+        [[nodiscard]] bool was_removed(const nb::object& item) const;
+        [[nodiscard]] size_t size() const;
+        [[nodiscard]] bool contains(const nb::object& item) const;
+        [[nodiscard]] nb::object values() const;
+        [[nodiscard]] bool all_valid() const;
+        [[nodiscard]] bool bound() const;
+        [[nodiscard]] bool has_peer() const;
+        [[nodiscard]] nb::object output() const;
+
+        // Node/Graph access
+        [[nodiscard]] nb::object owning_node() const;
+        [[nodiscard]] nb::object owning_graph() const;
+
+        [[nodiscard]] nb::str py_str() const;
+        [[nodiscard]] nb::str py_repr() const;
+
+    private:
+        TSView _view;  // Direct view storage - independent of Python wrapper
+    };
+
     void tsd_register_with_nanobind(nb::module_ & m);
 }  // namespace hgraph

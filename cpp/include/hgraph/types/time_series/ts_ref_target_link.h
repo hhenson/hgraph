@@ -22,10 +22,14 @@
  * See: ts_design_docs/Phase6_75_REF_Type_Handling_DESIGN.md Section 14
  */
 
+#include <hgraph/hgraph_forward_declarations.h>
 #include <hgraph/types/time_series/ts_link.h>
 #include <hgraph/types/time_series/ts_path.h>
 #include <hgraph/types/time_series/ts_view.h>
+// Note: ts_value.h NOT included here to avoid circular dependency
+// TSValue is forward-declared below and used via pointer/unique_ptr only
 #include <hgraph/types/notifiable.h>
+#include <any>
 #include <memory>
 #include <optional>
 #include <variant>
@@ -177,6 +181,11 @@ struct TSRefTargetLink : Notifiable {
      * @brief Check if this is an element-based binding (into a container like TSL).
      */
     [[nodiscard]] bool is_element_binding() const noexcept { return _target_elem_index >= 0; }
+
+    /**
+     * @brief Check if this has a Python output (for Python-backed TimeSeriesReferences).
+     */
+    [[nodiscard]] bool has_python_output() const noexcept { return _python_output.has_value(); }
 
     /**
      * @brief Get the element index for element-based bindings.
@@ -338,6 +347,14 @@ private:
 
     // ========== Previous target for delta computation ==========
     const TSValue* _prev_target_output{nullptr};
+
+    // ========== Python output wrapper (for Python-backed TimeSeriesReferences) ==========
+    std::any _python_output{};
+    mutable std::unique_ptr<TSValue> _python_value_cache;  // Cache for Python output value
+
+    // ========== TSD overlay subscription for Python outputs ==========
+    TSOverlayStorage* _tsd_overlay{nullptr};  // TSD overlay we're subscribed to (for Python outputs)
+    bool _tsd_subscribed{false};              // Whether we're subscribed to _tsd_overlay
 
     // ========== Notification deduplication ==========
     engine_time_t _notify_time{MIN_DT};

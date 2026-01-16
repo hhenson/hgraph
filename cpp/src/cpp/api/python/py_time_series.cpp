@@ -116,7 +116,11 @@ namespace hgraph
             .def("clear", &PyTimeSeriesOutput::clear)
             .def("invalidate", &PyTimeSeriesOutput::invalidate)
             .def("copy_from_output", &PyTimeSeriesOutput::copy_from_output)
-            .def("copy_from_input", &PyTimeSeriesOutput::copy_from_input);
+            .def("copy_from_input", &PyTimeSeriesOutput::copy_from_input)
+            // Internal: expose root TSValue for C++ subscription (used by TSRefTargetLink)
+            .def_prop_ro("_cpp_root", [](PyTimeSeriesOutput& self) -> const TSValue* {
+                return self.view().root();
+            }, nb::rv_policy::reference);
     }
 
     // ========== PyTimeSeriesInput implementation (view-only) ==========
@@ -125,12 +129,16 @@ namespace hgraph
         : _view(view) {}
 
     nb::object PyTimeSeriesInput::value() const {
+        const TSMeta* meta = _view.ts_meta();
+
         // Check if we have a TSRefTargetLink that may have rebound
         const TSValue* link_source = _view.link_source();
         const auto& path = _view.path();
+
         if (link_source && path.depth() > 0) {
             size_t field_index = path.elements[0];
             TSRefTargetLink* ref_link = const_cast<TSValue*>(link_source)->ref_link_at(field_index);
+
             if (ref_link && ref_link->valid()) {
                 // Get the current target view from ref_link
                 TSView target_view = ref_link->view();
@@ -140,7 +148,32 @@ namespace hgraph
             // Check for TSLink with KEY_SET binding (TSD viewed as TSS)
             TSLink* link = const_cast<TSValue*>(link_source)->link_at(field_index);
             if (link && link->is_key_set_binding() && link->valid()) {
-                // TSLink::view() returns a TSSView of the TSD's keys
+                // For REF[TSS] inputs (kind == REF), wrap the TSD's key_set in a TimeSeriesReference
+                // For non-REF TSS inputs, return the raw TSS value
+                if (meta && meta->kind() == TSTypeKind::REF) {
+                    // REF[TSS] input bound to TSD.key_set
+                    // Python expects a TimeSeriesReference whose .output is the TSD's key_set TSS
+                    // C++ TSD doesn't have a separate key_set TSS output like Python
+                    // We need to wrap the key_set in a Python-accessible way
+                    const TSValue* tsd_output = link->output();
+                    if (tsd_output) {
+                        // Create a wrapped TSD output that Python can access .key_set on
+                        // This uses the Python TSD wrapper which has the key_set property
+                        auto py_output = wrap_output_view(const_cast<TSValue*>(tsd_output)->mutable_view());
+                        // Create a TimeSeriesReference using Python's API
+                        auto ref_module = nb::module_::import_("hgraph._impl._types._ref");
+                        auto bound_ref_class = ref_module.attr("BoundTimeSeriesReference");
+                        // Get the key_set from the wrapped TSD output
+                        auto key_set = py_output.attr("key_set");
+                        // Create BoundTimeSeriesReference wrapping the key_set
+                        return bound_ref_class(key_set);
+                    }
+                    // Fallback: return empty reference
+                    auto ref_module = nb::module_::import_("hgraph._impl._types._ref");
+                    auto empty_ref_class = ref_module.attr("EmptyTimeSeriesReference");
+                    return empty_ref_class();
+                }
+                // Non-REF TSS input - TSLink::view() returns a TSSView of the TSD's keys
                 return link->view().to_python();
             }
         }
@@ -176,15 +209,23 @@ namespace hgraph
             TSRefTargetLink* ref_link = const_cast<TSValue*>(link_source)->ref_link_at(field_index);
             if (ref_link) {
                 const TSValue* target = ref_link->target_output();
-                if (target || ref_link->is_element_binding()) {
+                // Check for C++ target, element binding, OR Python output
+                if (target || ref_link->is_element_binding() || ref_link->has_python_output()) {
                     // Use ref_link->view() which properly navigates to elements for element-based bindings
                     TSView target_view = ref_link->view();
 
-                    // Check if a rebind occurred at this tick - if so, return full value as delta
-                    // When REF target changes, all elements are "new" from the perspective of the input
+                    // First check if modified - if not, return None (scalar delta semantics)
                     Node* node = _view.owning_node();
                     if (node && node->cached_evaluation_time_ptr()) {
                         engine_time_t eval_time = *node->cached_evaluation_time_ptr();
+
+                        // Check modified_at for the ref_link
+                        if (!ref_link->modified_at(eval_time)) {
+                            return nb::none();  // Not modified this tick
+                        }
+
+                        // Check if a rebind occurred at this tick - if so, return full value as delta
+                        // When REF target changes, all elements are "new" from the perspective of the input
                         engine_time_t rebind_time = ref_link->target_sample_time();
                         if (rebind_time == eval_time) {
                             // Rebind occurred this tick - return full value as delta

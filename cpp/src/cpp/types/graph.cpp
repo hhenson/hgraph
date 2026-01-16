@@ -75,7 +75,8 @@ namespace hgraph
         }
 
         auto &st = this->_schedule[node_ndx];
-        if (force_set || st <= et || st > when) { st = when; }
+        bool will_update = (force_set || st <= et || st > when);
+        if (will_update) { st = when; }
         _cached_engine_clock->update_next_scheduled_evaluation_time(when);
     }
 

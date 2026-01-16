@@ -11,6 +11,7 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/api/python/py_tsd.h>
 
 namespace hgraph {
 
@@ -33,12 +34,21 @@ TSRefTargetLink::TSRefTargetLink(TSRefTargetLink&& other) noexcept
     , _target_container(other._target_container)
     , _target_elem_index(other._target_elem_index)
     , _prev_target_output(other._prev_target_output)
+    , _python_output(std::move(other._python_output))
+    , _tsd_overlay(other._tsd_overlay)
+    , _tsd_subscribed(other._tsd_subscribed)
     , _notify_time(other._notify_time)
 {
-    // Transfer subscription if active
+    // Transfer REF subscription if active
     if (_ref_subscribed && _ref_overlay) {
         _ref_overlay->unsubscribe(&other);
         _ref_overlay->subscribe(this);
+    }
+
+    // Transfer TSD subscription if active
+    if (_tsd_subscribed && _tsd_overlay) {
+        _tsd_overlay->unsubscribe(&other);
+        _tsd_overlay->subscribe(this);
     }
 
     // Clear moved-from object
@@ -48,6 +58,8 @@ TSRefTargetLink::TSRefTargetLink(TSRefTargetLink&& other) noexcept
     other._target_container = nullptr;
     other._target_elem_index = -1;
     other._prev_target_output = nullptr;
+    other._tsd_overlay = nullptr;
+    other._tsd_subscribed = false;
 }
 
 TSRefTargetLink& TSRefTargetLink::operator=(TSRefTargetLink&& other) noexcept {
@@ -65,12 +77,21 @@ TSRefTargetLink& TSRefTargetLink::operator=(TSRefTargetLink&& other) noexcept {
         _target_container = other._target_container;
         _target_elem_index = other._target_elem_index;
         _prev_target_output = other._prev_target_output;
+        _python_output = std::move(other._python_output);
+        _tsd_overlay = other._tsd_overlay;
+        _tsd_subscribed = other._tsd_subscribed;
         _notify_time = other._notify_time;
 
-        // Transfer subscription
+        // Transfer REF subscription
         if (_ref_subscribed && _ref_overlay) {
             _ref_overlay->unsubscribe(&other);
             _ref_overlay->subscribe(this);
+        }
+
+        // Transfer TSD subscription
+        if (_tsd_subscribed && _tsd_overlay) {
+            _tsd_overlay->unsubscribe(&other);
+            _tsd_overlay->subscribe(this);
         }
 
         // Clear moved-from
@@ -80,6 +101,8 @@ TSRefTargetLink& TSRefTargetLink::operator=(TSRefTargetLink&& other) noexcept {
         other._target_container = nullptr;
         other._target_elem_index = -1;
         other._prev_target_output = nullptr;
+        other._tsd_overlay = nullptr;
+        other._tsd_subscribed = false;
     }
     return *this;
 }
@@ -144,8 +167,18 @@ void TSRefTargetLink::unbind() {
     // Unsubscribe from REF output
     unsubscribe_ref();
 
+    // Unsubscribe from TSD overlay if subscribed
+    if (_tsd_subscribed && _tsd_overlay) {
+        _tsd_overlay->unsubscribe(this);
+        _tsd_subscribed = false;
+    }
+    _tsd_overlay = nullptr;
+
     // Unbind target channel
     _target_link.unbind();
+
+    // Clear Python output
+    _python_output.reset();
 
     // Clear state
     _ref_output = nullptr;
@@ -163,15 +196,21 @@ void TSRefTargetLink::unbind() {
 // ============================================================================
 
 void TSRefTargetLink::notify(engine_time_t time) {
+    // Check if graph is stopping
+    if (is_graph_stopping()) {
+        return;
+    }
+
     // Notification deduplication
     if (_notify_time == time) {
         return;
     }
 
-    // Check if graph is stopping
-    if (is_graph_stopping()) {
-        return;
-    }
+    // NOTE: For Python outputs with TSD subscription, we do NOT filter here based on
+    // py_output.modified because the TSD values may not be updated yet when we receive
+    // the notification. Instead, we let the node run and rely on view() to only mark
+    // the output as modified when py_output.modified returns True (which is checked
+    // after TSD values are updated during node evaluation).
 
     // Read the TimeSeriesReference from the REF output and resolve it
     if (_ref_output) {
@@ -218,28 +257,99 @@ void TSRefTargetLink::notify(engine_time_t time) {
             }
 
             if (!ref_value.is_none()) {
-                // Cast to TimeSeriesReference
-                TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value);
+                // First try C++ TimeSeriesReference
+                if (nb::isinstance<TimeSeriesReference>(ref_value)) {
+                    // Clear Python output when using C++ target
+                    _python_output.reset();
 
-                if (ref.is_view_bound()) {
-                    // View-bound reference - get target directly
-                    const TSValue* target = ref.view_output();
-                    int elem_index = ref.view_element_index();
+                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value);
 
-                    if (elem_index >= 0 && target) {
-                        // Element-based binding (e.g., into a TSL)
-                        rebind_target_element(target, static_cast<size_t>(elem_index), time);
-                    } else if (target) {
-                        // Direct TSValue binding
-                        rebind_target(target, time);
+                    if (ref.is_view_bound()) {
+                        // View-bound reference - get target directly
+                        const TSValue* target = ref.view_output();
+                        int elem_index = ref.view_element_index();
+
+                        if (elem_index >= 0 && target) {
+                            // Element-based binding (e.g., into a TSL)
+                            rebind_target_element(target, static_cast<size_t>(elem_index), time);
+                        } else if (target) {
+                            // Direct TSValue binding
+                            rebind_target(target, time);
+                        } else {
+                            // No target - unbind
+                            rebind_target(nullptr, time);
+                        }
                     } else {
-                        // No target - unbind
+                        // Path-bound reference - would need graph context to resolve
+                        // For now, treat as no target
                         rebind_target(nullptr, time);
                     }
                 } else {
-                    // Path-bound reference - would need graph context to resolve
-                    // For now, treat as no target
-                    rebind_target(nullptr, time);
+                    // Check for Python TimeSeriesReference subclasses (BoundTimeSeriesReference, etc.)
+                    auto ref_type_module = nb::module_::import_("hgraph._types._ref_type");
+                    auto ts_ref_class = ref_type_module.attr("TimeSeriesReference");
+                    if (nb::isinstance(ref_value, ts_ref_class)) {
+                        // It's a Python TimeSeriesReference - check if it has an output
+                        bool is_empty = false;
+                        if (nb::hasattr(ref_value, "is_empty")) {
+                            is_empty = nb::cast<bool>(ref_value.attr("is_empty"));
+                        }
+
+                        if (is_empty) {
+                            // Empty reference - unbind target
+                            rebind_target(nullptr, time);
+                        } else if (nb::hasattr(ref_value, "output") && nb::hasattr(ref_value, "has_output")) {
+                            bool has_output = nb::cast<bool>(ref_value.attr("has_output"));
+                            if (has_output) {
+                                // Store the Python output wrapper for later value access
+                                // Must wrap accessor in nb::object for std::any assignment
+                                nb::object py_output = ref_value.attr("output");
+                                _python_output = nb::object(py_output);
+
+                                // For Python outputs like CppKeySetIsEmptyOutput that are backed by
+                                // a C++ TSD, we need to subscribe to the TSD overlay for notifications.
+                                // We subscribe TSRefTargetLink directly (not _target_link) so we can
+                                // filter notifications based on py_output.modified in notify().
+                                _target_link.unbind();  // Don't use _target_link for Python outputs
+
+                                // Unsubscribe from previous TSD overlay if any
+                                if (_tsd_subscribed && _tsd_overlay) {
+                                    _tsd_overlay->unsubscribe(this);
+                                    _tsd_subscribed = false;
+                                }
+                                _tsd_overlay = nullptr;
+
+                                if (nb::hasattr(py_output, "_tsd_output")) {
+                                    nb::object tsd_output = py_output.attr("_tsd_output");
+                                    try {
+                                        PyTimeSeriesDictOutput* tsd_cpp = nb::cast<PyTimeSeriesDictOutput*>(tsd_output);
+                                        if (tsd_cpp) {
+                                            const TSValue* tsd_root = tsd_cpp->view().root();
+                                            if (tsd_root && tsd_root->overlay()) {
+                                                // Subscribe TSRefTargetLink directly to TSD overlay
+                                                // notify() will check py_output.modified before forwarding
+                                                _tsd_overlay = const_cast<TSOverlayStorage*>(tsd_root->overlay());
+                                                _tsd_overlay->subscribe(this);
+                                                _tsd_subscribed = true;
+                                            }
+                                        }
+                                    } catch (...) {
+                                        // Cast failed - no subscription
+                                    }
+                                }
+                                _target_container = nullptr;
+                                _target_elem_index = -1;
+                            } else {
+                                _python_output.reset();
+                                rebind_target(nullptr, time);
+                            }
+                        } else {
+                            rebind_target(nullptr, time);
+                        }
+                    } else {
+                        // Unknown type - unbind
+                        rebind_target(nullptr, time);
+                    }
                 }
             } else {
                 // None value - unbind target
@@ -279,16 +389,51 @@ void TSRefTargetLink::make_passive() {
 // ============================================================================
 
 bool TSRefTargetLink::valid() const {
-    // Valid if target link is bound OR if element-based binding is set
-    return _target_link.bound() || (_target_container != nullptr && _target_elem_index >= 0);
+    // Valid if target link is bound OR if element-based binding is set OR if Python output is set
+    return _target_link.bound() ||
+           (_target_container != nullptr && _target_elem_index >= 0) ||
+           _python_output.has_value();
 }
 
 bool TSRefTargetLink::modified_at(engine_time_t time) const {
+    // For Python outputs (like CppKeySetIsEmptyOutput), we need to check the Python object's
+    // modified status rather than _target_link (which may be subscribed to a parent TSD overlay).
+    // This ensures we only report modified when the actual value (e.g., is_empty bool) changes,
+    // not when the underlying container changes.
+    if (_python_output.has_value()) {
+        try {
+            nb::object py_output = std::any_cast<nb::object>(_python_output);
+            if (!py_output.is_none() && nb::hasattr(py_output, "modified")) {
+                return nb::cast<bool>(py_output.attr("modified"));
+            }
+        } catch (...) {
+            // Fall through to default logic
+        }
+    }
+
     // Modified if notified at this time (covers both REF change and target rebind)
     return _notify_time == time || _target_link.modified_at(time);
 }
 
 engine_time_t TSRefTargetLink::last_modified_time() const {
+    // For Python outputs, query the Python object for last_modified_time
+    if (_python_output.has_value()) {
+        try {
+            nb::object py_output = std::any_cast<nb::object>(_python_output);
+            if (!py_output.is_none() && nb::hasattr(py_output, "last_modified_time")) {
+                nb::object lmt = py_output.attr("last_modified_time");
+                if (!lmt.is_none()) {
+                    // Python datetime to engine_time_t conversion
+                    // For now, return _notify_time as the last modified time
+                    // when Python output exists (since we set it on notify)
+                    return _notify_time;
+                }
+            }
+        } catch (...) {
+            // Fall through to default logic
+        }
+    }
+
     // Return max of notification time and target's last modified time
     engine_time_t target_time = _target_link.last_modified_time();
     return std::max(_notify_time, target_time);
@@ -313,9 +458,46 @@ TSView TSRefTargetLink::view() const {
         return container_view;
     }
 
-    // Direct binding - delegate to target link
-    if (_target_link.bound()) {
-        return _target_link.view();
+    // Check for Python output FIRST - if we have one, get its value from Python
+    // Note: _target_link may also be bound (for notifications), but we use _python_output for values
+    if (_python_output.has_value()) {
+        try {
+            nb::object py_output = std::any_cast<nb::object>(_python_output);
+            if (!py_output.is_none() && nb::hasattr(py_output, "value")) {
+                nb::object value = py_output.attr("value");
+
+                // Get the expected type for the TSValue
+                const TSMeta* meta = _expected_element_meta;
+                if (meta) {
+                    // Create or update the cache TSValue
+                    if (!_python_value_cache || _python_value_cache->ts_meta() != meta) {
+                        _python_value_cache = std::make_unique<TSValue>(meta);
+                    }
+                    // Set the value from Python
+                    _python_value_cache->from_python(value);
+
+                    // Only mark modified if the Python output says it's modified
+                    // This ensures is_empty only reports modified when the bool value changes,
+                    // not every time the underlying TSD changes
+                    bool is_modified = false;
+                    if (nb::hasattr(py_output, "modified")) {
+                        is_modified = nb::cast<bool>(py_output.attr("modified"));
+                    }
+
+                    if (is_modified) {
+                        // Mark both the value and the overlay as modified at current time
+                        _python_value_cache->notify_modified(_notify_time);
+                        TSMutableView cache_view = _python_value_cache->mutable_view();
+                        if (cache_view.overlay()) {
+                            cache_view.overlay()->mark_modified(_notify_time);
+                        }
+                    }
+                    return _python_value_cache->view();
+                }
+            }
+        } catch (...) {
+            // Failed to get Python value - fall through
+        }
     }
 
     // No target bound yet - return a view with expected element meta

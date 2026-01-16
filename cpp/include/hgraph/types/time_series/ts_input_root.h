@@ -227,6 +227,20 @@ struct TSInputRoot {
      */
     [[nodiscard]] bool active() const noexcept { return _active; }
 
+    /**
+     * @brief Check and trigger startup notifications for all links.
+     *
+     * For REF bindings (notify_once mode), the owning node needs to be
+     * notified on the first tick even if the underlying output wasn't
+     * modified. This method checks all links and triggers notifications
+     * for those that need startup notification.
+     *
+     * Should be called after make_active() during node startup.
+     *
+     * @param start_time The graph start time for notification
+     */
+    void check_links_startup_notify(engine_time_t start_time);
+
     // ========== State Queries ==========
 
     /**

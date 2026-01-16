@@ -721,6 +721,29 @@ void TSValue::make_links_passive() {
     }
 }
 
+void TSValue::check_links_startup_notify(engine_time_t start_time) {
+    if (!_link_support) return;
+
+    // Check all direct links for startup notification
+    for (auto& link : _link_support->child_links) {
+        // Handle TSLink (notify_once REF bindings)
+        if (auto* ts_link_ptr = std::get_if<std::unique_ptr<TSLink>>(&link)) {
+            if (*ts_link_ptr) {
+                (*ts_link_ptr)->check_startup_notify(start_time);
+            }
+        }
+        // TSRefTargetLink doesn't need startup notification - it's for REF->TS,
+        // not TS->REF. The REF output notifies when its value changes.
+    }
+
+    // Recursively check children that have links
+    for (auto& child : _link_support->child_values) {
+        if (child && child->has_link_support()) {
+            child->check_links_startup_notify(start_time);
+        }
+    }
+}
+
 // ============================================================================
 // Cast Cache Implementation
 // ============================================================================

@@ -162,6 +162,12 @@ void TSInputRoot::make_passive() {
     }
 }
 
+void TSInputRoot::check_links_startup_notify(engine_time_t start_time) {
+    if (_active) {
+        _value.check_links_startup_notify(start_time);
+    }
+}
+
 // ============================================================================
 // State Queries
 // ============================================================================
