@@ -172,3 +172,27 @@ def test_reduce_map_and_switch_2():
         ])
     
     assert res == [16, None, 5, None, 0, None, 16, None]
+
+
+def test_reduce_preexisting_items():
+    @graph
+    def g(items: TSD[int, TS[int]], trigger: TS[bool]) -> TS[int]:
+        return switch_(trigger, {
+            False: lambda i: const(0),
+            True: lambda i: reduce(lambda x, y: x + y, i, 0)
+        }, items)
+
+    assert eval_node(
+        g,
+        [
+            {1: 1, 2: 2, 3: 3},
+            {4: 4, 5: 5},
+            {6: 6},
+        ],
+        [
+            None,
+            True,
+            None
+        ],
+        __trace__=True
+    ) == [None, 15, 21]

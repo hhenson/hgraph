@@ -60,9 +60,9 @@ namespace hgraph {
             // Get all keys that are valid but NOT added (i.e., keys present before start)
             // This matches Python: keys = key_set.valid - key_set.added
             std::vector<value::ConstValueView> keys;
-            auto &key_set_out = tsd->output_t().key_set();
-            for (auto elem : key_set_out.value_view()) {
-                if (!key_set_out.was_added(elem)) {
+            auto &key_set = tsd->key_set();
+            for (auto elem : key_set.value_view()) {
+                if (!key_set.was_added(elem)) {
                     keys.push_back(elem);
                 }
             }
@@ -89,19 +89,14 @@ namespace hgraph {
     void ReduceNode::eval() {
         mark_evaluated();
 
-        auto &key_set_out = ts()->output_t().key_set();
+        auto &key_set = ts()->key_set();
 
         // Process removals first, then additions
         // Build vectors from Value-based iteration
-        std::vector<value::ConstValueView> removed_keys;
-        for (auto elem : key_set_out.removed_view()) {
-            removed_keys.push_back(elem);
-        }
-        std::vector<value::ConstValueView> added_keys;
-        for (auto elem : key_set_out.added_view()) {
-            added_keys.push_back(elem);
-        }
+        auto removed_keys = key_set.collect_removed();
         remove_nodes_from_views(removed_keys);
+
+        auto added_keys = key_set.collect_added();
         add_nodes_from_views(added_keys);
 
         // Re-balance the tree if required

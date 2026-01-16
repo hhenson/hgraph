@@ -30,12 +30,14 @@ namespace hgraph {
     }
 
     void TimeSeriesDictInputBuilder::release_instance(time_series_input_ptr item) const {
-        InputBuilder::release_instance(item);
         auto dict = dynamic_cast<TimeSeriesDictInputImpl *>(item);
         if (dict == nullptr) {
             throw std::runtime_error("TimeSeriesDictInputBuilder::release_instance: expected TimeSeriesDictInputImpl but got different type");
         }
+        // if (dict->output()) dict->output_t().remove_key_observer(dict);
         for (auto &value: dict->_ts_values) { ts_builder->release_instance(value.second.get()); }
+        InputBuilder::release_instance(&dict->key_set());
+        InputBuilder::release_instance(item);
     }
 
     size_t TimeSeriesDictInputBuilder::memory_size() const {

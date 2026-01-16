@@ -227,18 +227,22 @@ namespace hgraph {
         [[nodiscard]] bool was_removed(const value::ConstValueView& elem) const;
 
         /**
-         * @brief Collect added elements into a set of PlainValue keys.
+         * @brief Collect added elements as views into the storage.
          * Handles _prev_output case for when input is rebinding.
          * Returns elements that are in current set but weren't before.
+         *
+         * @return Vector of ConstValueView - views remain valid during current evaluation cycle
          */
-        [[nodiscard]] std::vector<value::PlainValue> collect_added() const;
+        [[nodiscard]] std::vector<value::ConstValueView> collect_added() const;
 
         /**
-         * @brief Collect removed elements into a set of PlainValue keys.
+         * @brief Collect removed elements as views into the storage.
          * Handles _prev_output case for when input is unbound.
          * Returns elements that were in the set before but are no longer present.
+         *
+         * @return Vector of ConstValueView - views remain valid during current evaluation cycle
          */
-        [[nodiscard]] std::vector<value::PlainValue> collect_removed() const;
+        [[nodiscard]] std::vector<value::ConstValueView> collect_removed() const;
 
         // ========== Python Interop API ==========
 

@@ -487,8 +487,8 @@ namespace hgraph
         return set_output().was_removed(elem);
     }
 
-    std::vector<value::PlainValue> TimeSeriesSetInput::collect_added() const {
-        std::vector<value::PlainValue> result;
+    std::vector<value::ConstValueView> TimeSeriesSetInput::collect_added() const {
+        std::vector<value::ConstValueView> result;
 
         if (!has_output()) return result;
 
@@ -499,7 +499,7 @@ namespace hgraph
                 bool was_in_prev = (prev_output().contains(elem) || prev_output().was_removed(elem))
                                    && !prev_output().was_added(elem);
                 if (!was_in_prev) {
-                    result.push_back(elem.clone());
+                    result.push_back(elem);
                 }
             }
             return result;
@@ -507,28 +507,28 @@ namespace hgraph
 
         if (sampled()) {
             for (auto elem : set_output().value_view()) {
-                result.push_back(elem.clone());
+                result.push_back(elem);
             }
             return result;
         }
 
         for (auto elem : set_output().added_view()) {
-            result.push_back(elem.clone());
+            result.push_back(elem);
         }
         return result;
     }
 
-    std::vector<value::PlainValue> TimeSeriesSetInput::collect_removed() const {
-        std::vector<value::PlainValue> result;
+    std::vector<value::ConstValueView> TimeSeriesSetInput::collect_removed() const {
+        std::vector<value::ConstValueView> result;
 
         // Check prev_output FIRST (matching Python order)
         if (has_prev_output()) {
             // Calculate removed: items in prev state that aren't in current
             // prev state = (prev_values + prev_removed - prev_added)
-            // Use vector-based approach to avoid needing hash/equal functors
-            std::vector<value::PlainValue> prev_state;
+            // Collect views into prev_output storage (no copying needed!)
+            std::vector<value::ConstValueView> prev_state;
             for (auto elem : prev_output().value_view()) {
-                prev_state.push_back(elem.clone());
+                prev_state.push_back(elem);
             }
             for (auto elem : prev_output().removed_view()) {
                 // Only add if not already in prev_state
@@ -540,22 +540,22 @@ namespace hgraph
                     }
                 }
                 if (!found) {
-                    prev_state.push_back(elem.clone());
+                    prev_state.push_back(elem);
                 }
             }
             // Remove items that were only added in the previous cycle
             for (auto elem : prev_output().added_view()) {
                 prev_state.erase(
                     std::remove_if(prev_state.begin(), prev_state.end(),
-                        [&](const value::PlainValue& v) { return v.equals(elem); }),
+                        [&](const value::ConstValueView& v) { return v.equals(elem); }),
                     prev_state.end());
             }
 
             // Now filter: items in prev_state that aren't in current values
-            for (auto& elem : prev_state) {
-                bool in_current = has_output() && set_output().contains(elem.const_view());
+            for (const auto& elem : prev_state) {
+                bool in_current = has_output() && set_output().contains(elem);
                 if (!in_current) {
-                    result.push_back(std::move(elem));
+                    result.push_back(elem);
                 }
             }
             return result;
@@ -565,7 +565,7 @@ namespace hgraph
 
         if (has_output()) {
             for (auto elem : set_output().removed_view()) {
-                result.push_back(elem.clone());
+                result.push_back(elem);
             }
         }
         return result;
