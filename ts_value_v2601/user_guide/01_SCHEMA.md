@@ -1046,8 +1046,8 @@ struct tss_ops {
 };
 
 struct ref_ops {
-    void (*set_ref)(void* ptr, TimeSeriesReference ref);
-    TimeSeriesReference (*get_ref)(const void* ptr);
+    // REF uses common value()/set_value() with TimeSeriesReference
+    // Reserved for future operations
 };
 
 struct signal_ops {
@@ -1494,8 +1494,7 @@ classDiagram
     }
 
     class ref_ops {
-        +set_ref(ptr: void*, ref: TimeSeriesReference) void
-        +get_ref(ptr: void*) TimeSeriesReference
+        <<empty>>
     }
 
     class signal_ops {
