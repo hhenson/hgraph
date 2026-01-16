@@ -124,11 +124,12 @@ if (prices[3].modified()) {
     std::cout << "Element 3 changed to " << prices[3].value() << "\n";
 }
 
-// Iterate over modified elements (keys are indices for TSL)
-for (auto idx : prices.modified_keys()) {
-    std::cout << "prices[" << idx << "] = " << prices[idx].value() << "\n";
+// Iterate over modified values only
+for (auto ts : prices.modified_values()) {
+    std::cout << ts.value() << "\n";
 }
 
+// Iterate over modified elements with their indices
 for (auto [idx, ts] : prices.modified_items()) {
     std::cout << "prices[" << idx << "] = " << ts.value() << "\n";
 }
@@ -447,8 +448,8 @@ for (auto [key, ts] : stock_prices.items()) {
 |------|-------------|
 | **TS[T]** | `.modified()`, `.delta_value()` |
 | **TSB** | `.modified_items()`, `.delta_to_python()` |
-| **TSL** | `.modified_keys()`, `.modified_items()`, `.delta_to_python()` |
+| **TSL** | `.modified_values()`, `.modified_items()`, `.delta_to_python()` |
 | **TSS** | `.added()`, `.removed()`, `.delta_to_python()` |
-| **TSD** | `.added_keys()`, `.removed_keys()`, `.modified_keys()`, `.delta_to_python()` |
+| **TSD** | `.added_keys()`, `.removed_keys()`, `.modified_keys()`, `.modified_items()`, `.delta_to_python()` |
 
 Use delta information to build efficient incremental algorithms.

@@ -752,6 +752,36 @@ struct type_ops {
 - **Single indirection**: Common ops called directly via function pointer
 - **Type-safe dispatch**: Kind tag ensures correct union member access
 
+### Iterator Types
+
+Two iterator concepts cover all iteration needs (shared with ts_ops layer):
+
+```cpp
+// Single-value iterator - yields View per element
+// Used for: keys, values, indices, elements
+struct ViewRange {
+    struct iterator {
+        View operator*() const;
+        iterator& operator++();
+        bool operator!=(const iterator& other) const;
+    };
+    iterator begin() const;
+    iterator end() const;
+};
+
+// Key-value pair iterator - yields pair of Views per element
+// Used for: items, field name+value pairs
+struct ViewPairRange {
+    struct iterator {
+        std::pair<View, View> operator*() const;  // (key/name, value)
+        iterator& operator++();
+        bool operator!=(const iterator& other) const;
+    };
+    iterator begin() const;
+    iterator end() const;
+};
+```
+
 ### Kind-Specific Operations
 
 Each kind has its own operations table:
@@ -766,30 +796,40 @@ struct bundle_ops {
     View (*field_at_name)(void* ptr, std::string_view name);
     size_t (*field_count)(const void* ptr);
     std::string_view (*field_name)(const void* ptr, size_t idx);
+    // Iteration (ViewPairRange: field_name -> value)
+    ViewPairRange (*items)(const void* ptr);
 };
 
 struct list_ops {
     View (*at)(void* ptr, size_t idx);
-    void (*append)(void* ptr, const void* elem);
+    void (*append)(void* ptr, View elem);
     void (*clear)(void* ptr);
     size_t (*size)(const void* ptr);
+    // Iteration
+    ViewRange (*values)(const void* ptr);
+    ViewPairRange (*items)(const void* ptr);  // index -> value
 };
 
 struct set_ops {
-    bool (*contains)(const void* ptr, const void* elem);
-    void (*add)(void* ptr, const void* elem);
-    bool (*remove)(void* ptr, const void* elem);
+    bool (*contains)(const void* ptr, View elem);
+    void (*add)(void* ptr, View elem);
+    bool (*remove)(void* ptr, View elem);
     void (*clear)(void* ptr);
     size_t (*size)(const void* ptr);
+    // Iteration
+    ViewRange (*values)(const void* ptr);
 };
 
 struct map_ops {
-    View (*at)(void* ptr, const void* key);
-    bool (*contains)(const void* ptr, const void* key);
-    void (*set_item)(void* ptr, const void* key, const void* val);
-    bool (*remove)(void* ptr, const void* key);
+    View (*at)(void* ptr, View key);
+    bool (*contains)(const void* ptr, View key);
+    void (*set_item)(void* ptr, View key, View val);
+    bool (*remove)(void* ptr, View key);
     void (*clear)(void* ptr);
     size_t (*size)(const void* ptr);
+    // Iteration
+    ViewRange (*keys)(const void* ptr);
+    ViewPairRange (*items)(const void* ptr);  // key -> value
 };
 ```
 
@@ -912,6 +952,7 @@ struct ts_ops {
     void (*copy)(void* dst, const void* src);
     bool (*modified)(const void* ptr, engine_time_t time);
     bool (*valid)(const void* ptr);
+    bool (*all_valid)(const void* ptr);  // For composites: all children valid
     engine_time_t (*last_modified_time)(const void* ptr);
     void (*set_modified_time)(void* ptr, engine_time_t time);
 
@@ -941,6 +982,8 @@ struct ts_ops {
 
 ### TS Kind-Specific Operations
 
+The TS layer uses the same `ViewRange` and `ViewPairRange` iterator types as the value layer (see [Iterator Types](#iterator-types) above).
+
 ```cpp
 struct ts_scalar_ops {
     // Scalar TS has no additional ops beyond common
@@ -950,25 +993,23 @@ struct tsb_ops {
     TSView (*field_at_index)(void* ptr, size_t idx);
     TSView (*field_at_name)(void* ptr, std::string_view name);
     size_t (*field_count)(const void* ptr);
-    // Standard iteration (all fields)
-    Iterator (*begin)(void* ptr);
-    Iterator (*end)(void* ptr);
-    // Filtered iteration
-    ValidItemsRange (*valid_items)(const void* ptr);
-    ModifiedItemsRange (*modified_items)(const void* ptr);
+    // Iteration (all return ViewPairRange: field_name -> TSView)
+    ViewPairRange (*items)(const void* ptr);
+    ViewPairRange (*valid_items)(const void* ptr);
+    ViewPairRange (*modified_items)(const void* ptr);
 };
 
 struct tsl_ops {
     TSView (*at)(void* ptr, size_t idx);
     size_t (*size)(const void* ptr);
-    // Standard iteration (all elements)
-    Iterator (*begin)(void* ptr);
-    Iterator (*end)(void* ptr);
-    // Filtered iteration
-    ValidKeysRange (*valid_keys)(const void* ptr);
-    ValidItemsRange (*valid_items)(const void* ptr);
-    ModifiedKeysRange (*modified_keys)(const void* ptr);
-    ModifiedItemsRange (*modified_items)(const void* ptr);
+    // Values iteration (ViewRange of TSView)
+    ViewRange (*values)(const void* ptr);
+    ViewRange (*valid_values)(const void* ptr);
+    ViewRange (*modified_values)(const void* ptr);
+    // Items iteration (ViewPairRange: index -> TSView)
+    ViewPairRange (*items)(const void* ptr);
+    ViewPairRange (*valid_items)(const void* ptr);
+    ViewPairRange (*modified_items)(const void* ptr);
 };
 
 struct tsd_ops {
@@ -977,17 +1018,18 @@ struct tsd_ops {
     void (*set_item)(void* ptr, View key, TSView value);
     bool (*remove)(void* ptr, View key);
     size_t (*size)(const void* ptr);
-    // Standard iteration (all entries)
-    Iterator (*begin)(void* ptr);
-    Iterator (*end)(void* ptr);
-    KeysRange (*keys)(const void* ptr);
-    ItemsRange (*items)(const void* ptr);
-    // Filtered iteration
-    ValidKeysRange (*valid_keys)(const void* ptr);
-    ValidItemsRange (*valid_items)(const void* ptr);
-    AddedKeysRange (*added_keys)(const void* ptr);
-    RemovedKeysRange (*removed_keys)(const void* ptr);
-    ModifiedKeysRange (*modified_keys)(const void* ptr);
+    TSSView (*key_set)(const void* ptr);  // Keys as TSS-like view
+    // Keys iteration (ViewRange)
+    ViewRange (*keys)(const void* ptr);
+    ViewRange (*valid_keys)(const void* ptr);
+    ViewRange (*added_keys)(const void* ptr);
+    ViewRange (*removed_keys)(const void* ptr);
+    ViewRange (*modified_keys)(const void* ptr);
+    // Items iteration (ViewPairRange: key -> TSView)
+    ViewPairRange (*items)(const void* ptr);
+    ViewPairRange (*valid_items)(const void* ptr);
+    ViewPairRange (*added_items)(const void* ptr);
+    ViewPairRange (*modified_items)(const void* ptr);
 };
 
 struct tss_ops {
@@ -995,13 +1037,10 @@ struct tss_ops {
     void (*add)(void* ptr, View elem);
     bool (*remove)(void* ptr, View elem);
     size_t (*size)(const void* ptr);
-    // Standard iteration (all elements)
-    Iterator (*begin)(void* ptr);
-    Iterator (*end)(void* ptr);
-    ValuesRange (*values)(const void* ptr);
-    // Delta iteration
-    AddedRange (*added)(const void* ptr);
-    RemovedRange (*removed)(const void* ptr);
+    // Values iteration (ViewRange)
+    ViewRange (*values)(const void* ptr);
+    ViewRange (*added)(const void* ptr);
+    ViewRange (*removed)(const void* ptr);
     bool (*was_added)(const void* ptr, View elem);
     bool (*was_removed)(const void* ptr, View elem);
 };
@@ -1073,6 +1112,7 @@ TSRegistry::instance().register_type("my_ts", MY_TS_OPS);
 | `construct` | Initialize with given time, default to invalid state |
 | `modified` | True if last_modified_time equals given time |
 | `valid` | True if time-series has been set at least once |
+| `all_valid` | True if time-series and all children are valid (composites); same as `valid` for scalars |
 | `last_modified_time` | Engine time of most recent modification |
 | `set_modified_time` | Update modification time (triggers observer notification) |
 | `value` | Return View of current value (all TS types) |
@@ -1171,6 +1211,16 @@ classDiagram
         +map: map_ops
     }
 
+    class ViewRange {
+        +begin() iterator
+        +end() iterator
+    }
+
+    class ViewPairRange {
+        +begin() iterator
+        +end() iterator
+    }
+
     class atomic_ops {
     }
 
@@ -1179,30 +1229,36 @@ classDiagram
         +field_at_name(ptr: void*, name: string_view) View
         +field_count(ptr: void*) size_t
         +field_name(ptr: void*, idx: size_t) string_view
+        +items(ptr: void*) ViewPairRange
     }
 
     class list_ops {
         +at(ptr: void*, idx: size_t) View
-        +append(ptr: void*, elem: void*) void
+        +append(ptr: void*, elem: View) void
         +clear(ptr: void*) void
         +size(ptr: void*) size_t
+        +values(ptr: void*) ViewRange
+        +items(ptr: void*) ViewPairRange
     }
 
     class set_ops {
-        +contains(ptr: void*, elem: void*) bool
-        +add(ptr: void*, elem: void*) void
-        +remove(ptr: void*, elem: void*) bool
+        +contains(ptr: void*, elem: View) bool
+        +add(ptr: void*, elem: View) void
+        +remove(ptr: void*, elem: View) bool
         +clear(ptr: void*) void
         +size(ptr: void*) size_t
+        +values(ptr: void*) ViewRange
     }
 
     class map_ops {
-        +at(ptr: void*, key: void*) View
-        +contains(ptr: void*, key: void*) bool
-        +set_item(ptr: void*, key: void*, val: void*) void
-        +remove(ptr: void*, key: void*) bool
+        +at(ptr: void*, key: View) View
+        +contains(ptr: void*, key: View) bool
+        +set_item(ptr: void*, key: View, val: View) void
+        +remove(ptr: void*, key: View) bool
         +clear(ptr: void*) void
         +size(ptr: void*) size_t
+        +keys(ptr: void*) ViewRange
+        +items(ptr: void*) ViewPairRange
     }
 
     class TypeKind {
@@ -1230,6 +1286,12 @@ classDiagram
     kind_ops_union --> list_ops : variant
     kind_ops_union --> set_ops : variant
     kind_ops_union --> map_ops : variant
+    bundle_ops --> ViewPairRange : returns
+    list_ops --> ViewRange : returns
+    list_ops --> ViewPairRange : returns
+    set_ops --> ViewRange : returns
+    map_ops --> ViewRange : returns
+    map_ops --> ViewPairRange : returns
 ```
 
 ### Class Diagram - Value Builders
@@ -1343,6 +1405,7 @@ classDiagram
         +copy(dst: void*, src: void*) void
         +modified(ptr: void*, time: engine_time_t) bool
         +valid(ptr: void*) bool
+        +all_valid(ptr: void*) bool
         +last_modified_time(ptr: void*) engine_time_t
         +set_modified_time(ptr: void*, time: engine_time_t) void
         +value(ptr: void*) View
@@ -1370,25 +1433,34 @@ classDiagram
         <<empty>>
     }
 
+    class ViewRange {
+        +begin() iterator
+        +end() iterator
+    }
+
+    class ViewPairRange {
+        +begin() iterator
+        +end() iterator
+    }
+
     class tsb_ops {
         +field_at_index(ptr: void*, idx: size_t) TSView
         +field_at_name(ptr: void*, name: string_view) TSView
         +field_count(ptr: void*) size_t
-        +begin(ptr: void*) Iterator
-        +end(ptr: void*) Iterator
-        +valid_items(ptr: void*) ValidItemsRange
-        +modified_items(ptr: void*) ModifiedItemsRange
+        +items(ptr: void*) ViewPairRange
+        +valid_items(ptr: void*) ViewPairRange
+        +modified_items(ptr: void*) ViewPairRange
     }
 
     class tsl_ops {
         +at(ptr: void*, idx: size_t) TSView
         +size(ptr: void*) size_t
-        +begin(ptr: void*) Iterator
-        +end(ptr: void*) Iterator
-        +valid_keys(ptr: void*) ValidKeysRange
-        +valid_items(ptr: void*) ValidItemsRange
-        +modified_keys(ptr: void*) ModifiedKeysRange
-        +modified_items(ptr: void*) ModifiedItemsRange
+        +values(ptr: void*) ViewRange
+        +valid_values(ptr: void*) ViewRange
+        +modified_values(ptr: void*) ViewRange
+        +items(ptr: void*) ViewPairRange
+        +valid_items(ptr: void*) ViewPairRange
+        +modified_items(ptr: void*) ViewPairRange
     }
 
     class tsd_ops {
@@ -1397,15 +1469,16 @@ classDiagram
         +set_item(ptr: void*, key: View, value: TSView) void
         +remove(ptr: void*, key: View) bool
         +size(ptr: void*) size_t
-        +begin(ptr: void*) Iterator
-        +end(ptr: void*) Iterator
-        +keys(ptr: void*) KeysRange
-        +items(ptr: void*) ItemsRange
-        +valid_keys(ptr: void*) ValidKeysRange
-        +valid_items(ptr: void*) ValidItemsRange
-        +added_keys(ptr: void*) AddedKeysRange
-        +removed_keys(ptr: void*) RemovedKeysRange
-        +modified_keys(ptr: void*) ModifiedKeysRange
+        +key_set(ptr: void*) TSSView
+        +keys(ptr: void*) ViewRange
+        +valid_keys(ptr: void*) ViewRange
+        +added_keys(ptr: void*) ViewRange
+        +removed_keys(ptr: void*) ViewRange
+        +modified_keys(ptr: void*) ViewRange
+        +items(ptr: void*) ViewPairRange
+        +valid_items(ptr: void*) ViewPairRange
+        +added_items(ptr: void*) ViewPairRange
+        +modified_items(ptr: void*) ViewPairRange
     }
 
     class tss_ops {
@@ -1413,11 +1486,9 @@ classDiagram
         +add(ptr: void*, elem: View) void
         +remove(ptr: void*, elem: View) bool
         +size(ptr: void*) size_t
-        +begin(ptr: void*) Iterator
-        +end(ptr: void*) Iterator
-        +values(ptr: void*) ValuesRange
-        +added(ptr: void*) AddedRange
-        +removed(ptr: void*) RemovedRange
+        +values(ptr: void*) ViewRange
+        +added(ptr: void*) ViewRange
+        +removed(ptr: void*) ViewRange
         +was_added(ptr: void*, elem: View) bool
         +was_removed(ptr: void*, elem: View) bool
     }
@@ -1461,6 +1532,12 @@ classDiagram
     ts_kind_ops_union --> tss_ops : variant
     ts_kind_ops_union --> ref_ops : variant
     ts_kind_ops_union --> signal_ops : variant
+    tsb_ops --> ViewPairRange : returns
+    tsl_ops --> ViewRange : returns
+    tsl_ops --> ViewPairRange : returns
+    tsd_ops --> ViewRange : returns
+    tsd_ops --> ViewPairRange : returns
+    tss_ops --> ViewRange : returns
 ```
 
 ### Class Diagram - Time-Series Builders
