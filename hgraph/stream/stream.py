@@ -23,6 +23,7 @@ from hgraph import (
     AUTO_RESOLVE,
     combine,
     convert,
+    operator,
 )
 
 __all__ = (
@@ -33,7 +34,9 @@ __all__ = (
     "combine_status_messages",
     "combine_status_messages_",
     "merge_join",
-    "register_status_message_pattern"
+    "register_status_message_pattern",
+    "reduce_statuses",
+    "reduce_status_messages",
 )
 
 
@@ -154,3 +157,65 @@ def merge_join(str1: TS[str], str2: TS[str], separator: str) -> TS[str]:
         return separator.join(
             sorted({piece for piece in chain(str1.strip().split(separator), str2.strip().split(separator)) if piece})
         )
+
+
+@operator
+def reduce_statuses(ts: TIME_SERIES_TYPE) -> TS[StreamStatus]:
+    """
+    Replacement for 'reduce' with 'combine_statuses'.
+    Currently reduce() always ticks the 'zero' immediately where there is an odd number of items in the collection.
+    This does not work for statuses:
+    - if the zero is set to StreamStatus.OK we get an incorrect OK ticked
+    - if the zero is set to StreamStatus.WAITING it is never cleared because StreamStatus.WAITING trumps StreamStatus.OK
+    FIXME - Replace this with reduce() when it has a 'default' argument and doesn't tick spurious 'zero's
+    """
+
+
+@compute_node(overloads=reduce_statuses)
+def reduce_status_tsd(tsd: TSD[K, TS[StreamStatus]], _output: TS_OUT[StreamStatus] = None) -> TS[StreamStatus]:
+    worst_status = None
+    for status in tsd.values():
+        status = status.value or StreamStatus.WAITING
+        if worst_status is None or status.value > worst_status.value:
+            worst_status = status
+    if _output.value is not worst_status:
+        return worst_status
+
+
+@compute_node(overloads=reduce_statuses)
+def reduce_status_tsl(tsl: TSL[TS[StreamStatus], SIZE], _output: TS_OUT[StreamStatus] = None) -> TS[StreamStatus]:
+    worst_status = None
+    for status in tsl.value:
+        status = status or StreamStatus.WAITING
+        if worst_status is None or status.value > worst_status.value:
+            worst_status = status
+    if _output.value is not worst_status:
+        return worst_status
+
+
+@operator
+def reduce_status_messages(ts: TIME_SERIES_TYPE) -> TS[str]:
+    """
+    Replacement for 'reduce' with 'combine_status_messages'.
+    Currently reduce() always ticks the 'zero' immediately where there is an odd number of items in the collection.
+    This does not work for status messages since we will always tick an empty string (assuming that is the zero).
+    FIXME - Replace this with reduce() when it has a 'default' argument and doesn't tick spurious 'zero's
+    """
+
+
+@compute_node(overloads=reduce_status_messages)
+def reduce_status_messages_tsd(tsd: TSD[K, TS[str]], _output: TS_OUT[str] = None) -> TS[str]:
+    out = None
+    for status_msg in tsd.values():
+        out = combine_status_messages_(out, status_msg.value)
+    if _output.value != out:
+        return out
+
+
+@compute_node(overloads=reduce_status_messages)
+def reduce_status_messages_tsl(tsl: TSL[TS[str], SIZE], _output: TS_OUT[str] = None) -> TS[str]:
+    out = None
+    for status_msg in tsl.value:
+        out = combine_status_messages_(out, status_msg)
+    if _output.value != out:
+        return out
