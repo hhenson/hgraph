@@ -153,6 +153,88 @@ using FlagTS = TS<bool>;         // Resolves via TypeMeta::get<bool>() → "bool
 
 ---
 
+## Value and View
+
+The type system provides two primary abstractions for working with type-erased data:
+
+### Value (Owning)
+
+`Value` owns its memory and provides a minimal API for storage participation:
+
+```cpp
+// Construction
+Value point(point_schema);        // Allocate and default-construct
+Value copy = point;               // Copy construction
+Value moved = std::move(point);   // Move construction
+
+// Storage participation (for use as map key, etc.)
+size_t h = point.hash();          // Hash code
+bool eq = point == other;         // Equality comparison
+std::string s = point.to_string(); // String representation
+
+// Python interop
+point.from_python(py_obj);        // Initialize from Python object
+nb::object py = point.to_python(); // Convert to Python object
+
+// Access
+View v = point.view();            // Get read-only view
+point.at("x").set<double>(1.0);   // Direct field mutation (bundles)
+```
+
+`Value` is designed for storage - it can be used as a key in maps, stored in containers, and serialized.
+
+### View (Non-Owning)
+
+`View` is a **type-erased, non-owning** wrapper that provides the primary user-facing API for reading values:
+
+```cpp
+// Views are obtained from Values, never constructed directly
+View v = some_value.view();
+
+// Type-erased access
+double x = v.as<double>();              // Scalar access
+View field = v.at("field_name");        // Bundle field access
+View elem = v.at(0);                    // List/tuple element access
+bool has = v.contains(key_view);        // Map/set membership
+size_t n = v.size();                    // Collection size
+```
+
+Views are lightweight and cheap to copy - they contain a pointer to the data plus a reference to the type's operations.
+
+### Kind-Specific Views
+
+For kind-specific operations, construct a specialized view from the base `View`:
+
+```cpp
+View v = bundle_value.view();
+
+// Construct kind-specific view
+BundleView bv(v);                       // Bundle-specific access
+double x = bv.at("x").as<double>();     // Field access
+for (auto [name, field] : bv.items()) { // Iterate fields
+    // ...
+}
+
+// Similar for other kinds
+ListView lv(list_view);
+SetView sv(set_view);
+MapView mv(map_view);
+```
+
+The kind-specific views provide iteration and specialized operations appropriate to each type kind.
+
+### Design Rationale
+
+This separation provides:
+
+1. **Clear ownership**: `Value` owns memory, `View` borrows it
+2. **Type erasure**: Both work with any registered type without templates
+3. **Efficient access**: Views are lightweight pointers, not copies
+4. **Storage-friendly**: Values can be hashed, compared, and stored in containers
+5. **API layering**: Base `View` for common operations, kind-specific views for specialized access
+
+---
+
 ## Compound Scalars
 
 User-defined scalar types that are treated atomically (no per-field change tracking).
@@ -719,7 +801,11 @@ Custom types can be added to the type system by implementing the required operat
 
 ### type_ops Architecture
 
-The `type_ops` structure uses a **tag + union** design that balances memory efficiency with extensibility. See [Schema Research](01_SCHEMA_research.md) for the full design analysis.
+The `type_ops` structure provides the **implementation** behind `View`'s type-erased interface. When you call `view.at("field")` or `view.as<double>()`, the View delegates to the appropriate type_ops function pointer.
+
+Users never interact with type_ops directly - they work with `Value` and `View`. Type implementers provide type_ops when registering custom types.
+
+The structure uses a **tag + union** design that balances memory efficiency with extensibility. See [Schema Research](01_SCHEMA_research.md) for the full design analysis.
 
 ```cpp
 struct type_ops {
@@ -942,7 +1028,11 @@ Time-series types require their own operations table (`ts_ops`) in addition to t
 
 ### ts_ops Architecture
 
-The `ts_ops` structure follows the same **tag + union** design as `type_ops`:
+The `ts_ops` structure provides the **implementation** behind `TSView`'s type-erased interface. When you call `ts_view.value()`, `ts_view.modified()`, or access fields via `TSBView`, the view delegates to the appropriate ts_ops function pointer.
+
+Users work with `TSView` and kind-specific views (`TSBView`, `TSLView`, etc.). Type implementers provide ts_ops when registering custom time-series types.
+
+The structure follows the same **tag + union** design as `type_ops`:
 
 ```cpp
 struct ts_ops {
