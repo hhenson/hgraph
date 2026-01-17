@@ -3,9 +3,10 @@
 #include <fmt/format.h>
 #include <hgraph/api/python/py_time_series.h>
 #include <hgraph/types/graph.h>
+#include <hgraph/types/ref.h>
+#include <hgraph/types/tsd.h>
 #include <hgraph/types/time_series/ts_link.h>
 #include <hgraph/types/time_series/ts_ref_target_link.h>
-#include <iostream>
 
 namespace hgraph
 {
@@ -55,6 +56,85 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesOutput::valid() const {
+        const TSMeta* meta = _view.ts_meta();
+
+        // For TSD element wrappers: check if the element key still exists in the parent TSD
+        if (has_element_key()) {
+            const TSValue* root = _view.root();
+            if (root && root->ts_meta() && root->ts_meta()->kind() == TSTypeKind::TSD) {
+                TSDView dict = root->view().as_dict();
+                if (dict.valid()) {
+                    // Check if the key exists in the TSD
+                    const TSDTypeMeta* dict_meta = dict.dict_meta();
+                    const value::TypeMeta* key_schema = dict_meta->key_type();
+
+                    if (key_schema && key_schema->ops) {
+                        // Create temp key storage and convert from Python
+                        std::vector<char> temp_key(key_schema->size);
+                        void* key_ptr = temp_key.data();
+
+                        bool key_valid = false;
+                        try {
+                            if (key_schema->ops->construct) {
+                                key_schema->ops->construct(key_ptr, key_schema);
+                            }
+                            if (key_schema->ops->from_python) {
+                                key_schema->ops->from_python(key_ptr, _element_key, key_schema);
+                            }
+
+                            // Check if key exists
+                            value::ConstMapView map_view = dict.value_view().as_map();
+                            value::ConstValueView key_view(key_ptr, key_schema);
+                            auto slot_idx = map_view.find_index(key_view);
+                            key_valid = slot_idx.has_value();
+
+                            if (key_schema->ops->destruct) {
+                                key_schema->ops->destruct(key_ptr, key_schema);
+                            }
+                        } catch (const std::exception& e) {
+                            if (key_schema->ops->destruct) {
+                                key_schema->ops->destruct(key_ptr, key_schema);
+                            }
+                            return nb::bool_(false);
+                        }
+
+                        if (!key_valid) {
+                            return nb::bool_(false);
+                        }
+                    }
+                }
+            }
+        }
+
+        // For REF types, check if the TimeSeriesReference has a valid bound target
+        if (meta && meta->kind() == TSTypeKind::REF) {
+            const void* data = _view.value_view().data();
+            if (data) {
+                const TimeSeriesReference* ref = static_cast<const TimeSeriesReference*>(data);
+                if (ref->is_bound()) {
+                    // Check if the bound target is valid
+                    if (ref->is_python_bound()) {
+                        try {
+                            nb::object py_output = ref->python_output();
+                            if (py_output.is_valid() && !py_output.is_none()) {
+                                nb::object valid_attr = py_output.attr("valid");
+                                return nb::bool_(nb::cast<bool>(valid_attr));
+                            }
+                        } catch (...) {
+                            // Fall through to default
+                        }
+                    } else if (ref->is_view_bound()) {
+                        const TSValue* target = ref->view_output();
+                        if (target) {
+                            return nb::bool_(target->ts_valid());
+                        }
+                    }
+                }
+                // Reference exists but is not bound or target is invalid
+                return nb::bool_(false);
+            }
+        }
+
         return nb::bool_(_view.ts_valid());
     }
 
@@ -98,6 +178,50 @@ namespace hgraph
         return true;
     }
 
+    void PyTimeSeriesOutput::bind_output(nb::object output) {
+        // For REF outputs, this is used to bind a Python output object.
+        // Note: We do NOT store the TimeSeriesReference in the view's value storage because:
+        // 1. REFTypeMeta::value_schema() returns the REFERENCED type's schema, not TimeSeriesReference
+        // 2. The storage is allocated for the referenced type's value (e.g., int for REF[TS[int]])
+        // 3. Casting that storage to TimeSeriesReference* causes undefined behavior
+        //
+        // For REF outputs, the binding should be handled through the TSValue's ref_cache mechanism
+        // or through the TSRefTargetLink subscription system for inputs.
+
+        const TSMeta* meta = _view.ts_meta();
+        if (!meta || meta->kind() != TSTypeKind::REF) {
+            // Not a REF type - this is a no-op
+            return;
+        }
+
+        // Store in ref_cache if we have a root TSValue
+        const TSValue* root = _view.root();
+        if (root) {
+            nb::object ref_obj = TimeSeriesReference::make_python_bound(output).is_empty()
+                                     ? nb::none()
+                                     : nb::cast(TimeSeriesReference::make_python_bound(output));
+            const_cast<TSValue*>(root)->set_ref_cache(ref_obj);
+        }
+
+        // Mark as modified
+        Node* node = _view.owning_node();
+        if (node && node->graph()) {
+            engine_time_t current_time = node->graph()->evaluation_time();
+            _view.notify_modified(current_time);
+        }
+    }
+
+    void PyTimeSeriesOutput::make_active() {
+        // For REF outputs, this affects scheduling
+        // In the view-based system, this is typically a no-op since scheduling
+        // is handled differently. The Python layer may handle this.
+    }
+
+    void PyTimeSeriesOutput::make_passive() {
+        // For REF outputs, this affects scheduling
+        // In the view-based system, this is typically a no-op.
+    }
+
     void PyTimeSeriesOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesOutput, PyTimeSeriesType>(m, "TimeSeriesOutput")
             // Common time-series properties
@@ -117,6 +241,10 @@ namespace hgraph
             .def("invalidate", &PyTimeSeriesOutput::invalidate)
             .def("copy_from_output", &PyTimeSeriesOutput::copy_from_output)
             .def("copy_from_input", &PyTimeSeriesOutput::copy_from_input)
+            // REF-specific methods (for TSD[K, REF[...]] outputs)
+            .def("bind_output", &PyTimeSeriesOutput::bind_output)
+            .def("make_active", &PyTimeSeriesOutput::make_active)
+            .def("make_passive", &PyTimeSeriesOutput::make_passive)
             // Internal: expose root TSValue for C++ subscription (used by TSRefTargetLink)
             .def_prop_ro("_cpp_root", [](PyTimeSeriesOutput& self) -> const TSValue* {
                 return self.view().root();
@@ -130,6 +258,33 @@ namespace hgraph
 
     nb::object PyTimeSeriesInput::value() const {
         const TSMeta* meta = _view.ts_meta();
+
+        // If we have a bound Python output (from bind_output for REF inputs),
+        // return a TimeSeriesReference wrapping it
+        if (_bound_py_output.is_valid() && !_bound_py_output.is_none()) {
+            // Use BoundTimeSeriesReference which can wrap any object with value/valid/modified
+            auto ref_module = nb::module_::import_("hgraph._impl._types._ref");
+            auto bound_ref_class = ref_module.attr("BoundTimeSeriesReference");
+            return bound_ref_class(_bound_py_output);
+        }
+
+        // For REF types, check the underlying TimeSeriesReference value
+        // This handles TSD element refs where binding is stored in the value
+        if (meta && meta->kind() == TSTypeKind::REF) {
+            const void* data = _view.value_view().data();
+            if (data) {
+                const TimeSeriesReference* ref = static_cast<const TimeSeriesReference*>(data);
+                if (ref->is_bound()) {
+                    if (ref->is_python_bound()) {
+                        // Return a BoundTimeSeriesReference wrapping the Python output
+                        auto ref_module = nb::module_::import_("hgraph._impl._types._ref");
+                        auto bound_ref_class = ref_module.attr("BoundTimeSeriesReference");
+                        return bound_ref_class(ref->python_output());
+                    }
+                    // For other bound types, fall through to view's to_python
+                }
+            }
+        }
 
         // Check if we have a TSRefTargetLink that may have rebound
         const TSValue* link_source = _view.link_source();
@@ -220,7 +375,8 @@ namespace hgraph
                         engine_time_t eval_time = *node->cached_evaluation_time_ptr();
 
                         // Check modified_at for the ref_link
-                        if (!ref_link->modified_at(eval_time)) {
+                        bool modified = ref_link->modified_at(eval_time);
+                        if (!modified) {
                             return nb::none();  // Not modified this tick
                         }
 
@@ -335,8 +491,11 @@ namespace hgraph
                         }
                     }
 
-                    return target_view.to_python_delta();
+                    nb::object result = target_view.to_python_delta();
+                    return result;
+                } else {
                 }
+            } else {
             }
 
             // Check for TSLink with KEY_SET binding (TSD viewed as TSS)
@@ -375,6 +534,24 @@ namespace hgraph
         }
         engine_time_t eval_time = *n->cached_evaluation_time_ptr();
 
+        // Check if the binding was modified this tick (bind_output was called)
+        // This is critical for REF inputs like _ref in tsd_get_item_default
+        if (_binding_modified_time == eval_time) {
+            return nb::bool_(true);
+        }
+
+        // If we have a bound Python output (e.g., CppKeySetOutputWrapper),
+        // check its modified status - this handles virtual outputs
+        if (_bound_py_output.is_valid() && !_bound_py_output.is_none()) {
+            try {
+                if (nb::hasattr(_bound_py_output, "modified")) {
+                    return nb::bool_(nb::cast<bool>(_bound_py_output.attr("modified")));
+                }
+            } catch (...) {
+                // Fall through to normal check
+            }
+        }
+
         // Check if we have a TSRefTargetLink that may have rebound
         const TSValue* link_source = _view.link_source();
         const auto& path = _view.path();
@@ -397,7 +574,19 @@ namespace hgraph
             return nb::bool_(_bound_output->ts_valid());
         }
 
+        // If we have a bound Python output object (from bind_output for REF inputs),
+        // check its valid property
+        if (_bound_py_output.is_valid() && !_bound_py_output.is_none()) {
+            try {
+                nb::object valid_attr = _bound_py_output.attr("valid");
+                return nb::bool_(nb::cast<bool>(valid_attr));
+            } catch (...) {
+                // If the object doesn't have a valid attribute, fall through
+            }
+        }
+
         // Check if we have a TSRefTargetLink that may have rebound
+        // This handles wired REF inputs where binding is done through the link system
         const TSValue* link_source = _view.link_source();
         const auto& path = _view.path();
         if (link_source && path.depth() > 0) {
@@ -407,6 +596,36 @@ namespace hgraph
                 // Get the current target view from ref_link
                 TSView target_view = ref_link->view();
                 return nb::bool_(target_view.ts_valid());
+            }
+        }
+
+        // For REF types, check the underlying TimeSeriesReference value
+        // This handles TSD element refs where bind_output was called explicitly
+        const TSMeta* meta = _view.ts_meta();
+        if (meta && meta->kind() == TSTypeKind::REF) {
+            const void* data = _view.value_view().data();
+            if (data) {
+                const TimeSeriesReference* ref = static_cast<const TimeSeriesReference*>(data);
+                if (ref->is_bound()) {
+                    if (ref->is_python_bound()) {
+                        try {
+                            nb::object py_output = ref->python_output();
+                            if (py_output.is_valid() && !py_output.is_none()) {
+                                nb::object valid_attr = py_output.attr("valid");
+                                return nb::bool_(nb::cast<bool>(valid_attr));
+                            }
+                        } catch (...) {
+                            // Fall through
+                        }
+                    } else if (ref->is_view_bound()) {
+                        const TSValue* target = ref->view_output();
+                        if (target) {
+                            return nb::bool_(target->ts_valid());
+                        }
+                    }
+                }
+                // For TSD element refs without link, check if bound via bind_output
+                // If not bound, fall through to view check rather than returning false
             }
         }
 
@@ -444,6 +663,93 @@ namespace hgraph
         // Track explicit binding state for passthrough inputs
         // This is called by the valid operator when binding a REF's output to a passthrough input
         _explicit_bound = true;
+
+        // Store the Python object for modification tracking
+        // This is important for virtual outputs like CppKeySetOutputWrapper
+        // that need to propagate their modified() status
+        _bound_py_output = output;
+
+        // Track when the binding changed - this makes modified() return true for this tick
+        // This is critical for _ref.modified checks in tsd_get_item_default
+        Node* binding_node = _view.owning_node();
+        if (binding_node && binding_node->graph()) {
+            _binding_modified_time = binding_node->graph()->evaluation_time();
+        }
+
+        // Note: We do NOT store the TimeSeriesReference in the view's value storage because:
+        // 1. REFTypeMeta::value_schema() returns the REFERENCED type's schema, not TimeSeriesReference
+        // 2. The storage is allocated for the referenced type's value (e.g., int for REF[TS[int]])
+        // 3. Casting that storage to TimeSeriesReference* causes undefined behavior
+        //
+        // Instead, we store in ref_cache which is checked by TSRefTargetLink::notify()
+
+        // CRITICAL: For passthrough REF inputs, we need to set ref_cache on the NODE'S OUTPUT,
+        // not on the input's view root. The downstream TSRefTargetLink is subscribed to the
+        // node's output TSValue, so that's where the ref_cache needs to be updated.
+        //
+        // Architecture:
+        // - Node A (tsd_get_item_default): has REF output and passthrough REF input (_ref)
+        // - Node B (downstream): input with TSRefTargetLink bound to Node A's output
+        // - When _ref.bind_output(x) is called, we need to update Node A's output's ref_cache
+        // - TSRefTargetLink on Node B will then read from Node A's output's ref_cache
+
+        // Get the owning node to find its output TSValue
+        Node* node = _view.owning_node();
+        if (!node) {
+            const TSValue* root = _view.root();
+            if (root) {
+                node = root->owning_node();
+            }
+        }
+
+        // For passthrough REF inputs, the node's output should be a REF type
+        // Set ref_cache on the node's output TSValue
+        const TSValue* ref_output_ts = nullptr;
+        if (node && node->ts_output()) {
+            const TSMeta* output_meta = node->ts_output()->ts_meta();
+            if (output_meta && output_meta->kind() == TSTypeKind::REF) {
+                ref_output_ts = node->ts_output();
+            }
+        }
+
+        // If no node output found, try to find via TSRefTargetLink
+        if (!ref_output_ts) {
+            const TSValue* link_source = _view.link_source();
+            const auto& path = _view.path();
+
+            if (link_source && path.depth() > 0) {
+                size_t field_index = path.elements[0];
+                TSRefTargetLink* ref_link = const_cast<TSValue*>(link_source)->ref_link_at(field_index);
+                if (ref_link) {
+                    ref_output_ts = ref_link->ref_output();
+                }
+            }
+        }
+
+        // Final fallback to _view.root()
+        if (!ref_output_ts) {
+            ref_output_ts = _view.root();
+        }
+
+        if (ref_output_ts) {
+            // Create a C++ TimeSeriesReference wrapping the Python output
+            // NOTE: Only create once - avoid double evaluation
+            TimeSeriesReference temp_ref = TimeSeriesReference::make_python_bound(output);
+            nb::object ref_obj = temp_ref.is_empty()
+                                     ? nb::none()
+                                     : nb::cast(temp_ref);
+            const_cast<TSValue*>(ref_output_ts)->set_ref_cache(ref_obj);
+        }
+
+        // Notify the output's overlay if we have one (for proper notification propagation)
+        if (ref_output_ts) {
+            if (auto* output_overlay = ref_output_ts->overlay()) {
+                if (node && node->graph()) {
+                    engine_time_t current_time = node->graph()->evaluation_time();
+                    const_cast<TSOverlayStorage*>(output_overlay)->mark_modified(current_time);
+                }
+            }
+        }
     }
 
     void PyTimeSeriesInput::un_bind_output() {
@@ -451,6 +757,7 @@ namespace hgraph
         // This is called by the valid operator when a REF's value changes
         _explicit_bound = false;
         _bound_output = nullptr;
+        _bound_py_output = nb::object();  // Clear the Python reference
     }
 
     nb::bool_ PyTimeSeriesInput::has_peer() const {

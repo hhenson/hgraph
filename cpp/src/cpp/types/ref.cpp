@@ -12,6 +12,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/api/python/py_time_series.h>
+#include <hgraph/api/python/py_tsd.h>
 
 #include <algorithm>
 
@@ -36,6 +37,10 @@ namespace hgraph
 
     TimeSeriesReference::TimeSeriesReference(const TSValue* view_output) : _kind(Kind::VIEW_BOUND) {
         _storage.view_bound = view_output;
+    }
+
+    TimeSeriesReference::TimeSeriesReference(nb::object python_output) : _kind(Kind::PYTHON_BOUND) {
+        new (&_storage.python_bound) nb::object(std::move(python_output));
     }
 
     // Copy constructor
@@ -70,11 +75,22 @@ namespace hgraph
     TimeSeriesReference::~TimeSeriesReference() { destroy(); }
 
     void TimeSeriesReference::destroy() noexcept {
+        // Safety check: only destroy if kind is a valid enum value.
+        // This guards against calling destroy() on uninitialized storage or
+        // storage that was allocated for a different type (e.g., when REF
+        // value storage is mismatched with the actual data type).
+        auto kind_val = static_cast<uint8_t>(_kind);
+        if (kind_val > static_cast<uint8_t>(Kind::PYTHON_BOUND)) {
+            // Invalid kind value - skip destruction to avoid undefined behavior
+            return;
+        }
+
         switch (_kind) {
             case Kind::EMPTY: break;
             case Kind::BOUND: _storage.bound.~shared_ptr(); break;  // Call shared_ptr destructor
             case Kind::UNBOUND: _storage.unbound.~vector(); break;
             case Kind::VIEW_BOUND: break;  // Plain pointer, no destruction needed
+            case Kind::PYTHON_BOUND: _storage.python_bound.~object(); break;  // Call nb::object destructor
         }
     }
 
@@ -85,6 +101,7 @@ namespace hgraph
             case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(other._storage.bound); break;
             case Kind::UNBOUND: new (&_storage.unbound) std::vector<TimeSeriesReference>(other._storage.unbound); break;
             case Kind::VIEW_BOUND: _storage.view_bound = other._storage.view_bound; break;
+            case Kind::PYTHON_BOUND: new (&_storage.python_bound) nb::object(other._storage.python_bound); break;
         }
     }
 
@@ -95,6 +112,7 @@ namespace hgraph
             case Kind::BOUND: new (&_storage.bound) time_series_output_s_ptr(std::move(other._storage.bound)); break;
             case Kind::UNBOUND: new (&_storage.unbound) std::vector<TimeSeriesReference>(std::move(other._storage.unbound)); break;
             case Kind::VIEW_BOUND: _storage.view_bound = other._storage.view_bound; break;
+            case Kind::PYTHON_BOUND: new (&_storage.python_bound) nb::object(std::move(other._storage.python_bound)); break;
         }
     }
 
@@ -107,6 +125,11 @@ namespace hgraph
     const TSValue* TimeSeriesReference::view_output() const {
         if (_kind != Kind::VIEW_BOUND) { throw std::runtime_error("TimeSeriesReference::view_output() called on non-view-bound reference"); }
         return _storage.view_bound;
+    }
+
+    const nb::object& TimeSeriesReference::python_output() const {
+        if (_kind != Kind::PYTHON_BOUND) { throw std::runtime_error("TimeSeriesReference::python_output() called on non-python-bound reference"); }
+        return _storage.python_bound;
     }
 
     const std::vector<TimeSeriesReference> &TimeSeriesReference::items() const {
@@ -142,6 +165,12 @@ namespace hgraph
                     // For now, throw - actual binding for view-based runtime uses a different mechanism
                     throw std::runtime_error("TimeSeriesReference::bind_input() on VIEW_BOUND: use view-based binding instead");
                 }
+            case Kind::PYTHON_BOUND:
+                {
+                    // Python-bound references store a synthetic Python output without TSValue backing
+                    // For now, throw - the reference's value is accessed directly through python_output()
+                    throw std::runtime_error("TimeSeriesReference::bind_input() on PYTHON_BOUND: use Python value access instead");
+                }
             case Kind::UNBOUND:
                 {
                     bool reactivate = false;
@@ -167,6 +196,7 @@ namespace hgraph
             case Kind::EMPTY: return false;
             case Kind::BOUND: return true;
             case Kind::VIEW_BOUND: return true;
+            case Kind::PYTHON_BOUND: return true;
             case Kind::UNBOUND: return false;
         }
         return false;
@@ -177,6 +207,18 @@ namespace hgraph
             case Kind::EMPTY: return false;
             case Kind::BOUND: return _storage.bound && _storage.bound->valid();
             case Kind::VIEW_BOUND: return _storage.view_bound && _storage.view_bound->ts_valid();
+            case Kind::PYTHON_BOUND:
+                // For Python-bound references, check if the Python object has a valid() method
+                // and call it, otherwise assume valid if the object is not None
+                try {
+                    if (_storage.python_bound.is_none()) return false;
+                    if (nb::hasattr(_storage.python_bound, "valid")) {
+                        return nb::cast<bool>(_storage.python_bound.attr("valid")());
+                    }
+                    return true;  // Has output but can't check validity - assume valid
+                } catch (...) {
+                    return false;
+                }
             case Kind::UNBOUND:
                 return std::any_of(_storage.unbound.begin(), _storage.unbound.end(),
                                    [](const auto &item) { return item.is_valid(); });
@@ -191,6 +233,7 @@ namespace hgraph
             case Kind::EMPTY: return true;
             case Kind::BOUND: return _storage.bound == other._storage.bound;
             case Kind::VIEW_BOUND: return _storage.view_bound == other._storage.view_bound;
+            case Kind::PYTHON_BOUND: return _storage.python_bound.is(other._storage.python_bound);
             case Kind::UNBOUND: return _storage.unbound == other._storage.unbound;
         }
         return false;
@@ -220,6 +263,8 @@ namespace hgraph
                     for (const auto &item : _storage.unbound) { string_items.push_back(item.to_string()); }
                     return fmt::format("REF[{}]", fmt::join(string_items, ", "));
                 }
+            case Kind::PYTHON_BOUND:
+                return fmt::format("REF[python@{:p}]", static_cast<const void*>(_storage.python_bound.ptr()));
         }
         return "REF[?]";
     }
@@ -254,6 +299,13 @@ namespace hgraph
         TimeSeriesReference ref(container);
         ref._view_elem_index = static_cast<int>(element_index);
         return ref;
+    }
+
+    TimeSeriesReference TimeSeriesReference::make_python_bound(nb::object output) {
+        if (output.is_none()) {
+            return make();
+        }
+        return TimeSeriesReference(std::move(output));
     }
 
     TimeSeriesReference TimeSeriesReference::make(const std::vector<TimeSeriesReferenceInput*>& items) {
@@ -332,6 +384,13 @@ namespace hgraph
                             set_value(TimeSeriesReference::make_view_bound(ts_value));
                             return;
                         }
+                    }
+                    // Check if output is a CppKeySetIsEmptyOutput (special synthetic output for TSD.key_set.is_empty)
+                    if (nb::isinstance<CppKeySetIsEmptyOutput>(output)) {
+                        // For synthetic outputs without TSValue backing, we store the Python object
+                        // directly in the reference using PYTHON_BOUND kind
+                        set_value(TimeSeriesReference::make_python_bound(output));
+                        return;
                     }
                     // Python output - we can't create a proper C++ reference,
                     // but we need to mark this output as modified so downstream sees it
@@ -560,6 +619,10 @@ namespace hgraph
 
     TimeSeriesReferenceOutput *TimeSeriesReferenceInput::output_t() {
         auto _output{output()};
+        // Safety check before dynamic_cast
+        if (_output.get() == nullptr) {
+            throw std::runtime_error("TimeSeriesReferenceInput::output_t: Output is null");
+        }
         auto _result{dynamic_cast<TimeSeriesReferenceOutput *>(_output.get())};
         if (_result == nullptr) {
             throw std::runtime_error("TimeSeriesReferenceInput::output_t: Expected TimeSeriesReferenceOutput*");

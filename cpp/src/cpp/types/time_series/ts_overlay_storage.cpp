@@ -886,6 +886,17 @@ KeySetOverlayView MapTSOverlay::key_set_view() noexcept {
     return KeySetOverlayView(this);
 }
 
+void MapTSOverlay::update_is_empty_state(engine_time_t time, size_t current_size) {
+    bool new_is_empty = (current_size == 0);
+
+    // Check if the is_empty state actually changed
+    if (new_is_empty != _is_empty_value) {
+        _is_empty_value = new_is_empty;
+        // Mark the is_empty overlay as modified - this will notify any observers
+        _is_empty_overlay.mark_modified(time);
+    }
+}
+
 // ============================================================================
 // Factory Function Implementation
 // ============================================================================

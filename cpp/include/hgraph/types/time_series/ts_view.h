@@ -499,6 +499,14 @@ struct TSMutableView : TSView {
     TSMutableView(void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay) noexcept;
 
     /**
+     * @brief Construct from data pointer, schema, overlay, and root TSValue.
+     *
+     * Used when creating mutable views for TSD elements where we need both
+     * element-specific overlay and a reference back to the parent TSD.
+     */
+    TSMutableView(void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay, TSValue* root) noexcept;
+
+    /**
      * @brief Construct from a TSValue (full access).
      */
     explicit TSMutableView(TSValue& ts_value);

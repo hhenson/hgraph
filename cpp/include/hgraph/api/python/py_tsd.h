@@ -179,7 +179,6 @@ namespace hgraph
 
     private:
         TSMutableView _view;  // Direct view storage - independent of Python wrapper
-        std::shared_ptr<CppKeySetIsEmptyOutput> _is_empty_output_cache;
     };
 
     /**
@@ -205,6 +204,10 @@ namespace hgraph
         // Node/Graph access
         [[nodiscard]] nb::object owning_node() const;
         [[nodiscard]] nb::object owning_graph() const;
+
+        // Duck-typing support for TimeSeriesReference.make()
+        [[nodiscard]] bool has_output() const { return true; }
+        [[nodiscard]] nb::object output();  // Returns self
 
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;

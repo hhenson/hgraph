@@ -29,20 +29,188 @@ namespace hgraph
         return dict.size();
     }
 
-    nb::object PyTimeSeriesDictOutput::get_item(const nb::object &item) const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::get_item not yet implemented for view-based wrappers");
+    nb::object PyTimeSeriesDictOutput::get_item(const nb::object &key) const {
+        // Get TSD metadata
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        const value::TypeMeta* map_schema = _view.ts_meta()->value_schema();
+
+        // Create key value for lookup
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Get the map view and find the key
+        value::ConstMapView map_view(_view.value_view().data(), map_schema);
+        auto slot_idx = map_view.find_index(temp_key.const_view());
+
+        if (!slot_idx) {
+            throw nb::key_error("Key not found in TSD");
+        }
+
+        // Get the value pointer at this slot
+        auto* storage = static_cast<value::MapStorage*>(const_cast<void*>(_view.value_view().data()));
+        void* val_ptr = storage->get_value_ptr(*slot_idx);
+
+        // Get child overlay if available
+        TSOverlayStorage* child_overlay = nullptr;
+        if (auto* map_overlay = dynamic_cast<MapTSOverlay*>(_view.overlay())) {
+            child_overlay = map_overlay->value_overlay(*slot_idx);
+        }
+
+        // Create a TSMutableView for the child and wrap it
+        TSMutableView child_view(val_ptr, value_ts_type, child_overlay);
+        return wrap_output_view(child_view);
     }
 
-    nb::object PyTimeSeriesDictOutput::get(const nb::object &item, const nb::object &default_value) const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::get not yet implemented for view-based wrappers");
+    nb::object PyTimeSeriesDictOutput::get(const nb::object &key, const nb::object &default_value) const {
+        // Get TSD metadata
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        const value::TypeMeta* map_schema = _view.ts_meta()->value_schema();
+
+        // Create key value for lookup
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Get the map view and find the key
+        value::ConstMapView map_view(_view.value_view().data(), map_schema);
+        auto slot_idx = map_view.find_index(temp_key.const_view());
+
+        if (!slot_idx) {
+            return default_value;
+        }
+
+        // Get the value pointer at this slot
+        auto* storage = static_cast<value::MapStorage*>(const_cast<void*>(_view.value_view().data()));
+        void* val_ptr = storage->get_value_ptr(*slot_idx);
+
+        // Get child overlay if available
+        TSOverlayStorage* child_overlay = nullptr;
+        if (auto* map_overlay = dynamic_cast<MapTSOverlay*>(_view.overlay())) {
+            child_overlay = map_overlay->value_overlay(*slot_idx);
+        }
+
+        // Create a TSMutableView for the child and wrap it
+        TSMutableView child_view(val_ptr, value_ts_type, child_overlay);
+        return wrap_output_view(child_view);
     }
 
     nb::object PyTimeSeriesDictOutput::get_or_create(const nb::object &key) {
-        throw std::runtime_error("PyTimeSeriesDictOutput::get_or_create not yet implemented for view-based wrappers");
+        // Get TSD metadata
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        const value::TypeMeta* val_schema = value_ts_type ? value_ts_type->value_schema() : nullptr;
+        const value::TypeMeta* map_schema = _view.ts_meta()->value_schema();
+
+        // Get overlay for tracking
+        MapTSOverlay* map_overlay = nullptr;
+        if (_view.overlay()) {
+            map_overlay = dynamic_cast<MapTSOverlay*>(_view.overlay());
+        }
+
+        // Create key value
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Get mutable map view
+        value::MapView mut_map(_view.mutable_value_view().data(), map_schema);
+
+        // Try to find existing key first
+        auto slot_idx = mut_map.find_index(temp_key.const_view());
+
+        if (!slot_idx) {
+            // Key doesn't exist - create it
+            engine_time_t current_time = get_tsd_current_time(_view);
+
+            // Create default value using schema
+            value::PlainValue temp_val(val_schema);
+            if (val_schema->ops && val_schema->ops->construct) {
+                val_schema->ops->construct(temp_val.data(), val_schema);
+            }
+
+            // Insert
+            value::MapSetResult result = mut_map.set_with_index(temp_key.const_view(), temp_val.const_view());
+            slot_idx = result.index;
+
+            // Record in overlay
+            if (result.inserted && map_overlay) {
+                map_overlay->record_key_added(result.index, current_time);
+                map_overlay->update_is_empty_state(current_time, mut_map.size());
+            }
+
+            // Ensure child overlay
+            if (map_overlay) {
+                map_overlay->ensure_value_overlay(result.index);
+            }
+        }
+
+        // Get the value pointer at this slot
+        auto* storage = static_cast<value::MapStorage*>(_view.mutable_value_view().data());
+        void* val_ptr = storage->get_value_ptr(*slot_idx);
+
+        // Get child overlay if available
+        TSOverlayStorage* child_overlay = nullptr;
+        if (map_overlay) {
+            child_overlay = map_overlay->value_overlay(*slot_idx);
+        }
+
+        // Create a TSMutableView for the child and wrap it
+        TSMutableView child_view(val_ptr, value_ts_type, child_overlay);
+        return wrap_output_view(child_view);
     }
 
-    void PyTimeSeriesDictOutput::create(const nb::object &item) {
-        throw std::runtime_error("PyTimeSeriesDictOutput::create not yet implemented for view-based wrappers");
+    void PyTimeSeriesDictOutput::create(const nb::object &key) {
+        // Get TSD metadata
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        const value::TypeMeta* val_schema = value_ts_type ? value_ts_type->value_schema() : nullptr;
+        const value::TypeMeta* map_schema = _view.ts_meta()->value_schema();
+
+        // Get overlay for tracking
+        MapTSOverlay* map_overlay = nullptr;
+        if (_view.overlay()) {
+            map_overlay = dynamic_cast<MapTSOverlay*>(_view.overlay());
+        }
+
+        // Get current time
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        // Create key value
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Create default value using schema
+        value::PlainValue temp_val(val_schema);
+        if (val_schema->ops && val_schema->ops->construct) {
+            val_schema->ops->construct(temp_val.data(), val_schema);
+        }
+
+        // Get mutable map view and insert
+        value::MapView mut_map(_view.mutable_value_view().data(), map_schema);
+        value::MapSetResult result = mut_map.set_with_index(temp_key.const_view(), temp_val.const_view());
+
+        // If newly inserted, record in overlay
+        if (result.inserted && map_overlay) {
+            map_overlay->record_key_added(result.index, current_time);
+            map_overlay->update_is_empty_state(current_time, mut_map.size());
+        }
+
+        // Ensure child overlay exists for the new entry
+        if (map_overlay) {
+            map_overlay->ensure_value_overlay(result.index);
+        }
     }
 
     nb::object PyTimeSeriesDictOutput::iter() const {
@@ -92,19 +260,88 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::modified_keys() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::modified_keys not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (const auto& [key, val] : dict.items()) {
+            if (val.modified_at(eval_time)) {
+                result.append(key.to_python());
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::modified_values() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::modified_values not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (const auto& val : dict.ts_values()) {
+            if (val.modified_at(eval_time)) {
+                result.append(wrap_output_view(TSMutableView(
+                    const_cast<void*>(val.value_view().data()),
+                    val.ts_meta(),
+                    const_cast<TSOverlayStorage*>(val.overlay())
+                )));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::modified_items() const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::modified_items not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (const auto& [key, val] : dict.items()) {
+            if (val.modified_at(eval_time)) {
+                nb::tuple item = nb::make_tuple(
+                    key.to_python(),
+                    wrap_output_view(TSMutableView(
+                        const_cast<void*>(val.value_view().data()),
+                        val.ts_meta(),
+                        const_cast<TSOverlayStorage*>(val.overlay())
+                    ))
+                );
+                result.append(item);
+            }
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictOutput::was_modified(const nb::object &key) const {
-        throw std::runtime_error("PyTimeSeriesDictOutput::was_modified not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return false;
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+
+        // Get the element at this key and check if modified
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        if (!dict.contains(temp_key.const_view())) {
+            return false;
+        }
+
+        TSView elem = dict.at(temp_key.const_view());
+        return elem.modified_at(eval_time);
     }
 
     nb::object PyTimeSeriesDictOutput::valid_keys() const {
@@ -357,11 +594,19 @@ namespace hgraph
             value_ov = map_ov->value_overlay(*slot_idx);
         }
 
-        // Create a mutable view for the element (using const_cast since underlying is mutable)
-        TSMutableView elem_view(const_cast<void*>(value_view.data()), value_ts_type, value_ov);
+        // Get the root TSValue (parent TSD) for subscription purposes
+        // This allows downstream REF consumers to subscribe to the TSD overlay
+        TSValue* root = const_cast<TSValue*>(dict.root());
 
-        // Return wrapped as output
-        return wrap_output_view(elem_view);
+        // Create a mutable view for the element with root reference
+        // This enables proper subscription when accessing TSD elements via REF
+        TSMutableView elem_view(const_cast<void*>(value_view.data()), value_ts_type, value_ov, root);
+
+        // Create wrapper and set the element key for validity checking
+        // This allows the wrapper's valid() method to verify the key still exists
+        auto* wrapper = new PyTimeSeriesOutput(elem_view);
+        wrapper->set_element_key(key);
+        return nb::cast(wrapper, nb::rv_policy::take_ownership);
     }
 
     void PyTimeSeriesDictOutput::release_ref(const nb::object &key, const nb::object &requester) {
@@ -380,20 +625,192 @@ namespace hgraph
         return dict.size();
     }
 
-    nb::object PyTimeSeriesDictInput::get_item(const nb::object &item) const {
-        throw std::runtime_error("PyTimeSeriesDictInput::get_item not yet implemented for view-based wrappers");
+    nb::object PyTimeSeriesDictInput::get_item(const nb::object &key) const {
+        // Get TSD metadata
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        const value::TypeMeta* map_schema = _view.ts_meta()->value_schema();
+
+        // Create key value for lookup
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Get the map view and find the key
+        value::ConstMapView map_view(_view.value_view().data(), map_schema);
+        auto slot_idx = map_view.find_index(temp_key.const_view());
+
+        if (!slot_idx) {
+            throw nb::key_error("Key not found in TSD");
+        }
+
+        // Get the value pointer at this slot
+        auto* storage = static_cast<value::MapStorage*>(const_cast<void*>(_view.value_view().data()));
+        void* val_ptr = storage->get_value_ptr(*slot_idx);
+
+        // Get child overlay if available
+        TSOverlayStorage* child_overlay = nullptr;
+        if (auto* map_overlay = dynamic_cast<MapTSOverlay*>(const_cast<TSOverlayStorage*>(_view.overlay()))) {
+            child_overlay = map_overlay->value_overlay(*slot_idx);
+        }
+
+        // Create a TSView for the child, preserving the root for node access
+        // The root is needed so that element views can access the owning node
+        const TSValue* root = _view.root();
+        TSView child_view(val_ptr, value_ts_type, child_overlay, root, LightweightPath{});
+        return wrap_input_view(child_view);
     }
 
-    nb::object PyTimeSeriesDictInput::get(const nb::object &item, const nb::object &default_value) const {
-        throw std::runtime_error("PyTimeSeriesDictInput::get not yet implemented for view-based wrappers");
+    nb::object PyTimeSeriesDictInput::get(const nb::object &key, const nb::object &default_value) const {
+        // Get TSD metadata
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        const value::TypeMeta* map_schema = _view.ts_meta()->value_schema();
+
+        // Create key value for lookup
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Get the map view and find the key
+        value::ConstMapView map_view(_view.value_view().data(), map_schema);
+        auto slot_idx = map_view.find_index(temp_key.const_view());
+
+        if (!slot_idx) {
+            return default_value;
+        }
+
+        // Get the value pointer at this slot
+        auto* storage = static_cast<value::MapStorage*>(const_cast<void*>(_view.value_view().data()));
+        void* val_ptr = storage->get_value_ptr(*slot_idx);
+
+        // Get child overlay if available
+        TSOverlayStorage* child_overlay = nullptr;
+        if (auto* map_overlay = dynamic_cast<MapTSOverlay*>(const_cast<TSOverlayStorage*>(_view.overlay()))) {
+            child_overlay = map_overlay->value_overlay(*slot_idx);
+        }
+
+        // Create a TSView for the child and wrap it as input
+        TSView child_view(val_ptr, value_ts_type, child_overlay);
+        return wrap_input_view(child_view);
     }
 
     nb::object PyTimeSeriesDictInput::get_or_create(const nb::object &key) {
-        throw std::runtime_error("PyTimeSeriesDictInput::get_or_create not yet implemented for view-based wrappers");
+        // Get TSD metadata directly from the view (which is the TSD, not the root bundle)
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        const value::TypeMeta* val_schema = value_ts_type ? value_ts_type->value_schema() : nullptr;
+        const value::TypeMeta* map_schema = _view.ts_meta()->value_schema();
+
+        // Get overlay for tracking - cast away const since we need to mutate
+        MapTSOverlay* map_overlay = nullptr;
+        if (_view.overlay()) {
+            map_overlay = dynamic_cast<MapTSOverlay*>(const_cast<TSOverlayStorage*>(_view.overlay()));
+        }
+
+        // Create key value
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Get mutable access to the map storage via the view's data pointer
+        void* map_data = const_cast<void*>(_view.value_view().data());
+        value::MapView mut_map(map_data, map_schema);
+
+        // Try to find existing key first
+        auto slot_idx = mut_map.find_index(temp_key.const_view());
+
+        if (!slot_idx) {
+            // Key doesn't exist - create it
+            engine_time_t current_time = get_tsd_current_time(_view);
+
+            // Create default value using schema
+            value::PlainValue temp_val(val_schema);
+            if (val_schema->ops && val_schema->ops->construct) {
+                val_schema->ops->construct(temp_val.data(), val_schema);
+            }
+
+            // Insert
+            value::MapSetResult result = mut_map.set_with_index(temp_key.const_view(), temp_val.const_view());
+            slot_idx = result.index;
+
+            // Record in overlay
+            if (result.inserted && map_overlay) {
+                map_overlay->record_key_added(result.index, current_time);
+                map_overlay->update_is_empty_state(current_time, mut_map.size());
+            }
+
+            // Ensure child overlay
+            if (map_overlay) {
+                map_overlay->ensure_value_overlay(result.index);
+            }
+        }
+
+        // Get the value pointer at this slot
+        auto* storage = static_cast<value::MapStorage*>(map_data);
+        void* val_ptr = storage->get_value_ptr(*slot_idx);
+
+        // Get child overlay if available
+        TSOverlayStorage* child_overlay = nullptr;
+        if (map_overlay) {
+            child_overlay = map_overlay->value_overlay(*slot_idx);
+        }
+
+        // Create a TSView for the child and wrap it as input
+        TSView child_view(val_ptr, value_ts_type, child_overlay);
+        return wrap_input_view(child_view);
     }
 
-    void PyTimeSeriesDictInput::create(const nb::object &item) {
-        throw std::runtime_error("PyTimeSeriesDictInput::create not yet implemented for view-based wrappers");
+    void PyTimeSeriesDictInput::create(const nb::object &key) {
+        // Get TSD metadata directly from the view (which is the TSD, not the root bundle)
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        const value::TypeMeta* val_schema = value_ts_type ? value_ts_type->value_schema() : nullptr;
+        const value::TypeMeta* map_schema = _view.ts_meta()->value_schema();
+
+        // Get overlay for tracking - cast away const since we need to mutate
+        MapTSOverlay* map_overlay = nullptr;
+        if (_view.overlay()) {
+            map_overlay = dynamic_cast<MapTSOverlay*>(const_cast<TSOverlayStorage*>(_view.overlay()));
+        }
+
+        // Get current time
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        // Create key value
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Create default value using schema
+        value::PlainValue temp_val(val_schema);
+        if (val_schema->ops && val_schema->ops->construct) {
+            val_schema->ops->construct(temp_val.data(), val_schema);
+        }
+
+        // Get mutable access to the map storage via the view's data pointer
+        void* map_data = const_cast<void*>(_view.value_view().data());
+        value::MapView mut_map(map_data, map_schema);
+        value::MapSetResult result = mut_map.set_with_index(temp_key.const_view(), temp_val.const_view());
+
+        // If newly inserted, record in overlay
+        if (result.inserted && map_overlay) {
+            map_overlay->record_key_added(result.index, current_time);
+            map_overlay->update_is_empty_state(current_time, mut_map.size());
+        }
+
+        // Ensure child overlay exists for the new entry
+        if (map_overlay) {
+            map_overlay->ensure_value_overlay(result.index);
+        }
     }
 
     nb::object PyTimeSeriesDictInput::iter() const {
@@ -442,19 +859,77 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictInput::modified_keys() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::modified_keys not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (const auto& [key, val] : dict.items()) {
+            if (val.modified_at(eval_time)) {
+                result.append(key.to_python());
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::modified_values() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::modified_values not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (const auto& val : dict.ts_values()) {
+            if (val.modified_at(eval_time)) {
+                result.append(wrap_input_view(val));
+            }
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesDictInput::modified_items() const {
-        throw std::runtime_error("PyTimeSeriesDictInput::modified_items not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return nb::list();
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+        nb::list result;
+        for (const auto& [key, val] : dict.items()) {
+            if (val.modified_at(eval_time)) {
+                nb::tuple item = nb::make_tuple(key.to_python(), wrap_input_view(val));
+                result.append(item);
+            }
+        }
+        return result;
     }
 
     bool PyTimeSeriesDictInput::was_modified(const nb::object &key) const {
-        throw std::runtime_error("PyTimeSeriesDictInput::was_modified not yet implemented for view-based wrappers");
+        TSDView dict = _view.as_dict();
+        Node* n = _view.owning_node();
+        if (!n || !n->cached_evaluation_time_ptr()) {
+            return false;
+        }
+        engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+
+        // Get the element at this key and check if modified
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        if (!dict.contains(temp_key.const_view())) {
+            return false;
+        }
+
+        TSView elem = dict.at(temp_key.const_view());
+        return elem.modified_at(eval_time);
     }
 
     nb::object PyTimeSeriesDictInput::valid_keys() const {
@@ -634,17 +1109,64 @@ namespace hgraph
     }
 
     void PyTimeSeriesDictInput::on_key_added(const nb::object &key) {
-        throw std::runtime_error("PyTimeSeriesDictInput::on_key_added not yet implemented for view-based wrappers");
+        // For view-based inputs, key additions are tracked by the overlay when
+        // create() or get_or_create() is called. This callback is kept for
+        // compatibility with the Python interface but may not need additional action.
+        // The Python implementation calls get_or_create + make_active + bind_output
+        // which should be done explicitly by the caller.
     }
 
     void PyTimeSeriesDictInput::on_key_removed(const nb::object &key) {
-        throw std::runtime_error("PyTimeSeriesDictInput::on_key_removed not yet implemented for view-based wrappers");
+        // For view-based inputs, record the key removal in the overlay for delta tracking.
+        // Get TSD metadata
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const value::TypeMeta* map_schema = _view.ts_meta()->value_schema();
+
+        // Get overlay for tracking
+        MapTSOverlay* map_overlay = nullptr;
+        if (_view.overlay()) {
+            map_overlay = dynamic_cast<MapTSOverlay*>(const_cast<TSOverlayStorage*>(_view.overlay()));
+        }
+
+        // Create key value
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Find the slot index for this key
+        void* map_data = const_cast<void*>(_view.value_view().data());
+        value::MapView mut_map(map_data, map_schema);
+        auto slot_idx = mut_map.find_index(temp_key.const_view());
+
+        if (!slot_idx) {
+            return;  // Key doesn't exist - nothing to remove
+        }
+
+        // Get current time
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        // Record removal in overlay before removing from backing store
+        if (map_overlay) {
+            value::PlainValue removed_key(key_schema);
+            key_schema->ops->copy_assign(removed_key.data(), temp_key.data(), key_schema);
+            map_overlay->record_key_removed(*slot_idx, current_time, std::move(removed_key));
+        }
+
+        // Erase from backing store
+        mut_map.erase(temp_key.const_view());
+
+        // Update is_empty state after removal
+        if (map_overlay) {
+            map_overlay->update_is_empty_state(current_time, mut_map.size());
+        }
     }
 
     // ===== CppKeySetOutputWrapper Implementation =====
 
     CppKeySetOutputWrapper::CppKeySetOutputWrapper(TSMutableView view)
-        : _view(view), _is_empty_output_cache(nullptr) {}
+        : _view(view) {}
 
     nb::object CppKeySetOutputWrapper::value() const {
         // Return current keys as frozenset
@@ -739,10 +1261,12 @@ namespace hgraph
     }
 
     nb::object CppKeySetOutputWrapper::is_empty_output() {
-        if (!_is_empty_output_cache) {
-            _is_empty_output_cache = std::make_shared<CppKeySetIsEmptyOutput>(_view);
-        }
-        return nb::cast(_is_empty_output_cache.get(), nb::rv_policy::reference);
+        // Create a new CppKeySetIsEmptyOutput each time, with Python ownership.
+        // This is necessary because CppKeySetOutputWrapper may be a temporary that
+        // gets destroyed, and we need the is_empty output to outlive it.
+        // The Python caller (BoundTimeSeriesReference) will hold onto this object.
+        auto* output = new CppKeySetIsEmptyOutput(_view);
+        return nb::cast(output, nb::rv_policy::take_ownership);
     }
 
     nb::object CppKeySetOutputWrapper::owning_node() const {
@@ -775,8 +1299,27 @@ namespace hgraph
           _last_check_time(MIN_DT), _cached_modified(false) {}
 
     bool CppKeySetIsEmptyOutput::value() const {
-        TSDView dict = _view.as_dict();
-        return dict.size() == 0;
+        // Use the overlay's tracked is_empty value if available
+        if (auto* overlay = _view.overlay()) {
+            if (auto* map_overlay = dynamic_cast<MapTSOverlay*>(overlay)) {
+                return map_overlay->is_empty_value();
+            }
+        }
+        // No overlay - try to compute from dict size if view is valid
+        if (_view.valid()) {
+            try {
+                TSDView dict = _view.as_dict();
+                return dict.size() == 0;
+            } catch (...) {
+                // Fall through to cached/default
+            }
+        }
+        // Fall back to cached empty state if available
+        if (_last_empty_state.has_value()) {
+            return *_last_empty_state;
+        }
+        // Default: empty
+        return true;
     }
 
     bool CppKeySetIsEmptyOutput::delta_value() const {
@@ -784,14 +1327,59 @@ namespace hgraph
     }
 
     bool CppKeySetIsEmptyOutput::valid() const {
-        // The is_empty output is always valid because it's derived from the key_set
-        // which always exists. It always has a valid boolean value (whether the set is empty).
+        // The is_empty_output is always valid because it's a property of the TSD that
+        // always exists. It always has a value (true if empty, false if not).
+        // This matches Python where the is_empty output is a TimeSeriesOutput<bool>
+        // that's always considered valid as a property of the TSD.
+        // This also matches CppKeySetOutputWrapper::valid() which returns true.
         return true;
     }
 
     bool CppKeySetIsEmptyOutput::modified() {
-        // Get current time to avoid recalculating on multiple calls per tick
-        engine_time_t current_time = _view.last_modified_time();
+        // Use the overlay's is_empty overlay for modification tracking
+        if (auto* overlay = _view.overlay()) {
+            if (auto* map_overlay = dynamic_cast<MapTSOverlay*>(overlay)) {
+                // Get the is_empty overlay's modification time
+                ScalarTSOverlay& is_empty_overlay = map_overlay->is_empty_overlay();
+                engine_time_t is_empty_mod_time = is_empty_overlay.last_modified_time();
+
+                // Get current evaluation time
+                engine_time_t current_time = MIN_DT;
+                Node* node = _view.owning_node();
+                if (node) {
+                    graph_ptr graph = node->graph();
+                    if (graph) {
+                        current_time = graph->evaluation_time();
+                    }
+                }
+
+                // Handle initial state: if overlay has never been modified but TSD is valid,
+                // we need to report the initial is_empty state as modified on first access
+                if (is_empty_mod_time == MIN_DT && current_time != MIN_DT) {
+                    // This is the first access - initialize the is_empty state
+                    // Mark the overlay as modified to record the initial state
+                    is_empty_overlay.mark_modified(current_time);
+                    return true;
+                }
+
+                // Modified if the is_empty overlay was modified this tick
+                return is_empty_mod_time == current_time;
+            }
+        }
+
+        // No overlay available - this can happen when the view was created without
+        // proper context (e.g., when creating a reference from a different node).
+        // In this case, we use cached state tracking.
+
+        // Get current evaluation time if possible
+        engine_time_t current_time = MIN_DT;
+        Node* node = _view.owning_node();
+        if (node) {
+            graph_ptr graph = node->graph();
+            if (graph) {
+                current_time = graph->evaluation_time();
+            }
+        }
 
         // If we already computed modified for this tick, return cached result
         if (_last_check_time == current_time && _last_empty_state.has_value()) {
@@ -801,9 +1389,17 @@ namespace hgraph
         // Update check time
         _last_check_time = current_time;
 
-        // Check if the empty state changed
-        TSDView dict = _view.as_dict();
-        bool current_empty = (dict.size() == 0);
+        // Compute current empty state by checking if the view is valid and getting size
+        bool current_empty = true;  // Default to empty
+        if (_view.valid()) {
+            try {
+                TSDView dict = _view.as_dict();
+                current_empty = (dict.size() == 0);
+            } catch (...) {
+                // If we can't access the dict, assume empty
+                current_empty = true;
+            }
+        }
 
         // Handle first value - need to emit regardless of TSD modification
         if (!_last_empty_state.has_value()) {
@@ -812,12 +1408,7 @@ namespace hgraph
             return true;
         }
 
-        // For subsequent ticks, only report modified if TSD was modified AND value changed
-        if (!_view.modified()) {
-            _cached_modified = false;
-            return false;
-        }
-
+        // For subsequent ticks, check if the empty state changed
         bool previous_empty = *_last_empty_state;
         _last_empty_state = current_empty;
 
@@ -827,6 +1418,13 @@ namespace hgraph
     }
 
     nb::object CppKeySetIsEmptyOutput::last_modified_time() const {
+        // Use the overlay's is_empty overlay for last modified time
+        if (auto* overlay = _view.overlay()) {
+            if (auto* map_overlay = dynamic_cast<MapTSOverlay*>(overlay)) {
+                return nb::cast(map_overlay->is_empty_overlay().last_modified_time());
+            }
+        }
+        // Fallback: use the view's last modified time
         return nb::cast(_view.last_modified_time());
     }
 
@@ -855,6 +1453,11 @@ namespace hgraph
 
     nb::str CppKeySetIsEmptyOutput::py_repr() const {
         return py_str();
+    }
+
+    nb::object CppKeySetIsEmptyOutput::output() {
+        // Return self - this makes duck-typing work for TimeSeriesReference.make()
+        return nb::cast(this, nb::rv_policy::reference);
     }
 
     // ===== CppKeySetInputWrapper Implementation =====
@@ -1104,6 +1707,9 @@ namespace hgraph
             .def_prop_ro("all_valid", &CppKeySetIsEmptyOutput::all_valid)
             .def_prop_ro("owning_node", &CppKeySetIsEmptyOutput::owning_node)
             .def_prop_ro("owning_graph", &CppKeySetIsEmptyOutput::owning_graph)
+            // Duck-typing support for TimeSeriesReference.make()
+            .def_prop_ro("has_output", &CppKeySetIsEmptyOutput::has_output)
+            .def_prop_ro("output", &CppKeySetIsEmptyOutput::output)
             .def("__str__", &CppKeySetIsEmptyOutput::py_str)
             .def("__repr__", &CppKeySetIsEmptyOutput::py_repr);
 

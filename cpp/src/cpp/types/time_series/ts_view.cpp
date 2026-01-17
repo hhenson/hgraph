@@ -17,7 +17,6 @@
 #include <fmt/format.h>
 #include <stdexcept>
 #include <unordered_map>
-#include <iostream>
 
 namespace hgraph {
 
@@ -579,6 +578,7 @@ nb::object TSView::to_python() const {
 }
 
 nb::object TSView::to_python_delta() const {
+
     // ===== KEY_SET support: Handle TSD source views as TSS =====
     // When _tsd_source is set, this is a key_set view of a TSD.
     // Build delta directly from TSD's MapTSOverlay.
@@ -685,12 +685,42 @@ nb::object TSView::to_python_delta() const {
                 if (_root && _root->has_ref_cache()) {
                     try {
                         nb::object cached = std::any_cast<nb::object>(_root->ref_cache());
-                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
-                        if (ref.is_view_bound()) {
-                            const TSValue* target = ref.view_output();
-                            if (target) {
-                                TSView target_view = target->view();
-                                return target_view.to_python_delta();
+
+                        // First try C++ TimeSeriesReference
+                        if (nb::isinstance<TimeSeriesReference>(cached)) {
+                            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
+                            if (ref.is_view_bound()) {
+                                const TSValue* target = ref.view_output();
+                                if (target) {
+                                    TSView target_view = target->view();
+                                    return target_view.to_python_delta();
+                                }
+                            }
+                        }
+
+                        // Check for Python TimeSeriesReference subclasses (BoundTimeSeriesReference, etc.)
+                        auto ref_type_module = nb::module_::import_("hgraph._types._ref_type");
+                        auto ts_ref_class = ref_type_module.attr("TimeSeriesReference");
+                        if (nb::isinstance(cached, ts_ref_class)) {
+                            // It's a Python TimeSeriesReference - check if it has an output
+                            if (nb::hasattr(cached, "output") && nb::hasattr(cached, "has_output")) {
+                                bool has_output = nb::cast<bool>(cached.attr("has_output"));
+                                if (has_output) {
+                                    nb::object output = cached.attr("output");
+                                    // Get the delta_value from the output
+                                    if (nb::hasattr(output, "delta_value")) {
+                                        return output.attr("delta_value");
+                                    } else if (nb::hasattr(output, "value")) {
+                                        return output.attr("value");
+                                    }
+                                }
+                            }
+                            // Check is_empty for EmptyTimeSeriesReference
+                            if (nb::hasattr(cached, "is_empty")) {
+                                bool is_empty = nb::cast<bool>(cached.attr("is_empty"));
+                                if (is_empty) {
+                                    return nb::none();
+                                }
                             }
                         }
                     } catch (const std::bad_any_cast&) {
@@ -823,6 +853,64 @@ nb::object TSView::to_python_delta() const {
 
                     auto result = get_target_delta(bound_output);
                     if (result) return *result;
+                }
+            }
+
+            // Fallback: For REF outputs (not linked inputs), check the cache and dereference
+            // This handles the case where a compute_node returns a REF value directly
+            if (_root) {
+                // Determine the correct cache key:
+                // - For root-level REF: use _root
+                // - For bundle field REF: use the child TSValue (from path)
+                const TSValue* cache_key = _root;
+                if (!_path.is_root() && _root->has_link_support() && !_path.elements.empty()) {
+                    cache_key = _root->child_value(_path.elements.back());
+                }
+
+                if (cache_key && cache_key->has_ref_cache()) {
+                    try {
+                        nb::object cached = std::any_cast<nb::object>(cache_key->ref_cache());
+
+                        // For delta_value, we need to DEREFERENCE the TimeSeriesReference
+                        // First try C++ TimeSeriesReference
+                        if (nb::isinstance<TimeSeriesReference>(cached)) {
+                            TimeSeriesReference ref = nb::cast<TimeSeriesReference>(cached);
+                            if (ref.is_view_bound()) {
+                                const TSValue* target = ref.view_output();
+                                if (target) {
+                                    TSView target_view = target->view();
+                                    return target_view.to_python_delta();
+                                }
+                            }
+                        }
+
+                        // Check for Python TimeSeriesReference subclasses (BoundTimeSeriesReference, etc.)
+                        auto ref_type_module = nb::module_::import_("hgraph._types._ref_type");
+                        auto ts_ref_class = ref_type_module.attr("TimeSeriesReference");
+                        if (nb::isinstance(cached, ts_ref_class)) {
+                            // It's a Python TimeSeriesReference - check if it has an output
+                            if (nb::hasattr(cached, "output") && nb::hasattr(cached, "has_output")) {
+                                bool has_output = nb::cast<bool>(cached.attr("has_output"));
+                                if (has_output) {
+                                    nb::object output = cached.attr("output");
+                                    // Get the delta_value from the output
+                                    if (nb::hasattr(output, "delta_value")) {
+                                        return output.attr("delta_value");
+                                    } else if (nb::hasattr(output, "value")) {
+                                        return output.attr("value");
+                                    }
+                                }
+                            }
+                            // Check is_empty for EmptyTimeSeriesReference
+                            if (nb::hasattr(cached, "is_empty")) {
+                                bool is_empty = nb::cast<bool>(cached.attr("is_empty"));
+                                if (is_empty) {
+                                    return nb::none();
+                                }
+                            }
+                        }
+                    } catch (const std::bad_any_cast&) {
+                    } catch (...) {}
                 }
             }
 
@@ -1167,6 +1255,12 @@ TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, TSValue* contain
 
 TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay) noexcept
     : TSView(data, ts_meta, overlay)
+    , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
+    , _mutable_container(nullptr)
+{}
+
+TSMutableView::TSMutableView(void* data, const TSMeta* ts_meta, TSOverlayStorage* overlay, TSValue* root) noexcept
+    : TSView(data, ts_meta, overlay, root, LightweightPath{})
     , _mutable_view(data, ts_meta ? ts_meta->value_schema() : nullptr)
     , _mutable_container(nullptr)
 {}
@@ -1534,6 +1628,11 @@ bool TSMutableView::from_python(const nb::object& src) {
                     if (map_schema->ops->erase) {
                         map_schema->ops->erase(_mutable_view.data(), temp_key.data(), map_schema);
                     }
+
+                    // Update is_empty state after removal
+                    if (map_overlay) {
+                        map_overlay->update_is_empty_state(current_time, mut_map.size());
+                    }
                 }
             } else {
                 // Regular value - add/update key and set child time-series value
@@ -1550,6 +1649,8 @@ bool TSMutableView::from_python(const nb::object& src) {
                 // If newly inserted, record key addition in overlay
                 if (result.inserted && map_overlay) {
                     map_overlay->record_key_added(result.index, current_time);
+                    // Update is_empty state after addition
+                    map_overlay->update_is_empty_state(current_time, mut_map.size());
                 }
 
                 // Get the value slot at this index and create a child TSMutableView
@@ -1562,15 +1663,27 @@ bool TSMutableView::from_python(const nb::object& src) {
                     child_overlay = map_overlay->ensure_value_overlay(result.index);
                 }
 
-                // Create a TSMutableView for the child time-series
-                TSMutableView child_view(val_ptr, value_ts_type, child_overlay);
+                // Special handling for REF element types: store in MapTSOverlay's per-index ref_cache
+                if (value_ts_type && value_ts_type->kind() == TSTypeKind::REF) {
+                    // Store the TimeSeriesReference object in the map's per-index ref_cache
+                    if (map_overlay) {
+                        map_overlay->set_ref_cache(result.index, py_value);
+                    }
+                    // Mark the child as modified
+                    if (child_overlay) {
+                        child_overlay->mark_modified(current_time);
+                    }
+                } else {
+                    // Create a TSMutableView for the child time-series
+                    TSMutableView child_view(val_ptr, value_ts_type, child_overlay);
 
-                // Set the value via the child's from_python
-                child_view.from_python(py_value);
+                    // Set the value via the child's from_python
+                    child_view.from_python(py_value);
 
-                // Mark the child as modified if we have an overlay
-                if (child_overlay) {
-                    child_overlay->mark_modified(current_time);
+                    // Mark the child as modified if we have an overlay
+                    if (child_overlay) {
+                        child_overlay->mark_modified(current_time);
+                    }
                 }
             }
         }
@@ -3390,25 +3503,52 @@ nb::object TSDView::to_python() const {
     value::ConstMapView map_view = _view.as_map();
     size_t count = map_view.size();
     const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
+    const TSMeta* value_ts_type = dict_meta->value_ts_type();
+    auto* map_ov = map_overlay();
 
     for (size_t i = 0; i < count; ++i) {
         value::ConstValueView key_view = map_view.key_at(i);
-        value::ConstValueView val_view = map_view.value_at(i);
-
-        const TSMeta* value_ts_type = dict_meta->value_ts_type();
-        TSView ts_val;
-        if (auto* map_ov = map_overlay()) {
-            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
-            ts_val = TSView(val_view.data(), value_ts_type, value_ov);
-        } else {
-            ts_val = TSView(val_view.data(), value_ts_type);
-        }
-
         nb::object py_key = key_view.to_python();
-        if (ts_val.ts_valid()) {
-            result[py_key] = ts_val.to_python();
+
+        // Special handling for REF element types: read from MapTSOverlay's per-index ref_cache
+        if (value_ts_type && value_ts_type->kind() == TSTypeKind::REF && map_ov) {
+            if (map_ov->has_ref_cache(i)) {
+                try {
+                    nb::object cached = std::any_cast<nb::object>(map_ov->ref_cache(i));
+                    // Dereference the BoundTimeSeriesReference to get the actual value
+                    if (nb::hasattr(cached, "output")) {
+                        nb::object output = cached.attr("output");
+                        if (nb::hasattr(output, "value")) {
+                            result[py_key] = output.attr("value");
+                        } else {
+                            result[py_key] = nb::none();
+                        }
+                    } else {
+                        // EmptyTimeSeriesReference - no value
+                        result[py_key] = nb::none();
+                    }
+                } catch (const std::bad_any_cast&) {
+                    result[py_key] = nb::none();
+                }
+            } else {
+                result[py_key] = nb::none();
+            }
         } else {
-            result[py_key] = nb::none();
+            value::ConstValueView val_view = map_view.value_at(i);
+
+            TSView ts_val;
+            if (map_ov) {
+                TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+                ts_val = TSView(val_view.data(), value_ts_type, value_ov);
+            } else {
+                ts_val = TSView(val_view.data(), value_ts_type);
+            }
+
+            if (ts_val.ts_valid()) {
+                result[py_key] = ts_val.to_python();
+            } else {
+                result[py_key] = nb::none();
+            }
         }
     }
     return result;
@@ -3465,11 +3605,33 @@ nb::object TSDView::to_python_delta() const {
     // Include added keys with their delta values
     for (size_t idx : overlay->added_key_indices()) {
         nb::object py_key = map_view.key_at(idx).to_python();
-        // Get the child time-series view and its delta_value
-        TSView child_view = make_child_view(idx);
-        nb::object delta_val = child_view.to_python_delta();
-        if (!delta_val.is_none()) {
-            result[py_key] = delta_val;
+
+        // Special handling for REF element types: read from MapTSOverlay's per-index ref_cache
+        if (value_ts_type && value_ts_type->kind() == TSTypeKind::REF) {
+            if (overlay->has_ref_cache(idx)) {
+                try {
+                    nb::object cached = std::any_cast<nb::object>(overlay->ref_cache(idx));
+                    // Dereference the BoundTimeSeriesReference to get the actual value
+                    if (nb::hasattr(cached, "output")) {
+                        nb::object output = cached.attr("output");
+                        if (nb::hasattr(output, "value")) {
+                            result[py_key] = output.attr("value");
+                        } else {
+                            result[py_key] = nb::none();
+                        }
+                    }
+                    // If no output attr, it's an EmptyTimeSeriesReference - skip it
+                } catch (const std::bad_any_cast&) {
+                    // Ignore bad cast
+                }
+            }
+        } else {
+            // Get the child time-series view and its delta_value
+            TSView child_view = make_child_view(idx);
+            nb::object delta_val = child_view.to_python_delta();
+            if (!delta_val.is_none()) {
+                result[py_key] = delta_val;
+            }
         }
     }
 
@@ -3486,10 +3648,32 @@ nb::object TSDView::to_python_delta() const {
         if (is_added) continue;
 
         nb::object py_key = map_view.key_at(idx).to_python();
-        TSView child_view = make_child_view(idx);
-        nb::object delta_val = child_view.to_python_delta();
-        if (!delta_val.is_none()) {
-            result[py_key] = delta_val;
+
+        // Special handling for REF element types: read from MapTSOverlay's per-index ref_cache
+        if (value_ts_type && value_ts_type->kind() == TSTypeKind::REF) {
+            if (overlay->has_ref_cache(idx)) {
+                try {
+                    nb::object cached = std::any_cast<nb::object>(overlay->ref_cache(idx));
+                    // Dereference the BoundTimeSeriesReference to get the actual value
+                    if (nb::hasattr(cached, "output")) {
+                        nb::object output = cached.attr("output");
+                        if (nb::hasattr(output, "value")) {
+                            result[py_key] = output.attr("value");
+                        } else {
+                            result[py_key] = nb::none();
+                        }
+                    }
+                    // If no output attr, it's an EmptyTimeSeriesReference - skip it
+                } catch (const std::bad_any_cast&) {
+                    // Ignore bad cast
+                }
+            }
+        } else {
+            TSView child_view = make_child_view(idx);
+            nb::object delta_val = child_view.to_python_delta();
+            if (!delta_val.is_none()) {
+                result[py_key] = delta_val;
+            }
         }
     }
 

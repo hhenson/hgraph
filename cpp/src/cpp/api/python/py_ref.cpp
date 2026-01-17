@@ -104,6 +104,11 @@ namespace hgraph
                     // Return it as a Python object - the user can call .delta_value on it
                     return nb::cast(ptr);
                 }
+                if (self.is_python_bound()) {
+                    // PYTHON_BOUND - return the stored Python object directly
+                    // This is used for synthetic outputs like CppKeySetIsEmptyOutput
+                    return self.python_output();
+                }
                 // UNBOUND - no single output
                 return nb::none();
             })

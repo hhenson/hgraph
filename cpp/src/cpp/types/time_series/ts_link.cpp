@@ -218,7 +218,9 @@ void TSLink::notify(engine_time_t time) {
     // For REF links (notify_once mode), only notify on first notification
     // This matches Python's behavior where REF inputs don't subscribe to output
     // overlays and only get notified once on binding.
-    if (_notify_once && !first_notification) {
+    // EXCEPTION: KEY_SET bindings (tsd.key_set) need continuous notification because
+    // the node needs to observe key changes to update is_empty output.
+    if (_notify_once && !first_notification && _element_index != KEY_SET_INDEX) {
         return;  // Skip notification for REF links after first tick
     }
 

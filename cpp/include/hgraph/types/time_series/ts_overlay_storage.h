@@ -22,8 +22,10 @@
 #include <hgraph/types/value/container_hooks.h>
 #include <hgraph/types/value/value.h>
 
+#include <any>
 #include <cstddef>
 #include <memory>
+#include <unordered_map>
 #include <unordered_set>
 
 namespace hgraph {
@@ -1198,6 +1200,39 @@ public:
      */
     [[nodiscard]] KeySetOverlayView key_set_view() noexcept;
 
+    // ========== Is-Empty Tracking ==========
+
+    /**
+     * @brief Get the is_empty overlay for this map.
+     *
+     * This overlay tracks when the map's empty state changes.
+     * It's marked as modified when the map transitions from empty to non-empty
+     * or vice versa.
+     *
+     * @return Reference to the is_empty overlay
+     */
+    [[nodiscard]] ScalarTSOverlay& is_empty_overlay() noexcept { return _is_empty_overlay; }
+    [[nodiscard]] const ScalarTSOverlay& is_empty_overlay() const noexcept { return _is_empty_overlay; }
+
+    /**
+     * @brief Get the current is_empty value.
+     *
+     * @return True if the map is considered empty based on the last update
+     */
+    [[nodiscard]] bool is_empty_value() const noexcept { return _is_empty_value; }
+
+    /**
+     * @brief Update the is_empty state based on current map size.
+     *
+     * Call this after keys are added or removed. If the is_empty state
+     * changed (map went from empty to non-empty or vice versa), the
+     * is_empty overlay is marked as modified.
+     *
+     * @param time The current engine time
+     * @param current_size The current number of keys in the map
+     */
+    void update_is_empty_state(engine_time_t time, size_t current_size);
+
 private:
     // ========== Internal Methods ==========
 
@@ -1266,6 +1301,50 @@ private:
     std::vector<std::unique_ptr<TSOverlayStorage>> _value_overlays;           ///< Per-entry value overlays
     std::vector<std::unique_ptr<TSOverlayStorage>> _removed_value_overlays;   ///< Buffered removed value overlays
     const TSMeta* _value_type{nullptr};                                       ///< Value TS type for creating child overlays
+    ScalarTSOverlay _is_empty_overlay;                                        ///< Overlay tracking is_empty state changes
+    bool _is_empty_value{true};                                               ///< Current is_empty value (starts true for empty map)
+    mutable std::unordered_map<size_t, std::any> _ref_caches;                 ///< Per-index REF cache for TSD[K, REF[V]] elements
+
+public:
+    // ========== REF Cache Methods (for TSD[K, REF[V]]) ==========
+
+    /**
+     * @brief Set the REF cache value for a specific index.
+     * @param index The backing store slot index
+     * @param value The Python object to cache (should be nb::object)
+     */
+    void set_ref_cache(size_t index, std::any value) const {
+        _ref_caches[index] = std::move(value);
+    }
+
+    /**
+     * @brief Get the REF cache value for a specific index.
+     * @param index The backing store slot index
+     * @return Reference to the cached any, or empty any if not set
+     */
+    [[nodiscard]] const std::any& ref_cache(size_t index) const {
+        static const std::any empty;
+        auto it = _ref_caches.find(index);
+        return it != _ref_caches.end() ? it->second : empty;
+    }
+
+    /**
+     * @brief Check if REF cache has a value for a specific index.
+     * @param index The backing store slot index
+     * @return True if the index has a cached REF value
+     */
+    [[nodiscard]] bool has_ref_cache(size_t index) const noexcept {
+        auto it = _ref_caches.find(index);
+        return it != _ref_caches.end() && it->second.has_value();
+    }
+
+    /**
+     * @brief Clear the REF cache for a specific index.
+     * @param index The backing store slot index
+     */
+    void clear_ref_cache(size_t index) const {
+        _ref_caches.erase(index);
+    }
 };
 
 // ============================================================================

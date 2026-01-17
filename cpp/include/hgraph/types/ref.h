@@ -16,7 +16,7 @@ namespace hgraph
 
     struct HGRAPH_EXPORT TimeSeriesReference
     {
-        enum class Kind : uint8_t { EMPTY = 0, BOUND = 1, UNBOUND = 2, VIEW_BOUND = 3 };
+        enum class Kind : uint8_t { EMPTY = 0, BOUND = 1, UNBOUND = 2, VIEW_BOUND = 3, PYTHON_BOUND = 4 };
 
         // Copy/Move semantics
         TimeSeriesReference(const TimeSeriesReference &other);
@@ -28,8 +28,9 @@ namespace hgraph
         // Query methods
         [[nodiscard]] Kind kind() const noexcept { return _kind; }
         [[nodiscard]] bool is_empty() const noexcept { return _kind == Kind::EMPTY; }
-        [[nodiscard]] bool is_bound() const noexcept { return _kind == Kind::BOUND || _kind == Kind::VIEW_BOUND; }
+        [[nodiscard]] bool is_bound() const noexcept { return _kind == Kind::BOUND || _kind == Kind::VIEW_BOUND || _kind == Kind::PYTHON_BOUND; }
         [[nodiscard]] bool is_view_bound() const noexcept { return _kind == Kind::VIEW_BOUND; }
+        [[nodiscard]] bool is_python_bound() const noexcept { return _kind == Kind::PYTHON_BOUND; }
         [[nodiscard]] bool is_unbound() const noexcept { return _kind == Kind::UNBOUND; }
         [[nodiscard]] bool has_output() const;
         [[nodiscard]] bool is_valid() const;
@@ -37,6 +38,7 @@ namespace hgraph
         // Accessors (throw if wrong kind)
         [[nodiscard]] const time_series_output_s_ptr         &output() const;
         [[nodiscard]] const TSValue*                          view_output() const;
+        [[nodiscard]] const nb::object&                       python_output() const;
         [[nodiscard]] const std::vector<TimeSeriesReference> &items() const;
         [[nodiscard]] const TimeSeriesReference              &operator[](size_t ndx) const;
 
@@ -58,6 +60,9 @@ namespace hgraph
         // View-based factory with element index - for container element references
         static TimeSeriesReference make_view_bound(const TSValue* container, size_t element_index);
 
+        // Python object-based factory method - for synthetic outputs that don't have TSValue backing
+        static TimeSeriesReference make_python_bound(nb::object output);
+
         // Get element index for VIEW_BOUND container references (-1 if not applicable)
         [[nodiscard]] int view_element_index() const noexcept { return _view_elem_index; }
 
@@ -67,11 +72,12 @@ namespace hgraph
         explicit TimeSeriesReference(time_series_output_s_ptr output);         // Bound
         explicit TimeSeriesReference(std::vector<TimeSeriesReference> items);  // Unbound
         explicit TimeSeriesReference(const TSValue* view_output);              // View-bound
+        explicit TimeSeriesReference(nb::object python_output);                // Python-bound
 
         Kind _kind;
         int _view_elem_index{-1};  ///< Element index for VIEW_BOUND container references (-1 if not applicable)
 
-        // Union for the four variants - only one is active at a time
+        // Union for the five variants - only one is active at a time
         union Storage {
             // Empty uses no storage
             char empty;
@@ -81,6 +87,8 @@ namespace hgraph
             std::vector<TimeSeriesReference> unbound;
             // View-bound stores a pointer to the TSValue (for C++ view-based runtime)
             const TSValue* view_bound;
+            // Python-bound stores a Python object for synthetic outputs without TSValue backing
+            nb::object python_bound;
 
             Storage() noexcept : empty{} {}
             ~Storage() {}  // Manual destruction based on kind

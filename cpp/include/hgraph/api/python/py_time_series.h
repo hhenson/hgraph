@@ -83,11 +83,31 @@ namespace hgraph
         // The queue and perform the change, if the change is successful, we then pop the queue.
         bool can_apply_result(nb::object value);
 
+        // For REF outputs: bind the output to a target
+        // This updates the underlying TimeSeriesReference value to point to the target
+        void bind_output(nb::object output);
+
+        // For REF outputs: make the binding active (schedule for notifications)
+        void make_active();
+
+        // For REF outputs: make the binding passive (unschedule)
+        void make_passive();
+
+        // For TSD element wrappers: set the element key for validity checking
+        // When set, valid() will verify the key still exists in the parent TSD
+        void set_element_key(nb::object key) { _element_key = std::move(key); }
+        [[nodiscard]] nb::object element_key() const { return _element_key; }
+        [[nodiscard]] bool has_element_key() const { return _element_key.is_valid() && !_element_key.is_none(); }
+
         static void register_with_nanobind(nb::module_ &m);
 
       protected:
         // View storage - the only data member
         TSMutableView _view;
+
+        // For TSD elements: the key used to access this element
+        // If set, valid() will check if this key still exists in the parent TSD
+        nb::object _element_key{};
     };
 
     struct HGRAPH_EXPORT PyTimeSeriesInput : PyTimeSeriesType
@@ -150,6 +170,13 @@ namespace hgraph
 
         // Pointer to bound output TSValue (for passthrough inputs bound via REF)
         const TSValue* _bound_output{nullptr};
+
+        // Python object bound to this input (for CppKeySetOutputWrapper etc.)
+        // This allows checking the output's modified() status for scheduling
+        nb::object _bound_py_output{};
+
+        // Track when the binding was last modified (for modified() check)
+        engine_time_t _binding_modified_time{MIN_DT};
     };
 
 }  // namespace hgraph
