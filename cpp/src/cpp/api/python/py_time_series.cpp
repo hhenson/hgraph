@@ -178,6 +178,29 @@ namespace hgraph
         return true;
     }
 
+    uintptr_t PyTimeSeriesOutput::output_id() const {
+        // For TSD element outputs, use the view's root pointer as the identity.
+        // For elements at different keys, link_source() points to the same TSD,
+        // but root() points to the element's own storage within the TSD.
+        // When an element_key is set, include it in the identity to distinguish elements.
+        const TSValue* root = _view.root();
+        if (root) {
+            // If we have an element key, combine root with key hash
+            if (has_element_key()) {
+                uintptr_t key_hash = nb::hash(_element_key);
+                return reinterpret_cast<uintptr_t>(root) ^ key_hash;
+            }
+            return reinterpret_cast<uintptr_t>(root);
+        }
+        // Fallback: use the link_source if no root
+        const TSValue* link_source = _view.link_source();
+        if (link_source) {
+            return reinterpret_cast<uintptr_t>(link_source);
+        }
+        // No root and no link_source - use object address (less stable but better than nothing)
+        return reinterpret_cast<uintptr_t>(this);
+    }
+
     void PyTimeSeriesOutput::bind_output(nb::object output) {
         // For REF outputs, this is used to bind a Python output object.
         // Note: We do NOT store the TimeSeriesReference in the view's value storage because:
@@ -232,7 +255,7 @@ namespace hgraph
             .def_prop_ro("valid", &PyTimeSeriesOutput::valid)
             .def_prop_ro("all_valid", &PyTimeSeriesOutput::all_valid)
             .def_prop_ro("last_modified_time", &PyTimeSeriesOutput::last_modified_time)
-            .def("is_reference", &PyTimeSeriesOutput::is_reference)
+            .def_prop_ro("is_reference", &PyTimeSeriesOutput::is_reference)
             // Output-specific methods
             .def_prop_rw("value", &PyTimeSeriesOutput::value, &PyTimeSeriesOutput::set_value, nb::arg("value").none())
             .def("can_apply_result", &PyTimeSeriesOutput::can_apply_result)
@@ -266,6 +289,21 @@ namespace hgraph
             auto ref_module = nb::module_::import_("hgraph._impl._types._ref");
             auto bound_ref_class = ref_module.attr("BoundTimeSeriesReference");
             return bound_ref_class(_bound_py_output);
+        }
+
+        // Check if the overlay has a bound output (for TSD REF elements)
+        // This persists across Python wrapper instances
+        if (_view.overlay() && _view.overlay()->has_bound_output()) {
+            try {
+                nb::object py_output = std::any_cast<nb::object>(_view.overlay()->bound_output());
+                if (py_output.is_valid() && !py_output.is_none()) {
+                    auto ref_module = nb::module_::import_("hgraph._impl._types._ref");
+                    auto bound_ref_class = ref_module.attr("BoundTimeSeriesReference");
+                    return bound_ref_class(py_output);
+                }
+            } catch (const std::bad_any_cast&) {
+                // Fall through to default logic
+            }
         }
 
         // For REF types, check the underlying TimeSeriesReference value
@@ -750,6 +788,19 @@ namespace hgraph
                 }
             }
         }
+
+        // Also mark this view's own overlay as modified (for TSD elements).
+        // When _ref[k].bind_output(x) is called on a TSD element, the element's
+        // child overlay needs to be marked so that _ref.modified_items() sees it.
+        if (_view.overlay()) {
+            if (binding_node && binding_node->graph()) {
+                engine_time_t current_time = binding_node->graph()->evaluation_time();
+                const_cast<TSOverlayStorage*>(_view.overlay())->mark_modified(current_time);
+            }
+            // Store the bound output in the overlay so it persists across Python wrapper instances.
+            // This is critical for TSD REF elements where get_item creates new wrappers each time.
+            const_cast<TSOverlayStorage*>(_view.overlay())->set_bound_output(nb::object(output));
+        }
     }
 
     void PyTimeSeriesInput::un_bind_output() {
@@ -785,7 +836,7 @@ namespace hgraph
             .def_prop_ro("valid", &PyTimeSeriesInput::valid)
             .def_prop_ro("all_valid", &PyTimeSeriesInput::all_valid)
             .def_prop_ro("last_modified_time", &PyTimeSeriesInput::last_modified_time)
-            .def("is_reference", &PyTimeSeriesInput::is_reference)
+            .def_prop_ro("is_reference", &PyTimeSeriesInput::is_reference)
             // Input-specific methods
             .def_prop_ro("bound", &PyTimeSeriesInput::bound)
             .def_prop_ro("active", &PyTimeSeriesInput::active)

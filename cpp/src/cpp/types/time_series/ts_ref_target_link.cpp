@@ -17,6 +17,53 @@
 namespace hgraph {
 
 // ============================================================================
+// Helper: Extract stable output identity from Python output object
+// ============================================================================
+
+static std::optional<uintptr_t> get_output_identity(const nb::object& py_output) {
+    if (!py_output.is_valid() || py_output.is_none()) {
+        return std::nullopt;
+    }
+
+    // Try CppKeySetIsEmptyOutput first (most specific)
+    try {
+        CppKeySetIsEmptyOutput* empty_out = nb::cast<CppKeySetIsEmptyOutput*>(py_output);
+        if (empty_out) {
+            return empty_out->output_id();
+        }
+    } catch (...) {
+        // Not a CppKeySetIsEmptyOutput, try next
+    }
+
+    // Try PyTimeSeriesOutput (covers TSD element wrappers)
+    try {
+        PyTimeSeriesOutput* ts_out = nb::cast<PyTimeSeriesOutput*>(py_output);
+        if (ts_out) {
+            return ts_out->output_id();
+        }
+    } catch (...) {
+        // Not a PyTimeSeriesOutput, try next
+    }
+
+    // Fallback: check for output_id method on Python object
+    if (nb::hasattr(py_output, "output_id")) {
+        try {
+            return nb::cast<uintptr_t>(py_output.attr("output_id")());
+        } catch (...) {
+            // Fall through to final fallback
+        }
+    }
+
+    // Final fallback: use Python's id() - note this may change across wrapper instances
+    // for the same underlying object, but it's better than nothing
+    try {
+        return static_cast<uintptr_t>(nb::hash(py_output));
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
+// ============================================================================
 // Construction
 // ============================================================================
 
@@ -180,6 +227,7 @@ void TSRefTargetLink::unbind() {
 
     // Clear Python output
     _python_output.reset();
+    _python_output_id.reset();
 
     // Clear state
     _ref_output = nullptr;
@@ -266,7 +314,21 @@ void TSRefTargetLink::notify(engine_time_t time) {
                         // Python-bound reference (created by PyTimeSeriesOutput::bind_output)
                         // Store the Python output wrapper for later value access
                         nb::object py_output = ref.python_output();
+
+                        // Determine if this is a NEW binding by comparing stable output identities.
+                        // We can't compare Python wrapper pointers because accessing .output
+                        // creates a new wrapper each time. Instead, use output_id() which
+                        // returns a stable identifier based on the underlying C++ objects.
+                        auto new_output_id = get_output_identity(py_output);
+                        bool is_new_binding = !_python_output_id.has_value() ||
+                                              !new_output_id.has_value() ||
+                                              _python_output_id.value() != new_output_id.value();
+
                         _python_output = nb::object(py_output);
+                        _python_output_id = new_output_id;
+                        if (is_new_binding) {
+                            _python_output_set_time = time;  // Track when we bound to a NEW output
+                        }
 
                         // Unbind target_link since we're using Python output
                         _target_link.unbind();
@@ -299,6 +361,7 @@ void TSRefTargetLink::notify(engine_time_t time) {
                     } else if (ref.is_view_bound()) {
                         // Clear Python output when using C++ target
                         _python_output.reset();
+    _python_output_id.reset();
 
                         // View-bound reference - get target directly
                         const TSValue* target = ref.view_output();
@@ -317,6 +380,7 @@ void TSRefTargetLink::notify(engine_time_t time) {
                     } else {
                         // Clear Python output
                         _python_output.reset();
+    _python_output_id.reset();
                         // Path-bound reference - would need graph context to resolve
                         // For now, treat as no target
                         rebind_target(nullptr, time);
@@ -341,7 +405,21 @@ void TSRefTargetLink::notify(engine_time_t time) {
                                 // Store the Python output wrapper for later value access
                                 // Must wrap accessor in nb::object for std::any assignment
                                 nb::object py_output = ref_value.attr("output");
+
+                                // Determine if this is a NEW binding by comparing stable output identities.
+                                // We can't compare Python wrapper pointers because accessing .output
+                                // creates a new wrapper each time. Instead, use output_id() which
+                                // returns a stable identifier based on the underlying C++ objects.
+                                auto new_output_id = get_output_identity(py_output);
+                                bool is_new_binding = !_python_output_id.has_value() ||
+                                                      !new_output_id.has_value() ||
+                                                      _python_output_id.value() != new_output_id.value();
+
                                 _python_output = nb::object(py_output);
+                                _python_output_id = new_output_id;
+                                if (is_new_binding) {
+                                    _python_output_set_time = time;  // Track when we bound to a NEW output
+                                }
 
                                 // For Python outputs like CppKeySetIsEmptyOutput that are backed by
                                 // a C++ TSD, we need to subscribe to the TSD overlay for notifications.
@@ -405,6 +483,7 @@ void TSRefTargetLink::notify(engine_time_t time) {
                                 _target_elem_index = -1;
                             } else {
                                 _python_output.reset();
+    _python_output_id.reset();
                                 rebind_target(nullptr, time);
                             }
                         } else {
@@ -460,87 +539,84 @@ bool TSRefTargetLink::valid() const {
 }
 
 bool TSRefTargetLink::modified_at(engine_time_t time) const {
-    // For Python outputs, check the Python object's modified status.
-    // IMPORTANT: We also check the current ref_cache in case the reference changed
-    // since we last processed a notification (due to notification deduplication).
+    // For Python outputs, we need to handle two cases:
+    // 1. Rebinding this tick (output changed to a different underlying object)
+    //    - Detected by _python_output_set_time == time
+    //    - Always returns true since user sees a "new" value
+    // 2. Same output, value may have changed
+    //    - Check py_output.modified() to see if the underlying value changed
+    //
+    // The is_new_binding detection now uses output_id() which compares stable
+    // C++ object pointers, not Python wrapper object identity.
 
-    // First check if we were notified at this time - if so, we should be modified
-    // The question is: what is the current value? Check ref_cache for the latest.
-    if (_notify_time == time) {
-        // We were notified at this time - check the current ref_cache for a valid output
-        if (_ref_output) {
-            try {
-                nb::object ref_value;
-                if (_field_index >= 0) {
-                    const TSValue* field_child = _ref_output->child_value(static_cast<size_t>(_field_index));
-                    if (field_child && field_child->has_ref_cache()) {
-                        ref_value = std::any_cast<nb::object>(field_child->ref_cache());
-                    }
-                } else if (_ref_output->has_ref_cache()) {
-                    ref_value = std::any_cast<nb::object>(_ref_output->ref_cache());
-                }
-
-                if (ref_value.is_valid() && !ref_value.is_none()) {
-                    // Check for C++ TimeSeriesReference with Python-bound output
-                    if (nb::isinstance<TimeSeriesReference>(ref_value)) {
-                        TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value);
-                        if (ref.is_python_bound()) {
-                            nb::object py_output = ref.python_output();
-                            if (py_output.is_valid() && !py_output.is_none() && nb::hasattr(py_output, "valid")) {
-                                bool valid = nb::cast<bool>(py_output.attr("valid"));
-                                if (valid) {
-                                    return true;  // Valid output from current ref_cache
-                                }
-                            }
-                        }
-                    }
-                    // Check for Python TimeSeriesReference
-                    auto ref_type_module = nb::module_::import_("hgraph._types._ref_type");
-                    auto ts_ref_class = ref_type_module.attr("TimeSeriesReference");
-                    if (nb::isinstance(ref_value, ts_ref_class)) {
-                        if (nb::hasattr(ref_value, "has_output") && nb::cast<bool>(ref_value.attr("has_output"))) {
-                            nb::object py_output = ref_value.attr("output");
-                            if (py_output.is_valid() && !py_output.is_none() && nb::hasattr(py_output, "valid")) {
-                                bool valid = nb::cast<bool>(py_output.attr("valid"));
-                                if (valid) {
-                                    return true;  // Valid output from current ref_cache
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (...) {
-                // Fall through
-            }
-        }
-    }
-
-    // Also check the cached _python_output for backwards compatibility
+    // First check the cached _python_output
     if (_python_output.has_value()) {
+        // Case 1: Check if we rebound to a DIFFERENT output this tick
+        // If _python_output_set_time == time, it means output_id() detected a change
+        // in the underlying output (not just a new Python wrapper).
+        if (_python_output_set_time == time) {
+            return true;
+        }
+
+        // Case 2: Same output - check if its value changed
         try {
             nb::object py_output = std::any_cast<nb::object>(_python_output);
             if (!py_output.is_none() && nb::hasattr(py_output, "modified")) {
+                // Trust the Python output's modified() method - this correctly handles:
+                // 1. CppKeySetIsEmptyOutput which only reports modified when is_empty state changes
+                // 2. Regular TSS/TSD outputs which report modified when their values change
                 bool result = nb::cast<bool>(py_output.attr("modified"));
-                if (result) {
-                    return true;
-                }
-                // If py_output.modified returned false but we were notified at this time,
-                // check if the output is still valid
-                if (_notify_time == time) {
-                    if (nb::hasattr(py_output, "valid")) {
-                        bool valid = nb::cast<bool>(py_output.attr("valid"));
-                        if (valid) {
-                            return true;
-                        }
-                    }
-                }
+                return result;
             }
         } catch (...) {
             // Fall through to default logic
         }
     }
 
-    // Modified if notified at this time (covers both REF change and target rebind)
+    // Check the ref_cache for the current reference (handles rebinding scenarios)
+    if (_notify_time == time && _ref_output) {
+        try {
+            nb::object ref_value;
+            if (_field_index >= 0) {
+                const TSValue* field_child = _ref_output->child_value(static_cast<size_t>(_field_index));
+                if (field_child && field_child->has_ref_cache()) {
+                    ref_value = std::any_cast<nb::object>(field_child->ref_cache());
+                }
+            } else if (_ref_output->has_ref_cache()) {
+                ref_value = std::any_cast<nb::object>(_ref_output->ref_cache());
+            }
+
+            if (ref_value.is_valid() && !ref_value.is_none()) {
+                // Check for C++ TimeSeriesReference with Python-bound output
+                if (nb::isinstance<TimeSeriesReference>(ref_value)) {
+                    TimeSeriesReference ref = nb::cast<TimeSeriesReference>(ref_value);
+                    if (ref.is_python_bound()) {
+                        nb::object py_output = ref.python_output();
+                        if (py_output.is_valid() && !py_output.is_none() && nb::hasattr(py_output, "modified")) {
+                            // Check the output's modified() method, not just valid
+                            return nb::cast<bool>(py_output.attr("modified"));
+                        }
+                    }
+                }
+                // Check for Python TimeSeriesReference
+                auto ref_type_module = nb::module_::import_("hgraph._types._ref_type");
+                auto ts_ref_class = ref_type_module.attr("TimeSeriesReference");
+                if (nb::isinstance(ref_value, ts_ref_class)) {
+                    if (nb::hasattr(ref_value, "has_output") && nb::cast<bool>(ref_value.attr("has_output"))) {
+                        nb::object py_output = ref_value.attr("output");
+                        if (py_output.is_valid() && !py_output.is_none() && nb::hasattr(py_output, "modified")) {
+                            // Check the output's modified() method, not just valid
+                            return nb::cast<bool>(py_output.attr("modified"));
+                        }
+                    }
+                }
+            }
+        } catch (...) {
+            // Fall through
+        }
+    }
+
+    // For C++ targets, modified if notified at this time or target link is modified
     return _notify_time == time || _target_link.modified_at(time);
 }
 

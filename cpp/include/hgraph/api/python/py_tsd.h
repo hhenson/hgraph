@@ -212,6 +212,15 @@ namespace hgraph
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
 
+        /**
+         * @brief Get a stable identity for this output.
+         *
+         * Returns a unique identifier that can be used to compare if two output
+         * wrappers refer to the same underlying time series. This is needed because
+         * Python wrapper objects may differ even when referring to the same data.
+         */
+        [[nodiscard]] uintptr_t output_id() const;
+
     private:
         TSMutableView _view;  // Direct view storage - independent of Python wrapper
         std::optional<bool> _last_empty_state;

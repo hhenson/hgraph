@@ -247,9 +247,47 @@ struct TSOverlayStorage {
         return _observers && _observers->is_subscribed(observer);
     }
 
+    // ========== Bound Output Storage (for TSD REF elements) ==========
+
+    /**
+     * @brief Set a bound Python output for this overlay.
+     *
+     * Used by TSD REF elements when bind_output() is called. The binding is stored
+     * in the overlay so it persists across Python wrapper instances.
+     *
+     * @param output The bound Python output wrapped in std::any
+     */
+    void set_bound_output(std::any output) {
+        _bound_output = std::move(output);
+    }
+
+    /**
+     * @brief Get the bound Python output for this overlay.
+     * @return The stored bound output, or empty std::any if not set
+     */
+    [[nodiscard]] const std::any& bound_output() const noexcept {
+        return _bound_output;
+    }
+
+    /**
+     * @brief Check if this overlay has a bound output.
+     * @return True if a bound output has been set
+     */
+    [[nodiscard]] bool has_bound_output() const noexcept {
+        return _bound_output.has_value();
+    }
+
+    /**
+     * @brief Clear the bound output.
+     */
+    void clear_bound_output() {
+        _bound_output.reset();
+    }
+
 protected:
     TSOverlayStorage* _parent{nullptr};               ///< Parent overlay for upward propagation
     std::unique_ptr<ObserverList> _observers{nullptr}; ///< Lazy observer list
+    std::any _bound_output;                           ///< Bound Python output for TSD REF elements
 };
 
 /**

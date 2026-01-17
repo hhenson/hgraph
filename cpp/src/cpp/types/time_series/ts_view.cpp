@@ -1334,7 +1334,6 @@ bool TSMutableView::from_python(const nb::object& src) {
             }
             if (_overlay) {
                 _overlay->mark_modified(current_time);
-            } else {
             }
         }
 

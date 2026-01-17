@@ -359,6 +359,10 @@ private:
     // ========== Notification deduplication ==========
     engine_time_t _notify_time{MIN_DT};
 
+    // ========== Python output binding time ==========
+    engine_time_t _python_output_set_time{MIN_DT};  // When _python_output was last set (for modified check)
+    std::optional<uintptr_t> _python_output_id;     // Stable identity of current Python output (for rebinding detection)
+
     // ========== Expected element type (for view when no target bound) ==========
     const TSMeta* _expected_element_meta{nullptr};
 

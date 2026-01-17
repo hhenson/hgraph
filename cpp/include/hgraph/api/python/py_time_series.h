@@ -99,6 +99,15 @@ namespace hgraph
         [[nodiscard]] nb::object element_key() const { return _element_key; }
         [[nodiscard]] bool has_element_key() const { return _element_key.is_valid() && !_element_key.is_none(); }
 
+        /**
+         * @brief Get a stable identity for this output.
+         *
+         * Returns a unique identifier that can be used to compare if two output
+         * wrappers refer to the same underlying time series. This is needed because
+         * Python wrapper objects may differ even when referring to the same data.
+         */
+        [[nodiscard]] uintptr_t output_id() const;
+
         static void register_with_nanobind(nb::module_ &m);
 
       protected:

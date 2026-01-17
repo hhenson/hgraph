@@ -1460,6 +1460,20 @@ namespace hgraph
         return nb::cast(this, nb::rv_policy::reference);
     }
 
+    uintptr_t CppKeySetIsEmptyOutput::output_id() const {
+        // Use the TSD's root TSValue as the identity.
+        // All CppKeySetIsEmptyOutput instances for the same TSD share the same root pointer,
+        // so they will have the same identity even if the Python wrapper objects differ.
+        const TSValue* root = _view.root();
+        if (root) {
+            // Add a tag to distinguish is_empty output from regular TSD element outputs
+            // that might also use root pointer as identity
+            return reinterpret_cast<uintptr_t>(root) | 0x1ULL;
+        }
+        // Fallback: use object address (less stable)
+        return reinterpret_cast<uintptr_t>(this);
+    }
+
     // ===== CppKeySetInputWrapper Implementation =====
 
     CppKeySetInputWrapper::CppKeySetInputWrapper(TSView view)
@@ -1567,10 +1581,11 @@ namespace hgraph
     nb::object CppKeySetInputWrapper::output() const {
         // For key_set input wrappers, we need to return the output side's key_set
         // Create a CppKeySetOutputWrapper for the output view
-        // Note: For inputs, we need to get the output side - this requires bound_output tracking
-        // For now, return a new output wrapper with the same view (cast to mutable)
+        // IMPORTANT: Preserve the overlay so that CppKeySetIsEmptyOutput can track modification times
         TSMutableView mut_view = TSMutableView(const_cast<void*>(_view.value_view().data()),
-                                                _view.ts_meta(), static_cast<TSValue*>(nullptr));
+                                                _view.ts_meta(),
+                                                const_cast<TSOverlayStorage*>(_view.overlay()),
+                                                const_cast<TSValue*>(_view.root()));
         auto* wrapper = new CppKeySetOutputWrapper(mut_view);
         return nb::cast(wrapper, nb::rv_policy::take_ownership);
     }
