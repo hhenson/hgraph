@@ -110,25 +110,24 @@ namespace hgraph
             // Process added keys using Value-based iteration
             auto added_keys = keys.collect_added();
             for (size_t i = 0; i < added_keys.size(); ++i) {
-                auto& key = added_keys[i];
+                const auto& key = added_keys[i];
                 // There seems to be a case where a set can show a value as added even though it is not.
                 // This protects from accidentally creating duplicate graphs
-                if (active_graphs_.find(key.const_view()) == active_graphs_.end()) {
-                    create_new_graph(key.const_view());
+                if (active_graphs_.find(key) == active_graphs_.end()) {
+                    create_new_graph(key);
                 }
                 // If key already exists, skip it (can happen during startup before reset_prev() is called)
             }
             // Use INPUT's collect_removed() which handles sampled() case (returns empty when first bound)
-            for (auto& key : keys.collect_removed()) {
-                auto key_view = key.const_view();
-                if (auto it = active_graphs_.find(key_view); it != active_graphs_.end()) {
-                    remove_graph(key_view);
+            for (const auto& key : keys.collect_removed()) {
+                if (auto it = active_graphs_.find(key); it != active_graphs_.end()) {
+                    remove_graph(key);
                     // Use iterator-based erase (heterogeneous erase not available until C++23)
-                    if (auto sched_it = scheduled_keys_.find(key_view); sched_it != scheduled_keys_.end()) {
+                    if (auto sched_it = scheduled_keys_.find(key); sched_it != scheduled_keys_.end()) {
                         scheduled_keys_.erase(sched_it);
                     }
                 } else {
-                    nb::object py_key = key_type_meta_->ops->to_python(key_view.data(), key_type_meta_);
+                    nb::object py_key = key_type_meta_->ops->to_python(key.data(), key_type_meta_);
                     throw std::runtime_error(
                         fmt::format("[{}] Key {} does not exist in active graphs", signature().wiring_path_name,
                                     nb::repr(py_key).c_str()));

@@ -810,7 +810,7 @@ export async function connectJoinTable(workspace, table_name, schema, index, des
                 const view = await source_table.view(table_description.view);
                 const workspace_table = workspace_tables[table_description.table_name];
 
-                callback && callback(0.5, undefined, `${description._total.name}/${table_name}`, "joining");
+                callback && callback(0.5, undefined, `${description._total.name}/${table_name}`, "joining ", await view.num_rows(), "rows");
 
                 await join_table_updated(join_table, removes_table, description, table_name, workspace, worker, {
                     port_id: -1,
@@ -1165,7 +1165,7 @@ async function join_table_updated(target, removes_table, join_tables, table_name
     DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "with", update_data.length, "rows", "force republish", force_republish, safeClone(update_data));
 
     const join_data = [];
-    let new_row_indices = [];
+    let new_row_indices = new Set();
     const drop_rows_indices = new Set();
 
     for (const [i, row] of rows.entries()) {
@@ -1277,14 +1277,14 @@ async function join_table_updated(target, removes_table, join_tables, table_name
                 }
             }
             DEBUG && console.log("Translated into", total_rows.map(x => x.total_index), "item indices");
-            new_row_indices = [].concat(new_row_indices, total_rows.map(x => x.total_index));
+            total_rows.forEach(row => new_row_indices.add(row.total_index));
         }
     }
     if (join_data.length > 0) {
         DEBUG && console.log("Updating", join_tables._total.name, "from", table_name, "of", join_data.length, safeClone(join_data));
         target.update(await jsonToArrow(join_data, join_tables._total.name));
     }
-    if (new_row_indices.length > 0) {
+    if (new_row_indices.size > 0) {
         const total_index_col_name = join_tables._total.index;
         const join_data = new Map();
         for (const total_index of new_row_indices) {

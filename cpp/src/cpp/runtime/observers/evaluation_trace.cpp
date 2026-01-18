@@ -5,6 +5,8 @@
 #include <fmt/format.h>
 #include <iostream>
 
+#include "hgraph/types/tsb.h"
+
 namespace hgraph {
 
     // Static member initialization
@@ -83,18 +85,27 @@ namespace hgraph {
         std::string node_signature = _node_name(node);
         
         // TODO: Add input/output value printing when time series access is available
-        if (add_input) {
-            node_signature += "...";
-        } else if (node->signature().time_series_inputs.has_value() && 
-                   node->signature().time_series_inputs.value().size() > 0) {
+        if (add_input &&
+            node->signature().time_series_inputs.has_value() &&
+            node->signature().time_series_inputs.value().size() > 0) {
+            auto delta = node->input()->py_delta_value();
+            node_signature += nb::str(delta).c_str();
+        } else {
             node_signature += "...";
         }
         
         node_signature += ")";
         
         // TODO: Add output value when available
-        if (add_output) {
-            // node_signature += " -> <value>";
+        if (add_output && node->output()) {
+            if (node->output()->modified()) {
+                node_signature += " *->* ";
+                node_signature += nb::str(node->output()->py_delta_value()).c_str();
+            } else if (node->output()->valid()) {
+
+            } else {
+                node_signature += "<UnSet>";
+            }
         }
         
         std::string scheduled_msg = "";

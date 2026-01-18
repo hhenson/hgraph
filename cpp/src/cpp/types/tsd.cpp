@@ -664,10 +664,10 @@ namespace hgraph
         // Rebuild cache using key_set's collect_added() which handles _prev_output
         _added_items_cache.clear();
         auto added_keys = key_set().collect_added();
-        for (auto& elem : added_keys) {
-            auto it = _ts_values.find(elem.const_view());
+        for (const auto& elem : added_keys) {
+            auto it = _ts_values.find(elem);
             if (it != _ts_values.end()) {
-                _added_items_cache.emplace(std::move(elem), it->second);
+                _added_items_cache.emplace(elem.clone(), it->second);
             }
         }
         return _added_items_cache;
@@ -681,15 +681,15 @@ namespace hgraph
         _removed_items_cache.clear();
         // Use key_set's collect_removed() which handles _prev_output for unbound inputs
         auto removed_keys = key_set().collect_removed();
-        for (auto& elem : removed_keys) {
-            auto it = _removed_items.find(elem.const_view());
+        for (const auto& elem : removed_keys) {
+            auto it = _removed_items.find(elem);
             if (it == _removed_items.end()) {
                 // transplanted items stay in _ts_values
-                auto it2 = _ts_values.find(elem.const_view());
+                auto it2 = _ts_values.find(elem);
                 if (it2 == _ts_values.end()) continue;
-                _removed_items_cache.emplace(std::move(elem), it2->second);
+                _removed_items_cache.emplace(elem.clone(), it2->second);
             } else {
-                _removed_items_cache.emplace(std::move(elem), it->second.first);
+                _removed_items_cache.emplace(elem.clone(), it->second.first);
             }
         }
         return _removed_items_cache;
@@ -806,7 +806,7 @@ namespace hgraph
             if (it_ != _modified_items.end()) {
                 _modified_items.erase(it_);
             }
-            if (!has_peer()) { value->un_bind_output(false); }
+            // if (!has_peer()) { value->un_bind_output(false); }
         } else {
             // Transplanted input - put it back and unbind it
             // Use emplace instead of insert for move-only PlainValue keys
@@ -867,8 +867,8 @@ namespace hgraph
         // Use key_set INPUT's collect_removed() which properly handles _prev_output case (computes delta when rebinding)
         // This returns items that were in the old output but aren't in the new one
         auto removed_keys = key_set().collect_removed();
-        for (auto& elem : removed_keys) {
-            on_key_removed(elem.const_view());
+        for (const auto& elem : removed_keys) {
+            on_key_removed(elem);
         }
 
         value_output->add_key_observer(this);
@@ -948,6 +948,7 @@ namespace hgraph
             // Capture by value to ensure the lambda has valid references
             auto builder  = _ts_builder;
             auto instance = value;
+            instance->un_bind_output(true);
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification(
                 [builder, instance]() { builder->release_instance(instance.get()); });
         }

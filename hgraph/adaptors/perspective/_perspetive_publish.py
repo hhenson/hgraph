@@ -334,7 +334,12 @@ def _receive_table_edits_tsd(
         if isinstance(_schema.value_scalar_tp, HgCompoundScalarType):
             tp = _schema.value_scalar_tp.py_type
             tp_schema = {k: v.py_type for k, v in _schema.value_scalar_tp.meta_data_schema.items()}
-            process_row = lambda row, i: tp(**{k: tp_schema[k](row[k]) for k in row if k in tp_schema})
+
+            def cast_value(k, v):
+                target_type = tp_schema[k]
+                return v if v is None or isinstance(v, target_type) else target_type(v)
+
+            process_row = lambda row, i: tp(**{k: cast_value(k, row[k]) for k in row if k in tp_schema})
         else:
             process_row = lambda row, i: row["value"]
     else:

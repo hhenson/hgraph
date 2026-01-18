@@ -26,7 +26,6 @@ if perspective.__version__ == "2.10.1":
     psp_new_api = False
 else:
     from perspective import Server, Client, Table, View, table
-    from perspective import Server, Client, Table, View, table
     from perspective.handlers.tornado import PerspectiveTornadoHandler
 
     psp_new_api = True

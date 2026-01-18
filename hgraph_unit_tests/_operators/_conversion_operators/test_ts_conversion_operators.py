@@ -1,8 +1,9 @@
+from datetime import datetime, date
 from typing import Type
 
 import pytest
 
-from hgraph import TS, TSS, SCALAR, SCALAR_1, AUTO_RESOLVE, DEFAULT, Removed
+from hgraph import TS, TSS, SCALAR, SCALAR_1, AUTO_RESOLVE, DEFAULT, Removed, graph
 from hgraph import convert
 from hgraph.test import eval_node
 
@@ -27,6 +28,7 @@ class derived_test_class(base_test_class):
         [TS[float], [0.0, 1.0, 2.0], TS[bool], [False, True, True]],
         [TS[int], [0, 1, 2], TS[str], ["0", "1", "2"]],
         [TS[float], [0.0, 1.0, 2.0], TS[str], ["0.0", "1.0", "2.0"]],
+        [TS[date], [date(2025, 12, 1)], TS[datetime], [datetime(2025, 12, 1, 0, 0)]],
         [TS[int], [0, 1, 2], TSS[int], [frozenset({0}), frozenset({1, Removed(0)}), frozenset({2, Removed(1)})]],
         [TS[bool], [True, False], TS[int], [1, 0]],
         [TS[bool], [True, False], TS[float], [1.0, 0.0]],
@@ -46,6 +48,14 @@ class derived_test_class(base_test_class):
 )
 def test_convert_ts(from_, from_tp, to_tp, expected):
     assert eval_node(convert, from_, to_tp, resolution_dict=dict(ts=from_tp)) == expected
+
+
+def test_convert_date_as_object_to_datetime():
+    @graph
+    def g(dt: TS[object]) -> TS[datetime]:
+        return convert[TS[datetime]](dt)
+
+    assert eval_node(g, [date(2025, 12, 1)])[-1] == datetime(2025, 12, 1, 0, 0)
 
 
 def test_convert_wiring():
