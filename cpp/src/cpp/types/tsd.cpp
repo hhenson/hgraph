@@ -435,27 +435,47 @@ namespace hgraph
     }
 
     const TimeSeriesDictOutputImpl::map_type &TimeSeriesDictOutputImpl::valid_items() const {
-        // Rebuild cache each call to ensure freshness
+        // Use cached result if cache was built at or after our last modification time
+        // This avoids expensive iteration and key cloning when nothing changed
+        auto lmt = last_modified_time();
+        if (_valid_items_cache_time >= lmt && !_valid_items_cache.empty()) {
+            return _valid_items_cache;
+        }
+
+        // Rebuild cache
         _valid_items_cache.clear();
         for (const auto &[pv_key, val] : _ts_values) {
             if (val->valid()) {
                 _valid_items_cache.emplace(pv_key.const_view().clone(), val);
             }
         }
+        _valid_items_cache_time = lmt;
         return _valid_items_cache;
     }
 
     const TimeSeriesDictOutputImpl::map_type &TimeSeriesDictOutputImpl::added_items() const {
-        // Return items that were added, fetched from the key_set's added view
-        static map_type added_cache;  // Static to persist across calls
-        added_cache.clear();
+        // Early return if no items were added (avoids iteration entirely)
+        if (key_set().added_view().empty()) {
+            _added_items_cache.clear();
+            return _added_items_cache;
+        }
+
+        // Use cached result if key_set hasn't been modified since cache was built
+        auto ks_lmt = key_set().last_modified_time();
+        if (_added_items_cache_time >= ks_lmt && !_added_items_cache.empty()) {
+            return _added_items_cache;
+        }
+
+        // Rebuild cache - uses instance member instead of static for thread safety
+        _added_items_cache.clear();
         for (auto elem : key_set().added_view()) {
             auto it = _ts_values.find(elem);
             if (it != _ts_values.end()) {
-                added_cache.emplace(elem.clone(), it->second);
+                _added_items_cache.emplace(elem.clone(), it->second);
             }
         }
-        return added_cache;
+        _added_items_cache_time = ks_lmt;
+        return _added_items_cache;
     }
 
     TimeSeriesSetOutput &TimeSeriesDictOutputImpl::key_set() { return *_key_set; }
@@ -535,11 +555,11 @@ namespace hgraph
 
     TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::get_or_create(const value::ConstValueView &key) {
         auto it = _ts_values.find(key);
-        if (it == _ts_values.end()) {
-            create(key);
-            it = _ts_values.find(key);
+        if (it != _ts_values.end()) {
+            return it->second;
         }
-        return it->second;
+        // Create returns the new item, avoiding a second hash lookup
+        return create(key);
     }
 
     bool TimeSeriesDictOutputImpl::has_reference() const { return _ts_builder->has_reference(); }
@@ -650,17 +670,37 @@ namespace hgraph
     }
 
     const TimeSeriesDictInputImpl::map_type &TimeSeriesDictInputImpl::valid_items() const {
-        // Rebuild cache each call to ensure freshness
+        // Use cached result if cache was built at or after our last modification time
+        // This avoids expensive iteration and key cloning when nothing changed
+        auto lmt = last_modified_time();
+        if (_valid_items_cache_time >= lmt && !_valid_items_cache.empty()) {
+            return _valid_items_cache;
+        }
+
+        // Rebuild cache
         _valid_items_cache.clear();
         for (const auto &[pv_key, val] : _ts_values) {
             if (val->valid()) {
                 _valid_items_cache.emplace(pv_key.const_view().clone(), val);
             }
         }
+        _valid_items_cache_time = lmt;
         return _valid_items_cache;
     }
 
     const TimeSeriesDictInputImpl::map_type &TimeSeriesDictInputImpl::added_items() const {
+        // Early return if no items were added (avoids collect_added() and iteration)
+        if (!has_added()) {
+            _added_items_cache.clear();
+            return _added_items_cache;
+        }
+
+        // Use cached result if key_set hasn't been modified since cache was built
+        auto ks_lmt = key_set().last_modified_time();
+        if (_added_items_cache_time >= ks_lmt && !_added_items_cache.empty()) {
+            return _added_items_cache;
+        }
+
         // Rebuild cache using key_set's collect_added() which handles _prev_output
         _added_items_cache.clear();
         auto added_keys = key_set().collect_added();
@@ -670,6 +710,7 @@ namespace hgraph
                 _added_items_cache.emplace(elem.clone(), it->second);
             }
         }
+        _added_items_cache_time = ks_lmt;
         return _added_items_cache;
     }
 
@@ -1074,7 +1115,7 @@ namespace hgraph
         BaseTimeSeriesInput::notify_parent(this, modified_time);
     }
 
-    void TimeSeriesDictInputImpl::create(const value::ConstValueView &key_view) {
+    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::create(const value::ConstValueView &key_view) {
         auto item{_ts_builder->make_instance(this)};
         // For non-peered inputs that are active, make the newly created item active too
         // This ensures proper notification chain for fast non-peer TSD scenarios
@@ -1082,9 +1123,10 @@ namespace hgraph
         // Use emplace with cloned key for move-only PlainValue storage
         _ts_values.emplace(key_view.clone(), item);
         _add_key_value(key_view, item);
+        return item;  // Return the created item
     }
 
-    void TimeSeriesDictOutputImpl::create(const value::ConstValueView &key_view) {
+    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::create(const value::ConstValueView &key_view) {
         // Add key to TSS (already Value-based)
         key_set().add(key_view);
 
@@ -1114,6 +1156,8 @@ namespace hgraph
                 }
             });
         }
+
+        return item;  // Return the created item to avoid second lookup in get_or_create
     }
 
     void TimeSeriesDictOutputImpl::add_key_observer(TSDKeyObserver *observer) {
