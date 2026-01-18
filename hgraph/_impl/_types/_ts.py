@@ -36,7 +36,13 @@ class PythonTimeSeriesValueOutput(PythonTimeSeriesOutput, TimeSeriesValueOutput[
             return
 
         if HG_TYPE_CHECKING:
-            tp_ = origin if (origin := typing.get_origin(self._tp)) else self._tp
+            from hgraph._types._cpp_native_type import CppNative
+            origin = typing.get_origin(self._tp)
+            if origin is CppNative:
+                # CppNative[T] wraps T values - check against T
+                tp_ = typing.get_args(self._tp)[0]
+            else:
+                tp_ = origin if origin else self._tp
             if not isinstance(v, tp_):
                 raise TypeError(f"Expected {self._tp}, got {type(v)}")
 
