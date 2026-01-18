@@ -399,6 +399,20 @@ time-series output ──(ts→REF)──▶ REF input
           └── actual value            └── TimeSeriesReference to output
 ```
 
+### Sampled Flag on REF Traversal
+
+When a REF→time-series link is traversed and the REF was modified (the reference changed to point to a different target), the resulting TSView is marked as **sampled**. A sampled view reports `modified() == true` even if the new target wasn't modified at the current tick.
+
+This ensures consumers are notified when their data source changes:
+
+```
+T1: REF → primary,   primary.modified()=true   → consumer sees modified=true
+T2: REF → secondary, secondary.modified()=false → consumer sees modified=true (sampled!)
+T3: REF → secondary, secondary.modified()=false → consumer sees modified=false
+```
+
+The sampled flag propagates through the view - any child views obtained from a sampled parent are also sampled. See [Time-Series: Sampled Flag](03_TIME_SERIES.md#sampled-flag-on-ref-traversal) for details.
+
 ### Use Cases
 
 **1. Conditional routing:**

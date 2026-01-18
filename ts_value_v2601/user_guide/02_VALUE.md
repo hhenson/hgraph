@@ -714,6 +714,7 @@ classDiagram
     class DeltaValue {
         -void* data_
         -TypeMeta* delta_schema_
+        -delta_ops ops_
         +DeltaValue(schema: TypeMeta&)
         +schema() const TypeMeta&
         +view() DeltaView
@@ -721,15 +722,19 @@ classDiagram
         +apply_to(target: Value&) void
     }
 
+    note for DeltaValue "Single class like Value.\nUses delta_ops for kind-specific behavior.\nNo subclasses."
+
     class DeltaView {
+        <<interface>>
         -void* data_
-        -TypeMeta* delta_schema_
-        -DeltaValue* owner_
+        -delta_ops* ops_
         +schema() const TypeMeta&
-        +owner() DeltaValue&
         +empty() bool
         +to_string() string
+        +to_python() nb::object
     }
+
+    note for DeltaView "Type-erased interface.\nImplementations:\n- DeltaValue (stored delta)\n- TSValue delta (dynamic view over TS structure)"
 
     class SetDeltaView {
         +added() range
@@ -749,31 +754,57 @@ classDiagram
         +updated_items() range
     }
 
-    class SetDeltaValue {
-        +mark_added~T~(value: T) void
-        +mark_removed~T~(value: T) void
+    class delta_ops {
+        +construct(dst: void*) void
+        +destroy(ptr: void*) void
+        +clear(ptr: void*) void
+        +empty(ptr: void*) bool
+        +apply_to(ptr: void*, target: Value&) void
+        +to_python(ptr: void*) nb::object
+        +kind: TypeKind
+        +specific: delta_kind_ops_union
     }
 
-    class MapDeltaValue {
-        +mark_added~K,V~(key: K, value: V) void
-        +mark_updated~K,V~(key: K, value: V) void
-        +mark_removed~K~(key: K) void
+    class delta_kind_ops_union {
+        <<union>>
+        +set: set_delta_ops
+        +map: map_delta_ops
+        +list: list_delta_ops
     }
 
-    class ListDeltaValue {
-        +mark_updated~T~(index: size_t, value: T) void
+    class set_delta_ops {
+        +mark_added(ptr: void*, elem: View) void
+        +mark_removed(ptr: void*, elem: View) void
+        +added(ptr: void*) ViewRange
+        +removed(ptr: void*) ViewRange
     }
 
-    DeltaValue --> DeltaView : creates
+    class map_delta_ops {
+        +mark_added(ptr: void*, key: View, val: View) void
+        +mark_updated(ptr: void*, key: View, val: View) void
+        +mark_removed(ptr: void*, key: View) void
+        +added_keys(ptr: void*) ViewRange
+        +updated_keys(ptr: void*) ViewRange
+        +removed_keys(ptr: void*) ViewRange
+    }
+
+    class list_delta_ops {
+        +mark_updated(ptr: void*, idx: size_t, val: View) void
+        +updated_indices(ptr: void*) ViewRange
+        +updated_items(ptr: void*) ViewPairRange
+    }
+
+    DeltaValue ..|> DeltaView : implements
+    DeltaValue --> TypeMeta : delta_schema
+    DeltaValue --> delta_ops : contains
+    DeltaView --> TypeMeta : schema()
     DeltaView <|-- SetDeltaView
     DeltaView <|-- MapDeltaView
     DeltaView <|-- ListDeltaView
-    DeltaValue <|-- SetDeltaValue
-    DeltaValue <|-- MapDeltaValue
-    DeltaValue <|-- ListDeltaValue
-    DeltaValue --> TypeMeta : references delta_schema
-    DeltaView --> TypeMeta : references delta_schema
-    DeltaView --> DeltaValue : references owner
+    delta_ops --> delta_kind_ops_union : contains
+    delta_kind_ops_union --> set_delta_ops : variant
+    delta_kind_ops_union --> map_delta_ops : variant
+    delta_kind_ops_union --> list_delta_ops : variant
 ```
 
 ### Relationships Overview
@@ -795,11 +826,8 @@ flowchart TD
     end
 
     subgraph Delta Layer
+        DVW[DeltaView interface]
         DV[DeltaValue]
-        DVW[DeltaView]
-        SDV[SetDeltaValue]
-        MDV[MapDeltaValue]
-        LDV[ListDeltaValue]
     end
 
     TM -->|describes| V
@@ -810,11 +838,8 @@ flowchart TD
     VW -->|specializes to| SV
     VW -->|specializes to| MV
 
-    DS -->|describes| DV
-    DV -->|creates| DVW
-    DV -->|specializes to| SDV
-    DV -->|specializes to| MDV
-    DV -->|specializes to| LDV
+    DS -->|describes| DVW
+    DV -->|implements| DVW
 
     DVW -->|applied to| V
 ```

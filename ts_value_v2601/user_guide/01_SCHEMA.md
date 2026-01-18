@@ -1236,7 +1236,7 @@ classDiagram
         -TypeKind kind_
         -string name_
         -size_t byte_size_
-        -type_ops* ops_
+        -type_ops ops_
         +kind() TypeKind
         +name() string_view
         +byte_size() size_t
@@ -1367,7 +1367,7 @@ classDiagram
     TypeMeta <|-- SetMeta
     TypeMeta <|-- MapMeta
     TypeRegistry --> TypeMeta : manages
-    TypeMeta --> type_ops : uses
+    TypeMeta --> type_ops : contains
     TypeMeta --> TypeKind : has
     type_ops --> kind_ops_union : contains
     type_ops --> TypeKind : tagged by
@@ -1449,9 +1449,13 @@ classDiagram
     class TSMeta {
         -TSKind kind_
         -TypeMeta* value_schema_
-        -ts_ops* ops_
+        -TypeMeta* time_schema_
+        -TypeMeta* observer_schema_
+        -ts_ops ops_
         +kind() TSKind
         +value_schema() const TypeMeta&
+        +time_schema() const TypeMeta&
+        +observer_schema() const TypeMeta&
     }
 
     class TSBMeta {
@@ -1609,9 +1613,11 @@ classDiagram
     TSMeta <|-- REFMeta
     TSMeta <|-- SIGNALMeta
     TSRegistry --> TSMeta : manages
-    TSMeta --> TypeMeta : references value schema
+    TSMeta --> TypeMeta : value_schema
+    TSMeta --> TypeMeta : time_schema
+    TSMeta --> TypeMeta : observer_schema
     TSMeta --> TSKind : has
-    TSMeta --> ts_ops : uses
+    TSMeta --> ts_ops : contains
     ts_ops --> ts_kind_ops_union : contains
     ts_ops --> TSKind : tagged by
     ts_kind_ops_union --> ts_scalar_ops : variant

@@ -279,6 +279,38 @@ In the following, "time-series" refers to any time-series type (TS, TSB, TSL, TS
 - A TimeSeriesReference pointing to the time-series is created
 - The REF input's value is this reference
 
+### Sampled Flag on REF Traversal
+
+When a REF link is traversed and the reference itself was modified (i.e., the reference changed to point to a different target), all views obtained through that reference are marked as **sampled**. A sampled view reports `modified() == true` regardless of whether the underlying target time-series was actually modified at the current tick.
+
+```cpp
+// View carries a sampled flag
+class TSView {
+    // ...
+    -bool sampled_
+    +sampled() bool           // True if view was obtained through a modified REF
+    +modified() bool          // Returns true if sampled_ OR actual modification
+};
+```
+
+This ensures that when a dynamic routing decision changes, downstream consumers are notified:
+
+```cpp
+// Example: REF changes from primary to secondary at T2
+//
+// T1: REF -> primary (price=100), primary.modified()=true
+//     consumer sees: price.modified()=true, price.value()=100
+//
+// T2: REF -> secondary (price=200), REF.modified()=true, secondary.modified()=false
+//     consumer sees: price.modified()=true (sampled!), price.value()=200
+//     Even though secondary wasn't modified, consumer sees modified=true
+//     because the data source changed
+//
+// T3: REF -> secondary (unchanged), secondary.modified()=false
+//     consumer sees: price.modified()=false, price.value()=200
+//     Normal behavior - no sampling, no modification
+```
+
 ```cpp
 // Example: Dynamic routing with REF → TS binding
 void select_source(
@@ -300,7 +332,12 @@ void consumer(const TSView& price, TSView& output) {
     // When wired: consumer(price=select_source(...))
     // The REF→TS binding creates a dynamic link
     // price.value() follows whichever source is selected
-    output.set_value(value_from("Price: " + std::to_string(price.value().as<double>())));
+    //
+    // If the REF was modified (source switched), price.modified() returns true
+    // due to the sampled flag, even if the new target wasn't modified
+    if (price.modified()) {
+        output.set_value(value_from("Price: " + std::to_string(price.value().as<double>())));
+    }
 }
 ```
 
@@ -499,6 +536,396 @@ for (auto [key, ts] : stock_prices.modified_items()) {
 ```
 
 See [Delta and Change Tracking](06_DELTA.md) for details.
+
+---
+
+## Core API Structure
+
+### Class Diagram - Time-Series Views
+
+```mermaid
+classDiagram
+    class TSView {
+        -void* data_
+        -TSMeta* ts_meta_
+        -engine_time_t bound_time_
+        -bool sampled_
+        +ts_meta() const TSMeta&
+        +value() View
+        +modified() bool
+        +sampled() bool
+        +valid() bool
+        +all_valid() bool
+        +last_modified_time() engine_time_t
+        +delta() DeltaView
+        +to_python() nb::object
+        +delta_to_python() nb::object
+        +set_value(v: View) void
+        +apply_delta(d: DeltaView) void
+        +invalidate() void
+    }
+
+    note for TSView "Mutation methods require non-const reference.\nInputs use const TSView&, outputs use TSView&.\nsampled_: true when obtained through modified REF,\ncauses modified() to return true."
+
+    class TSBView {
+        +field(name: string) TSView
+        +field(index: size_t) TSView
+        +field_count() size_t
+        +items() TSViewPairRange
+        +valid_items() TSViewPairRange
+        +modified_items() TSViewPairRange
+    }
+
+    class TSLView {
+        +at(index: size_t) TSView
+        +size() size_t
+        +values() TSViewRange
+        +valid_values() TSViewRange
+        +modified_values() TSViewRange
+        +items() TSViewPairRange
+        +valid_items() TSViewPairRange
+        +modified_items() TSViewPairRange
+    }
+
+    class TSDView {
+        +at(key: View) TSView
+        +contains(key: View) bool
+        +size() size_t
+        +key_set() TSSView
+        +keys() ViewRange
+        +valid_keys() ViewRange
+        +added_keys() ViewRange
+        +removed_keys() ViewRange
+        +modified_keys() ViewRange
+        +items() TSViewPairRange
+        +valid_items() TSViewPairRange
+        +added_items() TSViewPairRange
+        +modified_items() TSViewPairRange
+    }
+
+    class TSSView {
+        +contains(elem: View) bool
+        +size() size_t
+        +values() ViewRange
+        +added() ViewRange
+        +removed() ViewRange
+        +was_added(elem: View) bool
+        +was_removed(elem: View) bool
+    }
+
+    class RefView {
+        +value() TimeSeriesReference
+        +valid() bool
+        +modified() bool
+    }
+
+    class SignalView {
+        +modified() bool
+    }
+
+    class TSViewRange {
+        +begin() iterator
+        +end() iterator
+    }
+
+    class TSViewPairRange {
+        +begin() iterator
+        +end() iterator
+    }
+
+    TSView <|-- TSBView
+    TSView <|-- TSLView
+    TSView <|-- TSDView
+    TSView <|-- TSSView
+    TSView <|-- RefView
+    TSView <|-- SignalView
+    TSView --> TSMeta : references
+    TSView --> View : returns value
+    TSView --> DeltaView : returns delta
+    TSBView --> TSViewPairRange : returns
+    TSLView --> TSViewRange : returns
+    TSLView --> TSViewPairRange : returns
+    TSDView --> TSViewPairRange : returns
+    TSDView --> TSSView : returns key_set
+    TSSView --> ViewRange : returns
+```
+
+### Class Diagram - TSValue Structure
+
+```mermaid
+classDiagram
+    class TSValue {
+        -Value data_value_
+        -Value time_value_
+        -Value observer_value_
+        +TSValue(ts_meta: TSMeta&)
+        +ts_meta() const TSMeta&
+        +view(time: engine_time_t) TSView
+        +data() Value&
+        +times() Value&
+        +observers() Value&
+    }
+
+    class Value {
+        -void* data_
+        -TypeMeta* schema_
+        +Value(schema: TypeMeta&)
+        +schema() const TypeMeta&
+        +view() View
+    }
+
+    note for TSValue "Contains parallel Value structures:\n- data_value_: user data (mirrors TSMeta.value_schema)\n- time_value_: modification times (mirrors TS structure)\n- observer_value_: observer lists (mirrors TS structure)"
+
+    class TSMeta {
+        -TSKind kind_
+        -TypeMeta* value_schema_
+        -TypeMeta* time_schema_
+        -TypeMeta* observer_schema_
+        +kind() TSKind
+        +value_schema() const TypeMeta&
+        +time_schema() const TypeMeta&
+        +observer_schema() const TypeMeta&
+    }
+
+    TSValue --> Value : data_value_
+    TSValue --> Value : time_value_
+    TSValue --> Value : observer_value_
+    TSValue --> TSMeta : ts_meta()
+    TSMeta --> TypeMeta : value_schema
+    TSMeta --> TypeMeta : time_schema
+    TSMeta --> TypeMeta : observer_schema
+```
+
+### Class Diagram - TSView Interface
+
+```mermaid
+classDiagram
+    class TSView {
+        <<interface>>
+        -void* data_
+        -ts_ops* ops_
+        -engine_time_t bound_time_
+        -bool sampled_
+        +ts_meta() const TSMeta&
+        +value() View
+        +modified() bool
+        +sampled() bool
+        +valid() bool
+        +all_valid() bool
+        +last_modified_time() engine_time_t
+        +delta() DeltaView
+        +set_value(v: View) void
+        +apply_delta(d: DeltaView) void
+        +invalidate() void
+    }
+
+    note for TSView "Type-erased view interface.\nBound to a specific engine time.\nMutation requires non-const reference.\nsampled_: set when traversing modified REF."
+
+    class Value {
+        -void* data_
+        -TypeMeta* schema_
+        +Value(schema: TypeMeta&)
+        +schema() const TypeMeta&
+        +view() View
+    }
+
+    class View {
+        <<interface>>
+        -void* data_
+        -type_ops* ops_
+        +schema() const TypeMeta&
+        +as~T~() T
+        +at(index: size_t) View
+        +at(name: string) View
+        +size() size_t
+        +to_python() nb::object
+    }
+
+    class TSMeta {
+        -TSKind kind_
+        -TypeMeta* value_schema_
+        +kind() TSKind
+        +value_schema() const TypeMeta&
+    }
+
+    class TypeMeta {
+        -TypeKind kind_
+        -string name_
+        +kind() TypeKind
+        +name() string_view
+    }
+
+    class DeltaView {
+        <<interface>>
+        -void* data_
+        -delta_ops* ops_
+        +schema() const TypeMeta&
+        +empty() bool
+        +to_python() nb::object
+    }
+
+    note for DeltaView "Type-erased interface.\nImplementations: DeltaValue (stored),\nTSValue delta (dynamic over TS structure)."
+
+    TSValue --> TSView : view()
+    TSView --> View : value()
+    TSView --> DeltaView : delta()
+    TSView --> TSMeta : ts_meta()
+    Value --> TypeMeta : schema()
+    Value --> View : view()
+    View --> TypeMeta : schema()
+    TSMeta --> TypeMeta : value_schema()
+    DeltaView --> TypeMeta : schema()
+```
+
+### Parallel Value Structure Example
+
+```
+TSB[a: TS[int], b: TSL[TS[float], 3]]
+
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  TSValue                                                                      │
+│                                                                               │
+│  ┌─────────────────────────┐  ┌─────────────────────────┐  ┌───────────────┐ │
+│  │  data_value_            │  │  time_value_            │  │ observer_val_ │ │
+│  │  Schema: Bundle[        │  │  Schema: Bundle[        │  │ Schema: ...   │ │
+│  │    a: int,              │  │    _t: engine_time_t,   │  │               │ │
+│  │    b: List[float, 3]    │  │    a: engine_time_t,    │  │ (parallel     │ │
+│  │  ]                      │  │    b: Bundle[           │  │  structure    │ │
+│  │                         │  │      _t: engine_time_t, │  │  for observer │ │
+│  │  ┌──────┬────────────┐  │  │      0: engine_time_t,  │  │  lists)       │ │
+│  │  │ a: 5 │ b: [1,2,3] │  │  │      1: engine_time_t,  │  │               │ │
+│  │  └──────┴────────────┘  │  │      2: engine_time_t   │  │               │ │
+│  │                         │  │    ]                    │  │               │ │
+│  │                         │  │  ]                      │  │               │ │
+│  │                         │  │                         │  │               │ │
+│  │                         │  │  ┌──────┬────────────┐  │  │               │ │
+│  │                         │  │  │_t: T3│ a: T1      │  │  │               │ │
+│  │                         │  │  │      │ b._t: T3   │  │  │               │ │
+│  │                         │  │  │      │ b.0: T2    │  │  │               │ │
+│  │                         │  │  │      │ b.1: T3    │  │  │               │ │
+│  │                         │  │  │      │ b.2: T1    │  │  │               │ │
+│  │                         │  │  └──────┴────────────┘  │  │               │ │
+│  └─────────────────────────┘  └─────────────────────────┘  └───────────────┘ │
+└──────────────────────────────────────────────────────────────────────────────┘
+
+When b[1] is modified at T3:
+1. time_value_.b.1 = T3, notify observers from observer_value_.b.1
+2. time_value_.b._t = T3, notify observers from observer_value_.b._t
+3. time_value_._t = T3, notify observers from observer_value_._t
+```
+
+### Relationships Overview
+
+```mermaid
+flowchart TD
+    subgraph Schema Layer
+        TSM[TSMeta]
+        TM_VAL[TypeMeta - value]
+        TM_TIME[TypeMeta - time]
+        TM_OBS[TypeMeta - observer]
+    end
+
+    subgraph Time-Series Storage
+        TSVAL[TSValue]
+        DATA_VAL[Value - data]
+        TIME_VAL[Value - times]
+        OBS_VAL[Value - observers]
+    end
+
+    subgraph Time-Series Views
+        TSV[TSView interface]
+        TSBV[TSBView]
+        TSLV[TSLView]
+        TSDV[TSDView]
+        TSSV[TSSView]
+        RV[RefView]
+        SV[SignalView]
+    end
+
+    subgraph Value Views
+        V[View interface]
+        DV[DeltaView interface]
+    end
+
+    TSM -->|value_schema| TM_VAL
+    TSM -->|time_schema| TM_TIME
+    TSM -->|observer_schema| TM_OBS
+
+    TSVAL -->|ts_meta| TSM
+    TSVAL -->|data_value_| DATA_VAL
+    TSVAL -->|time_value_| TIME_VAL
+    TSVAL -->|observer_value_| OBS_VAL
+    TSVAL -->|view| TSV
+
+    DATA_VAL -->|schema| TM_VAL
+    TIME_VAL -->|schema| TM_TIME
+    OBS_VAL -->|schema| TM_OBS
+
+    TSV -->|value| V
+    TSV -->|delta| DV
+
+    TSV -->|specializes to| TSBV
+    TSV -->|specializes to| TSLV
+    TSV -->|specializes to| TSDV
+    TSV -->|specializes to| TSSV
+    TSV -->|specializes to| RV
+    TSV -->|specializes to| SV
+```
+
+### Time-Series Operations Flow
+
+```mermaid
+flowchart LR
+    subgraph Reading
+        TS[const TSView&] --> M{modified?}
+        M -->|yes| V[value]
+        V --> AS[as~T~]
+        TS --> D[delta]
+    end
+
+    subgraph Writing
+        TSM[TSView&] --> SV[set_value]
+        SV --> NOTIFY[notify observers]
+        TSM --> AD[apply_delta]
+        AD --> NOTIFY
+    end
+
+    subgraph Composite Access
+        TSB[TSBView] --> F[field]
+        TSL[TSLView] --> AT[at]
+        TSD[TSDView] --> ATK[at key]
+        TSS[TSSView] --> CONT[contains]
+    end
+```
+
+### Input/Output Pattern
+
+```mermaid
+flowchart TD
+    subgraph Node
+        direction TB
+        IN1[const TSView& input1]
+        IN2[const TSView& input2]
+        LOGIC[Node Logic]
+        OUT[TSView& output]
+    end
+
+    subgraph Upstream
+        UP1[Producer 1]
+        UP2[Producer 2]
+    end
+
+    subgraph Downstream
+        DOWN[Consumer]
+    end
+
+    UP1 -->|link| IN1
+    UP2 -->|link| IN2
+    IN1 --> LOGIC
+    IN2 --> LOGIC
+    LOGIC --> OUT
+    OUT -->|link| DOWN
+```
 
 ---
 
