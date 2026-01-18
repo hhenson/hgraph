@@ -572,53 +572,6 @@ for (int i = 0; i < 1000000; ++i) {
 
 ---
 
-## Relationship to Time-Series
-
-A **time-series** wraps a **value** and adds:
-- Modification time tracking (validity is derived from this - a time-series is valid if it has been modified at least once)
-- Observer notifications
-- Delta computation
-
-```
-┌─────────────────────────────────────┐
-│           Time-Series               │
-│  ┌───────────────────────────────┐  │
-│  │           Value               │  │
-│  │  (the actual data)            │  │
-│  └───────────────────────────────┘  │
-│  + last_modified_time               │
-│  + observers                        │
-└─────────────────────────────────────┘
-```
-
-### Accessing Values from Time-Series
-
-```cpp
-// Input (read-only)
-TSInput price = ...;
-
-// Access the value (type-erased)
-View v = price.value();                   // Returns type-erased View
-double current = v.as<double>();          // Extract typed value
-nb::object py_val = price.to_python();    // Get as Python object
-
-// Time-series properties
-bool changed = price.modified();          // True if changed this tick
-bool is_set = price.valid();              // True if ever been set
-engine_time_t last_mod = price.last_modified_time();  // Time of last modification
-
-// Output (read-write)
-TSOutput price_out = ...;
-price_out.set_value(42.0);                // Set value (marks modified)
-
-// For composites - access nested values
-TSInput quote = ...;  // TSB[bid: TS[float], ask: TS[float]]
-double bid = quote.field("bid").value().as<double>();  // Field's current value
-nb::object full = quote.to_python();                   // Entire bundle as Python object
-```
-
----
-
 ## Python Interop
 
 Values convert to and from Python objects:

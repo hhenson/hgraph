@@ -15,6 +15,55 @@ Time-series are the primary abstraction users work with in graph code.
 
 ---
 
+## Relationship to Value
+
+A time-series **wraps** a [Value](02_VALUE.md) and adds temporal tracking:
+
+```
+┌─────────────────────────────────────┐
+│           Time-Series               │
+│  ┌───────────────────────────────┐  │
+│  │           Value               │  │
+│  │  (the actual data)            │  │
+│  └───────────────────────────────┘  │
+│  + last_modified_time               │
+│  + observers                        │
+└─────────────────────────────────────┘
+```
+
+The Value layer provides:
+- Type-erased data storage
+- Schema-driven operations (copy, equality, hash)
+- Python interop
+
+The Time-Series layer adds:
+- Modification time tracking (validity is derived from this - a time-series is valid if it has been modified at least once)
+- Observer notifications for reactive updates
+- Delta computation for incremental processing
+
+### Accessing the Underlying Value
+
+```cpp
+const TSView& price = ...;
+
+// Access the value (type-erased View)
+View v = price.value();                   // Returns type-erased View
+double current = v.as<double>();          // Extract typed value
+nb::object py_val = price.to_python();    // Get as Python object
+
+// Time-series properties (not available on Value)
+bool changed = price.modified();          // True if changed this tick
+bool is_set = price.valid();              // True if ever been set
+engine_time_t last_mod = price.last_modified_time();  // Time of last modification
+
+// For composites - access nested values
+const TSBView& quote = ...;  // TSB[bid: TS[float], ask: TS[float]]
+double bid = quote.field("bid").value().as<double>();  // Field's current value
+nb::object full = quote.to_python();                   // Entire bundle as Python object
+```
+
+---
+
 ## Time-Series Views and Time Binding
 
 A time-series **view** must be created with a specific **datetime** value. The view is bound to that time and is only meaningful at that point.
