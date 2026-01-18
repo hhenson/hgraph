@@ -62,13 +62,13 @@ You can drill down to find exactly which children changed.
 Scalars have simple delta semantics:
 
 ```cpp
-TSView<double> price = ...;
+TSView price = ...;
 
-// Current value
-double current = price.value();  // → 42.0
+// Current value (type-erased)
+double current = price.value().as<double>();  // → 42.0
 
 // Delta value (the change itself)
-double delta = price.delta_value();  // → 42.0 (same as value for scalars)
+double delta = price.delta_value().as<double>();  // → 42.0 (same as value for scalars)
 ```
 
 For scalars, `value()` and `delta_value()` are the same - the "change" is the new value.
@@ -117,21 +117,21 @@ for (auto [name, ts] : quote.modified_items()) {
 ### Which Elements Changed?
 
 ```cpp
-TSLView<TSView<double>, 10> prices = ...;
+TSLView prices = ...;
 
 // Check specific element
 if (prices[3].modified()) {
-    std::cout << "Element 3 changed to " << prices[3].value() << "\n";
+    std::cout << "Element 3 changed to " << prices[3].value().as<double>() << "\n";
 }
 
 // Iterate over modified values only
 for (auto ts : prices.modified_values()) {
-    std::cout << ts.value() << "\n";
+    std::cout << ts.value().as<double>() << "\n";
 }
 
 // Iterate over modified elements with their indices
 for (auto [idx, ts] : prices.modified_items()) {
-    std::cout << "prices[" << idx << "] = " << ts.value() << "\n";
+    std::cout << "prices[" << idx << "] = " << ts.value().as<double>() << "\n";
 }
 ```
 
@@ -410,10 +410,10 @@ Non-peered inputs have their own delta tracking:
 
 ```cpp
 // Non-peered input with local storage
-TSOutput<double> local_cache = ...;  // Not linked
+TSView local_cache = ...;  // Not linked, non-const for writing
 
 // When you write to it
-local_cache.set_value(42.0);
+local_cache.set_value(value_from(42.0));
 
 // It tracks its own modification
 local_cache.modified();  // True this tick

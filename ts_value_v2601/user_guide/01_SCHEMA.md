@@ -406,7 +406,7 @@ point.from_python(py_point_obj);
 nb::object py_obj = point.to_python();
 ```
 
-Note: ``from_python`` can convert from a python dictionary or a schema complient class. 
+Note: ``from_python`` can convert from a python dictionary or a schema compliant class. 
       The ``to_python`` will convert the value to a dictionary if no python schema type is 
       bound to the c++ schema, alternatively it will attempt to convert to the bound python
       implementation type. This is done by applying the dict as kwargs to the type's constructor.

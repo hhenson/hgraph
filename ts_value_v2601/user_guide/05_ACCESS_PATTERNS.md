@@ -19,14 +19,14 @@ This document describes how users interact with time-series data:
 ### Scalar TS[T]
 
 ```cpp
-TSView<double> price = ...;  // Input
+TSView price = ...;  // Input
 
-// Get current value
-double current = price.value();  // → double
+// Get current value (type-erased)
+double current = price.value().as<double>();
 
 // Check state
 if (price.modified()) {
-    std::cout << "Price changed to " << price.value() << "\n";
+    std::cout << "Price changed to " << price.value().as<double>() << "\n";
 }
 
 if (!price.valid()) {
@@ -63,18 +63,18 @@ nb::object data = quote.to_python();
 ### List TSL
 
 ```cpp
-TSLView<TSView<double>, 10> prices = ...;
+TSLView prices = ...;
 
-// Access by index
-double first = prices[0].value();
-double last = prices[prices.size() - 1].value();  // No negative indexing
+// Access by index (type-erased)
+double first = prices[0].value().as<double>();
+double last = prices[prices.size() - 1].value().as<double>();  // No negative indexing
 
 // Bounds
 size_t count = prices.size();
 
 // Check element modification
 if (prices[3].modified()) {
-    std::cout << "Element 3 changed: " << prices[3].value() << "\n";
+    std::cout << "Element 3 changed: " << prices[3].value().as<double>() << "\n";
 }
 
 // Get all as Python list
@@ -133,8 +133,9 @@ for (auto id : active_ids.values()) {
 ### Scalar Output
 
 ```cpp
-void node_impl(TSView<double> data, TSOutput<double>& output) {
-    output.set_value(data.value() * 2.0);  // Set new value
+void node_impl(const TSView& data, TSView& output) {
+    double val = data.value().as<double>() * 2.0;
+    output.set_value(value_from(val));  // Set new value (type-erased)
 }
 ```
 
@@ -193,9 +194,9 @@ output.set_from_python(nb::set(nb::int_(42), nb::int_(100)));
 Outputs can be invalidated (marked as having no valid data):
 
 ```cpp
-void maybe_value(TSView<bool> condition, TSView<double> value, TSOutput<double>& output) {
-    if (condition.value()) {
-        output.set_value(value.value());
+void maybe_value(const TSView& condition, const TSView& value, TSView& output) {
+    if (condition.value().as<bool>()) {
+        output.set_value(value.value());  // Copy type-erased value
     } else {
         output.invalidate();  // Mark as having no valid data
     }
@@ -257,28 +258,28 @@ for (auto [name, ts] : quote.items()) {
 ### Iterate Over List Elements
 
 ```cpp
-TSLView<TSView<double>, 10> prices = ...;
+TSLView prices = ...;
 
 // Simple iteration
 for (auto ts_elem : prices.values()) {
-    std::cout << ts_elem.value() << "\n";
+    std::cout << ts_elem.value().as<double>() << "\n";
 }
 
 // With index
 for (auto [idx, ts_elem] : prices.items()) {
     if (ts_elem.modified()) {
-        std::cout << "Element " << idx << " changed to " << ts_elem.value() << "\n";
+        std::cout << "Element " << idx << " changed to " << ts_elem.value().as<double>() << "\n";
     }
 }
 
 // Only modified elements (values only)
 for (auto ts_elem : prices.modified_values()) {
-    std::cout << "Changed: " << ts_elem.value() << "\n";
+    std::cout << "Changed: " << ts_elem.value().as<double>() << "\n";
 }
 
 // Modified elements with indices
 for (auto [idx, ts_elem] : prices.modified_items()) {
-    std::cout << "Element " << idx << " changed to " << ts_elem.value() << "\n";
+    std::cout << "Element " << idx << " changed to " << ts_elem.value().as<double>() << "\n";
 }
 ```
 
@@ -352,7 +353,7 @@ output.set_value(transform(input.value()));
 ### Slice Access (Lists)
 
 ```cpp
-TSLView<TSView<double>, 100> prices = ...;
+TSLView prices = ...;
 
 // Read slice (returns a view)
 auto subset = prices.slice(10, 20);  // View from index 10 to 19
@@ -439,9 +440,10 @@ if (i >= prices.size()) {
 ### Type Mismatches
 
 ```cpp
-// Type safety enforced at compile time where possible
-// Runtime type errors throw exceptions
-output.set_value("not a float");  // Won't compile for TSOutput<double>
+// Type-erased API performs runtime type checking
+// Mismatched types throw exceptions
+TSView output = ...;  // Schema is TS[float]
+output.set_value(value_from("not a float"));  // Runtime error: schema mismatch
 ```
 
 ---

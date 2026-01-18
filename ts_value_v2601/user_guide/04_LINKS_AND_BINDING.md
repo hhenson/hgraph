@@ -62,12 +62,12 @@ Some links can be **rebound at runtime** using REF:
 
 ```cpp
 void router(
-    TSView<int> selector,
-    TSDView prices,  // TSD[int, TS[float]]
-    RefOutput<TSView<double>>& output
+    const TSView& selector,
+    const TSDView& prices,  // TSD[int, TS[float]]
+    RefView& output
 ) {
     // Return a reference that can be bound to different sources
-    int key = selector.value();
+    int64_t key = selector.value().as<int64_t>();
     if (prices.contains(key)) {
         output.set_value(prices[key].ref());  // Bind to selected price
     } else {
@@ -275,10 +275,10 @@ public:
 **Active inputs** subscribe to notifications and trigger node evaluation:
 
 ```cpp
-void react_to_price(TSView<double> price, TSOutput<std::string>& output) {
+void react_to_price(const TSView& price, TSView& output) {
     // price input is active by default
     // This function runs when price changes
-    output.set_value("Price is " + std::to_string(price.value()));
+    output.set_value(value_from("Price is " + std::to_string(price.value().as<double>())));
 }
 ```
 
@@ -287,13 +287,13 @@ void react_to_price(TSView<double> price, TSOutput<std::string>& output) {
 ```cpp
 // Passive inputs marked in node signature/metadata
 void react_to_trigger(
-    TSView<bool> trigger,      // Active - triggers evaluation
-    TSView<double> price,      // Passive - readable but doesn't trigger
-    TSOutput<std::string>& output
+    const TSView& trigger,      // Active - triggers evaluation
+    const TSView& price,        // Passive - readable but doesn't trigger
+    TSView& output
 ) {
     // Only called when trigger changes
-    if (trigger.value()) {
-        output.set_value("Price is " + std::to_string(price.value()));
+    if (trigger.value().as<bool>()) {
+        output.set_value(value_from("Price is " + std::to_string(price.value().as<double>())));
     }
 }
 ```
@@ -361,7 +361,7 @@ Each child independently decides peered vs non-peered.
 `REF[TS[T]]` is a time-series that holds a **TimeSeriesReference** as its value. Conceptually, it behaves like `TS[TimeSeriesReference]` - it's a time-series containing a reference value.
 
 ```cpp
-RefView<TSView<double>> ref = ...;
+RefView ref = ...;
 
 // The value is a TimeSeriesReference
 auto ref_value = ref.value();      // Returns TimeSeriesReference
@@ -369,7 +369,7 @@ bool changed = ref.modified();     // Did the reference change?
 bool has_ref = ref.valid();        // Contains a valid reference?
 
 // Writing (outputs only)
-RefOutput<TSView<double>> ref_out = ...;
+RefView ref_out = ...;             // Non-const for outputs
 ref_out.set_value(some_ts.ref());  // Set reference to point to some_ts
 ```
 
@@ -405,12 +405,12 @@ time-series output ──(ts→REF)──▶ REF input
 
 ```cpp
 void select_source(
-    TSView<bool> use_primary,
-    TSView<double> primary,
-    TSView<double> secondary,
-    RefOutput<TSView<double>>& output
+    const TSView& use_primary,
+    const TSView& primary,
+    const TSView& secondary,
+    RefView& output
 ) {
-    if (use_primary.value()) {
+    if (use_primary.value().as<bool>()) {
         output.set_value(primary.ref());
     } else {
         output.set_value(secondary.ref());
@@ -422,11 +422,11 @@ void select_source(
 
 ```cpp
 void lookup(
-    TSView<int64_t> key,
-    TSDView data,  // TSD[int, TS[float]]
-    RefOutput<TSView<double>>& output
+    const TSView& key,
+    const TSDView& data,  // TSD[int, TS[float]]
+    RefView& output
 ) {
-    auto k = key.value();
+    auto k = key.value().as<int64_t>();
     if (data.contains(k)) {
         output.set_value(data[k].ref());
     } else {

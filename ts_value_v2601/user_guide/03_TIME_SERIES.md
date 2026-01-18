@@ -22,11 +22,11 @@ A time-series **view** must be created with a specific **datetime** value. The v
 ```cpp
 // Create a view bound to a specific time
 engine_time_t current_time = engine.current_time();
-TSView<double> price = ts.view(current_time);
+TSView price = ts.view(current_time);
 
 // The view is meaningful only at this time
-bool changed = price.modified();  // Modified at current_time?
-double val = price.value();       // Value at current_time
+bool changed = price.modified();          // Modified at current_time?
+double val = price.value().as<double>();  // Value at current_time (type-erased access)
 ```
 
 ### Why Time Binding?
@@ -42,7 +42,7 @@ A view created at time T₁ will report different `modified()` results than a vi
 When you extract a delta view from a time-series view, it inherits the time binding:
 
 ```cpp
-TSView<double> price = ts.view(current_time);
+TSView price = ts.view(current_time);
 
 // Delta is bound to the same time as the parent view
 DeltaView delta = price.delta();  // Delta at current_time
@@ -55,7 +55,7 @@ This ensures consistency - the delta represents exactly what changed at the view
 Within graph nodes, views are typically provided pre-bound to the current engine time:
 
 ```cpp
-void my_node(TSView<double> price) {
+void my_node(const TSView& price) {
     // price is already bound to current engine time
     // No need to specify time explicitly
     if (price.modified()) {
@@ -73,16 +73,16 @@ void my_node(TSView<double> price) {
 The most common type. Wraps a single scalar value.
 
 ```cpp
-TSView<double> price = ...;
+TSView price = ...;
 
 // Reading
-double current_price = price.value();     // Get current value
-bool did_change = price.modified();       // True if changed this tick
-bool is_set = price.valid();              // True if ever been set
+double current_price = price.value().as<double>();  // Get current value (type-erased)
+bool did_change = price.modified();                 // True if changed this tick
+bool is_set = price.valid();                        // True if ever been set
 
 // Writing (outputs only)
-TSOutput<double> price_out = ...;
-price_out.set_value(42.0);                // Set new value (marks modified)
+TSView price_out = ...;                             // Non-const for outputs
+price_out.set_value(value_from(42.0));              // Set new value (marks modified)
 ```
 
 ### TSB[Schema] - Bundle Time-Series
@@ -115,23 +115,23 @@ A list of **independent time-series elements**:
 
 ```cpp
 // Fixed-size list of 10 floats
-TSLView<TSView<double>, 10> prices = ...;
+TSLView prices = ...;
 
 // Dynamic-size list
-TSLView<TSView<double>, 0> prices_dyn = ...;
+TSLView prices_dyn = ...;
 
 // Element access - each element is a time-series
-double first = prices[0].value();         // Value of first element
-bool elem_changed = prices[0].modified(); // Did element 0 change?
+double first = prices[0].value().as<double>();  // Value of first element (type-erased)
+bool elem_changed = prices[0].modified();       // Did element 0 change?
 
 // Container queries
-size_t count = prices.size();             // Number of elements
-bool any_changed = prices.modified();     // Did ANY element change?
+size_t count = prices.size();                   // Number of elements
+bool any_changed = prices.modified();           // Did ANY element change?
 
 // Iteration
 for (auto ts_elem : prices) {
     if (ts_elem.modified()) {
-        std::cout << ts_elem.value() << "\n";
+        std::cout << ts_elem.value().as<double>() << "\n";
     }
 }
 ```
@@ -200,7 +200,7 @@ Unlike TSD, TSS contains **scalars** not time-series. The delta tracks which ele
 REF holds a **TimeSeriesReference** as its value. Conceptually, `REF[TS[T]]` behaves like `TS[TimeSeriesReference]` - it's a time-series containing a reference value.
 
 ```cpp
-RefView<TSView<double>> price_ref = ...;
+RefView price_ref = ...;
 
 // The value is a TimeSeriesReference
 auto ref_value = price_ref.value();   // Returns TimeSeriesReference
@@ -210,7 +210,7 @@ bool changed = price_ref.modified();  // Did the reference change this tick?
 bool has_ref = price_ref.valid();     // Does it contain a valid reference?
 
 // Writing (outputs only)
-RefOutput<TSView<double>> price_ref_out = ...;
+RefView price_ref_out = ...;          // Non-const for outputs
 price_ref_out.set_value(some_ts.ref());  // Set reference to point to some_ts
 ```
 
@@ -233,13 +233,13 @@ In the following, "time-series" refers to any time-series type (TS, TSB, TSL, TS
 ```cpp
 // Example: Dynamic routing with REF → TS binding
 void select_source(
-    TSView<bool> use_primary,
-    TSView<double> primary,
-    TSView<double> secondary,
-    RefOutput<TSView<double>>& output
+    const TSView& use_primary,
+    const TSView& primary,
+    const TSView& secondary,
+    RefView& output
 ) {
     // Returns a reference to the selected source
-    if (use_primary.value()) {
+    if (use_primary.value().as<bool>()) {
         output.set_value(primary.ref());    // Reference to primary
     } else {
         output.set_value(secondary.ref());  // Reference to secondary
@@ -247,11 +247,11 @@ void select_source(
 }
 
 // Consumer with TS input - dynamic link from REF→TS binding
-void consumer(TSView<double> price, TSOutput<std::string>& output) {
+void consumer(const TSView& price, TSView& output) {
     // When wired: consumer(price=select_source(...))
     // The REF→TS binding creates a dynamic link
     // price.value() follows whichever source is selected
-    output.set_value("Price: " + std::to_string(price.value()));
+    output.set_value(value_from("Price: " + std::to_string(price.value().as<double>())));
 }
 ```
 
@@ -281,13 +281,13 @@ Use signals for pure event notification.
 When a time-series appears as a node **input**, you get a read-only view:
 
 ```cpp
-// Input view - read-only
-void my_node(TSView<double> price) {
+// Input view - read-only (const reference)
+void my_node(const TSView& price) {
     // Can read
-    double v = price.value();
+    double v = price.value().as<double>();
     bool m = price.modified();
 
-    // Cannot write - TSView has no set_value()
+    // Cannot write - const TSView has no set_value()
 }
 ```
 
@@ -298,10 +298,10 @@ Inputs are **linked** to outputs. See [Links and Binding](04_LINKS_AND_BINDING.m
 When a time-series is a node **output**, you own it and can write:
 
 ```cpp
-// Output - writable
-void my_node(TSOutput<double>& output) {
+// Output - writable (non-const reference)
+void my_node(TSView& output) {
     // Set value explicitly
-    output.set_value(42.0);
+    output.set_value(value_from(42.0));
 }
 ```
 

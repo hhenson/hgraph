@@ -123,16 +123,16 @@ This is loosely the C++ equivalent:
 
 ```cpp
 void moving_average(
-    const TSView<double> ts,        // Input: linked to some output (inputs are marked const)
+    const TSView& ts,             // Input: linked to some output (inputs are marked const)
     int window_size,              // Scalar parameter (not time-series)
-    TSView<double>& output      // Output: owned by this node (outputs are non-const i.e. mutable)
+    TSView& output                // Output: owned by this node (outputs are non-const i.e. mutable)
 ) {
     // Check if input changed this tick
     if (ts.modified()) {
-        double current = ts.value().as<double>();   // Read current value
+        double current = ts.value().as<double>();   // Read current value (type-erased)
         // ... compute average ...
         double result = ...
-        output.set_value(value_from(result));          // Write to output (marks it modified)
+        output.set_value(value_from(result));       // Write to output (marks it modified)
     }
 }
 ```
