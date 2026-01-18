@@ -99,6 +99,8 @@ DeltaView delta = price.delta();  // Delta at current_time
 
 This ensures consistency - the delta represents exactly what changed at the view's bound time.
 
+**Important**: The delta view returned from a TSView is a **computed wrapper**, not stored data. It dynamically examines the modification state of the time-series to determine what changed. This is different from `DeltaValue`, which explicitly stores delta information. The wrapper approach is more memory-efficient for time-series since deltas are typically consumed once per tick and don't need persistent storage.
+
 ### In Node Context
 
 Within graph nodes, views are typically provided pre-bound to the current engine time:
@@ -764,7 +766,7 @@ classDiagram
         +to_python() nb::object
     }
 
-    note for DeltaView "Type-erased interface.\nImplementations: DeltaValue (stored),\nTSValue delta (dynamic over TS structure)."
+    note for DeltaView "Type-erased interface.\nImplementations:\n- DeltaValue: stores delta data explicitly\n- TSValue delta: computed wrapper that\n  dynamically examines TS modification state"
 
     TSValue --> TSView : view()
     TSView --> View : value()

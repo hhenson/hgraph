@@ -734,7 +734,7 @@ classDiagram
         +to_python() nb::object
     }
 
-    note for DeltaView "Type-erased interface.\nImplementations:\n- DeltaValue (stored delta)\n- TSValue delta (dynamic view over TS structure)"
+    note for DeltaView "Type-erased interface.\nImplementations:\n- DeltaValue: stores delta data explicitly\n- TSValue delta: computed wrapper that\n  dynamically examines TS modification state"
 
     class SetDeltaView {
         +added() range
