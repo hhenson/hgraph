@@ -942,13 +942,16 @@ namespace hgraph
         if (!has_owning_node()) { return; }
 
         // Release instances with deferred callback to ensure cleanup happens after all processing.
-        // Note: un_bind_output was already called in on_key_removed() while the output was still valid.
+        // Note: Do NOT call un_bind_output here - by the time this deferred callback runs,
+        // the reference outputs that this input was observing may have already been destroyed
+        // (e.g., when a switch branch changes and the old graph is disposed).
+        // The builder->release_instance will call builder_release_cleanup which safely handles
+        // cleanup of any remaining bindings.
         for (auto &[key, value_pair] : _removed_items) {
             auto &[value, was_valid] = value_pair;
             // Capture by value to ensure the lambda has valid references
             auto builder  = _ts_builder;
             auto instance = value;
-            instance->un_bind_output(true);
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification(
                 [builder, instance]() { builder->release_instance(instance.get()); });
         }
