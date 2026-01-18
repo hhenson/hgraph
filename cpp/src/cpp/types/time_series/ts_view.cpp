@@ -17,6 +17,7 @@
 #include <fmt/format.h>
 #include <stdexcept>
 #include <unordered_map>
+#include <unordered_set>
 
 namespace hgraph {
 
@@ -165,8 +166,9 @@ TSView::TSView(const TSValue& ts_value)
             auto& key_set_value = const_cast<TSValue&>(ts_value).value();
             auto key_set_view = key_set_value.view().as_set();
             key_set_view.clear();
-            for (size_t i = 0; i < tsd_view.size(); ++i) {
-                auto key = tsd_view.key_at(i);
+            auto storage_indices = tsd_view.indices();
+            for (size_t storage_idx : storage_indices) {
+                auto key = tsd_view.key_at(storage_idx);
                 key_set_view.insert(key);
             }
             // Also sync the overlay modification time from the source TSD
@@ -1618,9 +1620,13 @@ bool TSMutableView::from_python(const nb::object& src) {
 
                     // Record removal in overlay before modifying backing store
                     if (map_overlay) {
+                        fmt::print(stderr, "[DEBUG from_python] removing key, calling update_ref_output_for_removed_key\n");
                         value::PlainValue removed_key(key_schema);
                         key_schema->ops->copy_assign(removed_key.data(), temp_key.data(), key_schema);
                         map_overlay->record_key_removed(key_index, current_time, std::move(removed_key));
+
+                        // Update tracked ref outputs (matches Python's _ref_ts_feature.update(k))
+                        map_overlay->update_ref_output_for_removed_key(temp_key.const_view());
                     }
 
                     // Erase from backing store
@@ -3161,11 +3167,11 @@ std::vector<value::ConstValueView> TSDView::keys() const {
     if (!valid()) return result;
 
     value::ConstMapView map_view = _view.as_map();
-    size_t count = map_view.size();
-    result.reserve(count);
+    auto storage_indices = map_view.indices();
+    result.reserve(storage_indices.size());
 
-    for (size_t i = 0; i < count; ++i) {
-        result.push_back(map_view.key_at(i));
+    for (size_t storage_idx : storage_indices) {
+        result.push_back(map_view.key_at(storage_idx));
     }
     return result;
 }
@@ -3175,18 +3181,18 @@ std::vector<TSView> TSDView::ts_values() const {
     if (!valid()) return result;
 
     value::ConstMapView map_view = _view.as_map();
-    size_t count = map_view.size();
-    result.reserve(count);
+    auto storage_indices = map_view.indices();
+    result.reserve(storage_indices.size());
 
     const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
     const TSMeta* value_ts_type = dict_meta->value_ts_type();
 
-    for (size_t i = 0; i < count; ++i) {
-        value::ConstValueView value_view = map_view.value_at(i);
-        LightweightPath child_path = _path.with(i);
+    for (size_t storage_idx : storage_indices) {
+        value::ConstValueView value_view = map_view.value_at(storage_idx);
+        LightweightPath child_path = _path.with(storage_idx);
 
         if (auto* map_ov = map_overlay()) {
-            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            TSOverlayStorage* value_ov = map_ov->value_overlay(storage_idx);
             result.emplace_back(value_view.data(), value_ts_type, value_ov, _root, std::move(child_path));
         } else {
             result.emplace_back(value_view.data(), value_ts_type, nullptr, _root, std::move(child_path));
@@ -3200,20 +3206,20 @@ std::vector<std::pair<value::ConstValueView, TSView>> TSDView::items() const {
     if (!valid()) return result;
 
     value::ConstMapView map_view = _view.as_map();
-    size_t count = map_view.size();
-    result.reserve(count);
+    auto storage_indices = map_view.indices();
+    result.reserve(storage_indices.size());
 
     const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
     const TSMeta* value_ts_type = dict_meta->value_ts_type();
 
-    for (size_t i = 0; i < count; ++i) {
-        value::ConstValueView key_view = map_view.key_at(i);
-        value::ConstValueView value_view = map_view.value_at(i);
-        LightweightPath child_path = _path.with(i);
+    for (size_t storage_idx : storage_indices) {
+        value::ConstValueView key_view = map_view.key_at(storage_idx);
+        value::ConstValueView value_view = map_view.value_at(storage_idx);
+        LightweightPath child_path = _path.with(storage_idx);
 
         TSView ts_val;
         if (auto* map_ov = map_overlay()) {
-            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            TSOverlayStorage* value_ov = map_ov->value_overlay(storage_idx);
             ts_val = TSView(value_view.data(), value_ts_type, value_ov, _root, std::move(child_path));
         } else {
             ts_val = TSView(value_view.data(), value_ts_type, nullptr, _root, std::move(child_path));
@@ -3228,25 +3234,25 @@ std::vector<value::ConstValueView> TSDView::valid_keys() const {
     if (!valid()) return result;
 
     value::ConstMapView map_view = _view.as_map();
-    size_t count = map_view.size();
+    auto storage_indices = map_view.indices();
 
     const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
     const TSMeta* value_ts_type = dict_meta->value_ts_type();
 
-    for (size_t i = 0; i < count; ++i) {
-        value::ConstValueView value_view = map_view.value_at(i);
+    for (size_t storage_idx : storage_indices) {
+        value::ConstValueView value_view = map_view.value_at(storage_idx);
 
         // Create TSView to check validity
         TSView ts_val;
         if (auto* map_ov = map_overlay()) {
-            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            TSOverlayStorage* value_ov = map_ov->value_overlay(storage_idx);
             ts_val = TSView(value_view.data(), value_ts_type, value_ov);
         } else {
             ts_val = TSView(value_view.data(), value_ts_type);
         }
 
         if (ts_val.ts_valid()) {
-            result.push_back(map_view.key_at(i));
+            result.push_back(map_view.key_at(storage_idx));
         }
     }
     return result;
@@ -3257,18 +3263,18 @@ std::vector<TSView> TSDView::valid_values() const {
     if (!valid()) return result;
 
     value::ConstMapView map_view = _view.as_map();
-    size_t count = map_view.size();
+    auto storage_indices = map_view.indices();
 
     const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
     const TSMeta* value_ts_type = dict_meta->value_ts_type();
 
-    for (size_t i = 0; i < count; ++i) {
-        value::ConstValueView value_view = map_view.value_at(i);
-        LightweightPath child_path = _path.with(i);
+    for (size_t storage_idx : storage_indices) {
+        value::ConstValueView value_view = map_view.value_at(storage_idx);
+        LightweightPath child_path = _path.with(storage_idx);
 
         TSView ts_val;
         if (auto* map_ov = map_overlay()) {
-            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            TSOverlayStorage* value_ov = map_ov->value_overlay(storage_idx);
             ts_val = TSView(value_view.data(), value_ts_type, value_ov, _root, std::move(child_path));
         } else {
             ts_val = TSView(value_view.data(), value_ts_type, nullptr, _root, std::move(child_path));
@@ -3286,19 +3292,19 @@ std::vector<std::pair<value::ConstValueView, TSView>> TSDView::valid_items() con
     if (!valid()) return result;
 
     value::ConstMapView map_view = _view.as_map();
-    size_t count = map_view.size();
+    auto storage_indices = map_view.indices();
 
     const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
     const TSMeta* value_ts_type = dict_meta->value_ts_type();
 
-    for (size_t i = 0; i < count; ++i) {
-        value::ConstValueView key_view = map_view.key_at(i);
-        value::ConstValueView value_view = map_view.value_at(i);
-        LightweightPath child_path = _path.with(i);
+    for (size_t storage_idx : storage_indices) {
+        value::ConstValueView key_view = map_view.key_at(storage_idx);
+        value::ConstValueView value_view = map_view.value_at(storage_idx);
+        LightweightPath child_path = _path.with(storage_idx);
 
         TSView ts_val;
         if (auto* map_ov = map_overlay()) {
-            TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+            TSOverlayStorage* value_ov = map_ov->value_overlay(storage_idx);
             ts_val = TSView(value_view.data(), value_ts_type, value_ov, _root, std::move(child_path));
         } else {
             ts_val = TSView(value_view.data(), value_ts_type, nullptr, _root, std::move(child_path));
@@ -3500,20 +3506,20 @@ nb::object TSDView::to_python() const {
     // Python behavior: {key: value.value if value.valid else None for each entry}
     nb::dict result;
     value::ConstMapView map_view = _view.as_map();
-    size_t count = map_view.size();
+    auto storage_indices = map_view.indices();
     const auto* dict_meta = static_cast<const TSDTypeMeta*>(_ts_meta);
     const TSMeta* value_ts_type = dict_meta->value_ts_type();
     auto* map_ov = map_overlay();
 
-    for (size_t i = 0; i < count; ++i) {
-        value::ConstValueView key_view = map_view.key_at(i);
+    for (size_t storage_idx : storage_indices) {
+        value::ConstValueView key_view = map_view.key_at(storage_idx);
         nb::object py_key = key_view.to_python();
 
         // Special handling for REF element types: read from MapTSOverlay's per-index ref_cache
         if (value_ts_type && value_ts_type->kind() == TSTypeKind::REF && map_ov) {
-            if (map_ov->has_ref_cache(i)) {
+            if (map_ov->has_ref_cache(storage_idx)) {
                 try {
-                    nb::object cached = std::any_cast<nb::object>(map_ov->ref_cache(i));
+                    nb::object cached = std::any_cast<nb::object>(map_ov->ref_cache(storage_idx));
                     // Dereference the BoundTimeSeriesReference to get the actual value
                     if (nb::hasattr(cached, "output")) {
                         nb::object output = cached.attr("output");
@@ -3533,11 +3539,11 @@ nb::object TSDView::to_python() const {
                 result[py_key] = nb::none();
             }
         } else {
-            value::ConstValueView val_view = map_view.value_at(i);
+            value::ConstValueView val_view = map_view.value_at(storage_idx);
 
             TSView ts_val;
             if (map_ov) {
-                TSOverlayStorage* value_ov = map_ov->value_overlay(i);
+                TSOverlayStorage* value_ov = map_ov->value_overlay(storage_idx);
                 ts_val = TSView(val_view.data(), value_ts_type, value_ov);
             } else {
                 ts_val = TSView(val_view.data(), value_ts_type);
@@ -3601,29 +3607,164 @@ nb::object TSDView::to_python_delta() const {
         return TSView(val_view.data(), value_ts_type);
     };
 
-    // Include added keys with their delta values
-    for (size_t idx : overlay->added_key_indices()) {
-        nb::object py_key = map_view.key_at(idx).to_python();
-
-        // Special handling for REF element types: read from MapTSOverlay's per-index ref_cache
-        if (value_ts_type && value_ts_type->kind() == TSTypeKind::REF) {
-            if (overlay->has_ref_cache(idx)) {
+    // Helper to dereference a TimeSeriesReference (BoundTimeSeriesReference/EmptyTimeSeriesReference)
+    // to get the underlying value. This is used to emulate Python's automatic dereferencing behavior
+    // where TSD INPUT elements of type TS[int] bound to REF[TS[int]] outputs get the actual int value.
+    auto deref_time_series_reference = [](const nb::object& ref_obj) -> std::optional<nb::object> {
+        // Check if it's a TimeSeriesReference with an output
+        if (nb::hasattr(ref_obj, "output") && nb::hasattr(ref_obj, "has_output")) {
+            bool has_output = nb::cast<bool>(ref_obj.attr("has_output"));
+            fmt::print(stderr, "[DEBUG deref] has_output={}\n", has_output);
+            if (has_output) {
+                nb::object output = ref_obj.attr("output");
+                fmt::print(stderr, "[DEBUG deref] got output, is_none={}\n", output.is_none());
+                // Debug: print output type
                 try {
-                    nb::object cached = std::any_cast<nb::object>(overlay->ref_cache(idx));
-                    // Dereference the BoundTimeSeriesReference to get the actual value
-                    if (nb::hasattr(cached, "output")) {
-                        nb::object output = cached.attr("output");
-                        if (nb::hasattr(output, "value")) {
-                            result[py_key] = output.attr("value");
-                        } else {
-                            result[py_key] = nb::none();
+                    nb::handle type_handle = output.type();
+                    std::string type_name = nb::cast<std::string>(nb::borrow(type_handle).attr("__name__"));
+                    std::string mod_name = nb::cast<std::string>(nb::borrow(type_handle).attr("__module__"));
+                    fmt::print(stderr, "[DEBUG deref] output type={}.{}\n", mod_name, type_name);
+                } catch (...) {}
+                if (nb::hasattr(output, "value")) {
+                    nb::object val = output.attr("value");
+                    fmt::print(stderr, "[DEBUG deref] got value, is_none={}\n", val.is_none());
+                    // Debug: print the actual value type
+                    try {
+                        nb::handle type_handle = val.type();
+                        std::string type_name = nb::cast<std::string>(nb::borrow(type_handle).attr("__name__"));
+                        std::string mod_name = nb::cast<std::string>(nb::borrow(type_handle).attr("__module__"));
+                        fmt::print(stderr, "[DEBUG deref] value type={}.{}\n", mod_name, type_name);
+                    } catch (...) {}
+
+                    // If value is STILL a TimeSeriesReference, dereference it again
+                    bool val_is_ts_ref = nb::hasattr(val, "has_output") && nb::hasattr(val, "is_empty");
+                    if (val_is_ts_ref) {
+                        fmt::print(stderr, "[DEBUG deref] value is ALSO a TimeSeriesReference, dereferencing again\n");
+
+                        // First check if the inner reference is empty - if so, skip this entry entirely
+                        if (nb::hasattr(val, "is_empty")) {
+                            bool inner_is_empty = nb::cast<bool>(val.attr("is_empty"));
+                            if (inner_is_empty) {
+                                fmt::print(stderr, "[DEBUG deref] inner ref is empty, returning nullopt\n");
+                                return std::nullopt;  // Empty inner reference - skip this entry
+                            }
                         }
+
+                        bool val_has_output = nb::cast<bool>(val.attr("has_output"));
+                        if (val_has_output) {
+                            nb::object inner_output = val.attr("output");
+                            if (nb::hasattr(inner_output, "value")) {
+                                nb::object inner_val = inner_output.attr("value");
+                                fmt::print(stderr, "[DEBUG deref] inner value is_none={}\n", inner_val.is_none());
+                                // Print inner value type
+                                try {
+                                    nb::handle type_handle = inner_val.type();
+                                    std::string type_name = nb::cast<std::string>(nb::borrow(type_handle).attr("__name__"));
+                                    fmt::print(stderr, "[DEBUG deref] inner value type={}\n", type_name);
+                                } catch (...) {}
+                                return inner_val;
+                            }
+                        }
+                        // val_is_ts_ref but no value - skip this entry
+                        return std::nullopt;
                     }
-                    // If no output attr, it's an EmptyTimeSeriesReference - skip it
-                } catch (const std::bad_any_cast&) {
-                    // Ignore bad cast
+                    return val;
+                } else {
+                    fmt::print(stderr, "[DEBUG deref] output has no 'value' attr\n");
                 }
             }
+        } else {
+            fmt::print(stderr, "[DEBUG deref] no 'output' or 'has_output' attrs\n");
+        }
+        // Check if it's an EmptyTimeSeriesReference (has is_empty attribute)
+        if (nb::hasattr(ref_obj, "is_empty")) {
+            bool is_empty = nb::cast<bool>(ref_obj.attr("is_empty"));
+            fmt::print(stderr, "[DEBUG deref] is_empty={}\n", is_empty);
+            if (is_empty) {
+                return std::nullopt;  // Empty reference - skip this entry
+            }
+        }
+        return std::nullopt;
+    };
+
+    // Helper to get dereferenced value for a REF element at a given index
+    // For TSD[K, REF[V]], the raw element value is a TimeSeriesReference (BoundTimeSeriesReference/EmptyTimeSeriesReference).
+    // We need to dereference it to get the actual value (what Python does via input binding).
+    auto get_ref_element_value = [&](size_t idx) -> std::optional<nb::object> {
+        fmt::print(stderr, "[DEBUG] get_ref_element_value idx={}\n", idx);
+
+        // FIRST, check the overlay's ref_cache - this is where the TimeSeriesReference
+        // is stored when from_python() writes a REF value to the TSD.
+        // The cache contains the original (non-empty) TimeSeriesReference.
+        if (overlay->has_ref_cache(idx)) {
+            fmt::print(stderr, "[DEBUG] Found ref_cache for idx={}\n", idx);
+            try {
+                nb::object cached = std::any_cast<nb::object>(overlay->ref_cache(idx));
+                fmt::print(stderr, "[DEBUG] cached is_none={}\n", cached.is_none());
+
+                // Debug: print cached type info
+                if (!cached.is_none()) {
+                    try {
+                        nb::handle type_handle = cached.type();
+                        std::string type_name = nb::cast<std::string>(nb::borrow(type_handle).attr("__name__"));
+                        std::string mod_name = nb::cast<std::string>(nb::borrow(type_handle).attr("__module__"));
+                        fmt::print(stderr, "[DEBUG] cached type={}.{}\n", mod_name, type_name);
+                    } catch (...) {
+                        fmt::print(stderr, "[DEBUG] Could not get cached type name\n");
+                    }
+                }
+
+                auto result = deref_time_series_reference(cached);
+                fmt::print(stderr, "[DEBUG] deref(cached) has_value={}\n", result.has_value());
+                if (result.has_value()) {
+                    return result;
+                }
+            } catch (const std::bad_any_cast&) {
+                fmt::print(stderr, "[DEBUG] bad_any_cast for ref_cache\n");
+            }
+        } else {
+            fmt::print(stderr, "[DEBUG] No ref_cache for idx={}\n", idx);
+        }
+
+        // Fallback: get the raw element value from the backing store
+        // (This is typically an empty TimeSeriesReference for REF types)
+        TSView child_view = make_child_view(idx);
+        nb::object raw_value = child_view.to_python();
+
+        fmt::print(stderr, "[DEBUG] fallback raw_value is_none={}\n", raw_value.is_none());
+
+        if (raw_value.is_none()) {
+            return std::nullopt;
+        }
+
+        // Use duck typing: check if the object has the TimeSeriesReference attributes.
+        bool looks_like_ts_ref = nb::hasattr(raw_value, "has_output") &&
+                                  nb::hasattr(raw_value, "is_empty");
+
+        if (looks_like_ts_ref) {
+            return deref_time_series_reference(raw_value);
+        }
+
+        return std::nullopt;
+    };
+
+    // Include added keys with their delta values
+    fmt::print(stderr, "[DEBUG TSD delta] Processing added keys, count={}\n", overlay->added_key_indices().size());
+    for (size_t idx : overlay->added_key_indices()) {
+        nb::object py_key = map_view.key_at(idx).to_python();
+        fmt::print(stderr, "[DEBUG TSD delta] added key idx={}, py_key={}\n", idx, nb::repr(py_key).c_str());
+
+        // Special handling for REF element types: dereference to get actual value
+        if (value_ts_type && value_ts_type->kind() == TSTypeKind::REF) {
+            auto derefed = get_ref_element_value(idx);
+            if (derefed.has_value()) {
+                fmt::print(stderr, "[DEBUG TSD delta] adding to result: {}={}\n",
+                           nb::repr(py_key).c_str(), nb::repr(*derefed).c_str());
+                result[py_key] = *derefed;
+            } else {
+                fmt::print(stderr, "[DEBUG TSD delta] deref failed for key={}\n", nb::repr(py_key).c_str());
+            }
+            // If deref failed or returned empty, skip this key
         } else {
             // Get the child time-series view and its delta_value
             TSView child_view = make_child_view(idx);
@@ -3635,6 +3776,7 @@ nb::object TSDView::to_python_delta() const {
     }
 
     // Include modified keys (not in added) with their delta values
+    fmt::print(stderr, "[DEBUG TSD delta] Processing modified keys, count={}\n", overlay->modified_key_indices(current_time).size());
     for (size_t idx : overlay->modified_key_indices(current_time)) {
         // Skip if already in added (added keys are also "modified")
         bool is_added = false;
@@ -3648,25 +3790,13 @@ nb::object TSDView::to_python_delta() const {
 
         nb::object py_key = map_view.key_at(idx).to_python();
 
-        // Special handling for REF element types: read from MapTSOverlay's per-index ref_cache
+        // Special handling for REF element types: dereference to get actual value
         if (value_ts_type && value_ts_type->kind() == TSTypeKind::REF) {
-            if (overlay->has_ref_cache(idx)) {
-                try {
-                    nb::object cached = std::any_cast<nb::object>(overlay->ref_cache(idx));
-                    // Dereference the BoundTimeSeriesReference to get the actual value
-                    if (nb::hasattr(cached, "output")) {
-                        nb::object output = cached.attr("output");
-                        if (nb::hasattr(output, "value")) {
-                            result[py_key] = output.attr("value");
-                        } else {
-                            result[py_key] = nb::none();
-                        }
-                    }
-                    // If no output attr, it's an EmptyTimeSeriesReference - skip it
-                } catch (const std::bad_any_cast&) {
-                    // Ignore bad cast
-                }
+            auto derefed = get_ref_element_value(idx);
+            if (derefed.has_value()) {
+                result[py_key] = *derefed;
             }
+            // If deref failed or returned empty, skip this key
         } else {
             TSView child_view = make_child_view(idx);
             nb::object delta_val = child_view.to_python_delta();
@@ -3677,11 +3807,85 @@ nb::object TSDView::to_python_delta() const {
     }
 
     // Include removed keys with REMOVE marker
+    fmt::print(stderr, "[DEBUG TSD delta] Processing removed keys, count={}\n", overlay->removed_key_values().size());
     for (const auto& removed_key : overlay->removed_key_values()) {
         nb::object py_key = removed_key.const_view().to_python();
+        fmt::print(stderr, "[DEBUG TSD delta] removed key={}\n", nb::repr(py_key).c_str());
         result[py_key] = REMOVE_marker;
     }
 
+    // For TSD with REF elements: check all keys not yet processed to see if their
+    // bound REF became empty (meaning the source removed that key).
+    // This handles the case where source TSD removes a key - the REF pointing to it
+    // becomes empty, which should be reflected in modified_items().
+    if (value_ts_type && value_ts_type->kind() == TSTypeKind::REF) {
+        // Collect indices that were already processed (added, modified, or removed)
+        std::unordered_set<size_t> processed_indices;
+        for (size_t idx : overlay->added_key_indices()) {
+            processed_indices.insert(idx);
+        }
+        for (size_t idx : overlay->modified_key_indices(current_time)) {
+            processed_indices.insert(idx);
+        }
+        // Note: removed keys are no longer in the map, so we don't need to track them
+
+        auto storage_indices = map_view.indices();
+        fmt::print(stderr, "[DEBUG TSD delta] Checking remaining REF elements for empty refs, map_size={}, processed={}\n",
+                   storage_indices.size(), processed_indices.size());
+        for (size_t storage_idx : storage_indices) {
+            // Skip if already processed in added/modified loops
+            if (processed_indices.count(storage_idx) > 0) {
+                continue;
+            }
+
+            nb::object py_key = map_view.key_at(storage_idx).to_python();
+
+            // Check if this REF became empty (meaning its bound source was removed)
+            // This is detected by checking if the inner value is an EmptyTimeSeriesReference
+            auto derefed = get_ref_element_value(storage_idx);
+            if (!derefed.has_value()) {
+                // The REF is empty - this means the source was removed
+                // We should include this key with the value being the empty state
+                // The Python operator checks: if k in _state.tsd.key_set.removed(): out[k] = REMOVE_IF_EXISTS
+                // But we don't have access to source's removed keys here.
+                // Instead, we include the REF's current empty value so the operator can detect it.
+                fmt::print(stderr, "[DEBUG TSD delta] key {} has empty REF, checking if newly empty\n",
+                           nb::repr(py_key).c_str());
+
+                // Check if this key has a ref_cache entry (meaning it was bound before)
+                // If it was bound and is now empty, include it as modified
+                if (overlay->has_ref_cache(storage_idx)) {
+                    try {
+                        nb::object cached = std::any_cast<nb::object>(overlay->ref_cache(storage_idx));
+                        // The cached value exists - check if its inner value is now empty
+                        // This indicates the source was removed
+                        if (nb::hasattr(cached, "has_output") && nb::hasattr(cached, "is_empty")) {
+                            bool cached_has_output = nb::cast<bool>(cached.attr("has_output"));
+                            if (cached_has_output) {
+                                // The cached ref had output - check if the output's value is now empty
+                                nb::object output = cached.attr("output");
+                                if (nb::hasattr(output, "value")) {
+                                    nb::object val = output.attr("value");
+                                    bool val_is_ts_ref = nb::hasattr(val, "has_output") && nb::hasattr(val, "is_empty");
+                                    if (val_is_ts_ref) {
+                                        bool inner_is_empty = nb::cast<bool>(val.attr("is_empty"));
+                                        if (inner_is_empty) {
+                                            fmt::print(stderr, "[DEBUG TSD delta] key {} REF became empty, including in result\n",
+                                                       nb::repr(py_key).c_str());
+                                            // Include the empty ref value so Python can detect it
+                                            result[py_key] = val;  // EmptyTimeSeriesReference
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (const std::bad_any_cast&) {}
+                }
+            }
+        }
+    }
+
+    fmt::print(stderr, "[DEBUG TSD delta] Final result dict size={}\n", nb::len(result));
     return nb::module_::import_("frozendict").attr("frozendict")(result);
 }
 
@@ -3693,9 +3897,10 @@ nb::object TSSView::to_python() const {
         if (source_meta && source_meta->kind() == TSTypeKind::TSD) {
             // Return keys from TSD directly as a frozenset
             value::ConstMapView tsd_map = _tsd_source->value().view().as_map();
+            auto storage_indices = tsd_map.indices();
             nb::set result;
-            for (size_t i = 0; i < tsd_map.size(); ++i) {
-                result.add(tsd_map.key_at(i).to_python());
+            for (size_t storage_idx : storage_indices) {
+                result.add(tsd_map.key_at(storage_idx).to_python());
             }
             return nb::frozenset(result);
         }

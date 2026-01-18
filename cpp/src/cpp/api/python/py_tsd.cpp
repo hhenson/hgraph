@@ -302,11 +302,26 @@ namespace hgraph
             return nb::list();
         }
         engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+
+        // Get TSD metadata to check if elements are REF type
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        bool is_ref_element = value_ts_type && value_ts_type->kind() == TSTypeKind::REF;
+
+        // Get overlay for checking ref cache
+        MapTSOverlay* overlay = nullptr;
+        if (_view.overlay()) {
+            overlay = dynamic_cast<MapTSOverlay*>(_view.overlay());
+        }
+
         nb::list result;
+        std::vector<nb::object> added_keys;
+
         for (const auto& [key, val] : dict.items()) {
             if (val.modified_at(eval_time)) {
+                nb::object py_key = key.to_python();
                 nb::tuple item = nb::make_tuple(
-                    key.to_python(),
+                    py_key,
                     wrap_output_view(TSMutableView(
                         const_cast<void*>(val.value_view().data()),
                         val.ts_meta(),
@@ -314,8 +329,69 @@ namespace hgraph
                     ))
                 );
                 result.append(item);
+                added_keys.push_back(py_key);
             }
         }
+
+        // For TSD with REF elements: also check for elements whose bound REF became empty
+        // This handles the case where the source TSD removes a key - the REF pointing to it
+        // becomes empty, which should be treated as "modified"
+        if (is_ref_element && overlay) {
+            value::ConstMapView map_view = _view.value_view().as_map();
+            auto storage_indices = map_view.indices();
+            for (size_t storage_idx : storage_indices) {
+                nb::object py_key = map_view.key_at(storage_idx).to_python();
+
+                // Skip if already added
+                bool already_added = false;
+                for (const auto& k : added_keys) {
+                    if (k.equal(py_key)) {
+                        already_added = true;
+                        break;
+                    }
+                }
+                if (already_added) {
+                    continue;
+                }
+
+                // Check if this key has a ref_cache entry (meaning it was bound)
+                if (overlay->has_ref_cache(storage_idx)) {
+                    try {
+                        nb::object cached = std::any_cast<nb::object>(overlay->ref_cache(storage_idx));
+
+                        // Check if the cached REF's inner value is now empty
+                        if (nb::hasattr(cached, "has_output")) {
+                            bool has_output = nb::cast<bool>(cached.attr("has_output"));
+                            if (has_output) {
+                                nb::object output = cached.attr("output");
+                                if (nb::hasattr(output, "value")) {
+                                    nb::object val_obj = output.attr("value");
+                                    // Check if value is an EmptyTimeSeriesReference
+                                    bool val_is_ts_ref = nb::hasattr(val_obj, "has_output") && nb::hasattr(val_obj, "is_empty");
+                                    if (val_is_ts_ref) {
+                                        bool inner_is_empty = nb::cast<bool>(val_obj.attr("is_empty"));
+                                        if (inner_is_empty) {
+                                            // The REF became empty - include in modified items
+                                            TSView elem_view = dict.at(map_view.key_at(storage_idx));
+                                            nb::tuple item = nb::make_tuple(
+                                                py_key,
+                                                wrap_output_view(TSMutableView(
+                                                    const_cast<void*>(elem_view.value_view().data()),
+                                                    elem_view.ts_meta(),
+                                                    const_cast<TSOverlayStorage*>(elem_view.overlay())
+                                                ))
+                                            );
+                                            result.append(item);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } catch (const std::bad_any_cast&) {}
+                }
+            }
+        }
+
         return result;
     }
 
@@ -534,14 +610,13 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::get_ref(const nb::object &key, const nb::object &requester) {
-        // For view-based wrappers, we simply return the element at the given key wrapped as an output.
-        // Python's bind_output will create a TimeSeriesReference.make(output) from it.
-        // Note: requester parameter is for reference counting which is not implemented in view-based system.
+        // FeatureOutputExtension-like behavior:
+        // Create/return a tracked PythonTimeSeriesReferenceOutput that:
+        // 1. Points to the TSD element (if it exists) or is empty (if not)
+        // 2. Gets updated when the key is added/removed from the TSD
+        // This matches Python's _ref_ts_feature.create_or_increment() behavior.
 
         TSDView dict = _view.as_dict();
-        if (!dict.valid()) {
-            return nb::none();
-        }
 
         // Get key schema and convert Python key to value
         const TSDTypeMeta* dict_meta = dict.dict_meta();
@@ -552,67 +627,196 @@ namespace hgraph
         }
 
         // Create temp key storage and convert from Python
-        std::vector<char> temp_key(key_schema->size);
-        void* key_ptr = temp_key.data();
-
-        if (key_schema->ops->construct) {
-            key_schema->ops->construct(key_ptr, key_schema);
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
         }
 
-        try {
-            if (key_schema->ops->from_python) {
-                key_schema->ops->from_python(key_ptr, key, key_schema);
-            }
-        } catch (...) {
-            if (key_schema->ops->destruct) {
-                key_schema->ops->destruct(key_ptr, key_schema);
-            }
-            throw std::runtime_error("PyTimeSeriesDictOutput::get_ref: failed to convert key from Python");
+        // Get overlay for tracking
+        MapTSOverlay* map_overlay = nullptr;
+        if (_view.overlay()) {
+            map_overlay = dynamic_cast<MapTSOverlay*>(_view.overlay());
         }
+
+        // Import Python reference classes once (used for creating BoundTimeSeriesReference/EmptyTimeSeriesReference)
+        // These are Python classes that pass isinstance(v, TimeSeriesReference) check
+        nb::module_ ref_module = nb::module_::import_("hgraph._impl._types._ref");
+        nb::object BoundTimeSeriesReference = ref_module.attr("BoundTimeSeriesReference");
+        nb::object EmptyTimeSeriesReference = ref_module.attr("EmptyTimeSeriesReference");
+        nb::object PythonTimeSeriesReferenceOutput = ref_module.attr("PythonTimeSeriesReferenceOutput");
+
+        // Check if we already have a tracked ref output for this key
+        if (map_overlay) {
+            const std::any* existing = map_overlay->get_ref_output(temp_key.const_view());
+            if (existing && existing->has_value()) {
+                try {
+                    nb::object ref_output = std::any_cast<nb::object>(*existing);
+                    if (!ref_output.is_none()) {
+                        // Update the ref output with current element value before returning
+                        // This handles the case where the key was added after the ref was created
+                        value::ConstMapView map_view = dict.value_view().as_map();
+                        auto slot_idx = map_view.find_index(temp_key.const_view());
+
+                        if (slot_idx && dict.valid()) {
+                            // Key exists - use get_item to get the properly managed output wrapper
+                            nb::object elem_output = get_item(key);
+
+                            // Use Python's BoundTimeSeriesReference - passes isinstance check
+                            nb::object ref_value = BoundTimeSeriesReference(elem_output);
+                            ref_output.attr("apply_result")(ref_value);
+                        } else {
+                            // Key doesn't exist - create EmptyTimeSeriesReference
+                            nb::object ref_value = EmptyTimeSeriesReference();
+                            ref_output.attr("apply_result")(ref_value);
+                        }
+
+                        return ref_output;
+                    }
+                } catch (const std::bad_any_cast&) {
+                    // Fall through to create a new ref output
+                }
+            }
+        }
+
+        // Create a new PythonTimeSeriesReferenceOutput
+        // Pass the owning node - the C++ Node wrapper now has owning_node property that returns self
+        Node* node = _view.owning_node();
+        nb::object owning_node_obj = node ? wrap_node(node->shared_from_this()) : nb::none();
+        nb::object ref_output = PythonTimeSeriesReferenceOutput("_parent_or_node"_a = owning_node_obj);
 
         // Find the slot index for this key
         value::ConstMapView map_view = dict.value_view().as_map();
-        value::ConstValueView key_view(key_ptr, key_schema);
-        auto slot_idx = map_view.find_index(key_view);
+        auto slot_idx = map_view.find_index(temp_key.const_view());
 
-        // Clean up key
-        if (key_schema->ops->destruct) {
-            key_schema->ops->destruct(key_ptr, key_schema);
+        if (slot_idx && dict.valid()) {
+            // Key exists - use get_item to get the properly managed output wrapper
+            // This reuses the existing wrapper infrastructure which handles lifecycle correctly
+            nb::object elem_output = get_item(key);
+
+            // Use Python's BoundTimeSeriesReference - passes isinstance check
+            nb::object ref_value = BoundTimeSeriesReference(elem_output);
+            ref_output.attr("apply_result")(ref_value);
+        } else {
+            // Key doesn't exist - create EmptyTimeSeriesReference
+            nb::object ref_value = EmptyTimeSeriesReference();
+            ref_output.attr("apply_result")(ref_value);
         }
 
-        if (!slot_idx) {
-            throw std::out_of_range("PyTimeSeriesDictOutput::get_ref: key not found");
+        // Store in overlay for tracking
+        if (map_overlay) {
+            map_overlay->set_ref_output(temp_key.const_view(), std::any(ref_output));
         }
 
-        // Get the value view at this slot
-        value::ConstValueView value_view = map_view.value_at(*slot_idx);
-        const TSMeta* value_ts_type = dict_meta->value_ts_type();
-
-        // Get value overlay if available (for mutable access)
-        TSOverlayStorage* value_ov = nullptr;
-        if (auto* map_ov = dict.map_overlay()) {
-            value_ov = map_ov->value_overlay(*slot_idx);
-        }
-
-        // Get the root TSValue (parent TSD) for subscription purposes
-        // This allows downstream REF consumers to subscribe to the TSD overlay
-        TSValue* root = const_cast<TSValue*>(dict.root());
-
-        // Create a mutable view for the element with root reference
-        // This enables proper subscription when accessing TSD elements via REF
-        TSMutableView elem_view(const_cast<void*>(value_view.data()), value_ts_type, value_ov, root);
-
-        // Create wrapper and set the element key for validity checking
-        // This allows the wrapper's valid() method to verify the key still exists
-        auto* wrapper = new PyTimeSeriesOutput(elem_view);
-        wrapper->set_element_key(key);
-        return nb::cast(wrapper, nb::rv_policy::take_ownership);
+        return ref_output;
     }
 
     void PyTimeSeriesDictOutput::release_ref(const nb::object &key, const nb::object &requester) {
         // For view-based wrappers, release_ref is a no-op.
         // Reference counting is not implemented in the view-based system.
         // The view will remain valid until the underlying TSD is modified.
+    }
+
+    void PyTimeSeriesDictOutput::on_key_removed(const nb::object &key) {
+        // This method is called when a key should be removed from the TSD output
+        // (e.g., when the source TSD removes a key that was being tracked)
+
+        // Get TSD metadata
+        const TSDTypeMeta* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+        const value::TypeMeta* map_schema = _view.ts_meta()->value_schema();
+
+        // Get overlay for tracking
+        MapTSOverlay* map_overlay = nullptr;
+        if (_view.overlay()) {
+            map_overlay = dynamic_cast<MapTSOverlay*>(_view.overlay());
+        }
+
+        // Create key value
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops && key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Find the slot index for this key
+        value::MapView mut_map(_view.mutable_value_view().data(), map_schema);
+        auto slot_idx = mut_map.find_index(temp_key.const_view());
+
+        if (!slot_idx) {
+            return;  // Key doesn't exist - nothing to remove
+        }
+
+        // Get current time
+        engine_time_t current_time = get_tsd_current_time(_view);
+
+        // Record removal in overlay (for delta tracking)
+        if (map_overlay) {
+            value::PlainValue removed_key(key_schema);
+            key_schema->ops->copy_assign(removed_key.data(), temp_key.data(), key_schema);
+            map_overlay->record_key_removed(*slot_idx, current_time, std::move(removed_key));
+        }
+
+        // Erase from backing store
+        mut_map.erase(temp_key.const_view());
+
+        // Update is_empty state after removal
+        if (map_overlay) {
+            map_overlay->update_is_empty_state(current_time, mut_map.size());
+        }
+
+        // Also update tracked ref outputs (matches Python's _ref_ts_feature.update(key) behavior)
+        update_ref_output_for_removed_key(key);
+    }
+
+    void PyTimeSeriesDictOutput::update_ref_output_for_removed_key(const nb::object &key) {
+        // Get overlay for tracking
+        MapTSOverlay* map_overlay = nullptr;
+        if (_view.overlay()) {
+            map_overlay = dynamic_cast<MapTSOverlay*>(_view.overlay());
+        }
+
+        if (!map_overlay) {
+            return;  // No overlay, nothing to update
+        }
+
+        // Get key schema and convert Python key to value
+        const TSDTypeMeta* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const value::TypeMeta* key_schema = dict_meta->key_type();
+
+        if (!key_schema || !key_schema->ops) {
+            return;
+        }
+
+        // Create temp key storage and convert from Python
+        value::PlainValue temp_key(key_schema);
+        if (key_schema->ops->from_python) {
+            key_schema->ops->from_python(temp_key.data(), key, key_schema);
+        }
+
+        // Check if we have a tracked ref output for this key
+        const std::any* existing = map_overlay->get_ref_output(temp_key.const_view());
+        if (!existing || !existing->has_value()) {
+            return;  // No tracked ref output for this key
+        }
+
+        try {
+            nb::object ref_output = std::any_cast<nb::object>(*existing);
+            if (ref_output.is_none()) {
+                return;
+            }
+
+            // Import EmptyTimeSeriesReference - this passes isinstance(v, TimeSeriesReference) check
+            nb::module_ ref_module = nb::module_::import_("hgraph._impl._types._ref");
+            nb::object EmptyTimeSeriesReference = ref_module.attr("EmptyTimeSeriesReference");
+
+            // Create empty reference (key doesn't exist anymore)
+            nb::object ref_value = EmptyTimeSeriesReference();
+
+            // Apply the empty reference to the tracked ref output
+            // This marks the ref output as modified, which will propagate to downstream inputs
+            ref_output.attr("apply_result")(ref_value);
+        } catch (const std::bad_any_cast&) {
+            // Ignore bad casts
+        }
     }
 
     // ===== PyTimeSeriesDictInput Implementation =====
@@ -801,6 +1005,18 @@ namespace hgraph
         value::MapView mut_map(map_data, map_schema);
         value::MapSetResult result = mut_map.set_with_index(temp_key.const_view(), temp_val.const_view());
 
+        // Check if this key was removed in the same tick (for modified state inheritance)
+        bool was_removed_this_tick = false;
+        if (map_overlay) {
+            // Check if this key is in the removed keys buffer (same tick)
+            for (const auto& removed_key : map_overlay->removed_key_values()) {
+                if (removed_key.equals(temp_key.const_view())) {
+                    was_removed_this_tick = true;
+                    break;
+                }
+            }
+        }
+
         // If newly inserted, record in overlay
         if (result.inserted && map_overlay) {
             map_overlay->record_key_added(result.index, current_time);
@@ -809,7 +1025,13 @@ namespace hgraph
 
         // Ensure child overlay exists for the new entry
         if (map_overlay) {
-            map_overlay->ensure_value_overlay(result.index);
+            TSOverlayStorage* child_ov = map_overlay->ensure_value_overlay(result.index);
+
+            // If this key was removed and recreated in the same tick, mark the new overlay as modified
+            // This ensures modified_items() will include this element
+            if (was_removed_this_tick && child_ov) {
+                child_ov->mark_modified(current_time);
+            }
         }
     }
 
@@ -897,10 +1119,90 @@ namespace hgraph
             return nb::list();
         }
         engine_time_t eval_time = *n->cached_evaluation_time_ptr();
+
+        // Get TSD metadata to check if elements are REF type
+        const auto* dict_meta = static_cast<const TSDTypeMeta*>(_view.ts_meta());
+        const TSMeta* value_ts_type = dict_meta->value_ts_type();
+        bool is_ref_element = value_ts_type && value_ts_type->kind() == TSTypeKind::REF;
+
+        // Get MapTSOverlay for modification tracking
+        MapTSOverlay* map_overlay = nullptr;
+        if (_view.overlay()) {
+            map_overlay = dynamic_cast<MapTSOverlay*>(const_cast<TSOverlayStorage*>(_view.overlay()));
+        }
+
         nb::list result;
-        for (const auto& [key, val] : dict.items()) {
-            if (val.modified_at(eval_time)) {
-                nb::tuple item = nb::make_tuple(key.to_python(), wrap_input_view(val));
+        value::ConstMapView map_view = _view.value_view().as_map();
+        auto storage_indices = map_view.indices();
+
+        for (size_t storage_idx : storage_indices) {
+            value::ConstValueView key_view = map_view.key_at(storage_idx);
+            value::ConstValueView value_view = map_view.value_at(storage_idx);
+            LightweightPath child_path = dict.path().with(storage_idx);
+
+            // Construct TSView directly (like TSDView::items does) instead of using at()
+            // This avoids issues with template type deduction when passing ConstValueView
+            TSView val;
+            TSOverlayStorage* value_ov = nullptr;
+            if (map_overlay) {
+                value_ov = map_overlay->value_overlay(storage_idx);
+                val = TSView(value_view.data(), value_ts_type, value_ov, dict.root(), std::move(child_path));
+            } else {
+                val = TSView(value_view.data(), value_ts_type, nullptr, dict.root(), std::move(child_path));
+            }
+
+            bool is_modified = val.modified_at(eval_time);
+
+            // If overlay is NULL but key was removed this tick, it was re-added and should be marked modified
+            // This handles the case where slot swaps cause overlay tracking to be lost
+            if (!is_modified && !value_ov && map_overlay) {
+                const auto& removed = map_overlay->removed_key_values();
+                for (const auto& removed_key : removed) {
+                    if (removed_key.const_view().equals(key_view)) {
+                        is_modified = true;
+                        break;
+                    }
+                }
+            }
+
+            // For REF elements: check if the bound output changed
+            if (!is_modified && is_ref_element && map_overlay && map_overlay->has_ref_output(key_view)) {
+                try {
+                    const std::any* ref_any = map_overlay->get_ref_output(key_view);
+                    nb::object cached = std::any_cast<nb::object>(*ref_any);
+                    // Check if the cached BoundTimeSeriesReference has a modified output
+                    if (nb::hasattr(cached, "has_output") && nb::hasattr(cached, "output")) {
+                        bool has_output = nb::cast<bool>(cached.attr("has_output"));
+                        if (has_output) {
+                            nb::object output = cached.attr("output");
+                            if (nb::hasattr(output, "modified")) {
+                                bool output_modified = nb::cast<bool>(output.attr("modified"));
+                                if (output_modified) {
+                                    is_modified = true;
+                                }
+                            }
+                            // Also check if output is still valid
+                            if (!is_modified && nb::hasattr(output, "valid")) {
+                                bool output_valid = nb::cast<bool>(output.attr("valid"));
+                                if (!output_valid) {
+                                    is_modified = true;
+                                }
+                            }
+                        } else {
+                            // The ref has no output (became empty) - the source was removed
+                            if (nb::hasattr(cached, "is_empty")) {
+                                bool is_empty = nb::cast<bool>(cached.attr("is_empty"));
+                                if (is_empty) {
+                                    is_modified = true;
+                                }
+                            }
+                        }
+                    }
+                } catch (const std::bad_any_cast&) {}
+            }
+
+            if (is_modified) {
+                nb::tuple item = nb::make_tuple(key_view.to_python(), wrap_input_view(val));
                 result.append(item);
             }
         }
@@ -1225,7 +1527,8 @@ namespace hgraph
         nb::set key_set;
         if (delta.valid()) {
             for (const auto& key : delta.removed_keys()) {
-                key_set.add(key.to_python());
+                nb::object py_key = key.to_python();
+                key_set.add(py_key);
             }
         }
         return nb::frozenset(key_set);
@@ -1652,6 +1955,7 @@ namespace hgraph
             .def_prop_ro("has_removed", &PyTimeSeriesDictOutput::has_removed)
             .def("get_ref", &PyTimeSeriesDictOutput::get_ref, "key"_a, "requester"_a)
             .def("release_ref", &PyTimeSeriesDictOutput::release_ref, "key"_a, "requester"_a)
+            .def("on_key_removed", &PyTimeSeriesDictOutput::on_key_removed, "key"_a)
             .def_prop_ro("key_set", &PyTimeSeriesDictOutput::key_set)
             .def("__str__", &PyTimeSeriesDictOutput::py_str)
             .def("__repr__", &PyTimeSeriesDictOutput::py_repr);

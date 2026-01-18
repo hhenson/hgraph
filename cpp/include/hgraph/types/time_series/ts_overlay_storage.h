@@ -21,6 +21,7 @@
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/container_hooks.h>
 #include <hgraph/types/value/value.h>
+#include <hgraph/types/feature_extension.h>
 
 #include <any>
 #include <cstddef>
@@ -989,8 +990,15 @@ public:
 
     /**
      * @brief Virtual destructor.
+     * Clears Python references in _get_ref_outputs before destruction to prevent
+     * access to invalidated C++ objects during Python GC.
      */
-    ~MapTSOverlay() override = default;
+    ~MapTSOverlay() override {
+        // Clear Python references before C++ objects are destroyed
+        // This prevents crashes during Python GC when nb::object tries to access
+        // C++ objects that have been deallocated
+        _get_ref_outputs.clear();
+    }
 
     // No copying - overlays have unique identity
     MapTSOverlay(const MapTSOverlay&) = delete;
@@ -1343,7 +1351,59 @@ private:
     bool _is_empty_value{true};                                               ///< Current is_empty value (starts true for empty map)
     mutable std::unordered_map<size_t, std::any> _ref_caches;                 ///< Per-index REF cache for TSD[K, REF[V]] elements
 
+    // ========== Feature Output Extension Storage (for get_ref tracking) ==========
+    mutable std::unordered_map<value::PlainValue, std::any, PlainValueHash, PlainValueEqual> _get_ref_outputs;  ///< Tracked ref outputs from get_ref()
+
 public:
+    // ========== Feature Output Extension Methods (for get_ref tracking) ==========
+
+    /**
+     * @brief Get tracked ref output for a key, if it exists.
+     * @param key The key to look up
+     * @return Pointer to the stored std::any, or nullptr if not tracked
+     */
+    [[nodiscard]] const std::any* get_ref_output(const value::ConstValueView& key) const {
+        auto it = _get_ref_outputs.find(value::PlainValue(key));
+        return it != _get_ref_outputs.end() ? &it->second : nullptr;
+    }
+
+    /**
+     * @brief Store a ref output for a key (for get_ref tracking).
+     * @param key The key to store under
+     * @param output The Python object to store (should be nb::object)
+     */
+    void set_ref_output(const value::ConstValueView& key, std::any output) const {
+        value::PlainValue key_copy(key);
+        _get_ref_outputs[std::move(key_copy)] = std::move(output);
+    }
+
+    /**
+     * @brief Check if there's a tracked ref output for a key.
+     * @param key The key to check
+     * @return True if there's a tracked output
+     */
+    [[nodiscard]] bool has_ref_output(const value::ConstValueView& key) const {
+        return _get_ref_outputs.find(value::PlainValue(key)) != _get_ref_outputs.end();
+    }
+
+    /**
+     * @brief Get all tracked ref outputs (for iteration during updates).
+     * @return Reference to the internal map
+     */
+    [[nodiscard]] const std::unordered_map<value::PlainValue, std::any, PlainValueHash, PlainValueEqual>&
+    get_ref_outputs() const noexcept {
+        return _get_ref_outputs;
+    }
+
+    /**
+     * @brief Get mutable access to all tracked ref outputs (for updates).
+     * @return Reference to the internal map
+     */
+    [[nodiscard]] std::unordered_map<value::PlainValue, std::any, PlainValueHash, PlainValueEqual>&
+    get_ref_outputs_mut() const noexcept {
+        return _get_ref_outputs;
+    }
+
     // ========== REF Cache Methods (for TSD[K, REF[V]]) ==========
 
     /**
@@ -1383,6 +1443,17 @@ public:
     void clear_ref_cache(size_t index) const {
         _ref_caches.erase(index);
     }
+
+    /**
+     * @brief Update tracked ref outputs when a key is removed.
+     *
+     * When a key is removed from the TSD, any tracked ref outputs (from get_ref)
+     * need to be updated to point to an empty reference. This matches Python's
+     * _ref_ts_feature.update(k) behavior.
+     *
+     * @param key The key being removed
+     */
+    void update_ref_output_for_removed_key(const value::ConstValueView& key);
 };
 
 // ============================================================================

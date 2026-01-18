@@ -274,7 +274,54 @@ namespace hgraph
         // The REF-specific logic is in TSView::ts_valid() and TSView::modified_at().
         nb::class_<PyTimeSeriesReferenceInput, PyTimeSeriesInput>(m, "TimeSeriesReferenceInput")
             .def("__str__", &PyTimeSeriesReferenceInput::to_string)
-            .def("__repr__", &PyTimeSeriesReferenceInput::to_repr);
+            .def("__repr__", &PyTimeSeriesReferenceInput::to_repr)
+            // Explicitly register bind_output with nb::object and nb::arg().none() to accept None
+            // C++ get_ref may return None for missing keys
+            .def("bind_output", [](nb::handle self_handle, nb::object output) {
+                auto& self = nb::cast<PyTimeSeriesReferenceInput&>(self_handle);
+
+                // First, unregister from previous output if any (clean up stale observers)
+                // This is important when keys are removed and recreated - old observers
+                // would otherwise have stale overlay pointers
+                nb::object prev_output = self.get_bound_py_output();
+                if (prev_output.is_valid() && !prev_output.is_none() && nb::hasattr(prev_output, "stop_observing_reference")) {
+                    try {
+                        prev_output.attr("stop_observing_reference")(self_handle);
+                    } catch (...) {
+                        // Ignore errors during cleanup
+                    }
+                }
+
+                self.bind_output(output);
+
+                // If output is a TimeSeriesReferenceOutput, register this input as an observer.
+                // This matches Python's TimeSeriesReferenceInput.do_bind_output() behavior.
+                // The observer is notified when the REF output's value changes (e.g., key removed).
+                if (!output.is_none() && nb::hasattr(output, "observe_reference")) {
+                    try {
+                        // Pass self_handle to observe_reference - it's the Python wrapper for this input
+                        output.attr("observe_reference")(self_handle);
+                    } catch (const std::exception& e) {
+                        fmt::print(stderr, "[DEBUG bind_output] observe_reference failed: {}\n", e.what());
+                    }
+                }
+            }, nb::arg("output").none())
+            // Override un_bind_output to also unregister from observer list
+            .def("un_bind_output", [](nb::handle self_handle) {
+                auto& self = nb::cast<PyTimeSeriesReferenceInput&>(self_handle);
+
+                // Unregister from previous output if any
+                nb::object prev_output = self.get_bound_py_output();
+                if (prev_output.is_valid() && !prev_output.is_none() && nb::hasattr(prev_output, "stop_observing_reference")) {
+                    try {
+                        prev_output.attr("stop_observing_reference")(self_handle);
+                    } catch (...) {
+                        // Ignore errors during cleanup
+                    }
+                }
+
+                self.un_bind_output();
+            });
     }
 
     // ========== Specialized Reference Input Classes ==========

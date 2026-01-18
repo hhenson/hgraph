@@ -1495,6 +1495,17 @@ public:
         return ConstKeySetView(*this);
     }
 
+    /**
+     * @brief Get the actual storage indices for all entries.
+     *
+     * Returns the storage slot indices from the underlying index_set.
+     * This is needed for proper iteration when the map may have gaps
+     * (e.g., after removals with swap-with-last optimization).
+     *
+     * @return Vector of storage indices in iteration order
+     */
+    [[nodiscard]] std::vector<size_t> indices() const;
+
     // Templated operations - implemented after Value
     template<typename K>
     [[nodiscard]] ConstValueView at(const K& key) const;
@@ -1962,6 +1973,20 @@ inline ConstValueView ConstMapView::value_at(size_t storage_idx) const {
     assert(valid() && "value_at() on invalid view");
     auto* storage = static_cast<const MapStorage*>(_data);
     return ConstValueView(storage->get_value_ptr(storage_idx), _schema->element_type);
+}
+
+inline std::vector<size_t> ConstMapView::indices() const {
+    std::vector<size_t> result;
+    if (!valid()) return result;
+
+    auto* storage = static_cast<const MapStorage*>(_data);
+    if (storage->index_set()) {
+        result.reserve(storage->index_set()->size());
+        for (size_t idx : *storage->index_set()) {
+            result.push_back(idx);
+        }
+    }
+    return result;
 }
 
 } // namespace hgraph::value

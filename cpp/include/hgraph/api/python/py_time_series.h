@@ -161,6 +161,9 @@ namespace hgraph
         void bind_output(nb::object output);
         void un_bind_output();
 
+        // Notification method (called when unbinding, matches Python behavior)
+        void notify(nb::object modified_time);
+
         // Peer property (for REF binding detection)
         [[nodiscard]] nb::bool_ has_peer() const;
 
@@ -169,6 +172,9 @@ namespace hgraph
         // Store a bound output TSValue for passthrough inputs
         void set_bound_output(const TSValue* output);
         [[nodiscard]] const TSValue* bound_output() const;
+
+        // Get the Python object this input is bound to (for cleanup in un_bind_output)
+        [[nodiscard]] nb::object get_bound_py_output() const { return _bound_py_output; }
 
       protected:
         // View storage - the only data member

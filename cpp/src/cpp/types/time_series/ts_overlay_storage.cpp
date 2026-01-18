@@ -777,6 +777,86 @@ void MapTSOverlay::record_key_removed(size_t index, engine_time_t time, value::P
     mark_modified(time);
 }
 
+void MapTSOverlay::update_ref_output_for_removed_key(const value::ConstValueView& key) {
+    fmt::print(stderr, "[DEBUG overlay update_ref_output_for_removed_key] called\n");
+
+    // Look up the tracked ref output for this key
+    const std::any* existing = get_ref_output(key);
+    if (!existing || !existing->has_value()) {
+        fmt::print(stderr, "[DEBUG overlay update_ref_output_for_removed_key] no tracked ref output\n");
+        return;  // No tracked ref output for this key
+    }
+
+    fmt::print(stderr, "[DEBUG overlay update_ref_output_for_removed_key] found tracked ref output\n");
+
+    try {
+        nb::object ref_output = std::any_cast<nb::object>(*existing);
+        fmt::print(stderr, "[DEBUG overlay update_ref_output_for_removed_key] ref_output type={}\n",
+                   nb::str(ref_output.type()).c_str());
+        if (ref_output.is_none()) {
+            fmt::print(stderr, "[DEBUG overlay update_ref_output_for_removed_key] ref_output is none\n");
+            return;
+        }
+
+        // Import EmptyTimeSeriesReference
+        nb::module_ ref_module = nb::module_::import_("hgraph._impl._types._ref");
+        nb::object EmptyTimeSeriesReference = ref_module.attr("EmptyTimeSeriesReference");
+
+        // Create empty reference (key doesn't exist anymore)
+        nb::object ref_value = EmptyTimeSeriesReference();
+
+        // Apply the empty reference to the tracked ref output
+        // This marks the ref output as modified, which will propagate to downstream inputs
+        ref_output.attr("apply_result")(ref_value);
+
+        // The apply_result calls EmptyTimeSeriesReference.bind_input() on reference observers,
+        // which unbinds them but doesn't properly notify their parent TSD.
+        // For Python inputs that have parent_input, we call notify_parent directly.
+        // For C++ inputs, we need a different approach.
+        if (nb::hasattr(ref_output, "_reference_observers")) {
+            nb::dict observers = nb::cast<nb::dict>(ref_output.attr("_reference_observers"));
+            fmt::print(stderr, "[DEBUG overlay] reference_observers count={}\n", nb::len(observers));
+            for (auto [id, observer] : observers) {
+                fmt::print(stderr, "[DEBUG overlay] notifying observer, has parent_input={}\n",
+                           nb::hasattr(observer, "parent_input") ? "yes" : "no");
+
+                // Try Python-style notification first (for pure Python inputs)
+                if (nb::hasattr(observer, "parent_input")) {
+                    nb::object parent_input = observer.attr("parent_input");
+                    if (!parent_input.is_none() && nb::hasattr(parent_input, "notify_parent")) {
+                        if (nb::hasattr(observer, "owning_graph")) {
+                            nb::object owning_graph = observer.attr("owning_graph");
+                            if (!owning_graph.is_none() && nb::hasattr(owning_graph, "evaluation_clock")) {
+                                nb::object clock = owning_graph.attr("evaluation_clock");
+                                nb::object eval_time = clock.attr("evaluation_time");
+                                parent_input.attr("notify_parent")(observer, eval_time);
+                                fmt::print(stderr, "[DEBUG overlay] called notify_parent on observer's parent\n");
+                                continue;
+                            }
+                        }
+                    }
+                }
+
+                // Fallback: call notify() on the observer (for C++ inputs)
+                if (nb::hasattr(observer, "notify") && nb::hasattr(observer, "owning_graph")) {
+                    nb::object owning_graph = observer.attr("owning_graph");
+                    if (!owning_graph.is_none() && nb::hasattr(owning_graph, "evaluation_clock")) {
+                        nb::object clock = owning_graph.attr("evaluation_clock");
+                        nb::object eval_time = clock.attr("evaluation_time");
+                        observer.attr("notify")(eval_time);
+                        fmt::print(stderr, "[DEBUG overlay] called notify on observer\n");
+                    }
+                }
+            }
+        }
+    } catch (const std::bad_any_cast&) {
+        // Ignore bad casts
+    } catch (const nb::python_error& e) {
+        // Log but don't propagate Python errors
+        fmt::print(stderr, "[WARNING] update_ref_output_for_removed_key: Python error: {}\n", e.what());
+    }
+}
+
 TSOverlayStorage* MapTSOverlay::ensure_value_overlay(size_t index) {
     // Ensure capacity
     if (index >= _value_overlays.size()) {

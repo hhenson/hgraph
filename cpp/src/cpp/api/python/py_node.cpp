@@ -191,6 +191,18 @@ namespace hgraph
             .def("notify", &PyNode::notify, "modified_time"_a = nb::none())
             // .def("notify_next_cycle", &PyNode::notify_next_cycle)
             .def_prop_ro("error_output", &PyNode::error_output)
+            // owning_node returns self - needed for compatibility with Python's PythonTimeSeriesOutput
+            // which checks _parent_or_node.owning_node to navigate to the owning node
+            .def_prop_ro("owning_node", [](PyNode &self) -> nb::object {
+                // Return self as nb::object
+                return nb::cast(&self, nb::rv_policy::reference);
+            })
+            // mark_child_modified - needed when C++ Node is used as _parent_or_node in PythonTimeSeriesOutput
+            // Python checks isinstance(_parent_or_node, Node) but C++ Node fails that check, so Python
+            // thinks it's a parent output and calls mark_child_modified. This is a no-op for Nodes.
+            .def("mark_child_modified", [](PyNode &self, nb::object child, nb::object modified_time) {
+                // No-op: Nodes don't propagate child modification like parent outputs do
+            }, "child"_a, "modified_time"_a)
             .def("__repr__", &PyNode::repr)
             .def("__str__", &PyNode::str)
             .def("__eq__", [](const PyNode &self, const nb::object &other) {

@@ -71,6 +71,16 @@ namespace hgraph
         nb::object pop(const nb::object &key, const nb::object &default_value);
         nb::object get_ref(const nb::object &key, const nb::object &requester);
         void release_ref(const nb::object &key, const nb::object &requester);
+        void on_key_removed(const nb::object &key);
+
+        /**
+         * @brief Update tracked ref outputs for a removed key.
+         *
+         * Called when a key is removed from the TSD. Updates any tracked
+         * reference outputs for that key to point to None.
+         * This matches Python's _ref_ts_feature.update(key) behavior.
+         */
+        void update_ref_output_for_removed_key(const nb::object &key);
     };
 
     /**
