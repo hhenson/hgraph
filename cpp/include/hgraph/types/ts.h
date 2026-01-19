@@ -56,6 +56,7 @@ namespace hgraph {
         void copy_from_output(const TimeSeriesOutput& output) override;
         void copy_from_input(const TimeSeriesInput& input) override;
         [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Value | TimeSeriesKind::Output; }
         void reset_value();
 
         VISITOR_SUPPORT()
@@ -90,6 +91,7 @@ namespace hgraph {
         [[nodiscard]] const value::TypeMeta* schema() const;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Value | TimeSeriesKind::Input; }
 
         VISITOR_SUPPORT()
     };

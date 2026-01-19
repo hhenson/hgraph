@@ -20,6 +20,8 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override { return true; }
 
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Signal | TimeSeriesKind::Input; }
+
         [[nodiscard]] TimeSeriesInput::s_ptr get_input(size_t index) override;
 
         // Override to aggregate from children like Python implementation

@@ -1048,8 +1048,10 @@ namespace hgraph
     }
 
     bool TimeSeriesDictInputImpl::is_same_type(const TimeSeriesType *other) const {
-        auto other_d = dynamic_cast<const TimeSeriesDictInputImpl *>(other);
-        if (!other_d) { return false; }
+        // Single comparison checks both type (Dict) and direction (Input)
+        if (other->kind() != kind()) { return false; }
+        // Kind matches exactly, safe to use static_cast
+        auto other_d = static_cast<const TimeSeriesDictInputImpl *>(other);
         return _ts_builder->is_same_type(*other_d->_ts_builder);
     }
 
@@ -1173,8 +1175,10 @@ namespace hgraph
     }
 
     bool TimeSeriesDictOutputImpl::is_same_type(const TimeSeriesType *other) const {
-        auto other_d = dynamic_cast<const TimeSeriesDictOutputImpl *>(other);
-        if (!other_d) { return false; }
+        // Single comparison checks both type (Dict) and direction (Output)
+        if (other->kind() != kind()) { return false; }
+        // Kind matches exactly, safe to use static_cast
+        auto other_d = static_cast<const TimeSeriesDictOutputImpl *>(other);
         return _ts_builder->is_same_type(*other_d->_ts_builder);
     }
 

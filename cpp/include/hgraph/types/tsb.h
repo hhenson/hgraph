@@ -152,6 +152,8 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Indexed | TimeSeriesKind::Bundle | TimeSeriesKind::Output; }
+
         VISITOR_SUPPORT()
 
     protected:
@@ -165,6 +167,8 @@ namespace hgraph {
         using bundle_type::TimeSeriesBundle;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
+
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Indexed | TimeSeriesKind::Bundle | TimeSeriesKind::Input; }
 
         // This is used by the nested graph infra to rewrite the stub inputs when we build the nested graphs.
         // The general pattern in python was copy_with(node, ts=...)

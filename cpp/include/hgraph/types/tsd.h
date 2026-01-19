@@ -209,6 +209,8 @@ namespace hgraph
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Dict | TimeSeriesKind::Output; }
+
         [[nodiscard]] value_type get_or_create(const value::ConstValueView &key);
 
         [[nodiscard]] bool has_reference() const override;
@@ -345,6 +347,8 @@ namespace hgraph
         [[nodiscard]] value_type get_or_create(const value::ConstValueView &key);
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
+
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Dict | TimeSeriesKind::Input; }
 
         [[nodiscard]] bool has_reference() const override;
 

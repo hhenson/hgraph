@@ -72,6 +72,8 @@ namespace hgraph {
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Indexed | TimeSeriesKind::List | TimeSeriesKind::Output; }
+
         void py_set_value(const nb::object& value) override;
 
         VISITOR_SUPPORT()
@@ -86,6 +88,8 @@ namespace hgraph {
         using list_type::TimeSeriesList;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
+
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Indexed | TimeSeriesKind::List | TimeSeriesKind::Input; }
 
         VISITOR_SUPPORT()
 

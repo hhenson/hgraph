@@ -231,7 +231,8 @@ namespace hgraph
     // ============================================================
 
     bool TimeSeriesReferenceOutput::is_same_type(const TimeSeriesType *other) const {
-        return dynamic_cast<const TimeSeriesReferenceOutput *>(other) != nullptr;
+        // Single comparison checks both type (Reference) and direction (Output)
+        return other->kind() == kind();
     }
 
     const TimeSeriesReference &TimeSeriesReferenceOutput::value() const {

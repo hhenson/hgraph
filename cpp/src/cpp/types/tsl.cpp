@@ -96,8 +96,10 @@ namespace hgraph {
     }
 
     bool TimeSeriesListOutput::is_same_type(const TimeSeriesType *other) const {
-        auto other_list = dynamic_cast<const TimeSeriesListOutput *>(other);
-        if (!other_list) { return false; }
+        // Single comparison checks both type (List) and direction (Output)
+        if (other->kind() != kind()) { return false; }
+        // Kind matches exactly, safe to use static_cast
+        auto other_list = static_cast<const TimeSeriesListOutput *>(other);
         const auto this_size = this->size();
         const auto other_size = other_list->size();
         // Be permissive during wiring: if either list has no elements yet, treat as same type
@@ -126,8 +128,10 @@ namespace hgraph {
     }
 
     bool TimeSeriesListInput::is_same_type(const TimeSeriesType *other) const {
-        auto other_list = dynamic_cast<const TimeSeriesListInput *>(other);
-        if (!other_list) { return false; }
+        // Single comparison checks both type (List) and direction (Input)
+        if (other->kind() != kind()) { return false; }
+        // Kind matches exactly, safe to use static_cast
+        auto other_list = static_cast<const TimeSeriesListInput *>(other);
         const auto this_size = this->size();
         const auto other_size = other_list->size();
         // Be permissive during wiring: if either list has no elements yet, consider types compatible

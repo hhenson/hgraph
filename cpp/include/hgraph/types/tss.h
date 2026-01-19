@@ -160,11 +160,14 @@ namespace hgraph {
         [[nodiscard]] bool empty() const override { return _storage.empty(); }
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            if (auto* other_tss = dynamic_cast<const TimeSeriesSetOutput*>(other)) {
-                return _element_type == other_tss->_element_type;
-            }
-            return false;
+            // Single comparison checks both type (Set) and direction (Output)
+            if (other->kind() != kind()) { return false; }
+            // Kind matches exactly, safe to use static_cast
+            auto* other_tss = static_cast<const TimeSeriesSetOutput*>(other);
+            return _element_type == other_tss->_element_type;
         }
+
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Set | TimeSeriesKind::Output; }
 
         void _reset_value();
 
@@ -280,11 +283,14 @@ namespace hgraph {
         [[nodiscard]] bool empty() const override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            if (auto* other_tss = dynamic_cast<const TimeSeriesSetInput*>(other)) {
-                return element_type() == other_tss->element_type();
-            }
-            return false;
+            // Single comparison checks both type (Set) and direction (Input)
+            if (other->kind() != kind()) { return false; }
+            // Kind matches exactly, safe to use static_cast
+            auto* other_tss = static_cast<const TimeSeriesSetInput*>(other);
+            return element_type() == other_tss->element_type();
         }
+
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Set | TimeSeriesKind::Input; }
 
         VISITOR_SUPPORT()
 
