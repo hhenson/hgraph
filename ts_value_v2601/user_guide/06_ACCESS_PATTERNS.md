@@ -450,4 +450,4 @@ output.set_value(value_from("not a float"));  // Runtime error: schema mismatch
 
 ## Next
 
-- [Delta and Change Tracking](06_DELTA.md) - Incremental processing patterns
+- [Delta and Change Tracking](07_DELTA.md) - Incremental processing patterns

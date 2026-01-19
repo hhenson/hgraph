@@ -97,8 +97,9 @@ All Value types are scalar (scalar in time). This includes atomic values (`int`,
 2. **[Value](02_VALUE.md)** - Constructing and operating on data values
 3. **[Time-Series](03_TIME_SERIES.md)** - Time-series inputs and outputs
 4. **[Links and Binding](04_LINKS_AND_BINDING.md)** - How data flows between nodes
-5. **[Access Patterns](05_ACCESS_PATTERNS.md)** - Reading, writing, iteration
-6. **[Delta and Change Tracking](06_DELTA.md)** - Working with incremental changes
+5. **[TSOutput and TSInput](05_TSOUTPUT_TSINPUT.md)** - Graph endpoints
+6. **[Access Patterns](06_ACCESS_PATTERNS.md)** - Reading, writing, iteration
+7. **[Delta and Change Tracking](07_DELTA.md)** - Working with incremental changes
 
 ---
 

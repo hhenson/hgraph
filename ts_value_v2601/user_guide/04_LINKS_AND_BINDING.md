@@ -10,6 +10,8 @@
 
 Links are **not** copies. They are **references** with notification capability.
 
+> **Note**: For detailed documentation on TSOutput and TSInput - the graph endpoints that use links - see [TSOutput and TSInput](05_TSOUTPUT_TSINPUT.md).
+
 ---
 
 ## The Link Model
@@ -460,6 +462,159 @@ void lookup(
 
 ---
 
+## Cast Logic: Schema Conversion at Bind Time
+
+### Overview
+
+When an input's schema differs from an output's schema in a compatible way (e.g., `TS[int]` vs `REF[TS[int]]`), **casting** creates an alternative representation. Cast is an **output-side responsibility** - the output creates and maintains the alternative view, and inputs link to it.
+
+### Why Output Owns the Cast
+
+The output→input relationship is 1:N (one output, many inputs). If the output maintains alternative representations:
+- Multiple inputs needing the same shape share the same alternative representation
+- The output is responsible for keeping the alternative in sync with the primary data
+- Inputs remain lightweight - just a LINK to the appropriate representation
+
+```
+┌─────────────────────────────────────────────────────────┐
+│  Output: TSD[str, TS[int]]                              │
+│                                                         │
+│  Primary Data: TSD[str, TS[int]]                        │
+│       │                                                 │
+│       ├── Alternative Rep 1: TSD[str, REF[TS[int]]]    │
+│       │        ▲           ▲                            │
+│       │        │           │                            │
+│       │     LINK         LINK                           │
+│       │        │           │                            │
+│       │   Input A      Input B                          │
+│       │   (needs REF)  (needs REF)                      │
+│       │                                                 │
+│       └── Direct LINK ──────────────────▶ Input C       │
+│                                           (matches)     │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Cast Request During Bind
+
+When binding an input to an output, the input's schema determines what representation is needed:
+
+```cpp
+// Conceptual API - schema passed to link determines cast requirement
+void link(TSOutput& output, const TSMeta& input_schema) {
+    if (output.ts_meta() == input_schema) {
+        // Direct link - schemas match
+        establish_direct_link(output);
+    } else {
+        // Cast required - request alternative representation
+        TSValue& alt_rep = output.get_or_create_alternative(input_schema);
+        establish_direct_link(alt_rep);
+    }
+}
+```
+
+The output indexes alternative representations by schema shape, creating them on first request and reusing for subsequent inputs with the same shape.
+
+### Nested Structure Handling
+
+For complex conversions like `TSD[str, TS[int]]` → `TSD[str, REF[TS[int]]]`:
+
+1. **Input requests unpacked form**: The input's schema specifies the desired shape
+2. **Output constructs parallel structure**: Creates a TSValue with the alternative schema, including internal REFLinks pointing back to original elements
+3. **Input links to result**: Simple LINK to the alternative TSValue
+4. **Output maintains sync**: When the primary TSD changes (keys added/removed), output updates the alternative representation
+
+```
+Primary: TSD[str, TS[int]]           Alternative: TSD[str, REF[TS[int]]]
+┌─────────────────────────┐          ┌─────────────────────────────────┐
+│  "a" → TS[int] ●────────┼──────────┼──▶ "a" → REF[TS[int]] (refs ●)  │
+│  "b" → TS[int] ●────────┼──────────┼──▶ "b" → REF[TS[int]] (refs ●)  │
+│  "c" → TS[int] ●────────┼──────────┼──▶ "c" → REF[TS[int]] (refs ●)  │
+└─────────────────────────┘          └─────────────────────────────────┘
+         Output manages both              Input links here (lightweight)
+```
+
+### REF ↔ TS Conversions
+
+**TS → REF** (wrapping):
+- Output creates alternative with REF wrapper
+- Each element in the alternative holds a reference to the corresponding element in the primary
+
+**REF → TS** (dereferencing):
+- Output creates alternative that follows references
+- Alternative structure mirrors the dereferenced shape
+- Uses REFLinks internally to track reference changes
+
+Both directions require the output to maintain the parallel structure and keep it synchronized.
+
+### Cast API Options
+
+Several API approaches are possible:
+
+```cpp
+// Option 1: Explicit method on output
+auto& alt = output.as(input_schema);
+link(input, alt);
+
+// Option 2: Cast method
+auto& alt = output.cast<TSD<str, REF<TS<int>>>>();
+link(input, alt);
+
+// Option 3: Schema parameter to link (cleanest for user)
+link(input, output, input.ts_meta());  // Cast happens internally
+```
+
+Option 3 may be cleanest as it hides the cast mechanics from the user while still being explicit about what schema the input expects.
+
+---
+
+## Memory Stability Requirements
+
+### The Stability Constraint
+
+**Critical**: Value and TSValue data structures must maintain **memory-stable addresses** for their elements. Once a LINK is established to an element, that element's address must remain valid even when the containing structure is mutated.
+
+### Why This Matters
+
+Consider a TSD where inputs are linked to individual elements:
+
+```
+TSD[str, TS[int]]
+├── "a" → TS[int]  ◄── Input A linked here
+├── "b" → TS[int]  ◄── Input B linked here
+└── "c" → TS[int]  ◄── Input C linked here
+```
+
+If we add key "d" or remove key "b":
+- Input A's link to "a" must remain valid
+- Input C's link to "c" must remain valid
+- Only Input B's link is affected (element removed)
+
+### Implementation Implications
+
+This constraint affects how collections are implemented:
+
+| Collection | Requirement |
+|------------|-------------|
+| **TSL (List)** | Fixed-size, elements don't move |
+| **TSD (Dict)** | Elements stable on insert/remove |
+| **TSB (Bundle)** | Fixed fields, always stable |
+| **TSS (Set)** | Elements are scalars (copied), stability less critical |
+
+For TSD specifically, several approaches can provide stability:
+- **Node-based storage**: `map<K, unique_ptr<TSValue>>` - simple, stable addresses
+- **Slot-based with tombstones**: Contiguous vector with free list - stable indices, better cache locality
+- **Pool allocator**: Fixed slots with reuse tracking
+
+The tombstone/free-list approach may be preferable as it maintains contiguous memory (better cache performance) while ensuring that element addresses remain stable. Removed elements are marked as tombstones and their slots are reused for new insertions.
+
+### Alternative Representations and Stability
+
+Alternative representations (from casting) must also be memory-stable:
+- When output creates an alternative, element addresses in the alternative must be stable
+- The alternative's internal structure parallels the primary, so both need the same stability guarantees
+
+---
+
 ## Link Lifecycle
 
 ### Construction
@@ -510,44 +665,65 @@ stateDiagram-v2
     Unbound --> [*] : destroy
 ```
 
-### Observer Pattern - Class Relationships
+### Input/Output Link Relationship
+
+> For detailed TSOutput and TSInput class structure, see [TSOutput and TSInput](05_TSOUTPUT_TSINPUT.md).
 
 ```mermaid
 classDiagram
     class TSOutput {
-        -TSValue* ts_value_
+        +value() TSView
+        +subscribe(input: TSInput*) void
+        +notify() void
+    }
+
+    class TSInput {
+        +value() TSView
+        +bind(output: TSOutput&) void
+        +make_active() void
+        +make_passive() void
+    }
+
+    class Link {
+        -TSValue* target_
+        +value() TSView
+    }
+
+    TSOutput "1" --> "*" TSInput : notifies
+    TSInput "1" --> "0..1" TSOutput : bound to
+    TSInput "1" *-- "*" Link : contains
+    Link --> TSOutput : points to value
+
+    note for Link "LINK is a leaf node in\nTSInput's TSValue structure\npointing to output's value"
+```
+
+### Observer Pattern - Notification Flow
+
+```mermaid
+classDiagram
+    class TSOutput {
         -vector~TSInput*~ observers_
         +subscribe(input: TSInput*) void
         +unsubscribe(input: TSInput*) void
         +notify() void
-        +set_value(v: View) void
-        +value() View
-        +modified() bool
     }
 
     class TSInput {
-        -TSOutput* peer_
         -bool active_
         -Node* owning_node_
-        +bind_to(output: TSOutput&) void
-        +unbind() void
+        +on_peer_modified() void
         +make_active() void
         +make_passive() void
         +active() bool
-        +on_peer_modified() void
-        +value() View
-        +modified() bool
     }
 
     class Node {
-        -vector~TSInput*~ inputs_
-        -vector~TSOutput*~ outputs_
         +schedule() void
         +evaluate() void
     }
 
     TSOutput "1" --> "*" TSInput : notifies
-    TSInput "1" --> "0..1" TSOutput : peers to
+    TSInput "1" --> "0..1" TSOutput : linked to
     TSInput "*" --> "1" Node : owned by
     TSOutput "*" --> "1" Node : owned by
 ```
@@ -726,6 +902,123 @@ flowchart TD
     style IN_B fill:#fff3e0
 ```
 
+### Cast Mechanism
+
+```mermaid
+sequenceDiagram
+    participant I as TSInput
+    participant L as Link
+    participant O as TSOutput
+    participant Alt as Alternative Rep
+
+    Note over I,Alt: Bind with schema mismatch
+    I->>L: link(output, input_schema)
+    L->>O: schemas match?
+    O-->>L: No (need cast)
+    L->>O: get_or_create_alternative(input_schema)
+
+    alt Alternative exists
+        O-->>L: return existing alt
+    else Create new
+        O->>Alt: create TSValue(input_schema)
+        O->>Alt: establish internal sync
+        O-->>L: return new alt
+    end
+
+    L->>I: establish_link(alt)
+    Note over I,Alt: Input now linked to alternative
+```
+
+### Alternative Representation Management
+
+```mermaid
+classDiagram
+    class TSOutput {
+        -TSValue native_value_
+        -map~TSMeta*, TSValue~ alternatives_
+        +ts_meta() const TSMeta&
+        +value() TSView
+        +get_or_create_alternative(schema: TSMeta&) TSValue&
+        +sync_alternatives() void
+    }
+
+    class TSValue {
+        -Value data_value_
+        -Value time_value_
+        -Value observer_value_
+        +view(time: engine_time_t) TSView
+    }
+
+    class TSInput {
+        -TSValue value_
+        -bool active_
+        +bind_to(output: TSOutput&, schema: TSMeta&) void
+        +value() TSView
+    }
+
+    class Link {
+        <<leaf in TSInput.value_>>
+        -TSValue* target_
+        +value() TSView
+    }
+
+    TSOutput "1" *-- "1" TSValue : native_value_
+    TSOutput "1" *-- "*" TSValue : alternatives_
+    TSInput "1" *-- "1" TSValue : value_
+    TSInput ..> TSOutput : binds to
+    Link --> TSValue : points to output value
+
+    note for TSOutput "Output owns native value\nand all alternative representations.\nAlternatives indexed by schema."
+    note for TSInput "Input owns single TSValue.\nLeaves are LINKs to output values."
+```
+
+### Memory Stability Model
+
+```mermaid
+flowchart TD
+    subgraph "TSD with Stable Storage"
+        TSD[TSD Container]
+        subgraph "Node-based Storage"
+            N1[Node: 'a' → TS ptr]
+            N2[Node: 'b' → TS ptr]
+            N3[Node: 'c' → TS ptr]
+        end
+        subgraph "Stable TSValue Storage"
+            V1[TSValue for 'a']
+            V2[TSValue for 'b']
+            V3[TSValue for 'c']
+        end
+        TSD --> N1
+        TSD --> N2
+        TSD --> N3
+        N1 --> V1
+        N2 --> V2
+        N3 --> V3
+    end
+
+    subgraph "Linked Inputs"
+        I1[Input A] -.->|stable link| V1
+        I2[Input B] -.->|stable link| V2
+        I3[Input C] -.->|stable link| V3
+    end
+
+    subgraph "After Adding 'd'"
+        N4[Node: 'd' → TS ptr]
+        V4[TSValue for 'd']
+        N4 --> V4
+    end
+
+    TSD --> N4
+
+    style V1 fill:#c8e6c9
+    style V2 fill:#c8e6c9
+    style V3 fill:#c8e6c9
+    style V4 fill:#fff9c4
+
+    note1[V1, V2, V3 addresses unchanged]
+    note2[Links remain valid]
+```
+
 ### Relationships Overview
 
 ```mermaid
@@ -735,6 +1028,7 @@ flowchart TD
         TSI[TSInput]
         TSV[TSValue]
         REF[REF]
+        ALT[Alternative Rep]
     end
 
     subgraph "Link States"
@@ -752,9 +1046,11 @@ flowchart TD
     subgraph "Binding Types"
         ST[Static<br/>Wiring]
         DY[Dynamic<br/>REF]
+        CST[Cast<br/>Schema Convert]
     end
 
     TSO -->|owns| TSV
+    TSO -->|manages| ALT
     TSI -->|peers to| TSO
     TSI -->|can be| PR
     TSI -->|can be| NP
@@ -769,6 +1065,8 @@ flowchart TD
     ST -->|creates| BD
     DY -->|uses| REF
     REF -->|rewires| TSI
+    CST -->|creates| ALT
+    TSI -->|links to| ALT
 ```
 
 ---
@@ -787,9 +1085,62 @@ If an input shouldn't trigger your node, mark it passive. This reduces unnecessa
 
 Deep composite structures have many potential link points. Bind at the highest level that makes sense to minimize overhead.
 
+### Minimize Cast Requirements
+
+When possible, design schemas so inputs and outputs match directly. Casting creates additional TSValue storage and sync overhead. If many inputs need a cast version, the sharing via output's alternative representation helps, but avoiding the cast entirely is better.
+
+### Understand Memory Stability Implications
+
+When implementing custom collection types or extending the framework:
+- TSD elements must use node-based or pointer-indirection storage
+- Never use contiguous storage (like `std::vector`) for collections where elements can be individually linked
+- Alternative representations inherit the same stability requirements
+
+---
+
+## Implementation Notes
+
+> **Note**: The following details are relevant for implementers and may be migrated to a separate implementation guide.
+
+### Cast Implementation Considerations
+
+1. **Alternative registry**: Outputs should use a map from `TSMeta*` (or schema hash) to alternative TSValues
+2. **Lazy creation**: Create alternatives only when first requested
+3. **Sync mechanism**: Output must hook its mutation operations to propagate changes to alternatives
+4. **Cleanup**: When output is destroyed, all alternatives are destroyed
+
+### Memory Stability Implementation
+
+For TSD (the most complex case), several valid approaches:
+
+```cpp
+// Option 1: Node-based - simple, stable addresses
+std::map<Key, std::unique_ptr<TSValue>> elements_;
+
+// Option 2: Slot-based with tombstones - stable indices, cache-friendly
+struct Slot {
+    TSValue value;
+    bool alive;
+};
+std::vector<Slot> slots_;
+std::vector<size_t> free_list_;
+std::unordered_map<Key, size_t> key_to_slot_;
+
+// NOT stable: naive vector that reallocates
+std::vector<std::pair<Key, TSValue>> elements_;  // DON'T DO THIS
+```
+
+The slot-based approach offers better cache locality while maintaining stability - elements stay at their allocated indices, and removed slots are marked dead and reused via the free list.
+
+For alternative representations with REF elements:
+- The REF values point back to primary elements
+- If primary uses stable storage, REF targets remain valid
+- REFLinks handle the notification forwarding
+
 ---
 
 ## Next
 
-- [Access Patterns](05_ACCESS_PATTERNS.md) - Reading and writing through links
-- [Delta and Change Tracking](06_DELTA.md) - What changed through the link?
+- [TSOutput and TSInput](05_TSOUTPUT_TSINPUT.md) - Graph endpoints that use links
+- [Access Patterns](06_ACCESS_PATTERNS.md) - Reading and writing through views
+- [Delta and Change Tracking](07_DELTA.md) - What changed through the link?

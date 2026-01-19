@@ -286,13 +286,9 @@ In the following, "time-series" refers to any time-series type (TS, TSB, TSL, TS
 When a REF link is traversed and the reference itself was modified (i.e., the reference changed to point to a different target), all views obtained through that reference are marked as **sampled**. A sampled view reports `modified() == true` regardless of whether the underlying target time-series was actually modified at the current tick.
 
 ```cpp
-// View carries a sampled flag
-class TSView {
-    // ...
-    -bool sampled_
-    +sampled() bool           // True if view was obtained through a modified REF
-    +modified() bool          // Returns true if sampled_ OR actual modification
-};
+// TSView API for sampled state
+ts_view.sampled();   // True if view was obtained through a modified REF
+ts_view.modified();  // Returns true if sampled() OR actual modification
 ```
 
 This ensures that when a dynamic routing decision changes, downstream consumers are notified:
@@ -537,7 +533,7 @@ for (auto [key, ts] : stock_prices.modified_items()) {
 }
 ```
 
-See [Delta and Change Tracking](06_DELTA.md) for details.
+See [Delta and Change Tracking](07_DELTA.md) for details.
 
 ---
 
@@ -548,10 +544,9 @@ See [Delta and Change Tracking](06_DELTA.md) for details.
 ```mermaid
 classDiagram
     class TSView {
+        <<type-erased>>
         -void* data_
-        -TSMeta* ts_meta_
-        -engine_time_t bound_time_
-        -bool sampled_
+        -ts_ops* ops_
         +ts_meta() const TSMeta&
         +value() View
         +modified() bool
@@ -567,7 +562,7 @@ classDiagram
         +invalidate() void
     }
 
-    note for TSView "Mutation methods require non-const reference.\nInputs use const TSView&, outputs use TSView&.\nsampled_: true when obtained through modified REF,\ncauses modified() to return true."
+    note for TSView "Type-erased view.\nOnly holds data pointer and ops.\nAll operations dispatch through ops.\nMutation methods require non-const reference."
 
     class TSBView {
         +field(name: string) TSView
@@ -703,11 +698,9 @@ classDiagram
 ```mermaid
 classDiagram
     class TSView {
-        <<interface>>
+        <<type-erased>>
         -void* data_
         -ts_ops* ops_
-        -engine_time_t bound_time_
-        -bool sampled_
         +ts_meta() const TSMeta&
         +value() View
         +modified() bool
@@ -721,7 +714,7 @@ classDiagram
         +invalidate() void
     }
 
-    note for TSView "Type-erased view interface.\nBound to a specific engine time.\nMutation requires non-const reference.\nsampled_: set when traversing modified REF."
+    note for TSView "Type-erased view.\nOnly holds data pointer and ops.\nAll operations dispatch through ops."
 
     class Value {
         -void* data_
@@ -732,7 +725,7 @@ classDiagram
     }
 
     class View {
-        <<interface>>
+        <<type-erased>>
         -void* data_
         -type_ops* ops_
         +schema() const TypeMeta&
@@ -742,6 +735,8 @@ classDiagram
         +size() size_t
         +to_python() nb::object
     }
+
+    note for View "Type-erased view.\nOnly holds data pointer and ops."
 
     class TSMeta {
         -TSKind kind_
@@ -934,5 +929,6 @@ flowchart TD
 ## Next
 
 - [Links and Binding](04_LINKS_AND_BINDING.md) - How inputs connect to outputs
-- [Access Patterns](05_ACCESS_PATTERNS.md) - Reading, writing, iteration
-- [Delta and Change Tracking](06_DELTA.md) - Incremental processing
+- [TSOutput and TSInput](05_TSOUTPUT_TSINPUT.md) - Graph endpoints
+- [Access Patterns](06_ACCESS_PATTERNS.md) - Reading, writing, iteration
+- [Delta and Change Tracking](07_DELTA.md) - Incremental processing

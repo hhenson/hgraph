@@ -251,6 +251,8 @@ for (View key : scores.keys()) {
 size_t count = scores.size();
 ```
 
+> **Performance Note**: Sets and Maps provide **O(1)** average-case lookup, insertion, and deletion. They are implemented using hash-based containers internally.
+
 ---
 
 ## Writing Values
@@ -622,23 +624,21 @@ classDiagram
     }
 
     class View {
+        <<type-erased>>
         -void* data_
-        -TypeMeta* schema_
-        -Value* owner_
-        -Path path_
+        -type_ops* ops_
         +schema() const TypeMeta&
-        +owner() Value&
-        +path() const Path&
         +size() size_t
         +at(index: size_t) View
         +at(name: string) View
         +as~T~() T
-        +data~T~() T*
         +equals(other: View) bool
         +hash() size_t
         +to_string() string
         +to_python() nb::object
     }
+
+    note for View "Type-erased view.\nOnly holds data pointer and ops.\nAll operations dispatch through ops."
 
     class Path {
         -vector~PathElement~ elements_
