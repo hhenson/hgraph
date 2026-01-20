@@ -6,14 +6,17 @@ from typing import Mapping
 import polars as pl
 from polars import DataFrame, Series
 
-from hgraph.hgraph.adaptors.delta.delta_adaptor import DeltaSchemaMode, DeltaWriteMode, delta_write_adaptor
-from hgraph.hgraph.adaptors.data_catalogue.publish import publish_impl_from_graph, publish_impl_to_graph
+from hgraph.adaptors.delta.delta_adaptor import DeltaSchemaMode, DeltaWriteMode, delta_write_adaptor
+from hgraph.adaptors.data_catalogue.publish import publish_impl_from_graph, publish_impl_to_graph
 from hgraph.stream.stream import Stream, Data
-from hgraph.hgraph.adaptors.data_catalogue.catalogue import DataSink, DataCatalogueEntry
-from hgraph.hgraph.adaptors.data_catalogue.data_scopes import Scope
+from hgraph.adaptors.data_catalogue.catalogue import DataSink, DataCatalogueEntry
+from hgraph.adaptors.data_catalogue.data_scopes import Scope
 from hgraph import Frame, SCHEMA, compute_node, TS, AUTO_RESOLVE, TSB
 
 logger = logging.getLogger(__name__)
+
+
+__all__ = ['DeltaDataSink']
 
 
 @dataclass(frozen=True)

@@ -7,10 +7,10 @@ import polars as pl
 from frozendict import frozendict
 from polars import DataFrame
 
-from hgraph.hgraph.adaptors.sql.sql_adaptor_raw import sql_read_adaptor_raw
+from hgraph.adaptors.sql.sql_adaptor_raw import sql_read_adaptor_raw
 from hgraph.stream.stream import Stream, combine_statuses, combine_status_messages, StreamStatus, Data
-from hgraph.hgraph.adaptors.data_catalogue.catalogue import DataSource, DataEnvironment
-from hgraph.hgraph.adaptors.data_catalogue.data_scopes import Scope
+from hgraph.adaptors.data_catalogue.catalogue import DataSource, DataEnvironment
+from hgraph.adaptors.data_catalogue.data_scopes import Scope
 from hgraph import (
     service_adaptor,
     TS,
@@ -40,6 +40,8 @@ from hgraph import (
 
 logger = logging.getLogger(__name__)
 
+
+__all__ = ['BatchSqlDataSource', 'sql_adaptor_batch', 'sql_adaptor_batch_impl']
 
 @dataclass(frozen=True)
 class BatchSqlDataSource(DataSource):

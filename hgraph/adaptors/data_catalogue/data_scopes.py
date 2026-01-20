@@ -5,6 +5,26 @@ import random
 from typing import Iterable
 
 
+__all__ = [
+    "Scope",
+    "StringScope",
+    "BooleanScope",
+    "IntegerScope",
+    "DateScope",
+    "DateTimeScope",
+    "AsofDateTimeScope",
+    "MinDateTimeScope",
+    "MaxDateTimeScope",
+    "RankingScope",
+    "EmailScope",
+    "PollingScope",
+    "FixedDelayRetryOptions",
+    "ExponentialBackoffRetryOptions",
+    "RetryOptions",
+    "RetryScope",
+    "StringSequenceScope"
+]
+
 # Scope serves two purposes:
 # 1) Potentially define shards of data,
 # 2) Define schema of parameters to the query/filters so,
@@ -41,7 +61,7 @@ class BooleanScope(Scope):
 
     def default(self) -> object:
         return self._default
-    
+
 
 class IntegerScope(Scope):
     def __init__(self, default=0):
@@ -167,7 +187,7 @@ class PollingScope(Scope):
 
     def adjust(self, value: object) -> object:
         return value
-    
+
 
 class RetryOptions:
     @abstractmethod
@@ -238,7 +258,7 @@ class RetryScope(Scope):
 
     def adjust(self, value: object) -> object:
         return value
-    
+
 
 class EmailScope(StringScope):
     def __init__(self, domain="bamfunds.com"):
@@ -246,7 +266,7 @@ class EmailScope(StringScope):
 
     def adjust(self, value: object) -> object:
         return value if "@" in value else f"{value}@{self.domain}"
-    
+
 
 class StringSequenceScope(Scope):
     def in_scope(self, value: object) -> bool:

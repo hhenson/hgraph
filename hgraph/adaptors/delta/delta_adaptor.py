@@ -3,9 +3,9 @@ from typing import Tuple, Type, cast
 
 from polars import DataFrame
 
-from hgraph.hgraph.adaptors.delta.delta_adaptor_raw import DeltaSchemaMode, DeltaWriteMode, delta_query_adaptor_raw, \
+from hgraph.adaptors.delta.delta_adaptor_raw import DeltaSchemaMode, DeltaWriteMode, delta_query_adaptor_raw, \
     delta_read_adaptor_raw, delta_write_adaptor_raw
-from hgraph.hgraph.adaptors.data_catalogue.catalogue import DataEnvironment
+from hgraph.adaptors.data_catalogue.catalogue import DataEnvironment
 from hgraph import (
     service_adaptor,
     TS,
@@ -26,6 +26,9 @@ from hgraph import (
     valid,
 )
 from hgraph.stream.stream import Stream, StreamStatus, Data
+
+
+__all__ = ['delta_read_adaptor', 'delta_read_adaptor_impl', 'delta_write_adaptor', 'delta_write_adaptor_impl', 'delta_query_adaptor', 'delta_query_adaptor_impl']
 
 
 @graph

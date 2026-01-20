@@ -6,17 +6,17 @@ from typing import Mapping
 
 from frozendict import frozendict
 
-from hgraph.hgraph.adaptors.sql.sql_adaptor import sql_read_adaptor, sql_read_adaptor_impl
-from hgraph.hgraph.adaptors.sql.sql_adaptor_raw import sql_read_adaptor_raw_impl
-from hgraph.hgraph.adaptors.data_catalogue.subscribe import (
+from hgraph.adaptors.sql.sql_adaptor import sql_read_adaptor, sql_read_adaptor_impl
+from hgraph.adaptors.sql.sql_adaptor_raw import sql_read_adaptor_raw_impl
+from hgraph.adaptors.data_catalogue.subscribe import (
     subscribe,
     subscribe_adaptor_impl,
     subscriber_impl_from_graph,
     subscriber_impl_to_graph,
 )
 from hgraph.stream.stream import Stream, Data, StreamStatus
-from hgraph.hgraph.adaptors.data_catalogue.catalogue import DataCatalogueEntry, DataSource, DataEnvironment, DataEnvironmentEntry
-from hgraph.hgraph.adaptors.data_catalogue.data_scopes import ExponentialBackoffRetryOptions, RetryOptions, RetryScope, Scope
+from hgraph.adaptors.data_catalogue.catalogue import DataCatalogueEntry, DataSource, DataEnvironment, DataEnvironmentEntry
+from hgraph.adaptors.data_catalogue.data_scopes import ExponentialBackoffRetryOptions, RetryOptions, RetryScope, Scope
 from hgraph import (
     LOGGER,
     STATE,

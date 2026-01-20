@@ -3,8 +3,8 @@ from datetime import datetime
 
 from frozendict import frozendict
 
-from hgraph.hgraph.stream.stream import reduce_statuses, reduce_status_messages
-from hgraph.hgraph.adaptors.data_catalogue import DataCatalogue, DataCatalogueEntry, DataSink
+from hgraph.stream.stream import reduce_statuses, reduce_status_messages
+from hgraph.adaptors.data_catalogue import DataCatalogue, DataCatalogueEntry, DataSink
 from hgraph import (
     operator,
     TS,
@@ -36,6 +36,9 @@ from hgraph import (
     CompoundScalar,
 )
 from hgraph.stream.stream import Stream, Data, StreamStatus
+
+
+__all__ = ['DataCatalogSinkResult', 'find_data_catalogue_entries', 'publish', 'publish_adaptor', 'publish_adaptor_impl', 'publish_impl_to_graph', 'publish_impl_from_graph']
 
 
 @dataclass(frozen=True)

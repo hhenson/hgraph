@@ -6,13 +6,16 @@ from typing import Type, Generic
 
 import polars as pl
 
-from hgraph.hgraph.adaptors.delta.delta_adaptor_raw import delta_write_adaptor_raw, DeltaWriteMode, DeltaSchemaMode
-from hgraph.hgraph.adaptors.data_catalogue.catalogue import DataEnvironment
+from hgraph.adaptors.delta.delta_adaptor_raw import delta_write_adaptor_raw, DeltaWriteMode, DeltaSchemaMode
+from hgraph.adaptors.data_catalogue.catalogue import DataEnvironment
 from hgraph import TS, TSD, graph, to_table, Frame, TABLE, SCHEMA, AUTO_RESOLVE, compute_node, STATE, schedule, Base, \
     COMPOUND_SCALAR, SCALAR, operator, TIME_SERIES_TYPE, TSB, TS_SCHEMA, map_, convert, nothing, log_, if_, rekey, str_, \
     LOGGER
 from hgraph._impl._operators._to_table_dispatch_impl import extract_table_schema_raw_type
 from hgraph.stream.stream import StreamStatus
+
+
+__all__ = ['publish_tsd_to_delta_table']
 
 
 @dataclass(frozen=True)
@@ -91,7 +94,7 @@ def tsd_to_frame_batched_ts(tsd: TSD[SCALAR, TS[SCHEMA]],
     return table_from_simple_tsd_to_frame(batched_table, extract_table_schema_raw_type(schema_type).keys, schema_type)
 
 
-@graph(overloads=tsd_to_frame_batched, resolvers={SCHEMA: lambda m, s: m[TS_SCHEMA].py_type.scalar_type()})
+@graph(overloads=tsd_to_frame_batched, resolvers={SCHEMA: lambda m: m[TS_SCHEMA].py_type.scalar_type()})
 def tsd_to_frame_batched_tsb(tsd: TSD[SCALAR, TSB[TS_SCHEMA]],
                              max_rows: TS[int],
                              flush_period: TS[timedelta],

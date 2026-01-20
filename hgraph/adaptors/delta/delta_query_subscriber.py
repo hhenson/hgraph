@@ -7,16 +7,16 @@ from typing import Mapping
 
 from frozendict import frozendict
 
-from hgraph.hgraph.adaptors.delta.delta_adaptor import delta_query_adaptor, delta_query_adaptor_impl
-from hgraph.hgraph.adaptors.delta.delta_adaptor_raw import delta_query_adaptor_raw_impl
-from hgraph.hgraph.adaptors.data_catalogue.subscribe import (
+from hgraph.adaptors.delta.delta_adaptor import delta_query_adaptor, delta_query_adaptor_impl
+from hgraph.adaptors.delta.delta_adaptor_raw import delta_query_adaptor_raw_impl
+from hgraph.adaptors.data_catalogue.subscribe import (
     subscribe,
     subscribe_adaptor_impl,
     subscriber_impl_from_graph,
     subscriber_impl_to_graph,
 )
-from hgraph.hgraph.adaptors.data_catalogue.catalogue import DataCatalogueEntry, DataSource, DataEnvironment, DataEnvironmentEntry
-from hgraph.hgraph.adaptors.data_catalogue.data_scopes import DateTimeScope, Scope
+from hgraph.adaptors.data_catalogue.catalogue import DataCatalogueEntry, DataSource, DataEnvironment, DataEnvironmentEntry
+from hgraph.adaptors.data_catalogue.data_scopes import DateTimeScope, Scope
 from hgraph import (
     GraphConfiguration,
     date,
@@ -39,6 +39,9 @@ from hgraph import (
 from hgraph.stream.stream import Stream, Data
 
 logger = logging.getLogger(__name__)
+
+
+__all__ = ['DeltaQueryDataSource']
 
 
 @dataclass(frozen=True)

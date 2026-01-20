@@ -2,7 +2,7 @@ from dataclasses import dataclass
 
 from frozendict import frozendict
 
-from hgraph.hgraph.adaptors.data_catalogue import DataCatalogue, DataCatalogueEntry, DataSource
+from hgraph.adaptors.data_catalogue import DataCatalogue, DataCatalogueEntry, DataSource
 from hgraph import (
     TS_SCHEMA,
     TSB,
@@ -36,6 +36,9 @@ from hgraph import (
     const,
 )
 from hgraph.stream.stream import Stream, StreamStatus, Data
+
+
+__all__ = ['FindDCEResult', 'find_data_catalogue_entry', 'subscribe', 'subscribe_adaptor', 'subscribe_adaptor_impl', 'subscriber_impl_to_graph', 'subscriber_impl_from_graph']
 
 
 @dataclass(frozen=True)

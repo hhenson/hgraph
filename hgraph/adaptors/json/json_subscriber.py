@@ -1,11 +1,14 @@
 from dataclasses import dataclass
 from datetime import timedelta
 
-from hgraph.hgraph.adaptors.json.json_adaptor import json_adaptor
-from hgraph.hgraph.adaptors.data_catalogue.subscribe import subscriber_impl_from_graph, subscriber_impl_to_graph
+from hgraph.adaptors.json.json_adaptor import json_adaptor
+from hgraph.adaptors.data_catalogue.subscribe import subscriber_impl_from_graph, subscriber_impl_to_graph
 from hgraph.stream.stream import Stream, Data
-from hgraph.hgraph.adaptors.data_catalogue.catalogue import DataSource, DataCatalogueEntry
+from hgraph.adaptors.data_catalogue.catalogue import DataSource, DataCatalogueEntry
 from hgraph import TS, SCHEMA, AUTO_RESOLVE, TSB, Frame, convert, combine, sample, default, schedule, MIN_DT
+
+
+__all__ = ['JsonDataSource']
 
 
 @dataclass(frozen=True)

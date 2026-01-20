@@ -9,7 +9,7 @@ from sys import version_info
 
 from frozendict import frozendict
 
-from hgraph.hgraph.adaptors.data_catalogue.data_scopes import Scope
+from hgraph.adaptors.data_catalogue.data_scopes import Scope
 
 if version_info >= (3, 10):
     try:
@@ -22,6 +22,9 @@ else:
     @dataclass(frozen=True)
     class CompoundScalar:
         pass
+
+
+__all__ = ['DataSource', 'DataSink', 'DATA_STORE', 'DataCatalogueEntry', 'DataCatalogue', 'DataEnvironmentEntry', 'DataEnvironment']
 
 
 # Datasource is just a struct that contains the 'about' of the datasource, not the 'how'.

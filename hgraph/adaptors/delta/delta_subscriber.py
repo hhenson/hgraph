@@ -6,17 +6,22 @@ from datetime import datetime
 from typing import Mapping
 
 from frozendict import frozendict
-
-from hgraph.hgraph.adaptors.delta.delta_adaptor import delta_read_adaptor, delta_read_adaptor_impl
-from hgraph.hgraph.adaptors.delta.delta_adaptor_raw import delta_read_adaptor_raw_impl
-from hgraph.hgraph.adaptors.data_catalogue.subscribe import (
+from hgraph.adaptors.data_catalogue import (
+    DataCatalogueEntry,
+    DataSource,
+    DataEnvironment,
+    DataEnvironmentEntry,
+    DateTimeScope,
+    Scope,
     subscribe,
     subscribe_adaptor_impl,
     subscriber_impl_from_graph,
     subscriber_impl_to_graph,
 )
-from hgraph.hgraph.adaptors.data_catalogue.catalogue import DataCatalogueEntry, DataSource, DataEnvironment, DataEnvironmentEntry
-from hgraph.hgraph.adaptors.data_catalogue.data_scopes import DateTimeScope, Scope
+from hgraph.adaptors.delta.delta_adaptor import delta_read_adaptor, delta_read_adaptor_impl
+from hgraph.adaptors.delta.delta_adaptor_raw import delta_read_adaptor_raw_impl
+from hgraph.stream.stream import Stream, Data
+
 from hgraph import (
     GraphConfiguration,
     Tuple,
@@ -37,12 +42,14 @@ from hgraph import (
     MIN_DT,
     EvaluationClock,
 )
-from hgraph.stream.stream import Stream, Data
 
 logger = logging.getLogger(__name__)
 
+__all__ = ["DeltaDataSource"]
+
 
 DELTA_QUERY = Tuple[Tuple[str, str, object], ...]
+
 
 @dataclass(frozen=True)
 class DeltaDataSource(DataSource):
@@ -91,9 +98,7 @@ def render_query(
         ) * interval + MIN_DT
         _scheduler.schedule(next, "_", on_wall_clock=use_wall_clock)
 
-    return ds.value.render(
-        **{k: v.adjust(options_v[k]) if k in options_v else v.default() for k, v in scope.items()}
-    )
+    return ds.value.render(**{k: v.adjust(options_v[k]) if k in options_v else v.default() for k, v in scope.items()})
 
 
 @subscriber_impl_from_graph
@@ -105,7 +110,11 @@ def subscribe_delta_from_graph(
     _schema: type[SCHEMA] = AUTO_RESOLVE,
 ):
     return delta_read_adaptor[_schema].from_graph(
-        path=dce.store.source_path, table=ds.table, filters=render_query(ds, dce.scope, options), sort=ds.sort, __request_id__=request_id
+        path=dce.store.source_path,
+        table=ds.table,
+        filters=render_query(ds, dce.scope, options),
+        sort=ds.sort,
+        __request_id__=request_id,
     )
 
 
@@ -123,6 +132,7 @@ def subscribe_delta_to_graph(
 
 
 if __name__ == "__main__":
+
     @dataclass
     class GraphPerformance(CompoundScalar):
         time: datetime
@@ -144,11 +154,15 @@ if __name__ == "__main__":
 
     de = DataEnvironment()
     if os.environ.get("CODER", "false").lower() == "true":
-        tempfile.tempdir = r'/home/data/_data'
+        tempfile.tempdir = r"/home/data/_data"
     else:
         tempfile.gettempdir()
 
-    de.add_entry(DataEnvironmentEntry(source_path="table_history_path", environment_path=os.path.join(tempfile.tempdir, "table_history")))
+    de.add_entry(
+        DataEnvironmentEntry(
+            source_path="table_history_path", environment_path=os.path.join(tempfile.tempdir, "table_history")
+        )
+    )
     de.set_current(de)
 
     dce = DataCatalogueEntry[DataSource](
@@ -158,16 +172,14 @@ if __name__ == "__main__":
             source_path="table_history_path",
             table="graph_performance",
             query=(
-                ("date", ">" , "start"),
+                ("date", ">", "start"),
                 ("date", "<", "end"),
-            )
+            ),
         ),
-        scope=frozendict(
-            {
-                "start": DateTimeScope(),
-                "end": DateTimeScope(),
-            }
-        ),
+        scope=frozendict({
+            "start": DateTimeScope(),
+            "end": DateTimeScope(),
+        }),
     )
 
     @graph

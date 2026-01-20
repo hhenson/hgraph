@@ -11,7 +11,7 @@ import polars as pl
 from deltalake import DeltaTable, QueryBuilder, write_deltalake
 from polars import DataFrame
 
-from adaptors.executor.executor import adaptor_executor
+from hgraph.adaptors.executor.executor import adaptor_executor
 from hgraph import (
     REMOVE,
     TSB,
@@ -45,6 +45,8 @@ from hgraph.stream.stream import Stream, StreamStatus, Data
 
 logger = logging.getLogger(__name__)
 
+
+__all__ = ['delta_read_adaptor_raw', 'delta_read_adaptor_raw_impl', 'delta_write_adaptor_raw', 'delta_write_adaptor_raw_impl', 'delta_query_adaptor_raw', 'delta_query_adaptor_raw_impl']
 
 @service_adaptor
 def delta_read_adaptor_raw(
