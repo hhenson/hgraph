@@ -368,6 +368,391 @@ Internally, `make_active()` and `make_passive()` update the corresponding positi
 
 ---
 
+## Navigation Paths
+
+Paths describe the location of a time-series value within the graph. Two path types are defined:
+
+- **ShortPath**: Compact runtime format with `Node*` pointer - used in Links and for navigation
+- **FQPath**: Fully qualified format with `node_id` integer - used for serialization and Python
+
+Paths are tracked only on **TSOutput**. Links contain a ShortPath as their descriptor.
+
+### Path Types
+
+```cpp
+// ShortPath: Compact runtime path with Node* pointer
+struct ShortPath {
+    Node* node;                     // Owning node
+    PortType port_type;             // OUTPUT, STATE, or ERROR
+    std::vector<size_t> indices;    // Navigation indices
+
+    // Convert to fully qualified path (for serialization/Python)
+    FQPath to_fq() const;
+
+    // Produce an OutputView at the given time
+    TSOutputView resolve(engine_time_t current_time) const;
+};
+
+// FQPath: Fully qualified path with node_id (serializable)
+struct FQPath {
+    int node_id;                            // Node identifier
+    PortType port_type;                     // OUTPUT, STATE, or ERROR
+    std::vector<PathElement> path;          // Field names, indices, and keys
+
+    // Convert to ShortPath given a Node* (from graph lookup)
+    ShortPath to_short(Node* node) const;
+
+    // Python representation
+    nb::object to_python() const;  // Returns TimeSeriesReference
+};
+
+// PathElement: Used in FQPath for human-readable paths
+using PathElement = std::variant<
+    std::string,    // Field name (bundle)
+    size_t,         // Index (list)
+    Value           // Key (dict)
+>;
+```
+
+### ShortPath Operations
+
+```cpp
+// ShortPath can resolve to an OutputView
+TSOutputView ShortPath::resolve(engine_time_t current_time) const {
+    // Get root output from node
+    TSOutput* output = node->get_output(port_type);
+
+    // Get root view
+    TSOutputView view = output->view(current_time);
+
+    // Navigate using indices
+    for (size_t idx : indices) {
+        view = view[idx];
+    }
+    return view;
+}
+
+// ShortPath can expand to FQPath
+FQPath ShortPath::to_fq() const {
+    FQPath result{node->id(), port_type, {}};
+
+    // Expand indices to PathElements using schema
+    TSOutputView view = node->get_output(port_type)->view(0);  // Schema access only
+    for (size_t idx : indices) {
+        result.path.push_back(view.index_to_path_element(idx));
+        view = view[idx];
+    }
+    return result;
+}
+```
+
+### FQPath Operations
+
+```cpp
+// FQPath can convert to ShortPath given the Node*
+ShortPath FQPath::to_short(Node* node) const {
+    ShortPath result{node, port_type, {}};
+
+    // Convert PathElements to indices using schema
+    TSOutputView view = node->get_output(port_type)->view(0);  // Schema access only
+    for (const auto& elem : path) {
+        size_t idx = view.path_element_to_index(elem);
+        result.indices.push_back(idx);
+        view = view[idx];
+    }
+    return result;
+}
+
+// FQPath to Python
+nb::object FQPath::to_python() const {
+    // Returns TimeSeriesReference(node_id, port_type, path)
+    return make_time_series_reference(node_id, port_type, path);
+}
+```
+
+### TSOutputView with Path
+
+TSOutputView tracks its ShortPath, extended on each navigation:
+
+```cpp
+class TSOutputView {
+    void* data_;
+    ts_output_ops* ops_;
+
+    // Path tracking
+    ShortPath path_;                // Complete path to this view
+
+    // Context
+    engine_time_t current_time_;
+
+public:
+    // Navigation extends the path
+    TSOutputView field(std::string_view name) {
+        size_t field_index = schema().field_index(name);
+        ShortPath child_path = path_;
+        child_path.indices.push_back(field_index);
+        return TSOutputView{..., std::move(child_path), current_time_};
+    }
+
+    TSOutputView operator[](size_t index) {
+        ShortPath child_path = path_;
+        child_path.indices.push_back(index);
+        return TSOutputView{..., std::move(child_path), current_time_};
+    }
+
+    TSOutputView operator[](View key) {
+        size_t stable_index = get_tsd_stable_index(key);
+        ShortPath child_path = path_;
+        child_path.indices.push_back(stable_index);
+        return TSOutputView{..., std::move(child_path), current_time_};
+    }
+
+    // Path accessors
+    const ShortPath& short_path() const { return path_; }
+    FQPath fq_path() const { return path_.to_fq(); }
+
+    // Context
+    engine_time_t current_time() const { return current_time_; }
+};
+```
+
+### Links and ShortPath
+
+Links use ShortPath as their descriptor. A Link may also cache resolved data for O(1) access:
+
+```cpp
+class Link {
+    ShortPath target_;              // Descriptor - always valid
+
+    // Cached resolution (optional, for performance)
+    void* cached_data_;             // Cached pointer to target data
+    engine_time_t cached_time_;     // Time when cache was valid
+
+public:
+    Link(ShortPath target) : target_(std::move(target)) {}
+
+    // Get the target path
+    const ShortPath& target() const { return target_; }
+
+    // Resolve to view (uses cache if valid for current_time)
+    TSOutputView resolve(engine_time_t current_time) {
+        if (cached_data_ && cached_time_ == current_time) {
+            // Fast path: return cached view
+            return TSOutputView::from_cache(cached_data_, target_, current_time);
+        }
+        // Slow path: navigate and cache
+        TSOutputView view = target_.resolve(current_time);
+        cached_data_ = view.data();
+        cached_time_ = current_time;
+        return view;
+    }
+
+    // Initial binding from ShortPath
+    void bind() {
+        // Establish connection to target output
+        // Subscribe to notifications if active
+    }
+};
+```
+
+### TSInputView (No Path Tracking)
+
+TSInputView does not track paths directly. Instead, it references the bound output via a Link. When dereferencing a Link, the view uses the **Link's ShortPath** directly, ignoring any parent view relationships:
+
+```cpp
+class TSInputView {
+    void* data_;
+    ts_input_ops* ops_;
+
+    // Link to bound output (contains ShortPath + cache)
+    Link* link_;
+
+    // Context
+    engine_time_t current_time_;
+
+public:
+    // Value access via link - uses Link's ShortPath, not parent navigation
+    View value() const {
+        // Link's ShortPath is authoritative - no parent traversal
+        return link_->resolve(current_time_).value();
+    }
+
+    bool modified() const {
+        return link_->resolve(current_time_).modified();
+    }
+
+    // Path access delegates to link's target ShortPath
+    FQPath fq_path() const {
+        return link_->target().to_fq();
+    }
+
+    // Navigation on input creates new views with new Links
+    // Each child input has its own Link to the corresponding output child
+    TSInputView field(std::string_view name) {
+        Link* child_link = get_child_link(name);  // Pre-established during binding
+        return TSInputView{..., child_link, current_time_};
+    }
+};
+```
+
+**Key point**: When a Link is dereferenced, it uses its own ShortPath to resolve the output view. This means:
+- The Link's ShortPath is the authoritative path to the target output
+- Parent view relationships are not consulted
+- Each input field/element has its own Link with its own ShortPath
+- Child Links are established during initial binding, not computed via parent navigation
+
+### Port Type Enum
+
+The port type distinguishes different node endpoints:
+
+```cpp
+enum class PortType : int {
+    OUTPUT = 0,     // Regular time-series output (index 0+)
+    INPUT = -3,     // Time-series input
+    STATE = -2,     // Recordable state output (STATE_PATH)
+    ERROR = -1,     // Error output (ERROR_PATH)
+};
+```
+
+These match the existing wiring constants where `ERROR_PATH = -1` and `STATE_PATH = -2`.
+
+### TSD and Stable Index Strategy
+
+For **TSD** (dict), the fast path uses a **stable index** rather than the actual key value. TSD internally maintains a stable mapping from keys to integer offsets:
+
+```cpp
+TSDView stock_prices = ...;  // TSD[str, TS[float]]
+
+// Navigate by key
+auto view = stock_prices["AAPL"];
+
+// Fast path uses the stable index, not the key
+// If "AAPL" is at internal offset 7:
+// fast_path = [7]   (not ["AAPL"])
+
+// The stable index remains constant even as other keys are added/removed
+stock_prices["MSFT"];  // Gets offset 8
+stock_prices.remove("GOOG");  // "AAPL" still at offset 7
+```
+
+This stable index strategy ensures:
+- Fast path remains a uniform `vector<size_t>` for all container types
+- Index stability under mutation (important for long-lived views)
+- Efficient path comparison without key type knowledge
+
+### Persistent Path (Fully Qualified)
+
+The fully qualified (FQ) persistent path consists of two parts:
+1. **node_id**: Identifies the owning node (output or input)
+2. **expanded path**: The navigation steps using field names and actual key values
+
+```cpp
+TSBView bundle = ...;  // TSB[prices: TSL[TS[float], 10], metadata: TS[str]]
+
+// Navigate to prices[3]
+auto view = bundle.field("prices")[3];
+
+// Fully qualified path:
+// - node_id: identifier of the owning node
+// - expanded_path: ["prices", 3]
+FQPath fq_path = view.fq_path();
+```
+
+The expanded path uses:
+- **Field names** for bundles (not indices)
+- **Indices** for positional containers (TSL)
+- **Actual key values** for dicts (TSD)
+
+```cpp
+// PathElement is a variant that can hold different key types
+using PathElement = std::variant<std::string, size_t, /* other key types */>;
+
+// FQPath structure
+struct FQPath {
+    NodeId node_id;                       // Identifies the owning node
+    std::vector<PathElement> expanded;    // Navigation steps
+};
+
+// Expanded path examples:
+// []                        - root of node
+// ["bid"]                   - field "bid"
+// ["prices", 3]             - field "prices", element 3
+// ["users", "AAPL", "name"] - field "users", key "AAPL", field "name"
+```
+
+The FQ path is:
+- **Self-describing**: Readable without knowing the schema
+- **Globally resolvable**: Can navigate from any context using node_id
+- **Stable across schema evolution**: Field names survive reordering
+- **Suitable for serialization**: Can be stored and restored
+
+#### TSD Keys in Expanded Path
+
+For **TSD**, the expanded path stores the **actual key value**, not the stable index:
+
+```cpp
+TSDView stock_prices = ...;  // TSD[str, TS[float]]
+
+auto view = stock_prices["AAPL"];
+
+// Fast path:    [7]                              (stable index only)
+// FQ path:      {node_id: 42, expanded: ["AAPL"]} (actual key value)
+```
+
+This means the FQ path can reconstruct navigation even if the TSD's internal layout changes, while the fast path provides efficient runtime access within a single session.
+
+### Path Usage
+
+```cpp
+// Get current paths
+auto fast = view.fast_path();   // [0, 3] - numeric indices only
+auto fq = view.fq_path();       // {node_id: 42, expanded: ["prices", 3]}
+
+// Navigate using fast path (within same root)
+TSOutputView root = output.view(time, schema);
+TSOutputView target = root.navigate(fast);  // Same as field("prices")[3]
+
+// Navigate using FQ path (from anywhere)
+TSOutputView target2 = graph.resolve(fq);   // Finds node, then navigates
+
+// Compare paths
+bool same_location = (view1.fast_path() == view2.fast_path());  // Same node assumed
+bool same_global = (view1.fq_path() == view2.fq_path());        // Includes node comparison
+```
+
+### When to Use Each Form
+
+| Use Case | Recommended Path |
+|----------|-----------------|
+| Internal navigation (same node) | Fast path (performance) |
+| Cross-node references | FQ path (includes node_id) |
+| Debugging / logging | FQ path (readable, complete) |
+| Serialization | FQ path (stable, restorable) |
+| Path comparison (same node) | Fast path (efficient) |
+| Path comparison (any nodes) | FQ path (complete identity) |
+
+### Path and Ownership
+
+The navigation path enables tracing back to the owning node:
+
+```cpp
+TSInputView view = input.view(time, schema).field("prices")[3];
+
+// The view knows:
+// - Its path: ["prices", 3]
+// - Its owning TSInput
+// - Via TSInput: the owning Node
+
+Node* owner = view.owning_node();  // Traces through path to root
+```
+
+This is essential for:
+- Scheduling the correct node when an input is notified
+- Subscription management (active/passive at specific paths)
+- Error reporting with full context
+
+---
+
 ## API Comparison
 
 | Aspect | TSOutput / TSOutputView | TSInput / TSInputView |
@@ -416,21 +801,35 @@ public:
     void on_peer_modified();
 };
 
-// Type-erased views provide the actual API and track navigation paths
+// Type-erased views provide the actual API
 class TSOutputView {
     void* data_;
     ts_output_ops* ops_;
-    // Path tracking enables tracing back to owning node
+
+    // Path tracking (extended on each navigation)
+    ShortPath path_;                // Contains Node*, PortType, indices
+
+    // Context
+    engine_time_t current_time_;
+
     // Methods: value(), delta(), modified(), set_value(), subscribe()
     // Navigation: field(), operator[], navigate()
+    // Path access: short_path(), fq_path()
 };
 
 class TSInputView {
     void* data_;
     ts_input_ops* ops_;
-    // Path tracking enables tracing back to owning node
+
+    // Link to bound output (contains ShortPath + cache)
+    Link* link_;
+
+    // Context
+    engine_time_t current_time_;
+
     // Methods: value(), delta(), modified(), bind(), make_active()
-    // Navigation: field(), operator[], navigate()
+    // Navigation: field(), operator[] (via child Links)
+    // Path access: fq_path() (delegates to link)
 };
 ```
 
@@ -591,9 +990,9 @@ flowchart TD
 
     NV_DATA -->|sync| A1
     NV_DATA -->|sync| A2
-    A1 -.->|LINK| IA
-    A1 -.->|LINK| IB
-    NV_DATA -.->|LINK| IC
+    A1 -.->|REFLink| IA
+    A1 -.->|REFLink| IB
+    NV_DATA -.->|Link| IC
 
     NV_OBS -->|notify| IA
     NV_OBS -->|notify| IB
@@ -604,6 +1003,8 @@ flowchart TD
     style A1 fill:#fff3e0
     style A2 fill:#fff3e0
 ```
+
+**Note**: Inputs that require REF schema (alternatives) use REFLink, while inputs with native schema use regular Link.
 
 ### Input Value Structure
 
@@ -638,6 +1039,185 @@ flowchart TD
     style FB0 fill:#fff9c4
     style FB1 fill:#fff9c4
 ```
+
+### Navigation Path Structure
+
+```mermaid
+flowchart TB
+    subgraph "TSOutputView Navigation"
+        V1["TSOutputView (root)<br/>path_.indices: []"]
+        V2["TSOutputView<br/>path_.indices: [0]"]
+        V3["TSOutputView (leaf)<br/>path_.indices: [0, 3]"]
+
+        V1 --> |"field(prices)<br/>append 0"| V2
+        V2 --> |"operator[3]<br/>append 3"| V3
+    end
+
+    subgraph "ShortPath"
+        SP["ShortPath"]
+        SP --> SPN["node: Node*"]
+        SP --> SPPT["port_type: OUTPUT"]
+        SP --> SPI["indices: [0, 3]"]
+    end
+
+    subgraph "FQPath"
+        FQ["FQPath"]
+        FQ --> NID["node_id: 42"]
+        FQ --> PT["port_type: OUTPUT"]
+        FQ --> PATH["path: (prices, 3)"]
+    end
+
+    V3 -.-> |"short_path()"| SP
+    SP -.-> |"to_fq()"| FQ
+    FQ -.-> |"to_short(node)"| SP
+
+    style V1 fill:#e8f5e9
+    style V2 fill:#e3f2fd
+    style V3 fill:#fff9c4
+```
+
+### Link and Path Structure
+
+```mermaid
+classDiagram
+    class ShortPath {
+        +Node* node
+        +PortType port_type
+        +vector~size_t~ indices
+        +to_fq() FQPath
+        +resolve(time) TSOutputView
+    }
+
+    class FQPath {
+        +int node_id
+        +PortType port_type
+        +vector~PathElement~ path
+        +to_short(node) ShortPath
+        +to_python() TimeSeriesReference
+    }
+
+    class Link {
+        -ShortPath target_
+        -void* cached_data_
+        -engine_time_t cached_time_
+        +target() ShortPath
+        +resolve(time) TSOutputView
+        +bind() void
+    }
+
+    class TSOutputView {
+        -void* data_
+        -ts_output_ops* ops_
+        -ShortPath path_
+        -engine_time_t current_time_
+        +field(name) TSOutputView
+        +operator[](index) TSOutputView
+        +short_path() ShortPath
+        +fq_path() FQPath
+        +current_time() engine_time_t
+    }
+
+    class TSInputView {
+        -void* data_
+        -ts_input_ops* ops_
+        -Link* link_
+        -engine_time_t current_time_
+        +value() View
+        +modified() bool
+        +fq_path() FQPath
+        +field(name) TSInputView
+    }
+
+    class PathElement {
+        <<variant>>
+        +string field_name
+        +size_t index
+        +Value key
+    }
+
+    Link *-- ShortPath : target_
+    TSOutputView *-- ShortPath : path_
+    TSInputView --> Link : link_
+    ShortPath ..> FQPath : to_fq()
+    FQPath ..> ShortPath : to_short()
+    ShortPath ..> TSOutputView : resolve()
+    Link ..> TSOutputView : resolve()
+    FQPath o-- PathElement : path contains
+
+    note for ShortPath "Compact runtime path\nwith Node* pointer"
+    note for FQPath "Serializable path\nwith node_id integer"
+    note for Link "Contains ShortPath descriptor\nMay cache resolved data"
+    note for TSInputView "Uses Link for all access\nNo direct path tracking"
+```
+
+### PathElement Type (FQ Path Only)
+
+PathElement is used only when **expanding ShortPath to FQPath** (for Python/serialization). ShortPath stores indices as `vector<size_t>`.
+
+```mermaid
+flowchart LR
+    subgraph "ShortPath.indices"
+        PATH["[0, 3]"]
+        PATH --> IDX0["0 (field index)"]
+        PATH --> IDX3["3 (element index)"]
+    end
+
+    subgraph "FQ Expansion (to_fq)"
+        IDX0 --> |"schema lookup"| PE0["PathElement: prices"]
+        IDX3 --> |"passthrough"| PE3["PathElement: 3"]
+    end
+
+    subgraph "FQPath.path"
+        FQP["vector PathElement"]
+        FQP --> FIELD["prices (string)"]
+        FQP --> INDEX["3 (size_t)"]
+    end
+```
+
+FQ path expansion requires the schema to convert indices back to field names and TSD stable indices back to actual key values.
+
+### Link-Based Input Access
+
+```mermaid
+flowchart TB
+    subgraph "TSInputView"
+        IV["TSInputView"]
+        LINK["link_: Link*"]
+        IV --> LINK
+    end
+
+    subgraph "Link"
+        L["Link"]
+        L --> SP["target_: ShortPath<br/>node: Node B<br/>port: OUTPUT<br/>indices: [0, 3]"]
+        L --> CACHE["cached_data_: void*<br/>cached_time_: T"]
+    end
+
+    subgraph "Resolution"
+        SP -.-> |"resolve(time)"| OV["TSOutputView<br/>path_.indices: [0, 3]"]
+    end
+
+    subgraph "Nodes"
+        NA["Node A (input owner)"]
+        NB["Node B (output owner)<br/>id: 17"]
+    end
+
+    SP --> |"node"| NB
+    OV --> |"path_.node"| NB
+
+    subgraph "FQ Path"
+        OV -.-> |"fq_path()"| FQ["FQPath<br/>node_id: 17<br/>port: OUTPUT<br/>path: (prices, 3)"]
+    end
+
+    style IV fill:#e3f2fd
+    style OV fill:#fff9c4
+    style FQ fill:#e8f5e9
+    style SP fill:#ffe0b2
+```
+
+**Key points**:
+- TSInputView accesses outputs via its Link, not parent navigation
+- The Link's ShortPath is the authoritative path to the target output
+- `fq_path()` on TSInputView delegates to the Link's target ShortPath
 
 ---
 
