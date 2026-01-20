@@ -115,29 +115,27 @@ private:
     }
 };
 
-// TSOutputView is type-erased, tracks navigation path for composite access
+// TSOutputView wraps TSView, adds output-specific operations
 class TSOutputView {
-    void* data_;
-    ts_output_ops* ops_;
-    // Path tracking for navigation (field access, indexing)
-    // Enables tracing back to owning node/output
+    TSView ts_view_;                // Core view (ViewData + current_time)
+    TSOutput* output_;              // For subscription management
 
 public:
-    // TSView-like accessors
-    View value();
-    DeltaView delta();
-    bool modified();
-    bool valid();
+    // Delegates to TSView for data access
+    View value() { return ts_view_.value(); }
+    DeltaView delta() { return ts_view_.delta(); }
+    bool modified() { return ts_view_.modified(); }
+    bool valid() { return ts_view_.valid(); }
 
     // Output-specific mutation
-    void set_value(View v);
-    void apply_delta(DeltaView dv);
+    void set_value(View v) { ts_view_.set_value(v); }
+    void apply_delta(DeltaView dv) { ts_view_.apply_delta(dv); }
 
     // Observer management (delegates to observer_value_)
     void subscribe(TSInput* input);
     void unsubscribe(TSInput* input);
 
-    // Navigation - returns new views with updated path
+    // Navigation - wraps TSView navigation
     TSOutputView field(std::string_view name);
     TSOutputView operator[](size_t index);
     TSOutputView operator[](View key);
@@ -283,16 +281,16 @@ public:
     }
 };
 
-// TSInputView is type-erased, tracks navigation path for composite access
+// TSInputView uses Link (ViewData) for O(1) data access
 class TSInputView {
-    void* data_;
-    ts_input_ops* ops_;
-    // Path tracking for navigation (field access, indexing)
-    // Enables tracing back to owning node/input and active_value_ position
+    Link* link_;                    // ViewData: path + data + ops
+    Value* active_value_;           // Points to active state at this path
+    engine_time_t current_time_;    // Context for modification checks
+    TSInput* input_;                // Owning input for binding management
 
 public:
-    // TSView-like accessors (read-only)
-    View value();
+    // Delegates to Link's ViewData for read-only access
+    View value() { return View{link_->view_data.data, link_->view_data.ops}; }
     DeltaView delta();
     bool modified();
     bool valid();
@@ -308,7 +306,7 @@ public:
     bool any_active();    // Any child active (for composites)
     bool all_active();    // All children active (for composites)
 
-    // Navigation - returns new views with updated path
+    // Navigation - returns new views with child Links (O(1) access)
     TSInputView field(std::string_view name);
     TSInputView operator[](size_t index);
     TSInputView operator[](View key);
@@ -470,136 +468,193 @@ nb::object FQPath::to_python() const {
 }
 ```
 
-### TSOutputView with Path
+### TSOutputView and Path Access
 
-TSOutputView tracks its ShortPath, extended on each navigation:
+TSOutputView is a graph endpoint wrapper. It provides output-specific operations (like subscribe/unsubscribe) and internally uses TSView for data access. Path tracking is through the underlying TSView:
 
 ```cpp
 class TSOutputView {
-    void* data_;
-    ts_output_ops* ops_;
-
-    // Path tracking
-    ShortPath path_;                // Complete path to this view
-
-    // Context
-    engine_time_t current_time_;
+    TSView ts_view_;                // Core time-series view (includes path via ViewData)
+    TSOutput* output_;              // Owning output for subscription management
 
 public:
-    // Navigation extends the path
+    TSOutputView(TSView view, TSOutput* output)
+        : ts_view_(std::move(view)), output_(output) {}
+
+    // Delegate to TSView for data access
+    View value() const { return ts_view_.value(); }
+    bool modified() const { return ts_view_.modified(); }
+    bool valid() const { return ts_view_.valid(); }
+    void set_value(View v) { ts_view_.set_value(v); }
+
+    // Path access through TSView
+    const ShortPath& short_path() const { return ts_view_.short_path(); }
+    FQPath fq_path() const { return ts_view_.fq_path(); }
+    engine_time_t current_time() const { return ts_view_.current_time(); }
+
+    // Navigation returns new TSOutputViews wrapping child TSViews
     TSOutputView field(std::string_view name) {
-        size_t field_index = schema().field_index(name);
-        ShortPath child_path = path_;
-        child_path.indices.push_back(field_index);
-        return TSOutputView{..., std::move(child_path), current_time_};
+        return TSOutputView{ts_view_.field(name), output_};
     }
 
     TSOutputView operator[](size_t index) {
-        ShortPath child_path = path_;
-        child_path.indices.push_back(index);
-        return TSOutputView{..., std::move(child_path), current_time_};
+        return TSOutputView{ts_view_[index], output_};
     }
 
     TSOutputView operator[](View key) {
-        size_t stable_index = get_tsd_stable_index(key);
-        ShortPath child_path = path_;
-        child_path.indices.push_back(stable_index);
-        return TSOutputView{..., std::move(child_path), current_time_};
+        return TSOutputView{ts_view_[key], output_};
     }
 
-    // Path accessors
-    const ShortPath& short_path() const { return path_; }
-    FQPath fq_path() const { return path_.to_fq(); }
-
-    // Context
-    engine_time_t current_time() const { return current_time_; }
+    // Output-specific: observer management
+    void subscribe(TSInput* input);
+    void unsubscribe(TSInput* input);
 };
 ```
 
-### Links and ShortPath
+### ViewData: Common Structure for Links and TSView
 
-Links use ShortPath as their descriptor. A Link may also cache resolved data for O(1) access:
+Both Link and TSView need the same information to access time-series data. This is captured in `ViewData`:
 
 ```cpp
-class Link {
-    ShortPath target_;              // Descriptor - always valid
+// ViewData: Contains everything needed to access a time-series value
+struct ViewData {
+    // Path information
+    ShortPath path;                 // Node*, PortType, indices
 
-    // Cached resolution (optional, for performance)
-    void* cached_data_;             // Cached pointer to target data
-    engine_time_t cached_time_;     // Time when cache was valid
+    // Data access
+    void* data;                     // Pointer to the actual data
+    ts_ops* ops;                    // Type-erased operations
+};
+```
 
-public:
-    Link(ShortPath target) : target_(std::move(target)) {}
+**Link** is simply a ViewData (no current_time needed):
 
-    // Get the target path
-    const ShortPath& target() const { return target_; }
+```cpp
+// Link is ViewData - same structure used for binding
+using Link = ViewData;
 
-    // Resolve to view (uses cache if valid for current_time)
-    TSOutputView resolve(engine_time_t current_time) {
-        if (cached_data_ && cached_time_ == current_time) {
-            // Fast path: return cached view
-            return TSOutputView::from_cache(cached_data_, target_, current_time);
-        }
-        // Slow path: navigate and cache
-        TSOutputView view = target_.resolve(current_time);
-        cached_data_ = view.data();
-        cached_time_ = current_time;
-        return view;
-    }
+// Or if Link needs additional state:
+struct Link {
+    ViewData view_data;             // Path + data access
 
-    // Initial binding from ShortPath
+    // Initial binding populates view_data from ShortPath
     void bind() {
-        // Establish connection to target output
+        // Navigate ShortPath to populate data and ops
         // Subscribe to notifications if active
     }
 };
 ```
 
-### TSInputView (No Path Tracking)
-
-TSInputView does not track paths directly. Instead, it references the bound output via a Link. When dereferencing a Link, the view uses the **Link's ShortPath** directly, ignoring any parent view relationships:
+**TSView** is ViewData plus current_time:
 
 ```cpp
-class TSInputView {
-    void* data_;
-    ts_input_ops* ops_;
-
-    // Link to bound output (contains ShortPath + cache)
-    Link* link_;
-
-    // Context
-    engine_time_t current_time_;
+class TSView {
+    ViewData view_data_;            // Path + data access
+    engine_time_t current_time_;    // Context for modification checks
 
 public:
-    // Value access via link - uses Link's ShortPath, not parent navigation
-    View value() const {
-        // Link's ShortPath is authoritative - no parent traversal
-        return link_->resolve(current_time_).value();
+    // Construct from ViewData
+    TSView(ViewData vd, engine_time_t time)
+        : view_data_(std::move(vd)), current_time_(time) {}
+
+    // Construct from Link (adds current_time)
+    TSView(const Link& link, engine_time_t time)
+        : view_data_(link.view_data), current_time_(time) {}
+
+    // Navigation extends the path and updates data/ops
+    TSView field(std::string_view name) {
+        size_t field_index = schema().field_index(name);
+        ViewData child = view_data_;
+        child.path.indices.push_back(field_index);
+        child.data = get_child_data(field_index);
+        child.ops = get_child_ops(field_index);
+        return TSView{std::move(child), current_time_};
     }
 
-    bool modified() const {
-        return link_->resolve(current_time_).modified();
-    }
+    // Path accessors
+    const ShortPath& short_path() const { return view_data_.path; }
+    FQPath fq_path() const { return view_data_.path.to_fq(); }
 
-    // Path access delegates to link's target ShortPath
-    FQPath fq_path() const {
-        return link_->target().to_fq();
-    }
+    // Data access
+    void* data() const { return view_data_.data; }
+    engine_time_t current_time() const { return current_time_; }
 
-    // Navigation on input creates new views with new Links
-    // Each child input has its own Link to the corresponding output child
-    TSInputView field(std::string_view name) {
-        Link* child_link = get_child_link(name);  // Pre-established during binding
-        return TSInputView{..., child_link, current_time_};
-    }
+    // TSView-specific accessors
+    View value() const;
+    DeltaView delta() const;
+    bool modified() const;
+    bool valid() const;
+    void set_value(View v);
+    void apply_delta(DeltaView dv);
 };
 ```
 
-**Key point**: When a Link is dereferenced, it uses its own ShortPath to resolve the output view. This means:
-- The Link's ShortPath is the authoritative path to the target output
-- Parent view relationships are not consulted
-- Each input field/element has its own Link with its own ShortPath
-- Child Links are established during initial binding, not computed via parent navigation
+This means:
+- **Link = ViewData**: Everything needed to create a view without navigation
+- **TSView = ViewData + current_time**: A view is a Link with temporal context
+- Converting Link to TSView just adds current_time (no navigation needed)
+
+### TSInputView and Link Access
+
+TSInputView is a graph endpoint wrapper. It provides input-specific operations (like bind/unbind, active/passive control) and uses Links (which are ViewData) for data access:
+
+```cpp
+class TSInputView {
+    Link* link_;                    // ViewData: path + data + ops
+    Value* active_value_;           // Points to active state at this path
+    engine_time_t current_time_;    // Context for modification checks
+    TSInput* input_;                // Owning input for binding management
+
+public:
+    // Convert Link to TSView (just adds current_time)
+    TSView ts_view() const {
+        return TSView{link_->view_data, current_time_};
+    }
+
+    // Delegate to Link's ViewData for data access
+    View value() const {
+        return View{link_->view_data.data, link_->view_data.ops};
+    }
+
+    bool modified() const {
+        return check_modified(link_->view_data.data, current_time_);
+    }
+
+    // Path access via Link's ViewData
+    const ShortPath& short_path() const { return link_->view_data.path; }
+    FQPath fq_path() const { return link_->view_data.path.to_fq(); }
+    engine_time_t current_time() const { return current_time_; }
+
+    // Navigation returns new TSInputViews with child Links
+    // Each child has its own Link (ViewData) pre-established during binding
+    TSInputView field(std::string_view name) {
+        Link* child_link = get_child_link(name);
+        Value* child_active = get_child_active(name);
+        return TSInputView{child_link, child_active, current_time_, input_};
+    }
+
+    TSInputView operator[](size_t index) {
+        Link* child_link = get_child_link(index);
+        Value* child_active = get_child_active(index);
+        return TSInputView{child_link, child_active, current_time_, input_};
+    }
+
+    // Input-specific: binding
+    void bind(TSOutputView& output);
+    void unbind();
+
+    // Input-specific: active/passive control
+    void make_active();
+    void make_passive();
+    bool active() const;
+};
+```
+
+**Key points**:
+- Link contains ViewData (ShortPath + data + ops) - everything needed for O(1) access
+- TSInputView = Link* + active_value* + current_time + input*
+- No navigation needed at runtime - Link already points to the data
+- Each input field/element has its own Link established during binding
 
 ### Port Type Enum
 
@@ -801,34 +856,34 @@ public:
     void on_peer_modified();
 };
 
-// Type-erased views provide the actual API
-class TSOutputView {
-    void* data_;
-    ts_output_ops* ops_;
-
-    // Path tracking (extended on each navigation)
-    ShortPath path_;                // Contains Node*, PortType, indices
-
-    // Context
+// Core time-series view (TSView = ViewData + current_time)
+class TSView {
+    ViewData view_data_;            // ShortPath + data + ops
     engine_time_t current_time_;
 
-    // Methods: value(), delta(), modified(), set_value(), subscribe()
-    // Navigation: field(), operator[], navigate()
+    // Methods: value(), delta(), modified(), set_value()
+    // Navigation: field(), operator[]
     // Path access: short_path(), fq_path()
 };
 
+// Graph endpoint views wrap TSView or Link
+class TSOutputView {
+    TSView ts_view_;                // Core time-series view
+    TSOutput* output_;              // For subscription management
+
+    // Methods: delegates to ts_view_, plus subscribe/unsubscribe
+    // Navigation: wraps ts_view_ navigation
+    // Path access: delegates to ts_view_
+};
+
 class TSInputView {
-    void* data_;
-    ts_input_ops* ops_;
-
-    // Link to bound output (contains ShortPath + cache)
-    Link* link_;
-
-    // Context
+    Link* link_;                    // ViewData: path + data + ops
+    Value* active_value_;           // Active state at this path
     engine_time_t current_time_;
+    TSInput* input_;                // For binding management
 
     // Methods: value(), delta(), modified(), bind(), make_active()
-    // Navigation: field(), operator[] (via child Links)
+    // Navigation: via child Links (O(1) access)
     // Path access: fq_path() (delegates to link)
 };
 ```
@@ -855,21 +910,38 @@ classDiagram
         +owning_node() Node*
     }
 
-    class TSOutputView {
-        <<type-erased>>
-        -void* data_
-        -ts_output_ops* ops_
+    class ViewData {
+        +ShortPath path
+        +void* data
+        +ts_ops* ops
+    }
+
+    class TSView {
+        -ViewData view_data_
+        -engine_time_t current_time_
         +value() View
         +delta() DeltaView
         +modified() bool
         +valid() bool
         +set_value(v: View) void
-        +apply_delta(dv: DeltaView) void
+        +field(name) TSView
+        +operator[](index) TSView
+        +short_path() ShortPath
+        +fq_path() FQPath
+    }
+
+    class TSOutputView {
+        -TSView ts_view_
+        -TSOutput* output_
+        +value() View
+        +modified() bool
+        +set_value(v: View) void
         +subscribe(input: TSInput*) void
         +unsubscribe(input: TSInput*) void
         +field(name) TSOutputView
         +operator[](index) TSOutputView
-        +navigate(path) TSOutputView
+        +short_path() ShortPath
+        +fq_path() FQPath
     }
 
     class TSInput {
@@ -880,24 +952,27 @@ classDiagram
         +on_peer_modified() void
     }
 
+    class Link {
+        +ViewData view_data
+        +bind() void
+    }
+
     class TSInputView {
-        <<type-erased>>
-        -void* data_
-        -ts_input_ops* ops_
+        -Link* link_
+        -Value* active_value_
+        -engine_time_t current_time_
+        -TSInput* input_
+        +ts_view() TSView
         +value() View
-        +delta() DeltaView
         +modified() bool
-        +valid() bool
         +bind(output: TSOutputView&) void
         +unbind() void
         +make_active() void
         +make_passive() void
         +active() bool
-        +any_active() bool
-        +all_active() bool
         +field(name) TSInputView
         +operator[](index) TSInputView
-        +navigate(path) TSInputView
+        +fq_path() FQPath
     }
 
     class TSValue {
@@ -916,6 +991,11 @@ classDiagram
         +evaluate() void
     }
 
+    ViewData *-- ShortPath : path
+    TSView *-- ViewData : view_data_
+    Link *-- ViewData : view_data
+    TSOutputView *-- TSView : ts_view_
+    TSInputView --> Link : link_
     TSOutput "1" *-- "1" TSValue : native_value_
     TSOutput "1" *-- "*" TSValue : alternatives_
     TSOutput ..> TSOutputView : creates
@@ -925,10 +1005,11 @@ classDiagram
     TSInput "*" --> "1" Node : owned by
     TSOutput "*" --> "1" Node : owned by
 
-    note for TSOutput "view(time, schema) returns\nnative or alternative view"
-    note for TSOutputView "Type-erased view with\npath tracking. Navigation\nreturns new views."
-    note for TSInput "active_value_ mirrors TS\nschema for per-level\nactive/passive control."
-    note for TSInputView "Type-erased view with\npath tracking. Navigation\nreturns new views."
+    note for ViewData "Common structure:\npath + data + ops"
+    note for TSView "TSView = ViewData + current_time\nCore time-series view"
+    note for Link "Link = ViewData\nNo current_time needed"
+    note for TSOutputView "Wraps TSView\nAdds output-specific ops"
+    note for TSInputView "Uses Link for O(1) access\nNo navigation at runtime"
     note for TSValue "observer_value_ manages\nthe list of subscribed\nobservers."
 ```
 
@@ -1044,20 +1125,27 @@ flowchart TD
 
 ```mermaid
 flowchart TB
-    subgraph "TSOutputView Navigation"
-        V1["TSOutputView (root)<br/>path_.indices: []"]
-        V2["TSOutputView<br/>path_.indices: [0]"]
-        V3["TSOutputView (leaf)<br/>path_.indices: [0, 3]"]
+    subgraph "TSView Navigation (via ViewData)"
+        V1["TSView (root)<br/>view_data_.path.indices: []"]
+        V2["TSView<br/>view_data_.path.indices: [0]"]
+        V3["TSView (leaf)<br/>view_data_.path.indices: [0, 3]"]
 
-        V1 --> |"field(prices)<br/>append 0"| V2
-        V2 --> |"operator[3]<br/>append 3"| V3
+        V1 --> |"field(prices)<br/>extend path"| V2
+        V2 --> |"operator[3]<br/>extend path"| V3
+    end
+
+    subgraph "ViewData"
+        VD["ViewData"]
+        VD --> SP["path: ShortPath"]
+        VD --> DATA["data: void*"]
+        VD --> OPS["ops: ts_ops*"]
     end
 
     subgraph "ShortPath"
-        SP["ShortPath"]
-        SP --> SPN["node: Node*"]
-        SP --> SPPT["port_type: OUTPUT"]
-        SP --> SPI["indices: [0, 3]"]
+        SP2["ShortPath"]
+        SP2 --> SPN["node: Node*"]
+        SP2 --> SPPT["port_type: OUTPUT"]
+        SP2 --> SPI["indices: [0, 3]"]
     end
 
     subgraph "FQPath"
@@ -1067,13 +1155,14 @@ flowchart TB
         FQ --> PATH["path: (prices, 3)"]
     end
 
-    V3 -.-> |"short_path()"| SP
-    SP -.-> |"to_fq()"| FQ
-    FQ -.-> |"to_short(node)"| SP
+    V3 -.-> |"short_path()"| SP2
+    SP2 -.-> |"to_fq()"| FQ
+    FQ -.-> |"to_short(node)"| SP2
 
     style V1 fill:#e8f5e9
     style V2 fill:#e3f2fd
     style V3 fill:#fff9c4
+    style VD fill:#ffe0b2
 ```
 
 ### Link and Path Structure
@@ -1096,36 +1185,52 @@ classDiagram
         +to_python() TimeSeriesReference
     }
 
+    class ViewData {
+        +ShortPath path
+        +void* data
+        +ts_ops* ops
+    }
+
     class Link {
-        -ShortPath target_
-        -void* cached_data_
-        -engine_time_t cached_time_
-        +target() ShortPath
-        +resolve(time) TSOutputView
+        +ViewData view_data
         +bind() void
     }
 
-    class TSOutputView {
-        -void* data_
-        -ts_output_ops* ops_
-        -ShortPath path_
+    class TSView {
+        -ViewData view_data_
         -engine_time_t current_time_
+        +field(name) TSView
+        +operator[](index) TSView
+        +short_path() ShortPath
+        +fq_path() FQPath
+        +current_time() engine_time_t
+        +value() View
+        +modified() bool
+    }
+
+    class TSOutputView {
+        -TSView ts_view_
+        -TSOutput* output_
         +field(name) TSOutputView
         +operator[](index) TSOutputView
         +short_path() ShortPath
         +fq_path() FQPath
-        +current_time() engine_time_t
+        +subscribe(input) void
+        +unsubscribe(input) void
     }
 
     class TSInputView {
-        -void* data_
-        -ts_input_ops* ops_
         -Link* link_
+        -Value* active_value_
         -engine_time_t current_time_
+        -TSInput* input_
+        +ts_view() TSView
         +value() View
         +modified() bool
         +fq_path() FQPath
         +field(name) TSInputView
+        +bind(output) void
+        +make_active() void
     }
 
     class PathElement {
@@ -1135,19 +1240,22 @@ classDiagram
         +Value key
     }
 
-    Link *-- ShortPath : target_
-    TSOutputView *-- ShortPath : path_
+    ViewData *-- ShortPath : path
+    Link *-- ViewData : view_data
+    TSView *-- ViewData : view_data_
+    TSOutputView *-- TSView : ts_view_
     TSInputView --> Link : link_
     ShortPath ..> FQPath : to_fq()
     FQPath ..> ShortPath : to_short()
-    ShortPath ..> TSOutputView : resolve()
-    Link ..> TSOutputView : resolve()
+    ShortPath ..> TSView : resolve()
+    Link ..> TSView : creates
     FQPath o-- PathElement : path contains
 
-    note for ShortPath "Compact runtime path\nwith Node* pointer"
-    note for FQPath "Serializable path\nwith node_id integer"
-    note for Link "Contains ShortPath descriptor\nMay cache resolved data"
-    note for TSInputView "Uses Link for all access\nNo direct path tracking"
+    note for ViewData "Common structure:\npath + data + ops"
+    note for Link "Link = ViewData\nNo current_time needed"
+    note for TSView "TSView = ViewData + current_time\nCore time-series view"
+    note for TSOutputView "Wraps TSView\nAdds output-specific ops"
+    note for TSInputView "Uses Link for O(1) access\nNo navigation at runtime"
 ```
 
 ### PathElement Type (FQ Path Only)
@@ -1186,14 +1294,20 @@ flowchart TB
         IV --> LINK
     end
 
-    subgraph "Link"
+    subgraph "Link (= ViewData)"
         L["Link"]
-        L --> SP["target_: ShortPath<br/>node: Node B<br/>port: OUTPUT<br/>indices: [0, 3]"]
-        L --> CACHE["cached_data_: void*<br/>cached_time_: T"]
+        subgraph "ViewData"
+            VD_SP["path: ShortPath<br/>node: Node B<br/>port: OUTPUT<br/>indices: [0, 3]"]
+            VD_DATA["data: void*"]
+            VD_OPS["ops: ts_ops*"]
+        end
+        L --> VD_SP
+        L --> VD_DATA
+        L --> VD_OPS
     end
 
-    subgraph "Resolution"
-        SP -.-> |"resolve(time)"| OV["TSOutputView<br/>path_.indices: [0, 3]"]
+    subgraph "Create TSView"
+        VD_SP -.-> |"+ current_time"| TSV["TSView<br/>view_data_.path.indices: [0, 3]"]
     end
 
     subgraph "Nodes"
@@ -1201,23 +1315,24 @@ flowchart TB
         NB["Node B (output owner)<br/>id: 17"]
     end
 
-    SP --> |"node"| NB
-    OV --> |"path_.node"| NB
+    VD_SP --> |"node"| NB
+    TSV --> |"path.node"| NB
 
     subgraph "FQ Path"
-        OV -.-> |"fq_path()"| FQ["FQPath<br/>node_id: 17<br/>port: OUTPUT<br/>path: (prices, 3)"]
+        TSV -.-> |"fq_path()"| FQ["FQPath<br/>node_id: 17<br/>port: OUTPUT<br/>path: (prices, 3)"]
     end
 
     style IV fill:#e3f2fd
-    style OV fill:#fff9c4
+    style TSV fill:#fff9c4
     style FQ fill:#e8f5e9
-    style SP fill:#ffe0b2
+    style VD_SP fill:#ffe0b2
 ```
 
 **Key points**:
-- TSInputView accesses outputs via its Link, not parent navigation
-- The Link's ShortPath is the authoritative path to the target output
-- `fq_path()` on TSInputView delegates to the Link's target ShortPath
+- Link = ViewData (ShortPath + data + ops) - no current_time
+- TSInputView uses Link for O(1) access without navigation
+- TSView = ViewData + current_time - created when needed
+- `fq_path()` on TSInputView delegates to Link's ViewData.path
 
 ---
 

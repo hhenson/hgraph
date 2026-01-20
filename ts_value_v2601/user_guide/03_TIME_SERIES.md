@@ -539,14 +539,43 @@ See [Delta and Change Tracking](07_DELTA.md) for details.
 
 ## Core API Structure
 
+### TSView Internal Structure
+
+TSView is built on **ViewData**, a common structure shared with [Links](04_LINKS_AND_BINDING.md):
+
+- **ViewData** = `ShortPath path` + `void* data` + `ts_ops* ops`
+- **TSView** = ViewData + `engine_time_t current_time_`
+- **Link** = ViewData (no current_time needed)
+
+This means:
+- Converting a Link to TSView just adds the current_time
+- Navigation methods (field, operator[]) extend the path and update data/ops pointers
+- Path tracking enables tracing back to the owning node for scheduling and subscription
+
+See [TSOutput and TSInput](05_TSOUTPUT_TSINPUT.md#navigation-paths) for detailed path documentation.
+
 ### Class Diagram - Time-Series Views
 
 ```mermaid
 classDiagram
+    class ViewData {
+        +ShortPath path
+        +void* data
+        +ts_ops* ops
+    }
+
+    class ShortPath {
+        +Node* node
+        +PortType port_type
+        +vector~size_t~ indices
+        +to_fq() FQPath
+        +resolve(time) TSView
+    }
+
     class TSView {
         <<type-erased>>
-        -void* data_
-        -ts_ops* ops_
+        -ViewData view_data_
+        -engine_time_t current_time_
         +ts_meta() const TSMeta&
         +value() View
         +modified() bool
@@ -560,9 +589,18 @@ classDiagram
         +set_value(v: View) void
         +apply_delta(d: DeltaView) void
         +invalidate() void
+        +field(name) TSView
+        +operator[](index) TSView
+        +short_path() ShortPath
+        +fq_path() FQPath
+        +current_time() engine_time_t
     }
 
-    note for TSView "Type-erased view.\nOnly holds data pointer and ops.\nAll operations dispatch through ops.\nMutation methods require non-const reference."
+    ViewData *-- ShortPath : path
+    TSView *-- ViewData : view_data_
+
+    note for ViewData "Common structure for\nLink and TSView:\npath + data + ops"
+    note for TSView "TSView = ViewData + current_time\nNavigation extends path.\nMutation methods require non-const reference."
 
     class TSBView {
         +field(name: string) TSView
@@ -697,10 +735,16 @@ classDiagram
 
 ```mermaid
 classDiagram
+    class ViewData {
+        +ShortPath path
+        +void* data
+        +ts_ops* ops
+    }
+
     class TSView {
         <<type-erased>>
-        -void* data_
-        -ts_ops* ops_
+        -ViewData view_data_
+        -engine_time_t current_time_
         +ts_meta() const TSMeta&
         +value() View
         +modified() bool
@@ -712,9 +756,15 @@ classDiagram
         +set_value(v: View) void
         +apply_delta(d: DeltaView) void
         +invalidate() void
+        +field(name) TSView
+        +operator[](index) TSView
+        +short_path() ShortPath
+        +fq_path() FQPath
     }
 
-    note for TSView "Type-erased view.\nOnly holds data pointer and ops.\nAll operations dispatch through ops."
+    TSView *-- ViewData : view_data_
+
+    note for TSView "TSView = ViewData + current_time\nViewData contains path + data + ops.\nNavigation extends the path."
 
     class Value {
         -void* data_
