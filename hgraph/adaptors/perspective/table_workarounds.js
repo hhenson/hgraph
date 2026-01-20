@@ -1202,7 +1202,9 @@ async function createViewAndGetRows(tbl, view_config, id, metadata, required_col
         get_rows = async () => await view.to_json();
     } else if (view_config.split_by.length == 0) {
         const query_config = {
-            filter: [...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])), ...view_config.group_by.map((x, i) => [x, '==', id[i]])],
+            filter: [
+                ...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])), 
+                ...view_config.group_by.map((x, i) => [x, id[i] === null ? 'is null' : '==', id[i]])],
             group_by: view_config.group_by,
             aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique']))},
             expressions: view_config.expressions,
@@ -1217,8 +1219,8 @@ async function createViewAndGetRows(tbl, view_config, id, metadata, required_col
         const query_config = {
             filter: [
                 ...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])),
-                ...view_config.group_by.map((x, i) => [x, '==', id[i]]),
-                ...view_config.split_by.map((x, i) => [x, '==', metadata.column_header[i]])
+                ...view_config.group_by.map((x, i) => [x, id[i] === null ? 'is null' : '==', id[i]]),
+                ...view_config.split_by.map((x, i) => [x, metadata.column_header[i] === null ? 'is null' : '==', metadata.column_header[i]])
                 ],
             group_by: view_config.group_by,
             aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique']))},

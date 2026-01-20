@@ -149,12 +149,20 @@ class PythonTSWInputBuilder(PythonInputBuilder, TSWInputBuilder):
         super().release_instance(item)
 
 
+@dataclass(frozen=True)
 class PythonSignalInputBuilder(PythonInputBuilder, TSSignalInputBuilder):
+    value_tp: HgTimeSeriesTypeMetaData | None = None
 
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph import PythonTimeSeriesSignal
 
-        return PythonTimeSeriesSignal(_parent_or_node=owning_input if owning_input is not None else owning_node)
+        sig = PythonTimeSeriesSignal(_parent_or_node=owning_input if owning_input is not None else owning_node)
+        if self.value_tp is not None:
+            sig._impl = TimeSeriesBuilderFactory.instance().make_input_builder(self.value_tp).make_instance(
+                owning_node=owning_node,
+                owning_input=sig
+            )
+        return sig
 
     def release_instance(self, item):
         super().release_instance(item)
@@ -644,7 +652,7 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSBTypeMetaData: lambda: PythonTSBInputBuilder(
                 schema=cast(HgTSBTypeMetaData, value_tp).bundle_schema_tp.py_type
             ),
-            HgSignalMetaData: lambda: PythonSignalInputBuilder(),
+            HgSignalMetaData: lambda: PythonSignalInputBuilder(value_tp=cast(HgSignalMetaData, value_tp).value_tp),
             HgTSSTypeMetaData: lambda: PythonTSSInputBuilder(
                 value_tp=cast(HgTSSTypeMetaData, value_tp).value_scalar_tp
             ),

@@ -277,6 +277,23 @@ def take_by_count(ts: TIME_SERIES_TYPE, count: int = 1, state: STATE[CounterStat
         return ts.delta_value
 
 
+@compute_node(overloads=take, valid=())
+def take_by_count(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = 1, state: STATE[CounterState] = None) -> TIME_SERIES_TYPE:
+    if reset.modified:
+        state.count = 0
+        ts.make_active()
+        
+    if ts.modified and ts.active:
+        if count == 0:
+            ts.make_passive
+        else:
+            state.count += 1
+            c = state.count
+            if c == count:
+                ts.make_passive()
+            return ts.delta_value
+
+
 @dataclass
 class TimeState(CompoundScalar):
     time: datetime = MIN_DT

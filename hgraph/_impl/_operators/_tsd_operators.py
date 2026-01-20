@@ -825,7 +825,7 @@ def min_tsd_unary_date(tsd: TSD[K, TS[date]], default_value: TS[date] = None) ->
     return min((v.value for v in tsd.valid_values()), default=default_value.value)
 
 
-@compute_node(overloads=max_)
+@graph(overloads=max_)
 def max_tsd_unary(tsd: TSD[K, V], tp: Type[V] = AUTO_RESOLVE) -> V:
     return reduce(max_, tsd, zero(tp, max_))
 

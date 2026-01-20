@@ -1,4 +1,5 @@
 from hgraph import (
+    SIGNAL,
     compute_node,
     TS,
     TSD,
@@ -145,3 +146,38 @@ def test_tsd_in_bundle_ref():
         {'a': 0, 'b': {0: {0: 0}}},
         {'a': 1, 'b': {0: {0: 0}}},
     ]
+
+def test_tsd_signal():
+    @compute_node
+    def s(ts: SIGNAL) -> TS[bool]:
+        return True
+    
+    @graph
+    def g(ts: TSD[str, TS[int]]) -> TS[bool]:
+        return s(ts)
+    
+    assert eval_node(g, [None, {"a": 1}, {"a": 2}, {}]) == [None, True, True, None]
+        
+    
+def test_tsd_of_refs_signal():
+    @compute_node
+    def s(ts: SIGNAL) -> TS[bool]:
+        return True
+    
+    @graph
+    def g(ts: TSD[str, TS[int]]) -> TS[bool]:
+        return s(map_(lambda x: x, ts))
+    
+    assert eval_node(g, [None, {"a": 1}, {"a": 2}, {}]) == [None, True, True, None]
+    
+    
+def test_signal_in_branch():
+    @compute_node
+    def s(ts: SIGNAL) -> TS[bool]:
+        return True
+    
+    @graph
+    def g(ts: TSD[str, TS[int]]) -> TSD[str, TS[bool]]:
+        return map_(lambda x: s(x), ts)
+    
+    assert eval_node(g, [None, {"a": 1}, {"a": 2}, {}]) == [None, {"a": True}, {"a": True}, None]

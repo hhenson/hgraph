@@ -500,6 +500,14 @@ def test_take():
     assert eval_node(g, [1, 2, 3, 4, 5], 3) == [1, 2, 3, None, None]
 
 
+def test_take_w_reset():
+    @graph
+    def g(ts: TS[int], reset: TS[bool], count: int) -> TS[int]:
+        return take(ts, reset, count)
+
+    assert eval_node(g, [1, 2, 3, 4, 5, 6, 7], [None, None, None, True], 2) == [1, 2, None, 4, 5, None, None]
+
+
 def test_drop():
     @graph
     def g(ts: TS[int], count: int) -> TS[int]:
