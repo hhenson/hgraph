@@ -511,21 +511,12 @@ public:
 };
 ```
 
-### ViewData: Common Structure for Links and TSView
+### ViewData and Link
 
-Both Link and TSView need the same information to access time-series data. This is captured in `ViewData`:
+**ViewData** is the common structure for accessing time-series data, defined in [Time-Series - TSView Internal Structure](03_TIME_SERIES.md#tsview-internal-structure):
 
-```cpp
-// ViewData: Contains everything needed to access a time-series value
-struct ViewData {
-    // Path information
-    ShortPath path;                 // Node*, PortType, indices
-
-    // Data access
-    void* data;                     // Pointer to the actual data
-    ts_ops* ops;                    // Type-erased operations
-};
-```
+- **ViewData** = `ShortPath path` + `void* data` + `ts_ops* ops`
+- **TSView** = ViewData + `engine_time_t current_time_`
 
 **Link** is simply a ViewData (no current_time needed):
 
@@ -545,54 +536,20 @@ struct Link {
 };
 ```
 
-**TSView** is ViewData plus current_time:
+Converting a **Link to TSView** just adds the current_time:
 
 ```cpp
-class TSView {
-    ViewData view_data_;            // Path + data access
-    engine_time_t current_time_;    // Context for modification checks
-
-public:
-    // Construct from ViewData
-    TSView(ViewData vd, engine_time_t time)
-        : view_data_(std::move(vd)), current_time_(time) {}
-
-    // Construct from Link (adds current_time)
-    TSView(const Link& link, engine_time_t time)
-        : view_data_(link.view_data), current_time_(time) {}
-
-    // Navigation extends the path and updates data/ops
-    TSView field(std::string_view name) {
-        size_t field_index = schema().field_index(name);
-        ViewData child = view_data_;
-        child.path.indices.push_back(field_index);
-        child.data = get_child_data(field_index);
-        child.ops = get_child_ops(field_index);
-        return TSView{std::move(child), current_time_};
-    }
-
-    // Path accessors
-    const ShortPath& short_path() const { return view_data_.path; }
-    FQPath fq_path() const { return view_data_.path.to_fq(); }
-
-    // Data access
-    void* data() const { return view_data_.data; }
-    engine_time_t current_time() const { return current_time_; }
-
-    // TSView-specific accessors
-    View value() const;
-    DeltaView delta() const;
-    bool modified() const;
-    bool valid() const;
-    void set_value(View v);
-    void apply_delta(DeltaView dv);
-};
+// Link already has ViewData (path + data + ops)
+// TSView = ViewData + current_time
+TSView view = TSView{link.view_data, current_time};
 ```
 
 This means:
 - **Link = ViewData**: Everything needed to create a view without navigation
 - **TSView = ViewData + current_time**: A view is a Link with temporal context
 - Converting Link to TSView just adds current_time (no navigation needed)
+
+See [Time-Series](03_TIME_SERIES.md#tsview-internal-structure) for the full TSView definition.
 
 ### TSInputView and Link Access
 

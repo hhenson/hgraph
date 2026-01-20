@@ -36,15 +36,14 @@ Through the link:
 
 ### Link Internal Structure
 
-Internally, a Link is a **ViewData** - the same structure used by TSView:
+Internally, a Link is a **ViewData** - the same structure used by TSView (see [Time-Series - TSView Internal Structure](03_TIME_SERIES.md#tsview-internal-structure)):
 
-- **ViewData** = `ShortPath path` + `void* data` + `ts_ops* ops`
 - **Link** = ViewData (no current_time needed)
 - **TSView** = ViewData + `engine_time_t current_time_`
 
 This means converting a Link to a TSView just adds the current_time. Links provide O(1) access to bound data without navigation at runtime.
 
-See [TSOutput and TSInput - Navigation Paths](05_TSOUTPUT_TSINPUT.md#navigation-paths) for detailed documentation on paths and ViewData.
+See [TSOutput and TSInput - Navigation Paths](05_TSOUTPUT_TSINPUT.md#navigation-paths) for path and Link usage details.
 
 ### Link States
 
