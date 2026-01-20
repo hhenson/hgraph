@@ -36,14 +36,24 @@ Through the link:
 
 ### Link Internal Structure
 
-Internally, a Link is a **ViewData** - the same structure used by TSView (see [Time-Series - TSView Internal Structure](03_TIME_SERIES.md#tsview-internal-structure)):
+Internally, a Link **contains** a ViewData (see [Time-Series - TSView Internal Structure](03_TIME_SERIES.md#tsview-internal-structure)):
 
-- **Link** = ViewData (no current_time needed)
+```cpp
+struct Link {
+    ViewData view_data;     // Path + data + ops
+
+    void bind();            // Populate view_data, subscribe
+    void unbind();          // Clear view_data, unsubscribe
+    bool is_bound() const;  // Check if bound
+};
+```
+
+- **Link** contains ViewData (no current_time needed)
 - **TSView** = ViewData + `engine_time_t current_time_`
 
-This means converting a Link to a TSView just adds the current_time. Links provide O(1) access to bound data without navigation at runtime.
+Converting a Link to TSView just adds the current_time. Links provide O(1) access to bound data without navigation at runtime.
 
-See [TSOutput and TSInput - Navigation Paths](05_TSOUTPUT_TSINPUT.md#navigation-paths) for path and Link usage details.
+See [TSOutput and TSInput - ViewData and Link](05_TSOUTPUT_TSINPUT.md#viewdata-and-link) for detailed Link documentation.
 
 ### Link States
 
@@ -253,34 +263,46 @@ void on_unbind(TSInput& input) {
 
 ### Observer Pattern Details
 
-The notification system uses the **observer pattern**:
+The notification system uses the **observer pattern**, with observer lists stored in TSValue's `observer_value_` component:
 
 ```cpp
-// Output maintains list of observers
-class TSOutput {
-    std::vector<TSInput*> observers_;
+// Observer management is handled by TSValue.observer_value_
+// TSOutput delegates to its native_value_ (TSValue)
+class TSOutputView {
+    TSView ts_view_;      // View of TSValue
+    TSOutput* output_;    // For context
 
 public:
     void subscribe(TSInput* input) {
-        // Add input to notification list
-        observers_.push_back(input);
+        // Delegates to TSValue's observer_value_
+        // Adds input to notification list at the appropriate path
+        ts_view_.subscribe(input);
     }
 
     void unsubscribe(TSInput* input) {
-        // Remove input from notification list
-        observers_.erase(
-            std::remove(observers_.begin(), observers_.end(), input),
-            observers_.end()
-        );
-    }
-
-    void notify() {
-        // Notify all subscribed observers
-        for (auto* observer : observers_) {
-            observer->on_peer_modified();
-        }
+        // Removes input from notification list
+        ts_view_.unsubscribe(input);
     }
 };
+
+// When a value is modified, observers are notified via observer_value_
+// TSValue notifies all subscribed observers at the modified path
+```
+
+The `observer_value_` in TSValue mirrors the time-series structure, allowing fine-grained subscription at any level:
+
+```cpp
+// For TSB[a: TS[int], b: TSL[TS[float], 2]]
+// observer_value_ mirrors the structure:
+// Bundle {
+//   _observers: vector<TSInput*>    // Root observers
+//   a: vector<TSInput*>             // Field a observers
+//   b: Bundle {
+//     _observers: vector<TSInput*>  // TSL root observers
+//     0: vector<TSInput*>           // Element 0 observers
+//     1: vector<TSInput*>           // Element 1 observers
+//   }
+// }
 ```
 
 ### Active vs Passive Inputs
@@ -713,14 +735,19 @@ classDiagram
 ```mermaid
 classDiagram
     class TSOutput {
-        -vector~TSInput*~ observers_
+        -TSValue native_value_
+        +view(time, schema) TSOutputView
+    }
+
+    class TSValue {
+        -Value observer_value_
         +subscribe(input: TSInput*) void
         +unsubscribe(input: TSInput*) void
-        +notify() void
+        +notify_observers() void
     }
 
     class TSInput {
-        -bool active_
+        -Value active_value_
         -Node* owning_node_
         +on_peer_modified() void
         +make_active() void
@@ -733,10 +760,13 @@ classDiagram
         +evaluate() void
     }
 
-    TSOutput "1" --> "*" TSInput : notifies
+    TSOutput *-- TSValue : native_value_
+    TSValue "1" --> "*" TSInput : observer_value_ notifies
     TSInput "1" --> "0..1" TSOutput : linked to
     TSInput "*" --> "1" Node : owned by
     TSOutput "*" --> "1" Node : owned by
+
+    note for TSValue "observer_value_ stores\nobserver lists at each\nlevel of the TS structure"
 ```
 
 ### Peering Model

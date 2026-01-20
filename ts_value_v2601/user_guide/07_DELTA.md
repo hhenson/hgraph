@@ -8,7 +8,7 @@
 
 Efficient reactive systems process **only what changed**. The time-series system provides rich delta information so you can:
 - Know *that* something changed (`.modified()`)
-- Know *what* changed (`.delta()`, `.modified_items()`, `.modified_values()`, etc.)
+- Know *what* changed (`.delta_value()`, `.modified_items()`, `.modified_values()`, etc.)
 - Know *how* it changed (added, removed, updated)
 
 ---
@@ -342,7 +342,7 @@ my_set.apply_delta(delta);
 
 ### 2. TSValue Backing (Computed Delta)
 
-When you call `.delta()` on a TSView, the returned DeltaView is **computed on demand** from the TSValue's internal state:
+When you call `.delta_value()` on a TSView, the returned DeltaView is **computed on demand** from the TSValue's internal state:
 
 - **Modification detection**: Uses timestamp information stored in the TSValue to determine which elements were modified at the current tick
 - **Removed element tracking**: For TSS/TSD, the **Value layer** tracks removed elements and manages their cleanup, allowing the DeltaView to access them even though they're no longer in the main data structure
@@ -352,7 +352,7 @@ TSSView active_ids = ...;  // TSS[int]
 
 if (active_ids.modified()) {
     // Delta is computed from TSValue state - not stored separately
-    DeltaView delta = active_ids.delta();
+    DeltaView delta = active_ids.delta_value();
 
     // Iterating added/removed computes from TSValue's:
     // - current elements + timestamps (for added)
@@ -405,7 +405,7 @@ TSSView active_ids = ...;  // TSS[int]
 
 if (active_ids.modified()) {
     // Extract the delta as a DeltaView
-    DeltaView delta = active_ids.delta();
+    DeltaView delta = active_ids.delta_value();
 
     // Apply to another value
     Value other_set(set_schema);
@@ -422,7 +422,7 @@ TSSView active_ids = ...;  // TSS[int]
 
 if (active_ids.modified()) {
     // Get the computed delta view
-    DeltaView delta_view = active_ids.delta();
+    DeltaView delta_view = active_ids.delta_value();
 
     // Construct a stored DeltaValue from the view
     DeltaValue stored_delta(delta_view);
@@ -498,14 +498,14 @@ classDiagram
         <<type-erased>>
         -void* data_
         -ts_ops* ops_
-        +delta() DeltaView
+        +delta_value() DeltaView
         +modified() bool
     }
 
     Value ..> DeltaView : apply_delta()
     DeltaValue ..|> DeltaView : provides
     TSValue ..> DeltaView : computes
-    TSView --> DeltaView : delta()
+    TSView --> DeltaView : delta_value()
     DeltaValue ..> DeltaView : constructed from
 
     note for DeltaView "Type-erased interface.\nCan be backed by:\n- DeltaValue (stored)\n- TSValue (computed)"
@@ -592,7 +592,7 @@ sequenceDiagram
     Binding->>Output: Read modification state
     Output-->>Node: true
 
-    Node->>Input: input.delta()
+    Node->>Input: input.delta_value()
     Input->>Binding: Get delta via binding
     Binding->>Output: Compute/retrieve delta
     Output-->>Node: DeltaView
@@ -702,7 +702,7 @@ Link notifies input
 Input sees same delta (via link)
 ```
 
-The input's `.modified()`, `.delta_value()`, etc. reflect the output's state.
+The input's `.modified()`, `.delta_value()`, `.added()`, `.removed()`, etc. reflect the output's state.
 
 ### Non-Peered Inputs
 

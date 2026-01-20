@@ -82,7 +82,7 @@ double val = price.value().as<double>();  // Value at current_time (type-erased 
 
 Time-series track changes across ticks. The view needs to know "when" in order to answer:
 - `.modified()` - Was this modified **at this time**?
-- `.delta()` - What changed **at this time**?
+- `.delta_value()` - What changed **at this time**?
 
 A view created at time T₁ will report different `modified()` results than a view created at time T₂.
 
@@ -94,7 +94,7 @@ When you extract a delta view from a time-series view, it inherits the time bind
 TSView price = ts.view(current_time);
 
 // Delta is bound to the same time as the parent view
-DeltaView delta = price.delta();  // Delta at current_time
+DeltaView delta = price.delta_value();  // Delta at current_time
 ```
 
 This ensures consistency - the delta represents exactly what changed at the view's bound time.
@@ -343,18 +343,23 @@ See [Links and Binding](04_LINKS_AND_BINDING.md) for more details on dynamic rou
 
 ### SIGNAL - Event Without Value
 
-A time-series that **ticks** but carries no data:
+A time-series that **ticks** but carries no semantic data. Any time-series can be connected as a peer to a SIGNAL input:
 
 ```cpp
 SignalView heartbeat = ...;
 
-// Only meaningful query
+// Primary query
 bool ticked = heartbeat.modified();    // Did it tick?
 
-// No value() method - signals have no data
+// value() is available but maps to modified state
+bool ticked_alt = heartbeat.value<bool>();  // Returns heartbeat.modified()
 ```
 
-Use signals for pure event notification.
+SIGNAL's value represents its modification state. This allows uniform API access patterns while maintaining the semantics that signals are pure event notifications.
+
+Use signals for:
+- Pure event notification (heartbeats, triggers)
+- Ignoring the actual value of a time-series and only reacting to "something changed"
 
 ---
 
@@ -400,19 +405,34 @@ Writing to an output:
 
 ### `.value()` / `.value<T>()`
 
-The current data. For composite types, returns a view into the structure.
+Two patterns are available for accessing the current data:
 
 ```cpp
-// Scalar
-double v = price.value();              // Returns double
+// Pattern 1: Type-erased access
+View v = price.value();               // Returns type-erased View
+double d = v.as<double>();            // Extract typed value
 
-// Bundle
-nb::object val = quote.to_python();    // Python object (dict or dataclass)
-double bid = quote.field("bid").value<double>();  // Field's value
+// Pattern 2: Direct typed access (shorthand for value().as<T>())
+double d = price.value<double>();     // Equivalent to price.value().as<double>()
+```
 
-// List
-auto list = prices.to_python();        // Python list
-double first = prices[0].value();      // Element's value
+Both patterns work for scalar and composite access:
+
+```cpp
+// Scalar time-series
+double v = price.value().as<double>();   // Type-erased then extract
+double v = price.value<double>();        // Shorthand
+
+// Bundle field access
+double bid = quote.field("bid").value().as<double>();
+double bid = quote.field("bid").value<double>();     // Shorthand
+
+// List element access
+double first = prices[0].value().as<double>();
+double first = prices[0].value<double>();            // Shorthand
+
+// Python interop (always type-erased)
+nb::object val = quote.to_python();      // Entire bundle as Python object
 ```
 
 ### `.modified()`
@@ -430,7 +450,9 @@ For composite types, `modified()` is true if **any** descendant was modified.
 
 ### `.valid()`
 
-True if the time-series has **ever been set** (has meaningful data).
+True if the time-series has **ever been set** (has meaningful data). A time-series becomes invalid when:
+- It has never been written to (initial state)
+- It has been explicitly invalidated via `.invalidate()`
 
 ```cpp
 if (!price.valid()) {
@@ -441,6 +463,33 @@ if (!price.valid()) {
 // Safe to access value
 process(price.value());
 ```
+
+### Accessing Invalid/Invalidated Time-Series
+
+When a time-series is not valid (either never set or explicitly invalidated):
+
+| Method | Behavior on Invalid |
+|--------|---------------------|
+| `.value()` | Returns `None` (Python) / sentinel value |
+| `.value<T>()` | Returns `None` (Python) / sentinel value |
+| `.delta_value()` | Throws exception |
+| Navigation (`.field()`, `[]`) | Throws exception |
+| `.to_python()` | Returns `None` |
+
+```cpp
+TSView price = ...;  // Never written to
+
+if (!price.valid()) {
+    // value() is safe - returns None/sentinel
+    auto v = price.value();  // v represents "no value"
+
+    // But delta and navigation throw
+    // price.delta_value();  // Would throw
+    // price.field("x");     // Would throw
+}
+```
+
+This design allows safe "peek" operations via `value()` while enforcing explicit validity checks before more complex operations.
 
 ### `.all_valid()`
 
@@ -545,7 +594,7 @@ TSView is built on **ViewData**, a common structure shared with [Links](04_LINKS
 
 - **ViewData** = `ShortPath path` + `void* data` + `ts_ops* ops`
 - **TSView** = ViewData + `engine_time_t current_time_`
-- **Link** = ViewData (no current_time needed)
+- **Link** contains ViewData (no current_time needed)
 
 This means:
 - Converting a Link to TSView just adds the current_time
@@ -578,12 +627,13 @@ classDiagram
         -engine_time_t current_time_
         +ts_meta() const TSMeta&
         +value() View
+        +value~T~() T
         +modified() bool
         +sampled() bool
         +valid() bool
         +all_valid() bool
         +last_modified_time() engine_time_t
-        +delta() DeltaView
+        +delta_value() DeltaView
         +to_python() nb::object
         +delta_to_python() nb::object
         +set_value(v: View) void
@@ -596,11 +646,20 @@ classDiagram
         +current_time() engine_time_t
     }
 
+    class Link {
+        +ViewData view_data
+        +bind() void
+        +unbind() void
+        +is_bound() bool
+    }
+
     ViewData *-- ShortPath : path
     TSView *-- ViewData : view_data_
+    Link *-- ViewData : view_data
 
     note for ViewData "Common structure for\nLink and TSView:\npath + data + ops"
     note for TSView "TSView = ViewData + current_time\nNavigation extends path.\nMutation methods require non-const reference."
+    note for Link "Link contains ViewData\nNo current_time needed"
 
     class TSBView {
         +field(name: string) TSView
@@ -752,7 +811,7 @@ classDiagram
         +valid() bool
         +all_valid() bool
         +last_modified_time() engine_time_t
-        +delta() DeltaView
+        +delta_value() DeltaView
         +set_value(v: View) void
         +apply_delta(d: DeltaView) void
         +invalidate() void
@@ -815,7 +874,7 @@ classDiagram
 
     TSValue --> TSView : view()
     TSView --> View : value()
-    TSView --> DeltaView : delta()
+    TSView --> DeltaView : delta_value()
     TSView --> TSMeta : ts_meta()
     Value --> TypeMeta : schema()
     Value --> View : view()

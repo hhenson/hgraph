@@ -52,7 +52,7 @@ TSOutput owns and manages **multiple representations** of its data:
 │    apply_value(DeltaValue)                                  │
 │                                                              │
 │  TSOutputView API (type-erased):                            │
-│    value(), delta(), modified(), valid()                    │
+│    value(), delta_value(), modified(), valid()              │
 │    set_value(), apply_delta()                               │
 │    subscribe(), unsubscribe()                               │
 │    Navigation: field(), operator[], navigate()              │
@@ -123,7 +123,7 @@ class TSOutputView {
 public:
     // Delegates to TSView for data access
     View value() { return ts_view_.value(); }
-    DeltaView delta() { return ts_view_.delta(); }
+    DeltaView delta_value() { return ts_view_.delta_value(); }
     bool modified() { return ts_view_.modified(); }
     bool valid() { return ts_view_.valid(); }
 
@@ -518,13 +518,9 @@ public:
 - **ViewData** = `ShortPath path` + `void* data` + `ts_ops* ops`
 - **TSView** = ViewData + `engine_time_t current_time_`
 
-**Link** is simply a ViewData (no current_time needed):
+**Link** contains a ViewData (no current_time needed):
 
 ```cpp
-// Link is ViewData - same structure used for binding
-using Link = ViewData;
-
-// Or if Link needs additional state:
 struct Link {
     ViewData view_data;             // Path + data access
 
@@ -532,6 +528,15 @@ struct Link {
     void bind() {
         // Navigate ShortPath to populate data and ops
         // Subscribe to notifications if active
+    }
+
+    void unbind() {
+        // Unsubscribe from notifications
+        // Clear data pointer
+    }
+
+    bool is_bound() const {
+        return view_data.data != nullptr;
     }
 };
 ```
@@ -630,7 +635,7 @@ These match the existing wiring constants where `ERROR_PATH = -1` and `STATE_PAT
 
 ### TSD and Stable Index Strategy
 
-For **TSD** (dict), the fast path uses a **stable index** rather than the actual key value. TSD internally maintains a stable mapping from keys to integer offsets:
+For **TSD** (dict), the short path uses a **stable index** rather than the actual key value. TSD internally maintains a stable mapping from keys to integer offsets:
 
 ```cpp
 TSDView stock_prices = ...;  // TSD[str, TS[float]]
@@ -638,9 +643,9 @@ TSDView stock_prices = ...;  // TSD[str, TS[float]]
 // Navigate by key
 auto view = stock_prices["AAPL"];
 
-// Fast path uses the stable index, not the key
+// Short path uses the stable index, not the key
 // If "AAPL" is at internal offset 7:
-// fast_path = [7]   (not ["AAPL"])
+// short_path.indices = [7]   (not ["AAPL"])
 
 // The stable index remains constant even as other keys are added/removed
 stock_prices["MSFT"];  // Gets offset 8
@@ -648,7 +653,7 @@ stock_prices.remove("GOOG");  // "AAPL" still at offset 7
 ```
 
 This stable index strategy ensures:
-- Fast path remains a uniform `vector<size_t>` for all container types
+- Short path indices remain a uniform `vector<size_t>` for all container types
 - Index stability under mutation (important for long-lived views)
 - Efficient path comparison without key type knowledge
 
@@ -707,41 +712,41 @@ TSDView stock_prices = ...;  // TSD[str, TS[float]]
 
 auto view = stock_prices["AAPL"];
 
-// Fast path:    [7]                              (stable index only)
-// FQ path:      {node_id: 42, expanded: ["AAPL"]} (actual key value)
+// Short path:  node + port + [7]                 (stable index only)
+// FQ path:     {node_id: 42, expanded: ["AAPL"]} (actual key value)
 ```
 
-This means the FQ path can reconstruct navigation even if the TSD's internal layout changes, while the fast path provides efficient runtime access within a single session.
+This means the FQ path can reconstruct navigation even if the TSD's internal layout changes, while the short path provides efficient runtime access within a single session.
 
 ### Path Usage
 
 ```cpp
 // Get current paths
-auto fast = view.fast_path();   // [0, 3] - numeric indices only
+auto sp = view.short_path();    // ShortPath: node + port_type + [0, 3] indices
 auto fq = view.fq_path();       // {node_id: 42, expanded: ["prices", 3]}
 
-// Navigate using fast path (within same root)
+// Navigate using short path (within same root)
 TSOutputView root = output.view(time, schema);
-TSOutputView target = root.navigate(fast);  // Same as field("prices")[3]
+TSOutputView target = root.navigate(sp);    // Same as field("prices")[3]
 
 // Navigate using FQ path (from anywhere)
 TSOutputView target2 = graph.resolve(fq);   // Finds node, then navigates
 
 // Compare paths
-bool same_location = (view1.fast_path() == view2.fast_path());  // Same node assumed
-bool same_global = (view1.fq_path() == view2.fq_path());        // Includes node comparison
+bool same_location = (view1.short_path() == view2.short_path());  // Includes node + indices
+bool same_global = (view1.fq_path() == view2.fq_path());          // Includes node_id + path
 ```
 
 ### When to Use Each Form
 
 | Use Case | Recommended Path |
 |----------|-----------------|
-| Internal navigation (same node) | Fast path (performance) |
+| Internal navigation (same node) | Short path (performance) |
 | Cross-node references | FQ path (includes node_id) |
 | Debugging / logging | FQ path (readable, complete) |
 | Serialization | FQ path (stable, restorable) |
-| Path comparison (same node) | Fast path (efficient) |
-| Path comparison (any nodes) | FQ path (complete identity) |
+| Path comparison (runtime) | Short path (efficient, includes Node*) |
+| Path comparison (serialization) | FQ path (uses node_id) |
 
 ### Path and Ownership
 
@@ -877,7 +882,7 @@ classDiagram
         -ViewData view_data_
         -engine_time_t current_time_
         +value() View
-        +delta() DeltaView
+        +delta_value() DeltaView
         +modified() bool
         +valid() bool
         +set_value(v: View) void
@@ -912,6 +917,8 @@ classDiagram
     class Link {
         +ViewData view_data
         +bind() void
+        +unbind() void
+        +is_bound() bool
     }
 
     class TSInputView {
@@ -1151,6 +1158,8 @@ classDiagram
     class Link {
         +ViewData view_data
         +bind() void
+        +unbind() void
+        +is_bound() bool
     }
 
     class TSView {

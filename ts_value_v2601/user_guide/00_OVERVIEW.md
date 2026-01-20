@@ -15,6 +15,16 @@ This guide describes what you interact with as a user. It does not cover runtime
 
 This guide focuses on the **C++ API** - the high-performance implementation used for building nodes and accessing time-series data. The API provides type-erased access to data via Views, with schema-driven operations.
 
+### Threading Model
+
+The time-series value system is designed for **single-threaded access**. All operations on time-series data (reading, writing, navigation, binding) occur on a single thread. This design:
+
+- Eliminates synchronization overhead for high-performance data access
+- Simplifies the mental model - no locks, no races, no memory barriers
+- Allows Views to hold raw pointers without thread-safety concerns
+
+If you need parallelism, it should be managed at a higher level (e.g., separate graphs on separate threads with explicit message passing between them).
+
 ---
 
 ## Core Mental Model

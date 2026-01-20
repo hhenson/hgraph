@@ -420,12 +420,28 @@ double total = std::accumulate(buffer.begin(), buffer.end(), 0.0);
 ### Invalid Access
 
 ```cpp
-// Accessing invalid time-series
+// Accessing invalid time-series (never set or invalidated)
 if (!price.valid()) {
-    // price.value() behavior depends on implementation
-    // May return default, throw, or have undefined behavior
-}
+    // value() is safe - returns None/sentinel
+    auto v = price.value();       // Returns None/sentinel, does not throw
+    auto typed = price.value<double>();  // Also returns None/sentinel
 
+    // Other operations throw
+    // price.delta_value();       // Throws exception
+    // price.field("x");          // Throws exception
+}
+```
+
+| Method | Behavior on Invalid |
+|--------|---------------------|
+| `.value()` | Returns `None` (Python) / sentinel |
+| `.value<T>()` | Returns `None` (Python) / sentinel |
+| `.delta_value()` | Throws exception |
+| Navigation | Throws exception |
+
+### Non-existent Keys/Indices
+
+```cpp
 // Accessing non-existent key
 if (!stock_prices.contains(456)) {
     // stock_prices[456] throws std::out_of_range or similar
