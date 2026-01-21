@@ -32,7 +32,7 @@ struct TypeMeta {
     // - Set: element TypeMeta*
 
     // Kind (for dispatch)
-    TypeKind kind_;               // Scalar, Compound, List, Dict, Set, etc.
+    TypeKind kind_;               // Atomic, Bundle, Tuple, List, Set, Map
 
     // Accessors
     size_t size() const { return size_; }
@@ -44,7 +44,7 @@ struct TypeMeta {
     bool is_primitive() const {
         // Primitives: bool, integers, floats, nb::object
         // These can be stored inline in Value's data_ pointer
-        return kind_ == TypeKind::Scalar && size_ <= sizeof(void*);
+        return kind_ == TypeKind::Atomic && size_ <= sizeof(void*);
     }
 };
 ```
@@ -57,10 +57,11 @@ The `size_` field represents the **static** memory required:
 
 | Kind | Size Contains |
 |------|---------------|
-| Scalar | sizeof(T) for the scalar type |
-| Compound | Sum of child sizes (with padding for alignment) |
+| Atomic | sizeof(T) for the scalar type |
+| Bundle | Sum of child sizes (with padding for alignment) |
+| Tuple | Sum of element sizes (with padding for alignment) |
 | List | sizeof(container_header) - elements allocated separately |
-| Dict | sizeof(container_header) - entries allocated separately |
+| Map | sizeof(container_header) - entries allocated separately |
 | Set | sizeof(container_header) - elements allocated separately |
 
 For containers, the static size covers the container bookkeeping (e.g., size, capacity, pointer to elements). The actual elements are managed dynamically by the container's vtable operations.
@@ -110,6 +111,14 @@ struct bundle_ops {
     size_t (*field_count)(const void* ptr);
     std::string_view (*field_name)(const void* ptr, size_t idx);
     // Iteration (ViewPairRange: field_name -> value)
+    ViewPairRange (*items)(const void* ptr);
+};
+
+struct tuple_ops {
+    // Element access (positional only, no names)
+    View (*at)(void* ptr, size_t idx);
+    size_t (*size)(const void* ptr);
+    // Iteration (ViewPairRange: index -> value)
     ViewPairRange (*items)(const void* ptr);
 };
 
@@ -187,6 +196,7 @@ struct type_ops {
     union {
         atomic_ops atomic;
         bundle_ops bundle;
+        tuple_ops tuple;
         list_ops list;
         set_ops set;
         map_ops map;
@@ -196,16 +206,16 @@ struct type_ops {
 
 **Note**: The `specific` union is tagged by the `kind` field in type_ops. Only access the union member corresponding to the type's kind. This keeps all operations inline in a single struct, avoiding additional pointer chasing for kind-specific operations.
 
-### Type Categories
+### TypeKind Enumeration
 
-| Category | Examples | Notes |
-|----------|----------|-------|
-| Atomic | int, float, string, date, datetime | Leaf types |
+| Kind | Examples | Notes |
+|------|----------|-------|
+| Atomic | int, float, string, date, datetime | Leaf types (scalars) |
 | Bundle | struct, compound scalar | Named fields |
 | Tuple | (int, float) | Positional fields (unnamed) |
-| List | TSL element type | Homogeneous sequence |
-| Map | TSD key/value types | Key-value mapping |
-| Set | TSS element type | Unique elements |
+| List | List[T] | Homogeneous sequence |
+| Map | Map[K, V] | Key-value mapping |
+| Set | Set[T] | Unique elements |
 
 ## TSMeta
 

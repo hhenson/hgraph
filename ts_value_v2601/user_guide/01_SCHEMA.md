@@ -1064,6 +1064,7 @@ struct ts_ops {
         tsl_ops list;              // TSL
         tsd_ops dict;              // TSD
         tss_ops set;               // TSS
+        tsw_ops window;            // TSW
         ref_ops ref;               // REF
         signal_ops signal;         // SIGNAL
     } specific;
@@ -1133,6 +1134,25 @@ struct tss_ops {
     ViewRange (*removed)(const void* ptr);
     bool (*was_added)(const void* ptr, View elem);
     bool (*was_removed)(const void* ptr, View elem);
+};
+
+struct tsw_ops {
+    // Window properties
+    size_t (*size)(const void* ptr);
+    size_t (*capacity)(const void* ptr);
+    engine_time_t (*oldest_time)(const void* ptr);
+    engine_time_t (*newest_time)(const void* ptr);
+
+    // Value access
+    View (*at_time)(const void* ptr, engine_time_t t);
+
+    // Iteration (ViewRange of values, oldest first)
+    ViewRange (*values)(const void* ptr);
+    ViewRange (*times)(const void* ptr);
+    ViewRange (*range)(const void* ptr, engine_time_t start, engine_time_t end);
+
+    // Items iteration (ViewPairRange: time -> value)
+    ViewPairRange (*items)(const void* ptr);
 };
 
 struct ref_ops {
@@ -1485,6 +1505,15 @@ classDiagram
         +element_type() const TypeMeta&
     }
 
+    class TSWMeta {
+        -TypeMeta* element_type_
+        -size_t period_
+        -engine_time_delta_t min_window_period_
+        +element_type() const TypeMeta&
+        +period() size_t
+        +min_window_period() engine_time_delta_t
+    }
+
     class REFMeta {
         -TSMeta* target_ts_
         +target_ts_meta() const TSMeta&
@@ -1519,6 +1548,7 @@ classDiagram
         +list: tsl_ops
         +dict: tsd_ops
         +set: tss_ops
+        +window: tsw_ops
         +ref: ref_ops
         +signal: signal_ops
     }
@@ -1587,6 +1617,18 @@ classDiagram
         +was_removed(ptr: void*, elem: View) bool
     }
 
+    class tsw_ops {
+        +size(ptr: void*) size_t
+        +capacity(ptr: void*) size_t
+        +oldest_time(ptr: void*) engine_time_t
+        +newest_time(ptr: void*) engine_time_t
+        +at_time(ptr: void*, t: engine_time_t) View
+        +values(ptr: void*) ViewRange
+        +times(ptr: void*) ViewRange
+        +range(ptr: void*, start: engine_time_t, end: engine_time_t) ViewRange
+        +items(ptr: void*) ViewPairRange
+    }
+
     class ref_ops {
         <<empty>>
     }
@@ -1602,6 +1644,7 @@ classDiagram
         TSL
         TSD
         TSS
+        TSW
         REF
         SIGNAL
     }
@@ -1610,6 +1653,7 @@ classDiagram
     TSMeta <|-- TSLMeta
     TSMeta <|-- TSDMeta
     TSMeta <|-- TSSMeta
+    TSMeta <|-- TSWMeta
     TSMeta <|-- REFMeta
     TSMeta <|-- SIGNALMeta
     TSRegistry --> TSMeta : manages
@@ -1625,8 +1669,11 @@ classDiagram
     ts_kind_ops_union --> tsl_ops : variant
     ts_kind_ops_union --> tsd_ops : variant
     ts_kind_ops_union --> tss_ops : variant
+    ts_kind_ops_union --> tsw_ops : variant
     ts_kind_ops_union --> ref_ops : variant
     ts_kind_ops_union --> signal_ops : variant
+    tsw_ops --> ViewRange : returns
+    tsw_ops --> ViewPairRange : returns
     tsb_ops --> ViewPairRange : returns
     tsl_ops --> ViewRange : returns
     tsl_ops --> ViewPairRange : returns
