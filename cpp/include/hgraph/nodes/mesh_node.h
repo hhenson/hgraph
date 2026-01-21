@@ -70,19 +70,19 @@ namespace hgraph
 
         TimeSeriesDictOutputImpl &tsd_output() override;
 
-        void create_new_graph(const value::ConstValueView &key, int rank = -1);
+        void create_new_graph(const value::View &key, int rank = -1);
 
-        void remove_graph(const value::ConstValueView &key);
+        void remove_graph(const value::View &key);
 
-        void schedule_graph(const value::ConstValueView &key, engine_time_t tm);
+        void schedule_graph(const value::View &key, engine_time_t tm);
 
-        bool add_graph_dependency(const value::ConstValueView &key, const value::ConstValueView &depends_on);
+        bool add_graph_dependency(const value::View &key, const value::View &depends_on);
 
-        void remove_graph_dependency(const value::ConstValueView &key, const value::ConstValueView &depends_on);
+        void remove_graph_dependency(const value::View &key, const value::View &depends_on);
 
-        bool request_re_rank(const value::ConstValueView &key, const value::ConstValueView &depends_on);
+        bool request_re_rank(const value::View &key, const value::View &depends_on);
 
-        void re_rank(const value::ConstValueView &key, const value::ConstValueView &depends_on,
+        void re_rank(const value::View &key, const value::View &depends_on,
                      std::vector<value::PlainValue> re_rank_stack = {});
 
       private:

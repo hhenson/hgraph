@@ -95,7 +95,7 @@ namespace hgraph {
         return dynamic_cast<const TimeSeriesValueOutput&>(*output());
     }
 
-    value::ConstValueView TimeSeriesValueInput::value() const {
+    value::View TimeSeriesValueInput::value() const {
         return value_output().value();
     }
 

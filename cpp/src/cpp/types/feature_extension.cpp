@@ -24,7 +24,7 @@ namespace hgraph {
     }
 
     time_series_output_s_ptr& FeatureOutputExtensionValue::create_or_increment(
-        const value::ConstValueView& key, const void *requester) {
+        const value::View& key, const void *requester) {
 
         // Use heterogeneous lookup - find returns iterator to existing or end()
         auto it = _outputs.find(key);
@@ -51,7 +51,7 @@ namespace hgraph {
         return it->second.output;
     }
 
-    void FeatureOutputExtensionValue::update(const value::ConstValueView& key) {
+    void FeatureOutputExtensionValue::update(const value::View& key) {
         auto it = _outputs.find(key);
 
         if (it != _outputs.end()) {
@@ -66,7 +66,7 @@ namespace hgraph {
         update(key_val.const_view());
     }
 
-    void FeatureOutputExtensionValue::release(const value::ConstValueView& key, const void *requester) {
+    void FeatureOutputExtensionValue::release(const value::View& key, const void *requester) {
         auto it = _outputs.find(key);
 
         if (it != _outputs.end()) {

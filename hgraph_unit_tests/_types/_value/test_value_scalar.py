@@ -17,7 +17,7 @@ value = _hgraph.value  # Value types are in the value submodule
 try:
     Value = value.PlainValue
     ValueView = value.ValueView
-    ConstValueView = value.ConstValueView
+    View = value.View
 except AttributeError:
     pytest.skip("Value types not yet exposed in C++ extension", allow_module_level=True)
 
@@ -256,7 +256,7 @@ def test_checked_as_throws_on_mismatch(int_value):
 # =============================================================================
 
 def test_const_view_preserves_type_info(double_value):
-    """ConstValueView preserves type information."""
+    """View preserves type information."""
     cv = double_value.const_view()
     assert cv.schema is not None
 
@@ -288,11 +288,11 @@ def test_modification_reflects_in_original():
 
 
 def test_const_view_cannot_modify():
-    """ConstValueView provides read-only access."""
+    """View provides read-only access."""
     v = Value(42)
     cv = v.const_view()
     assert cv.as_int() == 42
-    # Note: ConstValueView doesn't have set methods
+    # Note: View doesn't have set methods
 
 
 # =============================================================================

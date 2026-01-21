@@ -22,7 +22,7 @@
  * double* p = v2.try_as<double>();
  *
  * // Get views
- * ValueView view = v1.view();
+ * View view = v1.view();
  * view.as<int64_t>() = 100;
  *
  * // Python interop
@@ -106,7 +106,7 @@ public:
      *
      * @param view The view to copy from
      */
-    explicit Value(const ConstValueView& view)
+    explicit Value(const View& view)
         : _schema(view.schema()) {
         if (view.valid()) {
             _storage.construct(_schema);
@@ -168,7 +168,7 @@ public:
      * @param view The view to copy from
      * @return A new Value containing a copy of the data
      */
-    [[nodiscard]] static Value copy(const ConstValueView& view) {
+    [[nodiscard]] static Value copy(const View& view) {
         return Value(view);
     }
 
@@ -206,27 +206,27 @@ public:
      *
      * @return Mutable view
      */
-    [[nodiscard]] ValueView view() {
+    [[nodiscard]] View view() {
         if constexpr (policy_traits<Policy>::has_python_cache) {
             this->invalidate_cache();
         }
-        return ValueView(_storage.data(), _schema);
+        return View(_storage.data(), _schema);
     }
 
     /**
      * @brief Get a const view of the data.
      * @return Const view
      */
-    [[nodiscard]] ConstValueView view() const {
-        return ConstValueView(_storage.data(), _schema);
+    [[nodiscard]] View view() const {
+        return View(_storage.data(), _schema);
     }
 
     /**
      * @brief Get a const view of the data (explicit const version).
      * @return Const view
      */
-    [[nodiscard]] ConstValueView const_view() const {
-        return ConstValueView(_storage.data(), _schema);
+    [[nodiscard]] View const_view() const {
+        return View(_storage.data(), _schema);
     }
 
     // ========== Specialized View Access ==========
@@ -443,7 +443,7 @@ public:
     /**
      * @brief Check equality with a view.
      */
-    [[nodiscard]] bool equals(const ConstValueView& other) const {
+    [[nodiscard]] bool equals(const View& other) const {
         return const_view().equals(other);
     }
 
@@ -566,11 +566,11 @@ using TSValue = Value<CombinedPolicy<WithPythonCache, WithModificationTracking>>
 using ValidatedValue = Value<WithValidation>;
 
 // ============================================================================
-// ConstValueView::clone Implementation
+// View::clone Implementation
 // ============================================================================
 
 template<typename Policy>
-Value<Policy> ConstValueView::clone() const {
+Value<Policy> View::clone() const {
     return Value<Policy>(*this);
 }
 
@@ -636,7 +636,7 @@ bool SetView::erase(const T& value) {
 
 // ConstMapView::at<K>
 template<typename K>
-ConstValueView ConstMapView::at(const K& key) const {
+View ConstMapView::at(const K& key) const {
     Value<> temp(key);
     return at(temp.const_view());
 }
@@ -650,14 +650,14 @@ bool ConstMapView::contains(const K& key) const {
 
 // MapView::at<K> (const)
 template<typename K>
-ConstValueView MapView::at(const K& key) const {
+View MapView::at(const K& key) const {
     Value<> temp(key);
     return at(temp.const_view());
 }
 
 // MapView::at<K> (mutable)
 template<typename K>
-ValueView MapView::at(const K& key) {
+View MapView::at(const K& key) {
     Value<> temp(key);
     return at(temp.const_view());
 }
@@ -707,22 +707,22 @@ bool operator!=(const Value<P1>& lhs, const Value<P2>& rhs) {
 }
 
 template<typename P>
-bool operator==(const Value<P>& lhs, const ConstValueView& rhs) {
+bool operator==(const Value<P>& lhs, const View& rhs) {
     return lhs.equals(rhs);
 }
 
 template<typename P>
-bool operator==(const ConstValueView& lhs, const Value<P>& rhs) {
+bool operator==(const View& lhs, const Value<P>& rhs) {
     return rhs.equals(lhs);
 }
 
 template<typename P>
-bool operator!=(const Value<P>& lhs, const ConstValueView& rhs) {
+bool operator!=(const Value<P>& lhs, const View& rhs) {
     return !lhs.equals(rhs);
 }
 
 template<typename P>
-bool operator!=(const ConstValueView& lhs, const Value<P>& rhs) {
+bool operator!=(const View& lhs, const Value<P>& rhs) {
     return !rhs.equals(lhs);
 }
 
@@ -742,10 +742,10 @@ struct hash<hgraph::value::Value<Policy>> {
     }
 };
 
-/// Hash specialization for ConstValueView
+/// Hash specialization for View
 template<>
-struct hash<hgraph::value::ConstValueView> {
-    size_t operator()(const hgraph::value::ConstValueView& v) const {
+struct hash<hgraph::value::View> {
+    size_t operator()(const hgraph::value::View& v) const {
         return v.hash();
     }
 };

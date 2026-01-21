@@ -938,11 +938,11 @@ def test_navigate_special_characters_in_field_name(type_registry, int_schema):
 
 
 # =============================================================================
-# Section 10.7: ConstValueView and ValueView navigate methods
+# Section 10.7: View and ValueView navigate methods
 # =============================================================================
 
 def test_const_view_navigate(simple_bundle_schema):
-    """ConstValueView.navigate() works correctly."""
+    """View.navigate() works correctly."""
     v = PlainValue(simple_bundle_schema)
     bv = v.as_bundle()
     bv.set("x", 42)

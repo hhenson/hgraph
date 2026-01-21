@@ -162,7 +162,7 @@ namespace hgraph
         return dynamic_cast<TimeSeriesDictOutputImpl &>(*output());
     }
 
-    void TsdMapNode::create_new_graph(const value::ConstValueView &key) {
+    void TsdMapNode::create_new_graph(const value::View &key) {
         // Convert key to string for graph label
         nb::object py_key = key_type_meta_->ops->to_python(key.data(), key_type_meta_);
         std::string key_str = nb::repr(py_key).c_str();
@@ -193,7 +193,7 @@ namespace hgraph
         scheduled_keys_.emplace(key.clone(), last_evaluation_time());
     }
 
-    void TsdMapNode::remove_graph(const value::ConstValueView &key) {
+    void TsdMapNode::remove_graph(const value::View &key) {
         if (signature().capture_exception) {
             // Remove the error output associated to the graph if there is one
             auto &error_output_ = dynamic_cast<TimeSeriesDictOutputImpl &>(*error_output());
@@ -214,7 +214,7 @@ namespace hgraph
         stop_component(*graph);
     }
 
-    engine_time_t TsdMapNode::evaluate_graph(const value::ConstValueView &key) {
+    engine_time_t TsdMapNode::evaluate_graph(const value::View &key) {
         auto it = active_graphs_.find(key);
         if (it == active_graphs_.end()) {
             return MAX_DT;
@@ -248,7 +248,7 @@ namespace hgraph
         return next;
     }
 
-    void TsdMapNode::un_wire_graph(const value::ConstValueView &key, graph_s_ptr &graph) {
+    void TsdMapNode::un_wire_graph(const value::View &key, graph_s_ptr &graph) {
         for (const auto &[arg, node_ndx] : input_node_ids_) {
             auto node = graph->nodes()[node_ndx];
             if (arg != key_arg_) {
@@ -285,7 +285,7 @@ namespace hgraph
         }
     }
 
-    void TsdMapNode::wire_graph(const value::ConstValueView &key, graph_s_ptr &graph) {
+    void TsdMapNode::wire_graph(const value::View &key, graph_s_ptr &graph) {
         for (const auto &[arg, node_ndx] : input_node_ids_) {
             auto node{graph->nodes()[node_ndx]};
             node->notify();

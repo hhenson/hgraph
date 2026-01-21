@@ -23,7 +23,7 @@ TypeKind = value.TypeKind
 
 
 # =============================================================================
-# Helpers for current API (ConstValueView-based)
+# Helpers for current API (View-based)
 # =============================================================================
 
 def make_int_value(val):
@@ -156,7 +156,7 @@ def test_dynamic_list_initially_empty(dynamic_int_list_schema):
 
 # List TypeOps now implemented
 def test_list_push_back_native_type(dynamic_int_list_schema):
-    """ListView.push_back() with ConstValueView."""
+    """ListView.push_back() with View."""
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
 
@@ -174,7 +174,7 @@ def test_list_push_back_native_type(dynamic_int_list_schema):
 
 
 def test_list_push_back_with_value(dynamic_int_list_schema):
-    """ListView.push_back(ConstValueView) works with explicit wrapping."""
+    """ListView.push_back(View) works with explicit wrapping."""
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
 

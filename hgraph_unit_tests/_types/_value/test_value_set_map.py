@@ -73,7 +73,7 @@ def int_string_map_schema(type_registry, int_schema, string_schema):
 
 
 # =============================================================================
-# Helpers for current API (ConstValueView-based)
+# Helpers for current API (View-based)
 # =============================================================================
 
 def make_int_value(val):
@@ -144,7 +144,7 @@ def test_set_initially_empty(int_set_schema):
 # =============================================================================
 
 def test_set_insert_native_type(int_set_schema):
-    """SetView.insert() with ConstValueView."""
+    """SetView.insert() with View."""
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
@@ -191,7 +191,7 @@ def test_set_insert_duplicates_dont_increase_size(int_set_schema):
 
 
 def test_set_insert_with_value(int_set_schema):
-    """SetView.insert(ConstValueView) works with explicit wrapping."""
+    """SetView.insert(View) works with explicit wrapping."""
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
@@ -218,7 +218,7 @@ def test_set_insert_strings(string_set_schema):
 # =============================================================================
 
 def test_set_contains_native_type(int_set_schema):
-    """SetView.contains() with ConstValueView."""
+    """SetView.contains() with View."""
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
@@ -241,7 +241,7 @@ def test_set_contains_returns_false_for_missing(int_set_schema):
 
 
 def test_set_contains_with_value_view(int_set_schema):
-    """SetView.contains(ConstValueView) works."""
+    """SetView.contains(View) works."""
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
@@ -256,7 +256,7 @@ def test_set_contains_with_value_view(int_set_schema):
 # =============================================================================
 
 def test_set_erase_native_type(int_set_schema):
-    """SetView.erase() with ConstValueView."""
+    """SetView.erase() with View."""
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
@@ -410,7 +410,7 @@ def test_map_initially_empty(string_double_map_schema):
 # =============================================================================
 
 def test_map_set_native_types(string_double_map_schema):
-    """MapView.set() with ConstValueView key and value."""
+    """MapView.set() with View key and value."""
     v = PlainValue(string_double_map_schema)
     mv = v.as_map()
 
@@ -455,7 +455,7 @@ def test_map_set_with_value(string_double_map_schema):
 # =============================================================================
 
 def test_map_at_native_type(string_double_map_schema):
-    """MapView.at() with ConstValueView key."""
+    """MapView.at() with View key."""
     v = PlainValue(string_double_map_schema)
     mv = v.as_map()
 
@@ -469,7 +469,7 @@ def test_map_at_native_type(string_double_map_schema):
 
 
 def test_map_at_with_value_view(string_double_map_schema):
-    """MapView.at(ConstValueView) works."""
+    """MapView.at(View) works."""
     v = PlainValue(string_double_map_schema)
     mv = v.as_map()
 
@@ -530,7 +530,7 @@ def test_map_operator_bracket_inserts_default(string_double_map_schema):
 # =============================================================================
 
 def test_map_contains_native_type(string_double_map_schema):
-    """MapView.contains() with ConstValueView key."""
+    """MapView.contains() with View key."""
     v = PlainValue(string_double_map_schema)
     mv = v.as_map()
 
@@ -616,7 +616,7 @@ def test_map_insert_doesnt_overwrite(string_double_map_schema):
 # =============================================================================
 
 def test_map_erase_native_type(string_double_map_schema):
-    """MapView.erase() with ConstValueView key."""
+    """MapView.erase() with View key."""
     v = PlainValue(string_double_map_schema)
     mv = v.as_map()
 
@@ -631,7 +631,7 @@ def test_map_erase_native_type(string_double_map_schema):
 
     assert mv.size() == 2
 
-    # Erase using ConstValueView key
+    # Erase using View key
     mv.erase(k1.const_view())
 
     assert mv.size() == 1
@@ -750,7 +750,7 @@ def test_map_keys_iteration(string_double_map_schema):
     # Get const view for iteration
     cmv = v.const_view().as_map()
     key_set = cmv.keys()  # Returns ConstKeySetView
-    # Convert ConstValueView keys to Python strings for comparison
+    # Convert View keys to Python strings for comparison
     keys = [k.as_string() for k in key_set]
     assert sorted(keys) == ["apple", "banana"]
 
@@ -1154,7 +1154,7 @@ def test_keyset_contains(string_double_map_schema):
     cmv = v.const_view().as_map()
     key_set = cmv.keys()
 
-    # Check with ConstValueView
+    # Check with View
     k_apple = make_string_value("apple")
     k_banana = make_string_value("banana")
     assert key_set.contains(k_apple.const_view()) is True

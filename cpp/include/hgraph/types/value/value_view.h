@@ -2,17 +2,17 @@
 
 /**
  * @file value_view.h
- * @brief Non-owning view classes for the Value type system.
+ * @brief Non-owning view class for the Value type system.
  *
- * Views provide access to Value data without ownership. ConstValueView provides
- * read-only access, while ValueView provides mutable access. Both support:
+ * View provides access to Value data without ownership. Const correctness
+ * is handled through const/non-const methods, not separate classes.
  *
  * - Type kind queries (is_scalar, is_bundle, is_list, etc.)
  * - Type-safe value access (as<T>, try_as<T>, checked_as<T>)
  * - Conversion to specialized views (as_bundle, as_list, etc.)
  * - Python interop (to_python, from_python)
  *
- * Views are lightweight (two pointers) and are designed to be passed by value.
+ * Views are lightweight (three pointers) and are designed to be passed by value.
  */
 
 #include <hgraph/types/value/type_meta.h>
@@ -46,41 +46,50 @@ template<typename Policy>
 class Value;
 
 // ============================================================================
-// ConstValueView - Non-owning Const View
+// View - Non-owning View
 // ============================================================================
 
 /**
- * @brief Non-owning const view into a Value.
+ * @brief Non-owning view into a Value.
  *
- * ConstValueView provides read-only access to value data. It stores a pointer
- * to the data and the type schema. Views are lightweight and should be passed
- * by value.
+ * View provides access to value data. It stores a pointer to the data and the
+ * type schema. Views are lightweight and should be passed by value. Const
+ * correctness is handled through const methods, not separate classes.
  *
  * A view is "valid" when both the data pointer and schema are non-null.
  * Operations on invalid views have undefined behavior in release builds;
  * debug builds assert validity.
  */
-class ConstValueView {
+class View {
 public:
     // ========== Construction ==========
 
     /// Default constructor - creates an invalid view
-    ConstValueView() noexcept = default;
+    View() noexcept = default;
 
     /**
-     * @brief Construct a view from data and schema.
+     * @brief Construct a view from const data and schema.
      *
-     * @param data Pointer to the value data
+     * @param data Pointer to the value data (const)
      * @param schema The type schema
      */
-    ConstValueView(const void* data, const TypeMeta* schema) noexcept
+    View(const void* data, const TypeMeta* schema) noexcept
+        : _data(const_cast<void*>(data)), _schema(schema) {}
+
+    /**
+     * @brief Construct a view from mutable data and schema.
+     *
+     * @param data Pointer to the value data (mutable)
+     * @param schema The type schema
+     */
+    View(void* data, const TypeMeta* schema) noexcept
         : _data(data), _schema(schema) {}
 
     /// Copy constructor
-    ConstValueView(const ConstValueView&) noexcept = default;
+    View(const View&) noexcept = default;
 
     /// Copy assignment
-    ConstValueView& operator=(const ConstValueView&) noexcept = default;
+    View& operator=(const View&) noexcept = default;
 
     // ========== Validity ==========
 
@@ -209,10 +218,10 @@ public:
         return valid() && _schema == scalar_type_meta<T>();
     }
 
-    // ========== Scalar Type Access ==========
+    // ========== Scalar Type Access (Const) ==========
 
     /**
-     * @brief Get the value as type T (debug assertion).
+     * @brief Get the value as type T (debug assertion, const).
      *
      * Zero overhead in release builds. Asserts validity and type match
      * in debug builds.
@@ -228,7 +237,20 @@ public:
     }
 
     /**
-     * @brief Try to get the value as type T.
+     * @brief Get the value as type T (debug assertion, mutable).
+     *
+     * @tparam T The expected type
+     * @return Mutable reference to the value
+     */
+    template<typename T>
+    [[nodiscard]] T& as() {
+        assert(valid() && "as<T>() on invalid view");
+        assert(is_scalar_type<T>() && "as<T>() type mismatch");
+        return *static_cast<T*>(_data);
+    }
+
+    /**
+     * @brief Try to get the value as type T (const).
      *
      * Safe access that returns nullptr on type mismatch.
      *
@@ -241,7 +263,18 @@ public:
     }
 
     /**
-     * @brief Get the value as type T (throwing).
+     * @brief Try to get the value as type T (mutable).
+     *
+     * @tparam T The expected type
+     * @return Mutable pointer to the value, or nullptr if type doesn't match
+     */
+    template<typename T>
+    [[nodiscard]] T* try_as() noexcept {
+        return is_scalar_type<T>() ? static_cast<T*>(_data) : nullptr;
+    }
+
+    /**
+     * @brief Get the value as type T (throwing, const).
      *
      * Throws on invalid view or type mismatch. Use at API boundaries.
      *
@@ -258,6 +291,24 @@ public:
             throw std::runtime_error("checked_as<T>() type mismatch");
         }
         return *static_cast<const T*>(_data);
+    }
+
+    /**
+     * @brief Get the value as type T (throwing, mutable).
+     *
+     * @tparam T The expected type
+     * @return Mutable reference to the value
+     * @throws std::runtime_error if invalid or type mismatch
+     */
+    template<typename T>
+    [[nodiscard]] T& checked_as() {
+        if (!valid()) {
+            throw std::runtime_error("checked_as<T>() on invalid view");
+        }
+        if (!is_scalar_type<T>()) {
+            throw std::runtime_error("checked_as<T>() type mismatch");
+        }
+        return *static_cast<T*>(_data);
     }
 
     // ========== Specialized View Conversions (Safe) ==========
@@ -358,10 +409,18 @@ public:
     // ========== Raw Access ==========
 
     /**
-     * @brief Get the raw data pointer.
+     * @brief Get the raw data pointer (const).
      * @return Const pointer to the data
      */
     [[nodiscard]] const void* data() const noexcept {
+        return _data;
+    }
+
+    /**
+     * @brief Get the raw data pointer (mutable).
+     * @return Mutable pointer to the data
+     */
+    [[nodiscard]] void* data() noexcept {
         return _data;
     }
 
@@ -375,7 +434,7 @@ public:
      * @param other The view to compare against
      * @return true if the values are equal
      */
-    [[nodiscard]] bool equals(const ConstValueView& other) const {
+    [[nodiscard]] bool equals(const View& other) const {
         if (!valid() || !other.valid()) return false;
         if (_schema != other._schema) return false;
         return _schema->ops->equals(_data, other._data, _schema);
@@ -427,110 +486,6 @@ public:
      */
     template<typename Policy = NoCache>
     [[nodiscard]] Value<Policy> clone() const;
-
-protected:
-    const void* _data{nullptr};
-    const TypeMeta* _schema{nullptr};
-};
-
-// ============================================================================
-// ValueView - Non-owning Mutable View
-// ============================================================================
-
-/**
- * @brief Non-owning mutable view into a Value.
- *
- * ValueView extends ConstValueView with mutable access. It stores both a
- * const and mutable pointer to the same data, allowing inheritance of const
- * operations while adding mutable ones.
- */
-class ValueView : public ConstValueView {
-public:
-    // ========== Construction ==========
-
-    /// Default constructor - creates an invalid view
-    ValueView() noexcept = default;
-
-    /**
-     * @brief Construct a mutable view from data and schema.
-     *
-     * @param data Pointer to the value data
-     * @param schema The type schema
-     */
-    ValueView(void* data, const TypeMeta* schema) noexcept
-        : ConstValueView(data, schema), _mutable_data(data) {}
-
-    /// Copy constructor
-    ValueView(const ValueView&) noexcept = default;
-
-    /// Copy assignment
-    ValueView& operator=(const ValueView&) noexcept = default;
-
-    // ========== Mutable Data Access ==========
-
-    /**
-     * @brief Get the mutable data pointer.
-     * @return Mutable pointer to the data
-     */
-    [[nodiscard]] void* data() noexcept {
-        return _mutable_data;
-    }
-
-    // Bring const version into scope
-    using ConstValueView::data;
-
-    // ========== Mutable Scalar Type Access ==========
-
-    /**
-     * @brief Get the value as type T (debug assertion, mutable).
-     *
-     * @tparam T The expected type
-     * @return Mutable reference to the value
-     */
-    template<typename T>
-    [[nodiscard]] T& as() {
-        assert(valid() && "as<T>() on invalid view");
-        assert(is_scalar_type<T>() && "as<T>() type mismatch");
-        return *static_cast<T*>(_mutable_data);
-    }
-
-    // Bring const version into scope
-    using ConstValueView::as;
-
-    /**
-     * @brief Try to get the value as type T (mutable).
-     *
-     * @tparam T The expected type
-     * @return Mutable pointer to the value, or nullptr if type doesn't match
-     */
-    template<typename T>
-    [[nodiscard]] T* try_as() noexcept {
-        return is_scalar_type<T>() ? static_cast<T*>(_mutable_data) : nullptr;
-    }
-
-    // Bring const version into scope
-    using ConstValueView::try_as;
-
-    /**
-     * @brief Get the value as type T (throwing, mutable).
-     *
-     * @tparam T The expected type
-     * @return Mutable reference to the value
-     * @throws std::runtime_error if invalid or type mismatch
-     */
-    template<typename T>
-    [[nodiscard]] T& checked_as() {
-        if (!valid()) {
-            throw std::runtime_error("checked_as<T>() on invalid view");
-        }
-        if (!is_scalar_type<T>()) {
-            throw std::runtime_error("checked_as<T>() type mismatch");
-        }
-        return *static_cast<T*>(_mutable_data);
-    }
-
-    // Bring const version into scope
-    using ConstValueView::checked_as;
 
     // ========== Specialized Mutable View Conversions (Safe) ==========
 
@@ -637,17 +592,15 @@ public:
      * @param other The source view
      * @throws std::runtime_error if schemas don't match
      */
-    void copy_from(const ConstValueView& other) {
+    void copy_from(const View& other) {
         if (!valid() || !other.valid()) {
             throw std::runtime_error("copy_from with invalid view");
         }
         if (_schema != other.schema()) {
             throw std::runtime_error("copy_from schema mismatch");
         }
-        _schema->ops->copy_assign(_mutable_data, other.data(), _schema);
+        _schema->ops->copy_assign(_data, other.data(), _schema);
     }
-
-    // ========== Python Interop ==========
 
     /**
      * @brief Set the value from a Python object.
@@ -656,22 +609,15 @@ public:
      */
     void from_python(const nb::object& src) {
         assert(valid() && "from_python() on invalid view");
-        _schema->ops->from_python(_mutable_data, src, _schema);
+        _schema->ops->from_python(_data, src, _schema);
     }
 
     // ========== Root Tracking ==========
-
-    // NOTE(type-safety): The set_root/root methods use void* for type erasure,
-    // which loses the Policy template parameter type information. If set_root<PolicyA>()
-    // is called and root<PolicyB>() is later called with a different policy,
-    // undefined behavior results. Users must ensure Policy consistency.
 
     /**
      * @brief Set the root Value for notification chains.
      *
      * This is used for TSValue to track modifications to nested views.
-     *
-     * @warning The Policy type must match between set_root and root calls.
      *
      * @param root Pointer to the owning Value
      */
@@ -683,8 +629,6 @@ public:
     /**
      * @brief Get the root Value.
      *
-     * @warning The Policy type must match the Policy used in set_root.
-     *
      * @return Pointer to the owning Value, or nullptr
      */
     template<typename Policy = NoCache>
@@ -692,8 +636,9 @@ public:
         return static_cast<Value<Policy>*>(_root);
     }
 
-private:
-    void* _mutable_data{nullptr};
+protected:
+    void* _data{nullptr};
+    const TypeMeta* _schema{nullptr};
     void* _root{nullptr};  // Optional, for notification chains
 };
 
@@ -704,14 +649,14 @@ private:
 /**
  * @brief Equality comparison for views.
  */
-inline bool operator==(const ConstValueView& lhs, const ConstValueView& rhs) {
+inline bool operator==(const View& lhs, const View& rhs) {
     return lhs.equals(rhs);
 }
 
 /**
  * @brief Inequality comparison for views.
  */
-inline bool operator!=(const ConstValueView& lhs, const ConstValueView& rhs) {
+inline bool operator!=(const View& lhs, const View& rhs) {
     return !lhs.equals(rhs);
 }
 

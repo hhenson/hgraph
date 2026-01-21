@@ -17,7 +17,7 @@ value = _hgraph.value  # Value types are in the value submodule
 try:
     Value = value.PlainValue
     ValueView = value.ValueView
-    ConstValueView = value.ConstValueView
+    View = value.View
 except AttributeError:
     pytest.skip("Value types not yet exposed in C++ extension", allow_module_level=True)
 

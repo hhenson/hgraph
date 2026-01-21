@@ -228,6 +228,10 @@ struct TypeMeta {
     TypeFlags flags;          ///< Capability flags
     const TypeOps* ops;       ///< Type-erased operations vtable
 
+    // ========== Human-Readable Name ==========
+
+    const char* name{nullptr};         ///< Human-readable type name (owned by TypeRegistry string pool)
+
     // ========== Composite Type Information ==========
 
     const TypeMeta* element_type;      ///< List/Set element type, Map value type
@@ -238,6 +242,25 @@ struct TypeMeta {
     // ========== Fixed-Size Collection Information ==========
 
     size_t fixed_size;                 ///< 0 = dynamic, >0 = fixed capacity
+
+    // ========== Static Lookup Methods ==========
+
+    /**
+     * @brief Look up a TypeMeta by name.
+     *
+     * @param type_name The human-readable type name (e.g., "int", "str", "bool")
+     * @return Pointer to the TypeMeta, or nullptr if not found
+     */
+    static const TypeMeta* get(const std::string& type_name);
+
+    /**
+     * @brief Look up a TypeMeta by C++ type.
+     *
+     * @tparam T The C++ type
+     * @return Pointer to the TypeMeta, or nullptr if not registered
+     */
+    template<typename T>
+    static const TypeMeta* get();
 
     // ========== Query Methods ==========
 
