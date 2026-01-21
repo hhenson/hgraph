@@ -85,6 +85,7 @@ class BoundTimeSeriesReference(TimeSeriesReference):
         reactivate = False
         if input_.bound and not input_.has_peer:
             reactivate = input_.active
+            if reactivate: input_.make_passive()
             input_.un_bind_output()
 
         input_.bind_output(self.output)
@@ -130,6 +131,7 @@ class UnBoundTimeSeriesReference(TimeSeriesReference):
         reactivate = False
         if input_.bound and input_.has_peer:
             reactivate = input_.active
+            if reactivate: input_.make_passive()
             input_.un_bind_output()
 
         for item, r in zip(input_, self.items):

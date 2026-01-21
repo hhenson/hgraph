@@ -73,9 +73,10 @@ def convert_tsb_from_cs(
     to: type[OUT] = DEFAULT[OUT],
     tp_: type[TS_SCHEMA] = AUTO_RESOLVE,
 ) -> TSB[TS_SCHEMA]:
-    as_dict = ts.value.to_dict()
+    value = ts.value
+    as_dict = value.to_dict()
     return {
-        k: v
+        k: getattr(value, k)
         for k, v in as_dict.items()
         if k in tp_.__meta_data_schema__
     }

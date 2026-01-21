@@ -148,8 +148,8 @@ def sql_write_adaptor_raw_impl(
 
                 start = time.perf_counter_ns()
                 rows = data.write_database(table, connection=autocommit_connection, if_table_exists=mode.value)
-                period = time_str((time.perf_counter_ns() - start) / 1_000_000_000)
-                logger.info(f"finished writing {rows} rows to table {table} in {period}")
+                period = (time.perf_counter_ns() - start) / 1_000_000_000
+                logger.info(f"finished writing {rows} rows to table {table} in {period}s")
                 tick = {
                     id: {
                         "status": StreamStatus.OK,
@@ -161,8 +161,8 @@ def sql_write_adaptor_raw_impl(
                 queue(tick)
         except Exception as e:
             error = {id: {"status": StreamStatus.ERROR, "status_msg": str(e)}}
-            period = time_str((time.perf_counter_ns() - start) / 1_000_000_000) if start else "0s"
-            logger.exception(f"writing to table {table} failed after {period} with {str(e)}")
+            period = ((time.perf_counter_ns() - start) / 1_000_000_000) if start else "0"
+            logger.exception(f"writing to table {table} failed after {period}s with {str(e)}")
             queue(error)
 
     @sink_node

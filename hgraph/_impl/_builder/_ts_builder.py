@@ -68,7 +68,7 @@ class PythonInputBuilder:
                 f"Input instance still has an output reference when released, this is a bug. {item}"
             )
 
-            item._parent_or_node = None
+            # item._parent_or_node = None
 
 
 class PythonTSOutputBuilder(PythonOutputBuilder, TSOutputBuilder):

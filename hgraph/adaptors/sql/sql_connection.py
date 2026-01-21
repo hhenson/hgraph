@@ -12,7 +12,7 @@ from sqlalchemy import create_engine, QueuePool, event
 from hgraph import generator, STATE, TS
 
 
-__all__ = ['SqlAdaptorConnection', 'SqlAdaptorConnectionSQLServer', 'SqlAdaptorConnectionSnowflake', 'start_sql_adaptor']
+__all__ = ['SqlAdaptorConnection', 'SqlAdaptorConnectionSQLServer', 'SqlAdaptorConnectionSnowflake', 'start_sql_adaptor', 'get_secret']
 
 class SqlAdaptorConnection:
     ...
@@ -24,7 +24,7 @@ class SqlAdaptorConnectionSQLServer(SqlAdaptorConnection):
         self.path = path
         self.connection = create_engine(path, **connection_params)
         
-        if os.name != "nt":
+        if os.name != "nt" and "mssql" in path:
             @event.listens_for(self.connection, "reset")
             def _rollback_mssql(connection, connection_record, reset_state):
                 if not reset_state.terminate_only:

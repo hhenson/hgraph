@@ -6,6 +6,12 @@ from frozendict import frozendict
 from hgraph.stream.stream import reduce_statuses, reduce_status_messages
 from hgraph.adaptors.data_catalogue import DataCatalogue, DataCatalogueEntry, DataSink
 from hgraph import (
+    all_,
+    emit,
+    if_true,
+    last_modified_time,
+    len_,
+    log_,
     operator,
     TS,
     Frame,
@@ -34,6 +40,8 @@ from hgraph import (
     TSS,
     max_,
     CompoundScalar,
+    filter_,
+    sample,
 )
 from hgraph.stream.stream import Stream, Data, StreamStatus
 
@@ -106,21 +114,39 @@ def publish_dict(
     dces_and_options = find_data_catalogue_entries(_tp, dataset, __options__)
     error = exception_time_series(dces_and_options)
 
-    out = map_(
-        lambda key, d: publish_adaptor[_tp](dce=key.dce, options=key.options, data=d), d=data, __keys__=dces_and_options
-    )
-
+    _schema = _tp
     return if_then_else(
-        valid(error),
-        combine[TSB[Stream[Data[datetime]]]](status=StreamStatus.ERROR, status_msg=error.error_msg),
-        combine[TSB[Stream[Data[datetime]]]](
-            status=reduce_statuses(out.status),
-            status_msg=reduce_status_messages(out.status_msg),
-            values=max_(out.values),
-        ),
+                    valid(error),
+                    combine[TSB[Stream[Data[datetime]]]](status=StreamStatus.ERROR, status_msg=error.error_msg),
+                    switch_(len_(dces_and_options), {
+                        0: lambda dce, d: combine[TSB[Stream[Data[datetime]]]](status=StreamStatus.ERROR, status_msg="no sinks found in the data catalogue"),
+                        1: lambda dce, d: _publish_one(emit(dce), d, _schema),
+                        DEFAULT: lambda dce, d: _publish_many(dce, d, _schema),
+                    }, dce=dces_and_options, d=data)
     )
 
+@graph
+def _publish_one(dce: TS[DataCatalogSinkResult], data: TS[Frame[SCHEMA]], _schema: type[SCHEMA]) -> TSB[Stream[Data[datetime]]]:
+    return publish_adaptor[_schema](dce=dce.dce, options=dce.options, data=data)
 
+
+@graph
+def _publish_many(dces: TSS[DataCatalogSinkResult], data: TS[Frame[SCHEMA]], _schema: type[SCHEMA]) -> TSB[Stream[Data[datetime]]]:
+    out = map_(
+        lambda key, d: publish_adaptor[_schema](dce=key.dce, options=key.options, data=d),
+        d=data,
+        __keys__=dces,
+    )
+    
+    done = all_(map_(lambda o, t: last_modified_time(o) > t, out, last_modified_time(data)))
+    
+    return sample(if_true(done), combine[TSB[Stream[Data[datetime]]]](
+        status=reduce_statuses(out.status),
+        status_msg=reduce_status_messages(out.status_msg),
+        values=max_(out.values),
+    ))
+    
+    
 @service_adaptor
 def publish_adaptor(
     dce: TS[DataCatalogueEntry],
