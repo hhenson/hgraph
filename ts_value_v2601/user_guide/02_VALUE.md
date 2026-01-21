@@ -61,6 +61,54 @@ Newly constructed values have default state:
 | Set | Empty |
 | Map | Empty |
 
+### Null Values
+
+Values can represent null (None) using `std::optional`-style semantics. Unlike a simple "no value" state, Value maintains a **typed null** - the schema is always preserved even when null.
+
+```cpp
+// Create a typed null value (has schema, but no data)
+Value null_int(TypeMeta::get("int"));
+assert(!null_int.has_value());           // Is null
+assert(null_int.meta()->name() == "int"); // But schema is accessible
+
+// Emplace to construct a value (makes non-null)
+null_int.emplace();  // Default constructs (0 for int)
+assert(null_int.has_value());
+
+// Check for null
+if (value.has_value()) {
+    // Safe to access data
+    View v = value.view();
+}
+
+// Boolean context
+if (value) {
+    // Has a value
+}
+
+// Make existing value null (preserves schema)
+value.reset();
+```
+
+**Python Interop:**
+
+```cpp
+// Null Value converts to Python None
+Value null_val(TypeMeta::get("int"));
+nb::object py = null_val.to_python();  // Returns nb::none()
+
+// Python None converts to null Value
+value.from_python(nb::none());  // Calls reset(), makes value null
+```
+
+**Key Points:**
+
+- A Value always has a schema - type information is never lost
+- `meta()` is always safe to call, even on a null Value
+- `data()` and `view()` throw `std::bad_optional_access` when null
+- `reset()` makes the value null but preserves the schema
+- `emplace()` constructs a default value, making it non-null
+
 ---
 
 ## View: Accessing Values
