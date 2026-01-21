@@ -2,10 +2,28 @@
 
 ## Overview
 
-Delta tracking provides efficient access to changes:
-- **DeltaView**: Type-erased view of changes
-- **DeltaValue**: Stored delta representation
-- **Computed Delta**: Delta derived from timestamps
+Delta tracking provides efficient access to changes. The design supports **two forms of delta**:
+
+| Form | Backing | Lifetime | Use Case |
+|------|---------|----------|----------|
+| **Computed** | DeltaTracker, timestamps, storage state | Current tick only | In-process evaluation |
+| **Persistent** | DeltaValue (owned storage) | Beyond tick | Serialization, transmission, replay |
+
+Both forms are accessed through a unified **DeltaView** interface, which provides kind-specific delta operations regardless of backing.
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                        DeltaView                                │
+│         Unified interface for delta operations                  │
+├─────────────────────────────────────────────────────────────────┤
+│  Backing::COMPUTED          │  Backing::STORED                  │
+│  ─────────────────          │  ───────────────                  │
+│  • DeltaTracker slots       │  • DeltaValue storage             │
+│  • TimeArray timestamps     │  • Copied/owned data              │
+│  • Live storage references  │  • Self-contained                 │
+│  • Ephemeral (tick scope)   │  • Persistent                     │
+└─────────────────────────────┴───────────────────────────────────┘
+```
 
 ## Delta Concepts
 
@@ -13,89 +31,132 @@ Delta tracking provides efficient access to changes:
 
 A delta represents the change to a time-series value during the current tick:
 - For scalars: the new value (full replacement)
-- For TSL: added/removed elements
-- For TSD: added/removed/modified keys
+- For TSB: updated fields
+- For TSL: updated elements (by index)
+- For TSD: added/removed/updated key-value pairs
 - For TSS: added/removed elements
 
 ### Delta vs Value
 
 ```
-TSValue (cumulative)     Delta (change)
-─────────────────────    ─────────────────
-[1, 2, 3, 4, 5]         added: [4, 5]
-                        removed: []
+TSS (Set):
+  Value: {a, b, c, d}       Delta: added={c, d}, removed={x}
+
+TSD (Dict):
+  Value: {k1→v1, k2→v2}     Delta: added={k2→v2}, updated={k1→v1'}, removed={k3→v3}
+
+TSL (List):
+  Value: [v0, v1, v2]       Delta: updated={0→v0', 2→v2'}  (indices that changed)
+
+TSB (Bundle):
+  Value: {.a=1, .b=2}       Delta: updated={.b}  (fields that changed)
 ```
+
+### Two Delta Forms
+
+**Computed Delta** (ephemeral):
+- Derived from live storage state (DeltaTracker, timestamps)
+- References storage directly via slot indices
+- Valid only during current tick
+- Zero-copy - no data duplication
+- Used for in-process graph evaluation
+
+**Persistent Delta** (DeltaValue):
+- Self-contained storage with copied data
+- Owns its added/removed element data
+- Valid beyond the tick
+- Used for serialization, network transmission, replay, logging
 
 ## DeltaView
 
 ### Purpose
-Type-erased access to delta information. Can be backed by either stored data (DeltaValue) or computed on-the-fly from timestamps.
+Type-erased **unified interface** for delta operations. Abstracts over both computed (ephemeral) and stored (persistent) delta forms, allowing consumers to work with deltas without knowing the backing.
 
 ### Structure
 
 ```cpp
 class DeltaView {
-    // Backing can be stored or computed
     enum class Backing { STORED, COMPUTED };
 
     Backing backing_;
     union {
         struct {
-            void* delta_data_;          // For STORED: pointer to DeltaValue data
-            const delta_ops* ops_;
+            const void* delta_data_;        // DeltaValue storage
+            const delta_ops* ops_;          // Type-specific ops
         } stored;
         struct {
-            const TSValue* ts_value_;   // For COMPUTED: source TSValue
-            engine_time_t tick_time_;   // Time to compare against
+            const void* ts_storage_;        // TSSStorage/TSDStorage/etc.
+            const ts_delta_ops* ops_;       // Computed delta ops
+            engine_time_t tick_time_;       // Reference time for "modified"
         } computed;
     };
     const TSMeta* meta_;
 
 public:
-    // Common interface
+    // Common interface - works for both backings
     bool empty() const;
     size_t change_count() const;
+    Backing backing() const { return backing_; }
 
-    // Kind-specific access (via wrappers)
+    // Kind-specific wrappers (delegate to appropriate ops)
     DeltaScalarView as_scalar() const;
     DeltaTSLView as_list() const;
     DeltaTSDView as_dict() const;
     DeltaTSSView as_set() const;
 
     // Factory methods
-    static DeltaView from_stored(void* data, const delta_ops* ops, const TSMeta* meta);
-    static DeltaView from_computed(const TSValue* ts_value, engine_time_t tick_time, const TSMeta* meta);
+    static DeltaView from_stored(const DeltaValue& value, const TSMeta* meta);
+    static DeltaView from_computed(const void* ts_storage, const ts_delta_ops* ops,
+                                   engine_time_t tick_time, const TSMeta* meta);
+
+    // Convert computed → stored (materializes the delta)
+    DeltaValue materialize() const;
 };
 ```
 
-### Computed DeltaView
+### Unified Operations via delta_ops
 
-For types where delta can be derived from timestamps:
+The delta_ops vtable provides the same interface regardless of backing:
 
 ```cpp
-DeltaView DeltaView::from_computed(const TSValue* ts_value, engine_time_t tick_time, const TSMeta* meta) {
-    DeltaView dv;
-    dv.backing_ = Backing::COMPUTED;
-    dv.computed.ts_value_ = ts_value;
-    dv.computed.tick_time_ = tick_time;
-    dv.meta_ = meta;
-    return dv;
-}
+struct delta_ops {
+    // Common delta interface
+    bool (*empty)(const void* delta_source);
+    size_t (*change_count)(const void* delta_source);
 
-// TSL computed delta - find elements modified since tick_time
-class DeltaTSLView {
-    const TSValue* ts_value_;
-    engine_time_t tick_time_;
+    // For TSS/TSD: iteration over added/removed
+    ViewRange (*added)(const void* delta_source);
+    ViewRange (*removed)(const void* delta_source);
 
-public:
-    // Iterator yields indices of modified elements
-    auto modified_indices() const {
-        return ts_value_->elements()
-            | std::views::filter([this](const auto& elem) {
-                return elem.last_modified_time() >= tick_time_;
-            })
-            | std::views::transform([](const auto& elem) { return elem.index(); });
+    // For TSD: also updated (existing keys with new values)
+    ViewRange (*updated)(const void* delta_source, engine_time_t tick_time);
+};
+
+// Computed delta ops - reads from live storage
+struct tss_computed_delta_ops : delta_ops {
+    bool empty(const void* storage) override {
+        auto* tss = static_cast<const TSSStorage*>(storage);
+        return tss->delta().added().empty() && tss->delta().removed().empty();
     }
+    ViewRange added(const void* storage) override {
+        // Return range that iterates slots via DeltaTracker
+        auto* tss = static_cast<const TSSStorage*>(storage);
+        return make_slot_view_range(tss, tss->delta().added());
+    }
+    // ...
+};
+
+// Stored delta ops - reads from DeltaValue
+struct tss_stored_delta_ops : delta_ops {
+    bool empty(const void* data) override {
+        auto* delta = static_cast<const TSSDeltaValue*>(data);
+        return delta->added().empty() && delta->removed().empty();
+    }
+    ViewRange added(const void* data) override {
+        auto* delta = static_cast<const TSSDeltaValue*>(data);
+        return delta->added_range();  // Iterate owned storage
+    }
+    // ...
 };
 ```
 
@@ -103,197 +164,401 @@ public:
 
 | Kind | Wrapper | Interface |
 |------|---------|-----------|
-| Scalar | DeltaScalarView | new_value() |
-| TSL | DeltaTSLView | added(), removed(), modified_indices() |
-| TSD | DeltaTSDView | added_keys(), removed_keys(), modified_keys() |
-| TSS | DeltaTSSView | added(), removed() |
+| Scalar | DeltaScalarView | `new_value()` |
+| TSL | DeltaTSLView | `updated_indices()` |
+| TSB | DeltaTSBView | `updated_fields()` |
+| TSD | DeltaTSDView | `added()`, `removed()`, `updated()`, `removed_keys()` |
+| TSS | DeltaTSSView | `added()`, `removed()` |
 
-## DeltaValue
+**Note**: TSL and TSB only support **updated** - elements/fields are modified in place, not added or removed. TSS has add/remove. TSD has add/remove/updated.
+
+All wrappers work identically regardless of COMPUTED or STORED backing.
+
+## DeltaValue (Persistent Delta)
 
 ### Purpose
-Explicit storage for delta information when deltas cannot be computed from timestamps.
+Self-contained, owning storage for delta information. Used when delta must persist beyond the current tick (serialization, transmission, logging, replay).
 
 ### Structure
 
 ```cpp
+// Base class for all delta values
 class DeltaValue {
-    // TODO: Define fields
+protected:
+    const TSMeta* meta_;
 
-    // TypeMeta* meta_;
-    // void* delta_data_;
-    // engine_time_t tick_time_;
+public:
+    virtual ~DeltaValue() = default;
+    const TSMeta* meta() const { return meta_; }
+
+    // Type-specific delta values override these
+    virtual bool empty() const = 0;
+    virtual size_t change_count() const = 0;
+};
+
+// TSS delta value - SoA storage for added/removed elements
+class TSSDeltaValue : public DeltaValue {
+    // Parallel vectors (element-aligned, SoA layout)
+    std::vector<std::byte> added_;      // Added element values
+    std::vector<std::byte> removed_;    // Removed element values
+
+    size_t added_count_{0};
+    size_t removed_count_{0};
+
+public:
+    TSSDeltaValue(const TSMeta* meta);
+
+    // Construct from computed delta (copies data from live storage)
+    static TSSDeltaValue from_computed(const TSSStorage& storage);
+
+    bool empty() const override {
+        return added_count_ == 0 && removed_count_ == 0;
+    }
+    size_t change_count() const override {
+        return added_count_ + removed_count_;
+    }
+
+    // Element access
+    size_t added_count() const { return added_count_; }
+    size_t removed_count() const { return removed_count_; }
+
+    View added_at(size_t i) const;      // Element value
+    View removed_at(size_t i) const;    // Element value (for user queries)
+
+    // Iteration
+    ViewRange added() const;
+    ViewRange removed() const;
+
+    // Raw data for Arrow conversion
+    const std::byte* added_data() const { return added_.data(); }
+    const std::byte* removed_data() const { return removed_.data(); }
+};
+
+// TSD delta value - SoA storage for added/updated/removed key-value pairs
+class TSDDeltaValue : public DeltaValue {
+    // Parallel vectors per category (keys and values element-aligned)
+    std::vector<std::byte> added_keys_;
+    std::vector<std::byte> added_values_;
+
+    std::vector<std::byte> updated_keys_;
+    std::vector<std::byte> updated_values_;
+
+    std::vector<std::byte> removed_keys_;
+    std::vector<std::byte> removed_values_;   // Values captured for user queries
+
+    size_t added_count_{0};
+    size_t updated_count_{0};
+    size_t removed_count_{0};
+
+public:
+    TSDDeltaValue(const TSMeta* meta);
+
+    // Construct from computed delta (copies data from live storage)
+    static TSDDeltaValue from_computed(const TSDStorage& storage, engine_time_t tick_time);
+
+    bool empty() const override {
+        return added_count_ == 0 && updated_count_ == 0 && removed_count_ == 0;
+    }
+    size_t change_count() const override {
+        return added_count_ + updated_count_ + removed_count_;
+    }
+
+    // Counts
+    size_t added_count() const { return added_count_; }
+    size_t updated_count() const { return updated_count_; }
+    size_t removed_count() const { return removed_count_; }
+
+    // Element access (key, value pairs)
+    View added_key_at(size_t i) const;
+    View added_value_at(size_t i) const;
+
+    View updated_key_at(size_t i) const;
+    View updated_value_at(size_t i) const;
+
+    View removed_key_at(size_t i) const;
+    View removed_value_at(size_t i) const;  // For user queries
+
+    // Iteration
+    ViewPairRange added() const;      // Yields (key, value) pairs
+    ViewPairRange updated() const;    // Yields (key, value) pairs
+    ViewPairRange removed() const;    // Yields (key, value) pairs
+    ViewRange removed_keys() const;   // Keys only (for apply operations)
+
+    // Raw data for Arrow conversion (columnar access)
+    const std::byte* added_keys_data() const { return added_keys_.data(); }
+    const std::byte* added_values_data() const { return added_values_.data(); }
+    const std::byte* updated_keys_data() const { return updated_keys_.data(); }
+    const std::byte* updated_values_data() const { return updated_values_.data(); }
+    const std::byte* removed_keys_data() const { return removed_keys_.data(); }
+    const std::byte* removed_values_data() const { return removed_values_.data(); }
 };
 ```
 
-### When DeltaValue is Needed
-
-1. **TSD with removals**: Need to track which keys were removed
-2. **TSS**: Need to track added/removed elements explicitly
-3. **Complex compound deltas**: When nested changes need explicit tracking
-
-## Computed Delta
-
-### Purpose
-Delta derived from timestamp comparisons (no explicit storage).
-
-### Mechanism
+### Materializing Computed → Stored
 
 ```cpp
-DeltaView compute_delta(const TSValue& ts_value, engine_time_t current_time) {
-    // For TSL: compare each element's timestamp
-    // For TSB: compare each field's timestamp
-    // Return view of elements where time >= current_time
-}
-```
+DeltaValue DeltaView::materialize() const {
+    if (backing_ == Backing::STORED) {
+        // Already stored - clone the DeltaValue
+        return clone_delta_value(stored.delta_data_, meta_);
+    }
 
-### When Computation Works
-
-- TSL: Can compute modified elements by timestamp
-- TSB: Can compute modified fields by timestamp
-- Scalar: Delta is just the value itself
-
-### When Computation Fails
-
-- TSD: Cannot compute removed keys (they're gone)
-- TSS: Cannot compute removed elements (they're gone)
-
-## Delta Backing Strategies
-
-### Decision Matrix
-
-| TS Kind | Backing | Reason |
-|---------|---------|--------|
-| TS[T] (scalar) | Computed | Delta is just the value; check `modified()` |
-| TSB | Computed | Per-field timestamps enable computation |
-| TSL | Computed | Per-element timestamps; can find modified indices |
-| TSD | **Stored** | Cannot compute removed keys (they're gone) |
-| TSS | **Stored** | Cannot compute removed elements (they're gone) |
-| REF | Computed | Delta is reference change or target delta |
-
-**Key Insight**: Stored deltas are only needed when **removals** must be tracked. Once an element is removed, there's no timestamp to query - the data is gone.
-
-### Stored (DeltaValue)
-
-Used for TSD and TSS where removals must be tracked.
-
-#### TrackedSetStorage
-
-Combines the current value with delta tracking in a single structure:
-
-```cpp
-struct TrackedSetStorage {
-    PlainValue _value;            // Current set contents
-    PlainValue _added;            // Elements added this cycle
-    PlainValue _removed;          // Elements removed this cycle
-    const TypeMeta* _element_type{nullptr};
-    const TypeMeta* _set_schema{nullptr};
-
-    explicit TrackedSetStorage(const TypeMeta* element_type)
-        : _element_type(element_type) {
-        if (_element_type) {
-            _set_schema = TypeRegistry::instance().set(_element_type).build();
-            _value = PlainValue(_set_schema);
-            _added = PlainValue(_set_schema);
-            _removed = PlainValue(_set_schema);
+    // Computed - copy data from live storage into DeltaValue
+    switch (meta_->kind()) {
+        case TSKind::TSS: {
+            auto* tss = static_cast<const TSSStorage*>(computed.ts_storage_);
+            return TSSDeltaValue::from_computed(*tss);
         }
-    }
-};
-```
-
-#### Delta-Aware Mutation
-
-Mutations track deltas efficiently by canceling out add/remove within the same cycle:
-
-```cpp
-bool add(const ConstValueView& elem) {
-    if (contains(elem)) return false;
-
-    value().insert(elem);
-
-    // Track delta: if it was removed this cycle, just un-remove it
-    auto removed_view = _removed.view().as_set();
-    if (removed_view.contains(elem)) {
-        removed_view.erase(elem);  // Un-remove
-    } else {
-        _added.view().as_set().insert(elem);  // New addition
-    }
-    return true;
-}
-
-bool remove(const ConstValueView& elem) {
-    if (!contains(elem)) return false;
-
-    value().erase(elem);
-
-    // Track delta: if it was added this cycle, just un-add it
-    auto added_view = _added.view().as_set();
-    if (added_view.contains(elem)) {
-        added_view.erase(elem);  // Un-add
-    } else {
-        _removed.view().as_set().insert(elem);  // New removal
-    }
-    return true;
-}
-```
-
-**Key Insight**: Un-doing operations within the same cycle is efficient - just remove from delta sets rather than storing redundant add+remove pairs.
-
-#### SetDeltaValue
-
-Standalone delta value for serialization or transmission:
-
-```cpp
-struct SetDeltaValue {
-    PlainValue _added;
-    PlainValue _removed;
-    const TypeMeta* _element_type{nullptr};
-    const TypeMeta* _set_schema{nullptr};
-
-    // Construct from existing set views (copies data)
-    SetDeltaValue(ConstSetView added_view, ConstSetView removed_view,
-                  const TypeMeta* element_type);
-};
-```
-
-**Lifecycle**:
-- Cleared at start of tick
-- Populated during modifications
-- Queried by consumers via DeltaView
-
-### Death Time Markers for Delta
-
-Instead of separate delta storage, SetStorage/MapStorage embed a death time in each key entry:
-
-```cpp
-// Key entry: (key_data, death_time)
-// death_time == MIN_DT → alive
-// death_time != MIN_DT → dead at that time (preserved for delta queries)
-```
-
-#### Delta Query for Removed Keys
-
-Erased items are added to the end of the free list, enabling efficient delta queries:
-
-```cpp
-// Find keys removed this tick by walking free_list in reverse
-auto get_removed_this_tick(const SetStorage* storage, engine_time_t current_time) {
-    std::vector<size_t> removed;
-    for (auto it = storage->free_list.rbegin(); it != storage->free_list.rend(); ++it) {
-        if (storage->get_death_time(*it) == current_time) {
-            removed.push_back(*it);
-        } else {
-            break;  // Earlier removals - stop
+        case TSKind::TSD: {
+            auto* tsd = static_cast<const TSDStorage*>(computed.ts_storage_);
+            return TSDDeltaValue::from_computed(*tsd, computed.tick_time_);
         }
+        // ... other kinds
     }
-    return removed;
 }
+```
+
+### SoA Storage Layout
+
+DeltaValue uses **Struct of Arrays (SoA)** layout with keys and values in separate parallel vectors:
+
+```
+TSDDeltaValue:
+├── added_keys_[]      ─┐
+├── added_values_[]    ─┴─ Element-aligned (added_keys_[i] pairs with added_values_[i])
+├── updated_keys_[]    ─┐
+├── updated_values_[]  ─┴─ Element-aligned
+├── removed_keys_[]    ─┐
+└── removed_values_[]  ─┴─ Element-aligned
 ```
 
 **Benefits**:
-- No separate delta storage needed for removals
-- Dead keys preserved until slot reused (can still access key data for delta)
-- Efficient reverse traversal of free list finds this tick's removals
-- Death time tells exactly when each key was removed
+- Toll-free Arrow column conversion (`added_keys_.data()` → Arrow key column)
+- Cache-efficient iteration over keys only or values only
+- Natural fit for columnar serialization
+
+### Removed Values: Query vs Apply
+
+DeltaValue captures **both keys and values** for removed entries. This supports two use cases:
+
+| Use Case | Needs Values? | Example |
+|----------|---------------|---------|
+| **User query** | Yes | Logging: "key X with value Y was removed" |
+| **Apply operation** | No | Replay: "remove key X" (value not needed) |
+
+```cpp
+// User query - needs removed values
+for (size_t i = 0; i < delta.removed_count(); ++i) {
+    View key = delta.removed_key_at(i);
+    View value = delta.removed_value_at(i);
+    log("Removed: {} -> {}", key, value);
+}
+
+// Or via pair iteration
+for (auto [key, value] : delta.removed()) {
+    log("Removed: {} -> {}", key, value);
+}
+
+// Apply operation - only needs keys
+for (auto key : delta.removed_keys()) {
+    target.remove(key);  // Value not needed
+}
+```
+
+**Computed delta** can provide removed values during the tick (slot data still accessible), but this is **required** for user queries. When materializing to DeltaValue, values are always captured.
+
+### When to Use DeltaValue
+
+| Scenario | Use Computed | Use DeltaValue |
+|----------|--------------|----------------|
+| In-process graph evaluation | ✓ | |
+| Serialize delta to disk/network | | ✓ |
+| Delta needed after tick ends | | ✓ |
+| Replay/audit logging | | ✓ |
+| Cross-process delta transmission | | ✓ |
+| Memory-constrained (avoid copies) | ✓ | |
+
+## Computed Delta (Ephemeral)
+
+### Purpose
+Ephemeral delta derived from live storage state - either from **DeltaTracker** (for add/remove tracking) or **timestamp comparison** (for modified detection). No data copying; valid only during current tick.
+
+### Computation Sources
+
+| Source | What it provides | Used by |
+|--------|------------------|---------|
+| **DeltaTracker** | Slot indices of added/removed elements | TSS, TSD |
+| **TimeArray** | Per-slot timestamps for updated detection | TSD |
+| **Timestamp comparison** | Elements/fields where time >= tick_time | TSL, TSB |
+| **Value itself** | The new value is the delta | Scalar |
+
+**Note**: TSL and TSB only track **updated** elements/fields (no add/remove semantics). TSS tracks add/remove via DeltaTracker. TSD tracks add/remove via DeltaTracker, plus updated via TimeArray.
+
+### Creating Computed DeltaView
+
+```cpp
+// TSS: DeltaTracker provides add/remove
+DeltaView tss_delta(const TSSStorage& storage, engine_time_t tick_time) {
+    return DeltaView::from_computed(&storage, &tss_computed_delta_ops, tick_time, storage.meta());
+}
+
+// TSD: DeltaTracker + TimeArray
+DeltaView tsd_delta(const TSDStorage& storage, engine_time_t tick_time) {
+    return DeltaView::from_computed(&storage, &tsd_computed_delta_ops, tick_time, storage.meta());
+}
+
+// TSL: Timestamp comparison
+DeltaView tsl_delta(const TSLStorage& storage, engine_time_t tick_time) {
+    return DeltaView::from_computed(&storage, &tsl_computed_delta_ops, tick_time, storage.meta());
+}
+```
+
+### Characteristics
+
+- **Zero-copy**: References live storage via slot indices
+- **Ephemeral**: Invalid after tick ends (storage may change)
+- **Lazy**: Iteration happens on access, not creation
+- **Efficient**: No memory allocation for delta
+
+## Delta Backing Strategies
+
+### In-Process Evaluation (Computed)
+
+For in-process graph evaluation, **all** TS kinds use computed delta:
+
+| TS Kind | Computation Source | Delta Operations |
+|---------|-------------------|------------------|
+| TS[T] (scalar) | Value itself | updated only (delta = new value) |
+| TSB | Timestamp comparison | updated fields only |
+| TSL | Timestamp comparison | updated indices only |
+| TSD | DeltaTracker + TimeArray | added/removed/updated |
+| TSS | DeltaTracker | added/removed |
+| REF | Reference change | updated only |
+
+**Key Insight**: TSL/TSB only support "updated" - elements/fields change in place. TSS has add/remove. TSD has add/remove/updated via DeltaTracker + TimeArray.
+
+### Persistence/Transmission (DeltaValue)
+
+When delta must survive beyond the tick, **materialize** to DeltaValue:
+
+| TS Kind | DeltaValue Type | Contents |
+|---------|-----------------|----------|
+| TS[T] (scalar) | ScalarDeltaValue | Copy of new value |
+| TSB | TSBDeltaValue | Updated field values |
+| TSL | TSLDeltaValue | Updated elements (index + value) |
+| TSD | TSDDeltaValue | Added/updated/removed (keys + values) |
+| TSS | TSSDeltaValue | Added/removed elements |
+
+**Note**: Removed entries in DeltaValue include values (not just keys) for user query purposes.
+
+### When to Materialize
+
+```cpp
+// In-process: use computed (no copy)
+DeltaView delta = tss.delta();
+for (auto elem : delta.as_set().added()) { ... }
+
+// Need to persist: materialize (copies data)
+DeltaValue stored = delta.materialize();
+serialize(stored);  // Delta now owns its data
+```
+
+### DeltaTracker (Computed Delta for TSS/TSD)
+
+For TSS and TSD, **computed** delta tracking is handled by a **DeltaTracker** that observes the KeySet via the SlotObserver protocol (see `01_SCHEMA.md` and `03_TIME_SERIES.md`). This provides zero-copy delta during the tick.
+
+#### DeltaTracker Design
+
+DeltaTracker is a SlotObserver that records slot indices of added/removed elements per tick:
+
+```cpp
+class DeltaTracker : public SlotObserver {
+    std::vector<size_t> added_;      // Slots added this tick
+    std::vector<size_t> removed_;    // Slots removed this tick
+    const TypeMeta* key_meta_;       // For optional key copying
+
+public:
+    explicit DeltaTracker(const TypeMeta* key_meta) : key_meta_(key_meta) {}
+
+    void on_capacity(size_t, size_t) override { /* No-op */ }
+
+    void on_insert(size_t slot) override {
+        // If was removed this tick, cancel out; else add to added_
+        auto it = std::find(removed_.begin(), removed_.end(), slot);
+        if (it != removed_.end()) {
+            removed_.erase(it);  // Cancel removal
+        } else {
+            added_.push_back(slot);
+        }
+    }
+
+    void on_erase(size_t slot) override {
+        // If was added this tick, cancel out; else add to removed_
+        auto it = std::find(added_.begin(), added_.end(), slot);
+        if (it != added_.end()) {
+            added_.erase(it);  // Cancel addition
+        } else {
+            removed_.push_back(slot);
+        }
+    }
+
+    void on_clear() override {
+        // All existing slots become removed (unless added this tick)
+        added_.clear();
+        // removed_ = all previously alive slots (handled by caller)
+    }
+
+    // Tick lifecycle
+    void begin_tick() {
+        added_.clear();
+        removed_.clear();
+    }
+
+    // Delta access
+    const std::vector<size_t>& added() const { return added_; }
+    const std::vector<size_t>& removed() const { return removed_; }
+
+    bool was_added(size_t slot) const {
+        return std::find(added_.begin(), added_.end(), slot) != added_.end();
+    }
+
+    bool was_removed(size_t slot) const {
+        return std::find(removed_.begin(), removed_.end(), slot) != removed_.end();
+    }
+};
+```
+
+#### Key Design Decisions
+
+| Decision | Rationale |
+|----------|-----------|
+| **Observer pattern** | DeltaTracker observes KeySet; decoupled from core storage |
+| **Slot indices, not copies** | Slots are stable; can read key data via KeySet until slot reused |
+| **Add/remove cancellation** | Efficient handling of add-then-remove or remove-then-add in same tick |
+| **No tombstoning in KeySet** | Generation handles liveness; DeltaTracker handles delta |
+| **ts_ops layer concern** | Delta tracking is time-series semantics, not value-layer storage |
+
+#### Lifecycle
+
+1. **begin_tick()**: Clear added_/removed_ vectors
+2. **During tick**: on_insert/on_erase callbacks populate vectors
+3. **During evaluation**: Consumers query added()/removed() for delta
+4. **End of tick**: Vectors remain valid until next begin_tick()
+
+#### Accessing Removed Key Data
+
+Since KeySet doesn't tombstone (removed slots are marked dead via generation=0), the key data remains accessible until the slot is reused:
+
+```cpp
+// Safe to read key data during same tick as removal
+for (size_t slot : delta_tracker.removed()) {
+    // Key data still valid at slot (generation=0 but data not overwritten yet)
+    const void* key = key_set.key_at(slot);
+    // Use key data...
+}
+```
+
+**Note**: If key data must survive beyond the tick, DeltaTracker can optionally copy removed keys into a separate buffer.
 
 ### Computed (from timestamps)
 
@@ -345,12 +610,17 @@ public:
 
 ## TSS Delta Tracking
 
-### Added/Removed Sets
+TSS uses DeltaTracker to observe its underlying KeySet. See `03_TIME_SERIES.md` for the full TSSStorage composition.
+
+### Storage Structure
 
 ```cpp
-struct TSSDelta {
-    std::set<Element> added_;
-    std::set<Element> removed_;
+class TSSStorage {
+    SetStorage set_;           // Underlying Set (contains KeySet)
+    TimeArray times_;          // Per-element timestamps
+    ObserverArray observers_;  // Per-element observer lists
+    DeltaTracker delta_;       // Tracks added/removed slots
+    // ...
 };
 ```
 
@@ -359,71 +629,173 @@ struct TSSDelta {
 ```cpp
 TSSView set = input.value().as_set();
 
-// Get delta
-DeltaTSSView delta = set.delta();
-
-// Iterate added
-for (const auto& elem : delta.added()) {
+// Iterate added elements (via slot indices)
+for (size_t slot : set.added_slots()) {
+    View elem = set.element_at_slot(slot);
     // Handle new element
 }
 
-// Iterate removed
-for (const auto& elem : delta.removed()) {
+// Iterate removed elements
+for (size_t slot : set.removed_slots()) {
+    View elem = set.element_at_slot(slot);  // Still readable this tick
     // Handle removed element
 }
+
+// Query specific element
+bool was_new = set.was_added(elem);
+bool was_gone = set.was_removed(elem);
+```
+
+### ts_ops::tss_ops Integration
+
+```cpp
+struct tss_ops {
+    // ...existing membership ops...
+
+    // Delta iteration (slot-based for efficiency)
+    const std::vector<size_t>& (*added_slots)(const void* storage);
+    const std::vector<size_t>& (*removed_slots)(const void* storage);
+
+    // ViewRange wrappers for convenience
+    ViewRange (*added)(const void* storage);    // Yields Views over added slots
+    ViewRange (*removed)(const void* storage);  // Yields Views over removed slots
+
+    bool (*was_added)(const void* storage, View elem);
+    bool (*was_removed)(const void* storage, View elem);
+};
 ```
 
 ## TSD Delta Tracking
 
-### Key Categories
+TSD uses DeltaTracker for add/remove and TimeArray for modified detection. See `03_TIME_SERIES.md` for the full TSDStorage composition.
+
+### Storage Structure
 
 ```cpp
-struct TSDDelta {
-    std::vector<Key> added_;      // New keys this tick
-    std::vector<Key> removed_;    // Removed keys this tick
-    std::vector<Key> modified_;   // Existing keys with new values
+class TSDStorage {
+    MapStorage map_;           // Underlying Map (contains SetStorage → KeySet)
+    TimeArray times_;          // Per-entry timestamps
+    ObserverArray observers_;  // Per-entry observer lists
+    DeltaTracker delta_;       // Tracks added/removed key slots
+    // ...
 };
 ```
+
+### Delta Categories
+
+| Category | Source | Detection |
+|----------|--------|-----------|
+| **added** | DeltaTracker.added() | Slot inserted this tick |
+| **removed** | DeltaTracker.removed() | Slot erased this tick |
+| **updated** | TimeArray | Existing slot with time >= current_tick (not in added) |
+
+**Note**: "updated" = existing key with new value (not newly added this tick).
 
 ### Access Pattern
 
 ```cpp
 TSDView dict = input.value().as_dict();
-DeltaTSDView delta = dict.delta();
 
-for (const auto& key : delta.added_keys()) {
-    TSView new_val = dict.get(key);
+// Iterate added keys
+for (size_t slot : dict.added_slots()) {
+    View key = dict.key_at_slot(slot);
+    TSView val = dict.value_at_slot(slot);
+    // Handle new entry
 }
 
-for (const auto& key : delta.removed_keys()) {
-    // Key no longer exists in dict
+// Iterate removed keys
+for (size_t slot : dict.removed_slots()) {
+    View key = dict.key_at_slot(slot);  // Still readable this tick
+    View val = dict.value_at_slot(slot);  // Value also readable
+    // Handle removed entry
 }
 
-for (const auto& key : delta.modified_keys()) {
-    TSView updated_val = dict.get(key);
+// Iterate updated keys (existing entries with new values, excluding added)
+for (size_t slot : dict.updated_slots(current_time)) {
+    View key = dict.key_at_slot(slot);
+    TSView val = dict.value_at_slot(slot);
+    // Handle updated entry
 }
+```
+
+### ts_ops::tsd_ops Integration
+
+```cpp
+struct tsd_ops {
+    // ...existing map ops...
+
+    // Delta iteration (slot-based for efficiency)
+    const std::vector<size_t>& (*added_slots)(const void* storage);
+    const std::vector<size_t>& (*removed_slots)(const void* storage);
+    std::vector<size_t> (*updated_slots)(const void* storage, engine_time_t current);
+
+    // ViewRange wrappers for convenience
+    ViewRange (*added_keys)(const void* storage);
+    ViewRange (*removed_keys)(const void* storage);
+    ViewRange (*updated_keys)(const void* storage, engine_time_t current);
+
+    // Items iteration with delta awareness
+    ViewPairRange (*added_items)(const void* storage);
+    ViewPairRange (*removed_items)(const void* storage);  // Includes values
+    ViewPairRange (*updated_items)(const void* storage, engine_time_t current);
+};
 ```
 
 ## Delta Lifecycle
 
-### Creation
-- Delta created when TSOutput is modified
-- For stored: explicit construction
-- For computed: lazy on first access
+### Computed Delta Lifecycle
 
-### Clearing
-- Delta cleared at start of next tick
-- Stored deltas reset
-- Computed deltas automatically invalid (time moved)
+1. **begin_tick()**: DeltaTracker clears added_/removed_ vectors
+2. **During mutations**: on_insert/on_erase callbacks populate DeltaTracker
+3. **On access**: DeltaView::from_computed() wraps live storage
+4. **Iteration**: Reads slot indices from DeltaTracker, data from storage
+5. **End of tick**: Computed delta becomes invalid (storage may change)
+
+### DeltaValue Lifecycle
+
+1. **Creation**: `delta.materialize()` copies data from live storage
+2. **Ownership**: DeltaValue owns its added/removed element data
+3. **Access**: DeltaView::from_stored() wraps DeltaValue
+4. **Persistence**: Can be serialized, transmitted, stored
+5. **Cleanup**: Normal RAII destruction when no longer needed
 
 ### Propagation
-- Delta flows through links to TSInputs
-- DeltaView constructed with current time context
+
+```cpp
+// Output modification triggers delta tracking
+output.as_set().add(elem);  // DeltaTracker records slot
+
+// Input receives computed delta view
+DeltaView delta = input.delta();  // from_computed wraps storage
+
+// If needed beyond tick, materialize
+if (needs_persistence) {
+    DeltaValue stored = delta.materialize();
+    // stored survives tick boundary
+}
+```
+
+## Design Decisions Summary
+
+| Decision | Rationale |
+|----------|-----------|
+| **Two delta forms** | Computed (ephemeral, zero-copy) for evaluation; DeltaValue (persistent, owned) for serialization |
+| **DeltaView unifies both** | Consumers use same interface regardless of backing |
+| **DeltaTracker as SlotObserver** | Decouples delta tracking from core storage; ts_ops layer concern |
+| **No tombstoning in KeySet** | Generation handles liveness; DeltaTracker handles delta |
+| **Slot indices in computed delta** | Stable references; can read key/value data until slot reused |
+| **Add/remove cancellation** | Efficient; no redundant entries for add-then-remove in same tick |
+| **SoA storage for DeltaValue** | Keys/values in parallel vectors; toll-free Arrow conversion |
+| **Removed includes values** | Required for user queries; optional for apply operations |
+| **Materialize on demand** | Only copy data when persistence is needed |
+| **delta_ops vtable** | Same operations work for computed and stored via polymorphism |
 
 ## Open Questions
 
-- TODO: Hybrid stored/computed strategy?
-- TODO: Delta compression for large changes?
+- **DeltaValue serialization format**: Binary vs JSON for DeltaValue persistence
+- **Delta compression**: For large DeltaValue sets, consider bloom filter or sorted+compressed representation
+- **Lazy materialization**: Could defer copying until actually serialized
+- **Incremental DeltaValue**: Build DeltaValue incrementally during tick vs materialize at end
 
 ## References
 

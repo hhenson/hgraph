@@ -214,6 +214,224 @@ struct type_ops {
 | Map | Map[K, V] | Key-value mapping |
 | Set | Set[T] | Unique elements |
 
+## Set and Map Storage Architecture
+
+Set and Map use a layered, protocol-based architecture that enables:
+- **Composition**: Map HAS-A Set (Map is Set + parallel value array)
+- **Memory stability**: Slot-based storage with stable addresses
+- **Toll-free casting**: `MapStorage.as_set()` returns reference to contained `SetStorage`
+- **Arrow/NumPy conversion**: Each array is contiguous for zero-copy buffer wrapping
+
+### Layer Structure
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     type_ops layer                          │
+│  SetStorage, MapStorage - value semantics via set_ops/map_ops│
+├─────────────────────────────────────────────────────────────┤
+│                    KeySet (core)                            │
+│  Slot management, hash index, membership, generation        │
+└─────────────────────────────────────────────────────────────┘
+```
+
+### KeySet (Core Membership Storage)
+
+KeySet manages **membership only** - no values, no timestamps. It provides:
+- Slot-based storage with stable addresses (keys never move)
+- Generation tracking for liveness (`generation == 0` means dead, `> 0` means alive)
+- Hash indexing via `ankerl::unordered_dense::map` (standard implementation, not hand-coded)
+- Observer protocol for extensions to track slot lifecycle
+
+```cpp
+// Observer interface for slot lifecycle events
+struct SlotObserver {
+    virtual ~SlotObserver() = default;
+    virtual void on_capacity(size_t old_cap, size_t new_cap) = 0;  // Resize parallel arrays
+    virtual void on_insert(size_t slot) = 0;                       // Initialize slot data
+    virtual void on_erase(size_t slot) = 0;                        // Cleanup slot data
+    virtual void on_clear() = 0;                                   // Reset all slots
+};
+
+// Core membership storage
+class KeySet {
+public:
+    const TypeMeta* key_meta_;
+
+    // Key storage (SoA layout for Arrow compatibility)
+    std::vector<std::byte> keys_;        // [key_size * capacity] - stable addresses
+    std::vector<uint32_t> generations_;  // [capacity] - 0 = dead, >0 = alive
+
+    // Hash index (standard library implementation)
+    ankerl::unordered_dense::map<size_t, size_t> hash_to_slot_;
+
+    // Slot management
+    std::vector<size_t> free_list_;      // Available slots for reuse
+    size_t live_count_;
+    size_t capacity_;
+
+    // Extension protocol
+    std::vector<SlotObserver*> observers_;
+
+    // Core operations
+    std::pair<size_t, bool> insert(const void* key_data);  // Returns (slot, was_new)
+    bool erase(const void* key_data);
+    std::optional<size_t> find(const void* key_data) const;
+
+    bool is_alive(size_t slot) const { return generations_[slot] > 0; }
+    void* key_at(size_t slot) { return keys_.data() + slot * key_meta_->size(); }
+
+    // Handle validation for stale reference detection
+    bool is_valid_handle(size_t slot, uint32_t gen) const {
+        return slot < capacity_ && generations_[slot] == gen && gen > 0;
+    }
+};
+```
+
+### SetStorage (type_ops Layer)
+
+SetStorage wraps KeySet and implements `set_ops`:
+
+```cpp
+class SetStorage {
+    KeySet keys_;
+
+public:
+    explicit SetStorage(const TypeMeta* element_meta) : keys_{element_meta} {}
+
+    // set_ops implementation
+    bool contains(const void* elem) const { return keys_.find(elem).has_value(); }
+    bool add(const void* elem) { return keys_.insert(elem).second; }
+    bool remove(const void* elem) { return keys_.erase(elem); }
+    size_t size() const { return keys_.live_count_; }
+    void clear();
+
+    ViewRange values() const;  // Iterate alive slots as Views
+
+    // Access to underlying KeySet
+    KeySet& key_set() { return keys_; }
+    const KeySet& key_set() const { return keys_; }
+
+    // Toll-free Arrow access
+    const std::byte* data() const { return keys_.keys_.data(); }
+};
+```
+
+### ValueArray (Parallel Value Extension)
+
+ValueArray observes KeySet and maintains a parallel array of values:
+
+```cpp
+class ValueArray : public SlotObserver {
+    const TypeMeta* value_meta_;
+    std::vector<std::byte> values_;  // [value_size * capacity]
+
+public:
+    explicit ValueArray(const TypeMeta* value_meta) : value_meta_(value_meta) {}
+
+    void on_capacity(size_t, size_t new_cap) override {
+        values_.resize(new_cap * value_meta_->size());
+    }
+    void on_insert(size_t slot) override {
+        value_meta_->ops().construct(value_at(slot));
+    }
+    void on_erase(size_t slot) override {
+        value_meta_->ops().destroy(value_at(slot));
+    }
+    void on_clear() override;
+
+    void* value_at(size_t slot) {
+        return values_.data() + slot * value_meta_->size();
+    }
+
+    // Toll-free Arrow access
+    std::byte* data() { return values_.data(); }
+};
+```
+
+### MapStorage (Composes SetStorage + ValueArray)
+
+Map HAS-A Set plus a parallel value array:
+
+```cpp
+class MapStorage {
+    SetStorage set_;
+    ValueArray values_;
+
+public:
+    MapStorage(const TypeMeta* key_meta, const TypeMeta* value_meta)
+        : set_(key_meta), values_(value_meta)
+    {
+        set_.key_set().observers_.push_back(&values_);
+    }
+
+    // map_ops implementation
+    bool contains(const void* key) const { return set_.contains(key); }
+    size_t size() const { return set_.size(); }
+
+    void* at(const void* key) {
+        auto slot = set_.key_set().find(key);
+        if (!slot) throw std::out_of_range("key not found");
+        return values_.value_at(*slot);
+    }
+
+    void* set_item(const void* key, const void* value) {
+        auto [slot, was_new] = set_.key_set().insert(key);
+        values_.value_meta_->ops().copy(values_.value_at(slot), value);
+        return values_.value_at(slot);
+    }
+
+    bool remove(const void* key) { return set_.remove(key); }
+
+    // Toll-free casting: Map → Set
+    const SetStorage& as_set() const { return set_; }
+
+    ViewRange keys() const { return set_.values(); }
+    ViewPairRange items() const;
+
+    // Toll-free Arrow access
+    const std::byte* key_data() const { return set_.data(); }
+    std::byte* value_data() { return values_.data(); }
+};
+```
+
+### Composition Diagram
+
+```
+MapStorage
+├── SetStorage (as_set() returns reference)
+│   └── KeySet
+│       ├── keys_[]        ──► Arrow key column
+│       ├── generations_[] ──► Validity bitmap
+│       └── hash_to_slot_  (ankerl::unordered_dense)
+└── ValueArray (observes KeySet)
+    └── values_[]          ──► Arrow value column
+```
+
+### Slot Handle for Stable References
+
+External references use (slot, generation) pairs for validation:
+
+```cpp
+struct SlotHandle {
+    size_t slot;
+    uint32_t generation;
+
+    bool is_valid(const KeySet& ks) const {
+        return ks.is_valid_handle(slot, generation);
+    }
+};
+```
+
+### Design Rationale
+
+| Decision | Rationale |
+|----------|-----------|
+| Composition (Map HAS-A Set) | Enables toll-free casting; shared key management |
+| Generation-based liveness | Single mechanism for alive check + stale reference detection |
+| SlotObserver protocol | Decouples extensions; each owns its memory |
+| `ankerl::unordered_dense` | Proven implementation; no hand-coded hash table |
+| SoA layout | Direct Arrow/NumPy buffer wrapping |
+
 ## TSMeta
 
 ### Purpose

@@ -39,8 +39,8 @@ The time schema mirrors the data schema structure but stores `engine_time_t` tim
 | TSB[...] (peered) | engine_time_t | Single timestamp for all fields |
 | TSB[...] (un-peered) | Bundle[engine_time_t, ...] | Per-field timestamps |
 | TSL[T] | List[engine_time_t] | Per-element timestamps |
-| TSS[T] | Set[engine_time_t] | Per-element timestamps (parallel to data) |
-| TSD[K,V] | List[engine_time_t] | Per-entry timestamps (indexed by slot) |
+| TSS[T] | TimeArray (SlotObserver) | Per-element timestamps (parallel by slot) |
+| TSD[K,V] | TimeArray (SlotObserver) | Per-entry timestamps (parallel by slot) |
 | TSW[T] | (embedded in WindowStorage) | Timestamps stored with values |
 
 ### Observer Schema Generation
@@ -53,8 +53,8 @@ The observer schema mirrors the data schema structure but stores observer lists:
 | TSB[...] (peered) | ObserverList | Single list for all fields |
 | TSB[...] (un-peered) | Bundle[ObserverList, ...] | Per-field observer lists |
 | TSL[T] | List[ObserverList] | Per-element observer lists |
-| TSS[T] | ObserverList | Container-level only |
-| TSD[K,V] | List[ObserverList] | Per-entry observer lists (indexed by slot) |
+| TSS[T] | ObserverArray (SlotObserver) | Per-element observer lists (parallel by slot) |
+| TSD[K,V] | ObserverArray (SlotObserver) | Per-entry observer lists (parallel by slot) |
 
 ### TSW WindowStorage
 
@@ -326,6 +326,303 @@ For compounds, modification cascades up:
 - Fields tick independently
 - Per-field timestamps
 - Fine-grained update tracking
+
+## TSS and TSD Storage Architecture
+
+TSS and TSD extend the Set/Map storage architecture (see `01_SCHEMA.md`) with time-series extensions via the SlotObserver protocol.
+
+### Layer Structure
+
+```
+┌─────────────────────────────────────────────────────────────────┐
+│                      ts_ops layer                               │
+│  TSSStorage, TSDStorage - time-series semantics, delta tracking │
+├─────────────────────────────────────────────────────────────────┤
+│                     type_ops layer                              │
+│  SetStorage, MapStorage - value semantics via set_ops/map_ops   │
+├─────────────────────────────────────────────────────────────────┤
+│                    KeySet (core)                                │
+│  Slot management, hash index, membership, generation            │
+└─────────────────────────────────────────────────────────────────┘
+```
+
+### TS Extension: TimeArray
+
+Parallel timestamp array that observes KeySet:
+
+```cpp
+class TimeArray : public SlotObserver {
+    std::vector<engine_time_t> times_;
+
+public:
+    void on_capacity(size_t, size_t new_cap) override {
+        times_.resize(new_cap, MIN_ENGINE_TIME);
+    }
+    void on_insert(size_t slot) override {
+        times_[slot] = MIN_ENGINE_TIME;  // Invalid until set
+    }
+    void on_erase(size_t slot) override {
+        // Keep time (may be queried for delta)
+    }
+    void on_clear() override {
+        std::fill(times_.begin(), times_.end(), MIN_ENGINE_TIME);
+    }
+
+    engine_time_t at(size_t slot) const { return times_[slot]; }
+    void set(size_t slot, engine_time_t t) { times_[slot] = t; }
+    bool modified(size_t slot, engine_time_t current) const {
+        return times_[slot] >= current;
+    }
+    bool valid(size_t slot) const { return times_[slot] != MIN_ENGINE_TIME; }
+
+    // Toll-free numpy/Arrow access
+    engine_time_t* data() { return times_.data(); }
+};
+```
+
+### TS Extension: ObserverArray
+
+Parallel observer lists that observe KeySet:
+
+```cpp
+class ObserverArray : public SlotObserver {
+    std::vector<ObserverList> observers_;
+
+public:
+    void on_capacity(size_t, size_t new_cap) override {
+        observers_.resize(new_cap);
+    }
+    void on_insert(size_t slot) override {
+        observers_[slot].clear();
+    }
+    void on_erase(size_t slot) override {
+        observers_[slot].notify_removed();
+        observers_[slot].clear();
+    }
+    void on_clear() override {
+        for (auto& obs : observers_) {
+            obs.notify_removed();
+            obs.clear();
+        }
+    }
+
+    ObserverList& at(size_t slot) { return observers_[slot]; }
+};
+```
+
+### TS Extension: DeltaTracker
+
+Tracks add/remove events per tick for delta queries (see `07_DELTA.md` for details):
+
+```cpp
+class DeltaTracker : public SlotObserver {
+    std::vector<size_t> added_;
+    std::vector<size_t> removed_;
+
+public:
+    void on_insert(size_t slot) override {
+        // If was removed this tick, cancel out; else add to added_
+        auto it = std::find(removed_.begin(), removed_.end(), slot);
+        if (it != removed_.end()) {
+            removed_.erase(it);
+        } else {
+            added_.push_back(slot);
+        }
+    }
+
+    void on_erase(size_t slot) override {
+        // If was added this tick, cancel out; else add to removed_
+        auto it = std::find(added_.begin(), added_.end(), slot);
+        if (it != added_.end()) {
+            added_.erase(it);
+        } else {
+            removed_.push_back(slot);
+        }
+    }
+
+    void begin_tick() {
+        added_.clear();
+        removed_.clear();
+    }
+
+    const std::vector<size_t>& added() const { return added_; }
+    const std::vector<size_t>& removed() const { return removed_; }
+};
+```
+
+### TSSStorage (Composes SetStorage + TS extensions)
+
+TSS = SetStorage + TimeArray + ObserverArray + DeltaTracker
+
+```cpp
+class TSSStorage {
+    SetStorage set_;
+    TimeArray times_;
+    ObserverArray observers_;
+    DeltaTracker delta_;
+
+public:
+    explicit TSSStorage(const TypeMeta* element_meta)
+        : set_(element_meta)
+    {
+        auto& ks = set_.key_set();
+        ks.observers_.push_back(&times_);
+        ks.observers_.push_back(&observers_);
+        ks.observers_.push_back(&delta_);
+    }
+
+    // Set operations (delegate to set_)
+    bool contains(const void* elem) const { return set_.contains(elem); }
+    size_t size() const { return set_.size(); }
+
+    bool add(const void* elem, engine_time_t tick_time) {
+        auto [slot, was_new] = set_.key_set().insert(elem);
+        if (was_new || !times_.valid(slot)) {
+            times_.set(slot, tick_time);
+        }
+        return was_new;
+    }
+
+    bool remove(const void* elem) { return set_.remove(elem); }
+
+    // Tick lifecycle
+    void begin_tick() { delta_.begin_tick(); }
+
+    // Delta access (ts_ops::tss_ops)
+    const std::vector<size_t>& added_slots() const { return delta_.added(); }
+    const std::vector<size_t>& removed_slots() const { return delta_.removed(); }
+
+    // Time access
+    bool modified(size_t slot, engine_time_t current) const {
+        return times_.modified(slot, current);
+    }
+    bool valid(size_t slot) const { return times_.valid(slot); }
+
+    // Observer access
+    ObserverList& observers_at(size_t slot) { return observers_.at(slot); }
+
+    // Toll-free casting: TSS → Set
+    const SetStorage& as_set() const { return set_; }
+};
+```
+
+### TSDStorage (Composes MapStorage + TS extensions)
+
+TSD = MapStorage + TimeArray + ObserverArray + DeltaTracker
+
+```cpp
+class TSDStorage {
+    MapStorage map_;
+    TimeArray times_;
+    ObserverArray observers_;
+    DeltaTracker delta_;
+
+public:
+    TSDStorage(const TypeMeta* key_meta, const TypeMeta* value_meta)
+        : map_(key_meta, value_meta)
+    {
+        auto& ks = map_.as_set().key_set();
+        ks.observers_.push_back(&times_);
+        ks.observers_.push_back(&observers_);
+        ks.observers_.push_back(&delta_);
+    }
+
+    // Map operations (delegate to map_)
+    bool contains(const void* key) const { return map_.contains(key); }
+    size_t size() const { return map_.size(); }
+    void* at(const void* key) { return map_.at(key); }
+
+    void* set_item(const void* key, const void* value, engine_time_t tick_time) {
+        auto& ks = map_.as_set().key_set();
+        auto existing = ks.find(key);
+        void* val_ptr = map_.set_item(key, value);
+        // Update timestamp for new or existing
+        size_t slot = ks.find(key).value();  // Must exist now
+        times_.set(slot, tick_time);
+        return val_ptr;
+    }
+
+    bool remove(const void* key) { return map_.remove(key); }
+
+    // Tick lifecycle
+    void begin_tick() { delta_.begin_tick(); }
+
+    // Delta access (ts_ops::tsd_ops)
+    const std::vector<size_t>& added_slots() const { return delta_.added(); }
+    const std::vector<size_t>& removed_slots() const { return delta_.removed(); }
+
+    // Modified keys: slots where time >= current
+    std::vector<size_t> modified_slots(engine_time_t current) const {
+        std::vector<size_t> result;
+        auto& ks = map_.as_set().key_set();
+        for (size_t slot = 0; slot < ks.capacity_; ++slot) {
+            if (ks.is_alive(slot) && times_.modified(slot, current)) {
+                result.push_back(slot);
+            }
+        }
+        return result;
+    }
+
+    // Toll-free casting
+    const MapStorage& as_map() const { return map_; }
+    const SetStorage& key_set() const { return map_.as_set(); }
+};
+```
+
+### Composition Diagram
+
+```
+TSDStorage
+├── MapStorage (as_map() returns reference)
+│   ├── SetStorage (as_set() returns reference)
+│   │   └── KeySet
+│   │       ├── keys_[]        ──► Arrow key column
+│   │       ├── generations_[] ──► Validity bitmap
+│   │       └── observers_ ────────┐
+│   └── ValueArray                 │
+│       └── values_[]      ──► Arrow value column
+│                                  │
+├── TimeArray (observes KeySet) ◄──┤
+│   └── times_[]           ──► Arrow/numpy time column
+│                                  │
+├── ObserverArray (observes KeySet) ◄─┤
+│   └── observers_[]               │
+│                                  │
+└── DeltaTracker (observes KeySet) ◄──┘
+    ├── added_[]
+    └── removed_[]
+
+TSSStorage = SetStorage + TimeArray + ObserverArray + DeltaTracker
+TSDStorage = MapStorage + TimeArray + ObserverArray + DeltaTracker
+           (MapStorage = SetStorage + ValueArray)
+```
+
+### Toll-Free Casting Chain
+
+All casts return references - no copying:
+
+```cpp
+// TSD → Map → Set → KeySet
+const KeySet& ks = tsd.as_map().as_set().key_set();
+
+// TSS → Set → KeySet
+const KeySet& ks = tss.as_set().key_set();
+
+// Access underlying arrays for Arrow conversion
+const std::byte* keys = ks.keys_.data();
+const std::byte* values = tsd.as_map().value_data();
+engine_time_t* times = tsd.times_.data();
+```
+
+### Design Rationale
+
+| Decision | Rationale |
+|----------|-----------|
+| SlotObserver protocol | Decouples TS extensions from core storage; each owns its memory |
+| DeltaTracker as observer | Delta tracking is ts_ops concern, not core storage |
+| No tombstoning in KeySet | Generation handles liveness; DeltaTracker handles delta |
+| Composition over inheritance | Enables toll-free casting; clear ownership |
+| Parallel arrays by slot index | All extensions use same slot index; zero translation |
 
 ## Open Questions
 
