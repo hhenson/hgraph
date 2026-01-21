@@ -9,8 +9,8 @@
  *
  * Key design principles:
  * - No static dependency on specific scalar types
- * - Dispatch based on TypeKind (Scalar, Tuple, Bundle, List, Set, Map, CyclicBuffer, Queue)
- * - Scalar values are passed as ConstValueView - caller can check type if needed
+ * - Dispatch based on TypeKind (Atomic, Tuple, Bundle, List, Set, Map, CyclicBuffer, Queue)
+ * - Atomic values are passed as ConstValueView - caller can check type if needed
  * - Overloaded handlers combined into single visitor
  *
  * Reference: ts_design_docs/Value_USER_GUIDE.md Section 8
@@ -88,7 +88,7 @@ auto visit(ConstValueView view, Handlers&&... handlers) {
     auto visitor = overloaded{std::forward<Handlers>(handlers)...};
 
     switch (view.schema()->kind) {
-        case TypeKind::Scalar:
+        case TypeKind::Atomic:
             return visitor(view);
         case TypeKind::Tuple:
             return visitor(view.as_tuple());
@@ -117,7 +117,7 @@ auto visit(ValueView view, Handlers&&... handlers) {
     auto visitor = overloaded{std::forward<Handlers>(handlers)...};
 
     switch (view.schema()->kind) {
-        case TypeKind::Scalar:
+        case TypeKind::Atomic:
             return visitor(view);
         case TypeKind::Tuple:
             return visitor(view.as_tuple());
@@ -147,7 +147,7 @@ auto visit(ValueView view, Handlers&&... handlers) {
  *
  * @code
  * auto result = match<std::string>(view,
- *     when<TypeKind::Scalar>([](ConstValueView v) { return v.to_string(); }),
+ *     when<TypeKind::Atomic>([](ConstValueView v) { return v.to_string(); }),
  *     when<TypeKind::List>([](ConstListView l) { return "list"; }),
  *     otherwise([](ConstValueView) { return "other"; })
  * );
@@ -161,7 +161,7 @@ struct WhenCase {
     template<typename R>
     bool try_match(ConstValueView view, R& result) const {
         if (view.schema()->kind == K) {
-            if constexpr (K == TypeKind::Scalar) {
+            if constexpr (K == TypeKind::Atomic) {
                 if constexpr (std::is_void_v<R>) {
                     handler(view);
                 } else {

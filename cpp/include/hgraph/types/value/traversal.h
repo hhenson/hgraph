@@ -132,7 +132,7 @@ inline void deep_visit_impl(
     }
 
     switch (view.schema()->kind) {
-        case TypeKind::Scalar:
+        case TypeKind::Atomic:
             // Leaf node - call callback
             callback(view, path);
             break;
@@ -316,7 +316,7 @@ inline void deep_visit_mut_impl(
     }
 
     switch (view.schema()->kind) {
-        case TypeKind::Scalar:
+        case TypeKind::Atomic:
             callback(view, path);
             break;
 

@@ -320,7 +320,7 @@ const TypeMeta* TypeRegistry::register_scalar() {
     auto meta = std::make_unique<TypeMeta>();
     meta->size = sizeof(T);
     meta->alignment = alignof(T);
-    meta->kind = TypeKind::Scalar;
+    meta->kind = TypeKind::Atomic;
     meta->flags = compute_scalar_flags<T>();
     meta->ops = ops_ptr;
     meta->element_type = nullptr;

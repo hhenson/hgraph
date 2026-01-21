@@ -86,15 +86,15 @@ class TestAtomicNativeTypes:
     """Tests for atomic types with native C++ representations."""
 
     @pytest.mark.parametrize("py_type,expected_kind", [
-        (bool, "Scalar"),
-        (int, "Scalar"),
-        (float, "Scalar"),
-        (date, "Scalar"),
-        (datetime, "Scalar"),
-        (timedelta, "Scalar"),
+        (bool, "Atomic"),
+        (int, "Atomic"),
+        (float, "Atomic"),
+        (date, "Atomic"),
+        (datetime, "Atomic"),
+        (timedelta, "Atomic"),
     ])
-    def test_native_types_return_scalar_kind(self, py_type, expected_kind):
-        """Native Python types should map to Scalar TypeKind."""
+    def test_native_types_return_atomic_kind(self, py_type, expected_kind):
+        """Native Python types should map to Atomic TypeKind."""
         _skip_if_no_cpp()
         value = _get_value_module()
 
@@ -160,7 +160,7 @@ class TestAtomicFallbackTypes:
         cpp_type = meta.cpp_type
 
         assert cpp_type is not None
-        assert cpp_type.kind == value.TypeKind.Scalar
+        assert cpp_type.kind == value.TypeKind.Atomic
 
     def test_str_uses_object_storage(self):
         """str should use nb::object storage (pointer-sized)."""

@@ -685,7 +685,7 @@ public:
 
     // ===== Type Kind Queries =====
     [[nodiscard]] bool is_scalar() const {
-        return valid() && _schema->kind == TypeKind::Scalar;
+        return valid() && _schema->kind == TypeKind::Atomic;
     }
     [[nodiscard]] bool is_tuple() const {
         return valid() && _schema->kind == TypeKind::Tuple;
@@ -1404,7 +1404,7 @@ template<typename R, typename Visitor>
 R visit(ValueView view, Visitor&& visitor) {
     const TypeMeta* schema = view.schema();
     switch (schema->kind) {
-        case TypeKind::Scalar:
+        case TypeKind::Atomic:
             return dispatch_scalar<R>(view, schema, std::forward<Visitor>(visitor));
         case TypeKind::Bundle:
             return visitor.visit_bundle(view, schema);
@@ -1592,7 +1592,7 @@ auto visit_with(ValueView view, Fs&&... handlers) {
     auto visitor = Overloaded{std::forward<Fs>(handlers)...};
 
     switch (view.schema()->kind) {
-        case TypeKind::Scalar:
+        case TypeKind::Atomic:
             // Dispatch to appropriate handler based on scalar type
             if (view.is_scalar_type<int64_t>())
                 return visitor(view.as<int64_t>());

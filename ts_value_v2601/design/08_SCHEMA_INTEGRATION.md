@@ -4,6 +4,15 @@
 
 This document describes the integration between Python's `HgTypeMetaData` hierarchy and the C++ `TypeMeta`/`TSMeta` schema system. The goal is to provide seamless interop where Python type metadata can obtain corresponding C++ schemas for use in the C++ runtime.
 
+## Implementation Status: COMPLETE
+
+**Both value and time-series schema integration are fully implemented.**
+
+- Value schema integration: `TypeRegistry` + scalar `cpp_type` properties
+- Time-series schema integration: `TSTypeRegistry` + TS `cpp_type` properties
+- All 892 unit tests pass
+- See `ts_value_v2601/implementation/schema/` for detailed implementation docs
+
 ## Current State
 
 ### Value Schema Integration (Implemented)
@@ -40,13 +49,11 @@ def cpp_type(self):
         return None
 ```
 
-### Time-Series Schema Integration (Removed - Needs Re-integration)
+### Time-Series Schema Integration (Implemented)
 
-The TS type integration was **implemented on ts_value_25** but has been **removed** from the current branch (ts_value_26). This needs to be re-integrated.
+The TS type integration has been **re-implemented** on the current branch (ts_value_26). All TS metadata classes now have working `cpp_type` properties that use the `TSTypeRegistry`.
 
-#### ts_value_25 Implementation
-
-The ts_value_25 branch had `cpp_type` properties on all TS metadata classes that used a `TSTypeRegistry`:
+#### Implementation
 
 | Python Class | C++ Registry Method | Returns |
 |--------------|---------------------|---------|
@@ -60,11 +67,11 @@ The ts_value_25 branch had `cpp_type` properties on all TS metadata classes that
 | `HgTimeSeriesSchemaTypeMetaData` | `TSTypeRegistry.instance().tsb(fields, name, python_type)` | `TSMeta*` |
 | `HgTSBTypeMetaData` | `TSTypeRegistry.instance().tsb(fields, name, python_type)` | `TSMeta*` |
 
-## Required Changes
+## Implementation Details
 
 ### 1. C++ TSTypeRegistry Implementation
 
-Create a `TSTypeRegistry` class in C++ that provides factory methods for TS schemas:
+The `TSTypeRegistry` class in C++ provides factory methods for TS schemas:
 
 ```cpp
 // cpp/include/hgraph/types/time_series/ts_type_registry.h
@@ -108,7 +115,7 @@ private:
 
 ### 2. Python Bindings for TSTypeRegistry
 
-Expose the `TSTypeRegistry` to Python:
+The `TSTypeRegistry` is exposed to Python via nanobind:
 
 ```cpp
 // cpp/src/cpp/api/python/py_ts_type_registry.cpp
@@ -132,9 +139,9 @@ static void register_ts_type_registry(nb::module_& m) {
 }
 ```
 
-### 3. Re-add cpp_type Properties to Python TS Metadata Classes
+### 3. Python cpp_type Properties
 
-Re-add the `cpp_type` property to each TS metadata class. Example for `HgTSTypeMetaData`:
+The `cpp_type` property is implemented on all TS metadata classes. Example for `HgTSTypeMetaData`:
 
 ```python
 # hgraph/_types/_ts_meta_data.py
@@ -160,9 +167,9 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
             return None
 ```
 
-### 4. Files to Modify
+### 4. Files Modified
 
-#### Python Files (re-add cpp_type):
+#### Python Files (cpp_type added):
 
 | File | Class | Notes |
 |------|-------|-------|
@@ -176,13 +183,22 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
 | `hgraph/_types/_ref_meta_data.py` | `HgREFTypeMetaData` | `TSTypeRegistry.ref()` |
 | `hgraph/_types/_ts_signal_meta_data.py` | `HgSignalMetaData` | `TSTypeRegistry.signal()` |
 
-#### C++ Files (new):
+#### C++ Files (created):
 
 | File | Purpose |
 |------|---------|
+| `cpp/include/hgraph/types/time_series/ts_meta.h` | TSKind enum, TSMeta struct, TSBFieldInfo |
 | `cpp/include/hgraph/types/time_series/ts_type_registry.h` | TSTypeRegistry declaration |
 | `cpp/src/cpp/types/time_series/ts_type_registry.cpp` | TSTypeRegistry implementation |
-| `cpp/src/cpp/api/python/py_ts_type_registry.cpp` | Python bindings |
+| `cpp/include/hgraph/api/python/py_ts_type_registry.h` | Python bindings header |
+| `cpp/src/cpp/api/python/py_ts_type_registry.cpp` | Python bindings implementation |
+
+#### Test Files (created):
+
+| File | Purpose |
+|------|---------|
+| `cpp/tests/types/time_series/test_ts_type_registry.cpp` | ~35 Catch2 C++ tests |
+| `hgraph_unit_tests/_types/test_ts_cpp_type.py` | 34 pytest Python tests |
 
 ## Type Mapping Summary
 
@@ -259,4 +275,5 @@ TSB schemas optionally bind a Python type:
 
 - User Guide: `01_SCHEMA.md`
 - Design: `01_SCHEMA.md`, `03_TIME_SERIES.md`
-- Implementation: ts_value_25 branch (reference for cpp_type implementations)
+- Implementation Plan: `ts_value_v2601/implementation/schema/00_IMPLEMENTATION_PLAN.md`
+- Review Findings: `ts_value_v2601/implementation/schema/05_REVIEW_FINDINGS.md`

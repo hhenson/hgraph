@@ -731,7 +731,7 @@ For declarative pattern matching on TypeKind:
 
 ```cpp
 std::string result = match<std::string>(value.const_view(),
-    when<TypeKind::Scalar>([](ConstValueView v) { return v.to_string(); }),
+    when<TypeKind::Atomic>([](ConstValueView v) { return v.to_string(); }),
     when<TypeKind::List>([](ConstListView l) {
         return "list of " + std::to_string(l.size());
     }),

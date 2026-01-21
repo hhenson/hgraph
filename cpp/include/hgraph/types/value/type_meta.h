@@ -34,15 +34,14 @@ namespace hgraph::value {
  * what operations are available and how the data is laid out.
  */
 enum class TypeKind : uint8_t {
-    Scalar,        ///< Atomic values: int, double, bool, string, datetime, etc.
+    Atomic,        ///< Atomic values: int, double, bool, string, datetime, etc.
     Tuple,         ///< Indexed heterogeneous collection (unnamed, positional access only)
     Bundle,        ///< Named field collection (struct-like, index + name access)
     List,          ///< Indexed homogeneous collection (dynamic size)
     Set,           ///< Unordered unique elements
     Map,           ///< Key-value pairs
     CyclicBuffer,  ///< Fixed-size circular buffer (re-centers on read)
-    Queue,         ///< FIFO queue with optional max capacity
-    Ref            ///< Reference to another time-series (future)
+    Queue          ///< FIFO queue with optional max capacity
 };
 
 // ============================================================================

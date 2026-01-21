@@ -26,15 +26,14 @@ using namespace nanobind::literals;
 
 static void register_type_kind(nb::module_& m) {
     nb::enum_<TypeKind>(m, "TypeKind", "Categories of types in the Value system")
-        .value("Scalar", TypeKind::Scalar, "Atomic values: int, double, bool, string, datetime, etc.")
+        .value("Atomic", TypeKind::Atomic, "Atomic values: int, double, bool, string, datetime, etc.")
         .value("Tuple", TypeKind::Tuple, "Indexed heterogeneous collection (unnamed, positional access only)")
         .value("Bundle", TypeKind::Bundle, "Named field collection (struct-like, index + name access)")
         .value("List", TypeKind::List, "Indexed homogeneous collection (dynamic size)")
         .value("Set", TypeKind::Set, "Unordered unique elements")
         .value("Map", TypeKind::Map, "Key-value pairs")
         .value("CyclicBuffer", TypeKind::CyclicBuffer, "Fixed-size circular buffer (re-centers on read)")
-        .value("Queue", TypeKind::Queue, "FIFO queue with optional max capacity")
-        .value("Ref", TypeKind::Ref, "Reference to another time-series");
+        .value("Queue", TypeKind::Queue, "FIFO queue with optional max capacity");
 }
 
 // ============================================================================
@@ -670,7 +669,7 @@ static void register_bundle_views(nb::module_& m) {
 // Helper function to check if element type is buffer compatible
 static bool is_list_buffer_compatible(const ConstListView& list) {
     const TypeMeta* elem = list.element_type();
-    if (!elem || elem->kind != TypeKind::Scalar) return false;
+    if (!elem || elem->kind != TypeKind::Atomic) return false;
 
     // Use the BufferCompatible flag from TypeMeta
     return elem->is_buffer_compatible();
@@ -739,13 +738,13 @@ static void register_list_views(nb::module_& m) {
         .def("is_buffer_compatible", [](const ListView& self) {
             // Check if element type supports buffer protocol
             const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Scalar) return false;
+            if (!elem || elem->kind != TypeKind::Atomic) return false;
             return elem->is_buffer_compatible();
         }, "Check if this list supports the buffer protocol (numpy compatibility)")
         // Zero-copy numpy conversion for mutable list view
         .def("to_numpy", [](ListView& self) -> nb::object {
             const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Scalar || !elem->is_buffer_compatible()) {
+            if (!elem || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) {
                 throw std::runtime_error("List element type not buffer compatible for numpy");
             }
 
@@ -1118,7 +1117,7 @@ static void register_map_views(nb::module_& m) {
 // Helper function to check if element type is buffer compatible
 static bool is_cyclic_buffer_compatible(const ConstCyclicBufferView& buf) {
     const TypeMeta* elem = buf.element_type();
-    if (!elem || elem->kind != TypeKind::Scalar) return false;
+    if (!elem || elem->kind != TypeKind::Atomic) return false;
     return elem->is_buffer_compatible();
 }
 
@@ -1186,12 +1185,12 @@ static void register_cyclic_buffer_views(nb::module_& m) {
         .def("clear", &CyclicBufferView::clear, "Clear all elements")
         .def("is_buffer_compatible", [](const CyclicBufferView& self) {
             const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Scalar) return false;
+            if (!elem || elem->kind != TypeKind::Atomic) return false;
             return elem->is_buffer_compatible();
         }, "Check if this buffer supports numpy conversion")
         .def("to_numpy", [](const CyclicBufferView& self) -> nb::object {
             const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Scalar || !elem->is_buffer_compatible()) {
+            if (!elem || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) {
                 throw std::runtime_error("CyclicBuffer element type not buffer compatible for numpy");
             }
 

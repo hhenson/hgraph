@@ -332,7 +332,7 @@ public:
         }
 
         // Type-specific validation
-        if (this->schema()->kind == TypeKind::Scalar) {
+        if (this->schema()->kind == TypeKind::Atomic) {
             validate_scalar(src, this->schema());
         }
 
