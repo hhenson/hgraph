@@ -55,3 +55,37 @@ add_custom_target(run_visitor_tests
     WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
     COMMENT "Running visitor pattern tests"
 )
+
+# ============================================================================
+# TSTypeRegistry Tests
+# ============================================================================
+
+# Create test executable for TSTypeRegistry
+# Note: This test requires the hgraph library to be built first
+# as it depends on TSTypeRegistry and TypeRegistry implementations
+add_executable(hgraph_ts_type_registry_tests
+    types/time_series/test_ts_type_registry.cpp
+)
+
+target_include_directories(hgraph_ts_type_registry_tests PRIVATE
+    ${CMAKE_SOURCE_DIR}/cpp/include
+)
+
+target_link_libraries(hgraph_ts_type_registry_tests PRIVATE
+    Catch2::Catch2WithMain
+    fmt::fmt
+    _hgraph  # Link against the main hgraph library
+)
+
+target_compile_features(hgraph_ts_type_registry_tests PRIVATE cxx_std_23)
+
+# Register TSTypeRegistry tests with CTest
+catch_discover_tests(hgraph_ts_type_registry_tests)
+
+# Optional: Add custom target to run TSTypeRegistry tests
+add_custom_target(run_ts_type_registry_tests
+    COMMAND hgraph_ts_type_registry_tests
+    DEPENDS hgraph_ts_type_registry_tests
+    WORKING_DIRECTORY ${CMAKE_CURRENT_BINARY_DIR}
+    COMMENT "Running TSTypeRegistry tests"
+)

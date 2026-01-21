@@ -90,6 +90,23 @@ class HgTSTypeMetaData(HgTimeSeriesTypeMetaData):
 
         return hash(TS) ^ hash(self.value_scalar_tp)
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TSMeta for this TS[T] type."""
+        if not self.is_resolved:
+            return None
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            scalar_cpp = self.value_scalar_tp.cpp_type
+            if scalar_cpp is None:
+                return None
+            return _hgraph.TSTypeRegistry.instance().ts(scalar_cpp)
+        except (ImportError, AttributeError):
+            return None
+
 
 class HgTSOutTypeMetaData(HgTSTypeMetaData):
     """Parses TSOut[...]"""

@@ -127,6 +127,54 @@ class HgTSWTypeMetaData(HgTimeSeriesTypeMetaData):
 
         return hash(TSW) ^ hash(self.value_scalar_tp) ^ hash(self.size_tp) ^ hash(self.min_size_tp)
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TSMeta for this TSW[T, size, min_size] type."""
+        if not self.is_resolved:
+            return None
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            from datetime import timedelta
+            import hgraph._hgraph as _hgraph
+            value_cpp = self.value_scalar_tp.cpp_type
+            if value_cpp is None:
+                return None
+
+            # Determine if this is a time-based or size-based window
+            size_type = self.size_tp.py_type
+            is_time_based = hasattr(size_type, 'FIXED_SIZE') and not size_type.FIXED_SIZE
+
+            if is_time_based:
+                # Duration-based window
+                time_range = timedelta(0)
+                min_time_range = timedelta(0)
+                if hasattr(size_type, 'TIME_RANGE') and size_type.TIME_RANGE is not None:
+                    time_range = size_type.TIME_RANGE
+                if self.min_size_tp.is_resolved:
+                    min_size_type = self.min_size_tp.py_type
+                    if hasattr(min_size_type, 'TIME_RANGE') and min_size_type.TIME_RANGE is not None:
+                        min_time_range = min_size_type.TIME_RANGE
+                return _hgraph.TSTypeRegistry.instance().tsw_duration(
+                    value_cpp, time_range, min_time_range
+                )
+            else:
+                # Tick-based window
+                period = 0
+                min_period = 0
+                if hasattr(size_type, 'SIZE') and size_type.SIZE is not None:
+                    period = size_type.SIZE
+                if self.min_size_tp.is_resolved:
+                    min_size_type = self.min_size_tp.py_type
+                    if hasattr(min_size_type, 'SIZE') and min_size_type.SIZE is not None:
+                        min_period = min_size_type.SIZE
+                return _hgraph.TSTypeRegistry.instance().tsw(
+                    value_cpp, period, min_period
+                )
+        except (ImportError, AttributeError):
+            return None
+
 
 class HgTSWOutTypeMetaData(HgTSWTypeMetaData):
     """Parses TSW_OUT[...]"""
