@@ -262,22 +262,161 @@ TSView = ViewData + engine_time_t current_time
 
 ## Type Casting
 
-### Implicit Casts
-- TODO: Define supported implicit casts
+**Note**: Type casting is a **TSOutput-only** concern, not a Value-layer operation. Values are stored with their native schema; casting happens when an output provides alternative representations to consumers expecting different schemas.
 
-### Explicit Casts
-- TODO: Define cast mechanism
+See [TSOutput and TSInput Design](05_TSOUTPUT_TSINPUT.md) for cast storage and management details.
 
-### Cast Storage
-- Casts are stored in TSOutput::alternatives_ map
-- Key: target TypeMeta*
-- Value: TSValue holding cast representation
+## Design Decisions
 
-## Open Questions
+### Nullable Values
 
-- TODO: How to handle nullable values?
-- TODO: Const correctness throughout the system?
-- TODO: Error handling for invalid operations?
+Value supports null representation following `std::optional`-style semantics. Since primitives are stored inline (SBO), we can't use `meta_ == nullptr` to indicate null without losing type information. Instead, we use **pointer tagging** on the `meta_` pointer.
+
+**Pointer Tagging:**
+
+TypeMeta is aligned to at least 8 bytes, so the low 3 bits of any valid `TypeMeta*` are always zero. We steal the lowest bit to store the null flag:
+
+```cpp
+class Value {
+    // Tagged pointer: bit 0 = is_null flag, bits 1-63 = TypeMeta* (shifted)
+    uintptr_t tagged_meta_;
+    union {
+        void* heap_data_;
+        uint64_t inline_data_;
+    };
+
+    static constexpr uintptr_t NULL_FLAG = 1;
+
+    // Extract the actual TypeMeta pointer (mask off the flag bit)
+    const TypeMeta* meta_ptr() const {
+        return reinterpret_cast<const TypeMeta*>(tagged_meta_ & ~NULL_FLAG);
+    }
+
+    // Set meta pointer, preserving null flag
+    void set_meta_ptr(const TypeMeta* meta) {
+        tagged_meta_ = reinterpret_cast<uintptr_t>(meta) | (tagged_meta_ & NULL_FLAG);
+    }
+
+public:
+    // Null state query (like std::optional::has_value)
+    bool has_value() const { return (tagged_meta_ & NULL_FLAG) == 0; }
+    explicit operator bool() const { return has_value(); }
+
+    // Schema access (always available, even when null)
+    const TypeMeta* meta() const { return meta_ptr(); }
+
+    // Create typed null value
+    explicit Value(const TypeMeta* meta) : tagged_meta_(reinterpret_cast<uintptr_t>(meta) | NULL_FLAG) {
+        // Starts as null (has schema but no value)
+        if (!is_inline()) {
+            heap_data_ = nullptr;
+        } else {
+            inline_data_ = 0;
+        }
+    }
+
+    // Create and initialize with value
+    Value(const TypeMeta* meta, const void* src) : tagged_meta_(reinterpret_cast<uintptr_t>(meta)) {
+        // Not null - has value
+        if (is_inline()) {
+            inline_data_ = 0;
+            meta->ops().copy(&inline_data_, src);
+        } else {
+            heap_data_ = allocate(meta->size(), meta->alignment());
+            meta->ops().copy(heap_data_, src);
+        }
+    }
+
+    // Make value null (like std::optional::reset) - preserves schema
+    void reset() {
+        if (has_value()) {
+            const TypeMeta* m = meta_ptr();
+            if (is_inline()) {
+                m->ops().destroy(&inline_data_);
+            } else {
+                m->ops().destroy(heap_data_);
+                deallocate(heap_data_);
+                heap_data_ = nullptr;
+            }
+            tagged_meta_ |= NULL_FLAG;  // Set null flag, keep schema
+        }
+    }
+
+    // Emplace value (like std::optional::emplace) - makes non-null
+    void emplace() {
+        const TypeMeta* m = meta_ptr();
+        if (!has_value()) {
+            // Currently null, need to construct
+            if (is_inline()) {
+                m->ops().construct(&inline_data_);
+            } else {
+                heap_data_ = allocate(m->size(), m->alignment());
+                m->ops().construct(heap_data_);
+            }
+            tagged_meta_ &= ~NULL_FLAG;  // Clear null flag
+        }
+    }
+
+    // Access (throws if null, like std::optional::value)
+    void* data() {
+        if (!has_value()) throw std::bad_optional_access();
+        return is_inline() ? reinterpret_cast<void*>(&inline_data_) : heap_data_;
+    }
+
+    const void* data() const {
+        if (!has_value()) throw std::bad_optional_access();
+        return is_inline() ? reinterpret_cast<const void*>(&inline_data_) : heap_data_;
+    }
+};
+```
+
+**Key Points:**
+
+- A Value always has a schema (type information is never lost)
+- Null state is independent of schema - a "typed null"
+- `reset()` makes value null but preserves schema
+- `emplace()` constructs default value, making it non-null
+- `meta()` is always safe to call (returns schema even when null)
+- `data()` throws `std::bad_optional_access` when null
+
+**Usage:**
+
+```cpp
+// Create typed null value
+Value null_int(TypeMeta::get("int"));
+assert(!null_int.has_value());
+assert(null_int.meta()->name() == "int");  // Schema still accessible
+
+// Emplace to make non-null
+null_int.emplace();  // Default constructs (0 for int)
+assert(null_int.has_value());
+
+// Check for null
+if (value.has_value()) {
+    View v = value.view();
+}
+
+// Boolean context
+if (value) {
+    // Has a value
+}
+
+// Make existing value null (preserves schema)
+value.reset();
+```
+
+**Python Interop:**
+
+- Null Value converts to Python `None`
+- Python `None` converts to null Value (schema must be known from context)
+- `to_python()` on null Value returns `nb::none()`
+- `from_python(nb::none())` calls `reset()`
+
+### Const Correctness
+The View system provides constness (or mutability) throughout the system. This is done using standard C++ const markers on methods to indicate which are considered const and which are not.
+
+### Error Handling
+Invalid operations raise exceptions. We use the appropriate C++ exception where available (e.g., `std::out_of_range`, `std::invalid_argument`), otherwise we use `std::runtime_error`.
 
 ## References
 
