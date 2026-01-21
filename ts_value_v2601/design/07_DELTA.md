@@ -424,7 +424,6 @@ for (const auto& key : delta.modified_keys()) {
 
 - TODO: Hybrid stored/computed strategy?
 - TODO: Delta compression for large changes?
-- TODO: Delta serialization format?
 
 ## References
 

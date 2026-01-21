@@ -188,9 +188,6 @@ struct type_ops {
     nb::object (*to_python)(const void* ptr);
     void (*from_python)(void* ptr, nb::object obj);
 
-    // Serialization
-    // TODO: Define serialization ops
-
     // === Kind-specific extension ops (tagged by TypeMeta::kind_) ===
     TypeKind kind;
     union {
@@ -643,10 +640,116 @@ const TSMeta& price_ts = TSMeta::get("TS[float]");
 | `timedelta` | `datetime.timedelta` | `engine_time_delta_t` | 8 bytes |
 | `object` | `object` | `nb::object` | 8 bytes |
 
-## Open Questions
+## Schema Builders
 
-- TODO: Schema versioning for serialization?
-- TODO: Builder pattern for composite types (BundleBuilder, ListBuilder, etc.)?
+Composite types are constructed using fluent builders that validate structure and register with the appropriate registry.
+
+### Value Type Builders
+
+| Builder | Creates | Key Methods |
+|---------|---------|-------------|
+| BundleBuilder | BundleMeta | `set_name()`, `add_field(name, type)` |
+| TupleBuilder | TupleMeta | `add_element(type)` |
+| ListBuilder | ListMeta | `set_element_type()`, `set_size()` |
+| SetBuilder | SetMeta | `set_element_type()` |
+| MapBuilder | MapMeta | `set_key_type()`, `set_value_type()` |
+
+```cpp
+// Bundle with named fields
+const TypeMeta& point = BundleBuilder()
+    .set_name("Point")
+    .add_field("x", TypeMeta::get("float"))
+    .add_field("y", TypeMeta::get("float"))
+    .build();
+
+// Tuple (positional only)
+const TypeMeta& pair = TupleBuilder()
+    .add_element(TypeMeta::get("int"))
+    .add_element(TypeMeta::get("float"))
+    .build();
+
+// List (dynamic or fixed-size)
+const TypeMeta& prices = ListBuilder()
+    .set_element_type(TypeMeta::get("float"))
+    .set_size(10)  // Optional: 0 for dynamic
+    .build();
+
+// Set
+const TypeMeta& ids = SetBuilder()
+    .set_element_type(TypeMeta::get("int"))
+    .build();
+
+// Map
+const TypeMeta& scores = MapBuilder()
+    .set_key_type(TypeMeta::get("int"))
+    .set_value_type(TypeMeta::get("float"))
+    .build();
+```
+
+### Time-Series Builders
+
+| Builder | Creates | Key Methods |
+|---------|---------|-------------|
+| TSBuilder | TSMeta | `set_value_type()` |
+| TSBBuilder | TSBMeta | `set_name()`, `add_field(name, ts_meta)`, `set_peered()` |
+| TSLBuilder | TSLMeta | `set_element_ts()`, `set_size()` |
+| TSDBuilder | TSDMeta | `set_key_type()`, `set_value_ts()` |
+| TSSBuilder | TSSMeta | `set_element_type()` |
+| TSWBuilder | TSWMeta | `set_element_type()`, `set_period()`, `set_min_window_period()` |
+| REFBuilder | REFMeta | `set_target_ts()` |
+
+```cpp
+// Scalar TS
+const TSMeta& price_ts = TSBuilder()
+    .set_value_type(TypeMeta::get("float"))
+    .build();
+
+// Bundle TS
+const TSMeta& quote_ts = TSBBuilder()
+    .set_name("Quote")
+    .add_field("bid", TSBuilder().set_value_type(TypeMeta::get("float")).build())
+    .add_field("ask", TSBuilder().set_value_type(TypeMeta::get("float")).build())
+    .set_peered(false)
+    .build();
+
+// List TS
+const TSMeta& prices_ts = TSLBuilder()
+    .set_element_ts(price_ts)
+    .set_size(10)
+    .build();
+
+// Dict TS
+const TSMeta& price_dict_ts = TSDBuilder()
+    .set_key_type(TypeMeta::get("int"))
+    .set_value_ts(price_ts)
+    .build();
+
+// Set TS
+const TSMeta& active_ids_ts = TSSBuilder()
+    .set_element_type(TypeMeta::get("int"))
+    .build();
+
+// Window TS
+const TSMeta& price_window_ts = TSWBuilder()
+    .set_element_type(TypeMeta::get("float"))
+    .set_period(100)
+    .set_min_window_period(std::chrono::hours(1))
+    .build();
+
+// Reference TS
+const TSMeta& price_ref_ts = REFBuilder()
+    .set_target_ts(price_ts)
+    .build();
+```
+
+### Builder Design
+
+All builders follow the same pattern:
+
+1. **Fluent interface**: Methods return `Builder&` for chaining
+2. **Validation on build()**: Throws if required fields missing or invalid
+3. **Registry integration**: `build()` registers the schema and returns a reference
+4. **Deduplication**: Structurally identical schemas share the same TypeMeta/TSMeta instance
 
 ## References
 
