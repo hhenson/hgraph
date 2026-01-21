@@ -612,6 +612,35 @@ Set of scalar values that changes over time.
 using ActiveIdsTS = TSS<int64_t>;
 ```
 
+### TSW - Window Time-Series
+
+Maintains a time-ordered window of values with configurable capacity.
+
+**Static Definition:**
+```cpp
+// Window of 10 most recent prices
+using PriceWindowTS = TSW<double, 10>;
+
+// Window with minimum time period (keeps values for at least 1 hour)
+using TimedWindowTS = TSW<double, 100, std::chrono::hours(1)>;
+```
+
+**Builder:**
+```cpp
+// Window by count
+const TSMeta& price_window = TSWBuilder()
+    .set_element_type(TypeMeta::get("float"))
+    .set_period(10)
+    .build();
+
+// Window by count with minimum time period
+const TSMeta& timed_window = TSWBuilder()
+    .set_element_type(TypeMeta::get("float"))
+    .set_period(100)
+    .set_min_window_period(std::chrono::hours(1))
+    .build();
+```
+
 ### REF - Reference Time-Series
 
 Dynamic reference to another time-series.
@@ -1722,6 +1751,16 @@ classDiagram
         +build() const TSMeta&
     }
 
+    class TSWBuilder {
+        -TypeMeta* element_type_
+        -size_t period_
+        -engine_time_delta_t min_window_period_
+        +set_element_type(type: TypeMeta&) TSWBuilder&
+        +set_period(period: size_t) TSWBuilder&
+        +set_min_window_period(period: engine_time_delta_t) TSWBuilder&
+        +build() const TSMeta&
+    }
+
     class REFBuilder {
         -TSMeta* target_ts_
         +set_target_ts(ts: TSMeta&) REFBuilder&
@@ -1733,6 +1772,7 @@ classDiagram
     TSLBuilder --> TSLMeta : creates
     TSDBuilder --> TSDMeta : creates
     TSSBuilder --> TSSMeta : creates
+    TSWBuilder --> TSWMeta : creates
     REFBuilder --> REFMeta : creates
 ```
 
