@@ -425,12 +425,14 @@ graph TB
 ### 7.5 Output Operations
 
 ```python
-output.add(item)        # Add item to set
-output.remove(item)     # Remove item from set
-output.discard(item)    # Remove if present
+output.add(item)        # Add item to set (no-op if already present)
+output.remove(item)     # Remove item from set (no-op if not present)
 output.clear()          # Remove all items
-output.update(items)    # Add multiple items
 ```
+
+**Return values:**
+- `add()` returns `True` if the item was added, `False` if already present
+- `remove()` returns `True` if the item was removed, `False` if not present
 
 ---
 
