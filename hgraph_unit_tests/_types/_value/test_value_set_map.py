@@ -144,34 +144,34 @@ def test_set_initially_empty(int_set_schema):
 # =============================================================================
 
 def test_set_insert_native_type(int_set_schema):
-    """SetView.add() with View."""
+    """SetView.insert() with View."""
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(1).const_view())
-    sv.add(make_int_value(2).const_view())
-    sv.add(make_int_value(3).const_view())
+    sv.insert(make_int_value(1).const_view())
+    sv.insert(make_int_value(2).const_view())
+    sv.insert(make_int_value(3).const_view())
 
     assert sv.size() == 3
 
 
 def test_set_insert_returns_true_for_new(int_set_schema):
-    """SetView.add() returns True for new elements."""
+    """SetView.insert() returns True for new elements."""
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    result = sv.add(make_int_value(1).const_view())
+    result = sv.insert(make_int_value(1).const_view())
 
     assert result is True
 
 
 def test_set_insert_returns_false_for_existing(int_set_schema):
-    """SetView.add() returns False for existing elements."""
+    """SetView.insert() returns False for existing elements."""
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(1).const_view())
-    result = sv.add(make_int_value(1).const_view())
+    sv.insert(make_int_value(1).const_view())
+    result = sv.insert(make_int_value(1).const_view())
 
     assert result is False
 
@@ -181,11 +181,11 @@ def test_set_insert_duplicates_dont_increase_size(int_set_schema):
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(1).const_view())
-    sv.add(make_int_value(2).const_view())
-    sv.add(make_int_value(2).const_view())  # Duplicate
-    sv.add(make_int_value(3).const_view())
-    sv.add(make_int_value(1).const_view())  # Duplicate
+    sv.insert(make_int_value(1).const_view())
+    sv.insert(make_int_value(2).const_view())
+    sv.insert(make_int_value(2).const_view())  # Duplicate
+    sv.insert(make_int_value(3).const_view())
+    sv.insert(make_int_value(1).const_view())  # Duplicate
 
     assert sv.size() == 3
 
@@ -195,7 +195,7 @@ def test_set_insert_with_value(int_set_schema):
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(100).const_view())
+    sv.insert(make_int_value(100).const_view())
 
     assert sv.size() == 1
     assert sv.contains(make_int_value(100).const_view())
@@ -206,9 +206,9 @@ def test_set_insert_strings(string_set_schema):
     v = PlainValue(string_set_schema)
     sv = v.as_set()
 
-    sv.add(make_string_value("apple").const_view())
-    sv.add(make_string_value("banana").const_view())
-    sv.add(make_string_value("cherry").const_view())
+    sv.insert(make_string_value("apple").const_view())
+    sv.insert(make_string_value("banana").const_view())
+    sv.insert(make_string_value("cherry").const_view())
 
     assert sv.size() == 3
 
@@ -222,9 +222,9 @@ def test_set_contains_native_type(int_set_schema):
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(1).const_view())
-    sv.add(make_int_value(2).const_view())
-    sv.add(make_int_value(3).const_view())
+    sv.insert(make_int_value(1).const_view())
+    sv.insert(make_int_value(2).const_view())
+    sv.insert(make_int_value(3).const_view())
 
     assert sv.contains(make_int_value(2).const_view())
 
@@ -234,8 +234,8 @@ def test_set_contains_returns_false_for_missing(int_set_schema):
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(1).const_view())
-    sv.add(make_int_value(2).const_view())
+    sv.insert(make_int_value(1).const_view())
+    sv.insert(make_int_value(2).const_view())
 
     assert not sv.contains(make_int_value(10).const_view())
 
@@ -245,7 +245,7 @@ def test_set_contains_with_value_view(int_set_schema):
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(100).const_view())
+    sv.insert(make_int_value(100).const_view())
 
     key = make_int_value(100)
     assert sv.contains(key.const_view())
@@ -260,9 +260,9 @@ def test_set_erase_native_type(int_set_schema):
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(1).const_view())
-    sv.add(make_int_value(2).const_view())
-    sv.add(make_int_value(3).const_view())
+    sv.insert(make_int_value(1).const_view())
+    sv.insert(make_int_value(2).const_view())
+    sv.insert(make_int_value(3).const_view())
 
     sv.remove(make_int_value(2).const_view())
 
@@ -275,7 +275,7 @@ def test_set_erase_returns_true_for_existing(int_set_schema):
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(1).const_view())
+    sv.insert(make_int_value(1).const_view())
     result = sv.remove(make_int_value(1).const_view())
 
     assert result is True
@@ -286,7 +286,7 @@ def test_set_erase_returns_false_for_missing(int_set_schema):
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(1).const_view())
+    sv.insert(make_int_value(1).const_view())
     result = sv.remove(make_int_value(10).const_view())  # Not in set
 
     assert result is False
@@ -301,9 +301,9 @@ def test_set_clear(int_set_schema):
     v = PlainValue(int_set_schema)
     sv = v.as_set()
 
-    sv.add(make_int_value(1).const_view())
-    sv.add(make_int_value(2).const_view())
-    sv.add(make_int_value(3).const_view())
+    sv.insert(make_int_value(1).const_view())
+    sv.insert(make_int_value(2).const_view())
+    sv.insert(make_int_value(3).const_view())
 
     sv.clear()
 
@@ -318,10 +318,10 @@ def test_set_size(int_set_schema):
 
     assert sv.size() == 0
 
-    sv.add(make_int_value(1).const_view())
+    sv.insert(make_int_value(1).const_view())
     assert sv.size() == 1
 
-    sv.add(make_int_value(2).const_view())
+    sv.insert(make_int_value(2).const_view())
     assert sv.size() == 2
 
 
@@ -332,7 +332,7 @@ def test_set_empty(int_set_schema):
 
     assert sv.empty()
 
-    sv.add(make_int_value(1).const_view())
+    sv.insert(make_int_value(1).const_view())
 
     assert not sv.empty()
 
@@ -348,9 +348,9 @@ def test_set_iteration(int_set_schema):
     e1 = make_int_value(10)
     e2 = make_int_value(20)
     e3 = make_int_value(30)
-    sv.add(e1.const_view())
-    sv.add(e2.const_view())
-    sv.add(e3.const_view())
+    sv.insert(e1.const_view())
+    sv.insert(e2.const_view())
+    sv.insert(e3.const_view())
 
     # Get const view for iteration
     csv = v.const_view().as_set()
@@ -765,7 +765,7 @@ def test_set_insert_wrong_type_raises(int_set_schema):
     sv = v.as_set()
 
     with pytest.raises((TypeError, RuntimeError)):
-        sv.add("not an int")
+        sv.insert("not an int")
 
 
 def test_non_set_value_as_set_raises():
@@ -899,10 +899,10 @@ def test_set_equals_same_values(int_set_schema):
 
     e1 = make_int_value(10)
     e2 = make_int_value(20)
-    sv1.add(e1.const_view())
-    sv1.add(e2.const_view())
-    sv2.add(e1.const_view())
-    sv2.add(e2.const_view())
+    sv1.insert(e1.const_view())
+    sv1.insert(e2.const_view())
+    sv2.insert(e1.const_view())
+    sv2.insert(e2.const_view())
 
     assert v1.equals(v2.const_view())
 
@@ -917,10 +917,10 @@ def test_set_not_equals_different_values(int_set_schema):
     e1 = make_int_value(10)
     e2 = make_int_value(20)
     e3 = make_int_value(30)
-    sv1.add(e1.const_view())
-    sv1.add(e2.const_view())
-    sv2.add(e1.const_view())
-    sv2.add(e3.const_view())
+    sv1.insert(e1.const_view())
+    sv1.insert(e2.const_view())
+    sv2.insert(e1.const_view())
+    sv2.insert(e3.const_view())
 
     assert not v1.equals(v2.const_view())
 
@@ -1006,9 +1006,9 @@ def test_set_to_python(int_set_schema):
     e1 = make_int_value(10)
     e2 = make_int_value(20)
     e3 = make_int_value(30)
-    sv.add(e1.const_view())
-    sv.add(e2.const_view())
-    sv.add(e3.const_view())
+    sv.insert(e1.const_view())
+    sv.insert(e2.const_view())
+    sv.insert(e3.const_view())
 
     py_obj = v.to_python()
 
@@ -1070,8 +1070,8 @@ def test_set_to_string(int_set_schema):
     sv = v.as_set()
     e1 = make_int_value(10)
     e2 = make_int_value(20)
-    sv.add(e1.const_view())
-    sv.add(e2.const_view())
+    sv.insert(e1.const_view())
+    sv.insert(e2.const_view())
 
     s = v.to_string()
 
@@ -1219,7 +1219,7 @@ def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map
     set_v = PlainValue(int_set_schema)
     sv = set_v.as_set()
     e1 = make_int_value(10)
-    sv.add(e1.const_view())
+    sv.insert(e1.const_view())
     const_set = set_v.const_view().as_set()
 
     # Create a map and get its key set
@@ -1265,7 +1265,7 @@ def test_set_large_insert_performance(int_set_schema):
     start = time.perf_counter()
     for i in range(n):
         elem = make_int_value(i)
-        sv.add(elem.const_view())
+        sv.insert(elem.const_view())
     elapsed = time.perf_counter() - start
 
     assert sv.size() == n
@@ -1283,7 +1283,7 @@ def test_set_large_contains_performance(int_set_schema):
     n = 1000
     for i in range(n):
         elem = make_int_value(i)
-        sv.add(elem.const_view())
+        sv.insert(elem.const_view())
 
     csv = v.const_view().as_set()
 

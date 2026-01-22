@@ -250,8 +250,8 @@ class TestSetDeltaValue:
         elem2 = PlainValue(int_element_type)
         elem2.from_python(2)
 
-        added_set.view().as_set().add(elem1.const_view())
-        removed_set.view().as_set().add(elem2.const_view())
+        added_set.view().as_set().insert(elem1.const_view())
+        removed_set.view().as_set().insert(elem2.const_view())
 
         # Create delta
         delta = SetDeltaValue(
@@ -270,7 +270,7 @@ class TestSetDeltaValue:
 
         elem = PlainValue(int_element_type)
         elem.from_python(42)
-        added_set.view().as_set().add(elem.const_view())
+        added_set.view().as_set().insert(elem.const_view())
 
         removed_set = PlainValue(int_set_schema)
 

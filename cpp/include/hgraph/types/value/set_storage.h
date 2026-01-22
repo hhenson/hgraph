@@ -10,7 +10,7 @@
  * Design notes:
  * - Delegates to KeySet for all key operations
  * - Exposes key_set() for observers to register
- * - Methods use user-guide naming: add(), remove(), values()
+ * - Methods use user-guide naming: insert(), remove(), values()
  */
 
 #include <hgraph/types/value/key_set.h>
@@ -63,11 +63,11 @@ public:
     // ========== Element Operations ==========
 
     /**
-     * @brief Add an element to the set.
+     * @brief Insert an element into the set.
      * @param elem Pointer to the element value
-     * @return true if the element was added (not already present)
+     * @return true if the element was inserted (not already present)
      */
-    bool add(const void* elem) {
+    bool insert(const void* elem) {
         auto [slot, inserted] = key_set_.insert(elem);
         return inserted;
     }
@@ -107,6 +107,14 @@ public:
     [[nodiscard]] const std::byte* data() const {
         return reinterpret_cast<const std::byte*>(key_set_.key_at_slot(0));
     }
+
+    /**
+     * @brief Get a view over the set values (elements).
+     *
+     * Returns a reference to this SetStorage which is iterable.
+     * This mirrors the Python frozenset.values() pattern.
+     */
+    [[nodiscard]] const SetStorage& values() const { return *this; }
 
     // ========== Iteration ==========
 

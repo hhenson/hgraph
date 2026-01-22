@@ -1001,7 +1001,7 @@ struct SetOps {
 
         // Copy elements from source using iterator
         for (auto it = src_storage->begin(); it != src_storage->end(); ++it) {
-            dst_storage->add(*it);
+            dst_storage->insert(*it);
         }
         (void)schema;
     }
@@ -1093,7 +1093,7 @@ struct SetOps {
                 elem_type->ops->from_python(temp_elem, item, elem_type);
             }
 
-            storage->add(temp_elem);
+            storage->insert(temp_elem);
 
             if (elem_type->ops && elem_type->ops->destruct) {
                 elem_type->ops->destruct(temp_elem, elem_type);
@@ -1152,7 +1152,7 @@ struct SetOps {
 
     static void insert(void* obj, const void* value, const TypeMeta* /*schema*/) {
         auto* storage = static_cast<SetStorage*>(obj);
-        storage->add(value);
+        storage->insert(value);
     }
 
     static void erase(void* obj, const void* value, const TypeMeta* /*schema*/) {

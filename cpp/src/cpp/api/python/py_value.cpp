@@ -773,8 +773,8 @@ static void register_set_views(nb::module_& m) {
             &SetView::contains), "value"_a, "Check if an element is in the set")
         .def("__contains__", static_cast<bool (SetView::*)(const View&) const>(
             &SetView::contains), "value"_a)
-        .def("add", static_cast<bool (SetView::*)(const View&)>(&SetView::add),
-            "value"_a, "Add an element (returns true if added)")
+        .def("insert", static_cast<bool (SetView::*)(const View&)>(&SetView::insert),
+            "value"_a, "Insert an element (returns true if inserted)")
         .def("remove", static_cast<bool (SetView::*)(const View&)>(&SetView::remove),
             "value"_a, "Remove an element (returns true if removed)")
         .def("clear", &SetView::clear, "Clear all elements")

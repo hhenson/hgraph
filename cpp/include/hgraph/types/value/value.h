@@ -567,9 +567,9 @@ public:
 
         auto set_view = as_set();
 
-        // Add elements
+        // Insert elements
         for (auto elem : delta.added()) {
-            set_view.add(elem);
+            set_view.insert(elem);
         }
 
         // Remove elements
@@ -798,11 +798,11 @@ bool SetView::contains(const T& value) const {
     return contains(temp.const_view());
 }
 
-// SetView::add<T>
+// SetView::insert<T>
 template<typename T>
-bool SetView::add(const T& value) {
+bool SetView::insert(const T& value) {
     Value<> temp(value);
-    return add(temp.const_view());
+    return insert(temp.const_view());
 }
 
 // SetView::remove<T>
