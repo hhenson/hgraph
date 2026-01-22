@@ -160,7 +160,7 @@ def test_int_list_to_numpy_array(dynamic_int_list_schema):
     # Populate with test data
     for val in [10, 20, 30, 40, 50]:
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     # Get const list view for buffer access
     clv = v.const_view().as_list()
@@ -181,7 +181,7 @@ def test_double_list_to_numpy_array(dynamic_double_list_schema):
     # Populate with test data
     for val in [1.5, 2.5, 3.5, 4.5, 5.5]:
         elem = make_double_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     # Get const list view for buffer access
     clv = v.const_view().as_list()
@@ -202,7 +202,7 @@ def test_bool_list_to_numpy_array(dynamic_bool_list_schema):
     # Populate with test data
     for val in [True, False, True, True, False]:
         elem = make_bool_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     # Get const list view for buffer access
     clv = v.const_view().as_list()
@@ -227,7 +227,7 @@ def test_float_list_to_numpy_array(dynamic_double_list_schema):
     # Populate with test data
     for val in [1.0, 2.0, 3.0]:
         elem = make_double_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -248,7 +248,7 @@ def test_buffer_shape_matches_list_size(dynamic_int_list_schema):
 
     for val in [1, 2, 3, 4, 5, 6, 7]:
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -263,7 +263,7 @@ def test_buffer_dtype_matches_element_type(type_registry, dynamic_int_list_schem
     v_int = PlainValue(dynamic_int_list_schema)
     lv_int = v_int.as_list()
     elem_int = make_int_value(42)
-    lv_int.push_back(elem_int.const_view())
+    lv_int.append(elem_int.const_view())
     arr_int = v_int.const_view().as_list().to_numpy()
     assert arr_int.dtype == np.int64
 
@@ -271,7 +271,7 @@ def test_buffer_dtype_matches_element_type(type_registry, dynamic_int_list_schem
     v_double = PlainValue(dynamic_double_list_schema)
     lv_double = v_double.as_list()
     elem_double = make_double_value(3.14)
-    lv_double.push_back(elem_double.const_view())
+    lv_double.append(elem_double.const_view())
     arr_double = v_double.const_view().as_list().to_numpy()
     assert arr_double.dtype == np.float64
 
@@ -279,7 +279,7 @@ def test_buffer_dtype_matches_element_type(type_registry, dynamic_int_list_schem
     v_bool = PlainValue(dynamic_bool_list_schema)
     lv_bool = v_bool.as_list()
     elem_bool = make_bool_value(True)
-    lv_bool.push_back(elem_bool.const_view())
+    lv_bool.append(elem_bool.const_view())
     arr_bool = v_bool.const_view().as_list().to_numpy()
     assert arr_bool.dtype == np.bool_ or arr_bool.dtype == bool
 
@@ -291,7 +291,7 @@ def test_buffer_is_contiguous(dynamic_int_list_schema):
 
     for val in range(10):
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -315,7 +315,7 @@ def test_buffer_shares_memory(dynamic_int_list_schema):
 
     for val in [100, 200, 300]:
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
 
@@ -345,7 +345,7 @@ def test_buffer_modifications_visible(dynamic_int_list_schema):
 
     for val in [10, 20, 30]:
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     # Get mutable list view for zero-copy numpy conversion
     # Note: ListView.to_numpy() provides zero-copy access, while
@@ -382,7 +382,7 @@ def test_const_buffer_is_readonly(dynamic_int_list_schema):
 
     for val in [10, 20, 30]:
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     # Get list view (now returns mutable ListView with unified view design)
     clv = v.const_view().as_list()
@@ -435,7 +435,7 @@ def test_dynamic_list_buffer(dynamic_int_list_schema):
     # Dynamic list can grow
     for val in [1, 2, 3, 4, 5]:
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -476,8 +476,8 @@ def test_string_list_not_buffer_compatible(dynamic_string_list_schema):
 
     s1 = make_string_value("hello")
     s2 = make_string_value("world")
-    lv.push_back(s1.const_view())
-    lv.push_back(s2.const_view())
+    lv.append(s1.const_view())
+    lv.append(s2.const_view())
 
     clv = v.const_view().as_list()
 
@@ -562,7 +562,7 @@ def test_single_element_buffer(dynamic_int_list_schema):
     lv = v.as_list()
 
     elem = make_int_value(42)
-    lv.push_back(elem.const_view())
+    lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -580,7 +580,7 @@ def test_large_list_buffer(dynamic_int_list_schema):
     n = 1000
     for i in range(n):
         elem = make_int_value(i)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
 
@@ -608,7 +608,7 @@ def test_very_large_list_buffer(dynamic_double_list_schema):
     n = 100_000
     for i in range(n):
         elem = make_double_value(float(i) * 0.1)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -633,7 +633,7 @@ def test_buffer_with_negative_values(dynamic_int_list_schema):
 
     for val in [-100, -50, 0, 50, 100]:
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -649,7 +649,7 @@ def test_buffer_with_special_float_values(dynamic_double_list_schema):
     special_values = [float('inf'), float('-inf'), float('nan'), 0.0, -0.0]
     for val in special_values:
         elem = make_double_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -673,7 +673,7 @@ def test_buffer_with_max_min_int_values(dynamic_int_list_schema):
 
     for val in [min_int, 0, max_int]:
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -690,7 +690,7 @@ def test_bool_list_buffer_values(dynamic_bool_list_schema):
 
     for val in [True, False, True, False]:
         elem = make_bool_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -713,7 +713,7 @@ def test_numpy_sum_on_int_buffer(dynamic_int_list_schema):
 
     for val in range(1, 11):
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -728,7 +728,7 @@ def test_numpy_mean_on_double_buffer(dynamic_double_list_schema):
 
     for val in [1.0, 2.0, 3.0, 4.0, 5.0]:
         elem = make_double_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -743,7 +743,7 @@ def test_numpy_vectorized_operations(dynamic_double_list_schema):
 
     for val in [1.0, 4.0, 9.0, 16.0, 25.0]:
         elem = make_double_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -764,7 +764,7 @@ def test_numpy_slicing_on_buffer(dynamic_int_list_schema):
 
     for val in range(10):
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()
@@ -782,7 +782,7 @@ def test_numpy_boolean_indexing(dynamic_int_list_schema):
 
     for val in range(10):
         elem = make_int_value(val)
-        lv.push_back(elem.const_view())
+        lv.append(elem.const_view())
 
     clv = v.const_view().as_list()
     arr = clv.to_numpy()

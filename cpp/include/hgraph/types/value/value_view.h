@@ -22,24 +22,143 @@
 #include <optional>
 #include <stdexcept>
 #include <string>
+#include <variant>
+#include <vector>
 
 namespace hgraph::value {
 
-// Forward declarations for specialized views
-class ConstTupleView;
+// ============================================================================
+// ViewPath - Lightweight path tracking for Views
+// ============================================================================
+
+/**
+ * @brief A single step in a view path.
+ *
+ * Can be either:
+ * - A field name (string) for bundle field access
+ * - An index (size_t) for list/tuple/map element access
+ *
+ * This is a lightweight version of PathElement that doesn't depend on View,
+ * avoiding circular dependencies.
+ */
+class ViewPathElement {
+public:
+    /// Create a field access element
+    static ViewPathElement field(std::string name) {
+        ViewPathElement elem;
+        elem._data = std::move(name);
+        return elem;
+    }
+
+    /// Create an index access element
+    static ViewPathElement index(size_t idx) {
+        ViewPathElement elem;
+        elem._data = idx;
+        return elem;
+    }
+
+    /// Check if this is a field name element
+    [[nodiscard]] bool is_field() const noexcept {
+        return std::holds_alternative<std::string>(_data);
+    }
+
+    /// Check if this is an index element
+    [[nodiscard]] bool is_index() const noexcept {
+        return std::holds_alternative<size_t>(_data);
+    }
+
+    /// Get the field name (throws if not a field)
+    [[nodiscard]] const std::string& name() const {
+        return std::get<std::string>(_data);
+    }
+
+    /// Get the index (throws if not an index)
+    [[nodiscard]] size_t get_index() const {
+        return std::get<size_t>(_data);
+    }
+
+    /// Convert to string representation
+    [[nodiscard]] std::string to_string() const {
+        if (is_field()) {
+            return std::get<std::string>(_data);
+        } else {
+            return "[" + std::to_string(std::get<size_t>(_data)) + "]";
+        }
+    }
+
+private:
+    ViewPathElement() = default;
+    std::variant<std::string, size_t> _data;
+};
+
+/**
+ * @brief A path through a nested value structure.
+ *
+ * ViewPath tracks how a View was navigated to from its root.
+ * This is useful for debugging and error messages.
+ */
+class ViewPath {
+public:
+    ViewPath() = default;
+
+    /// Add a field access to the path
+    void push_field(std::string name) {
+        _elements.push_back(ViewPathElement::field(std::move(name)));
+    }
+
+    /// Add an index access to the path
+    void push_index(size_t idx) {
+        _elements.push_back(ViewPathElement::index(idx));
+    }
+
+    /// Get the path elements
+    [[nodiscard]] const std::vector<ViewPathElement>& elements() const {
+        return _elements;
+    }
+
+    /// Get the path depth
+    [[nodiscard]] size_t depth() const {
+        return _elements.size();
+    }
+
+    /// Check if path is empty (root)
+    [[nodiscard]] bool empty() const {
+        return _elements.empty();
+    }
+
+    /// Convert to string representation
+    [[nodiscard]] std::string to_string() const {
+        std::string result;
+        bool first = true;
+        for (const auto& elem : _elements) {
+            if (elem.is_field()) {
+                if (!first && !result.empty() && result.back() != ']') {
+                    result += '.';
+                }
+                result += elem.name();
+            } else {
+                result += '[';
+                result += std::to_string(elem.get_index());
+                result += ']';
+            }
+            first = false;
+        }
+        return result;
+    }
+
+private:
+    std::vector<ViewPathElement> _elements;
+};
+
+// Forward declarations for specialized views (no Const* prefix classes)
 class TupleView;
-class ConstBundleView;
 class BundleView;
-class ConstListView;
 class ListView;
-class ConstSetView;
 class SetView;
-class ConstMapView;
 class MapView;
-class ConstCyclicBufferView;
 class CyclicBufferView;
-class ConstQueueView;
 class QueueView;
+class KeySetView;
 
 // Forward declaration for Value (used in clone)
 template<typename Policy>
@@ -311,100 +430,100 @@ public:
         return *static_cast<T*>(_data);
     }
 
-    // ========== Specialized View Conversions (Safe) ==========
+    // ========== Specialized View Conversions (Safe - const) ==========
 
     /**
      * @brief Try to convert to a tuple view.
      * @return The tuple view, or nullopt if not a tuple
      */
-    [[nodiscard]] std::optional<ConstTupleView> try_as_tuple() const;
+    [[nodiscard]] std::optional<TupleView> try_as_tuple() const;
 
     /**
      * @brief Try to convert to a bundle view.
      * @return The bundle view, or nullopt if not a bundle
      */
-    [[nodiscard]] std::optional<ConstBundleView> try_as_bundle() const;
+    [[nodiscard]] std::optional<BundleView> try_as_bundle() const;
 
     /**
      * @brief Try to convert to a list view.
      * @return The list view, or nullopt if not a list
      */
-    [[nodiscard]] std::optional<ConstListView> try_as_list() const;
+    [[nodiscard]] std::optional<ListView> try_as_list() const;
 
     /**
      * @brief Try to convert to a set view.
      * @return The set view, or nullopt if not a set
      */
-    [[nodiscard]] std::optional<ConstSetView> try_as_set() const;
+    [[nodiscard]] std::optional<SetView> try_as_set() const;
 
     /**
      * @brief Try to convert to a map view.
      * @return The map view, or nullopt if not a map
      */
-    [[nodiscard]] std::optional<ConstMapView> try_as_map() const;
+    [[nodiscard]] std::optional<MapView> try_as_map() const;
 
     /**
      * @brief Try to convert to a cyclic buffer view.
      * @return The cyclic buffer view, or nullopt if not a cyclic buffer
      */
-    [[nodiscard]] std::optional<ConstCyclicBufferView> try_as_cyclic_buffer() const;
+    [[nodiscard]] std::optional<CyclicBufferView> try_as_cyclic_buffer() const;
 
     /**
      * @brief Try to convert to a queue view.
      * @return The queue view, or nullopt if not a queue
      */
-    [[nodiscard]] std::optional<ConstQueueView> try_as_queue() const;
+    [[nodiscard]] std::optional<QueueView> try_as_queue() const;
 
-    // ========== Specialized View Conversions (Throwing) ==========
+    // ========== Specialized View Conversions (Throwing - const) ==========
 
     /**
      * @brief Convert to a tuple view.
      * @return The tuple view
      * @throws std::runtime_error if not a tuple
      */
-    [[nodiscard]] ConstTupleView as_tuple() const;
+    [[nodiscard]] TupleView as_tuple() const;
 
     /**
      * @brief Convert to a bundle view.
      * @return The bundle view
      * @throws std::runtime_error if not a bundle
      */
-    [[nodiscard]] ConstBundleView as_bundle() const;
+    [[nodiscard]] BundleView as_bundle() const;
 
     /**
      * @brief Convert to a list view.
      * @return The list view
      * @throws std::runtime_error if not a list
      */
-    [[nodiscard]] ConstListView as_list() const;
+    [[nodiscard]] ListView as_list() const;
 
     /**
      * @brief Convert to a set view.
      * @return The set view
      * @throws std::runtime_error if not a set
      */
-    [[nodiscard]] ConstSetView as_set() const;
+    [[nodiscard]] SetView as_set() const;
 
     /**
      * @brief Convert to a map view.
      * @return The map view
      * @throws std::runtime_error if not a map
      */
-    [[nodiscard]] ConstMapView as_map() const;
+    [[nodiscard]] MapView as_map() const;
 
     /**
      * @brief Convert to a cyclic buffer view.
      * @return The cyclic buffer view
      * @throws std::runtime_error if not a cyclic buffer
      */
-    [[nodiscard]] ConstCyclicBufferView as_cyclic_buffer() const;
+    [[nodiscard]] CyclicBufferView as_cyclic_buffer() const;
 
     /**
      * @brief Convert to a queue view.
      * @return The queue view
      * @throws std::runtime_error if not a queue
      */
-    [[nodiscard]] ConstQueueView as_queue() const;
+    [[nodiscard]] QueueView as_queue() const;
 
     // ========== Raw Access ==========
 
@@ -636,10 +755,68 @@ public:
         return static_cast<Value<Policy>*>(_root);
     }
 
+    // ========== Path Tracking ==========
+
+    /**
+     * @brief Get the path from root to this view.
+     *
+     * The path tracks how this view was navigated to from its root.
+     * Empty path indicates this is a root view.
+     *
+     * @return The navigation path
+     */
+    [[nodiscard]] const ViewPath& path() const {
+        return _path;
+    }
+
+    /**
+     * @brief Get the path as a string.
+     *
+     * @return String representation of the path (e.g., "field[0].subfield")
+     */
+    [[nodiscard]] std::string path_string() const {
+        return _path.to_string();
+    }
+
 protected:
+    /**
+     * @brief Copy root and path to another view (same level, no path extension).
+     *
+     * @param other The view to copy to
+     */
+    void copy_path_to(View& other) const {
+        other._root = _root;
+        other._path = _path;
+    }
+
+    /**
+     * @brief Propagate root and path to a child view, adding an index element.
+     *
+     * @param child The child view to propagate to
+     * @param index The index to add to the path
+     */
+    void propagate_path_with_index(View& child, size_t index) const {
+        child._root = _root;
+        child._path = _path;
+        child._path.push_index(index);
+    }
+
+    /**
+     * @brief Propagate root and path to a child view, adding a field element.
+     *
+     * @param child The child view to propagate to
+     * @param name The field name to add to the path
+     */
+    void propagate_path_with_field(View& child, const std::string& name) const {
+        child._root = _root;
+        child._path = _path;
+        child._path.push_field(name);
+    }
+
     void* _data{nullptr};
     const TypeMeta* _schema{nullptr};
     void* _root{nullptr};  // Optional, for notification chains
+    ViewPath _path;        // Path from root to this position
 };
 
 // ============================================================================

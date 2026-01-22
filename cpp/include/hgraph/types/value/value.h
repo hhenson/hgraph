@@ -37,6 +37,7 @@
 #include <hgraph/types/value/path.h>
 #include <hgraph/types/value/traversal.h>
 #include <hgraph/types/value/visitor.h>
+#include <hgraph/types/value/delta_view.h>
 
 #include <type_traits>
 #include <utility>
@@ -83,7 +84,8 @@ public:
      * @param schema The type schema
      */
     explicit Value(const TypeMeta* schema)
-        : _storage(ValueStorage::create(schema)), _schema(schema) {}
+        : _tagged_schema(reinterpret_cast<uintptr_t>(schema))
+        , _storage(ValueStorage::create(schema)) {}
 
     /**
      * @brief Construct from a scalar value.
@@ -95,8 +97,8 @@ public:
      */
     template<typename T, typename = std::enable_if_t<!std::is_same_v<std::decay_t<T>, Value>>>
     explicit Value(const T& val)
-        : _schema(scalar_type_meta<T>()) {
-        _storage.construct<T>(val, _schema);
+        : _tagged_schema(reinterpret_cast<uintptr_t>(scalar_type_meta<T>())) {
+        _storage.construct<T>(val, schema());
     }
 
     /**
@@ -107,10 +109,10 @@ public:
      * @param view The view to copy from
      */
     explicit Value(const View& view)
-        : _schema(view.schema()) {
+        : _tagged_schema(reinterpret_cast<uintptr_t>(view.schema())) {
         if (view.valid()) {
-            _storage.construct(_schema);
-            _schema->ops->copy_assign(_storage.data(), view.data(), _schema);
+            _storage.construct(schema());
+            schema()->ops->copy_assign(_storage.data(), view.data(), schema());
         }
     }
 
@@ -128,9 +130,9 @@ public:
      */
     Value(Value&& other) noexcept
         : storage_type(std::move(static_cast<storage_type&>(other)))
-        , _storage(std::move(other._storage))
-        , _schema(other._schema) {
-        other._schema = nullptr;
+        , _tagged_schema(other._tagged_schema)
+        , _storage(std::move(other._storage)) {
+        other._tagged_schema = 0;
     }
 
     /**
@@ -139,9 +141,9 @@ public:
     Value& operator=(Value&& other) noexcept {
         if (this != &other) {
             static_cast<storage_type&>(*this) = std::move(static_cast<storage_type&>(other));
+            _tagged_schema = other._tagged_schema;
             _storage = std::move(other._storage);
-            _schema = other._schema;
-            other._schema = nullptr;
+            other._tagged_schema = 0;
         }
         return *this;
     }
@@ -176,10 +178,14 @@ public:
 
     /**
      * @brief Check if the Value contains data.
+     *
+     * A Value is valid if it has a schema, is not null, and storage has value.
+     * This is equivalent to has_value().
+     *
      * @return true if valid (contains data)
      */
     [[nodiscard]] bool valid() const noexcept {
-        return _schema != nullptr && _storage.has_value();
+        return has_value();
     }
 
     /**
@@ -194,7 +200,7 @@ public:
      * @return The schema, or nullptr if invalid
      */
     [[nodiscard]] const TypeMeta* schema() const noexcept {
-        return _schema;
+        return get_schema_ptr();
     }
 
     // ========== View Access ==========
@@ -210,7 +216,7 @@ public:
         if constexpr (policy_traits<Policy>::has_python_cache) {
             this->invalidate_cache();
         }
-        return View(_storage.data(), _schema);
+        return View(_storage.data(), schema());
     }
 
     /**
@@ -218,7 +224,7 @@ public:
      * @return Const view
      */
     [[nodiscard]] View view() const {
-        return View(_storage.data(), _schema);
+        return View(_storage.data(), schema());
     }
 
     /**
@@ -226,7 +232,7 @@ public:
      * @return Const view
      */
     [[nodiscard]] View const_view() const {
-        return View(_storage.data(), _schema);
+        return View(_storage.data(), schema());
     }
 
     // ========== Specialized View Access ==========
@@ -244,7 +250,7 @@ public:
     /**
      * @brief Get as a tuple view (const).
      */
-    [[nodiscard]] ConstTupleView as_tuple() const {
+    [[nodiscard]] TupleView as_tuple() const {
         return const_view().as_tuple();
     }
 
@@ -261,7 +267,7 @@ public:
     /**
      * @brief Get as a bundle view (const).
      */
-    [[nodiscard]] ConstBundleView as_bundle() const {
+    [[nodiscard]] BundleView as_bundle() const {
         return const_view().as_bundle();
     }
 
@@ -278,7 +284,7 @@ public:
     /**
      * @brief Get as a list view (const).
      */
-    [[nodiscard]] ConstListView as_list() const {
+    [[nodiscard]] ListView as_list() const {
         return const_view().as_list();
     }
 
@@ -295,7 +301,7 @@ public:
     /**
      * @brief Get as a set view (const).
      */
-    [[nodiscard]] ConstSetView as_set() const {
+    [[nodiscard]] SetView as_set() const {
         return const_view().as_set();
     }
 
@@ -312,7 +318,7 @@ public:
     /**
      * @brief Get as a map view (const).
      */
-    [[nodiscard]] ConstMapView as_map() const {
+    [[nodiscard]] MapView as_map() const {
         return const_view().as_map();
     }
 
@@ -409,7 +415,7 @@ public:
      */
     template<typename T>
     [[nodiscard]] bool is_scalar_type() const {
-        return valid() && _schema == scalar_type_meta<T>();
+        return valid() && schema() == scalar_type_meta<T>();
     }
 
     // ========== Raw Access ==========
@@ -475,11 +481,11 @@ public:
             if (this->has_cache()) {
                 return this->get_cache();
             }
-            auto result = _schema->ops->to_python(_storage.data(), _schema);
+            auto result = schema()->ops->to_python(_storage.data(), schema());
             this->set_cache(result);
             return result;
         } else {
-            return _schema->ops->to_python(_storage.data(), _schema);
+            return schema()->ops->to_python(_storage.data(), schema());
         }
     }
 
@@ -507,7 +513,7 @@ public:
 
         // Perform type conversion from Python object to native storage
         try {
-            _schema->ops->from_python(_storage.data(), src, _schema);
+            schema()->ops->from_python(_storage.data(), src, schema());
         } catch (const nb::python_error& e) {
             // Re-throw Python exceptions with preserved traceback
             throw;
@@ -544,9 +550,188 @@ public:
         }
     }
 
+    // ========== Delta Operations ==========
+
+    /**
+     * @brief Apply a set delta to this value.
+     *
+     * Adds elements from delta.added() and removes elements from delta.removed().
+     * Only valid for Set values.
+     *
+     * @param delta The set delta to apply
+     */
+    void apply_delta(const SetDeltaView& delta) {
+        if (!valid() || schema()->kind != TypeKind::Set) {
+            throw std::runtime_error("apply_delta: Value must be a valid Set");
+        }
+
+        auto set_view = as_set();
+
+        // Add elements
+        for (auto elem : delta.added()) {
+            set_view.add(elem);
+        }
+
+        // Remove elements
+        for (auto elem : delta.removed()) {
+            set_view.remove(elem);
+        }
+    }
+
+    /**
+     * @brief Apply a map delta to this value.
+     *
+     * Adds entries from delta.added_items(), updates from delta.updated_items(),
+     * and removes keys from delta.removed_keys().
+     * Only valid for Map values.
+     *
+     * @param delta The map delta to apply
+     */
+    void apply_delta(const MapDeltaView& delta) {
+        if (!valid() || schema()->kind != TypeKind::Map) {
+            throw std::runtime_error("apply_delta: Value must be a valid Map");
+        }
+
+        auto map_view = as_map();
+
+        // Add new entries
+        for (auto [key, value] : delta.added_items()) {
+            map_view.add(key, value);
+        }
+
+        // Update existing entries
+        for (auto [key, value] : delta.updated_items()) {
+            map_view.set_item(key, value);
+        }
+
+        // Remove entries
+        for (auto key : delta.removed_keys()) {
+            map_view.remove(key);
+        }
+    }
+
+    /**
+     * @brief Apply a list delta to this value.
+     *
+     * Updates elements at indices specified in delta.updated_items().
+     * Only valid for List values.
+     *
+     * @param delta The list delta to apply
+     */
+    void apply_delta(const ListDeltaView& delta) {
+        if (!valid() || schema()->kind != TypeKind::List) {
+            throw std::runtime_error("apply_delta: Value must be a valid List");
+        }
+
+        auto list_view = as_list();
+
+        // Update elements at specific indices
+        for (auto [idx_view, value] : delta.updated_items()) {
+            size_t idx = idx_view.as<size_t>();
+            list_view.set(idx, value);
+        }
+    }
+
+    // ========== Null Value Semantics ==========
+
+    /**
+     * @brief Check if the value is in null state.
+     *
+     * Null state means the Value has a schema but no constructed value.
+     * This is distinct from invalid (no schema) and valid (has value).
+     *
+     * @return true if in null state
+     */
+    [[nodiscard]] bool is_null() const noexcept {
+        return (_tagged_schema & 1) != 0;
+    }
+
+    /**
+     * @brief Check if the value is present (not null, not invalid).
+     *
+     * This is the primary check for whether the Value can be used.
+     *
+     * @return true if has a valid value
+     */
+    [[nodiscard]] bool has_value() const noexcept {
+        return schema() != nullptr && !is_null() && _storage.has_value();
+    }
+
+    /**
+     * @brief Reset to null state (keeps schema).
+     *
+     * After reset, has_value() returns false but schema() is still valid.
+     * The storage is destroyed but can be reconstructed with emplace().
+     */
+    void reset() {
+        if (schema() && !is_null()) {
+            _storage.reset();
+            set_null_flag(true);
+        }
+    }
+
+    /**
+     * @brief Construct value in place (from null to valid).
+     *
+     * Transitions from null state to valid state by constructing the value.
+     * Has no effect if not in null state.
+     */
+    void emplace() {
+        if (schema() && is_null()) {
+            _storage.construct(schema());
+            set_null_flag(false);
+        }
+    }
+
+    /**
+     * @brief Create a null Value with the given schema.
+     *
+     * The returned Value has a schema but no constructed value.
+     * Call emplace() to construct the value.
+     *
+     * @param schema The type schema
+     * @return A null Value with the given schema
+     */
+    [[nodiscard]] static Value make_null(const TypeMeta* schema) {
+        Value v;
+        v.set_schema(schema);
+        v.set_null_flag(true);
+        return v;
+    }
+
 private:
+    // Pointer tagging: low bit of _tagged_schema indicates null state
+    // Bit 0 = 1 means null (has schema but no value)
+    // Bit 0 = 0 means not null (invalid or valid)
+    uintptr_t _tagged_schema{0};
     ValueStorage _storage;
-    const TypeMeta* _schema{nullptr};
+
+    /**
+     * @brief Get the schema pointer (masking out the tag bit).
+     */
+    [[nodiscard]] const TypeMeta* get_schema_ptr() const noexcept {
+        return reinterpret_cast<const TypeMeta*>(_tagged_schema & ~uintptr_t(1));
+    }
+
+    /**
+     * @brief Set the schema pointer (preserving the tag bit).
+     */
+    void set_schema(const TypeMeta* schema) noexcept {
+        bool was_null = is_null();
+        _tagged_schema = reinterpret_cast<uintptr_t>(schema);
+        if (was_null) set_null_flag(true);
+    }
+
+    /**
+     * @brief Set the null flag.
+     */
+    void set_null_flag(bool null) noexcept {
+        if (null) {
+            _tagged_schema |= 1;
+        } else {
+            _tagged_schema &= ~uintptr_t(1);
+        }
+    }
 };
 
 // ============================================================================
@@ -592,11 +777,11 @@ void BundleView::set(std::string_view name, const T& value) {
     set(name, temp.const_view());
 }
 
-// ListView::push_back<T>
+// ListView::append<T>
 template<typename T>
-void ListView::push_back(const T& value) {
+void ListView::append(const T& value) {
     Value<> temp(value);
-    push_back(temp.const_view());
+    append(temp.const_view());
 }
 
 // ListView::reset<T>
@@ -606,13 +791,6 @@ void ListView::reset(const T& sentinel) {
     reset(temp.const_view());
 }
 
-// ConstSetView::contains<T>
-template<typename T>
-bool ConstSetView::contains(const T& value) const {
-    Value<> temp(value);
-    return contains(temp.const_view());
-}
-
 // SetView::contains<T>
 template<typename T>
 bool SetView::contains(const T& value) const {
@@ -620,32 +798,18 @@ bool SetView::contains(const T& value) const {
     return contains(temp.const_view());
 }
 
-// SetView::insert<T>
+// SetView::add<T>
 template<typename T>
-bool SetView::insert(const T& value) {
+bool SetView::add(const T& value) {
     Value<> temp(value);
-    return insert(temp.const_view());
+    return add(temp.const_view());
 }
 
-// SetView::erase<T>
+// SetView::remove<T>
 template<typename T>
-bool SetView::erase(const T& value) {
+bool SetView::remove(const T& value) {
     Value<> temp(value);
-    return erase(temp.const_view());
-}
-
-// ConstMapView::at<K>
-template<typename K>
-View ConstMapView::at(const K& key) const {
-    Value<> temp(key);
-    return at(temp.const_view());
-}
-
-// ConstMapView::contains<K>
-template<typename K>
-bool ConstMapView::contains(const K& key) const {
-    Value<> temp(key);
-    return contains(temp.const_view());
+    return remove(temp.const_view());
 }
 
 // MapView::at<K> (const)
@@ -669,27 +833,27 @@ bool MapView::contains(const K& key) const {
     return contains(temp.const_view());
 }
 
-// MapView::set<K, V>
+// MapView::set_item<K, V>
 template<typename K, typename V>
-void MapView::set(const K& key, const V& value) {
+void MapView::set_item(const K& key, const V& value) {
     Value<> temp_key(key);
     Value<> temp_val(value);
-    set(temp_key.const_view(), temp_val.const_view());
+    set_item(temp_key.const_view(), temp_val.const_view());
 }
 
-// MapView::insert<K, V>
+// MapView::add<K, V>
 template<typename K, typename V>
-bool MapView::insert(const K& key, const V& value) {
+bool MapView::add(const K& key, const V& value) {
     Value<> temp_key(key);
     Value<> temp_val(value);
-    return insert(temp_key.const_view(), temp_val.const_view());
+    return add(temp_key.const_view(), temp_val.const_view());
 }
 
-// MapView::erase<K>
+// MapView::remove<K>
 template<typename K>
-bool MapView::erase(const K& key) {
+bool MapView::remove(const K& key) {
     Value<> temp(key);
-    return erase(temp.const_view());
+    return remove(temp.const_view());
 }
 
 // ============================================================================

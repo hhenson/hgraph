@@ -2,9 +2,9 @@
 
 /**
  * @file tracked_set_view.h
- * @brief View classes for TrackedSetStorage.
+ * @brief View class for TrackedSetStorage.
  *
- * These views provide non-owning access to TrackedSetStorage, similar to
+ * TrackedSetView provides non-owning access to TrackedSetStorage, similar to
  * how SetView provides non-owning access to set storage.
  */
 
@@ -13,15 +13,23 @@
 namespace hgraph::value {
 
 /**
- * @brief Const view for TrackedSetStorage.
+ * @brief View for TrackedSetStorage (merged const/mutable).
  *
- * Provides read-only access to a tracked set's current value and deltas.
+ * Provides access to a tracked set's current value and deltas.
+ * Supports both read-only and mutable operations depending on
+ * how it was constructed.
  */
-class ConstTrackedSetView {
+class TrackedSetView {
 public:
-    ConstTrackedSetView() = default;
-    explicit ConstTrackedSetView(const TrackedSetStorage* storage)
-        : _storage(storage) {}
+    TrackedSetView() = default;
+
+    /// Construct from const storage (read-only access)
+    explicit TrackedSetView(const TrackedSetStorage* storage)
+        : _storage(storage), _mutable_storage(nullptr) {}
+
+    /// Construct from mutable storage (read-write access)
+    explicit TrackedSetView(TrackedSetStorage* storage)
+        : _storage(storage), _mutable_storage(storage) {}
 
     // ========== Validity ==========
 
@@ -31,21 +39,21 @@ public:
     // ========== View Accessors ==========
 
     /**
-     * @brief Get const view of current set value.
+     * @brief Get view of current set value.
      */
     [[nodiscard]] SetView value() const {
         return _storage->value();
     }
 
     /**
-     * @brief Get const view of added elements.
+     * @brief Get view of added elements.
      */
     [[nodiscard]] SetView added() const {
         return _storage->added();
     }
 
     /**
-     * @brief Get const view of removed elements.
+     * @brief Get view of removed elements.
      */
     [[nodiscard]] SetView removed() const {
         return _storage->removed();
@@ -71,7 +79,7 @@ public:
         return _storage->was_removed(elem);
     }
 
-    // ========== Typed Convenience ==========
+    // ========== Typed Convenience (const) ==========
 
     template<typename T>
     [[nodiscard]] bool contains(const T& elem) const {
@@ -90,21 +98,6 @@ public:
     [[nodiscard]] const TypeMeta* element_type() const {
         return _storage->_element_type;
     }
-
-protected:
-    const TrackedSetStorage* _storage{nullptr};
-};
-
-/**
- * @brief Mutable view for TrackedSetStorage.
- *
- * Provides read-write access to a tracked set with delta tracking.
- */
-class TrackedSetView : public ConstTrackedSetView {
-public:
-    TrackedSetView() = default;
-    explicit TrackedSetView(TrackedSetStorage* storage)
-        : ConstTrackedSetView(storage), _mutable_storage(storage) {}
 
     // ========== Mutation with Delta Tracking ==========
 
@@ -138,7 +131,7 @@ public:
         _mutable_storage->clear();
     }
 
-    // ========== Typed Convenience ==========
+    // ========== Typed Convenience (mutable) ==========
 
     template<typename T>
     bool add(const T& elem) {
@@ -151,6 +144,7 @@ public:
     }
 
 private:
+    const TrackedSetStorage* _storage{nullptr};
     TrackedSetStorage* _mutable_storage{nullptr};
 };
 
