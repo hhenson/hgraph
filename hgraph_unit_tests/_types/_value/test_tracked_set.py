@@ -9,7 +9,6 @@ try:
         TypeRegistry,
         TrackedSetStorage,
         TrackedSetView,
-        ConstTrackedSetView,
         SetDeltaValue,
         PlainValue,
     )
@@ -188,17 +187,17 @@ class TestTrackedSetStorage:
 
 
 class TestTrackedSetView:
-    """Tests for TrackedSetView and ConstTrackedSetView."""
+    """Tests for TrackedSetView and TrackedSetView."""
 
     def test_const_view(self, int_element_type):
-        """Test ConstTrackedSetView provides read access."""
+        """Test TrackedSetView provides read access."""
         storage = TrackedSetStorage(int_element_type)
 
         elem = PlainValue(int_element_type)
         elem.from_python(42)
         storage.add(elem.const_view())
 
-        view = ConstTrackedSetView(storage)
+        view = TrackedSetView(storage)
         assert view.size() == 1
         assert view.contains(elem.const_view())
         assert view.was_added(elem.const_view())
@@ -224,7 +223,7 @@ class TestTrackedSetView:
             elem.from_python(i)
             storage.add(elem.const_view())
 
-        view = ConstTrackedSetView(storage)
+        view = TrackedSetView(storage)
         values = [elem.as_int() for elem in view]
         assert sorted(values) == [1, 2]
 

@@ -1703,17 +1703,18 @@ inline View SetView::const_iterator::operator*() const {
     // Access the SetStorage to get the element at the current iteration position
     auto* storage = static_cast<const SetStorage*>(_data);
 
-    if (!storage->index_set || _index >= storage->index_set->size()) {
+    auto* index_set = storage->key_set().index_set();
+    if (!index_set || _index >= index_set->size()) {
         throw std::out_of_range("Set iterator out of range");
     }
 
     // ankerl::unordered_dense::set supports random access via its vector backend
-    auto it = storage->index_set->begin();
+    auto it = index_set->begin();
     std::advance(it, _index);
     size_t storage_idx = *it;
 
     // Return a view of the element at this storage index
-    return View(storage->get_element_ptr(storage_idx), _schema->element_type);
+    return View(storage->key_set().key_at_slot(storage_idx), _schema->element_type);
 }
 
 // ============================================================================
@@ -1724,17 +1725,18 @@ inline View KeySetView::const_iterator::operator*() const {
     // Access the MapStorage to get the key at the current iteration position
     auto* storage = static_cast<const MapStorage*>(_view->data());
 
-    if (!storage->index_set() || _index >= storage->index_set()->size()) {
+    auto* index_set = storage->key_set().index_set();
+    if (!index_set || _index >= index_set->size()) {
         throw std::out_of_range("Key set iterator out of range");
     }
 
     // Get the storage index at this iteration position
-    auto it = storage->index_set()->begin();
+    auto it = index_set->begin();
     std::advance(it, _index);
     size_t storage_idx = *it;
 
     // Return a view of the key at this storage index
-    const void* key_ptr = storage->get_key_ptr(storage_idx);
+    const void* key_ptr = storage->key_at_slot(storage_idx);
     return View(key_ptr, _view->element_type());
 }
 
@@ -1746,18 +1748,19 @@ inline MapView::items_iterator::reference MapView::items_iterator::operator*() c
     // Access the MapStorage to get key and value at the current iteration position
     auto* storage = static_cast<const MapStorage*>(_data);
 
-    if (!storage->index_set() || _index >= storage->index_set()->size()) {
+    auto* index_set = storage->key_set().index_set();
+    if (!index_set || _index >= index_set->size()) {
         throw std::out_of_range("Map items iterator out of range");
     }
 
     // Get the storage index at this iteration position
-    auto it = storage->index_set()->begin();
+    auto it = index_set->begin();
     std::advance(it, _index);
     size_t storage_idx = *it;
 
     // Get key and value pointers
-    const void* key_ptr = storage->get_key_ptr(storage_idx);
-    const void* val_ptr = storage->get_value_ptr(storage_idx);
+    const void* key_ptr = storage->key_at_slot(storage_idx);
+    const void* val_ptr = storage->value_at_slot(storage_idx);
 
     // Return pair of views
     return {View(key_ptr, _schema->key_type), View(val_ptr, _schema->element_type)};
