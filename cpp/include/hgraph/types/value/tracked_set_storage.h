@@ -154,8 +154,8 @@ struct TrackedSetStorage {
             return false;  // Already in set
         }
 
-        // Insert into value
-        value().insert(elem);
+        // Add to value
+        value().add(elem);
 
         // Track delta: if it was removed this cycle, just un-remove it
         auto removed_view = _removed.view().as_set();
@@ -163,7 +163,7 @@ struct TrackedSetStorage {
             removed_view.remove(elem);
         } else {
             // Otherwise track as newly added
-            _added.view().as_set().insert(elem);
+            _added.view().as_set().add(elem);
         }
         return true;
     }
@@ -191,7 +191,7 @@ struct TrackedSetStorage {
             added_view.remove(elem);
         } else {
             // Otherwise track as newly removed
-            _removed.view().as_set().insert(elem);
+            _removed.view().as_set().add(elem);
         }
         return true;
     }
@@ -218,7 +218,7 @@ struct TrackedSetStorage {
         for (auto elem : val) {
             // Only mark as removed if it wasn't added this cycle
             if (!added_view.contains(elem)) {
-                removed_view.insert(elem);
+                removed_view.add(elem);
             }
         }
         // Clear value and added

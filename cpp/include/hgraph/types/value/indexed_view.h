@@ -964,12 +964,12 @@ public:
     [[nodiscard]] bool contains(const T& value) const;  // Implemented after Value
 
     /**
-     * @brief Insert an element.
+     * @brief Add an element.
      *
-     * @return true if the element was inserted (not already present)
+     * @return true if the element was added (not already present)
      */
-    bool insert(const View& value) {
-        assert(valid() && "insert() on invalid view");
+    bool add(const View& value) {
+        assert(valid() && "add() on invalid view");
         if (contains(value)) return false;
         _schema->ops->insert(data(), value.data(), _schema);
         return true;
@@ -1006,7 +1006,7 @@ public:
 
     // Templated operations - implemented after Value
     template<typename T>
-    bool insert(const T& value);
+    bool add(const T& value);
 
     template<typename T>
     bool remove(const T& value);

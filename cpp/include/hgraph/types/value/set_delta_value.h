@@ -60,11 +60,11 @@ struct SetDeltaValue {
             // Copy elements from views
             auto add_set = _added.view().as_set();
             for (auto elem : added_view) {
-                add_set.insert(elem);
+                add_set.add(elem);
             }
             auto rem_set = _removed.view().as_set();
             for (auto elem : removed_view) {
-                rem_set.insert(elem);
+                rem_set.add(elem);
             }
         }
     }

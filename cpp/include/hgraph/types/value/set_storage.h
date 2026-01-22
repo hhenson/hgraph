@@ -10,7 +10,7 @@
  * Design notes:
  * - Delegates to KeySet for all key operations
  * - Exposes key_set() for observers to register
- * - Methods use user-guide naming: insert(), remove(), values()
+ * - Methods use user-guide naming: add(), remove(), values()
  */
 
 #include <hgraph/types/value/key_set.h>
@@ -63,11 +63,11 @@ public:
     // ========== Element Operations ==========
 
     /**
-     * @brief Insert an element into the set.
+     * @brief Add an element to the set.
      * @param elem Pointer to the element value
-     * @return true if the element was inserted (not already present)
+     * @return true if the element was added (not already present)
      */
-    bool insert(const void* elem) {
+    bool add(const void* elem) {
         auto [slot, inserted] = key_set_.insert(elem);
         return inserted;
     }
