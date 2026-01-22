@@ -399,17 +399,17 @@ Ephemeral delta derived from live storage state - either from **DeltaTracker** (
 ```cpp
 // TSS: DeltaTracker provides add/remove
 DeltaView tss_delta(const TSSStorage& storage, engine_time_t tick_time) {
-    return DeltaView::from_computed(&storage, &tss_computed_delta_ops, tick_time, storage.meta());
+    return DeltaView::from_computed(&storage, &tss_computed_delta_ops, tick_time, storage.schema());
 }
 
 // TSD: DeltaTracker + TimeArray
 DeltaView tsd_delta(const TSDStorage& storage, engine_time_t tick_time) {
-    return DeltaView::from_computed(&storage, &tsd_computed_delta_ops, tick_time, storage.meta());
+    return DeltaView::from_computed(&storage, &tsd_computed_delta_ops, tick_time, storage.schema());
 }
 
 // TSL: Timestamp comparison
 DeltaView tsl_delta(const TSLStorage& storage, engine_time_t tick_time) {
-    return DeltaView::from_computed(&storage, &tsl_computed_delta_ops, tick_time, storage.meta());
+    return DeltaView::from_computed(&storage, &tsl_computed_delta_ops, tick_time, storage.schema());
 }
 ```
 

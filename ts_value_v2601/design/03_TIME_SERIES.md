@@ -182,7 +182,7 @@ public:
         : value_view_(ts_value.value_view())
         , time_view_(ts_value.time_view())
         , observer_view_(ts_value.observer_view())
-        , meta_(ts_value.meta())
+        , meta_(ts_value.schema())
         , current_time_(current_time)
     {}
 

@@ -182,8 +182,8 @@ During binding, the appropriate strategy is selected based on input/output types
 
 ```cpp
 AccessStrategy* select_strategy(TSInput* input, TSOutput* output) {
-    bool input_is_ref = input->meta()->ts_kind() == TSKind::REF;
-    bool output_is_ref = output->meta()->ts_kind() == TSKind::REF;
+    bool input_is_ref = input->schema()->ts_kind() == TSKind::REF;
+    bool output_is_ref = output->schema()->ts_kind() == TSKind::REF;
 
     if (!input_is_ref && !output_is_ref) {
         return new DirectAccess(output);

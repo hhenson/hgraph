@@ -69,7 +69,7 @@ Values can represent null (None) using `std::optional`-style semantics. Unlike a
 // Create a typed null value (has schema, but no data)
 Value null_int(TypeMeta::get("int"));
 assert(!null_int.has_value());           // Is null
-assert(null_int.meta()->name() == "int"); // But schema is accessible
+assert(null_int.schema()->name() == "int"); // But schema is accessible
 
 // Emplace to construct a value (makes non-null)
 null_int.emplace();  // Default constructs (0 for int)

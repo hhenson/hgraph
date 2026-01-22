@@ -385,7 +385,7 @@ public:
 // Create typed null value
 Value null_int(TypeMeta::get("int"));
 assert(!null_int.has_value());
-assert(null_int.meta()->name() == "int");  // Schema still accessible
+assert(null_int.schema()->name() == "int");  // Schema still accessible
 
 // Emplace to make non-null
 null_int.emplace();  // Default constructs (0 for int)
