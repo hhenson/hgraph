@@ -63,7 +63,7 @@ public:
         // Remove from updated if present (removal supersedes update)
         auto upd_it = std::find(updated_.begin(), updated_.end(), slot);
         if (upd_it != updated_.end()) {
-            updated_.erase(upd_it);
+            swap_erase(updated_, upd_it);
         }
     }
 
@@ -98,6 +98,19 @@ public:
      */
     [[nodiscard]] bool has_delta() const {
         return DeltaTracker::has_delta() || !updated_.empty();
+    }
+
+    // ========== Preparation ==========
+
+    /**
+     * @brief Sort delta vectors for ordered iteration.
+     *
+     * Call this before iterating if you need slots in ascending order.
+     * Sorting enables better cache locality when accessing data at slots.
+     */
+    void prepare() {
+        DeltaTracker::prepare();
+        std::sort(updated_.begin(), updated_.end());
     }
 
     // ========== Tick Management ==========

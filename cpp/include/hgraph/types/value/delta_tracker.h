@@ -50,7 +50,7 @@ public:
         auto it = std::find(removed_.begin(), removed_.end(), slot);
         if (it != removed_.end()) {
             // Cancel: was removed, now added back = no net change
-            removed_.erase(it);
+            swap_erase(removed_, it);
         } else {
             // Track as newly added
             added_.push_back(slot);
@@ -62,11 +62,24 @@ public:
         auto it = std::find(added_.begin(), added_.end(), slot);
         if (it != added_.end()) {
             // Cancel: was added, now removed = no net change
-            added_.erase(it);
+            swap_erase(added_, it);
         } else {
             // Track as removed
             removed_.push_back(slot);
         }
+    }
+
+protected:
+    /**
+     * @brief O(1) erasure by swapping with last element.
+     * Order doesn't matter for delta tracking, so this is safe.
+     */
+    static void swap_erase(std::vector<size_t>& vec,
+                           typename std::vector<size_t>::iterator it) {
+        if (it != vec.end() - 1) {
+            std::swap(*it, vec.back());
+        }
+        vec.pop_back();
     }
 
     void on_clear() override {
@@ -109,6 +122,19 @@ public:
      */
     [[nodiscard]] bool has_delta() const {
         return !added_.empty() || !removed_.empty();
+    }
+
+    // ========== Preparation ==========
+
+    /**
+     * @brief Sort delta vectors for ordered iteration.
+     *
+     * Call this before iterating if you need slots in ascending order.
+     * Sorting enables better cache locality when accessing data at slots.
+     */
+    void prepare() {
+        std::sort(added_.begin(), added_.end());
+        std::sort(removed_.begin(), removed_.end());
     }
 
     // ========== Tick Management ==========
