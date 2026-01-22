@@ -1286,11 +1286,11 @@ public:
     }
 
     /**
-     * @brief Add key-value pair.
+     * @brief Insert key-value pair.
      *
-     * @return true if added (key was new)
+     * @return true if inserted (key was new)
      */
-    bool add(const View& key, const View& value) {
+    bool insert(const View& key, const View& value) {
         if (contains(key)) return false;
         set_item(key, value);
         return true;
@@ -1357,7 +1357,7 @@ public:
     void set_item(const K& key, const V& value);
 
     template<typename K, typename V>
-    bool add(const K& key, const V& value);
+    bool insert(const K& key, const V& value);
 
     template<typename K>
     bool remove(const K& key);

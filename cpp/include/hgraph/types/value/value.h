@@ -596,7 +596,7 @@ public:
 
         // Add new entries
         for (auto [key, value] : delta.added_items()) {
-            map_view.add(key, value);
+            map_view.insert(key, value);
         }
 
         // Update existing entries
@@ -841,12 +841,12 @@ void MapView::set_item(const K& key, const V& value) {
     set_item(temp_key.const_view(), temp_val.const_view());
 }
 
-// MapView::add<K, V>
+// MapView::insert<K, V>
 template<typename K, typename V>
-bool MapView::add(const K& key, const V& value) {
+bool MapView::insert(const K& key, const V& value) {
     Value<> temp_key(key);
     Value<> temp_val(value);
-    return add(temp_key.const_view(), temp_val.const_view());
+    return insert(temp_key.const_view(), temp_val.const_view());
 }
 
 // MapView::remove<K>

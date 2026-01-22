@@ -514,15 +514,71 @@ def test_map_operator_bracket_write(string_double_map_schema):
     assert abs(mv.at(k3.const_view()).as_double() - 2.50) < 1e-10
 
 
-def test_map_operator_bracket_inserts_default(string_double_map_schema):
-    """MapView operator[] inserts default if key missing."""
+def test_map_operator_bracket_raises_on_missing(string_double_map_schema):
+    """MapView operator[] raises KeyError if key missing (Python dict behavior)."""
     v = PlainValue(string_double_map_schema)
     mv = v.as_map()
 
     key = make_string_value("new_key")
-    _ = mv[key.const_view()]  # Access inserts default
+    with pytest.raises(KeyError):
+        _ = mv[key.const_view()]  # Access raises KeyError
 
-    assert mv.contains(make_string_value("new_key").const_view())
+
+def test_map_operator_bracket_get(string_double_map_schema):
+    """MapView operator[] gets value when key exists."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+
+    k = make_string_value("apple")
+    val = make_double_value(1.50)
+    mv.set_item(k.const_view(), val.const_view())
+
+    result = mv[make_string_value("apple").const_view()]
+    assert abs(result.as_double() - 1.50) < 1e-10
+
+
+def test_map_operator_setitem(string_double_map_schema):
+    """MapView __setitem__ sets value for key."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+
+    k = make_string_value("apple")
+    val = make_double_value(1.50)
+    mv[k.const_view()] = val.const_view()
+
+    assert mv.contains(make_string_value("apple").const_view())
+    assert abs(mv.at(make_string_value("apple").const_view()).as_double() - 1.50) < 1e-10
+
+
+def test_map_get_returns_value_when_key_exists(string_double_map_schema):
+    """MapView.get() returns value when key exists."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+
+    k = make_string_value("apple")
+    val = make_double_value(1.50)
+    mv.set_item(k.const_view(), val.const_view())
+
+    result = mv.get(make_string_value("apple").const_view())
+    assert result is not None
+
+
+def test_map_get_returns_none_when_key_missing(string_double_map_schema):
+    """MapView.get() returns None when key missing."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+
+    result = mv.get(make_string_value("missing").const_view())
+    assert result is None
+
+
+def test_map_get_returns_default_when_key_missing(string_double_map_schema):
+    """MapView.get() returns default value when key missing."""
+    v = PlainValue(string_double_map_schema)
+    mv = v.as_map()
+
+    result = mv.get(make_string_value("missing").const_view(), "default_value")
+    assert result == "default_value"
 
 
 # =============================================================================
@@ -574,38 +630,38 @@ def test_const_map_view_contains(string_double_map_schema):
 # =============================================================================
 
 def test_map_insert_returns_true_for_new(string_double_map_schema):
-    """MapView.add() returns True for new keys."""
+    """MapView.insert() returns True for new keys."""
     v = PlainValue(string_double_map_schema)
     mv = v.as_map()
 
-    result = mv.add(make_string_value("apple").const_view(), make_double_value(1.50).const_view())
+    result = mv.insert(make_string_value("apple").const_view(), make_double_value(1.50).const_view())
 
     assert result is True
 
 
 def test_map_insert_returns_false_for_existing(string_double_map_schema):
-    """MapView.add() returns False for existing keys."""
+    """MapView.insert() returns False for existing keys."""
     v = PlainValue(string_double_map_schema)
     mv = v.as_map()
 
-    mv.add(make_string_value("apple").const_view(), make_double_value(1.50).const_view())
-    result = mv.add(make_string_value("apple").const_view(), make_double_value(1.75).const_view())
+    mv.insert(make_string_value("apple").const_view(), make_double_value(1.50).const_view())
+    result = mv.insert(make_string_value("apple").const_view(), make_double_value(1.75).const_view())
 
     assert result is False
 
 
 def test_map_insert_doesnt_overwrite(string_double_map_schema):
-    """MapView.add() doesn't overwrite existing value."""
+    """MapView.insert() doesn't overwrite existing value."""
     v = PlainValue(string_double_map_schema)
     mv = v.as_map()
 
     k1 = make_string_value("apple")
     v1 = make_double_value(1.50)
-    mv.add(k1.const_view(), v1.const_view())
+    mv.insert(k1.const_view(), v1.const_view())
 
     k2 = make_string_value("apple")
     v2 = make_double_value(1.75)
-    mv.add(k2.const_view(), v2.const_view())  # Should not overwrite
+    mv.insert(k2.const_view(), v2.const_view())  # Should not overwrite
 
     k3 = make_string_value("apple")
     assert abs(mv.at(k3.const_view()).as_double() - 1.50) < 1e-10

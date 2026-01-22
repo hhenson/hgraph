@@ -1045,25 +1045,32 @@ static void register_map_views(nb::module_& m) {
             "key"_a, "Get value by key (throws if not found)")
         .def("at_const", static_cast<View (MapView::*)(const View&) const>(
             &MapView::at), "key"_a, "Get value by key (const, throws if not found)")
-        // __getitem__ with auto-insert behavior (like C++ std::map::operator[])
+        // __getitem__ - Python dict behavior (raises KeyError if not found)
         .def("__getitem__", [](MapView& self, const View& key) -> View {
-            // If key doesn't exist, insert default value
             if (!self.contains(key)) {
-                // Create a default-constructed value of the value type
-                const TypeMeta* val_type = self.value_type();
-                PlainValue default_val(val_type);
-                self.set_item(key, default_val.const_view());
+                throw nb::key_error("key not found");
             }
             return self.at(key);
-        }, "key"_a, "Get value by key (auto-inserts default if missing)")
+        }, "key"_a, "Get value by key (raises KeyError if not found)")
+        // __setitem__ - Python dict assignment syntax
+        .def("__setitem__", [](MapView& self, const View& key, const View& value) {
+            self.set_item(key, value);
+        }, "key"_a, "value"_a, "Set value for key")
+        // get() - Python dict style with optional default
+        .def("get", [](MapView& self, const View& key, nb::object default_val) -> nb::object {
+            if (!self.contains(key)) {
+                return default_val;
+            }
+            return nb::cast(self.at(key));
+        }, "key"_a, "default"_a = nb::none(), "Get value by key or default if not found")
         .def("contains", static_cast<bool (MapView::*)(const View&) const>(
             &MapView::contains), "key"_a, "Check if a key exists")
         .def("__contains__", static_cast<bool (MapView::*)(const View&) const>(
             &MapView::contains), "key"_a)
         .def("set_item", static_cast<void (MapView::*)(const View&, const View&)>(
             &MapView::set_item), "key"_a, "value"_a, "Set value for key")
-        .def("add", static_cast<bool (MapView::*)(const View&, const View&)>(
-            &MapView::add), "key"_a, "value"_a, "Add key-value pair (returns true if added)")
+        .def("insert", static_cast<bool (MapView::*)(const View&, const View&)>(
+            &MapView::insert), "key"_a, "value"_a, "Insert key-value pair (returns true if inserted)")
         .def("remove", static_cast<bool (MapView::*)(const View&)>(&MapView::remove),
             "key"_a, "Remove entry by key (returns true if removed)")
         .def("clear", &MapView::clear, "Clear all entries")
