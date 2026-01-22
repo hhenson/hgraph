@@ -9,6 +9,65 @@
 
 namespace hgraph
 {
+    /**
+     * @brief Type tag enum for fast runtime type identification without RTTI.
+     *
+     * Used to avoid dynamic_cast overhead in hot paths like is_same_type() and copy operations.
+     * Each concrete time series type has a unique kind value.
+     */
+    /**
+     * @brief Type tag using bit flags for fast runtime type identification.
+     *
+     * Each flag represents a type trait that can be combined:
+     * - Direction: Output, Input
+     * - Base types: Value, Bundle, List, Dict, Set, Reference, Window
+     * - Modifiers: Indexed, Signal, etc.
+     *
+     * Examples:
+     * - ListOutput: List | Output
+     * - ListInput: List | Input
+     * - IndexedListOutput: Indexed | List | Output
+     */
+    enum class TimeSeriesKind : uint32_t {
+        None      = 0,
+
+        // Direction flags (mutually exclusive)
+        Output    = 1 << 0,
+        Input     = 1 << 1,
+
+        // Base type flags
+        Value     = 1 << 2,
+        Bundle    = 1 << 3,
+        List      = 1 << 4,
+        Dict      = 1 << 5,
+        Set       = 1 << 6,
+        Reference = 1 << 7,
+        Window    = 1 << 8,
+
+        // Modifier flags (can be combined with base types)
+        Indexed   = 1 << 9,
+        Signal    = 1 << 10,
+        FixedWindow = 1 << 11,
+        TimeWindow  = 1 << 12,
+    };
+
+    // Bitwise operators for combining flags
+    constexpr TimeSeriesKind operator|(TimeSeriesKind a, TimeSeriesKind b) {
+        return static_cast<TimeSeriesKind>(static_cast<uint32_t>(a) | static_cast<uint32_t>(b));
+    }
+
+    constexpr TimeSeriesKind operator&(TimeSeriesKind a, TimeSeriesKind b) {
+        return static_cast<TimeSeriesKind>(static_cast<uint32_t>(a) & static_cast<uint32_t>(b));
+    }
+
+    constexpr bool operator!(TimeSeriesKind k) {
+        return static_cast<uint32_t>(k) == 0;
+    }
+
+    // Helper to check if all flags in 'required' are present in 'kind'
+    constexpr bool has_flags(TimeSeriesKind kind, TimeSeriesKind required) {
+        return (kind & required) == required;
+    }
 
     struct TimeSeriesVisitor;
 
@@ -104,6 +163,14 @@ namespace hgraph
         [[nodiscard]] virtual bool is_same_type(const TimeSeriesType *other) const = 0;
         [[nodiscard]] virtual bool is_reference() const                            = 0;
         [[nodiscard]] virtual bool has_reference() const                           = 0;
+
+        /**
+         * @brief Returns the runtime type tag for this time series.
+         *
+         * Used for fast type identification without RTTI overhead.
+         * Default implementation returns None; concrete classes override with their specific kind.
+         */
+        [[nodiscard]] virtual TimeSeriesKind kind() const { return TimeSeriesKind::None; }
 
         static inline time_series_type_s_ptr null_ptr{};
     };

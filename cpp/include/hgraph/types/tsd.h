@@ -209,13 +209,17 @@ namespace hgraph
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Dict | TimeSeriesKind::Output; }
+
         [[nodiscard]] value_type get_or_create(const value::View &key);
 
         [[nodiscard]] bool has_reference() const override;
 
         VISITOR_SUPPORT()
 
-        void create(const value::View &key);
+        // Creates a new time series for the given key and returns it.
+        // This allows get_or_create to avoid a second lookup after creation.
+        value_type create(const value::View &key);
 
         [[nodiscard]] const value::TypeMeta* key_type_meta() const { return _key_type; }
 
@@ -251,6 +255,9 @@ namespace hgraph
         map_type _modified_items;
         removed_items_map_type _removed_items;  // Stores pair<value, was_valid>
         mutable map_type _valid_items_cache;
+        mutable map_type _added_items_cache;  // Instance member instead of static for thread safety
+        mutable engine_time_t _valid_items_cache_time{MIN_DT};  // Track when valid_items cache was built
+        mutable engine_time_t _added_items_cache_time{MIN_DT};  // Track when added_items cache was built
 
         output_builder_s_ptr _ts_builder;
         output_builder_s_ptr _ts_ref_builder;
@@ -341,6 +348,8 @@ namespace hgraph
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Dict | TimeSeriesKind::Input; }
+
         [[nodiscard]] bool has_reference() const override;
 
         void make_active() override;
@@ -351,7 +360,8 @@ namespace hgraph
 
         [[nodiscard]] engine_time_t last_modified_time() const override;
 
-        void create(const value::View &key);
+        // Creates a new time series for the given key and returns it.
+        value_type create(const value::View &key);
 
         [[nodiscard]] TimeSeriesDictOutputImpl &output_t();
 
@@ -406,6 +416,8 @@ namespace hgraph
         mutable map_type _added_items_cache;
         mutable map_type _removed_items_cache;
         mutable map_type _modified_items_cache;
+        mutable engine_time_t _valid_items_cache_time{MIN_DT};  // Track when valid_items cache was built
+        mutable engine_time_t _added_items_cache_time{MIN_DT};  // Track when added_items cache was built
         static inline map_type empty_{};
 
         input_builder_s_ptr _ts_builder;

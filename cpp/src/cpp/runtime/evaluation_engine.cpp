@@ -279,19 +279,20 @@ namespace hgraph {
 
         // Process all alarms that are due and adjust the next scheduled time
         while (!_alarms.empty()) {
-            const auto &next_alarm = *_alarms.begin();
-            if (now >= next_alarm.first) {
-                auto alarm = *_alarms.begin();
-                _alarms.erase(_alarms.begin());
+            auto it = _alarms.begin();
+            if (now >= it->first) {
+                // Extract the alarm key before erasing to avoid redundant copy
+                auto alarm_key = std::move(*it);
+                _alarms.erase(it);
                 next_scheduled_time = std::max(next_scheduled_time, evaluation_time() + MIN_TD);
 
-                auto cb = _alarm_callbacks.find(alarm);
+                auto cb = _alarm_callbacks.find(alarm_key);
                 if (cb != _alarm_callbacks.end()) {
                     cb->second(next_scheduled_time);
                     _alarm_callbacks.erase(cb);
                 }
-            } else if (next_scheduled_time > next_alarm.first) {
-                next_scheduled_time = next_alarm.first;
+            } else if (next_scheduled_time > it->first) {
+                next_scheduled_time = it->first;
                 break;
             } else {
                 break;
@@ -342,12 +343,13 @@ namespace hgraph {
 
         // Process alarms again after updating evaluation_time
         while (!_alarms.empty()) {
-            const auto &next_alarm = *_alarms.begin();
-            if (now >= next_alarm.first) {
-                auto alarm = *_alarms.begin();
-                _alarms.erase(_alarms.begin());
+            auto it = _alarms.begin();
+            if (now >= it->first) {
+                // Extract the alarm key before erasing to avoid redundant copy
+                auto alarm_key = std::move(*it);
+                _alarms.erase(it);
 
-                auto cb = _alarm_callbacks.find(alarm);
+                auto cb = _alarm_callbacks.find(alarm_key);
                 if (cb != _alarm_callbacks.end()) {
                     cb->second(evaluation_time());
                     _alarm_callbacks.erase(cb);
@@ -447,30 +449,25 @@ namespace hgraph {
     }
 
     void EvaluationEngineImpl::notify_before_evaluation() {
-        // Copy the callback list and clear the original to prevent iterator invalidation
-        auto todo = std::move(_before_evaluation_notification);
-        _before_evaluation_notification.clear();
+        // Process all notifications iteratively, including any added during callback execution
+        while (!_before_evaluation_notification.empty()) {
+            auto todo = std::move(_before_evaluation_notification);
+            _before_evaluation_notification.clear();
 
-        for (auto &notification_receiver: todo) {
-            notification_receiver();
-            // If new notifications were added during callback execution, process them recursively
-            if (!_before_evaluation_notification.empty()) {
-                notify_before_evaluation();
+            for (auto &notification_receiver: todo) {
+                notification_receiver();
             }
         }
     }
 
     void EvaluationEngineImpl::notify_after_evaluation() {
-        // Copy the callback list and clear the original, matching Python's behavior.
-        // This prevents iterator invalidation if callbacks add more callbacks.
-        auto todo = std::move(_after_evaluation_notification);
-        _after_evaluation_notification.clear();
+        // Process all notifications iteratively in reverse order, including any added during callback execution
+        while (!_after_evaluation_notification.empty()) {
+            auto todo = std::move(_after_evaluation_notification);
+            _after_evaluation_notification.clear();
 
-        for (auto it = todo.rbegin(); it != todo.rend(); ++it) {
-            (*it)();
-            // If new notifications were added during callback execution, process them recursively
-            if (!_after_evaluation_notification.empty()) {
-                notify_after_evaluation();
+            for (auto it = todo.rbegin(); it != todo.rend(); ++it) {
+                (*it)();
             }
         }
     }

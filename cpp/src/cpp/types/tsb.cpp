@@ -317,8 +317,10 @@ const std::function < bool(const ts_type &) > &constraint)
     }
 
     bool TimeSeriesBundleOutput::is_same_type(const TimeSeriesType *other) const {
-        auto other_b = dynamic_cast<const TimeSeriesBundleOutput *>(other);
-        if (!other_b) { return false; }
+        // Single comparison checks both type (Bundle) and direction (Output)
+        if (other->kind() != kind()) { return false; }
+        // Kind matches exactly, safe to use static_cast
+        auto other_b = static_cast<const TimeSeriesBundleOutput *>(other);
         if (this->size() != other_b->size()) { return false; }
         for (size_t i = 0; i < this->size(); ++i) {
             if (!(*this)[i]->is_same_type((*other_b)[i].get())) { return false; }
@@ -333,8 +335,10 @@ const std::function < bool(const ts_type &) > &constraint)
     }
 
     bool TimeSeriesBundleInput::is_same_type(const TimeSeriesType *other) const {
-        auto other_b = dynamic_cast<const TimeSeriesBundleInput *>(other);
-        if (!other_b) { return false; }
+        // Single comparison checks both type (Bundle) and direction (Input)
+        if (other->kind() != kind()) { return false; }
+        // Kind matches exactly, safe to use static_cast
+        auto other_b = static_cast<const TimeSeriesBundleInput *>(other);
         if (this->size() != other_b->size()) { return false; }
         for (size_t i = 0; i < this->size(); ++i) {
             if (!(*this)[i]->is_same_type((*other_b)[i].get())) { return false; }

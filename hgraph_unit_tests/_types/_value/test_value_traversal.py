@@ -637,9 +637,9 @@ def test_deep_visit_set(int_set_schema):
 
     v = PlainValue(int_set_schema)
     sv = v.as_set()
-    sv.add(make_int_value(10).const_view())
-    sv.add(make_int_value(20).const_view())
-    sv.add(make_int_value(30).const_view())
+    sv.insert(make_int_value(10).const_view())
+    sv.insert(make_int_value(20).const_view())
+    sv.insert(make_int_value(30).const_view())
 
     visited = []
 

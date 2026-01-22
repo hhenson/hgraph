@@ -60,11 +60,12 @@ namespace hgraph {
         void copy_from_input(const TimeSeriesInput &input) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            if (auto* other_tsw = dynamic_cast<const TimeSeriesFixedWindowOutput*>(other)) {
-                return _element_type == other_tsw->_element_type;
-            }
-            return false;
+            if (other->kind() != kind()) { return false; }
+            auto* other_tsw = static_cast<const TimeSeriesFixedWindowOutput*>(other);
+            return _element_type == other_tsw->_element_type;
         }
+
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Window | TimeSeriesKind::FixedWindow | TimeSeriesKind::Output; }
 
         // Extra API to mirror Python TSW
         [[nodiscard]] size_t size() const { return _size; }
@@ -131,11 +132,12 @@ namespace hgraph {
         void copy_from_input(const TimeSeriesInput &input) override;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            if (auto* other_tsw = dynamic_cast<const TimeSeriesTimeWindowOutput*>(other)) {
-                return _element_type == other_tsw->_element_type;
-            }
-            return false;
+            if (other->kind() != kind()) { return false; }
+            auto* other_tsw = static_cast<const TimeSeriesTimeWindowOutput*>(other);
+            return _element_type == other_tsw->_element_type;
         }
+
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Window | TimeSeriesKind::TimeWindow | TimeSeriesKind::Output; }
 
         // Extra API to mirror Python TSW
         [[nodiscard]] engine_time_delta_t size() const { return _size; }
@@ -208,11 +210,12 @@ namespace hgraph {
         [[nodiscard]] size_t len() const;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            if (auto* other_input = dynamic_cast<const TimeSeriesWindowInput*>(other)) {
-                return element_type() == other_input->element_type();
-            }
-            return false;
+            if (other->kind() != kind()) { return false; }
+            auto* other_input = static_cast<const TimeSeriesWindowInput*>(other);
+            return element_type() == other_input->element_type();
         }
+
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Window | TimeSeriesKind::Input; }
 
         VISITOR_SUPPORT()
 

@@ -75,8 +75,11 @@ namespace hgraph {
     }
 
     bool TimeSeriesValueOutput::is_same_type(const TimeSeriesType* other) const {
-        auto* ts = dynamic_cast<const TimeSeriesValueOutput*>(other);
-        return ts && ts->schema() == schema();
+        // Single comparison checks both type (Value) and direction (Output)
+        if (other->kind() != kind()) { return false; }
+        // Kind matches exactly, safe to use static_cast
+        auto* ts = static_cast<const TimeSeriesValueOutput*>(other);
+        return ts->schema() == schema();
     }
 
     void TimeSeriesValueOutput::reset_value() {
@@ -104,8 +107,8 @@ namespace hgraph {
     }
 
     bool TimeSeriesValueInput::is_same_type(const TimeSeriesType* other) const {
-        auto* ts = dynamic_cast<const TimeSeriesValueInput*>(other);
-        return ts != nullptr;
+        // Single comparison checks both type (Value) and direction (Input)
+        return other->kind() == kind();
     }
 
     // ============================================================================

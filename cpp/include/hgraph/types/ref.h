@@ -79,6 +79,7 @@ namespace hgraph
         using BaseTimeSeriesOutput::BaseTimeSeriesOutput;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Reference | TimeSeriesKind::Output; }
 
         const TimeSeriesReference &value() const;  // Throws if no value
 
@@ -143,8 +144,10 @@ namespace hgraph
         using BaseTimeSeriesInput::BaseTimeSeriesInput;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override {
-            return dynamic_cast<const TimeSeriesReferenceInput *>(other) != nullptr;
+            // Single comparison checks both type (Reference) and direction (Input)
+            return other->kind() == kind();
         }
+        [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Reference | TimeSeriesKind::Input; }
 
         void start();
 
