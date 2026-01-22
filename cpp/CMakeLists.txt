@@ -186,6 +186,16 @@ else ()
     message(STATUS "Found ddvisitor via Conan/system: ${ddvisitor_DIR}")
 endif ()
 
+# sul::dynamic_bitset via FetchContent (header-only)
+include(FetchContent)
+FetchContent_Declare(
+    dynamic_bitset
+    GIT_REPOSITORY https://github.com/pinam45/dynamic_bitset.git
+    GIT_TAG v1.2.0
+)
+FetchContent_MakeAvailable(dynamic_bitset)
+message(STATUS "Using sul::dynamic_bitset from FetchContent")
+
 # Git version info is optional here (no .git necessarily inside this repo)
 set(GIT_BRANCH "")
 set(GIT_COMMIT_HASH "")

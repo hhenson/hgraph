@@ -2,15 +2,15 @@
 
 /**
  * @file key_set.h
- * @brief KeySet - Core slot-based storage with generation tracking.
+ * @brief KeySet - Core slot-based storage with alive/dead tracking.
  *
  * KeySet provides stable key storage where keys NEVER move after insertion.
- * Slot reuse is managed via a free list, and each slot has a generation counter
- * to detect stale references (generation 0 = dead/available, >0 = alive).
+ * Slot reuse is managed via a free list, and each slot has an alive bit
+ * to track whether it contains a valid key.
  *
  * Key design principles:
  * - Memory stability: Keys stay at their original slot forever (no swap-with-last)
- * - Generation tracking: Enables safe external references via SlotHandle
+ * - Alive tracking: Uses efficient bitset for slot liveness
  * - Observer pattern: Parallel arrays (values, deltas) stay synchronized
  * - O(1) operations: Insert, find, erase via hash table
  */
@@ -19,6 +19,7 @@
 #include <hgraph/types/value/type_meta.h>
 
 #include <ankerl/unordered_dense.h>
+#include <sul/dynamic_bitset.hpp>
 
 #include <cstddef>
 #include <cstdint>
@@ -31,25 +32,27 @@ namespace hgraph::value {
 class KeySet;
 
 /**
- * @brief Handle to a slot with generation for validity checking.
+ * @brief Handle to a slot for external reference.
  *
- * SlotHandle allows external code to hold references to KeySet elements
- * and verify they haven't been erased and reallocated.
+ * SlotHandle allows external code to hold references to KeySet elements.
+ * Validity can be checked via is_valid() which tests if the slot is still alive.
+ * Note: This is a weak reference - the slot may be reused for a different key.
  */
 struct SlotHandle {
     size_t slot{0};
-    uint32_t generation{0};
 
     SlotHandle() = default;
-    SlotHandle(size_t s, uint32_t g) : slot(s), generation(g) {}
+    explicit SlotHandle(size_t s) : slot(s) {}
 
     /**
-     * @brief Check if this handle still refers to a valid, alive slot.
+     * @brief Check if this handle refers to an alive slot.
+     * @note This only checks liveness, not identity. The slot may contain
+     *       a different key than when the handle was created.
      */
     [[nodiscard]] bool is_valid(const KeySet& ks) const;
 
     bool operator==(const SlotHandle& other) const {
-        return slot == other.slot && generation == other.generation;
+        return slot == other.slot;
     }
 
     bool operator!=(const SlotHandle& other) const {
@@ -96,16 +99,16 @@ struct KeySetEqual {
 };
 
 /**
- * @brief Core slot-based key storage with generation tracking.
+ * @brief Core slot-based key storage with bitset-based alive tracking.
  *
  * KeySet stores keys in stable slots - once a key is inserted at a slot,
  * it never moves. When a key is erased, its slot is added to a free list
- * for reuse, and its generation counter is incremented.
+ * for reuse, and its alive bit is cleared.
  *
  * This design enables:
  * - Stable pointers/references to keys
- * - SlotHandle for safe external references
  * - Efficient parallel arrays via SlotObserver
+ * - Memory-efficient alive tracking via bitset
  */
 class KeySet {
 public:
@@ -130,7 +133,7 @@ public:
 
     KeySet(KeySet&& other) noexcept
         : keys_(std::move(other.keys_))
-        , generations_(std::move(other.generations_))
+        , alive_(std::move(other.alive_))
         , free_list_(std::move(other.free_list_))
         , key_type_(other.key_type_)
         , size_(other.size_)
@@ -139,8 +142,8 @@ public:
         if (other.index_set_) {
             index_set_ = std::make_unique<IndexSet>(0, KeySetHash(this), KeySetEqual(this));
             // Copy all live slot indices
-            for (size_t i = 0; i < generations_.size(); ++i) {
-                if (generations_[i] > 0) {
+            for (size_t i = 0; i < alive_.size(); ++i) {
+                if (alive_[i]) {
                     index_set_->insert(i);
                 }
             }
@@ -152,7 +155,7 @@ public:
     KeySet& operator=(KeySet&& other) noexcept {
         if (this != &other) {
             keys_ = std::move(other.keys_);
-            generations_ = std::move(other.generations_);
+            alive_ = std::move(other.alive_);
             free_list_ = std::move(other.free_list_);
             key_type_ = other.key_type_;
             size_ = other.size_;
@@ -160,8 +163,8 @@ public:
 
             if (other.index_set_) {
                 index_set_ = std::make_unique<IndexSet>(0, KeySetHash(this), KeySetEqual(this));
-                for (size_t i = 0; i < generations_.size(); ++i) {
-                    if (generations_[i] > 0) {
+                for (size_t i = 0; i < alive_.size(); ++i) {
+                    if (alive_[i]) {
                         index_set_->insert(i);
                     }
                 }
@@ -176,8 +179,8 @@ public:
 
     ~KeySet() {
         if (key_type_ && key_type_->ops && key_type_->ops->destruct) {
-            for (size_t i = 0; i < generations_.size(); ++i) {
-                if (generations_[i] > 0) {
+            for (size_t i = 0; i < alive_.size(); ++i) {
+                if (alive_[i]) {
                     key_type_->ops->destruct(key_at_slot(i), key_type_);
                 }
             }
@@ -231,14 +234,7 @@ public:
      * @brief Check if a slot is alive (not erased).
      */
     [[nodiscard]] bool is_alive(size_t slot) const {
-        return slot < generations_.size() && generations_[slot] > 0;
-    }
-
-    /**
-     * @brief Get the generation counter for a slot.
-     */
-    [[nodiscard]] uint32_t generation_at(size_t slot) const {
-        return slot < generations_.size() ? generations_[slot] : 0;
+        return slot < alive_.size() && alive_[slot];
     }
 
     /**
@@ -300,8 +296,8 @@ public:
             }
         }
 
-        // Mark slot as alive with incremented generation
-        generations_[slot]++;
+        // Mark slot as alive
+        alive_.set(slot);
         size_++;
 
         // Add to index set
@@ -347,14 +343,8 @@ public:
             key_type_->ops->destruct(key_ptr, key_type_);
         }
 
-        // Mark slot as dead (generation stays > 0 to indicate "was used")
-        // Actually, we need generation = 0 for "dead" per the design
-        // But we also want to detect stale handles... Let's keep gen > 0
-        // and add to free list. is_alive checks gen > 0 AND not in free_list?
-        // Simpler: Just use generation. Increment on each reuse.
-        // For now: set to 0 to mark dead, will increment on next insert.
-        // No wait - the design says 0=dead, >0=alive. So:
-        generations_[slot] = 0;
+        // Mark slot as dead
+        alive_.reset(slot);
         size_--;
 
         // Add to free list for reuse
@@ -374,8 +364,8 @@ public:
 
         // Destruct all live keys
         if (key_type_ && key_type_->ops && key_type_->ops->destruct) {
-            for (size_t i = 0; i < generations_.size(); ++i) {
-                if (generations_[i] > 0) {
+            for (size_t i = 0; i < alive_.size(); ++i) {
+                if (alive_[i]) {
                     key_type_->ops->destruct(key_at_slot(i), key_type_);
                 }
             }
@@ -383,10 +373,10 @@ public:
 
         // Reset state
         index_set_->clear();
-        std::fill(generations_.begin(), generations_.end(), 0);
+        alive_.reset();  // Clear all bits
         free_list_.clear();
         // Populate free list with all slots (in reverse for LIFO reuse)
-        for (size_t i = generations_.size(); i > 0; --i) {
+        for (size_t i = alive_.size(); i > 0; --i) {
             free_list_.push_back(i - 1);
         }
         size_ = 0;
@@ -435,8 +425,8 @@ public:
     private:
         void advance_to_live() {
             if (!key_set_) return;
-            size_t cap = key_set_->generations_.size();
-            while (slot_ < cap && key_set_->generations_[slot_] == 0) {
+            size_t cap = key_set_->alive_.size();
+            while (slot_ < cap && !key_set_->alive_[slot_]) {
                 ++slot_;
             }
         }
@@ -450,7 +440,7 @@ public:
     }
 
     [[nodiscard]] iterator end() const {
-        return iterator(this, generations_.size());
+        return iterator(this, alive_.size());
     }
 
     // ========== Index Set Access (for View iteration) ==========
@@ -478,7 +468,7 @@ private:
 
             // Move existing keys
             for (size_t i = 0; i < current_cap; ++i) {
-                if (generations_[i] > 0) {
+                if (alive_[i]) {
                     void* old_ptr = keys_.data() + i * key_type_->size;
                     void* new_ptr = new_keys.data() + i * key_type_->size;
                     if (key_type_->ops && key_type_->ops->move_construct) {
@@ -494,18 +484,18 @@ private:
             keys_.resize(new_byte_size);
         }
 
-        // Expand generations array
-        size_t old_gen_size = generations_.size();
-        generations_.resize(new_cap, 0);
+        // Expand alive bitset
+        size_t old_alive_size = alive_.size();
+        alive_.resize(new_cap);  // New bits are initialized to 0 (dead)
 
         // Add new slots to free list (in reverse for LIFO)
-        for (size_t i = new_cap; i > old_gen_size; --i) {
+        for (size_t i = new_cap; i > old_alive_size; --i) {
             free_list_.push_back(i - 1);
         }
     }
 
     std::vector<std::byte> keys_;          // Contiguous key storage
-    std::vector<uint32_t> generations_;    // 0=dead, >0=alive (incremented on reuse)
+    sul::dynamic_bitset<> alive_;          // Bit i = 1 if slot i is alive
     std::vector<size_t> free_list_;        // Available slots for reuse
     std::unique_ptr<IndexSet> index_set_;  // Hash index for O(1) lookup
     const TypeMeta* key_type_{nullptr};
@@ -516,7 +506,7 @@ private:
 // ========== SlotHandle Implementation ==========
 
 inline bool SlotHandle::is_valid(const KeySet& ks) const {
-    return ks.is_alive(slot) && ks.generation_at(slot) == generation;
+    return ks.is_alive(slot);
 }
 
 // ========== KeySetHash Implementation ==========
