@@ -301,7 +301,7 @@ public:
     /**
      * @brief Get as a set view (const).
      */
-    [[nodiscard]] SetView as_set() const {
+    [[nodiscard]] const SetView as_set() const {
         return const_view().as_set();
     }
 
@@ -318,7 +318,7 @@ public:
     /**
      * @brief Get as a map view (const).
      */
-    [[nodiscard]] MapView as_map() const {
+    [[nodiscard]] const MapView as_map() const {
         return const_view().as_map();
     }
 

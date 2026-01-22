@@ -41,21 +41,21 @@ public:
     /**
      * @brief Get view of current set value.
      */
-    [[nodiscard]] SetView value() const {
+    [[nodiscard]] const SetView value() const {
         return _storage->value();
     }
 
     /**
      * @brief Get view of added elements.
      */
-    [[nodiscard]] SetView added() const {
+    [[nodiscard]] const SetView added() const {
         return _storage->added();
     }
 
     /**
      * @brief Get view of removed elements.
      */
-    [[nodiscard]] SetView removed() const {
+    [[nodiscard]] const SetView removed() const {
         return _storage->removed();
     }
 

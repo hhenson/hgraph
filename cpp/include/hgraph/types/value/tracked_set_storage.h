@@ -58,7 +58,7 @@ struct TrackedSetStorage {
      * @brief Get const view of current set value.
      * @return Empty invalid view if storage not initialized, otherwise set view.
      */
-    [[nodiscard]] SetView value() const {
+    [[nodiscard]] const SetView value() const {
         if (!_set_schema) return SetView{};
         return _value.const_view().as_set();
     }
@@ -78,7 +78,7 @@ struct TrackedSetStorage {
      * @brief Get const view of added elements.
      * @return Empty invalid view if storage not initialized, otherwise set view.
      */
-    [[nodiscard]] SetView added() const {
+    [[nodiscard]] const SetView added() const {
         if (!_set_schema) return SetView{};
         return _added.const_view().as_set();
     }
@@ -87,7 +87,7 @@ struct TrackedSetStorage {
      * @brief Get const view of removed elements.
      * @return Empty invalid view if storage not initialized, otherwise set view.
      */
-    [[nodiscard]] SetView removed() const {
+    [[nodiscard]] const SetView removed() const {
         if (!_set_schema) return SetView{};
         return _removed.const_view().as_set();
     }

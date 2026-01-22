@@ -813,7 +813,7 @@ static void register_tracked_set(nb::module_& m) {
         .def("empty", &TrackedSetStorage::empty, "Check if empty")
         .def("has_delta", &TrackedSetStorage::has_delta, "Check if there are pending changes")
         .def("__len__", &TrackedSetStorage::size)
-        .def("value", static_cast<SetView (TrackedSetStorage::*)() const>(&TrackedSetStorage::value),
+        .def("value", static_cast<const SetView (TrackedSetStorage::*)() const>(&TrackedSetStorage::value),
             "Get view of current set")
         .def("added", &TrackedSetStorage::added, "Get const view of added elements")
         .def("removed", &TrackedSetStorage::removed, "Get const view of removed elements")
