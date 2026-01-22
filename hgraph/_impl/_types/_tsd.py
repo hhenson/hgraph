@@ -74,7 +74,11 @@ class PythonTimeSeriesDictOutput(PythonTimeSeriesOutput, TimeSeriesDictOutput[K,
         self._key_observers.append(observer)
 
     def remove_key_observer(self, observer: TSDKeyObserver):
-        self._key_observers.remove(observer)
+        # FIXME: This is a workaround for a possible case where unbinding is attempted multiple times
+        try:
+            self._key_observers.remove(observer)
+        except ValueError:
+            pass
 
     @property
     def value(self) -> frozendict:

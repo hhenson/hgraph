@@ -6,9 +6,9 @@ from typing import Generic
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._runtime._constants import MIN_ST
-from hgraph._types._ref_type import TimeSeriesReference, TimeSeriesReferenceOutput, TimeSeriesReferenceInput
+from hgraph._types._ref_type import TimeSeriesReference, TimeSeriesReferenceInput, TimeSeriesReferenceOutput
 from hgraph._types._scalar_types import SCALAR
-from hgraph._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput, TimeSeriesIterable
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, TimeSeriesInput, TimeSeriesIterable, TimeSeriesOutput
 
 __all__ = (
     "python_time_series_reference_builder",
