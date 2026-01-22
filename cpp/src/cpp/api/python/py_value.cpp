@@ -1416,6 +1416,14 @@ static void register_plain_value(nb::module_& m) {
         // Construct from view (copy)
         .def(nb::init<const View&>(), "view"_a,
             "Construct by copying from a view")
+        // Construct from schema and Python object
+        .def("__init__", [](PlainValue* self, const TypeMeta* schema, nb::object py_obj) {
+            new (self) PlainValue(schema);
+            if (self->valid()) {
+                self->from_python(py_obj);
+            }
+        }, "schema"_a, "py_obj"_a,
+            "Construct from schema and Python object")
 
         // Validity and null semantics
         .def("valid", &PlainValue::valid, "Check if the Value contains data")
@@ -1558,6 +1566,14 @@ static void register_cached_value(nb::module_& m) {
         // Construct from view (copy)
         .def(nb::init<const View&>(), "view"_a,
             "Construct by copying from a view")
+        // Construct from schema and Python object
+        .def("__init__", [](CachedValue* self, const TypeMeta* schema, nb::object py_obj) {
+            new (self) CachedValue(schema);
+            if (self->valid()) {
+                self->from_python(py_obj);
+            }
+        }, "schema"_a, "py_obj"_a,
+            "Construct from schema and Python object")
 
         // Validity and null semantics
         .def("valid", &CachedValue::valid, "Check if the Value contains data")
@@ -1675,6 +1691,14 @@ static void register_ts_value(nb::module_& m) {
         // Construct from view (copy)
         .def(nb::init<const View&>(), "view"_a,
             "Construct by copying from a view")
+        // Construct from schema and Python object
+        .def("__init__", [](TSValue* self, const TypeMeta* schema, nb::object py_obj) {
+            new (self) TSValue(schema);
+            if (self->valid()) {
+                self->from_python(py_obj);
+            }
+        }, "schema"_a, "py_obj"_a,
+            "Construct from schema and Python object")
 
         // Validity and null semantics
         .def("valid", &TSValue::valid, "Check if the Value contains data")
@@ -1766,6 +1790,14 @@ static void register_validated_value(nb::module_& m) {
         // Construct from view (copy)
         .def(nb::init<const View&>(), "view"_a,
             "Construct by copying from a view")
+        // Construct from schema and Python object
+        .def("__init__", [](ValidatedValue* self, const TypeMeta* schema, nb::object py_obj) {
+            new (self) ValidatedValue(schema);
+            if (self->valid()) {
+                self->from_python(py_obj);
+            }
+        }, "schema"_a, "py_obj"_a,
+            "Construct from schema and Python object")
 
         // Validity and null semantics
         .def("valid", &ValidatedValue::valid, "Check if the Value contains data")
