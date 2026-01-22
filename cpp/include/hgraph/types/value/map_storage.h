@@ -12,11 +12,11 @@
  * - Toll-free casting: as_set() returns const SetStorage& for key iteration
  * - Methods use user-guide naming: set_item(), at(), remove()
  * - ValueArray is registered as observer on KeySet
+ * - Value updates notify observers via on_update() for delta tracking
  */
 
 #include <hgraph/types/value/set_storage.h>
 #include <hgraph/types/value/value_array.h>
-#include <hgraph/types/value/map_delta_tracker.h>
 
 namespace hgraph::value {
 
@@ -26,6 +26,9 @@ namespace hgraph::value {
  * This is the inline storage for Map Values. Keys are stored in SetStorage
  * (which wraps KeySet), and values are stored in a parallel ValueArray that
  * observes the KeySet for synchronization.
+ *
+ * Delta tracking (add/remove/update) is handled via the SlotObserver pattern.
+ * Register a DeltaTracker on the KeySet to track changes.
  */
 class MapStorage {
 public:
@@ -55,46 +58,30 @@ public:
         : set_(std::move(other.set_))
         , values_(std::move(other.values_))
         , key_type_(other.key_type_)
-        , value_type_(other.value_type_)
-        , delta_tracker_(other.delta_tracker_) {
-        other.delta_tracker_ = nullptr;
-        // Re-register observers with new addresses
+        , value_type_(other.value_type_) {
+        // Re-register observer with new address
         set_.key_set().add_observer(&values_);
-        if (delta_tracker_) {
-            set_.key_set().add_observer(delta_tracker_);
-        }
     }
 
     MapStorage& operator=(MapStorage&& other) noexcept {
         if (this != &other) {
-            // Unregister old observers
+            // Unregister old observer
             set_.key_set().remove_observer(&values_);
-            if (delta_tracker_) {
-                set_.key_set().remove_observer(delta_tracker_);
-            }
 
             set_ = std::move(other.set_);
             values_ = std::move(other.values_);
             key_type_ = other.key_type_;
             value_type_ = other.value_type_;
-            delta_tracker_ = other.delta_tracker_;
-            other.delta_tracker_ = nullptr;
 
-            // Re-register observers with new addresses
+            // Re-register observer with new address
             set_.key_set().add_observer(&values_);
-            if (delta_tracker_) {
-                set_.key_set().add_observer(delta_tracker_);
-            }
         }
         return *this;
     }
 
     ~MapStorage() {
-        // Unregister observers before destruction
+        // Unregister observer before destruction
         set_.key_set().remove_observer(&values_);
-        if (delta_tracker_) {
-            set_.key_set().remove_observer(delta_tracker_);
-        }
     }
 
     // ========== Toll-Free Casting ==========
@@ -149,8 +136,8 @@ public:
     /**
      * @brief Set or insert a key-value pair.
      *
-     * If the key exists, updates the value. Otherwise inserts.
-     * Delta tracker is notified of inserts (via SlotObserver) and updates.
+     * If the key exists, updates the value and notifies observers via on_update().
+     * Otherwise inserts (observers notified via on_insert()).
      */
     void set_item(const void* key, const void* value) {
         size_t slot = set_.key_set().find(key);
@@ -161,13 +148,10 @@ public:
             if (value_type_ && value_type_->ops && value_type_->ops->copy_assign) {
                 value_type_->ops->copy_assign(val_ptr, value, value_type_);
             }
-            // Notify delta tracker of value update
-            if (delta_tracker_) {
-                delta_tracker_->on_value_update(slot);
-            }
+            // Notify observers of value update
+            set_.key_set().observer_dispatcher().notify_update(slot);
         } else {
-            // Insert new key (ValueArray::on_insert will be called)
-            // Delta tracker also receives on_insert via SlotObserver
+            // Insert new key (observers notified via on_insert)
             auto [new_slot, inserted] = set_.key_set().insert(key);
             if (inserted) {
                 // Copy value to the newly constructed slot
@@ -233,38 +217,11 @@ public:
     [[nodiscard]] KeySet& key_set() { return set_.key_set(); }
     [[nodiscard]] const KeySet& key_set() const { return set_.key_set(); }
 
-    // ========== Delta Tracking ==========
-
-    /**
-     * @brief Set a delta tracker to receive add/remove/update notifications.
-     *
-     * The tracker is registered as a SlotObserver on the KeySet for
-     * add/remove tracking. Update tracking is handled explicitly by
-     * MapStorage when set_item updates an existing value.
-     *
-     * @param tracker The delta tracker (ownership not transferred)
-     */
-    void set_delta_tracker(MapDeltaTracker* tracker) {
-        if (delta_tracker_) {
-            set_.key_set().remove_observer(delta_tracker_);
-        }
-        delta_tracker_ = tracker;
-        if (delta_tracker_) {
-            set_.key_set().add_observer(delta_tracker_);
-        }
-    }
-
-    /**
-     * @brief Get the current delta tracker.
-     */
-    [[nodiscard]] MapDeltaTracker* delta_tracker() const { return delta_tracker_; }
-
 private:
     SetStorage set_;           // Key storage (wraps KeySet)
     ValueArray values_;        // Parallel value storage (observes KeySet)
     const TypeMeta* key_type_{nullptr};
     const TypeMeta* value_type_{nullptr};
-    MapDeltaTracker* delta_tracker_{nullptr};  // Optional delta tracking
 };
 
 } // namespace hgraph::value

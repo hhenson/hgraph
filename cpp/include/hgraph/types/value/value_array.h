@@ -107,14 +107,17 @@ public:
         }
     }
 
-    void on_erase(size_t slot, size_t /*last_slot*/) override {
+    void on_erase(size_t slot) override {
         // Destruct the value at this slot
-        // Note: With stable slots, we just destruct at the erased slot
         if (!value_type_) return;
         void* val_ptr = value_at_slot(slot);
         if (value_type_->ops && value_type_->ops->destruct) {
             value_type_->ops->destruct(val_ptr, value_type_);
         }
+    }
+
+    void on_update(size_t /*slot*/) override {
+        // Value updates are handled by MapStorage - no action needed here
     }
 
     void on_clear() override {

@@ -194,9 +194,7 @@ public:
      * @param observer The observer to add (caller retains ownership)
      */
     void add_observer(SlotObserver* observer) {
-        if (observer) {
-            observers_.push_back(observer);
-        }
+        observers_.add_observer(observer);
     }
 
     /**
@@ -204,10 +202,14 @@ public:
      * @param observer The observer to remove
      */
     void remove_observer(SlotObserver* observer) {
-        observers_.erase(
-            std::remove(observers_.begin(), observers_.end(), observer),
-            observers_.end());
+        observers_.remove_observer(observer);
     }
+
+    /**
+     * @brief Get the observer dispatcher for direct notification access.
+     */
+    [[nodiscard]] ObserverDispatcher& observer_dispatcher() { return observers_; }
+    [[nodiscard]] const ObserverDispatcher& observer_dispatcher() const { return observers_; }
 
     // ========== Size and Capacity ==========
 
@@ -304,9 +306,7 @@ public:
         index_set_->insert(slot);
 
         // Notify observers
-        for (auto* obs : observers_) {
-            obs->on_insert(slot);
-        }
+        observers_.notify_insert(slot);
 
         return {slot, true};
     }
@@ -329,10 +329,7 @@ public:
         if (!is_alive(slot)) return false;
 
         // Notify observers BEFORE destruction
-        // Note: With stable slots, last_slot == slot (no swap)
-        for (auto* obs : observers_) {
-            obs->on_erase(slot, slot);
-        }
+        observers_.notify_erase(slot);
 
         // Remove from index set
         index_set_->erase(slot);
@@ -358,9 +355,7 @@ public:
      */
     void clear() {
         // Notify observers
-        for (auto* obs : observers_) {
-            obs->on_clear();
-        }
+        observers_.notify_clear();
 
         // Destruct all live keys
         if (key_type_ && key_type_->ops && key_type_->ops->destruct) {
@@ -458,9 +453,7 @@ private:
         size_t new_byte_size = new_cap * key_type_->size;
 
         // Notify observers of capacity change
-        for (auto* obs : observers_) {
-            obs->on_capacity(current_cap, new_cap);
-        }
+        observers_.notify_capacity(current_cap, new_cap);
 
         // Handle non-trivially-copyable types
         if (!key_type_->is_trivially_copyable() && current_cap > 0) {
@@ -500,7 +493,7 @@ private:
     std::unique_ptr<IndexSet> index_set_;  // Hash index for O(1) lookup
     const TypeMeta* key_type_{nullptr};
     size_t size_{0};                       // Number of live keys
-    std::vector<SlotObserver*> observers_; // Parallel array observers
+    ObserverDispatcher observers_;         // Observer notification dispatcher
 };
 
 // ========== SlotHandle Implementation ==========
