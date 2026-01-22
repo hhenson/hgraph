@@ -1494,8 +1494,10 @@ static void register_plain_value(nb::module_& m) {
 
         // Python interop (Design Doc Section 6.2)
         .def("to_python", &PlainValue::to_python, "Convert to a Python object")
-        .def("from_python", &PlainValue::from_python, "src"_a,
-            "Set the value from a Python object")
+        .def("from_python", [](PlainValue& self, nb::object src) {
+            self.from_python(src);
+        }, "src"_a.none(),
+            "Set the value from a Python object. Pass None to reset to null state.")
 
         // Static copy method
         .def_static("copy", static_cast<PlainValue (*)(const PlainValue&)>(&PlainValue::copy),
@@ -1645,8 +1647,10 @@ static void register_cached_value(nb::module_& m) {
         // Python interop (Design Doc Section 6.2)
         .def("to_python", &CachedValue::to_python,
             "Convert to a Python object (cached)")
-        .def("from_python", &CachedValue::from_python, "src"_a,
-            "Set the value from a Python object (updates cache)")
+        .def("from_python", [](CachedValue& self, nb::object src) {
+            self.from_python(src);
+        }, "src"_a.none(),
+            "Set the value from a Python object. Pass None to reset to null state.")
 
         // Static copy method
         .def_static("copy", static_cast<CachedValue (*)(const CachedValue&)>(&CachedValue::copy),
@@ -1739,8 +1743,10 @@ static void register_ts_value(nb::module_& m) {
         // Python interop
         .def("to_python", &TSValue::to_python,
             "Convert to Python object (uses cache)")
-        .def("from_python", &TSValue::from_python, "src"_a,
-            "Set value from Python object (notifies callbacks)")
+        .def("from_python", [](TSValue& self, nb::object src) {
+            self.from_python(src);
+        }, "src"_a.none(),
+            "Set value from Python object. Pass None to reset to null state.")
 
         // Modification tracking
         .def("on_modified", [](TSValue& self, nb::object callback) {
@@ -1825,7 +1831,9 @@ static void register_validated_value(nb::module_& m) {
 
         // Python interop
         .def("to_python", &ValidatedValue::to_python, "Convert to Python object")
-        .def("from_python", &ValidatedValue::from_python, "src"_a,
+        .def("from_python", [](ValidatedValue& self, nb::object src) {
+            self.from_python(src);
+        }, "src"_a.none(),
             "Set value from Python object (throws if None)")
 
         // Equality and comparison

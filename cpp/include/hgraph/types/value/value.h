@@ -473,10 +473,16 @@ public:
      * @brief Convert to a Python object.
      *
      * If the policy has caching, the result is cached and reused.
+     * Returns None if the value is null (has schema but no data).
      *
-     * @return The Python object representation
+     * @return The Python object representation, or None if null
      */
     [[nodiscard]] nb::object to_python() const {
+        // Return None for null values
+        if (is_null() || !has_value()) {
+            return nb::none();
+        }
+
         if constexpr (policy_traits<Policy>::has_python_cache) {
             if (this->has_cache()) {
                 return this->get_cache();
@@ -492,23 +498,44 @@ public:
     /**
      * @brief Set the value from a Python object.
      *
+     * If src is None, the value is reset to null state (unless validation
+     * is enabled, in which case an exception is thrown).
      * If the policy has caching, this updates the cache.
-     * If the policy has validation, this rejects None values.
      * If the policy has modification tracking, this notifies callbacks.
      *
-     * @param src The Python object
+     * @param src The Python object (or None to reset to null)
      * @throws std::runtime_error if validation is enabled and src is None
      */
     void from_python(const nb::object& src) {
-        // Validation check
-        if constexpr (policy_traits<Policy>::has_validation) {
-            if (src.is_none()) {
+        // Handle None by resetting to null state
+        if (src.is_none()) {
+            // Validation policy rejects None
+            if constexpr (policy_traits<Policy>::has_validation) {
                 throw std::runtime_error("Cannot set value to None");
             }
+
+            // Reset to null state
+            reset();
+
+            // Invalidate cache if applicable
+            if constexpr (policy_traits<Policy>::has_python_cache) {
+                this->invalidate_cache();
+            }
+
+            // Notify modification callbacks
+            if constexpr (policy_traits<Policy>::has_modification_tracking) {
+                this->notify_modified();
+            }
+            return;
         }
 
         if constexpr (policy_traits<Policy>::has_python_cache) {
             this->invalidate_cache();
+        }
+
+        // Ensure we have a valid value to write to
+        if (is_null()) {
+            emplace();
         }
 
         // Perform type conversion from Python object to native storage
