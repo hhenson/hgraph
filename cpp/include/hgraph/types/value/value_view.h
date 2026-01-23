@@ -736,7 +736,7 @@ public:
     /**
      * @brief Set the root Value for notification chains.
      *
-     * This is used for TSValue to track modifications to nested views.
+     * This is used to track the owning Value for nested views.
      *
      * @param root Pointer to the owning Value
      */

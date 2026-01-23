@@ -1682,188 +1682,6 @@ static void register_cached_value(nb::module_& m) {
 }
 
 // ============================================================================
-// TSValue Registration (Caching + Modification Tracking)
-// ============================================================================
-
-static void register_ts_value(nb::module_& m) {
-    nb::class_<TSValue>(m, "TSValue",
-        "Value with caching and modification tracking (for time-series)")
-        // Constructors from scalars
-        .def(nb::init<int64_t>(), "value"_a, "Construct from int64")
-        .def(nb::init<double>(), "value"_a, "Construct from double")
-        .def(nb::init<bool>(), "value"_a, "Construct from bool")
-        .def(nb::init<const std::string&>(), "value"_a, "Construct from string")
-        .def(nb::init<engine_date_t>(), "value"_a, "Construct from date")
-        .def(nb::init<engine_time_t>(), "value"_a, "Construct from datetime")
-        .def(nb::init<engine_time_delta_t>(), "value"_a, "Construct from timedelta")
-        // Construct from schema
-        .def(nb::init<const TypeMeta*>(), "schema"_a,
-            "Construct from type schema (default value)")
-        // Construct from view (copy)
-        .def(nb::init<const View&>(), "view"_a,
-            "Construct by copying from a view")
-        // Construct from schema and Python object
-        .def("__init__", [](TSValue* self, const TypeMeta* schema, nb::object py_obj) {
-            new (self) TSValue(schema);
-            if (self->valid()) {
-                self->from_python(py_obj);
-            }
-        }, "schema"_a, "py_obj"_a,
-            "Construct from schema and Python object")
-
-        // Validity and null semantics
-        .def("valid", &TSValue::valid, "Check if the Value contains data")
-        .def("__bool__", &TSValue::valid, "Boolean conversion (validity)")
-        .def("is_null", &TSValue::is_null, "Check if the Value is in null state")
-        .def("has_value", &TSValue::has_value, "Check if the Value is present")
-        .def("reset", &TSValue::reset, "Reset to null state (keeps schema)")
-        .def("emplace", &TSValue::emplace, "Construct value in place")
-        .def_prop_ro("schema", &TSValue::schema, nb::rv_policy::reference,
-            "Get the type schema")
-        .def_static("make_null", &TSValue::make_null, "schema"_a,
-            "Create a null Value with the given schema")
-
-        // View access
-        .def("view", static_cast<View (TSValue::*)()>(&TSValue::view),
-            "Get a mutable view of the data (invalidates cache)")
-        .def("const_view", &TSValue::const_view, nb::keep_alive<0, 1>(), "Get a const view of the data")
-
-        // Specialized view access
-        .def("as_tuple", static_cast<TupleView (TSValue::*)()>(&TSValue::as_tuple),
-            "Get as a tuple view (mutable, invalidates cache)")
-        .def("as_bundle", static_cast<BundleView (TSValue::*)()>(&TSValue::as_bundle),
-            "Get as a bundle view (mutable, invalidates cache)")
-        .def("as_list", static_cast<ListView (TSValue::*)()>(&TSValue::as_list),
-            "Get as a list view (mutable, invalidates cache)")
-        .def("as_set", static_cast<SetView (TSValue::*)()>(&TSValue::as_set),
-            "Get as a set view (mutable, invalidates cache)")
-        .def("as_map", static_cast<MapView (TSValue::*)()>(&TSValue::as_map),
-            "Get as a map view (mutable, invalidates cache)")
-
-        // Python interop
-        .def("to_python", &TSValue::to_python,
-            "Convert to Python object (uses cache)")
-        .def("from_python", [](TSValue& self, nb::object src) {
-            self.from_python(src);
-        }, "src"_a.none(),
-            "Set value from Python object. Pass None to reset to null state.")
-
-        // Modification tracking
-        .def("on_modified", [](TSValue& self, nb::object callback) {
-            self.on_modified([callback]() {
-                callback();
-            });
-        }, "callback"_a, "Register a callback for modification events")
-
-        // Equality and comparison
-        .def("equals", static_cast<bool (TSValue::*)(const View&) const>(&TSValue::equals),
-            "other"_a, "Check equality with a view")
-
-        // Python special methods
-        .def("__eq__", [](const TSValue& self, const View& other) {
-            return self.equals(other);
-        }, nb::is_operator())
-        .def("__hash__", &TSValue::hash)
-        .def("__str__", &TSValue::to_string)
-        .def("__repr__", [](const TSValue& self) {
-            if (!self.valid()) return std::string("TSValue(invalid)");
-            return "TSValue(" + self.to_string() + ")";
-        })
-
-        // Delta Operations
-        .def("apply_delta", static_cast<void (TSValue::*)(const SetDeltaView&)>(
-            &TSValue::apply_delta), "delta"_a,
-            "Apply a set delta to this value")
-        .def("apply_delta", static_cast<void (TSValue::*)(const MapDeltaView&)>(
-            &TSValue::apply_delta), "delta"_a,
-            "Apply a map delta to this value")
-        .def("apply_delta", static_cast<void (TSValue::*)(const ListDeltaView&)>(
-            &TSValue::apply_delta), "delta"_a,
-            "Apply a list delta to this value");
-}
-
-// ============================================================================
-// ValidatedValue Registration (Rejects None)
-// ============================================================================
-
-static void register_validated_value(nb::module_& m) {
-    nb::class_<ValidatedValue>(m, "ValidatedValue",
-        "Value that validates input (rejects None)")
-        // Constructors from scalars
-        .def(nb::init<int64_t>(), "value"_a, "Construct from int64")
-        .def(nb::init<double>(), "value"_a, "Construct from double")
-        .def(nb::init<bool>(), "value"_a, "Construct from bool")
-        .def(nb::init<const std::string&>(), "value"_a, "Construct from string")
-        .def(nb::init<engine_date_t>(), "value"_a, "Construct from date")
-        .def(nb::init<engine_time_t>(), "value"_a, "Construct from datetime")
-        .def(nb::init<engine_time_delta_t>(), "value"_a, "Construct from timedelta")
-        // Construct from schema
-        .def(nb::init<const TypeMeta*>(), "schema"_a,
-            "Construct from type schema (default value)")
-        // Construct from view (copy)
-        .def(nb::init<const View&>(), "view"_a,
-            "Construct by copying from a view")
-        // Construct from schema and Python object
-        .def("__init__", [](ValidatedValue* self, const TypeMeta* schema, nb::object py_obj) {
-            new (self) ValidatedValue(schema);
-            if (self->valid()) {
-                self->from_python(py_obj);
-            }
-        }, "schema"_a, "py_obj"_a,
-            "Construct from schema and Python object")
-
-        // Validity and null semantics
-        .def("valid", &ValidatedValue::valid, "Check if the Value contains data")
-        .def("__bool__", &ValidatedValue::valid, "Boolean conversion (validity)")
-        .def("is_null", &ValidatedValue::is_null, "Check if the Value is in null state")
-        .def("has_value", &ValidatedValue::has_value, "Check if the Value is present")
-        .def("reset", &ValidatedValue::reset, "Reset to null state (keeps schema)")
-        .def("emplace", &ValidatedValue::emplace, "Construct value in place")
-        .def_prop_ro("schema", &ValidatedValue::schema, nb::rv_policy::reference,
-            "Get the type schema")
-        .def_static("make_null", &ValidatedValue::make_null, "schema"_a,
-            "Create a null Value with the given schema")
-
-        // View access
-        .def("view", static_cast<View (ValidatedValue::*)()>(&ValidatedValue::view),
-            "Get a mutable view of the data")
-        .def("const_view", &ValidatedValue::const_view, nb::keep_alive<0, 1>(), "Get a const view of the data")
-
-        // Python interop
-        .def("to_python", &ValidatedValue::to_python, "Convert to Python object")
-        .def("from_python", [](ValidatedValue& self, nb::object src) {
-            self.from_python(src);
-        }, "src"_a.none(),
-            "Set value from Python object (throws if None)")
-
-        // Equality and comparison
-        .def("equals", static_cast<bool (ValidatedValue::*)(const View&) const>(&ValidatedValue::equals),
-            "other"_a, "Check equality with a view")
-
-        // Python special methods
-        .def("__eq__", [](const ValidatedValue& self, const View& other) {
-            return self.equals(other);
-        }, nb::is_operator())
-        .def("__hash__", &ValidatedValue::hash)
-        .def("__str__", &ValidatedValue::to_string)
-        .def("__repr__", [](const ValidatedValue& self) {
-            if (!self.valid()) return std::string("ValidatedValue(invalid)");
-            return "ValidatedValue(" + self.to_string() + ")";
-        })
-
-        // Delta Operations
-        .def("apply_delta", static_cast<void (ValidatedValue::*)(const SetDeltaView&)>(
-            &ValidatedValue::apply_delta), "delta"_a,
-            "Apply a set delta to this value")
-        .def("apply_delta", static_cast<void (ValidatedValue::*)(const MapDeltaView&)>(
-            &ValidatedValue::apply_delta), "delta"_a,
-            "Apply a map delta to this value")
-        .def("apply_delta", static_cast<void (ValidatedValue::*)(const ListDeltaView&)>(
-            &ValidatedValue::apply_delta), "delta"_a,
-            "Apply a list delta to this value");
-}
-
-// ============================================================================
 // Main Registration Function
 // ============================================================================
 
@@ -1908,8 +1726,6 @@ void value_register_with_nanobind(nb::module_& m) {
     // Register Value classes
     register_plain_value(value_mod);
     register_cached_value(value_mod);
-    register_ts_value(value_mod);
-    register_validated_value(value_mod);
 
     // Register path-based access utilities
     register_path_element(value_mod);
@@ -1919,8 +1735,6 @@ void value_register_with_nanobind(nb::module_& m) {
     // Also export the main types at the module level for convenience
     m.attr("PlainValue") = value_mod.attr("PlainValue");
     m.attr("CachedValue") = value_mod.attr("CachedValue");
-    m.attr("TSValue") = value_mod.attr("TSValue");
-    m.attr("ValidatedValue") = value_mod.attr("ValidatedValue");
     m.attr("View") = value_mod.attr("View");
     m.attr("TypeRegistry") = value_mod.attr("TypeRegistry");
     m.attr("TypeMeta") = value_mod.attr("TypeMeta");

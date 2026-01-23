@@ -54,7 +54,7 @@ template<typename Policy>
 struct policy_traits;
 
 /// Conditional storage based on policy - uses EBO for zero overhead
-template<typename Policy, typename = void>
+template<typename Policy, typename Enable = void>
 struct PolicyStorage;
 
 // ============================================================================

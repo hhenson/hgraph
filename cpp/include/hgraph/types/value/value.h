@@ -504,27 +504,16 @@ public:
      * If the policy has modification tracking, this notifies callbacks.
      *
      * @param src The Python object (or None to reset to null)
-     * @throws std::runtime_error if validation is enabled and src is None
      */
     void from_python(const nb::object& src) {
         // Handle None by resetting to null state
         if (src.is_none()) {
-            // Validation policy rejects None
-            if constexpr (policy_traits<Policy>::has_validation) {
-                throw std::runtime_error("Cannot set value to None");
-            }
-
             // Reset to null state
             reset();
 
             // Invalidate cache if applicable
             if constexpr (policy_traits<Policy>::has_python_cache) {
                 this->invalidate_cache();
-            }
-
-            // Notify modification callbacks
-            if constexpr (policy_traits<Policy>::has_modification_tracking) {
-                this->notify_modified();
             }
             return;
         }
@@ -553,27 +542,6 @@ public:
         // Update cache if policy supports it
         if constexpr (policy_traits<Policy>::has_python_cache) {
             this->set_cache(src);
-        }
-
-        // Notify modification callbacks
-        if constexpr (policy_traits<Policy>::has_modification_tracking) {
-            this->notify_modified();
-        }
-    }
-
-    // ========== Modification Tracking ==========
-
-    /**
-     * @brief Register a callback to be called when the value is modified.
-     *
-     * Only available when the policy has modification tracking.
-     *
-     * @param cb The callback function
-     */
-    template<typename Callback>
-    void on_modified(Callback&& cb) {
-        if constexpr (policy_traits<Policy>::has_modification_tracking) {
-            storage_type::on_modified(std::forward<Callback>(cb));
         }
     }
 
@@ -771,11 +739,6 @@ using PlainValue = Value<NoCache>;
 /// Value with Python object caching
 using CachedValue = Value<WithPythonCache>;
 
-/// Value with caching and modification tracking (for time-series)
-using TSValue = Value<CombinedPolicy<WithPythonCache, WithModificationTracking>>;
-
-/// Value with validation (rejects None)
-using ValidatedValue = Value<WithValidation>;
 
 // ============================================================================
 // View::clone Implementation
