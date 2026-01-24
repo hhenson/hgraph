@@ -731,28 +731,28 @@ public:
         _schema->ops->from_python(_data, src, _schema);
     }
 
-    // ========== Root Tracking ==========
+    // ========== Owner Tracking ==========
 
     /**
-     * @brief Set the root Value for notification chains.
+     * @brief Set the owner Value for notification chains.
      *
      * This is used to track the owning Value for nested views.
      *
-     * @param root Pointer to the owning Value
+     * @param owner Pointer to the owning Value
      */
     template<typename Policy = NoCache>
-    void set_root(Value<Policy>* root) {
-        _root = static_cast<void*>(root);
+    void set_owner(Value<Policy>* owner) {
+        _owner = static_cast<void*>(owner);
     }
 
     /**
-     * @brief Get the root Value.
+     * @brief Get the owner Value.
      *
      * @return Pointer to the owning Value, or nullptr
      */
     template<typename Policy = NoCache>
-    [[nodiscard]] Value<Policy>* root() const {
-        return static_cast<Value<Policy>*>(_root);
+    [[nodiscard]] Value<Policy>* owner() const {
+        return static_cast<Value<Policy>*>(_owner);
     }
 
     // ========== Path Tracking ==========
@@ -780,43 +780,43 @@ public:
 
 protected:
     /**
-     * @brief Copy root and path to another view (same level, no path extension).
+     * @brief Copy owner and path to another view (same level, no path extension).
      *
      * @param other The view to copy to
      */
     void copy_path_to(View& other) const {
-        other._root = _root;
+        other._owner = _owner;
         other._path = _path;
     }
 
     /**
-     * @brief Propagate root and path to a child view, adding an index element.
+     * @brief Propagate owner and path to a child view, adding an index element.
      *
      * @param child The child view to propagate to
      * @param index The index to add to the path
      */
     void propagate_path_with_index(View& child, size_t index) const {
-        child._root = _root;
+        child._owner = _owner;
         child._path = _path;
         child._path.push_index(index);
     }
 
     /**
-     * @brief Propagate root and path to a child view, adding a field element.
+     * @brief Propagate owner and path to a child view, adding a field element.
      *
      * @param child The child view to propagate to
      * @param name The field name to add to the path
      */
     void propagate_path_with_field(View& child, const std::string& name) const {
-        child._root = _root;
+        child._owner = _owner;
         child._path = _path;
         child._path.push_field(name);
     }
 
     void* _data{nullptr};
     const TypeMeta* _schema{nullptr};
-    void* _root{nullptr};  // Optional, for notification chains
-    ViewPath _path;        // Path from root to this position
+    void* _owner{nullptr};  // Optional, for notification chains
+    ViewPath _path;         // Path from owner to this position
 };
 
 // ============================================================================
