@@ -1421,6 +1421,25 @@ struct MapOps {
         return storage->size();
     }
 
+    /**
+     * @brief Get the key at a given iteration index.
+     *
+     * This enables uniform indexed access for SetView when viewing map keys.
+     * The index is into the iteration order (slot index set), not a storage slot.
+     */
+    static const void* get_at(const void* obj, size_t index, const TypeMeta* /*schema*/) {
+        auto* storage = static_cast<const MapStorage*>(obj);
+        auto* index_set = storage->key_set().index_set();
+        if (!index_set || index >= index_set->size()) {
+            return nullptr;
+        }
+        // Advance to the index-th element in the iteration order
+        auto it = index_set->begin();
+        std::advance(it, index);
+        size_t slot = *it;
+        return storage->key_at_slot(slot);
+    }
+
     // ========== Map-specific Operations ==========
 
     static const void* map_get(const void* obj, const void* key, const TypeMeta* /*schema*/) {
@@ -1463,7 +1482,7 @@ struct MapOps {
             &hash,
             nullptr,   // less_than (maps not ordered)
             &size,
-            nullptr,   // get_at (not indexed)
+            &get_at,   // get_at (returns key at iteration index)
             nullptr,   // set_at (not indexed)
             nullptr,   // get_field (not a bundle)
             nullptr,   // set_field (not a bundle)

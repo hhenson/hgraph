@@ -9,14 +9,21 @@
  */
 
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/map_delta.h>
+#include <hgraph/types/time_series/view_data.h>
+#include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/time_series/ts_view_range.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/indexed_view.h>
 #include <hgraph/util/date_time.h>
 
 namespace hgraph {
+
+// Forward declaration
+class TSView;
 
 /**
  * @brief View for time-series dict (TSD) types.
@@ -26,12 +33,11 @@ namespace hgraph {
  * - Modification time updates with bubbling
  * - Observer notification
  *
- * Note: Per-value time tracking is handled via slots obtained from the delta
- * after mutations.
+ * TSDView wraps a ViewData (containing all data pointers) plus current_time.
  *
  * Usage:
  * @code
- * TSDView dict_view(meta, value_view, time_view, observer_view, delta_view, current_time);
+ * TSDView dict_view(view_data, current_time);
  *
  * // Access value
  * auto val = dict_view.at<std::string>("key");
@@ -48,28 +54,114 @@ namespace hgraph {
 class TSDView {
 public:
     /**
-     * @brief Construct a dict view.
+     * @brief Construct a dict view from ViewData.
      *
-     * @param meta The TSMeta for this dict
-     * @param value_view View of the value (map type)
-     * @param time_view View of the time (tuple[engine_time_t, var_list])
-     * @param observer_view View of the observer (tuple[ObserverList, var_list])
-     * @param delta_view View of the delta (MapDelta)
+     * @param view_data ViewData containing all data pointers and metadata
      * @param current_time The current engine time
      */
-    TSDView(const TSMeta* meta,
-            value::View value_view,
-            value::View time_view,
-            value::View observer_view,
-            value::View delta_view,
-            engine_time_t current_time) noexcept
-        : meta_(meta)
-        , value_view_(value_view)
-        , time_view_(time_view)
-        , observer_view_(observer_view)
-        , delta_view_(delta_view)
+    TSDView(ViewData view_data, engine_time_t current_time) noexcept
+        : view_data_(std::move(view_data))
         , current_time_(current_time)
     {}
+
+    /**
+     * @brief Default constructor - creates invalid view.
+     */
+    TSDView() noexcept = default;
+
+    // ========== View Access ==========
+
+    /**
+     * @brief Get the value view.
+     */
+    [[nodiscard]] value::View value_view() const {
+        return value::View(view_data_.value_data, meta()->value_type);
+    }
+
+    /**
+     * @brief Get the time view.
+     */
+    [[nodiscard]] value::View time_view() const {
+        return value::View(view_data_.time_data,
+            TSMetaSchemaCache::instance().get_time_schema(meta()));
+    }
+
+    /**
+     * @brief Get the observer view.
+     */
+    [[nodiscard]] value::View observer_view() const {
+        return value::View(view_data_.observer_data,
+            TSMetaSchemaCache::instance().get_observer_schema(meta()));
+    }
+
+    /**
+     * @brief Get the delta view.
+     */
+    [[nodiscard]] value::View delta_view() const {
+        return value::View(view_data_.delta_data,
+            TSMetaSchemaCache::instance().get_delta_value_schema(meta()));
+    }
+
+    /**
+     * @brief Get the TSMeta.
+     */
+    [[nodiscard]] const TSMeta* meta() const noexcept {
+        return view_data_.meta;
+    }
+
+    /**
+     * @brief Get the underlying ViewData.
+     */
+    [[nodiscard]] const ViewData& view_data() const noexcept {
+        return view_data_;
+    }
+
+    // ========== TSView Navigation ==========
+
+    /**
+     * @brief Get a value as a TSView by slot index.
+     *
+     * Returns a proper TSView with full time-series semantics.
+     *
+     * @param slot The slot index (from delta)
+     * @return TSView for the value
+     */
+    [[nodiscard]] TSView value_ts(size_t slot) const {
+        if (!view_data_.ops) {
+            throw std::runtime_error("value_ts requires valid ops");
+        }
+        return view_data_.ops->child_at(view_data_, slot, current_time_);
+    }
+
+    /**
+     * @brief Iterate over all entries as TSViews by slot.
+     *
+     * Use it.index() to get slot index, *it to get TSView.
+     * Note: Iterates over slots, not keys. Use items() to access keys.
+     *
+     * @return TSViewRange for iteration
+     */
+    [[nodiscard]] TSViewRange values() const {
+        if (!view_data_.valid()) {
+            return TSViewRange{};
+        }
+        return TSViewRange(view_data_, 0, size(), current_time_);
+    }
+
+    /**
+     * @brief Iterate over all entries with key access.
+     *
+     * Use it.index() to get slot index, it.key() to get key as value::View,
+     * *it to get TSView of the value.
+     *
+     * @return TSDictRange for iteration
+     */
+    [[nodiscard]] TSDictRange items() const {
+        if (!view_data_.valid()) {
+            return TSDictRange{};
+        }
+        return TSDictRange(view_data_, meta(), 0, size(), current_time_);
+    }
 
     // ========== Container-Level Access ==========
 
@@ -77,7 +169,7 @@ public:
      * @brief Get the container's last modification time.
      */
     [[nodiscard]] engine_time_t last_modified_time() const {
-        return time_view_.as_tuple().at(0).as<engine_time_t>();
+        return time_view().as_tuple().at(0).as<engine_time_t>();
     }
 
     /**
@@ -98,7 +190,7 @@ public:
      * @brief Get the dict size.
      */
     [[nodiscard]] size_t size() const {
-        return value_view_.as_map().size();
+        return value_view().as_map().size();
     }
 
     /**
@@ -117,7 +209,7 @@ public:
      */
     template<typename K>
     [[nodiscard]] bool contains(const K& key) const {
-        return value_view_.as_map().contains(key);
+        return value_view().as_map().contains(key);
     }
 
     /**
@@ -128,7 +220,7 @@ public:
      */
     template<typename K>
     [[nodiscard]] value::View at(const K& key) const {
-        return value_view_.as_map().at(key);
+        return value_view().as_map().at(key);
     }
 
     // ========== Mutation ==========
@@ -151,7 +243,7 @@ public:
      */
     template<typename K, typename V>
     void set(const K& key, const V& value) {
-        auto map = value_view_.as_map();
+        auto map = value_view().as_map();
 
         // Set the value (this triggers MapDelta's on_insert or on_update)
         map.set_item(key, value);
@@ -182,7 +274,7 @@ public:
      */
     template<typename K>
     bool remove(const K& key) {
-        auto map = value_view_.as_map();
+        auto map = value_view().as_map();
         bool removed = map.remove(key);
 
         if (removed) {
@@ -197,7 +289,7 @@ public:
      * @brief Clear all entries from the dict.
      */
     void clear() {
-        auto map = value_view_.as_map();
+        auto map = value_view().as_map();
         if (!map.empty()) {
             map.clear();
             // MapDelta's on_clear() is called automatically
@@ -211,14 +303,14 @@ public:
      * @brief Get the MapDelta for this dict.
      */
     [[nodiscard]] MapDelta* delta() {
-        return static_cast<MapDelta*>(delta_view_.data());
+        return static_cast<MapDelta*>(view_data_.delta_data);
     }
 
     /**
      * @brief Get the MapDelta (const).
      */
     [[nodiscard]] const MapDelta* delta() const {
-        return static_cast<const MapDelta*>(delta_view_.data());
+        return static_cast<const MapDelta*>(view_data_.delta_data);
     }
 
     /**
@@ -262,11 +354,11 @@ public:
      * @brief Mark a value entry as modified by slot.
      */
     void mark_value_modified(size_t slot) {
-        const TSMeta* value_meta = meta_->element_ts;
+        const TSMeta* value_meta = meta()->element_ts;
 
         // Get value's time and observer
-        auto vt = time_view_.as_tuple().at(1).as_list().at(slot);
-        auto vo = observer_view_.as_tuple().at(1).as_list().at(slot);
+        auto vt = time_view().as_tuple().at(1).as_list().at(slot);
+        auto vo = observer_view().as_tuple().at(1).as_list().at(slot);
 
         // Update value time
         if (value_meta->is_scalar_ts()) {
@@ -290,11 +382,11 @@ public:
      */
     void mark_container_modified() {
         // Update container time
-        time_view_.as_tuple().at(0).as<engine_time_t>() = current_time_;
+        time_view().as_tuple().at(0).as<engine_time_t>() = current_time_;
 
         // Notify container observers
         auto* container_obs = static_cast<ObserverList*>(
-            observer_view_.as_tuple().at(0).data());
+            observer_view().as_tuple().at(0).data());
         container_obs->notify_modified(current_time_);
     }
 
@@ -305,17 +397,13 @@ public:
      */
     void add_observer(Notifiable* obs) {
         auto* container_obs = static_cast<ObserverList*>(
-            observer_view_.as_tuple().at(0).data());
+            observer_view().as_tuple().at(0).data());
         container_obs->add_observer(obs);
     }
 
 private:
-    const TSMeta* meta_;
-    value::View value_view_;
-    value::View time_view_;
-    value::View observer_view_;
-    value::View delta_view_;
-    engine_time_t current_time_;
+    ViewData view_data_;
+    engine_time_t current_time_{MIN_ST};
 };
 
 } // namespace hgraph

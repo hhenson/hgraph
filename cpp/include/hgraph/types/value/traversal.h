@@ -185,7 +185,7 @@ inline void deep_visit_impl(
 
         case TypeKind::Map: {
             auto map = view.as_map();
-            // Iterate through keys using KeySetView iterator
+            // Iterate through keys using SetView
             auto key_set = map.keys();
             size_t i = 0;
             for (auto key : key_set) {
@@ -360,7 +360,7 @@ inline void deep_visit_mut_impl(
 
         case TypeKind::Map: {
             auto map = view.as_map();
-            // Iterate through keys using KeySetView iterator
+            // Iterate through keys using SetView
             auto key_set = map.keys();
             size_t i = 0;
             for (auto key : key_set) {

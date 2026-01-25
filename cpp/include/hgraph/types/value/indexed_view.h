@@ -9,11 +9,10 @@
  * - TupleView: Heterogeneous indexed collections
  * - BundleView: Struct-like types with named + indexed access
  * - ListView: Homogeneous indexed collections
- * - SetView: Unique element collections
+ * - SetView: Unique element collections (also used for map key views via key_set())
  * - MapView: Key-value collections
  * - CyclicBufferView: Fixed-size circular buffer
  * - QueueView: FIFO queue
- * - KeySetView: Read-only set view over map keys
  *
  * All views provide both const and non-const access through method overloads:
  * - at(index) / operator[](index) for element access
@@ -929,10 +928,37 @@ public:
  * @brief View for set types (merged const/mutable).
  *
  * Sets are unordered collections of unique elements.
+ * Also used to view map keys via key_set().
  */
 class SetView : public View {
 public:
     using View::View;
+
+    /**
+     * @brief Create a SetView over a map's keys.
+     *
+     * This creates a read-only SetView that iterates over the keys
+     * of a MapStorage. The view uses the map's key_type as its element type.
+     *
+     * @param map_view A view pointing to MapStorage with map schema
+     * @return SetView configured to iterate over map keys
+     */
+    static SetView from_map_keys(const View& map_view) {
+        assert(map_view.is_map() && "from_map_keys requires a map type");
+        SetView sv;
+        // Use const_cast since this is a read-only view (add/remove/clear are disabled)
+        sv._data = const_cast<void*>(static_cast<const void*>(map_view.data()));
+        sv._schema = map_view.schema();
+        sv._is_map_key_view = true;
+        return sv;
+    }
+
+    /**
+     * @brief Check if this is a read-only view over map keys.
+     */
+    [[nodiscard]] bool is_map_key_view() const {
+        return _is_map_key_view;
+    }
 
     /**
      * @brief Get the number of elements.
@@ -967,9 +993,11 @@ public:
      * @brief Add an element.
      *
      * @return true if the element was added (not already present)
+     * @note Not available for map key views (they are read-only)
      */
     bool add(const View& value) {
         assert(valid() && "add() on invalid view");
+        assert(!_is_map_key_view && "Cannot modify map keys through SetView");
         if (contains(value)) return false;
         _schema->ops->insert(data(), value.data(), _schema);
         return true;
@@ -979,9 +1007,11 @@ public:
      * @brief Remove an element.
      *
      * @return true if the element was removed (was present)
+     * @note Not available for map key views (they are read-only)
      */
     bool remove(const View& value) {
         assert(valid() && "remove() on invalid view");
+        assert(!_is_map_key_view && "Cannot modify map keys through SetView");
         if (!contains(value)) return false;
         _schema->ops->erase(data(), value.data(), _schema);
         return true;
@@ -989,9 +1019,11 @@ public:
 
     /**
      * @brief Clear all elements.
+     * @note Not available for map key views (they are read-only)
      */
     void clear() {
         assert(valid() && "clear() on invalid view");
+        assert(!_is_map_key_view && "Cannot modify map keys through SetView");
         if (_schema->ops->clear) {
             _schema->ops->clear(data(), _schema);
         }
@@ -999,8 +1031,14 @@ public:
 
     /**
      * @brief Get the element type.
+     *
+     * For regular sets, returns schema->element_type.
+     * For map key views, returns schema->key_type.
      */
     [[nodiscard]] const TypeMeta* element_type() const {
+        if (_is_map_key_view) {
+            return _schema->key_type;
+        }
         return _schema->element_type;
     }
 
@@ -1017,6 +1055,7 @@ public:
      * @brief Const iterator for set views.
      *
      * Iterates over set elements in O(n) total time using index-based access.
+     * Handles both regular SetStorage and MapStorage (for map key views).
      *
      * IMPORTANT: Stores data pointer and schema directly (NOT a view pointer)
      * to avoid dangling pointer issues when iterating over temporary views.
@@ -1030,8 +1069,8 @@ public:
         using reference = View;
 
         const_iterator() = default;
-        const_iterator(const void* data, const TypeMeta* schema, size_t index, size_t /*size*/)
-            : _data(data), _schema(schema), _index(index) {}
+        const_iterator(const void* data, const TypeMeta* schema, size_t index, size_t /*size*/, bool is_map_key_view = false)
+            : _data(data), _schema(schema), _index(index), _is_map_key_view(is_map_key_view) {}
 
         reference operator*() const;
 
@@ -1058,139 +1097,22 @@ public:
         const void* _data{nullptr};
         const TypeMeta* _schema{nullptr};
         size_t _index{0};
+        bool _is_map_key_view{false};
     };
 
     [[nodiscard]] const_iterator begin() const {
-        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
-        return const_iterator(_data, _schema, 0, size());
+        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0, false);
+        return const_iterator(_data, _schema, 0, size(), _is_map_key_view);
     }
 
     [[nodiscard]] const_iterator end() const {
-        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
+        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0, false);
         size_t sz = size();
-        return const_iterator(_data, _schema, sz, sz);
-    }
-};
-
-// ============================================================================
-// KeySetView - Read-only Set View Over Map Keys
-// ============================================================================
-
-/**
- * @brief Read-only set view over map keys.
- *
- * Provides the same interface as SetView for accessing map keys.
- * This allows unified set-like access to both actual sets and map key sets.
- *
- * @note This is a read-only view. Map keys cannot be modified through this view.
- */
-class KeySetView : public View {
-public:
-    // ========== Construction ==========
-
-    using View::View;
-
-    /// Construct from a MapView
-    explicit KeySetView(const View& map_view)
-        : View(map_view) {
-        // Verify this is actually a map
-        assert(map_view.is_map() && "KeySetView requires a map type");
+        return const_iterator(_data, _schema, sz, sz, _is_map_key_view);
     }
 
-    // ========== Size ==========
-
-    /**
-     * @brief Get the number of keys (same as map size).
-     */
-    [[nodiscard]] size_t size() const {
-        assert(valid() && "size() on invalid view");
-        return _schema->ops->size(_data, _schema);
-    }
-
-    /**
-     * @brief Check if empty.
-     */
-    [[nodiscard]] bool empty() const {
-        return size() == 0;
-    }
-
-    // ========== Contains ==========
-
-    /**
-     * @brief Check if a key exists in the map.
-     */
-    [[nodiscard]] bool contains(const View& key) const {
-        assert(valid() && "contains() on invalid view");
-        return _schema->ops->contains(_data, key.data(), _schema);
-    }
-
-    /**
-     * @brief Check if a typed key exists in the map.
-     */
-    template<typename K>
-    [[nodiscard]] bool contains(const K& key) const;  // Implemented after Value
-
-    // ========== Type Info ==========
-
-    /**
-     * @brief Get the key type (element type for the key set).
-     */
-    [[nodiscard]] const TypeMeta* element_type() const {
-        return _schema->key_type;
-    }
-
-    // ========== Iteration ==========
-
-    /**
-     * @brief Const iterator for key set view.
-     *
-     * Iterates over the keys stored in the underlying map.
-     */
-    class const_iterator {
-    public:
-        using iterator_category = std::forward_iterator_tag;
-        using value_type = View;
-        using difference_type = std::ptrdiff_t;
-        using pointer = const View*;
-        using reference = View;
-
-        const_iterator() = default;
-        const_iterator(const KeySetView* view, size_t index)
-            : _view(view), _index(index) {}
-
-        reference operator*() const;
-
-        const_iterator& operator++() {
-            ++_index;
-            return *this;
-        }
-
-        const_iterator operator++(int) {
-            const_iterator tmp = *this;
-            ++_index;
-            return tmp;
-        }
-
-        bool operator==(const const_iterator& other) const {
-            return _view == other._view && _index == other._index;
-        }
-
-        bool operator!=(const const_iterator& other) const {
-            return !(*this == other);
-        }
-
-    private:
-        const KeySetView* _view{nullptr};
-        size_t _index{0};
-    };
-
-    [[nodiscard]] const_iterator begin() const {
-        return const_iterator(this, 0);
-    }
-
-    [[nodiscard]] const_iterator end() const {
-        return const_iterator(this, size());
-    }
+private:
+    bool _is_map_key_view{false};
 };
 
 // ============================================================================
@@ -1337,10 +1259,20 @@ public:
     /**
      * @brief Get a read-only set view over the map's keys.
      *
-     * @return KeySetView with same interface as SetView
+     * @return SetView configured to iterate over map keys
      */
-    [[nodiscard]] KeySetView keys() const {
-        return KeySetView(View(_data, _schema));
+    [[nodiscard]] SetView key_set() const {
+        return SetView::from_map_keys(View(_data, _schema));
+    }
+
+    /**
+     * @brief Get a read-only set view over the map's keys.
+     *
+     * @return SetView configured to iterate over map keys
+     * @note Alias for key_set() for convenience
+     */
+    [[nodiscard]] SetView keys() const {
+        return key_set();
     }
 
     // Templated operations - implemented after Value
@@ -1700,44 +1632,18 @@ inline void QueueView::pop_front() {
 // ============================================================================
 
 inline View SetView::const_iterator::operator*() const {
-    // Access the SetStorage to get the element at the current iteration position
-    auto* storage = static_cast<const SetStorage*>(_data);
-
-    auto* index_set = storage->key_set().index_set();
-    if (!index_set || _index >= index_set->size()) {
+    // Use get_at which works uniformly for both sets and map key views:
+    // - For sets: returns element at index
+    // - For maps: returns key at index
+    const void* elem = _schema->ops->get_at(_data, _index, _schema);
+    if (!elem) {
         throw std::out_of_range("Set iterator out of range");
     }
-
-    // ankerl::unordered_dense::set supports random access via its vector backend
-    auto it = index_set->begin();
-    std::advance(it, _index);
-    size_t storage_idx = *it;
-
-    // Return a view of the element at this storage index
-    return View(storage->key_set().key_at_slot(storage_idx), _schema->element_type);
-}
-
-// ============================================================================
-// KeySetView Iterator Implementation
-// ============================================================================
-
-inline View KeySetView::const_iterator::operator*() const {
-    // Access the MapStorage to get the key at the current iteration position
-    auto* storage = static_cast<const MapStorage*>(_view->data());
-
-    auto* index_set = storage->key_set().index_set();
-    if (!index_set || _index >= index_set->size()) {
-        throw std::out_of_range("Key set iterator out of range");
-    }
-
-    // Get the storage index at this iteration position
-    auto it = index_set->begin();
-    std::advance(it, _index);
-    size_t storage_idx = *it;
-
-    // Return a view of the key at this storage index
-    const void* key_ptr = storage->key_at_slot(storage_idx);
-    return View(key_ptr, _view->element_type());
+    // For regular sets: element_type is the set element type
+    // For map key views: key_type is the key type (but we use element_type here,
+    // and SetView::element_type() handles returning the correct one)
+    const TypeMeta* elem_type = _is_map_key_view ? _schema->key_type : _schema->element_type;
+    return View(elem, elem_type);
 }
 
 // ============================================================================

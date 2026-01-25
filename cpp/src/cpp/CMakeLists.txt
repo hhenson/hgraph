@@ -112,6 +112,8 @@ set(HGRAPH_SOURCES
         types/time_series/ts_meta_schema.cpp
         types/time_series/ts_value.cpp
         types/time_series/ts_view.cpp
+        types/time_series/ts_view_range.cpp
+        types/time_series/ts_ops.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp

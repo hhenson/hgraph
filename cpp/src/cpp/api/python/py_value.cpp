@@ -780,20 +780,22 @@ static void register_set_views(nb::module_& m) {
         .def("clear", &SetView::clear, "Clear all elements")
         .def("element_type", &SetView::element_type, nb::rv_policy::reference,
             "Get the element type")
-        // Index-based element access
+        // Index-based element access - use iterator for uniform handling
         .def("__getitem__", [](SetView& self, size_t index) {
             if (index >= self.size()) {
                 throw nb::index_error("set index out of range");
             }
-            const void* elem = self.schema()->ops->get_at(self.data(), index, self.schema());
-            return View(elem, self.schema()->element_type);
+            auto it = self.begin();
+            for (size_t i = 0; i < index; ++i) {
+                ++it;
+            }
+            return *it;
         }, "index"_a, "Get element at index")
         // Iteration support
         .def("__iter__", [](SetView& self) {
             nb::list result;
-            for (size_t i = 0; i < self.size(); ++i) {
-                const void* elem = self.schema()->ops->get_at(self.data(), i, self.schema());
-                result.append(nb::cast(View(elem, self.schema()->element_type)));
+            for (auto it = self.begin(); it != self.end(); ++it) {
+                result.append(nb::cast(*it));
             }
             return nb::iter(result);
         }, "Iterate over elements");
@@ -1005,31 +1007,6 @@ static void register_tracked_set(nb::module_& m) {
         .def("to_python", &DeltaValue::to_python, "Convert to Python representation");
 }
 
-// ============================================================================
-// KeySetView Binding - Set View Over Map Keys
-// ============================================================================
-
-static void register_key_set_view(nb::module_& m) {
-    nb::class_<KeySetView, View>(m, "KeySetView",
-        "Read-only set view over map keys (same interface as SetView)")
-        .def("size", &KeySetView::size, "Get the number of keys")
-        .def("empty", &KeySetView::empty, "Check if empty")
-        .def("__len__", &KeySetView::size)
-        .def("contains", static_cast<bool (KeySetView::*)(const View&) const>(
-            &KeySetView::contains), "key"_a, "Check if a key is in the set")
-        .def("__contains__", static_cast<bool (KeySetView::*)(const View&) const>(
-            &KeySetView::contains), "key"_a)
-        .def("element_type", &KeySetView::element_type, nb::rv_policy::reference,
-            "Get the key/element type")
-        // Iteration support using KeySetView::const_iterator
-        .def("__iter__", [](const KeySetView& self) {
-            nb::list result;
-            for (auto it = self.begin(); it != self.end(); ++it) {
-                result.append(nb::cast(*it));
-            }
-            return nb::iter(result);
-        }, "Iterate over keys");
-}
 
 // ============================================================================
 // MapView Binding (merged const/mutable)
@@ -1078,7 +1055,7 @@ static void register_map_views(nb::module_& m) {
         .def("value_type", &MapView::value_type, nb::rv_policy::reference, "Get the value type")
         // Iteration support - iterate over keys (like Python dict)
         .def("__iter__", [](MapView& self) {
-            // Use keys() to get KeySetView, then iterate
+            // Use keys() to get SetView, then iterate
             auto keys = self.keys();
             nb::list result;
             for (auto it = keys.begin(); it != keys.end(); ++it) {
@@ -1086,8 +1063,10 @@ static void register_map_views(nb::module_& m) {
             }
             return nb::iter(result);
         }, "Iterate over keys (like dict)")
+        .def("key_set", &MapView::key_set,
+            "Get SetView over map keys")
         .def("keys", &MapView::keys,
-            "Get KeySetView over map keys (same interface as SetView)")
+            "Get SetView over map keys (alias for key_set)")
         .def("values", [](MapView& self) {
             nb::list result;
             for (auto [key, val] : self.items()) {
@@ -1718,7 +1697,6 @@ void value_register_with_nanobind(nb::module_& m) {
     register_list_views(value_mod);
     register_set_views(value_mod);
     register_tracked_set(value_mod);  // TrackedSetStorage and TrackedSetView
-    register_key_set_view(value_mod);  // Before map_views - KeySetView returned by map.keys()
     register_map_views(value_mod);
     register_cyclic_buffer_views(value_mod);
     register_queue_views(value_mod);

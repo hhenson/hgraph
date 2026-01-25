@@ -25,8 +25,9 @@
 
 namespace hgraph {
 
-// Forward declaration
+// Forward declarations
 class TSView;
+struct ViewData;
 
 /**
  * @brief Owning time-series value storage with four parallel Values.
@@ -209,6 +210,17 @@ public:
      * @return TSView wrapping this TSValue
      */
     [[nodiscard]] TSView ts_view(engine_time_t current_time);
+
+    /**
+     * @brief Create ViewData for this TSValue.
+     *
+     * Creates the ViewData structure containing pointers to all four
+     * parallel values and the ts_ops vtable. The ShortPath in the
+     * returned ViewData is empty and should be set by the caller.
+     *
+     * @return ViewData with data pointers and ops
+     */
+    [[nodiscard]] ViewData make_view_data();
 
 private:
     // ========== Internal Methods ==========

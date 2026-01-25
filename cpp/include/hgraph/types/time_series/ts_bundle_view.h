@@ -9,8 +9,12 @@
  */
 
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/ts_scalar_view.h>
 #include <hgraph/types/time_series/observer_list.h>
+#include <hgraph/types/time_series/view_data.h>
+#include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/time_series/ts_view_range.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/indexed_view.h>
@@ -33,40 +37,122 @@ class TSView;
  * 3. The container's time is updated (bubble up)
  * 4. The container's observers are notified (bubble up)
  *
+ * TSBView wraps a ViewData (containing all data pointers) plus current_time.
+ *
  * Usage:
  * @code
- * TSBView bundle_view(meta, value_view, time_view, observer_view, current_time);
+ * TSBView bundle_view(view_data, current_time);
  *
  * // Access field as scalar
- * auto field = bundle_view.field<int>("price");
+ * auto field = bundle_view.field_scalar<int>(0);
  * field.set_value(100);  // Automatically bubbles up
  *
  * // Check field status
- * if (bundle_view.field_modified("price")) { ... }
+ * if (bundle_view.field_modified(0)) { ... }
  * @endcode
  */
 class TSBView {
 public:
     /**
-     * @brief Construct a bundle view.
+     * @brief Construct a bundle view from ViewData.
      *
-     * @param meta The TSMeta for this bundle
-     * @param value_view View of the value (bundle type)
-     * @param time_view View of the time (tuple[engine_time_t, ...])
-     * @param observer_view View of the observer (tuple[ObserverList, ...])
+     * @param view_data ViewData containing all data pointers and metadata
      * @param current_time The current engine time
      */
-    TSBView(const TSMeta* meta,
-            value::View value_view,
-            value::View time_view,
-            value::View observer_view,
-            engine_time_t current_time) noexcept
-        : meta_(meta)
-        , value_view_(value_view)
-        , time_view_(time_view)
-        , observer_view_(observer_view)
+    TSBView(ViewData view_data, engine_time_t current_time) noexcept
+        : view_data_(std::move(view_data))
         , current_time_(current_time)
     {}
+
+    /**
+     * @brief Default constructor - creates invalid view.
+     */
+    TSBView() noexcept = default;
+
+    // ========== View Access ==========
+
+    /**
+     * @brief Get the value view.
+     */
+    [[nodiscard]] value::View value_view() const {
+        return value::View(view_data_.value_data, meta()->value_type);
+    }
+
+    /**
+     * @brief Get the time view.
+     */
+    [[nodiscard]] value::View time_view() const {
+        return value::View(view_data_.time_data,
+            TSMetaSchemaCache::instance().get_time_schema(meta()));
+    }
+
+    /**
+     * @brief Get the observer view.
+     */
+    [[nodiscard]] value::View observer_view() const {
+        return value::View(view_data_.observer_data,
+            TSMetaSchemaCache::instance().get_observer_schema(meta()));
+    }
+
+    /**
+     * @brief Get the TSMeta.
+     */
+    [[nodiscard]] const TSMeta* meta() const noexcept {
+        return view_data_.meta;
+    }
+
+    /**
+     * @brief Get the underlying ViewData.
+     */
+    [[nodiscard]] const ViewData& view_data() const noexcept {
+        return view_data_;
+    }
+
+    // ========== TSView Navigation ==========
+
+    /**
+     * @brief Get a field as a TSView by index.
+     *
+     * Returns a proper TSView with full time-series semantics.
+     *
+     * @param index The field index
+     * @return TSView for the field
+     */
+    [[nodiscard]] TSView field_ts(size_t index) const {
+        if (!view_data_.ops) {
+            throw std::runtime_error("field_ts requires valid ops");
+        }
+        return view_data_.ops->child_at(view_data_, index, current_time_);
+    }
+
+    /**
+     * @brief Get a field as a TSView by name.
+     *
+     * Returns a proper TSView with full time-series semantics.
+     *
+     * @param name The field name
+     * @return TSView for the field
+     */
+    [[nodiscard]] TSView field_ts(std::string_view name) const {
+        if (!view_data_.ops) {
+            throw std::runtime_error("field_ts requires valid ops");
+        }
+        return view_data_.ops->child_by_name(view_data_, std::string(name), current_time_);
+    }
+
+    /**
+     * @brief Iterate over all fields as TSViews with names.
+     *
+     * Use it.name() to get field name, *it to get TSView.
+     *
+     * @return TSFieldRange for iteration
+     */
+    [[nodiscard]] TSFieldRange fields() const {
+        if (!view_data_.valid()) {
+            return TSFieldRange{};
+        }
+        return TSFieldRange(view_data_, meta(), 0, field_count(), current_time_);
+    }
 
     // ========== Container-Level Access ==========
 
@@ -75,7 +161,7 @@ public:
      * @return The container's modification timestamp
      */
     [[nodiscard]] engine_time_t last_modified_time() const {
-        return time_view_.as_tuple().at(0).as<engine_time_t>();
+        return time_view().as_tuple().at(0).as<engine_time_t>();
     }
 
     /**
@@ -98,7 +184,7 @@ public:
      * @brief Get the number of fields.
      */
     [[nodiscard]] size_t field_count() const {
-        return meta_ ? meta_->field_count : 0;
+        return meta() ? meta()->field_count : 0;
     }
 
     // ========== Field Access by Index ==========
@@ -109,7 +195,7 @@ public:
      * @return View of the field's value
      */
     [[nodiscard]] value::View field_value(size_t index) const {
-        return value_view_.as_bundle().at(index);
+        return value_view().as_bundle().at(index);
     }
 
     /**
@@ -119,7 +205,7 @@ public:
      */
     [[nodiscard]] value::View field_time(size_t index) const {
         // Time is tuple[container_time, field0_time, field1_time, ...]
-        return time_view_.as_tuple().at(index + 1);
+        return time_view().as_tuple().at(index + 1);
     }
 
     /**
@@ -129,7 +215,7 @@ public:
      */
     [[nodiscard]] value::View field_observer(size_t index) const {
         // Observer is tuple[container_obs, field0_obs, field1_obs, ...]
-        return observer_view_.as_tuple().at(index + 1);
+        return observer_view().as_tuple().at(index + 1);
     }
 
     /**
@@ -138,8 +224,8 @@ public:
      * @return true if the field was modified at or after current_time
      */
     [[nodiscard]] bool field_modified(size_t index) const {
-        auto field_time = field_time_value(index);
-        return field_time >= current_time_;
+        auto ft = field_time_value(index);
+        return ft >= current_time_;
     }
 
     /**
@@ -148,8 +234,8 @@ public:
      * @return true if the field has ever been set
      */
     [[nodiscard]] bool field_valid(size_t index) const {
-        auto field_time = field_time_value(index);
-        return field_time != MIN_ST;
+        auto ft = field_time_value(index);
+        return ft != MIN_ST;
     }
 
     // ========== Field Access by Name ==========
@@ -160,7 +246,7 @@ public:
      * @return View of the field's value
      */
     [[nodiscard]] value::View field_value(std::string_view name) const {
-        return value_view_.as_bundle().at(name);
+        return value_view().as_bundle().at(name);
     }
 
     /**
@@ -265,7 +351,7 @@ public:
      */
     void mark_field_modified(size_t index) {
         // Get field's TSMeta to determine time structure
-        const TSMeta* field_meta = meta_->fields[index].ts_type;
+        const TSMeta* field_meta = meta()->fields[index].ts_type;
 
         // Update field time based on its kind
         auto ft = field_time(index);
@@ -296,11 +382,11 @@ public:
      */
     void mark_container_modified() {
         // Update container time (first element of time tuple)
-        time_view_.as_tuple().at(0).as<engine_time_t>() = current_time_;
+        time_view().as_tuple().at(0).as<engine_time_t>() = current_time_;
 
         // Notify container observers (first element of observer tuple)
         auto* container_obs = static_cast<ObserverList*>(
-            observer_view_.as_tuple().at(0).data());
+            observer_view().as_tuple().at(0).data());
         container_obs->notify_modified(current_time_);
     }
 
@@ -312,7 +398,7 @@ public:
      */
     void add_observer(Notifiable* obs) {
         auto* container_obs = static_cast<ObserverList*>(
-            observer_view_.as_tuple().at(0).data());
+            observer_view().as_tuple().at(0).data());
         container_obs->add_observer(obs);
     }
 
@@ -322,7 +408,7 @@ public:
      * @param obs The observer to add
      */
     void add_field_observer(size_t index, Notifiable* obs) {
-        const TSMeta* field_meta = meta_->fields[index].ts_type;
+        const TSMeta* field_meta = meta()->fields[index].ts_type;
         auto fo = field_observer(index);
 
         if (field_meta->is_scalar_ts()) {
@@ -339,7 +425,7 @@ private:
      * @brief Get the field's time value for comparison.
      */
     [[nodiscard]] engine_time_t field_time_value(size_t index) const {
-        const TSMeta* field_meta = meta_->fields[index].ts_type;
+        const TSMeta* field_meta = meta()->fields[index].ts_type;
         auto ft = field_time(index);
 
         if (field_meta->is_scalar_ts()) {
@@ -353,19 +439,16 @@ private:
      * @brief Find field index by name.
      */
     [[nodiscard]] size_t find_field_index(std::string_view name) const {
-        for (size_t i = 0; i < meta_->field_count; ++i) {
-            if (name == meta_->fields[i].name) {
+        for (size_t i = 0; i < meta()->field_count; ++i) {
+            if (name == meta()->fields[i].name) {
                 return i;
             }
         }
         throw std::runtime_error("Field not found: " + std::string(name));
     }
 
-    const TSMeta* meta_;
-    value::View value_view_;
-    value::View time_view_;
-    value::View observer_view_;
-    engine_time_t current_time_;
+    ViewData view_data_;
+    engine_time_t current_time_{MIN_ST};
 };
 
 } // namespace hgraph

@@ -9,14 +9,21 @@
  */
 
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/ts_scalar_view.h>
 #include <hgraph/types/time_series/observer_list.h>
+#include <hgraph/types/time_series/view_data.h>
+#include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/time_series/ts_view_range.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/indexed_view.h>
 #include <hgraph/util/date_time.h>
 
 namespace hgraph {
+
+// Forward declaration
+class TSView;
 
 /**
  * @brief View for time-series list (TSL) types.
@@ -28,9 +35,11 @@ namespace hgraph {
  * 3. The container's time is updated (bubble up)
  * 4. The container's observers are notified (bubble up)
  *
+ * TSLView wraps a ViewData (containing all data pointers) plus current_time.
+ *
  * Usage:
  * @code
- * TSLView list_view(meta, value_view, time_view, observer_view, current_time);
+ * TSLView list_view(view_data, current_time);
  *
  * // Access element as scalar
  * auto elem = list_view.element_scalar<int>(0);
@@ -43,25 +52,90 @@ namespace hgraph {
 class TSLView {
 public:
     /**
-     * @brief Construct a list view.
+     * @brief Construct a list view from ViewData.
      *
-     * @param meta The TSMeta for this list
-     * @param value_view View of the value (list type)
-     * @param time_view View of the time (tuple[engine_time_t, list/fixed_list])
-     * @param observer_view View of the observer (tuple[ObserverList, list/fixed_list])
+     * @param view_data ViewData containing all data pointers and metadata
      * @param current_time The current engine time
      */
-    TSLView(const TSMeta* meta,
-            value::View value_view,
-            value::View time_view,
-            value::View observer_view,
-            engine_time_t current_time) noexcept
-        : meta_(meta)
-        , value_view_(value_view)
-        , time_view_(time_view)
-        , observer_view_(observer_view)
+    TSLView(ViewData view_data, engine_time_t current_time) noexcept
+        : view_data_(std::move(view_data))
         , current_time_(current_time)
     {}
+
+    /**
+     * @brief Default constructor - creates invalid view.
+     */
+    TSLView() noexcept = default;
+
+    // ========== View Access ==========
+
+    /**
+     * @brief Get the value view.
+     */
+    [[nodiscard]] value::View value_view() const {
+        return value::View(view_data_.value_data, meta()->value_type);
+    }
+
+    /**
+     * @brief Get the time view.
+     */
+    [[nodiscard]] value::View time_view() const {
+        return value::View(view_data_.time_data,
+            TSMetaSchemaCache::instance().get_time_schema(meta()));
+    }
+
+    /**
+     * @brief Get the observer view.
+     */
+    [[nodiscard]] value::View observer_view() const {
+        return value::View(view_data_.observer_data,
+            TSMetaSchemaCache::instance().get_observer_schema(meta()));
+    }
+
+    /**
+     * @brief Get the TSMeta.
+     */
+    [[nodiscard]] const TSMeta* meta() const noexcept {
+        return view_data_.meta;
+    }
+
+    /**
+     * @brief Get the underlying ViewData.
+     */
+    [[nodiscard]] const ViewData& view_data() const noexcept {
+        return view_data_;
+    }
+
+    // ========== TSView Navigation ==========
+
+    /**
+     * @brief Get an element as a TSView by index.
+     *
+     * Returns a proper TSView with full time-series semantics.
+     *
+     * @param index The element index
+     * @return TSView for the element
+     */
+    [[nodiscard]] TSView element_ts(size_t index) const {
+        if (!view_data_.ops) {
+            throw std::runtime_error("element_ts requires valid ops");
+        }
+        return view_data_.ops->child_at(view_data_, index, current_time_);
+    }
+
+    /**
+     * @brief Iterate over all elements as TSViews.
+     *
+     * Use it.index() to get element index, *it to get TSView.
+     *
+     * @return TSViewRange for iteration
+     */
+    [[nodiscard]] TSViewRange values() const {
+        if (!view_data_.valid()) {
+            return TSViewRange{};
+        }
+        return TSViewRange(view_data_, 0, size(), current_time_);
+    }
 
     // ========== Container-Level Access ==========
 
@@ -70,7 +144,7 @@ public:
      * @return The container's modification timestamp
      */
     [[nodiscard]] engine_time_t last_modified_time() const {
-        return time_view_.as_tuple().at(0).as<engine_time_t>();
+        return time_view().as_tuple().at(0).as<engine_time_t>();
     }
 
     /**
@@ -93,10 +167,10 @@ public:
      * @brief Get the number of elements.
      */
     [[nodiscard]] size_t size() const {
-        if (meta_->fixed_size > 0) {
-            return meta_->fixed_size;
+        if (meta()->fixed_size > 0) {
+            return meta()->fixed_size;
         }
-        return value_view_.as_list().size();
+        return value_view().as_list().size();
     }
 
     // ========== Element Access ==========
@@ -107,7 +181,7 @@ public:
      * @return View of the element's value
      */
     [[nodiscard]] value::View element_value(size_t index) const {
-        return value_view_.as_list().at(index);
+        return value_view().as_list().at(index);
     }
 
     /**
@@ -117,7 +191,7 @@ public:
      */
     [[nodiscard]] value::View element_time(size_t index) const {
         // Time is tuple[container_time, list[element_times]]
-        return time_view_.as_tuple().at(1).as_list().at(index);
+        return time_view().as_tuple().at(1).as_list().at(index);
     }
 
     /**
@@ -127,7 +201,7 @@ public:
      */
     [[nodiscard]] value::View element_observer(size_t index) const {
         // Observer is tuple[container_obs, list[element_obs]]
-        return observer_view_.as_tuple().at(1).as_list().at(index);
+        return observer_view().as_tuple().at(1).as_list().at(index);
     }
 
     /**
@@ -205,7 +279,7 @@ public:
      * @param index The element index
      */
     void mark_element_modified(size_t index) {
-        const TSMeta* elem_meta = meta_->element_ts;
+        const TSMeta* elem_meta = meta()->element_ts;
 
         // Update element time
         auto et = element_time(index);
@@ -231,11 +305,11 @@ public:
      */
     void mark_container_modified() {
         // Update container time
-        time_view_.as_tuple().at(0).as<engine_time_t>() = current_time_;
+        time_view().as_tuple().at(0).as<engine_time_t>() = current_time_;
 
         // Notify container observers
         auto* container_obs = static_cast<ObserverList*>(
-            observer_view_.as_tuple().at(0).data());
+            observer_view().as_tuple().at(0).data());
         container_obs->notify_modified(current_time_);
     }
 
@@ -247,7 +321,7 @@ public:
      */
     void add_observer(Notifiable* obs) {
         auto* container_obs = static_cast<ObserverList*>(
-            observer_view_.as_tuple().at(0).data());
+            observer_view().as_tuple().at(0).data());
         container_obs->add_observer(obs);
     }
 
@@ -257,7 +331,7 @@ public:
      * @param obs The observer to add
      */
     void add_element_observer(size_t index, Notifiable* obs) {
-        const TSMeta* elem_meta = meta_->element_ts;
+        const TSMeta* elem_meta = meta()->element_ts;
         auto eo = element_observer(index);
 
         if (elem_meta->is_scalar_ts()) {
@@ -274,7 +348,7 @@ private:
      * @brief Get the element's time value for comparison.
      */
     [[nodiscard]] engine_time_t element_time_value(size_t index) const {
-        const TSMeta* elem_meta = meta_->element_ts;
+        const TSMeta* elem_meta = meta()->element_ts;
         auto et = element_time(index);
 
         if (elem_meta->is_scalar_ts()) {
@@ -284,11 +358,8 @@ private:
         }
     }
 
-    const TSMeta* meta_;
-    value::View value_view_;
-    value::View time_view_;
-    value::View observer_view_;
-    engine_time_t current_time_;
+    ViewData view_data_;
+    engine_time_t current_time_{MIN_ST};
 };
 
 } // namespace hgraph

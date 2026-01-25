@@ -9,8 +9,10 @@
  */
 
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/set_delta.h>
+#include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/indexed_view.h>
@@ -26,9 +28,11 @@ namespace hgraph {
  * - Modification time updates
  * - Observer notification
  *
+ * TSSView wraps a ViewData (containing all data pointers) plus current_time.
+ *
  * Usage:
  * @code
- * TSSView set_view(meta, value_view, time_view, observer_view, delta_view, current_time);
+ * TSSView set_view(view_data, current_time);
  *
  * // Mutate (automatically updates delta, time, and notifies)
  * set_view.add(42);
@@ -45,28 +49,67 @@ namespace hgraph {
 class TSSView {
 public:
     /**
-     * @brief Construct a set view.
+     * @brief Construct a set view from ViewData.
      *
-     * @param meta The TSMeta for this set
-     * @param value_view View of the value (set type)
-     * @param time_view View of the time (engine_time_t)
-     * @param observer_view View of the observer (ObserverList)
-     * @param delta_view View of the delta (SetDelta)
+     * @param view_data ViewData containing all data pointers and metadata
      * @param current_time The current engine time
      */
-    TSSView(const TSMeta* meta,
-            value::View value_view,
-            value::View time_view,
-            value::View observer_view,
-            value::View delta_view,
-            engine_time_t current_time) noexcept
-        : meta_(meta)
-        , value_view_(value_view)
-        , time_view_(time_view)
-        , observer_view_(observer_view)
-        , delta_view_(delta_view)
+    TSSView(ViewData view_data, engine_time_t current_time) noexcept
+        : view_data_(std::move(view_data))
         , current_time_(current_time)
     {}
+
+    /**
+     * @brief Default constructor - creates invalid view.
+     */
+    TSSView() noexcept = default;
+
+    // ========== View Access ==========
+
+    /**
+     * @brief Get the value view.
+     */
+    [[nodiscard]] value::View value_view() const {
+        return value::View(view_data_.value_data, meta()->value_type);
+    }
+
+    /**
+     * @brief Get the time view.
+     */
+    [[nodiscard]] value::View time_view() const {
+        return value::View(view_data_.time_data,
+            TSMetaSchemaCache::instance().get_time_schema(meta()));
+    }
+
+    /**
+     * @brief Get the observer view.
+     */
+    [[nodiscard]] value::View observer_view() const {
+        return value::View(view_data_.observer_data,
+            TSMetaSchemaCache::instance().get_observer_schema(meta()));
+    }
+
+    /**
+     * @brief Get the delta view.
+     */
+    [[nodiscard]] value::View delta_view() const {
+        return value::View(view_data_.delta_data,
+            TSMetaSchemaCache::instance().get_delta_value_schema(meta()));
+    }
+
+    /**
+     * @brief Get the TSMeta.
+     */
+    [[nodiscard]] const TSMeta* meta() const noexcept {
+        return view_data_.meta;
+    }
+
+    /**
+     * @brief Get the underlying ViewData.
+     */
+    [[nodiscard]] const ViewData& view_data() const noexcept {
+        return view_data_;
+    }
 
     // ========== Time-Series Semantics ==========
 
@@ -74,7 +117,7 @@ public:
      * @brief Get the last modification time.
      */
     [[nodiscard]] engine_time_t last_modified_time() const {
-        return time_view_.as<engine_time_t>();
+        return time_view().as<engine_time_t>();
     }
 
     /**
@@ -97,7 +140,7 @@ public:
      * @brief Get the set size.
      */
     [[nodiscard]] size_t size() const {
-        return value_view_.as_set().size();
+        return value_view().as_set().size();
     }
 
     /**
@@ -114,7 +157,7 @@ public:
      */
     template<typename T>
     [[nodiscard]] bool contains(const T& elem) const {
-        return value_view_.as_set().contains(elem);
+        return value_view().as_set().contains(elem);
     }
 
     // ========== Set Operations (Write) ==========
@@ -134,7 +177,7 @@ public:
      */
     template<typename T>
     bool add(const T& elem) {
-        auto set = value_view_.as_set();
+        auto set = value_view().as_set();
         bool added = set.add(elem);
 
         if (added) {
@@ -156,7 +199,7 @@ public:
      */
     template<typename T>
     bool remove(const T& elem) {
-        auto set = value_view_.as_set();
+        auto set = value_view().as_set();
         bool removed = set.remove(elem);
 
         if (removed) {
@@ -171,7 +214,7 @@ public:
      * @brief Clear all elements from the set.
      */
     void clear() {
-        auto set = value_view_.as_set();
+        auto set = value_view().as_set();
         if (!set.empty()) {
             set.clear();
             // SetDelta's on_clear() is called automatically.
@@ -185,14 +228,14 @@ public:
      * @brief Get the SetDelta for this set.
      */
     [[nodiscard]] SetDelta* delta() {
-        return static_cast<SetDelta*>(delta_view_.data());
+        return static_cast<SetDelta*>(view_data_.delta_data);
     }
 
     /**
      * @brief Get the SetDelta for this set (const).
      */
     [[nodiscard]] const SetDelta* delta() const {
-        return static_cast<const SetDelta*>(delta_view_.data());
+        return static_cast<const SetDelta*>(view_data_.delta_data);
     }
 
     /**
@@ -230,10 +273,10 @@ public:
      */
     void mark_modified() {
         // Update time
-        time_view_.as<engine_time_t>() = current_time_;
+        time_view().as<engine_time_t>() = current_time_;
 
         // Notify observers
-        auto* observers = static_cast<ObserverList*>(observer_view_.data());
+        auto* observers = static_cast<ObserverList*>(observer_view().data());
         observers->notify_modified(current_time_);
     }
 
@@ -244,7 +287,7 @@ public:
      * @param obs The observer to add
      */
     void add_observer(Notifiable* obs) {
-        auto* observers = static_cast<ObserverList*>(observer_view_.data());
+        auto* observers = static_cast<ObserverList*>(observer_view().data());
         observers->add_observer(obs);
     }
 
@@ -253,17 +296,13 @@ public:
      * @param obs The observer to remove
      */
     void remove_observer(Notifiable* obs) {
-        auto* observers = static_cast<ObserverList*>(observer_view_.data());
+        auto* observers = static_cast<ObserverList*>(observer_view().data());
         observers->remove_observer(obs);
     }
 
 private:
-    [[maybe_unused]] const TSMeta* meta_;  // Reserved for future per-element tracking
-    value::View value_view_;
-    value::View time_view_;
-    value::View observer_view_;
-    value::View delta_view_;
-    engine_time_t current_time_;
+    ViewData view_data_;
+    engine_time_t current_time_{MIN_ST};
 };
 
 } // namespace hgraph

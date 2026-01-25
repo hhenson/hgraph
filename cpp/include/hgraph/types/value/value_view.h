@@ -158,7 +158,6 @@ class SetView;
 class MapView;
 class CyclicBufferView;
 class QueueView;
-class KeySetView;
 
 // Forward declaration for Value (used in clone)
 template<typename Policy>
