@@ -10,10 +10,9 @@ from hgraph import (
     TimeSeriesSchema,
     TSB,
     map_,
-    TSL,
-    Size,
     feedback,
-    REMOVE_IF_EXISTS,
+    if_,
+    Removed,
     pass_through,
 )
 from hgraph.test import eval_node
@@ -38,6 +37,14 @@ def test_tsd_key_set():
         return tsd.key_set
 
     assert eval_node(_extract_key_set, tsd=[{"a": 1}, {"b": 2}]) == [{"a"}, {"b"}]
+
+
+def test_tsd_key_set_empty_ref():
+    @graph
+    def _extract_key_set(tsd: TSD[str, TS[int]], clear: TS[bool]) -> TSS[str]:
+        return if_(clear, tsd).false.key_set
+
+    assert eval_node(_extract_key_set, tsd=[{"a": 1}, {"b": 2}], clear=[False, True]) == [{"a"}, {Removed("a")}]
 
 
 def test_tsd_get_item():
@@ -157,8 +164,8 @@ def test_tsd_signal():
         return s(ts)
     
     assert eval_node(g, [None, {"a": 1}, {"a": 2}, {}]) == [None, True, True, None]
-        
-    
+
+
 def test_tsd_of_refs_signal():
     @compute_node
     def s(ts: SIGNAL) -> TS[bool]:
@@ -169,8 +176,8 @@ def test_tsd_of_refs_signal():
         return s(map_(lambda x: x, ts))
     
     assert eval_node(g, [None, {"a": 1}, {"a": 2}, {}]) == [None, True, True, None]
-    
-    
+
+
 def test_signal_in_branch():
     @compute_node
     def s(ts: SIGNAL) -> TS[bool]:

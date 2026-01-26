@@ -480,6 +480,10 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         self._removed_items = {}
 
     @property
+    def valid(self):
+        return self._sample_time > MIN_DT or (self.bound and self.output.valid)
+
+    @property
     def modified(self) -> bool:
         if self.has_peer:
             return super().modified
