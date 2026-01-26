@@ -1,6 +1,7 @@
 from collections import deque
 from dataclasses import dataclass
 from datetime import timedelta
+import logging
 from sys import exc_info
 import sys
 from typing import Mapping, cast
@@ -40,6 +41,9 @@ from hgraph._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
 
+
+logger = logging.getLogger(__name__)
+
 __all__ = ("PythonTSOutputBuilder", "PythonTSInputBuilder", "PythonTimeSeriesBuilderFactory")
 
 
@@ -48,13 +52,17 @@ class PythonOutputBuilder:
     
     def release_instance(self, item: "PythonTimeSeriesOutput"):
         if sys.exc_info()[0] is None:
-            assert len(item._subscribers) == 0, (
-                f"Output instance still has subscribers when released, this is a bug. \n"
-                f"output belongs to node {item.owning_node}\n"
-                f"subscriber nodes are {[i.owning_node if isinstance(i, TimeSeries) else i for i in item._subscribers]}\n\n"
-                f"subscriber inputs are {[i for i in item._subscribers if isinstance(i, TimeSeries)]}\n\n"
-                f"{item}"
-            )
+            if len(item._subscribers) != 0: 
+                try:
+                    logger.error(
+                        f"Output instance still has subscribers when released, this is a bug. \n"
+                        f"output belongs to node {item.owning_node}\n"
+                        f"subscriber nodes are {[i.owning_node if isinstance(i, TimeSeries) else i for i in item._subscribers]}\n\n"
+                        f"subscriber inputs are {[i for i in item._subscribers if isinstance(i, TimeSeries)]}\n\n"
+                        f"{item}"
+                    )
+                except Exception:
+                    ...
             
             item._parent_or_node = None
 

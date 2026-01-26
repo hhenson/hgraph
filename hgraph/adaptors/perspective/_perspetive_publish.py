@@ -139,7 +139,7 @@ def _publish_table_from_tsd(
         removes = len(state.removed)
 
     if not sched.is_scheduled and (data or removes):
-        sched.schedule(timedelta(milliseconds=250), on_wall_clock=True, tag='')
+        sched.schedule(timedelta(milliseconds=250), on_wall_clock=True, tag='-')
 
     if sched.is_scheduled_now:
         state.manager.update_table(name, state.data, state.removed)
