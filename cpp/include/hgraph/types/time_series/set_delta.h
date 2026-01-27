@@ -10,6 +10,8 @@
  *
  * Key design principles:
  * - Tracks added/removed slot indices (not element copies)
+ * - Removed elements remain accessible by slot during the current tick
+ *   (they go to a free list only used in the next engine cycle)
  * - Tracks removed key hashes for O(1) was_key_removed() queries
  * - Handles add/remove cancellation within the same tick
  * - Erase then insert records both (slot reuse scenario)
@@ -124,6 +126,9 @@ public:
      * out - remove from added and don't add to removed. Otherwise, add
      * to the removed set and capture the key's hash for O(1) lookup.
      *
+     * Note: The key data remains accessible at the slot during the current tick
+     * because removed slots go to a free list only used in the next engine cycle.
+     *
      * @param slot The slot index being erased
      */
     void on_erase(size_t slot) override {
@@ -137,7 +142,7 @@ public:
             // Removing a pre-existing element
             removed_.insert(slot);
 
-            // Capture the key's hash before it's destroyed (if bound to KeySet)
+            // Capture the key's hash for O(1) was_key_removed() queries
             if (key_set_) {
                 const void* key_ptr = key_set_->key_at_slot(slot);
                 const value::TypeMeta* key_type = key_set_->key_type();
