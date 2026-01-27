@@ -8,14 +8,16 @@
  * Access elements via values() to iterate, check membership via contains().
  */
 
-#include <hgraph/types/time_series/ts_meta.h>
-#include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/set_delta.h>
+#include <hgraph/types/time_series/slot_set.h>
+#include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/notifiable.h>
-#include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/indexed_view.h>
+#include <hgraph/types/value/set_storage.h>
+#include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
 
 namespace hgraph {
@@ -124,19 +126,39 @@ public:
     /**
      * @brief Get the slot indices of elements added this tick.
      *
-     * @return Vector of added slot indices
+     * @return Set of added slot indices
      */
-    [[nodiscard]] const std::vector<size_t>& added_slots() const {
+    [[nodiscard]] const SlotSet& added_slots() const {
         return delta()->added();
     }
 
     /**
      * @brief Get the slot indices of elements removed this tick.
      *
-     * @return Vector of removed slot indices
+     * @return Set of removed slot indices
      */
-    [[nodiscard]] const std::vector<size_t>& removed_slots() const {
+    [[nodiscard]] const SlotSet& removed_slots() const {
         return delta()->removed();
+    }
+
+    /**
+     * @brief Check if a specific slot was added this tick.
+     *
+     * @param slot The slot index to check
+     * @return true if slot was added
+     */
+    [[nodiscard]] bool was_slot_added(size_t slot) const {
+        return delta()->was_slot_added(slot);
+    }
+
+    /**
+     * @brief Check if a specific slot was removed this tick.
+     *
+     * @param slot The slot index to check
+     * @return true if slot was removed
+     */
+    [[nodiscard]] bool was_slot_removed(size_t slot) const {
+        return delta()->was_slot_removed(slot);
     }
 
     /**
@@ -146,27 +168,31 @@ public:
      * @return true if element was added
      */
     [[nodiscard]] bool was_added(const value::View& elem) const {
-        // Element must exist in the set
-        auto set = value_view().as_set();
-        if (!set.contains(elem)) {
+        // Get the SetStorage
+        auto* storage = static_cast<const value::SetStorage*>(view_data_.value_data);
+        if (!storage) return false;
+
+        // Find the slot for this element
+        size_t slot = storage->key_set().find(elem.data());
+        if (slot == static_cast<size_t>(-1)) {
+            // Element not in set, so it wasn't added
             return false;
         }
-        // Check if it's in the added slots
-        // TODO: This requires mapping element to slot index
-        // For now, return false until proper slot mapping is implemented
-        return false;
+
+        // O(1) lookup using set
+        return delta()->was_slot_added(slot);
     }
 
     /**
      * @brief Check if a specific element was removed this tick.
      *
+     * Uses O(1) hash-based lookup in the delta's removed key hashes.
+     *
      * @param elem The element to check
      * @return true if element was removed
      */
-    [[nodiscard]] bool was_removed(const value::View& /*elem*/) const {
-        // TODO: This requires tracking removed values in SetDelta
-        // For now, return false until proper tracking is implemented
-        return false;
+    [[nodiscard]] bool was_removed(const value::View& elem) const {
+        return delta()->was_key_removed(elem.data(), meta()->value_type);
     }
 
     // ========== Container-Level Access ==========

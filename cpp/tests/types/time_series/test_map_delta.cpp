@@ -9,8 +9,6 @@
 #include <hgraph/types/time_series/map_delta.h>
 #include <hgraph/types/time_series/set_delta.h>
 
-#include <algorithm>
-
 using namespace hgraph;
 
 // ============================================================================
@@ -19,8 +17,8 @@ using namespace hgraph;
 
 namespace {
 
-bool contains(const std::vector<size_t>& v, size_t val) {
-    return std::find(v.begin(), v.end(), val) != v.end();
+bool contains(const SlotSet& s, size_t val) {
+    return s.contains(val);
 }
 
 }  // namespace

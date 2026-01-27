@@ -8,16 +8,17 @@
  * Access values via at(key) to get TSView.
  */
 
+#include <hgraph/types/time_series/map_delta.h>
+#include <hgraph/types/time_series/observer_list.h>
+#include <hgraph/types/time_series/slot_set.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_meta_schema.h>
-#include <hgraph/types/time_series/observer_list.h>
-#include <hgraph/types/time_series/map_delta.h>
-#include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/time_series/ts_view_range.h>
+#include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/notifiable.h>
-#include <hgraph/types/value/value_view.h>
 #include <hgraph/types/value/indexed_view.h>
+#include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
 
 namespace hgraph {
@@ -142,28 +143,37 @@ public:
     /**
      * @brief Get the slot indices of keys added this tick.
      *
-     * @return Vector of added slot indices
+     * @return Set of added slot indices
      */
-    [[nodiscard]] const std::vector<size_t>& added_slots() const {
+    [[nodiscard]] const SlotSet& added_slots() const {
         return delta()->added();
     }
 
     /**
      * @brief Get the slot indices of keys removed this tick.
      *
-     * @return Vector of removed slot indices
+     * @return Set of removed slot indices
      */
-    [[nodiscard]] const std::vector<size_t>& removed_slots() const {
+    [[nodiscard]] const SlotSet& removed_slots() const {
         return delta()->removed();
     }
 
     /**
      * @brief Get the slot indices of keys with updated values this tick.
      *
-     * @return Vector of updated slot indices
+     * @return Set of updated slot indices
      */
-    [[nodiscard]] const std::vector<size_t>& updated_slots() const {
+    [[nodiscard]] const SlotSet& updated_slots() const {
         return delta()->updated();
+    }
+
+    /**
+     * @brief Get the slot indices of keys modified (added or updated) this tick.
+     *
+     * @return Set of modified slot indices (union of added and updated)
+     */
+    [[nodiscard]] const SlotSet& modified_slots() const {
+        return delta()->modified();
     }
 
     // ========== Items Iteration ==========
@@ -195,21 +205,42 @@ public:
     /**
      * @brief Iterate over entries added this tick.
      *
-     * @return TSDictRange for added items
+     * @return TSDictSlotRange for added items
      */
-    [[nodiscard]] TSDictRange added_items() const {
-        // TODO: Implement filtered iteration over added slots
-        return TSDictRange{};
+    [[nodiscard]] TSDictSlotRange added_items() const {
+        if (!view_data_.valid() || !delta()) {
+            return TSDictSlotRange{};
+        }
+        return TSDictSlotRange(view_data_, meta(), &delta()->added(), current_time_);
     }
 
     /**
      * @brief Iterate over entries with modified values this tick.
      *
-     * @return TSDictRange for modified items
+     * This includes both additions and value updates.
+     *
+     * @return TSDictSlotRange for modified items
      */
-    [[nodiscard]] TSDictRange modified_items() const {
-        // TODO: Implement filtered iteration over modified slots
-        return TSDictRange{};
+    [[nodiscard]] TSDictSlotRange modified_items() const {
+        if (!view_data_.valid() || !delta()) {
+            return TSDictSlotRange{};
+        }
+        return TSDictSlotRange(view_data_, meta(), &delta()->modified(), current_time_);
+    }
+
+    /**
+     * @brief Iterate over entries with only value updates this tick.
+     *
+     * This includes only pre-existing keys that had their values updated,
+     * not new additions.
+     *
+     * @return TSDictSlotRange for updated items
+     */
+    [[nodiscard]] TSDictSlotRange updated_items() const {
+        if (!view_data_.valid() || !delta()) {
+            return TSDictSlotRange{};
+        }
+        return TSDictSlotRange(view_data_, meta(), &delta()->updated(), current_time_);
     }
 
     // ========== Container-Level Access ==========

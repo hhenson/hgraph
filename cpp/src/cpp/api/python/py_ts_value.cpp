@@ -133,6 +133,41 @@ static void register_ts_view_iterators(nb::module_& m) {
 
         .def("empty", &TSDictRange::empty,
             "Check if the range is empty");
+
+    // TSDictSlotIterator - dict entry iterator for filtered iteration (added/modified items)
+    nb::class_<TSDictSlotIterator>(m, "TSDictSlotIterator",
+        "Iterator for dict entries at specific slots.\n\n"
+        "Use slot() for storage slot index, key() for key as value::View.")
+
+        .def("slot", &TSDictSlotIterator::slot,
+            "Get the current storage slot index")
+
+        .def("key", &TSDictSlotIterator::key,
+            "Get the key at the current slot as a value View")
+
+        .def("__next__", [](TSDictSlotIterator& self, TSDictSlotIterator& end) -> TSView {
+            if (self == end) {
+                throw nb::stop_iteration();
+            }
+            TSView result = *self;
+            ++self;
+            return result;
+        });
+
+    // TSDictSlotRange - iterable range of dict entries at specific slots
+    nb::class_<TSDictSlotRange>(m, "TSDictSlotRange",
+        "Range for iterating over dict entries at specific slots.\n\n"
+        "Used for filtered iteration (added_items, modified_items).\n"
+        "Use the iterator's key() method to get keys.")
+
+        .def("__iter__", [](TSDictSlotRange& self) {
+            return std::make_pair(self.begin(), self.end());
+        })
+
+        .def("__len__", &TSDictSlotRange::size)
+
+        .def("empty", &TSDictSlotRange::empty,
+            "Check if the range is empty");
 }
 
 // ============================================================================

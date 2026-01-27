@@ -141,10 +141,11 @@ target_include_directories(hgraph_ts_value_phase2_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/cpp/include
 )
 
-# Phase 2 components are header-only - no need to link _hgraph
+# Phase 2 components need dynamic_bitset for KeySet include
 target_link_libraries(hgraph_ts_value_phase2_tests PRIVATE
     Catch2::Catch2WithMain
     fmt::fmt
+    sul::dynamic_bitset
 )
 
 target_compile_features(hgraph_ts_value_phase2_tests PRIVATE cxx_std_23)

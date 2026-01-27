@@ -8,8 +8,6 @@
 #include <catch2/catch_test_macros.hpp>
 #include <hgraph/types/time_series/set_delta.h>
 
-#include <algorithm>
-
 using namespace hgraph;
 
 // ============================================================================
@@ -18,8 +16,8 @@ using namespace hgraph;
 
 namespace {
 
-bool contains(const std::vector<size_t>& v, size_t val) {
-    return std::find(v.begin(), v.end(), val) != v.end();
+bool contains(const SlotSet& s, size_t val) {
+    return s.contains(val);
 }
 
 }  // namespace
@@ -272,9 +270,10 @@ TEST_CASE("SetDelta - same slot inserted multiple times", "[time_series][phase2]
     sd.on_insert(5);
     sd.on_insert(5);
 
-    // Implementation allows duplicates in added list
-    // This reflects multiple insert calls for the same slot
-    CHECK(sd.added().size() == 3);
+    // Using a set, duplicates are not stored
+    // Multiple inserts of same slot only result in one entry
+    CHECK(sd.added().size() == 1);
+    CHECK(sd.was_slot_added(5));
 }
 
 TEST_CASE("SetDelta - cleared flag independent of operations", "[time_series][phase2][delta]") {

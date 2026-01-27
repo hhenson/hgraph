@@ -43,4 +43,17 @@ TSView TSDictIterator::operator*() const {
     return nav_data_->ops->child_at(*nav_data_, current_index_, current_time_);
 }
 
+// ============================================================================
+// TSDictSlotIterator
+// ============================================================================
+
+TSView TSDictSlotIterator::operator*() const {
+    if (!nav_data_ || !nav_data_->valid() || !nav_data_->ops || current_ == end_) {
+        return TSView{};
+    }
+    // Use child_at with the actual slot index from the set iterator
+    size_t slot = *current_;
+    return nav_data_->ops->child_at(*nav_data_, slot, current_time_);
+}
+
 } // namespace hgraph

@@ -18,10 +18,9 @@
  * This file also defines DeltaVariant for type-safe child delta storage.
  */
 
+#include <hgraph/types/time_series/slot_set.h>
 #include <hgraph/types/value/slot_observer.h>
 
-#include <algorithm>
-#include <cstddef>
 #include <variant>
 #include <vector>
 
@@ -98,73 +97,57 @@ public:
     /**
      * @brief Called after a new key is inserted at a slot.
      *
-     * If the slot was previously in the removed list (erase then insert),
-     * both are recorded. If the slot was not in removed, it's added to
-     * the added list.
+     * Always records the insertion - even if same slot was removed earlier
+     * (erase then insert scenario: slot was removed and something new was added).
      *
      * @param slot The slot index where insertion occurred
      */
     void on_insert(size_t slot) override {
-        // Check if this slot was removed earlier in the same tick
-        auto it = std::find(removed_.begin(), removed_.end(), slot);
-        if (it != removed_.end()) {
-            // Erase then insert scenario: keep both records
-            added_.push_back(slot);
-        } else {
-            // Fresh insert
-            added_.push_back(slot);
-        }
+        // Always record the insertion
+        added_.insert(slot);
     }
 
     /**
      * @brief Called before a key is erased from a slot.
      *
-     * If the slot is in the added list (insert then erase), they cancel
+     * If the slot is in the added set (insert then erase), they cancel
      * out - remove from added and don't add to removed. Otherwise, add
-     * to the removed list.
+     * to the removed set.
      *
      * @param slot The slot index being erased
      */
     void on_erase(size_t slot) override {
         // Check if this slot was added earlier in the same tick
-        auto it = std::find(added_.begin(), added_.end(), slot);
+        auto it = added_.find(slot);
         if (it != added_.end()) {
             // Insert then erase: they cancel out
             added_.erase(it);
             // Also remove from updated if present
-            auto updated_it = std::find(updated_.begin(), updated_.end(), slot);
-            if (updated_it != updated_.end()) {
-                updated_.erase(updated_it);
-            }
+            updated_.erase(slot);
             // Don't add to removed_
         } else {
             // Removing a pre-existing element
-            removed_.push_back(slot);
+            removed_.insert(slot);
             // Remove from updated if it was there
-            auto updated_it = std::find(updated_.begin(), updated_.end(), slot);
-            if (updated_it != updated_.end()) {
-                updated_.erase(updated_it);
-            }
+            updated_.erase(slot);
         }
     }
 
     /**
      * @brief Called when a value is updated at a slot.
      *
-     * Adds the slot to the updated list if not already present and
-     * not in the added list (new slots don't need "updated" tracking).
+     * Adds the slot to the updated set if not in the added set
+     * (new slots don't need "updated" tracking - they're already "added").
      *
      * @param slot The slot index where the value was updated
      */
     void on_update(size_t slot) override {
         // Don't track updates for slots that were just added
-        if (std::find(added_.begin(), added_.end(), slot) != added_.end()) {
+        if (added_.contains(slot)) {
             return;
         }
-        // Only add if not already in updated list
-        if (std::find(updated_.begin(), updated_.end(), slot) == updated_.end()) {
-            updated_.push_back(slot);
-        }
+        // Add to updated set (set handles deduplication)
+        updated_.insert(slot);
     }
 
     /**
@@ -181,27 +164,81 @@ public:
     // ========== Delta Accessors ==========
 
     /**
-     * @brief Get the list of added slot indices.
-     * @return Const reference to the added slots vector
+     * @brief Get the set of added slot indices.
+     * @return Const reference to the added slots set
      */
-    [[nodiscard]] const std::vector<size_t>& added() const {
+    [[nodiscard]] const SlotSet& added() const {
         return added_;
     }
 
     /**
-     * @brief Get the list of removed slot indices.
-     * @return Const reference to the removed slots vector
+     * @brief Get the set of removed slot indices.
+     * @return Const reference to the removed slots set
      */
-    [[nodiscard]] const std::vector<size_t>& removed() const {
+    [[nodiscard]] const SlotSet& removed() const {
         return removed_;
     }
 
     /**
-     * @brief Get the list of updated slot indices.
-     * @return Const reference to the updated slots vector
+     * @brief Get the set of updated slot indices.
+     * @return Const reference to the updated slots set
      */
-    [[nodiscard]] const std::vector<size_t>& updated() const {
+    [[nodiscard]] const SlotSet& updated() const {
         return updated_;
+    }
+
+    /**
+     * @brief Check if a specific slot was added this tick.
+     * @param slot The slot index to check
+     * @return true if the slot was added
+     */
+    [[nodiscard]] bool was_slot_added(size_t slot) const {
+        return added_.contains(slot);
+    }
+
+    /**
+     * @brief Check if a specific slot was removed this tick.
+     * @param slot The slot index to check
+     * @return true if the slot was removed
+     */
+    [[nodiscard]] bool was_slot_removed(size_t slot) const {
+        return removed_.contains(slot);
+    }
+
+    /**
+     * @brief Check if a specific slot was updated this tick.
+     * @param slot The slot index to check
+     * @return true if the slot was updated
+     */
+    [[nodiscard]] bool was_slot_updated(size_t slot) const {
+        return updated_.contains(slot);
+    }
+
+    /**
+     * @brief Check if a specific slot was modified (added or updated) this tick.
+     * @param slot The slot index to check
+     * @return true if the slot was added or updated
+     */
+    [[nodiscard]] bool was_slot_modified(size_t slot) const {
+        return added_.contains(slot) || updated_.contains(slot);
+    }
+
+    /**
+     * @brief Get the set of modified slot indices (added + updated).
+     *
+     * This returns a lazily-computed union of added and updated slots.
+     * The result is cached and invalidated when clear() is called.
+     *
+     * @return Const reference to the modified slots set
+     */
+    [[nodiscard]] const SlotSet& modified() const {
+        if (!modified_valid_) {
+            modified_.clear();
+            modified_.insert(added_.begin(), added_.end());
+            modified_.insert(updated_.begin(), updated_.end());
+            modified_valid_ = true;
+        }
+        return modified_;
     }
 
     /**
@@ -254,6 +291,9 @@ public:
         added_.clear();
         removed_.clear();
         updated_.clear();
+        // Invalidate cached modified set
+        modified_.clear();
+        modified_valid_ = false;
         // Reset children to monostate
         for (auto& child : children_) {
             child = std::monostate{};
@@ -262,11 +302,15 @@ public:
     }
 
 private:
-    std::vector<size_t> added_;             // Slots added this tick
-    std::vector<size_t> removed_;           // Slots removed this tick
-    std::vector<size_t> updated_;           // Slots updated this tick
-    std::vector<DeltaVariant> children_;    // Child deltas for nested TS types
-    bool cleared_{false};                   // Whether on_clear() was called this tick
+    SlotSet added_;    // Slots added this tick
+    SlotSet removed_;  // Slots removed this tick
+    SlotSet updated_;  // Slots updated this tick
+    std::vector<DeltaVariant> children_;  // Child deltas for nested TS types
+    bool cleared_{false};  // Whether on_clear() was called this tick
+
+    // Cached combined modified set (lazily computed)
+    mutable SlotSet modified_;
+    mutable bool modified_valid_{false};
 };
 
 } // namespace hgraph
