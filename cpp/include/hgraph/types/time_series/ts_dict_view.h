@@ -268,6 +268,65 @@ public:
         return delta()->was_slot_added(slot);
     }
 
+    // ========== Key Iteration ==========
+
+    /**
+     * @brief Iterate over keys added this tick.
+     *
+     * @return SlotKeyRange yielding value::View for each added key
+     */
+    [[nodiscard]] SlotKeyRange added_keys() const {
+        if (!view_data_.valid() || !delta()) {
+            return SlotKeyRange{};
+        }
+        auto* storage = static_cast<const value::MapStorage*>(view_data_.value_data);
+        return SlotKeyRange(storage, meta()->key_type, &delta()->added());
+    }
+
+    /**
+     * @brief Iterate over keys with modified values this tick (added or updated).
+     *
+     * @return SlotKeyRange yielding value::View for each modified key
+     */
+    [[nodiscard]] SlotKeyRange modified_keys() const {
+        if (!view_data_.valid() || !delta()) {
+            return SlotKeyRange{};
+        }
+        auto* storage = static_cast<const value::MapStorage*>(view_data_.value_data);
+        return SlotKeyRange(storage, meta()->key_type, &delta()->modified());
+    }
+
+    /**
+     * @brief Iterate over keys with only value updates this tick (not new additions).
+     *
+     * @return SlotKeyRange yielding value::View for each updated key
+     */
+    [[nodiscard]] SlotKeyRange updated_keys() const {
+        if (!view_data_.valid() || !delta()) {
+            return SlotKeyRange{};
+        }
+        auto* storage = static_cast<const value::MapStorage*>(view_data_.value_data);
+        return SlotKeyRange(storage, meta()->key_type, &delta()->updated());
+    }
+
+    /**
+     * @brief Iterate over keys removed this tick.
+     *
+     * The removed keys remain accessible in storage during the current tick
+     * (their slots are placed on a free list that is only used in the next engine cycle).
+     *
+     * @return SlotKeyRange yielding value::View for each removed key
+     */
+    [[nodiscard]] SlotKeyRange removed_keys() const {
+        if (!view_data_.valid() || !delta()) {
+            return SlotKeyRange{};
+        }
+        auto* storage = static_cast<const value::MapStorage*>(view_data_.value_data);
+        return SlotKeyRange(storage, meta()->key_type, &delta()->removed());
+    }
+
+    // ========== Key Membership ==========
+
     /**
      * @brief Check if a specific key was removed this tick.
      *
@@ -345,6 +404,21 @@ public:
             return TSDictSlotRange{};
         }
         return TSDictSlotRange(view_data_, meta(), &delta()->updated(), current_time_);
+    }
+
+    /**
+     * @brief Iterate over entries removed this tick.
+     *
+     * The removed entries remain accessible in storage during the current tick
+     * (their slots are placed on a free list that is only used in the next engine cycle).
+     *
+     * @return TSDictSlotRange for removed items
+     */
+    [[nodiscard]] TSDictSlotRange removed_items() const {
+        if (!view_data_.valid() || !delta()) {
+            return TSDictSlotRange{};
+        }
+        return TSDictSlotRange(view_data_, meta(), &delta()->removed(), current_time_);
     }
 
     // ========== Container-Level Access ==========

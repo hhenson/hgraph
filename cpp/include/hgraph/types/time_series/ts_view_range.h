@@ -11,6 +11,7 @@
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/value/map_storage.h>
+#include <hgraph/types/value/set_storage.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
 
@@ -529,6 +530,243 @@ private:
     const TSMeta* meta_;
     const SlotSet* slots_;
     engine_time_t current_time_;
+};
+
+/**
+ * @brief Iterator yielding key Views at specific slots.
+ *
+ * Used for iterating over keys filtered by a SlotSet (added_keys, modified_keys, etc.)
+ */
+class SlotKeyIterator {
+public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = value::View;
+    using difference_type = std::ptrdiff_t;
+    using pointer = value::View*;
+    using reference = value::View;
+    using set_iterator = SlotSet::const_iterator;
+
+    SlotKeyIterator() noexcept = default;
+
+    SlotKeyIterator(const value::MapStorage* storage, const value::TypeMeta* key_type,
+                    set_iterator current, set_iterator end) noexcept
+        : storage_(storage)
+        , key_type_(key_type)
+        , current_(current)
+        , end_(end)
+    {}
+
+    /**
+     * @brief Dereference to get key View at current slot.
+     */
+    reference operator*() const {
+        if (!storage_ || current_ == end_) {
+            return value::View{};
+        }
+        const void* key_ptr = storage_->key_at_slot(*current_);
+        return value::View(const_cast<void*>(key_ptr), key_type_);
+    }
+
+    /**
+     * @brief Get the current slot index.
+     */
+    [[nodiscard]] size_t slot() const noexcept {
+        return current_ != end_ ? *current_ : 0;
+    }
+
+    SlotKeyIterator& operator++() {
+        ++current_;
+        return *this;
+    }
+
+    SlotKeyIterator operator++(int) {
+        SlotKeyIterator tmp = *this;
+        ++(*this);
+        return tmp;
+    }
+
+    bool operator==(const SlotKeyIterator& other) const noexcept {
+        return current_ == other.current_;
+    }
+
+    bool operator!=(const SlotKeyIterator& other) const noexcept {
+        return !(*this == other);
+    }
+
+private:
+    const value::MapStorage* storage_{nullptr};
+    const value::TypeMeta* key_type_{nullptr};
+    set_iterator current_;
+    set_iterator end_;
+};
+
+/**
+ * @brief Range yielding key Views at specific slots.
+ *
+ * Used for TSD key iteration methods like added_keys(), modified_keys(),
+ * updated_keys(), and removed_keys(). Each iteration yields a value::View
+ * for the key at that slot.
+ *
+ * Note: Removed keys remain accessible during the current tick because their
+ * slots are placed on a free list that is only used in the next engine cycle.
+ *
+ * Usage:
+ * @code
+ * for (auto key : dict_view.added_keys()) {
+ *     std::cout << key.as<std::string>() << " was added\n";
+ * }
+ * @endcode
+ */
+class SlotKeyRange {
+public:
+    SlotKeyRange() noexcept = default;
+
+    SlotKeyRange(const value::MapStorage* storage, const value::TypeMeta* key_type,
+                 const SlotSet* slots) noexcept
+        : storage_(storage)
+        , key_type_(key_type)
+        , slots_(slots)
+    {}
+
+    [[nodiscard]] SlotKeyIterator begin() const {
+        if (!slots_ || !storage_) {
+            return SlotKeyIterator{};
+        }
+        return SlotKeyIterator(storage_, key_type_, slots_->begin(), slots_->end());
+    }
+
+    [[nodiscard]] SlotKeyIterator end() const {
+        if (!slots_ || !storage_) {
+            return SlotKeyIterator{};
+        }
+        return SlotKeyIterator(storage_, key_type_, slots_->end(), slots_->end());
+    }
+
+    [[nodiscard]] size_t size() const { return slots_ ? slots_->size() : 0; }
+    [[nodiscard]] bool empty() const { return !slots_ || slots_->empty(); }
+
+private:
+    const value::MapStorage* storage_{nullptr};
+    const value::TypeMeta* key_type_{nullptr};
+    const SlotSet* slots_{nullptr};
+};
+
+/**
+ * @brief Iterator yielding element Views at specific slots.
+ *
+ * Used for iterating over set elements filtered by a SlotSet (added elements, etc.)
+ */
+class SlotElementIterator {
+public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = value::View;
+    using difference_type = std::ptrdiff_t;
+    using pointer = value::View*;
+    using reference = value::View;
+    using set_iterator = SlotSet::const_iterator;
+
+    SlotElementIterator() noexcept = default;
+
+    SlotElementIterator(const value::SetStorage* storage, const value::TypeMeta* element_type,
+                        set_iterator current, set_iterator end) noexcept
+        : storage_(storage)
+        , element_type_(element_type)
+        , current_(current)
+        , end_(end)
+    {}
+
+    /**
+     * @brief Dereference to get element View at current slot.
+     */
+    reference operator*() const {
+        if (!storage_ || current_ == end_) {
+            return value::View{};
+        }
+        const void* elem_ptr = storage_->key_set().key_at_slot(*current_);
+        return value::View(const_cast<void*>(elem_ptr), element_type_);
+    }
+
+    /**
+     * @brief Get the current slot index.
+     */
+    [[nodiscard]] size_t slot() const noexcept {
+        return current_ != end_ ? *current_ : 0;
+    }
+
+    SlotElementIterator& operator++() {
+        ++current_;
+        return *this;
+    }
+
+    SlotElementIterator operator++(int) {
+        SlotElementIterator tmp = *this;
+        ++(*this);
+        return tmp;
+    }
+
+    bool operator==(const SlotElementIterator& other) const noexcept {
+        return current_ == other.current_;
+    }
+
+    bool operator!=(const SlotElementIterator& other) const noexcept {
+        return !(*this == other);
+    }
+
+private:
+    const value::SetStorage* storage_{nullptr};
+    const value::TypeMeta* element_type_{nullptr};
+    set_iterator current_;
+    set_iterator end_;
+};
+
+/**
+ * @brief Range yielding element Views at specific slots.
+ *
+ * Used for TSS element iteration methods like added() and removed().
+ * Each iteration yields a value::View for the element at that slot.
+ *
+ * Note: Removed elements remain accessible during the current tick because their
+ * slots are placed on a free list that is only used in the next engine cycle.
+ *
+ * Usage:
+ * @code
+ * for (auto elem : set_view.added()) {
+ *     std::cout << elem.as<int64_t>() << " was added\n";
+ * }
+ * @endcode
+ */
+class SlotElementRange {
+public:
+    SlotElementRange() noexcept = default;
+
+    SlotElementRange(const value::SetStorage* storage, const value::TypeMeta* element_type,
+                     const SlotSet* slots) noexcept
+        : storage_(storage)
+        , element_type_(element_type)
+        , slots_(slots)
+    {}
+
+    [[nodiscard]] SlotElementIterator begin() const {
+        if (!slots_ || !storage_) {
+            return SlotElementIterator{};
+        }
+        return SlotElementIterator(storage_, element_type_, slots_->begin(), slots_->end());
+    }
+
+    [[nodiscard]] SlotElementIterator end() const {
+        if (!slots_ || !storage_) {
+            return SlotElementIterator{};
+        }
+        return SlotElementIterator(storage_, element_type_, slots_->end(), slots_->end());
+    }
+
+    [[nodiscard]] size_t size() const { return slots_ ? slots_->size() : 0; }
+    [[nodiscard]] bool empty() const { return !slots_ || slots_->empty(); }
+
+private:
+    const value::SetStorage* storage_{nullptr};
+    const value::TypeMeta* element_type_{nullptr};
+    const SlotSet* slots_{nullptr};
 };
 
 } // namespace hgraph

@@ -13,6 +13,7 @@
 #include <hgraph/types/time_series/slot_set.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_meta_schema.h>
+#include <hgraph/types/time_series/ts_view_range.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/indexed_view.h>
@@ -193,6 +194,52 @@ public:
      */
     [[nodiscard]] bool was_removed(const value::View& elem) const {
         return delta()->was_key_removed(elem.data(), meta()->value_type);
+    }
+
+    // ========== Element Iteration ==========
+
+    /**
+     * @brief Iterate over elements added this tick.
+     *
+     * Returns a range yielding value::View for each element added.
+     *
+     * @code
+     * for (auto elem : set_view.added()) {
+     *     std::cout << elem.as<int64_t>() << " was added\n";
+     * }
+     * @endcode
+     *
+     * @return SlotElementRange yielding value::View for each added element
+     */
+    [[nodiscard]] SlotElementRange added() const {
+        if (!view_data_.valid() || !delta()) {
+            return SlotElementRange{};
+        }
+        auto* storage = static_cast<const value::SetStorage*>(view_data_.value_data);
+        return SlotElementRange(storage, meta()->value_type, &delta()->added());
+    }
+
+    /**
+     * @brief Iterate over elements removed this tick.
+     *
+     * Returns a range yielding value::View for each element removed.
+     * The removed elements remain accessible in storage during the current tick
+     * (they are placed on a free list that is only used in the next engine cycle).
+     *
+     * @code
+     * for (auto elem : set_view.removed()) {
+     *     std::cout << elem.as<int64_t>() << " was removed\n";
+     * }
+     * @endcode
+     *
+     * @return SlotElementRange yielding value::View for each removed element
+     */
+    [[nodiscard]] SlotElementRange removed() const {
+        if (!view_data_.valid() || !delta()) {
+            return SlotElementRange{};
+        }
+        auto* storage = static_cast<const value::SetStorage*>(view_data_.value_data);
+        return SlotElementRange(storage, meta()->value_type, &delta()->removed());
     }
 
     // ========== Container-Level Access ==========
