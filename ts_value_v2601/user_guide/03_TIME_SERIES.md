@@ -609,8 +609,12 @@ See [TSOutput and TSInput](05_TSOUTPUT_TSINPUT.md#navigation-paths) for detailed
 classDiagram
     class ViewData {
         +ShortPath path
-        +void* data
+        +void* value_data
+        +void* time_data
+        +void* observer_data
+        +void* delta_data
         +ts_ops* ops
+        +TSMeta* meta
     }
 
     class ShortPath {
@@ -657,7 +661,7 @@ classDiagram
     TSView *-- ViewData : view_data_
     Link *-- ViewData : view_data
 
-    note for ViewData "Common structure for\nLink and TSView:\npath + data + ops"
+    note for ViewData "Common structure for\nLink and TSView:\npath + data pointers + ops + meta"
     note for TSView "TSView = ViewData + current_time\nNavigation extends path.\nMutation methods require non-const reference."
     note for Link "Link contains ViewData\nNo current_time needed"
 
@@ -796,8 +800,12 @@ classDiagram
 classDiagram
     class ViewData {
         +ShortPath path
-        +void* data
+        +void* value_data
+        +void* time_data
+        +void* observer_data
+        +void* delta_data
         +ts_ops* ops
+        +TSMeta* meta
     }
 
     class TSView {
@@ -823,7 +831,7 @@ classDiagram
 
     TSView *-- ViewData : view_data_
 
-    note for TSView "TSView = ViewData + current_time\nViewData contains path + data + ops.\nNavigation extends the path."
+    note for TSView "TSView = ViewData + current_time\nViewData contains path + data pointers + ops + meta.\nNavigation extends the path."
 
     class Value {
         -void* data_

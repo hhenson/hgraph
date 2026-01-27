@@ -169,6 +169,11 @@ TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t 
     return TSView{};
 }
 
+TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t current_time) {
+    // Scalar types have no children
+    return TSView{};
+}
+
 size_t child_count(const ViewData& vd) {
     return 0;
 }
@@ -351,6 +356,11 @@ TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t 
     return TSView{};
 }
 
+TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t current_time) {
+    // Bundles don't support key access
+    return TSView{};
+}
+
 size_t child_count(const ViewData& vd) {
     return vd.meta ? vd.meta->field_count : 0;
 }
@@ -520,6 +530,11 @@ TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t 
     return TSView{};
 }
 
+TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t current_time) {
+    // Lists don't support key access
+    return TSView{};
+}
+
 size_t child_count(const ViewData& vd) {
     auto value_view = make_value_view(vd);
     if (!value_view.valid()) return 0;
@@ -646,6 +661,11 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
 }
 
 TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t current_time) {
+    return TSView{};
+}
+
+TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t current_time) {
+    // Sets don't support key access (elements are values, not TSValues)
     return TSView{};
 }
 
@@ -815,6 +835,35 @@ TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t 
     return TSView{};
 }
 
+TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t current_time) {
+    if (!vd.meta || !vd.meta->element_ts) return TSView{};
+
+    auto time_view = make_time_view(vd);
+    auto observer_view = make_observer_view(vd);
+
+    // Find the slot for this key
+    auto* storage = static_cast<value::MapStorage*>(vd.value_data);
+    size_t slot = storage->key_set().find(key.data());
+
+    // Check if the key exists (slot is not empty)
+    if (slot == static_cast<size_t>(-1)) {
+        return TSView{};
+    }
+
+    const TSMeta* elem_meta = vd.meta->element_ts;
+
+    ViewData elem_vd;
+    elem_vd.path = vd.path.child(slot);
+    elem_vd.value_data = storage->value_at_slot(slot);
+    elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(slot).data();
+    elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(slot).data();
+    elem_vd.delta_data = nullptr;
+    elem_vd.ops = get_ts_ops(elem_meta);
+    elem_vd.meta = elem_meta;
+
+    return TSView(elem_vd, current_time);
+}
+
 size_t child_count(const ViewData& vd) {
     auto value_view = make_value_view(vd);
     if (!value_view.valid()) return 0;
@@ -857,6 +906,7 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
     .from_python = ns::from_python, \
     .child_at = ns::child_at, \
     .child_by_name = ns::child_by_name, \
+    .child_by_key = ns::child_by_key, \
     .child_count = ns::child_count, \
     .observer = ns::observer, \
     .notify_observers = ns::notify_observers, \

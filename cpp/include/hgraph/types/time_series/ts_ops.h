@@ -159,6 +159,15 @@ struct ts_ops {
     TSView (*child_by_name)(const ViewData& vd, const std::string& name, engine_time_t current_time);
 
     /**
+     * @brief Get a child TSView by key.
+     *
+     * Only valid for TSD (dict value access by key).
+     *
+     * @return TSView for the value, or invalid TSView if key not found
+     */
+    TSView (*child_by_key)(const ViewData& vd, const value::View& key, engine_time_t current_time);
+
+    /**
      * @brief Get the number of children.
      *
      * For TSB: number of fields

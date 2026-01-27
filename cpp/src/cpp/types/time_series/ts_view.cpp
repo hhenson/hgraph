@@ -39,7 +39,7 @@ bool TSView::modified() const {
     return view_data_.ops->modified(view_data_, current_time_);
 }
 
-bool TSView::is_valid() const {
+bool TSView::valid() const {
     if (!view_data_.valid() || !view_data_.ops) {
         return false;
     }

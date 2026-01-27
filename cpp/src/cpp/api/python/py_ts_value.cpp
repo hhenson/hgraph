@@ -242,7 +242,7 @@ static void register_ts_view(nb::module_& m) {
         .def("modified", &TSView::modified,
             "Check if modified at or after current_time")
 
-        .def("valid", &TSView::is_valid,
+        .def("valid", &TSView::valid,
             "Check if the value has ever been set")
 
         .def("all_valid", &TSView::all_valid,
@@ -321,55 +321,24 @@ static void register_tsb_view(nb::module_& m) {
             "Get the number of fields")
 
         // TSView navigation
-        .def("field_ts", static_cast<TSView (TSBView::*)(size_t) const>(&TSBView::field_ts),
+        .def("field", static_cast<TSView (TSBView::*)(size_t) const>(&TSBView::field),
             "index"_a,
             "Get a field as a TSView by index")
 
-        .def("field_ts_by_name", static_cast<TSView (TSBView::*)(std::string_view) const>(&TSBView::field_ts),
+        .def("field_by_name", static_cast<TSView (TSBView::*)(std::string_view) const>(&TSBView::field),
             "name"_a,
             "Get a field as a TSView by name")
 
         // Iteration
-        .def("fields", &TSBView::fields,
+        .def("items", &TSBView::items,
             "Iterate over all fields.\n\n"
             "Returns a TSFieldRange. Use the iterator's name() for field names.")
 
-        // Field access by index (value::View)
-        .def("field_value", static_cast<value::View (TSBView::*)(size_t) const>(&TSBView::field_value),
-            "index"_a,
-            "Get a field's value view by index")
+        .def("valid_items", &TSBView::valid_items,
+            "Iterate over valid fields only")
 
-        .def("field_modified", static_cast<bool (TSBView::*)(size_t) const>(&TSBView::field_modified),
-            "index"_a,
-            "Check if a field is modified by index")
-
-        .def("field_valid", static_cast<bool (TSBView::*)(size_t) const>(&TSBView::field_valid),
-            "index"_a,
-            "Check if a field is valid by index")
-
-        // Field access by name
-        .def("field_value_by_name",
-            static_cast<value::View (TSBView::*)(std::string_view) const>(&TSBView::field_value),
-            "name"_a,
-            "Get a field's value view by name")
-
-        .def("field_modified_by_name",
-            static_cast<bool (TSBView::*)(std::string_view) const>(&TSBView::field_modified),
-            "name"_a,
-            "Check if a field is modified by name")
-
-        .def("field_valid_by_name",
-            static_cast<bool (TSBView::*)(std::string_view) const>(&TSBView::field_valid),
-            "name"_a,
-            "Check if a field is valid by name")
-
-        // Modification
-        .def("mark_field_modified", &TSBView::mark_field_modified,
-            "index"_a,
-            "Mark a field as modified")
-
-        .def("mark_container_modified", &TSBView::mark_container_modified,
-            "Mark the container as modified");
+        .def("modified_items", &TSBView::modified_items,
+            "Iterate over modified fields only");
 }
 
 // ============================================================================
@@ -395,7 +364,7 @@ static void register_tsl_view(nb::module_& m) {
             "Get the number of elements")
 
         // TSView navigation
-        .def("element_ts", &TSLView::element_ts,
+        .def("at", &TSLView::at,
             "index"_a,
             "Get an element as a TSView by index")
 
@@ -404,30 +373,20 @@ static void register_tsl_view(nb::module_& m) {
             "Iterate over all elements as TSViews.\n\n"
             "Returns a TSViewRange. Use the iterator's index() for element index.")
 
-        // Element access (value::View)
-        .def("element_value", &TSLView::element_value,
-            "index"_a,
-            "Get an element's value view by index")
+        .def("valid_values", &TSLView::valid_values,
+            "Iterate over valid elements only")
 
-        .def("element_time", &TSLView::element_time,
-            "index"_a,
-            "Get an element's time view by index")
+        .def("modified_values", &TSLView::modified_values,
+            "Iterate over modified elements only")
 
-        .def("element_modified", &TSLView::element_modified,
-            "index"_a,
-            "Check if an element is modified")
+        .def("items", &TSLView::items,
+            "Iterate over all elements with index access")
 
-        .def("element_valid", &TSLView::element_valid,
-            "index"_a,
-            "Check if an element is valid")
+        .def("valid_items", &TSLView::valid_items,
+            "Iterate over valid items only")
 
-        // Modification
-        .def("mark_element_modified", &TSLView::mark_element_modified,
-            "index"_a,
-            "Mark an element as modified")
-
-        .def("mark_container_modified", &TSLView::mark_container_modified,
-            "Mark the container as modified");
+        .def("modified_items", &TSLView::modified_items,
+            "Iterate over modified items only");
 }
 
 // ============================================================================
@@ -453,8 +412,9 @@ static void register_tss_view(nb::module_& m) {
         .def("size", &TSSView::size,
             "Get the set size")
 
-        .def("empty", &TSSView::empty,
-            "Check if empty")
+        // Iteration
+        .def("values", &TSSView::values,
+            "Iterate over all current values")
 
         // Delta access
         .def("added_slots", &TSSView::added_slots,
@@ -465,18 +425,13 @@ static void register_tss_view(nb::module_& m) {
             nb::rv_policy::reference_internal,
             "Get the removed slot indices")
 
-        .def("was_cleared", &TSSView::was_cleared,
-            "Check if the set was cleared this tick")
+        .def("was_added", &TSSView::was_added,
+            "elem"_a,
+            "Check if a specific element was added this tick")
 
-        .def("has_changes", &TSSView::has_changes,
-            "Check if there are any delta changes")
-
-        // Modification
-        .def("mark_modified", &TSSView::mark_modified,
-            "Mark as modified and notify observers")
-
-        .def("clear", &TSSView::clear,
-            "Clear all elements from the set");
+        .def("was_removed", &TSSView::was_removed,
+            "elem"_a,
+            "Check if a specific element was removed this tick");
 }
 
 // ============================================================================
@@ -501,22 +456,28 @@ static void register_tsd_view(nb::module_& m) {
         .def("size", &TSDView::size,
             "Get the dict size")
 
-        .def("empty", &TSDView::empty,
-            "Check if empty")
-
         // TSView navigation
-        .def("value_ts", &TSDView::value_ts,
-            "slot"_a,
-            "Get a value as a TSView by slot index")
+        .def("at", &TSDView::at,
+            "key"_a,
+            "Get a value as a TSView by key")
 
-        // Iteration
-        .def("values", &TSDView::values,
-            "Iterate over all values as TSViews.\n\n"
-            "Returns a TSViewRange. Use the iterator's index() for slot index.")
+        // Key iteration
+        .def("keys", &TSDView::keys,
+            "Iterate over all keys")
 
+        // Items iteration
         .def("items", &TSDView::items,
             "Iterate over all entries with key access.\n\n"
             "Returns a TSDictRange. Use the iterator's key() to get the key.")
+
+        .def("valid_items", &TSDView::valid_items,
+            "Iterate over entries with valid values")
+
+        .def("added_items", &TSDView::added_items,
+            "Iterate over entries added this tick")
+
+        .def("modified_items", &TSDView::modified_items,
+            "Iterate over entries with modified values this tick")
 
         // Delta access
         .def("added_slots", &TSDView::added_slots,
@@ -529,20 +490,7 @@ static void register_tsd_view(nb::module_& m) {
 
         .def("updated_slots", &TSDView::updated_slots,
             nb::rv_policy::reference_internal,
-            "Get the updated slot indices")
-
-        .def("was_cleared", &TSDView::was_cleared,
-            "Check if the dict was cleared this tick")
-
-        .def("has_changes", &TSDView::has_changes,
-            "Check if there are any delta changes")
-
-        // Modification
-        .def("mark_container_modified", &TSDView::mark_container_modified,
-            "Mark the container as modified")
-
-        .def("clear", &TSDView::clear,
-            "Clear all entries from the dict");
+            "Get the updated slot indices");
 }
 
 // ============================================================================

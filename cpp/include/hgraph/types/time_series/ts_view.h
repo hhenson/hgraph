@@ -95,18 +95,13 @@ public:
     // ========== Validity ==========
 
     /**
-     * @brief Check if the view is valid.
-     * @return true if the ViewData is valid
-     */
-    [[nodiscard]] bool valid() const noexcept {
-        return view_data_.valid();
-    }
-
-    /**
-     * @brief Boolean conversion - returns validity.
+     * @brief Boolean conversion - returns true if ViewData is structurally valid.
+     *
+     * This checks if the view has valid data pointers and ops table.
+     * Use valid() to check if the time-series has ever been set.
      */
     explicit operator bool() const noexcept {
-        return valid();
+        return view_data_.valid();
     }
 
     // ========== Metadata ==========
@@ -156,7 +151,7 @@ public:
      *
      * @return true if the value has been set at least once
      */
-    [[nodiscard]] bool is_valid() const;
+    [[nodiscard]] bool valid() const;
 
     /**
      * @brief Check if this AND all children are valid.
