@@ -18,6 +18,7 @@
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/indexed_view.h>
+#include <hgraph/types/value/map_storage.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
 
@@ -174,6 +175,40 @@ public:
      */
     [[nodiscard]] const SlotSet& modified_slots() const {
         return delta()->modified();
+    }
+
+    /**
+     * @brief Check if a specific key was added this tick.
+     *
+     * @param key The key to check
+     * @return true if key was added
+     */
+    [[nodiscard]] bool was_added(const value::View& key) const {
+        // Get the MapStorage
+        auto* storage = static_cast<const value::MapStorage*>(view_data_.value_data);
+        if (!storage) return false;
+
+        // Find the slot for this key
+        size_t slot = storage->key_set().find(key.data());
+        if (slot == static_cast<size_t>(-1)) {
+            // Key not in map, so it wasn't added
+            return false;
+        }
+
+        // O(1) lookup using set
+        return delta()->was_slot_added(slot);
+    }
+
+    /**
+     * @brief Check if a specific key was removed this tick.
+     *
+     * Uses O(1) hash-based lookup in the delta's removed key hashes.
+     *
+     * @param key The key to check
+     * @return true if key was removed
+     */
+    [[nodiscard]] bool was_removed(const value::View& key) const {
+        return delta()->was_key_removed(key.data(), meta()->key_type);
     }
 
     // ========== Items Iteration ==========
