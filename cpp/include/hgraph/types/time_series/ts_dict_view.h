@@ -14,6 +14,8 @@
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/time_series/ts_set_view.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/ts_view_range.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/notifiable.h>
@@ -24,9 +26,8 @@
 
 namespace hgraph {
 
-// Forward declarations
+// Forward declaration
 class TSView;
-class TSSView;
 
 /**
  * @brief View for time-series dict (TSD) types.
@@ -137,6 +138,74 @@ public:
      */
     [[nodiscard]] value::SetView keys() const {
         return value_view().as_map().keys();
+    }
+
+    /**
+     * @brief Get the key set as a TSSView with delta tracking.
+     *
+     * Returns a TSSView that provides TSS-like access to the dict's key set,
+     * including delta tracking (added/removed keys).
+     *
+     * The returned TSSView shares the same delta tracking as this TSDView -
+     * MapDelta composes SetDelta internally, so key additions/removals are
+     * tracked through the embedded SetDelta.
+     *
+     * @code
+     * TSSView key_set = dict.key_set();
+     *
+     * // Check if key was added this tick
+     * if (key_set.was_added(some_key)) { ... }
+     *
+     * // Iterate over added keys
+     * for (auto slot : key_set.added_slots()) {
+     *     auto key = dict.keys().at_slot(slot);
+     *     // ...
+     * }
+     * @endcode
+     *
+     * @return TSSView over the dict's key set
+     */
+    [[nodiscard]] TSSView key_set() const {
+        if (!view_data_.valid()) {
+            return TSSView{};
+        }
+
+        // Get the MapStorage and its embedded SetStorage
+        auto* map_storage = static_cast<const value::MapStorage*>(view_data_.value_data);
+        const value::SetStorage* set_storage = &map_storage->as_set();
+
+        // Get the embedded SetDelta from MapDelta (composition)
+        auto* map_delta = static_cast<MapDelta*>(view_data_.delta_data);
+        SetDelta* set_delta = map_delta ? &map_delta->key_delta() : nullptr;
+
+        // Get container time and observer from the TSD's time/observer tuples
+        // TSD time structure: tuple[engine_time_t, var_list[...]]
+        // We need the first element (container time)
+        auto time_schema = TSMetaSchemaCache::instance().get_time_schema(meta());
+        value::View time_tuple(view_data_.time_data, time_schema);
+        void* container_time_ptr = const_cast<void*>(time_tuple.as_tuple().at(0).data());
+
+        // TSD observer structure: tuple[ObserverList, var_list[...]]
+        // We need the first element (container observer)
+        auto observer_schema = TSMetaSchemaCache::instance().get_observer_schema(meta());
+        value::View observer_tuple(view_data_.observer_data, observer_schema);
+        void* container_observer_ptr = const_cast<void*>(observer_tuple.as_tuple().at(0).data());
+
+        // Get or create TSMeta for TSS[KeyType]
+        const TSMeta* tss_meta = TSTypeRegistry::instance().tss(meta()->key_type);
+
+        // Build ViewData for the TSSView
+        ViewData key_set_vd{
+            view_data_.path,              // Same path (key set is part of TSD)
+            const_cast<void*>(static_cast<const void*>(set_storage)),  // SetStorage
+            container_time_ptr,           // Container time
+            container_observer_ptr,       // Container observer
+            set_delta,                    // Embedded SetDelta from MapDelta
+            get_ts_ops(TSKind::TSS),      // TSS operations
+            tss_meta                      // TSS[KeyType] metadata
+        };
+
+        return TSSView(std::move(key_set_vd), current_time_);
     }
 
     // ========== Delta Access ==========
