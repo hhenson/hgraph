@@ -137,21 +137,25 @@ public:
     /**
      * @brief Iterate over valid fields only.
      *
-     * @return TSFieldRange that skips invalid fields
+     * @return FilteredTSFieldRange that skips invalid fields
      */
-    [[nodiscard]] TSFieldRange valid_items() const {
-        // TODO: Implement filtered iteration
-        return items();
+    [[nodiscard]] FilteredTSFieldRange<TSFilter::VALID> valid_items() const {
+        if (!view_data_.valid()) {
+            return FilteredTSFieldRange<TSFilter::VALID>{};
+        }
+        return FilteredTSFieldRange<TSFilter::VALID>(view_data_, meta(), 0, field_count(), current_time_);
     }
 
     /**
      * @brief Iterate over modified fields only.
      *
-     * @return TSFieldRange that skips unmodified fields
+     * @return FilteredTSFieldRange that skips unmodified fields
      */
-    [[nodiscard]] TSFieldRange modified_items() const {
-        // TODO: Implement filtered iteration
-        return items();
+    [[nodiscard]] FilteredTSFieldRange<TSFilter::MODIFIED> modified_items() const {
+        if (!view_data_.valid()) {
+            return FilteredTSFieldRange<TSFilter::MODIFIED>{};
+        }
+        return FilteredTSFieldRange<TSFilter::MODIFIED>(view_data_, meta(), 0, field_count(), current_time_);
     }
 
     // ========== Container-Level Access ==========

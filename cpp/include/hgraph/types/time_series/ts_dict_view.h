@@ -358,11 +358,13 @@ public:
     /**
      * @brief Iterate over entries with valid values.
      *
-     * @return TSDictRange that skips invalid values
+     * @return FilteredTSDictRange that skips invalid values
      */
-    [[nodiscard]] TSDictRange valid_items() const {
-        // TODO: Implement filtered iteration
-        return items();
+    [[nodiscard]] FilteredTSDictRange<TSFilter::VALID> valid_items() const {
+        if (!view_data_.valid()) {
+            return FilteredTSDictRange<TSFilter::VALID>{};
+        }
+        return FilteredTSDictRange<TSFilter::VALID>(view_data_, meta(), 0, size(), current_time_);
     }
 
     /**

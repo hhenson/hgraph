@@ -108,10 +108,11 @@ target_include_directories(hgraph_ts_value_phase1_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/cpp/include
 )
 
-# Phase 1 components are header-only - no need to link _hgraph
+# Phase 1 components are header-only - no need to link _hgraph, but need tpack for forward declarations
 target_link_libraries(hgraph_ts_value_phase1_tests PRIVATE
     Catch2::Catch2WithMain
     fmt::fmt
+    tpack
 )
 
 target_compile_features(hgraph_ts_value_phase1_tests PRIVATE cxx_std_23)
@@ -141,11 +142,12 @@ target_include_directories(hgraph_ts_value_phase2_tests PRIVATE
     ${CMAKE_SOURCE_DIR}/cpp/include
 )
 
-# Phase 2 components need dynamic_bitset for KeySet include
+# Phase 2 components need dynamic_bitset for KeySet include, tpack for forward declarations
 target_link_libraries(hgraph_ts_value_phase2_tests PRIVATE
     Catch2::Catch2WithMain
     fmt::fmt
     sul::dynamic_bitset
+    tpack
 )
 
 target_compile_features(hgraph_ts_value_phase2_tests PRIVATE cxx_std_23)

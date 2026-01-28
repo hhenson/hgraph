@@ -129,21 +129,25 @@ public:
     /**
      * @brief Iterate over valid elements only.
      *
-     * @return TSViewRange that skips invalid elements
+     * @return FilteredTSViewRange that skips invalid elements
      */
-    [[nodiscard]] TSViewRange valid_values() const {
-        // TODO: Implement filtered iteration
-        return values();
+    [[nodiscard]] FilteredTSViewRange<TSFilter::VALID> valid_values() const {
+        if (!view_data_.valid()) {
+            return FilteredTSViewRange<TSFilter::VALID>{};
+        }
+        return FilteredTSViewRange<TSFilter::VALID>(view_data_, 0, size(), current_time_);
     }
 
     /**
      * @brief Iterate over modified elements only.
      *
-     * @return TSViewRange that skips unmodified elements
+     * @return FilteredTSViewRange that skips unmodified elements
      */
-    [[nodiscard]] TSViewRange modified_values() const {
-        // TODO: Implement filtered iteration
-        return values();
+    [[nodiscard]] FilteredTSViewRange<TSFilter::MODIFIED> modified_values() const {
+        if (!view_data_.valid()) {
+            return FilteredTSViewRange<TSFilter::MODIFIED>{};
+        }
+        return FilteredTSViewRange<TSFilter::MODIFIED>(view_data_, 0, size(), current_time_);
     }
 
     // ========== Items Iteration (with index) ==========
@@ -162,18 +166,18 @@ public:
     /**
      * @brief Iterate over valid items only.
      *
-     * @return TSViewRange that skips invalid items
+     * @return FilteredTSViewRange that skips invalid items
      */
-    [[nodiscard]] TSViewRange valid_items() const {
+    [[nodiscard]] FilteredTSViewRange<TSFilter::VALID> valid_items() const {
         return valid_values();
     }
 
     /**
      * @brief Iterate over modified items only.
      *
-     * @return TSViewRange that skips unmodified items
+     * @return FilteredTSViewRange that skips unmodified items
      */
-    [[nodiscard]] TSViewRange modified_items() const {
+    [[nodiscard]] FilteredTSViewRange<TSFilter::MODIFIED> modified_items() const {
         return modified_values();
     }
 

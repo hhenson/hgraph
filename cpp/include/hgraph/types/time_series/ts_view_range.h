@@ -259,6 +259,256 @@ private:
 };
 
 /**
+ * @brief Filter type for filtered iteration.
+ */
+enum class TSFilter {
+    VALID,      // Only elements where valid() == true
+    MODIFIED    // Only elements where modified() == true
+};
+
+// Forward declare TSView for inline implementations
+class TSView;
+
+/**
+ * @brief Filtered iterator for bundle fields (compile-time optimized).
+ *
+ * The filter type is a template parameter, allowing the compiler to
+ * inline the predicate directly without runtime dispatch.
+ *
+ * @tparam Filter The filter to apply (TSFilter::VALID or TSFilter::MODIFIED)
+ */
+template<TSFilter Filter>
+class FilteredTSFieldIterator {
+public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = TSView;
+    using difference_type = std::ptrdiff_t;
+    using pointer = TSView*;
+    using reference = TSView;
+
+    FilteredTSFieldIterator() noexcept
+        : nav_data_(nullptr)
+        , meta_(nullptr)
+        , current_index_(0)
+        , end_index_(0)
+        , current_time_(MIN_ST)
+    {}
+
+    FilteredTSFieldIterator(const ViewData* nav_data, const TSMeta* meta,
+                            size_t index, size_t end, engine_time_t current_time) noexcept
+        : nav_data_(nav_data)
+        , meta_(meta)
+        , current_index_(index)
+        , end_index_(end)
+        , current_time_(current_time)
+    {
+        advance_to_match();
+    }
+
+    // Implementation in ts_view_range.cpp (explicit instantiation)
+    reference operator*() const;
+
+    [[nodiscard]] size_t index() const noexcept { return current_index_; }
+
+    [[nodiscard]] const char* name() const noexcept {
+        if (meta_ && current_index_ < meta_->field_count) {
+            return meta_->fields[current_index_].name;
+        }
+        return "";
+    }
+
+    FilteredTSFieldIterator& operator++() {
+        ++current_index_;
+        advance_to_match();
+        return *this;
+    }
+
+    FilteredTSFieldIterator operator++(int) {
+        FilteredTSFieldIterator tmp = *this;
+        ++(*this);
+        return tmp;
+    }
+
+    bool operator==(const FilteredTSFieldIterator& other) const noexcept {
+        return current_index_ == other.current_index_;
+    }
+
+    bool operator!=(const FilteredTSFieldIterator& other) const noexcept {
+        return !(*this == other);
+    }
+
+private:
+    // Implementation in ts_view_range.cpp (explicit instantiation)
+    void advance_to_match();
+    bool matches_filter() const;
+
+    const ViewData* nav_data_;
+    const TSMeta* meta_;
+    size_t current_index_;
+    size_t end_index_;
+    engine_time_t current_time_;
+};
+
+/**
+ * @brief Range for filtered iteration over bundle fields.
+ *
+ * @tparam Filter The filter to apply (TSFilter::VALID or TSFilter::MODIFIED)
+ */
+template<TSFilter Filter>
+class FilteredTSFieldRange {
+public:
+    FilteredTSFieldRange() noexcept
+        : nav_data_()
+        , meta_(nullptr)
+        , begin_index_(0)
+        , end_index_(0)
+        , current_time_(MIN_ST)
+    {}
+
+    FilteredTSFieldRange(ViewData nav_data, const TSMeta* meta,
+                         size_t begin_idx, size_t end_idx,
+                         engine_time_t current_time) noexcept
+        : nav_data_(std::move(nav_data))
+        , meta_(meta)
+        , begin_index_(begin_idx)
+        , end_index_(end_idx)
+        , current_time_(current_time)
+    {}
+
+    [[nodiscard]] FilteredTSFieldIterator<Filter> begin() const {
+        return FilteredTSFieldIterator<Filter>(&nav_data_, meta_, begin_index_, end_index_, current_time_);
+    }
+
+    [[nodiscard]] FilteredTSFieldIterator<Filter> end() const {
+        return FilteredTSFieldIterator<Filter>(&nav_data_, meta_, end_index_, end_index_, current_time_);
+    }
+
+    [[nodiscard]] bool empty() const { return begin() == end(); }
+
+private:
+    ViewData nav_data_;
+    const TSMeta* meta_;
+    size_t begin_index_;
+    size_t end_index_;
+    engine_time_t current_time_;
+};
+
+// Type aliases for convenience
+using ValidTSFieldRange = FilteredTSFieldRange<TSFilter::VALID>;
+using ModifiedTSFieldRange = FilteredTSFieldRange<TSFilter::MODIFIED>;
+
+/**
+ * @brief Filtered iterator for list values (compile-time optimized).
+ *
+ * @tparam Filter The filter to apply (TSFilter::VALID or TSFilter::MODIFIED)
+ */
+template<TSFilter Filter>
+class FilteredTSViewIterator {
+public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = TSView;
+    using difference_type = std::ptrdiff_t;
+    using pointer = TSView*;
+    using reference = TSView;
+
+    FilteredTSViewIterator() noexcept
+        : nav_data_(nullptr)
+        , current_index_(0)
+        , end_index_(0)
+        , current_time_(MIN_ST)
+    {}
+
+    FilteredTSViewIterator(const ViewData* nav_data, size_t index, size_t end,
+                           engine_time_t current_time) noexcept
+        : nav_data_(nav_data)
+        , current_index_(index)
+        , end_index_(end)
+        , current_time_(current_time)
+    {
+        advance_to_match();
+    }
+
+    // Implementation in ts_view_range.cpp (explicit instantiation)
+    reference operator*() const;
+
+    [[nodiscard]] size_t index() const noexcept { return current_index_; }
+
+    FilteredTSViewIterator& operator++() {
+        ++current_index_;
+        advance_to_match();
+        return *this;
+    }
+
+    FilteredTSViewIterator operator++(int) {
+        FilteredTSViewIterator tmp = *this;
+        ++(*this);
+        return tmp;
+    }
+
+    bool operator==(const FilteredTSViewIterator& other) const noexcept {
+        return current_index_ == other.current_index_;
+    }
+
+    bool operator!=(const FilteredTSViewIterator& other) const noexcept {
+        return !(*this == other);
+    }
+
+private:
+    // Implementation in ts_view_range.cpp (explicit instantiation)
+    void advance_to_match();
+    bool matches_filter() const;
+
+    const ViewData* nav_data_;
+    size_t current_index_;
+    size_t end_index_;
+    engine_time_t current_time_;
+};
+
+/**
+ * @brief Range for filtered iteration over list values.
+ *
+ * @tparam Filter The filter to apply (TSFilter::VALID or TSFilter::MODIFIED)
+ */
+template<TSFilter Filter>
+class FilteredTSViewRange {
+public:
+    FilteredTSViewRange() noexcept
+        : nav_data_()
+        , begin_index_(0)
+        , end_index_(0)
+        , current_time_(MIN_ST)
+    {}
+
+    FilteredTSViewRange(ViewData nav_data, size_t begin_idx, size_t end_idx,
+                        engine_time_t current_time) noexcept
+        : nav_data_(std::move(nav_data))
+        , begin_index_(begin_idx)
+        , end_index_(end_idx)
+        , current_time_(current_time)
+    {}
+
+    [[nodiscard]] FilteredTSViewIterator<Filter> begin() const {
+        return FilteredTSViewIterator<Filter>(&nav_data_, begin_index_, end_index_, current_time_);
+    }
+
+    [[nodiscard]] FilteredTSViewIterator<Filter> end() const {
+        return FilteredTSViewIterator<Filter>(&nav_data_, end_index_, end_index_, current_time_);
+    }
+
+    [[nodiscard]] bool empty() const { return begin() == end(); }
+
+private:
+    ViewData nav_data_;
+    size_t begin_index_;
+    size_t end_index_;
+    engine_time_t current_time_;
+};
+
+// Type aliases for convenience
+using ValidTSViewRange = FilteredTSViewRange<TSFilter::VALID>;
+using ModifiedTSViewRange = FilteredTSViewRange<TSFilter::MODIFIED>;
+
+/**
  * @brief Iterator for TSD (dict) entries with key access.
  *
  * Like TSViewIterator but also provides key access.
@@ -531,6 +781,133 @@ private:
     const SlotSet* slots_;
     engine_time_t current_time_;
 };
+
+/**
+ * @brief Filtered iterator for TSD (dict) entries (compile-time optimized).
+ *
+ * @tparam Filter The filter to apply (TSFilter::VALID or TSFilter::MODIFIED)
+ */
+template<TSFilter Filter>
+class FilteredTSDictIterator {
+public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = TSView;
+    using difference_type = std::ptrdiff_t;
+    using pointer = TSView*;
+    using reference = TSView;
+
+    FilteredTSDictIterator() noexcept
+        : nav_data_(nullptr)
+        , meta_(nullptr)
+        , current_index_(0)
+        , end_index_(0)
+        , current_time_(MIN_ST)
+    {}
+
+    FilteredTSDictIterator(const ViewData* nav_data, const TSMeta* meta,
+                           size_t index, size_t end, engine_time_t current_time) noexcept
+        : nav_data_(nav_data)
+        , meta_(meta)
+        , current_index_(index)
+        , end_index_(end)
+        , current_time_(current_time)
+    {
+        advance_to_match();
+    }
+
+    // Implementation in ts_view_range.cpp (explicit instantiation)
+    reference operator*() const;
+
+    [[nodiscard]] size_t index() const noexcept { return current_index_; }
+
+    [[nodiscard]] value::View key() const {
+        if (!nav_data_ || !meta_ || !meta_->key_type) {
+            return value::View{};
+        }
+        auto* map_storage = static_cast<const value::MapStorage*>(nav_data_->value_data);
+        const void* key_ptr = map_storage->key_at_slot(current_index_);
+        return value::View(const_cast<void*>(key_ptr), meta_->key_type);
+    }
+
+    FilteredTSDictIterator& operator++() {
+        ++current_index_;
+        advance_to_match();
+        return *this;
+    }
+
+    FilteredTSDictIterator operator++(int) {
+        FilteredTSDictIterator tmp = *this;
+        ++(*this);
+        return tmp;
+    }
+
+    bool operator==(const FilteredTSDictIterator& other) const noexcept {
+        return current_index_ == other.current_index_;
+    }
+
+    bool operator!=(const FilteredTSDictIterator& other) const noexcept {
+        return !(*this == other);
+    }
+
+private:
+    // Implementation in ts_view_range.cpp (explicit instantiation)
+    void advance_to_match();
+    bool matches_filter() const;
+
+    const ViewData* nav_data_;
+    const TSMeta* meta_;
+    size_t current_index_;
+    size_t end_index_;
+    engine_time_t current_time_;
+};
+
+/**
+ * @brief Range for filtered iteration over TSD entries.
+ *
+ * @tparam Filter The filter to apply (TSFilter::VALID or TSFilter::MODIFIED)
+ */
+template<TSFilter Filter>
+class FilteredTSDictRange {
+public:
+    FilteredTSDictRange() noexcept
+        : nav_data_()
+        , meta_(nullptr)
+        , begin_index_(0)
+        , end_index_(0)
+        , current_time_(MIN_ST)
+    {}
+
+    FilteredTSDictRange(ViewData nav_data, const TSMeta* meta,
+                        size_t begin_idx, size_t end_idx,
+                        engine_time_t current_time) noexcept
+        : nav_data_(std::move(nav_data))
+        , meta_(meta)
+        , begin_index_(begin_idx)
+        , end_index_(end_idx)
+        , current_time_(current_time)
+    {}
+
+    [[nodiscard]] FilteredTSDictIterator<Filter> begin() const {
+        return FilteredTSDictIterator<Filter>(&nav_data_, meta_, begin_index_, end_index_, current_time_);
+    }
+
+    [[nodiscard]] FilteredTSDictIterator<Filter> end() const {
+        return FilteredTSDictIterator<Filter>(&nav_data_, meta_, end_index_, end_index_, current_time_);
+    }
+
+    [[nodiscard]] bool empty() const { return begin() == end(); }
+
+private:
+    ViewData nav_data_;
+    const TSMeta* meta_;
+    size_t begin_index_;
+    size_t end_index_;
+    engine_time_t current_time_;
+};
+
+// Type aliases for convenience
+using ValidTSDictRange = FilteredTSDictRange<TSFilter::VALID>;
+using ModifiedTSDictRange = FilteredTSDictRange<TSFilter::MODIFIED>;
 
 /**
  * @brief Iterator yielding key Views at specific slots.
