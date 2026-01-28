@@ -1,6 +1,8 @@
 #include <hgraph/api/python/py_signal.h>
 #include <hgraph/api/python/py_ts.h>
 #include <hgraph/api/python/py_tsl.h>
+#include <hgraph/api/python/py_ts_type_registry.h>
+#include <hgraph/api/python/py_ts_value.h>
 #include <hgraph/api/python/py_value.h>
 
 #include <hgraph/api/python/py_ref.h>
@@ -27,6 +29,12 @@ void export_types(nb::module_ &m) {
 
     // Value type system (must come before time series types that use them)
     value_register_with_nanobind(m);
+
+    // TSTypeRegistry (must come after value, before time series types that use them)
+    ts_type_registry_register_with_nanobind(m);
+
+    // TSValue and TSView (must come after TSTypeRegistry)
+    ts_value_register_with_nanobind(m);
 
     // Schema and scalar types (must come before time series types that use them)
     AbstractSchema::register_with_nanobind(m);

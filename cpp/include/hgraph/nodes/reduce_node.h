@@ -72,10 +72,10 @@ namespace hgraph {
 
         TimeSeriesOutput::s_ptr last_output();
 
-        // Uses ConstValueView for key iteration from TSD
-        void add_nodes_from_views(const std::vector<value::ConstValueView> &keys);
+        // Uses View for key iteration from TSD
+        void add_nodes_from_views(const std::vector<value::View> &keys);
 
-        void remove_nodes_from_views(const std::vector<value::ConstValueView> &keys);
+        void remove_nodes_from_views(const std::vector<value::View> &keys);
 
         void re_balance_nodes();
 
@@ -83,7 +83,7 @@ namespace hgraph {
 
         void shrink_tree();
 
-        void bind_key_to_node(const value::ConstValueView &key, const std::tuple<int64_t, int64_t> &ndx);
+        void bind_key_to_node(const value::View &key, const std::tuple<int64_t, int64_t> &ndx);
 
         void zero_node(const std::tuple<int64_t, int64_t> &ndx);
 

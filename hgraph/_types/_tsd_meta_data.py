@@ -134,6 +134,24 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
 
         return hash(TSD) ^ hash(self.value_tp) ^ hash(self.key_tp)
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TSMeta for this TSD[K, V] type."""
+        if not self.is_resolved:
+            return None
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            key_cpp = self.key_tp.cpp_type
+            value_cpp = self.value_tp.cpp_type  # This is a TSMeta (TS type)
+            if key_cpp is None or value_cpp is None:
+                return None
+            return _hgraph.TSTypeRegistry.instance().tsd(key_cpp, value_cpp)
+        except (ImportError, AttributeError):
+            return None
+
 
 class HgTSDOutTypeMetaData(HgTSDTypeMetaData):
 

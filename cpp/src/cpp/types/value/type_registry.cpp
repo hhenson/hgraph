@@ -155,6 +155,47 @@ const char* TypeRegistry::store_name(std::string name) {
 }
 
 // ============================================================================
+// Name-Based Type Lookup (Phase 1)
+// ============================================================================
+
+const TypeMeta* TypeRegistry::get_by_name(const std::string& name) const {
+    auto it = _name_cache.find(name);
+    return (it != _name_cache.end()) ? it->second : nullptr;
+}
+
+bool TypeRegistry::has_by_name(const std::string& name) const {
+    return _name_cache.count(name) > 0;
+}
+
+// ============================================================================
+// Python Type Lookup (Phase 1)
+// ============================================================================
+
+const TypeMeta* TypeRegistry::from_python_type(nb::handle py_type) const {
+    // GIL must be held by caller
+    PyObject* key = py_type.ptr();
+    auto it = _python_type_cache.find(key);
+    return (it != _python_type_cache.end()) ? it->second : nullptr;
+}
+
+void TypeRegistry::register_python_type(nb::handle py_type, const TypeMeta* meta) {
+    // GIL must be held by caller
+    PyObject* key = py_type.ptr();
+    _python_type_cache[key] = meta;
+}
+
+const char* TypeRegistry::store_name_interned(const std::string& name) {
+    // Check if already stored (deduplication)
+    for (const auto& stored : _name_storage) {
+        if (*stored == name) {
+            return stored->c_str();
+        }
+    }
+    // Add new string to pool
+    return store_name(name);
+}
+
+// ============================================================================
 // Type Builder Methods
 // ============================================================================
 
@@ -243,6 +284,7 @@ const TypeMeta* TupleTypeBuilder::build() {
     meta->size = total_size;
     meta->alignment = max_alignment;
     meta->ops = TupleOps::ops();
+    meta->name = nullptr;
     meta->element_type = nullptr;
     meta->key_type = nullptr;
     meta->fields = fields_ptr;
@@ -304,6 +346,7 @@ const TypeMeta* BundleTypeBuilder::build() {
     meta->size = total_size;
     meta->alignment = max_alignment;
     meta->ops = BundleOps::ops();
+    meta->name = nullptr;
     meta->element_type = nullptr;
     meta->key_type = nullptr;
     meta->fields = fields_ptr;
@@ -342,6 +385,7 @@ const TypeMeta* ListTypeBuilder::build() {
     }
 
     meta->ops = ListOps::ops();
+    meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;
     meta->fields = nullptr;
@@ -362,6 +406,7 @@ const TypeMeta* SetTypeBuilder::build() {
     meta->size = sizeof(SetStorage);
     meta->alignment = alignof(SetStorage);
     meta->ops = SetOps::ops();
+    meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;
     meta->fields = nullptr;
@@ -382,6 +427,7 @@ const TypeMeta* MapTypeBuilder::build() {
     meta->size = sizeof(MapStorage);
     meta->alignment = alignof(MapStorage);
     meta->ops = MapOps::ops();
+    meta->name = nullptr;
     meta->element_type = _value_type;  // Map uses element_type for values
     meta->key_type = _key_type;
     meta->fields = nullptr;
@@ -402,6 +448,7 @@ const TypeMeta* CyclicBufferTypeBuilder::build() {
     meta->size = sizeof(CyclicBufferStorage);
     meta->alignment = alignof(CyclicBufferStorage);
     meta->ops = CyclicBufferOps::ops();
+    meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;
     meta->fields = nullptr;
@@ -422,6 +469,7 @@ const TypeMeta* QueueTypeBuilder::build() {
     meta->size = sizeof(QueueStorage);
     meta->alignment = alignof(QueueStorage);
     meta->ops = QueueOps::ops();
+    meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;
     meta->fields = nullptr;

@@ -11,6 +11,8 @@
 
 #include <hgraph/types/value/type_meta.h>
 
+#include <Python.h>
+
 #include <memory>
 #include <string>
 #include <typeindex>
@@ -92,6 +94,20 @@ public:
      */
     template<typename T>
     const TypeMeta* register_scalar();
+
+    /**
+     * @brief Register a scalar type with a human-readable name.
+     *
+     * If the type is already registered, updates the name and returns the existing TypeMeta.
+     * The name is stored in the registry's string pool and the type can be looked up
+     * via get_by_name().
+     *
+     * @tparam T The scalar type to register
+     * @param name The human-readable name (e.g., "int", "str", "bool")
+     * @return Pointer to the registered TypeMeta
+     */
+    template<typename T>
+    const TypeMeta* register_scalar(const std::string& name);
 
     /**
      * @brief Get the TypeMeta for a registered scalar type.
@@ -204,6 +220,50 @@ public:
      */
     [[nodiscard]] bool has_bundle(const std::string& name) const;
 
+    // ========== Name-Based Type Lookup (Phase 1) ==========
+
+    /**
+     * @brief Get a TypeMeta by its human-readable name.
+     *
+     * Looks up types registered with names like "int", "str", "bool", "float",
+     * "date", "datetime", "timedelta".
+     *
+     * @param name The type name
+     * @return Pointer to the TypeMeta, or nullptr if not found
+     */
+    [[nodiscard]] const TypeMeta* get_by_name(const std::string& name) const;
+
+    /**
+     * @brief Check if a type with the given name exists.
+     *
+     * @param name The type name
+     * @return true if the type exists
+     */
+    [[nodiscard]] bool has_by_name(const std::string& name) const;
+
+    // ========== Python Type Lookup (Phase 1) ==========
+
+    /**
+     * @brief Get a TypeMeta from a Python type object.
+     *
+     * Requires GIL to be held by caller.
+     *
+     * @param py_type The Python type object
+     * @return Pointer to the TypeMeta, or nullptr if not found
+     */
+    [[nodiscard]] const TypeMeta* from_python_type(nb::handle py_type) const;
+
+    /**
+     * @brief Register a Python type mapping.
+     *
+     * Associates a Python type with a TypeMeta for lookup via from_python_type().
+     * Requires GIL to be held by caller.
+     *
+     * @param py_type The Python type object
+     * @param meta The TypeMeta to associate
+     */
+    void register_python_type(nb::handle py_type, const TypeMeta* meta);
+
     // ========== Internal Registration ==========
 
     /**
@@ -265,6 +325,18 @@ private:
 
     /// Name storage for bundles/fields (ownership)
     std::vector<std::unique_ptr<std::string>> _name_storage;
+
+    // ========== Phase 1: Name-based lookup caches ==========
+
+    /// Name-based lookup cache (name -> TypeMeta*)
+    std::unordered_map<std::string, const TypeMeta*> _name_cache;
+
+    /// Python type lookup cache (PyObject* -> TypeMeta*)
+    /// Note: Uses raw PyObject* pointers; GIL must be held during access
+    std::unordered_map<PyObject*, const TypeMeta*> _python_type_cache;
+
+    /// Internal helper: store a name in the string pool with deduplication
+    const char* store_name_interned(const std::string& name);
 };
 
 // ============================================================================
@@ -320,9 +392,10 @@ const TypeMeta* TypeRegistry::register_scalar() {
     auto meta = std::make_unique<TypeMeta>();
     meta->size = sizeof(T);
     meta->alignment = alignof(T);
-    meta->kind = TypeKind::Scalar;
+    meta->kind = TypeKind::Atomic;
     meta->flags = compute_scalar_flags<T>();
     meta->ops = ops_ptr;
+    meta->name = nullptr;  // No name by default
     meta->element_type = nullptr;
     meta->key_type = nullptr;
     meta->fields = nullptr;
@@ -331,6 +404,23 @@ const TypeMeta* TypeRegistry::register_scalar() {
 
     TypeMeta* meta_ptr = meta.get();
     _scalar_types[idx] = std::move(meta);
+
+    return meta_ptr;
+}
+
+template<typename T>
+const TypeMeta* TypeRegistry::register_scalar(const std::string& name) {
+    // First, ensure the type is registered
+    TypeMeta* meta_ptr = const_cast<TypeMeta*>(register_scalar<T>());
+
+    // Store the name in the string pool (with deduplication)
+    const char* stored_name = store_name_interned(name);
+
+    // Update the TypeMeta's name field
+    meta_ptr->name = stored_name;
+
+    // Add to name cache
+    _name_cache[name] = meta_ptr;
 
     return meta_ptr;
 }
@@ -543,5 +633,18 @@ private:
     const TypeMeta* _element_type;
     size_t _max_capacity;
 };
+
+// ============================================================================
+// TypeMeta Static Method Implementations
+// ============================================================================
+
+inline const TypeMeta* TypeMeta::get(const std::string& type_name) {
+    return TypeRegistry::instance().get_by_name(type_name);
+}
+
+template<typename T>
+const TypeMeta* TypeMeta::get() {
+    return TypeRegistry::instance().get_scalar<T>();
+}
 
 } // namespace hgraph::value

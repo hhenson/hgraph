@@ -90,3 +90,15 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
 
     @abstractmethod
     def scalar_type(self) -> "HgScalarTypeMetaData": ...
+
+    @property
+    def cpp_type(self):
+        """Get the C++ TSMeta for this time-series type.
+
+        Returns the corresponding C++ TSMeta* that describes the time-series
+        type structure. This is used by the C++ runtime to understand the
+        time-series type system.
+
+        Subclasses should override this to provide type-specific implementations.
+        """
+        return None  # Default - subclasses override

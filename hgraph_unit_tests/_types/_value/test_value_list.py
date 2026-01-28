@@ -23,7 +23,7 @@ TypeKind = value.TypeKind
 
 
 # =============================================================================
-# Helpers for current API (ConstValueView-based)
+# Helpers for current API (View-based)
 # =============================================================================
 
 def make_int_value(val):
@@ -156,16 +156,16 @@ def test_dynamic_list_initially_empty(dynamic_int_list_schema):
 
 # List TypeOps now implemented
 def test_list_push_back_native_type(dynamic_int_list_schema):
-    """ListView.push_back() with ConstValueView."""
+    """ListView.append() with View."""
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
 
     v1 = make_int_value(10)
     v2 = make_int_value(20)
     v3 = make_int_value(30)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
-    lv.push_back(v3.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
+    lv.append(v3.const_view())
 
     assert lv.size() == 3
     assert lv[0].as_int() == 10
@@ -174,12 +174,12 @@ def test_list_push_back_native_type(dynamic_int_list_schema):
 
 
 def test_list_push_back_with_value(dynamic_int_list_schema):
-    """ListView.push_back(ConstValueView) works with explicit wrapping."""
+    """ListView.append(View) works with explicit wrapping."""
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
 
     elem = make_int_value(40)
-    lv.push_back(elem.const_view())
+    lv.append(elem.const_view())
 
     assert lv.size() == 1
     assert lv[0].as_int() == 40
@@ -192,8 +192,8 @@ def test_list_push_back_strings(dynamic_string_list_schema):
 
     s1 = make_string_value("hello")
     s2 = make_string_value("world")
-    lv.push_back(s1.const_view())
-    lv.push_back(s2.const_view())
+    lv.append(s1.const_view())
+    lv.append(s2.const_view())
 
     assert lv.size() == 2
     assert lv[0].as_string() == "hello"
@@ -206,8 +206,8 @@ def test_list_access_by_index(dynamic_int_list_schema):
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
 
     assert lv[0].as_int() == 10
     assert lv[1].as_int() == 20
@@ -218,7 +218,7 @@ def test_list_at_method(dynamic_int_list_schema):
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
     elem = make_int_value(10)
-    lv.push_back(elem.const_view())
+    lv.append(elem.const_view())
 
     assert lv.at(0).as_int() == 10
 
@@ -228,7 +228,7 @@ def test_list_modify_element(dynamic_int_list_schema):
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
     elem = make_int_value(10)
-    lv.push_back(elem.const_view())
+    lv.append(elem.const_view())
 
     lv.at(0).set_int(25)
 
@@ -242,9 +242,9 @@ def test_list_set_element(dynamic_int_list_schema):
     v1 = make_int_value(10)
     v2 = make_int_value(20)
     v3 = make_int_value(30)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
-    lv.push_back(v3.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
+    lv.append(v3.const_view())
 
     new_val = make_int_value(35)
     lv.set(2, new_val.const_view())
@@ -259,9 +259,9 @@ def test_list_front_and_back(dynamic_int_list_schema):
     v1 = make_int_value(10)
     v2 = make_int_value(20)
     v3 = make_int_value(30)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
-    lv.push_back(v3.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
+    lv.append(v3.const_view())
 
     assert lv.front().as_int() == 10
     assert lv.back().as_int() == 30
@@ -274,9 +274,9 @@ def test_list_pop_back(dynamic_int_list_schema):
     v1 = make_int_value(10)
     v2 = make_int_value(20)
     v3 = make_int_value(30)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
-    lv.push_back(v3.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
+    lv.append(v3.const_view())
 
     lv.pop_back()
 
@@ -290,8 +290,8 @@ def test_list_clear(dynamic_int_list_schema):
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
 
     lv.clear()
 
@@ -304,7 +304,7 @@ def test_list_resize_grow(dynamic_int_list_schema):
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
     elem = make_int_value(10)
-    lv.push_back(elem.const_view())
+    lv.append(elem.const_view())
 
     lv.resize(5)
 
@@ -319,9 +319,9 @@ def test_list_resize_shrink(dynamic_int_list_schema):
     v1 = make_int_value(10)
     v2 = make_int_value(20)
     v3 = make_int_value(30)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
-    lv.push_back(v3.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
+    lv.append(v3.const_view())
 
     lv.resize(1)
 
@@ -337,7 +337,7 @@ def test_list_empty_property(dynamic_int_list_schema):
     assert lv.empty()
 
     elem = make_int_value(10)
-    lv.push_back(elem.const_view())
+    lv.append(elem.const_view())
 
     assert not lv.empty()
 
@@ -350,9 +350,9 @@ def test_list_iteration_by_index(dynamic_int_list_schema):
     v1 = make_int_value(10)
     v2 = make_int_value(20)
     v3 = make_int_value(30)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
-    lv.push_back(v3.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
+    lv.append(v3.const_view())
 
     clv = v.const_view().as_list()
 
@@ -370,9 +370,9 @@ def test_list_range_based_iteration(dynamic_int_list_schema):
     v1 = make_int_value(10)
     v2 = make_int_value(20)
     v3 = make_int_value(30)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
-    lv.push_back(v3.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
+    lv.append(v3.const_view())
 
     clv = v.const_view().as_list()
 
@@ -509,9 +509,9 @@ def test_dynamic_list_reset(dynamic_double_list_schema):
     v1 = make_double_value(1.0)
     v2 = make_double_value(2.0)
     v3 = make_double_value(3.0)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
-    lv.push_back(v3.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
+    lv.append(v3.const_view())
 
     reset_val = make_double_value(0.0)
     lv.reset(reset_val.const_view())
@@ -528,7 +528,7 @@ def test_fixed_list_push_back_raises(fixed_double_list_schema):
 
     elem = make_double_value(1.0)
     with pytest.raises((RuntimeError, NotImplementedError)):
-        flv.push_back(elem.const_view())
+        flv.append(elem.const_view())
 
 
 # List TypeOps now implemented
@@ -584,11 +584,11 @@ def test_dynamic_list_size_changes(dynamic_int_list_schema):
     assert lv.size() == 0
 
     v1 = make_int_value(1)
-    lv.push_back(v1.const_view())
+    lv.append(v1.const_view())
     assert lv.size() == 1
 
     v2 = make_int_value(2)
-    lv.push_back(v2.const_view())
+    lv.append(v2.const_view())
     assert lv.size() == 2
 
     lv.pop_back()
@@ -623,7 +623,7 @@ def test_list_index_out_of_bounds(dynamic_int_list_schema):
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
     elem = make_int_value(10)
-    lv.push_back(elem.const_view())
+    lv.append(elem.const_view())
 
     with pytest.raises((IndexError, RuntimeError)):
         _ = lv.at(10)
@@ -634,7 +634,7 @@ def test_list_negative_index_raises(dynamic_int_list_schema):
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
     elem = make_int_value(10)
-    lv.push_back(elem.const_view())
+    lv.append(elem.const_view())
 
     # at() method doesn't support negative indices (TypeError from nanobind)
     with pytest.raises((IndexError, RuntimeError, OverflowError, TypeError)):
@@ -646,7 +646,7 @@ def test_list_set_wrong_type_raises(dynamic_int_list_schema):
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
     elem = make_int_value(10)
-    lv.push_back(elem.const_view())
+    lv.append(elem.const_view())
 
     wrong = make_string_value("not an int")
     with pytest.raises((TypeError, RuntimeError)):
@@ -660,7 +660,7 @@ def test_list_push_back_wrong_type_raises(dynamic_int_list_schema):
 
     wrong = make_string_value("not an int")
     with pytest.raises((TypeError, RuntimeError)):
-        lv.push_back(wrong.const_view())
+        lv.append(wrong.const_view())
 
 
 # List TypeOps now implemented
@@ -758,9 +758,9 @@ def test_clone_dynamic_list(dynamic_int_list_schema):
     v1 = make_int_value(10)
     v2 = make_int_value(20)
     v3 = make_int_value(30)
-    lv.push_back(v1.const_view())
-    lv.push_back(v2.const_view())
-    lv.push_back(v3.const_view())
+    lv.append(v1.const_view())
+    lv.append(v2.const_view())
+    lv.append(v3.const_view())
 
     cloned = v.const_view().clone()
 
@@ -793,7 +793,7 @@ def test_cloned_list_is_independent(dynamic_int_list_schema):
     v = PlainValue(dynamic_int_list_schema)
     lv = v.as_list()
     elem = make_int_value(10)
-    lv.push_back(elem.const_view())
+    lv.append(elem.const_view())
 
     cloned = v.const_view().clone()
 
@@ -801,7 +801,7 @@ def test_cloned_list_is_independent(dynamic_int_list_schema):
     new_val = make_int_value(100)
     lv.set(0, new_val.const_view())
     another = make_int_value(20)
-    lv.push_back(another.const_view())
+    lv.append(another.const_view())
 
     # Clone should be unchanged
     clv = cloned.const_view().as_list()
@@ -820,15 +820,15 @@ def test_list_equals_same_values(dynamic_int_list_schema):
     lv1 = v1.as_list()
     e1 = make_int_value(10)
     e2 = make_int_value(20)
-    lv1.push_back(e1.const_view())
-    lv1.push_back(e2.const_view())
+    lv1.append(e1.const_view())
+    lv1.append(e2.const_view())
 
     v2 = PlainValue(dynamic_int_list_schema)
     lv2 = v2.as_list()
     e3 = make_int_value(10)
     e4 = make_int_value(20)
-    lv2.push_back(e3.const_view())
-    lv2.push_back(e4.const_view())
+    lv2.append(e3.const_view())
+    lv2.append(e4.const_view())
 
     assert v1.equals(v2.const_view())
 
@@ -840,15 +840,15 @@ def test_list_not_equals_different_values(dynamic_int_list_schema):
     lv1 = v1.as_list()
     e1 = make_int_value(10)
     e2 = make_int_value(20)
-    lv1.push_back(e1.const_view())
-    lv1.push_back(e2.const_view())
+    lv1.append(e1.const_view())
+    lv1.append(e2.const_view())
 
     v2 = PlainValue(dynamic_int_list_schema)
     lv2 = v2.as_list()
     e3 = make_int_value(10)
     e4 = make_int_value(30)  # Different
-    lv2.push_back(e3.const_view())
-    lv2.push_back(e4.const_view())
+    lv2.append(e3.const_view())
+    lv2.append(e4.const_view())
 
     assert not v1.equals(v2.const_view())
 
@@ -859,14 +859,14 @@ def test_list_not_equals_different_lengths(dynamic_int_list_schema):
     v1 = PlainValue(dynamic_int_list_schema)
     lv1 = v1.as_list()
     e1 = make_int_value(10)
-    lv1.push_back(e1.const_view())
+    lv1.append(e1.const_view())
 
     v2 = PlainValue(dynamic_int_list_schema)
     lv2 = v2.as_list()
     e2 = make_int_value(10)
     e3 = make_int_value(20)
-    lv2.push_back(e2.const_view())
-    lv2.push_back(e3.const_view())
+    lv2.append(e2.const_view())
+    lv2.append(e3.const_view())
 
     assert not v1.equals(v2.const_view())
 
@@ -882,9 +882,9 @@ def test_list_to_python(dynamic_int_list_schema):
     e1 = make_int_value(10)
     e2 = make_int_value(20)
     e3 = make_int_value(30)
-    lv.push_back(e1.const_view())
-    lv.push_back(e2.const_view())
-    lv.push_back(e3.const_view())
+    lv.append(e1.const_view())
+    lv.append(e2.const_view())
+    lv.append(e3.const_view())
 
     py_obj = v.to_python()
 
@@ -928,9 +928,9 @@ def test_list_to_string(dynamic_int_list_schema):
     e1 = make_int_value(10)
     e2 = make_int_value(20)
     e3 = make_int_value(30)
-    lv.push_back(e1.const_view())
-    lv.push_back(e2.const_view())
-    lv.push_back(e3.const_view())
+    lv.append(e1.const_view())
+    lv.append(e2.const_view())
+    lv.append(e3.const_view())
 
     s = v.to_string()
 
@@ -950,8 +950,8 @@ def test_const_list_view_read_only(dynamic_int_list_schema):
     lv = v.as_list()
     e1 = make_int_value(10)
     e2 = make_int_value(20)
-    lv.push_back(e1.const_view())
-    lv.push_back(e2.const_view())
+    lv.append(e1.const_view())
+    lv.append(e2.const_view())
 
     clv = v.const_view().as_list()
 

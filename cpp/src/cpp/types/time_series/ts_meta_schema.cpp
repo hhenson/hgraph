@@ -1,0 +1,390 @@
+/**
+ * @file ts_meta_schema.cpp
+ * @brief Implementation of TSMeta schema generation functions.
+ *
+ * This file implements the schema generation logic for the four parallel
+ * Value structures in TSValue: value_, time_, observer_, and delta_value_.
+ */
+
+#include <hgraph/types/time_series/ts_meta_schema.h>
+#include <hgraph/types/value/composite_ops.h>
+
+namespace hgraph {
+
+// ============================================================================
+// TSMetaSchemaCache Singleton
+// ============================================================================
+
+TSMetaSchemaCache& TSMetaSchemaCache::instance() {
+    static TSMetaSchemaCache cache;
+    return cache;
+}
+
+TSMetaSchemaCache::TSMetaSchemaCache() {
+    // Initialize singleton TypeMetas
+
+    // engine_time_t - register as scalar
+    engine_time_meta_ = value::scalar_type_meta<engine_time_t>();
+
+    // ObserverList
+    auto obs_meta = std::make_unique<value::TypeMeta>();
+    obs_meta->size = sizeof(ObserverList);
+    obs_meta->alignment = alignof(ObserverList);
+    obs_meta->kind = value::TypeKind::Atomic;
+    obs_meta->flags = value::TypeFlags::None;
+    obs_meta->ops = ObserverListOps::ops();
+    obs_meta->name = "ObserverList";
+    obs_meta->element_type = nullptr;
+    obs_meta->key_type = nullptr;
+    obs_meta->fields = nullptr;
+    obs_meta->field_count = 0;
+    obs_meta->fixed_size = 0;
+    observer_list_meta_ = obs_meta.get();
+    owned_metas_.push_back(std::move(obs_meta));
+
+    // SetDelta
+    auto set_delta_m = std::make_unique<value::TypeMeta>();
+    set_delta_m->size = sizeof(SetDelta);
+    set_delta_m->alignment = alignof(SetDelta);
+    set_delta_m->kind = value::TypeKind::Atomic;
+    set_delta_m->flags = value::TypeFlags::None;
+    set_delta_m->ops = SetDeltaOps::ops();
+    set_delta_m->name = "SetDelta";
+    set_delta_m->element_type = nullptr;
+    set_delta_m->key_type = nullptr;
+    set_delta_m->fields = nullptr;
+    set_delta_m->field_count = 0;
+    set_delta_m->fixed_size = 0;
+    set_delta_meta_ = set_delta_m.get();
+    owned_metas_.push_back(std::move(set_delta_m));
+
+    // MapDelta
+    auto map_delta_m = std::make_unique<value::TypeMeta>();
+    map_delta_m->size = sizeof(MapDelta);
+    map_delta_m->alignment = alignof(MapDelta);
+    map_delta_m->kind = value::TypeKind::Atomic;
+    map_delta_m->flags = value::TypeFlags::None;
+    map_delta_m->ops = MapDeltaOps::ops();
+    map_delta_m->name = "MapDelta";
+    map_delta_m->element_type = nullptr;
+    map_delta_m->key_type = nullptr;
+    map_delta_m->fields = nullptr;
+    map_delta_m->field_count = 0;
+    map_delta_m->fixed_size = 0;
+    map_delta_meta_ = map_delta_m.get();
+    owned_metas_.push_back(std::move(map_delta_m));
+
+    // BundleDeltaNav
+    auto bundle_nav_m = std::make_unique<value::TypeMeta>();
+    bundle_nav_m->size = sizeof(BundleDeltaNav);
+    bundle_nav_m->alignment = alignof(BundleDeltaNav);
+    bundle_nav_m->kind = value::TypeKind::Atomic;
+    bundle_nav_m->flags = value::TypeFlags::None;
+    bundle_nav_m->ops = BundleDeltaNavOps::ops();
+    bundle_nav_m->name = "BundleDeltaNav";
+    bundle_nav_m->element_type = nullptr;
+    bundle_nav_m->key_type = nullptr;
+    bundle_nav_m->fields = nullptr;
+    bundle_nav_m->field_count = 0;
+    bundle_nav_m->fixed_size = 0;
+    bundle_delta_nav_meta_ = bundle_nav_m.get();
+    owned_metas_.push_back(std::move(bundle_nav_m));
+
+    // ListDeltaNav
+    auto list_nav_m = std::make_unique<value::TypeMeta>();
+    list_nav_m->size = sizeof(ListDeltaNav);
+    list_nav_m->alignment = alignof(ListDeltaNav);
+    list_nav_m->kind = value::TypeKind::Atomic;
+    list_nav_m->flags = value::TypeFlags::None;
+    list_nav_m->ops = ListDeltaNavOps::ops();
+    list_nav_m->name = "ListDeltaNav";
+    list_nav_m->element_type = nullptr;
+    list_nav_m->key_type = nullptr;
+    list_nav_m->fields = nullptr;
+    list_nav_m->field_count = 0;
+    list_nav_m->fixed_size = 0;
+    list_delta_nav_meta_ = list_nav_m.get();
+    owned_metas_.push_back(std::move(list_nav_m));
+}
+
+// ============================================================================
+// Singleton Type Accessors
+// ============================================================================
+
+const value::TypeMeta* TSMetaSchemaCache::engine_time_meta() {
+    return engine_time_meta_;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::observer_list_meta() {
+    return observer_list_meta_;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::set_delta_meta() {
+    return set_delta_meta_;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::map_delta_meta() {
+    return map_delta_meta_;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::bundle_delta_nav_meta() {
+    return bundle_delta_nav_meta_;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::list_delta_nav_meta() {
+    return list_delta_nav_meta_;
+}
+
+// ============================================================================
+// Schema Access Methods
+// ============================================================================
+
+const value::TypeMeta* TSMetaSchemaCache::get_time_schema(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    // Check cache
+    auto it = time_schema_cache_.find(ts_meta);
+    if (it != time_schema_cache_.end()) {
+        return it->second;
+    }
+
+    // Generate and cache
+    const value::TypeMeta* schema = generate_time_schema_impl(ts_meta);
+    time_schema_cache_[ts_meta] = schema;
+    return schema;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::get_observer_schema(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    // Check cache
+    auto it = observer_schema_cache_.find(ts_meta);
+    if (it != observer_schema_cache_.end()) {
+        return it->second;
+    }
+
+    // Generate and cache
+    const value::TypeMeta* schema = generate_observer_schema_impl(ts_meta);
+    observer_schema_cache_[ts_meta] = schema;
+    return schema;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::get_delta_value_schema(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    // Check cache
+    auto it = delta_value_schema_cache_.find(ts_meta);
+    if (it != delta_value_schema_cache_.end()) {
+        return it->second;
+    }
+
+    // Generate and cache
+    const value::TypeMeta* schema = generate_delta_value_schema_impl(ts_meta);
+    delta_value_schema_cache_[ts_meta] = schema;
+    return schema;
+}
+
+// ============================================================================
+// Time Schema Generation
+// ============================================================================
+
+const value::TypeMeta* TSMetaSchemaCache::generate_time_schema_impl(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    switch (ts_meta->kind) {
+        case TSKind::TSValue:
+        case TSKind::TSS:
+        case TSKind::TSW:
+        case TSKind::REF:
+        case TSKind::SIGNAL:
+            // Atomic time-series types: just engine_time_t
+            return engine_time_meta_;
+
+        case TSKind::TSD: {
+            // TSD[K,V] -> tuple[engine_time_t, var_list[time_schema(V)]]
+            // The var_list grows dynamically with the map
+            const value::TypeMeta* child_time = get_time_schema(ts_meta->element_ts);
+
+            auto& registry = value::TypeRegistry::instance();
+
+            // Build var_list for child times (dynamic list)
+            const value::TypeMeta* var_list_type = registry.list(child_time).build();
+
+            // Build tuple[engine_time_t, var_list[...]]
+            return registry.tuple()
+                .element(engine_time_meta_)
+                .element(var_list_type)
+                .build();
+        }
+
+        case TSKind::TSB: {
+            // TSB[...] -> tuple[engine_time_t, fixed_list[time_schema(field_i) for each field]]
+            // Use a tuple with one element for container time + one for each field's time schema
+            auto& registry = value::TypeRegistry::instance();
+            auto builder = registry.tuple();
+
+            // First element: container time
+            builder.element(engine_time_meta_);
+
+            // Subsequent elements: per-field time schemas
+            for (size_t i = 0; i < ts_meta->field_count; ++i) {
+                const value::TypeMeta* field_time = get_time_schema(ts_meta->fields[i].ts_type);
+                builder.element(field_time);
+            }
+
+            return builder.build();
+        }
+
+        case TSKind::TSL: {
+            // TSL[T] -> tuple[engine_time_t, fixed_list[time_schema(element) x size]]
+            const value::TypeMeta* element_time = get_time_schema(ts_meta->element_ts);
+
+            auto& registry = value::TypeRegistry::instance();
+
+            if (ts_meta->fixed_size > 0) {
+                // Fixed-size list
+                const value::TypeMeta* fixed_list_type =
+                    registry.fixed_list(element_time, ts_meta->fixed_size).build();
+
+                return registry.tuple()
+                    .element(engine_time_meta_)
+                    .element(fixed_list_type)
+                    .build();
+            } else {
+                // Dynamic list (SIZE=0 means dynamic)
+                const value::TypeMeta* var_list_type = registry.list(element_time).build();
+
+                return registry.tuple()
+                    .element(engine_time_meta_)
+                    .element(var_list_type)
+                    .build();
+            }
+        }
+    }
+
+    return engine_time_meta_;
+}
+
+// ============================================================================
+// Observer Schema Generation
+// ============================================================================
+
+const value::TypeMeta* TSMetaSchemaCache::generate_observer_schema_impl(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    switch (ts_meta->kind) {
+        case TSKind::TSValue:
+        case TSKind::TSS:
+        case TSKind::TSW:
+        case TSKind::REF:
+        case TSKind::SIGNAL:
+            // Atomic time-series types: just ObserverList
+            return observer_list_meta_;
+
+        case TSKind::TSD: {
+            // TSD[K,V] -> tuple[ObserverList, var_list[observer_schema(V)]]
+            const value::TypeMeta* child_observer = get_observer_schema(ts_meta->element_ts);
+
+            auto& registry = value::TypeRegistry::instance();
+
+            // Build var_list for child observers (dynamic list)
+            const value::TypeMeta* var_list_type = registry.list(child_observer).build();
+
+            // Build tuple[ObserverList, var_list[...]]
+            return registry.tuple()
+                .element(observer_list_meta_)
+                .element(var_list_type)
+                .build();
+        }
+
+        case TSKind::TSB: {
+            // TSB[...] -> tuple[ObserverList, fixed_list[observer_schema(field_i) for each field]]
+            auto& registry = value::TypeRegistry::instance();
+            auto builder = registry.tuple();
+
+            // First element: container observer list
+            builder.element(observer_list_meta_);
+
+            // Subsequent elements: per-field observer schemas
+            for (size_t i = 0; i < ts_meta->field_count; ++i) {
+                const value::TypeMeta* field_observer = get_observer_schema(ts_meta->fields[i].ts_type);
+                builder.element(field_observer);
+            }
+
+            return builder.build();
+        }
+
+        case TSKind::TSL: {
+            // TSL[T] -> tuple[ObserverList, fixed_list[observer_schema(element) x size]]
+            const value::TypeMeta* element_observer = get_observer_schema(ts_meta->element_ts);
+
+            auto& registry = value::TypeRegistry::instance();
+
+            if (ts_meta->fixed_size > 0) {
+                // Fixed-size list
+                const value::TypeMeta* fixed_list_type =
+                    registry.fixed_list(element_observer, ts_meta->fixed_size).build();
+
+                return registry.tuple()
+                    .element(observer_list_meta_)
+                    .element(fixed_list_type)
+                    .build();
+            } else {
+                // Dynamic list
+                const value::TypeMeta* var_list_type = registry.list(element_observer).build();
+
+                return registry.tuple()
+                    .element(observer_list_meta_)
+                    .element(var_list_type)
+                    .build();
+            }
+        }
+    }
+
+    return observer_list_meta_;
+}
+
+// ============================================================================
+// Delta Value Schema Generation
+// ============================================================================
+
+const value::TypeMeta* TSMetaSchemaCache::generate_delta_value_schema_impl(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    switch (ts_meta->kind) {
+        case TSKind::TSValue:
+        case TSKind::TSW:
+        case TSKind::REF:
+        case TSKind::SIGNAL:
+            // No delta tracking for these types
+            return nullptr;
+
+        case TSKind::TSS:
+            // TSS -> SetDelta
+            return set_delta_meta_;
+
+        case TSKind::TSD:
+            // TSD -> MapDelta
+            return map_delta_meta_;
+
+        case TSKind::TSB: {
+            // TSB -> BundleDeltaNav (if has_delta), else nullptr
+            if (!has_delta(ts_meta)) {
+                return nullptr;
+            }
+            return bundle_delta_nav_meta_;
+        }
+
+        case TSKind::TSL: {
+            // TSL -> ListDeltaNav (if has_delta), else nullptr
+            if (!has_delta(ts_meta)) {
+                return nullptr;
+            }
+            return list_delta_nav_meta_;
+        }
+    }
+
+    return nullptr;
+}
+
+} // namespace hgraph

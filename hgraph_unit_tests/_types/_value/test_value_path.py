@@ -452,9 +452,9 @@ def test_navigate_list_index(list_of_ints_schema):
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
 
-    lv.push_back(make_int_value(10).const_view())
-    lv.push_back(make_int_value(20).const_view())
-    lv.push_back(make_int_value(30).const_view())
+    lv.append(make_int_value(10).const_view())
+    lv.append(make_int_value(20).const_view())
+    lv.append(make_int_value(30).const_view())
 
     result = v.navigate("[1]")
 
@@ -467,8 +467,8 @@ def test_navigate_list_first_element(list_of_strings_schema):
     v = PlainValue(list_of_strings_schema)
     lv = v.as_list()
 
-    lv.push_back(make_string_value("first").const_view())
-    lv.push_back(make_string_value("second").const_view())
+    lv.append(make_string_value("first").const_view())
+    lv.append(make_string_value("second").const_view())
 
     result = v.navigate("[0]")
 
@@ -481,9 +481,9 @@ def test_navigate_list_last_element(list_of_ints_schema):
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
 
-    lv.push_back(make_int_value(10).const_view())
-    lv.push_back(make_int_value(20).const_view())
-    lv.push_back(make_int_value(30).const_view())
+    lv.append(make_int_value(10).const_view())
+    lv.append(make_int_value(20).const_view())
+    lv.append(make_int_value(30).const_view())
 
     result = v.navigate("[2]")
 
@@ -555,7 +555,7 @@ def test_navigate_mixed(person_with_addresses_schema, address_schema):
     addr1_bv.set("street", "100 First St")
     addr1_bv.set("city", "Chicago")
     addr1_bv.set("zip", 60601)
-    addresses.push_back(addr1.const_view())
+    addresses.append(addr1.const_view())
 
     # Add second address
     addr2 = PlainValue(address_schema)
@@ -563,7 +563,7 @@ def test_navigate_mixed(person_with_addresses_schema, address_schema):
     addr2_bv.set("street", "200 Second St")
     addr2_bv.set("city", "Los Angeles")
     addr2_bv.set("zip", 90001)
-    addresses.push_back(addr2.const_view())
+    addresses.append(addr2.const_view())
 
     # Navigate: person.addresses[0].city
     result = v.navigate("addresses[0].city")
@@ -588,7 +588,7 @@ def test_navigate_mixed_second_element(person_with_addresses_schema, address_sch
         addr_bv.set("street", f"{i * 100} Main St")
         addr_bv.set("city", city)
         addr_bv.set("zip", 80000 + i)
-        addresses.push_back(addr.const_view())
+        addresses.append(addr.const_view())
 
     # Navigate: person.addresses[1].city
     result = v.navigate("addresses[1].city")
@@ -625,14 +625,14 @@ def test_navigate_list_of_tuples(list_of_tuples_schema, tuple_schema):
     t1.as_tuple().at(0).set_int(1)
     t1.as_tuple().at(1).set_string("one")
     t1.as_tuple().at(2).set_double(1.0)
-    lv.push_back(t1.const_view())
+    lv.append(t1.const_view())
 
     # Add second tuple
     t2 = PlainValue(tuple_schema)
     t2.as_tuple().at(0).set_int(2)
     t2.as_tuple().at(1).set_string("two")
     t2.as_tuple().at(2).set_double(2.0)
-    lv.push_back(t2.const_view())
+    lv.append(t2.const_view())
 
     # Navigate: [1][1] - second tuple, second element
     result = v.navigate("[1][1]")
@@ -659,7 +659,7 @@ def test_navigate_invalid_index_throws(list_of_ints_schema):
     """navigate() to out-of-range index throws."""
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
-    lv.push_back(make_int_value(10).const_view())
+    lv.append(make_int_value(10).const_view())
 
     with pytest.raises((IndexError, RuntimeError)):
         v.navigate("[5]")
@@ -669,7 +669,7 @@ def test_navigate_negative_index_throws(list_of_ints_schema):
     """navigate() with negative index throws."""
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
-    lv.push_back(make_int_value(10).const_view())
+    lv.append(make_int_value(10).const_view())
 
     # Negative indices are not supported
     with pytest.raises((IndexError, ValueError, RuntimeError)):
@@ -712,7 +712,7 @@ def test_navigate_type_mismatch_field_on_list_throws(list_of_ints_schema):
     """navigate() with field access on list throws."""
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
-    lv.push_back(make_int_value(10).const_view())
+    lv.append(make_int_value(10).const_view())
 
     # Lists don't support field access
     with pytest.raises((TypeError, RuntimeError)):
@@ -786,7 +786,7 @@ def test_try_navigate_failure_invalid_index(list_of_ints_schema):
     """try_navigate() returns None on invalid index."""
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
-    lv.push_back(make_int_value(10).const_view())
+    lv.append(make_int_value(10).const_view())
 
     result = v.try_navigate("[5]")
 
@@ -877,8 +877,8 @@ def test_navigate_mut_list_element(list_of_ints_schema):
     """navigate_mut() to list element for modification."""
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
-    lv.push_back(make_int_value(10).const_view())
-    lv.push_back(make_int_value(20).const_view())
+    lv.append(make_int_value(10).const_view())
+    lv.append(make_int_value(20).const_view())
 
     # Modify list element
     mut_view = v.navigate_mut("[1]")
@@ -938,11 +938,11 @@ def test_navigate_special_characters_in_field_name(type_registry, int_schema):
 
 
 # =============================================================================
-# Section 10.7: ConstValueView and ValueView navigate methods
+# Section 10.7: View and ValueView navigate methods
 # =============================================================================
 
 def test_const_view_navigate(simple_bundle_schema):
-    """ConstValueView.navigate() works correctly."""
+    """View.navigate() works correctly."""
     v = PlainValue(simple_bundle_schema)
     bv = v.as_bundle()
     bv.set("x", 42)
