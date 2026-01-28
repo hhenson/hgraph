@@ -109,10 +109,11 @@ target_include_directories(hgraph_ts_value_phase1_tests PRIVATE
 )
 
 # Phase 1 components are header-only - no need to link _hgraph, but need tpack for forward declarations
+# Use tp::tpack which works in both FetchContent and find_package cases
 target_link_libraries(hgraph_ts_value_phase1_tests PRIVATE
     Catch2::Catch2WithMain
     fmt::fmt
-    tpack
+    tp::tpack
 )
 
 target_compile_features(hgraph_ts_value_phase1_tests PRIVATE cxx_std_23)
@@ -136,6 +137,7 @@ add_executable(hgraph_ts_value_phase2_tests
     types/time_series/test_set_delta.cpp
     types/time_series/test_map_delta.cpp
     types/time_series/test_delta_nav.cpp
+    types/time_series/test_ts_view_range.cpp
 )
 
 target_include_directories(hgraph_ts_value_phase2_tests PRIVATE
@@ -143,11 +145,12 @@ target_include_directories(hgraph_ts_value_phase2_tests PRIVATE
 )
 
 # Phase 2 components need dynamic_bitset for KeySet include, tpack for forward declarations
+# Use tp::tpack which works in both FetchContent and find_package cases
 target_link_libraries(hgraph_ts_value_phase2_tests PRIVATE
     Catch2::Catch2WithMain
     fmt::fmt
     sul::dynamic_bitset
-    tpack
+    tp::tpack
 )
 
 target_compile_features(hgraph_ts_value_phase2_tests PRIVATE cxx_std_23)
