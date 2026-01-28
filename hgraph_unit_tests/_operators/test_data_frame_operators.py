@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 from datetime import datetime
+from typing import Tuple
 
 import polars as pl
 from frozendict import frozendict as fd, frozendict
@@ -158,7 +159,7 @@ def test_group_by_tuple():
     }
 
     @graph
-    def g(ts: TS[Frame[D]]) -> TSD[str, TS[Frame[D]]]:
+    def g(ts: TS[Frame[D]]) -> TSD[Tuple[str, str], TS[Frame[D]]]:
         return group_by(ts, ("parent", "child"))
 
     results = eval_node(g, [df], __elide__=True)

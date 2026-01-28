@@ -4,7 +4,7 @@ import polars as pl
 import operator as operators
 
 from hgraph import DEFAULT, OUT, SCALAR, Type, operator, add_, and_, div_, eq_, filter_, floordiv_, ge_, gt_, le_, lt_, \
-    mul_, or_, sub_, TSD_OUT, REMOVE
+    mul_, or_, sub_, TSD_OUT, REMOVE, HgTupleFixedScalarType
 from hgraph._types import (
     TS,
     Frame,
@@ -139,12 +139,13 @@ def group_by_single(
     return out
 
 
-@compute_node(
-    overloads=group_by,
-    resolvers={
-        KEYABLE_SCALAR: lambda m, by: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[by[0]]            
-    },
-)
+def tuple_resolver(m, by):
+    schema = m[COMPOUND_SCALAR].py_type.__meta_data_schema__
+    if by.__class__ is tuple:
+        return HgTupleFixedScalarType((schema[b] for b in by))
+
+
+@compute_node(overloads=group_by, resolvers={KEYABLE_SCALAR: tuple_resolver})
 def group_by_tuple(
     ts: TS[Frame[COMPOUND_SCALAR]],
     by: Tuple[str, ...],
