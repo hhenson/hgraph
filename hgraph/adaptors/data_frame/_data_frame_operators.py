@@ -1,4 +1,4 @@
-from typing import TypeVar
+from typing import TypeVar, Tuple
 
 import polars as pl
 import operator as operators
@@ -115,11 +115,42 @@ def filter_exp_seq(ts: TS[Frame[COMPOUND_SCALAR]], predicate: tuple[pl.Expr, ...
     return ts.value.filter(predicate)
 
 
-@compute_node(resolvers={KEYABLE_SCALAR: lambda m, by: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[by]})
+@operator
 def group_by(
+    ts: TS[Frame[COMPOUND_SCALAR]], by: SCALAR, _output: TSD_OUT[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]] = None
+) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
+    ...
+
+
+@compute_node(
+    overloads=group_by,
+    resolvers={
+        KEYABLE_SCALAR: lambda m, by: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[by]
+            if s["by"].__class__ is str else None
+    },
+)
+def group_by_single(
     ts: TS[Frame[COMPOUND_SCALAR]], by: str, _output: TSD_OUT[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]] = None
 ) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
     out = {k: v for (k,), v in ts.value.group_by(by)}
+    for k in _output.valid_keys():
+        if k not in out:
+            out[k] = REMOVE
+    return out
+
+
+@compute_node(
+    overloads=group_by,
+    resolvers={
+        KEYABLE_SCALAR: lambda m, by: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[by[0]]            
+    },
+)
+def group_by_tuple(
+    ts: TS[Frame[COMPOUND_SCALAR]],
+    by: Tuple[str, ...],
+    _output: TSD_OUT[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]] = None
+) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
+    out = dict(ts.value.group_by(by))
     for k in _output.valid_keys():
         if k not in out:
             out[k] = REMOVE

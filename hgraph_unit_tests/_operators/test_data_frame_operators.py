@@ -97,7 +97,7 @@ def test_from_data_frame_tsd_k_tsb():
     assert result == [ {1: fd(a=1, b=4)}, {1: fd(a=1, b=4), 2: fd(a=2, b=5)}, {1: fd(a=2, b=5), 2: fd(a=3, b=6)} ]
 
 
-def test_group_by():
+def test_group_by_single():
 
     @dataclass(frozen=True)
     class D(CompoundScalar):
@@ -134,14 +134,42 @@ def test_group_by():
     assert len(results) == 3
     actual1, actual2, actual3 = results
 
-    def check_equal(actual, expected):
-        assert len(actual) == len(expected)
-        for k in expected:
-            if expected[k] is REMOVE:
-                assert actual[k] is REMOVE
-            else:
-                assert_frame_equal(actual[k], expected[k])
+    check_frames_equal(actual1, expected1)
+    check_frames_equal(actual2, expected2)
+    check_frames_equal(actual3, expected3)
 
-    check_equal(actual1, expected1)
-    check_equal(actual2, expected2)
-    check_equal(actual3, expected3)
+
+def test_group_by_tuple():
+    @dataclass(frozen=True)
+    class D(CompoundScalar):
+        parent: str
+        child: str
+        value: int
+
+    df = pl.DataFrame({"parent": ["P1", "P1", "P1", "P2", "P2", "P2"], "child": ["C1", "C2", "C3", "C1", "C4", "C5"], "value": [1, 2, 3, 4, 5, 6]})
+    expected = {
+        ("P1", "C1"): pl.DataFrame({"parent": ["P1"], "child": ["C1"], "value": [1]}),
+        ("P1", "C2"): pl.DataFrame({"parent": ["P1"], "child": ["C2"], "value": [2]}),
+        ("P1", "C3"): pl.DataFrame({"parent": ["P1"], "child": ["C3"], "value": [3]}),
+
+        ("P2", "C1"): pl.DataFrame({"parent": ["P2"], "child": ["C1"], "value": [4]}),
+        ("P2", "C4"): pl.DataFrame({"parent": ["P2"], "child": ["C4"], "value": [5]}),
+        ("P2", "C5"): pl.DataFrame({"parent": ["P2"], "child": ["C5"], "value": [6]}),
+    }
+
+    @graph
+    def g(ts: TS[Frame[D]]) -> TSD[str, TS[Frame[D]]]:
+        return group_by(ts, ("parent", "child"))
+
+    results = eval_node(g, [df], __elide__=True)
+
+    check_frames_equal(results[-1], expected)
+
+
+def check_frames_equal(actual, expected):
+    assert len(actual) == len(expected)
+    for k in expected:
+        if expected[k] is REMOVE:
+            assert actual[k] is REMOVE
+        else:
+            assert_frame_equal(actual[k], expected[k])
