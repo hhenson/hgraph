@@ -153,27 +153,16 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
 
     @property
     def delta_value(self) -> Mapping[str, Any]:
-        if self.has_peer:
+        if self.has_peer and not self._sampled:
             return super().delta_value
         else:
             return {k: ts.delta_value for k, ts in self.items() if ts.modified and ts.valid}
-
-    @property
-    def active(self) -> bool:
-        """
-        For UnBound TS, if any of the elements are active we report the input as active,
-        Note, that make active / make passive will make ALL instances active / passive.
-        Thus, just because the input returns True for active, it does not mean that make_active is a no-op.
-        """
-        if self.has_peer:
-            return super().active
-        else:
-            return any(ts.active for ts in self.values())
 
     def make_active(self):
         if self.has_peer:
             super().make_active()
         else:
+            self._active = True
             for ts in self.values():
                 ts.make_active()
 
@@ -181,6 +170,7 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
         if self.has_peer:
             super().make_passive()
         else:
+            self._active = False
             for ts in self.values():
                 ts.make_passive()
 
