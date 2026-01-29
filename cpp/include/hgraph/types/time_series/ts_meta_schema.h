@@ -43,6 +43,7 @@
 
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_type_ops.h>
+#include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/type_registry.h>
 #include <hgraph/util/date_time.h>
@@ -150,6 +151,11 @@ public:
      */
     const value::TypeMeta* bool_meta();
 
+    /**
+     * @brief Get the TypeMeta for LinkTarget (used for collection-level links).
+     */
+    const value::TypeMeta* link_target_meta();
+
 private:
     TSMetaSchemaCache();
     ~TSMetaSchemaCache() = default;
@@ -177,6 +183,7 @@ private:
     const value::TypeMeta* bundle_delta_nav_meta_{nullptr};
     const value::TypeMeta* list_delta_nav_meta_{nullptr};
     const value::TypeMeta* bool_meta_{nullptr};
+    const value::TypeMeta* link_target_meta_{nullptr};
 
     // ========== Owned TypeMetas ==========
 

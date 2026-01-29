@@ -106,8 +106,24 @@ TSMetaSchemaCache::TSMetaSchemaCache() {
     list_delta_nav_meta_ = list_nav_m.get();
     owned_metas_.push_back(std::move(list_nav_m));
 
-    // bool - for link flags
+    // bool - for link flags (used in TSB per-field links)
     bool_meta_ = value::scalar_type_meta<bool>();
+
+    // LinkTarget - for collection-level links (TSL/TSD)
+    auto link_target_m = std::make_unique<value::TypeMeta>();
+    link_target_m->size = sizeof(LinkTarget);
+    link_target_m->alignment = alignof(LinkTarget);
+    link_target_m->kind = value::TypeKind::Atomic;
+    link_target_m->flags = value::TypeFlags::None;
+    link_target_m->ops = LinkTargetOps::ops();
+    link_target_m->name = "LinkTarget";
+    link_target_m->element_type = nullptr;
+    link_target_m->key_type = nullptr;
+    link_target_m->fields = nullptr;
+    link_target_m->field_count = 0;
+    link_target_m->fixed_size = 0;
+    link_target_meta_ = link_target_m.get();
+    owned_metas_.push_back(std::move(link_target_m));
 }
 
 // ============================================================================
@@ -140,6 +156,10 @@ const value::TypeMeta* TSMetaSchemaCache::list_delta_nav_meta() {
 
 const value::TypeMeta* TSMetaSchemaCache::bool_meta() {
     return bool_meta_;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::link_target_meta() {
+    return link_target_meta_;
 }
 
 // ============================================================================
@@ -428,19 +448,19 @@ const value::TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta
 
         case TSKind::TSD:
         case TSKind::TSL:
-            // TSD and TSL: single bool for collection-level link flag
-            // When true, all elements redirect to the link target
-            return bool_meta_;
+            // TSD and TSL: LinkTarget for collection-level link
+            // Contains is_linked flag plus target ViewData pointers
+            return link_target_meta_;
 
         case TSKind::TSB: {
-            // TSB: fixed_list[bool] with one entry per field
-            // Each field can be independently linked
+            // TSB: fixed_list[LinkTarget] with one entry per field
+            // Each field can be independently linked to different targets
             if (ts_meta->field_count == 0) {
                 return nullptr;
             }
 
             auto& registry = value::TypeRegistry::instance();
-            return registry.fixed_list(bool_meta_, ts_meta->field_count).build();
+            return registry.fixed_list(link_target_meta_, ts_meta->field_count).build();
         }
     }
 

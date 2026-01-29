@@ -214,6 +214,12 @@ static void register_ts_value(nb::module_& m) {
             "If current_time > last_delta_clear_time_, the delta is cleared\n"
             "before returning the view.")
 
+        .def("link_view", static_cast<value::View (TSValue::*)()>(&TSValue::link_view),
+            "Get a mutable view of the link data.\n\n"
+            "For TSL/TSD: Single bool indicating collection-level link.\n"
+            "For TSB: fixed_list[bool] with one entry per field.\n"
+            "For scalars: Returns invalid view (no link tracking at scalar level).")
+
         // Time-series semantics
         .def("last_modified_time", &TSValue::last_modified_time,
             "Get the last modification time.\n\n"
@@ -327,7 +333,28 @@ static void register_ts_view(nb::module_& m) {
             "Get as a set view (for TSS)")
 
         .def("as_dict", &TSView::as_dict,
-            "Get as a dict view (for TSD)");
+            "Get as a dict view (for TSD)")
+
+        // Binding (Link Management)
+        .def("bind", &TSView::bind,
+            "target"_a,
+            "Bind this position to a target TSView.\n\n"
+            "Creates a link from the current position to the target.\n"
+            "After binding, access to this position will redirect to the target.\n\n"
+            "Args:\n"
+            "    target: The target TSView to bind to\n\n"
+            "Raises:\n"
+            "    RuntimeError: If binding is not supported for this TS kind (scalars, TSS)")
+
+        .def("unbind", &TSView::unbind,
+            "Remove the link at this position.\n\n"
+            "After unbinding, the position reverts to local storage.\n"
+            "Calling unbind on an unbound position is a no-op for TSL/TSD.")
+
+        .def("is_bound", &TSView::is_bound,
+            "Check if this position is bound (linked).\n\n"
+            "Returns:\n"
+            "    True if the position is linked to another target, False otherwise");
 
     // Note: as_scalar<T>() requires template specialization, which is tricky
     // in Python. Users can access the value directly via view.value().as<T>()
