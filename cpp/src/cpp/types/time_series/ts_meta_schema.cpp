@@ -105,6 +105,9 @@ TSMetaSchemaCache::TSMetaSchemaCache() {
     list_nav_m->fixed_size = 0;
     list_delta_nav_meta_ = list_nav_m.get();
     owned_metas_.push_back(std::move(list_nav_m));
+
+    // bool - for link flags
+    bool_meta_ = value::scalar_type_meta<bool>();
 }
 
 // ============================================================================
@@ -133,6 +136,10 @@ const value::TypeMeta* TSMetaSchemaCache::bundle_delta_nav_meta() {
 
 const value::TypeMeta* TSMetaSchemaCache::list_delta_nav_meta() {
     return list_delta_nav_meta_;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::bool_meta() {
+    return bool_meta_;
 }
 
 // ============================================================================
@@ -181,6 +188,21 @@ const value::TypeMeta* TSMetaSchemaCache::get_delta_value_schema(const TSMeta* t
     // Generate and cache
     const value::TypeMeta* schema = generate_delta_value_schema_impl(ts_meta);
     delta_value_schema_cache_[ts_meta] = schema;
+    return schema;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::get_link_schema(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    // Check cache
+    auto it = link_schema_cache_.find(ts_meta);
+    if (it != link_schema_cache_.end()) {
+        return it->second;
+    }
+
+    // Generate and cache
+    const value::TypeMeta* schema = generate_link_schema_impl(ts_meta);
+    link_schema_cache_[ts_meta] = schema;
     return schema;
 }
 
@@ -381,6 +403,44 @@ const value::TypeMeta* TSMetaSchemaCache::generate_delta_value_schema_impl(const
                 return nullptr;
             }
             return list_delta_nav_meta_;
+        }
+    }
+
+    return nullptr;
+}
+
+// ============================================================================
+// Link Schema Generation
+// ============================================================================
+
+const value::TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    switch (ts_meta->kind) {
+        case TSKind::TSValue:
+        case TSKind::TSS:
+        case TSKind::TSW:
+        case TSKind::REF:
+        case TSKind::SIGNAL:
+            // Scalar time-series types: no link tracking at this level
+            // Links are managed at the parent container level
+            return nullptr;
+
+        case TSKind::TSD:
+        case TSKind::TSL:
+            // TSD and TSL: single bool for collection-level link flag
+            // When true, all elements redirect to the link target
+            return bool_meta_;
+
+        case TSKind::TSB: {
+            // TSB: fixed_list[bool] with one entry per field
+            // Each field can be independently linked
+            if (ts_meta->field_count == 0) {
+                return nullptr;
+            }
+
+            auto& registry = value::TypeRegistry::instance();
+            return registry.fixed_list(bool_meta_, ts_meta->field_count).build();
         }
     }
 

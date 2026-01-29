@@ -158,6 +158,18 @@ public:
      */
     [[nodiscard]] value::View delta_value_view() const;
 
+    /**
+     * @brief Get a mutable view of the link data.
+     * @return Mutable view of link_
+     */
+    [[nodiscard]] value::View link_view();
+
+    /**
+     * @brief Get a const view of the link data.
+     * @return Const view of link_
+     */
+    [[nodiscard]] value::View link_view() const;
+
     // ========== Time-Series Semantics ==========
 
     /**
@@ -284,6 +296,15 @@ private:
      * Schema from generate_delta_value_schema(meta_), may be null.
      */
     value::Value<> delta_value_;
+
+    /**
+     * @brief Link tracking data (parallel to value structure).
+     *
+     * Schema from generate_link_schema(meta_), may be null for scalar types.
+     * For TSL/TSD: Single bool indicating collection-level link.
+     * For TSB: fixed_list[bool] with one entry per field.
+     */
+    value::Value<> link_;
 
     /**
      * @brief The time-series metadata.

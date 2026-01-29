@@ -315,6 +315,32 @@ public:
      */
     [[nodiscard]] value::View observer() const;
 
+    // ========== Binding (Link Management) ==========
+
+    /**
+     * @brief Bind this position to a target TSView.
+     *
+     * Creates a link from the current position to the target.
+     * After binding, access to this position will redirect to the target.
+     *
+     * @param target The target TSView to bind to
+     */
+    void bind(const TSView& target);
+
+    /**
+     * @brief Remove the link at this position.
+     *
+     * After unbinding, the position reverts to local storage.
+     */
+    void unbind();
+
+    /**
+     * @brief Check if this position is bound (linked).
+     *
+     * @return true if the position is linked to another target
+     */
+    [[nodiscard]] bool is_bound() const;
+
     // ========== Kind-Specific View Conversions ==========
 
     /**

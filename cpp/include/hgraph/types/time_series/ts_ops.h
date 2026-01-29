@@ -189,6 +189,36 @@ struct ts_ops {
      * @brief Notify observers of modification.
      */
     void (*notify_observers)(ViewData& vd, engine_time_t current_time);
+
+    // ========== Link Management ==========
+
+    /**
+     * @brief Bind this position to a target.
+     *
+     * Creates a link from the current position to the target TSView.
+     * After binding, navigation to this position will redirect to the target.
+     *
+     * @param vd The ViewData for the position to bind
+     * @param target The target ViewData to bind to
+     */
+    void (*bind)(ViewData& vd, const ViewData& target);
+
+    /**
+     * @brief Remove the link at this position.
+     *
+     * After unbinding, the position reverts to local storage.
+     *
+     * @param vd The ViewData for the position to unbind
+     */
+    void (*unbind)(ViewData& vd);
+
+    /**
+     * @brief Check if this position is bound (linked).
+     *
+     * @param vd The ViewData to check
+     * @return true if the position is linked to another target
+     */
+    bool (*is_bound)(const ViewData& vd);
 };
 
 /**

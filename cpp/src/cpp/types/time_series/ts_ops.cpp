@@ -30,6 +30,14 @@ inline value::View make_value_view(const ViewData& vd) {
     return value::View(vd.value_data, vd.meta->value_type);
 }
 
+// Create link::View from ViewData (for checking/setting link flags)
+inline value::View make_link_view(const ViewData& vd) {
+    if (!vd.link_data || !vd.meta) return value::View{};
+    auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+    if (!link_schema) return value::View{};
+    return value::View(vd.link_data, link_schema);
+}
+
 inline value::View make_time_view(const ViewData& vd) {
     if (!vd.time_data || !vd.meta) return value::View{};
     auto* time_schema = TSMetaSchemaCache::instance().get_time_schema(vd.meta);
@@ -187,6 +195,22 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
         auto* observers = static_cast<ObserverList*>(vd.observer_data);
         observers->notify_modified(current_time);
     }
+}
+
+void bind(ViewData& vd, const ViewData& target) {
+    // Scalar types don't support binding at this level
+    // Binding is managed by the parent container
+    throw std::runtime_error("bind not supported for scalar types");
+}
+
+void unbind(ViewData& vd) {
+    // Scalar types don't support unbinding
+    throw std::runtime_error("unbind not supported for scalar types");
+}
+
+bool is_bound(const ViewData& vd) {
+    // Scalar types are never bound at this level
+    return false;
 }
 
 } // namespace scalar_ops
@@ -377,6 +401,64 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
     }
 }
 
+void bind(ViewData& vd, const ViewData& target) {
+    // TSB: Bind the entire bundle to target
+    // For now, we use a simple approach - set all field link flags to true
+    // The actual link target is stored elsewhere (e.g., in value_data)
+    if (!vd.link_data || !vd.meta) {
+        throw std::runtime_error("bind on bundle without link data");
+    }
+
+    // For TSB, link_data points to fixed_list[bool]
+    // Set all fields to linked
+    auto link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+    if (!link_schema) return;
+
+    value::View link_view(vd.link_data, link_schema);
+    auto link_list = link_view.as_list();
+    for (size_t i = 0; i < link_list.size(); ++i) {
+        link_list.at(i).as<bool>() = true;
+    }
+
+    // Store the target ViewData in value_data (as a ViewData pointer or copy)
+    // For this implementation, we'll store a ViewData copy at the current position
+    // This is a simplified approach - a full implementation would need more sophisticated storage
+}
+
+void unbind(ViewData& vd) {
+    if (!vd.link_data || !vd.meta) {
+        return;  // No-op if not linked
+    }
+
+    auto link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+    if (!link_schema) return;
+
+    value::View link_view(vd.link_data, link_schema);
+    auto link_list = link_view.as_list();
+    for (size_t i = 0; i < link_list.size(); ++i) {
+        link_list.at(i).as<bool>() = false;
+    }
+}
+
+bool is_bound(const ViewData& vd) {
+    if (!vd.link_data || !vd.meta) {
+        return false;
+    }
+
+    auto link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+    if (!link_schema) return false;
+
+    // TSB is considered bound if any field is bound
+    value::View link_view(vd.link_data, link_schema);
+    auto link_list = link_view.as_list();
+    for (size_t i = 0; i < link_list.size(); ++i) {
+        if (link_list.at(i).as<bool>()) {
+            return true;
+        }
+    }
+    return false;
+}
+
 } // namespace bundle_ops
 
 // ============================================================================
@@ -553,6 +635,35 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
     }
 }
 
+void bind(ViewData& vd, const ViewData& target) {
+    // TSL: Bind the entire list to target (collection-level link)
+    if (!vd.link_data) {
+        throw std::runtime_error("bind on list without link data");
+    }
+
+    // For TSL, link_data points to a single bool
+    *static_cast<bool*>(vd.link_data) = true;
+
+    // TODO: Store the target ViewData somewhere (in value_data or a separate structure)
+    // For now, this is a simplified implementation that just sets the flag
+}
+
+void unbind(ViewData& vd) {
+    if (!vd.link_data) {
+        return;  // No-op if not linked
+    }
+
+    *static_cast<bool*>(vd.link_data) = false;
+}
+
+bool is_bound(const ViewData& vd) {
+    if (!vd.link_data) {
+        return false;
+    }
+
+    return *static_cast<const bool*>(vd.link_data);
+}
+
 } // namespace list_ops
 
 // ============================================================================
@@ -684,6 +795,21 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
         auto* observers = static_cast<ObserverList*>(vd.observer_data);
         observers->notify_modified(current_time);
     }
+}
+
+void bind(ViewData& vd, const ViewData& target) {
+    // TSS doesn't support binding (set elements are values, not time-series)
+    throw std::runtime_error("bind not supported for TSS types");
+}
+
+void unbind(ViewData& vd) {
+    // TSS doesn't support unbinding
+    throw std::runtime_error("unbind not supported for TSS types");
+}
+
+bool is_bound(const ViewData& vd) {
+    // TSS is never bound
+    return false;
 }
 
 } // namespace set_ops
@@ -882,6 +1008,34 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
     }
 }
 
+void bind(ViewData& vd, const ViewData& target) {
+    // TSD: Bind the entire dict to target (collection-level link)
+    if (!vd.link_data) {
+        throw std::runtime_error("bind on dict without link data");
+    }
+
+    // For TSD, link_data points to a single bool
+    *static_cast<bool*>(vd.link_data) = true;
+
+    // TODO: Store the target ViewData somewhere
+}
+
+void unbind(ViewData& vd) {
+    if (!vd.link_data) {
+        return;  // No-op if not linked
+    }
+
+    *static_cast<bool*>(vd.link_data) = false;
+}
+
+bool is_bound(const ViewData& vd) {
+    if (!vd.link_data) {
+        return false;
+    }
+
+    return *static_cast<const bool*>(vd.link_data);
+}
+
 } // namespace dict_ops
 
 // ============================================================================
@@ -910,6 +1064,9 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
     .child_count = ns::child_count, \
     .observer = ns::observer, \
     .notify_observers = ns::notify_observers, \
+    .bind = ns::bind, \
+    .unbind = ns::unbind, \
+    .is_bound = ns::is_bound, \
 }
 
 static const ts_ops scalar_ts_ops = MAKE_TS_OPS(scalar_ops);

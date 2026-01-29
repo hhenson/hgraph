@@ -101,6 +101,15 @@ TSValue::TSValue(const TSMeta* meta)
         delta_value_ = value::Value<>(delta_schema);
     }
 
+    // Generate and allocate link storage (may be nullptr for scalars)
+    const value::TypeMeta* link_schema = cache.get_link_schema(meta_);
+    if (link_schema) {
+        link_ = value::Value<>(link_schema);
+        // Initialize all link flags to false (not bound)
+        // For bool: default constructed is false
+        // For fixed_list[bool]: all elements default to false
+    }
+
     // Wire observers for delta tracking
     wire_observers();
 }
@@ -114,6 +123,7 @@ TSValue::TSValue(TSValue&& other) noexcept
     , time_(std::move(other.time_))
     , observer_(std::move(other.observer_))
     , delta_value_(std::move(other.delta_value_))
+    , link_(std::move(other.link_))
     , meta_(other.meta_)
     , last_delta_clear_time_(other.last_delta_clear_time_)
 {
@@ -127,6 +137,7 @@ TSValue& TSValue::operator=(TSValue&& other) noexcept {
         time_ = std::move(other.time_);
         observer_ = std::move(other.observer_);
         delta_value_ = std::move(other.delta_value_);
+        link_ = std::move(other.link_);
         meta_ = other.meta_;
         last_delta_clear_time_ = other.last_delta_clear_time_;
         other.meta_ = nullptr;
@@ -174,6 +185,14 @@ value::View TSValue::delta_value_view(engine_time_t current_time) {
 
 value::View TSValue::delta_value_view() const {
     return delta_value_.const_view();
+}
+
+value::View TSValue::link_view() {
+    return link_.view();
+}
+
+value::View TSValue::link_view() const {
+    return link_.const_view();
 }
 
 // ============================================================================

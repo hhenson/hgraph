@@ -172,6 +172,31 @@ value::View TSView::observer() const {
 }
 
 // ============================================================================
+// Binding (Link Management)
+// ============================================================================
+
+void TSView::bind(const TSView& target) {
+    if (!view_data_.valid() || !view_data_.ops) {
+        throw std::runtime_error("bind on invalid TSView");
+    }
+    view_data_.ops->bind(view_data_, target.view_data_);
+}
+
+void TSView::unbind() {
+    if (!view_data_.valid() || !view_data_.ops) {
+        throw std::runtime_error("unbind on invalid TSView");
+    }
+    view_data_.ops->unbind(view_data_);
+}
+
+bool TSView::is_bound() const {
+    if (!view_data_.valid() || !view_data_.ops) {
+        return false;
+    }
+    return view_data_.ops->is_bound(view_data_);
+}
+
+// ============================================================================
 // Kind-Specific View Conversions
 // ============================================================================
 
@@ -283,6 +308,7 @@ ViewData TSValue::make_view_data() {
         time_.view().data(),
         observer_.view().data(),
         delta_value_.valid() ? delta_value_.view().data() : nullptr,
+        link_.valid() ? link_.view().data() : nullptr,
         get_ts_ops(meta_),
         meta_
     };

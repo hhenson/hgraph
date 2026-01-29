@@ -11,6 +11,7 @@
  * 2. time_schema: Modification timestamps (recursive, mirrors data structure)
  * 3. observer_schema: Observer lists (recursive, mirrors data structure)
  * 4. delta_value_schema: Delta tracking data (only where TSS/TSD exist)
+ * 5. link_schema: Link flags for binding support (parallel to value structure)
  *
  * Schema Generation Rules:
  *
@@ -32,6 +33,12 @@
  *   TSD[K,V] -> MapDelta
  *   TSB[...] -> BundleDeltaNav (if has_delta), else nullptr
  *   TSL[T]   -> ListDeltaNav (if has_delta), else nullptr
+ *
+ * link_schema:
+ *   TS[T], TSS, SIGNAL, TSW, REF -> nullptr (no link tracking at scalar level)
+ *   TSD[K,V] -> bool (collection-level link flag)
+ *   TSL[T]   -> bool (collection-level link flag)
+ *   TSB[...] -> fixed_list[bool x field_count] (per-field link flags)
  */
 
 #include <hgraph/types/time_series/ts_meta.h>
@@ -93,6 +100,19 @@ public:
      */
     const value::TypeMeta* get_delta_value_schema(const TSMeta* ts_meta);
 
+    /**
+     * @brief Get the link schema for a TSMeta.
+     *
+     * Link schema is used for tracking which positions are bound to external targets.
+     * - TSL/TSD: Single bool (collection-level link flag)
+     * - TSB: fixed_list[bool] with one entry per field
+     * - Scalars: nullptr (no link tracking at scalar level)
+     *
+     * @param ts_meta The time-series metadata
+     * @return TypeMeta for the link_ parallel Value, or nullptr if no links needed
+     */
+    const value::TypeMeta* get_link_schema(const TSMeta* ts_meta);
+
     // ========== Singleton Type Accessors ==========
 
     /**
@@ -125,6 +145,11 @@ public:
      */
     const value::TypeMeta* list_delta_nav_meta();
 
+    /**
+     * @brief Get the TypeMeta for bool (used for link flags).
+     */
+    const value::TypeMeta* bool_meta();
+
 private:
     TSMetaSchemaCache();
     ~TSMetaSchemaCache() = default;
@@ -134,12 +159,14 @@ private:
     const value::TypeMeta* generate_time_schema_impl(const TSMeta* ts_meta);
     const value::TypeMeta* generate_observer_schema_impl(const TSMeta* ts_meta);
     const value::TypeMeta* generate_delta_value_schema_impl(const TSMeta* ts_meta);
+    const value::TypeMeta* generate_link_schema_impl(const TSMeta* ts_meta);
 
     // ========== Caches ==========
 
     std::unordered_map<const TSMeta*, const value::TypeMeta*> time_schema_cache_;
     std::unordered_map<const TSMeta*, const value::TypeMeta*> observer_schema_cache_;
     std::unordered_map<const TSMeta*, const value::TypeMeta*> delta_value_schema_cache_;
+    std::unordered_map<const TSMeta*, const value::TypeMeta*> link_schema_cache_;
 
     // ========== Singleton TypeMetas ==========
 
@@ -149,6 +176,7 @@ private:
     const value::TypeMeta* map_delta_meta_{nullptr};
     const value::TypeMeta* bundle_delta_nav_meta_{nullptr};
     const value::TypeMeta* list_delta_nav_meta_{nullptr};
+    const value::TypeMeta* bool_meta_{nullptr};
 
     // ========== Owned TypeMetas ==========
 
@@ -241,6 +269,23 @@ inline const value::TypeMeta* generate_observer_schema(const TSMeta* ts_meta) {
  */
 inline const value::TypeMeta* generate_delta_value_schema(const TSMeta* ts_meta) {
     return TSMetaSchemaCache::instance().get_delta_value_schema(ts_meta);
+}
+
+/**
+ * @brief Generate the link schema for a TSMeta.
+ *
+ * Convenience function that delegates to TSMetaSchemaCache.
+ *
+ * Link schema is used for tracking which positions are bound to external targets.
+ * - TSL/TSD: Single bool (collection-level link flag)
+ * - TSB: fixed_list[bool] with one entry per field
+ * - Scalars: nullptr (no link tracking at scalar level)
+ *
+ * @param ts_meta The time-series metadata
+ * @return TypeMeta for the link_ parallel Value, or nullptr if no links needed
+ */
+inline const value::TypeMeta* generate_link_schema(const TSMeta* ts_meta) {
+    return TSMetaSchemaCache::instance().get_link_schema(ts_meta);
 }
 
 } // namespace hgraph

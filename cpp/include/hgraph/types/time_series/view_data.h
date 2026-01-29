@@ -96,6 +96,16 @@ struct ViewData {
      */
     void* delta_data{nullptr};
 
+    /**
+     * @brief Pointer to the link data.
+     *
+     * Points into TSValue::link_. Contains link flags for binding support.
+     * May be nullptr if this TS kind doesn't support links (scalars).
+     * For TSL/TSD: bool* indicating collection-level link.
+     * For TSB: fixed_list[bool]* with one entry per field.
+     */
+    void* link_data{nullptr};
+
     // ========== Operations ==========
 
     /**
@@ -128,6 +138,7 @@ struct ViewData {
              void* time_data_,
              void* observer_data_,
              void* delta_data_,
+             void* link_data_,
              const ts_ops* ops_,
              const TSMeta* meta_) noexcept
         : path(std::move(path_))
@@ -135,6 +146,26 @@ struct ViewData {
         , time_data(time_data_)
         , observer_data(observer_data_)
         , delta_data(delta_data_)
+        , link_data(link_data_)
+        , ops(ops_)
+        , meta(meta_) {}
+
+    /**
+     * @brief Constructor without link_data (for backwards compatibility).
+     */
+    ViewData(ShortPath path_,
+             void* value_data_,
+             void* time_data_,
+             void* observer_data_,
+             void* delta_data_,
+             const ts_ops* ops_,
+             const TSMeta* meta_) noexcept
+        : path(std::move(path_))
+        , value_data(value_data_)
+        , time_data(time_data_)
+        , observer_data(observer_data_)
+        , delta_data(delta_data_)
+        , link_data(nullptr)
         , ops(ops_)
         , meta(meta_) {}
 
