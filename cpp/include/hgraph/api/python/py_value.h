@@ -22,7 +22,7 @@ namespace hgraph {
  * - TypeMeta (read-only schema descriptor)
  * - TypeKind enum
  * - Value classes (PlainValue, CachedValue)
- * - View classes (ConstValueView, ValueView)
+ * - View classes (View)
  * - Specialized views (TupleView, BundleView, ListView, SetView, MapView)
  *
  * @param m The nanobind module to register with

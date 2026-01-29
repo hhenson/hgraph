@@ -74,7 +74,7 @@ namespace hgraph {
         void unwire_graph(graph_s_ptr &graph);
 
         // Key comparison using TypeMeta ops
-        [[nodiscard]] bool keys_equal(const value::ConstValueView& a, const value::ConstValueView& b) const;
+        [[nodiscard]] bool keys_equal(const value::View& a, const value::View& b) const;
 
         const value::TypeMeta* _key_type;
         graph_builders_map_ptr _nested_graph_builders;

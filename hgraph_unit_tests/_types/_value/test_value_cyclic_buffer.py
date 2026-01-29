@@ -109,7 +109,7 @@ def test_push_back_single(cyclic_buffer_schema_5):
     buf_view = buf.view().as_cyclic_buffer()
 
     elem = make_int_value(42)
-    buf_view.push_back(elem.const_view())
+    buf_view.append(elem.const_view())
 
     assert len(buf_view) == 1
     assert buf_view[0].as_int() == 42
@@ -122,7 +122,7 @@ def test_push_back_multiple(cyclic_buffer_schema_5):
 
     for i in range(3):
         elem = make_int_value(i * 10)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     assert len(buf_view) == 3
     assert buf_view[0].as_int() == 0
@@ -137,7 +137,7 @@ def test_push_back_until_full(cyclic_buffer_schema_3):
 
     for i in range(3):
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     assert len(buf_view) == 3
     assert buf_view.full()
@@ -158,11 +158,11 @@ def test_eviction_when_full(cyclic_buffer_schema_3):
     # Fill buffer with 0, 1, 2
     for i in range(3):
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     # Push 3 - should evict 0
     elem = make_int_value(3)
-    buf_view.push_back(elem.const_view())
+    buf_view.append(elem.const_view())
 
     assert len(buf_view) == 3
     assert buf_view.full()
@@ -180,7 +180,7 @@ def test_multiple_evictions(cyclic_buffer_schema_3):
     # Push 0, 1, 2, 3, 4, 5 into buffer of capacity 3
     for i in range(6):
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     # Buffer should contain 3, 4, 5 (oldest to newest)
     assert len(buf_view) == 3
@@ -197,7 +197,7 @@ def test_many_evictions_wrap_around(cyclic_buffer_schema_3):
     # Push 100 elements
     for i in range(100):
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     # Buffer should contain 97, 98, 99
     assert len(buf_view) == 3
@@ -217,7 +217,7 @@ def test_front_returns_oldest(cyclic_buffer_schema_3):
 
     for i in range(5):  # 0, 1, 2, 3, 4 -> buffer has 2, 3, 4
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     assert buf_view.front().as_int() == 2
 
@@ -229,7 +229,7 @@ def test_back_returns_newest(cyclic_buffer_schema_3):
 
     for i in range(5):  # 0, 1, 2, 3, 4 -> buffer has 2, 3, 4
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     assert buf_view.back().as_int() == 4
 
@@ -246,7 +246,7 @@ def test_clear_empties_buffer(cyclic_buffer_schema_5):
     # Add some elements
     for i in range(3):
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     assert len(buf_view) == 3
 
@@ -264,13 +264,13 @@ def test_push_after_clear(cyclic_buffer_schema_3):
     # Fill, clear, refill
     for i in range(3):
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     buf_view.clear()
 
     for i in range(2):
         elem = make_int_value(i + 100)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     assert len(buf_view) == 2
     assert buf_view[0].as_int() == 100
@@ -289,7 +289,7 @@ def test_iteration_logical_order(cyclic_buffer_schema_3):
     # Push 0, 1, 2, 3, 4 -> buffer contains 2, 3, 4
     for i in range(5):
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     const_view = buf.const_view().as_cyclic_buffer()
     elements = [elem.as_int() for elem in const_view]
@@ -310,7 +310,7 @@ def test_equal_cyclic_buffers(cyclic_buffer_schema_3):
         view = b.view().as_cyclic_buffer()
         for i in range(3):
             elem = make_int_value(i)
-            view.push_back(elem.const_view())
+            view.append(elem.const_view())
 
     assert buf1.const_view().equals(buf2.const_view())
 
@@ -326,8 +326,8 @@ def test_unequal_cyclic_buffers(cyclic_buffer_schema_3):
     for i in range(3):
         elem1 = make_int_value(i)
         elem2 = make_int_value(i + 10)
-        view1.push_back(elem1.const_view())
-        view2.push_back(elem2.const_view())
+        view1.append(elem1.const_view())
+        view2.append(elem2.const_view())
 
     assert not buf1.const_view().equals(buf2.const_view())
 
@@ -341,13 +341,13 @@ def test_equal_after_different_pushes(cyclic_buffer_schema_3):
     view1 = buf1.view().as_cyclic_buffer()
     for i in range(4):
         elem = make_int_value(i)
-        view1.push_back(elem.const_view())
+        view1.append(elem.const_view())
 
     # buf2: push 1, 2, 3 directly -> contains 1, 2, 3
     view2 = buf2.view().as_cyclic_buffer()
     for i in range(1, 4):
         elem = make_int_value(i)
-        view2.push_back(elem.const_view())
+        view2.append(elem.const_view())
 
     # Both have logical content [1, 2, 3]
     assert buf1.const_view().equals(buf2.const_view())
@@ -362,7 +362,7 @@ def test_hash_consistency(cyclic_buffer_schema_3):
         view = b.view().as_cyclic_buffer()
         for i in range(3):
             elem = make_int_value(i)
-            view.push_back(elem.const_view())
+            view.append(elem.const_view())
 
     assert buf1.const_view().hash() == buf2.const_view().hash()
 
@@ -379,7 +379,7 @@ def test_to_numpy_int(cyclic_buffer_schema_3):
     # Push 0, 1, 2, 3, 4 -> buffer contains 2, 3, 4
     for i in range(5):
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     const_view = buf.const_view().as_cyclic_buffer()
     arr = const_view.to_numpy()
@@ -398,7 +398,7 @@ def test_to_numpy_double(double_cyclic_buffer_schema):
     for d in [1.5, 2.5, 3.5]:
         elem = PlainValue(double_schema)
         elem.set_double(d)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     const_view = buf.const_view().as_cyclic_buffer()
     arr = const_view.to_numpy()
@@ -415,7 +415,7 @@ def test_to_numpy_recentered(cyclic_buffer_schema_3):
     # Push 10, 20, 30, 40, 50 -> buffer contains 30, 40, 50
     for i in range(5):
         elem = make_int_value((i + 1) * 10)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     arr = buf.const_view().as_cyclic_buffer().to_numpy()
 
@@ -451,7 +451,7 @@ def test_to_python_returns_list(cyclic_buffer_schema_3):
 
     for i in range(3):
         elem = make_int_value(i * 10)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     py_list = buf.const_view().to_python()
     assert py_list == [0, 10, 20]
@@ -465,7 +465,7 @@ def test_to_python_recentered(cyclic_buffer_schema_3):
     # Push 0, 1, 2, 3, 4 -> buffer contains 2, 3, 4
     for i in range(5):
         elem = make_int_value(i)
-        buf_view.push_back(elem.const_view())
+        buf_view.append(elem.const_view())
 
     py_list = buf.const_view().to_python()
     assert py_list == [2, 3, 4]

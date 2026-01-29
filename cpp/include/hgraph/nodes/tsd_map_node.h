@@ -82,15 +82,15 @@ namespace hgraph
 
         virtual TimeSeriesDictOutputImpl &tsd_output();
 
-        void create_new_graph(const value::ConstValueView &key);
+        void create_new_graph(const value::View &key);
 
-        void remove_graph(const value::ConstValueView &key);
+        void remove_graph(const value::View &key);
 
-        engine_time_t evaluate_graph(const value::ConstValueView &key);
+        engine_time_t evaluate_graph(const value::View &key);
 
-        void un_wire_graph(const value::ConstValueView &key, graph_s_ptr &graph);
+        void un_wire_graph(const value::View &key, graph_s_ptr &graph);
 
-        void wire_graph(const value::ConstValueView &key, graph_s_ptr &graph);
+        void wire_graph(const value::View &key, graph_s_ptr &graph);
 
         // Protected members accessible by derived classes (e.g., MeshNode)
         graph_builder_s_ptr nested_graph_builder_;

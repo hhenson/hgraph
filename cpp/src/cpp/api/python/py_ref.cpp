@@ -2,6 +2,7 @@
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/ts_indexed.h>
 
 #include <utility>
@@ -10,6 +11,69 @@ namespace hgraph
 {
 
     void ref_register_with_nanobind(nb::module_ &m) {
+        // ============================================================
+        // TSReference - Value-stack time-series reference
+        // ============================================================
+
+        // PortType enum
+        nb::enum_<PortType>(m, "PortType")
+            .value("INPUT", PortType::INPUT)
+            .value("OUTPUT", PortType::OUTPUT);
+
+        // TSReference class
+        nb::class_<TSReference>(m, "TSReference")
+            .def(nb::init<>())  // Default constructor (EMPTY)
+            .def(nb::init<const TSReference&>())  // Copy constructor
+            .def_static("empty", &TSReference::empty, "Create an empty reference")
+            .def("is_empty", &TSReference::is_empty)
+            .def("is_peered", &TSReference::is_peered)
+            .def("is_non_peered", &TSReference::is_non_peered)
+            .def("has_output", &TSReference::has_output)
+            .def_prop_ro("kind", &TSReference::kind)
+            .def("size", &TSReference::size)
+            .def("__str__", &TSReference::to_string)
+            .def("__repr__", &TSReference::to_string)
+            .def("__eq__", [](const TSReference& self, const TSReference& other) {
+                return self == other;
+            }, nb::is_operator())
+            .def("to_fq", &TSReference::to_fq, "Convert to FQReference for serialization");
+
+        // TSReference::Kind enum
+        nb::enum_<TSReference::Kind>(m, "TSReferenceKind")
+            .value("EMPTY", TSReference::Kind::EMPTY)
+            .value("PEERED", TSReference::Kind::PEERED)
+            .value("NON_PEERED", TSReference::Kind::NON_PEERED);
+
+        // FQReference class
+        nb::class_<FQReference>(m, "FQReference")
+            .def(nb::init<>())  // Default constructor (EMPTY)
+            .def_static("empty", &FQReference::empty, "Create an empty FQReference")
+            .def_static("peered", &FQReference::peered,
+                "node_id"_a, "port_type"_a, "indices"_a,
+                "Create a peered FQReference")
+            .def_static("non_peered", &FQReference::non_peered,
+                "items"_a,
+                "Create a non-peered FQReference")
+            .def("is_empty", &FQReference::is_empty)
+            .def("is_peered", &FQReference::is_peered)
+            .def("is_non_peered", &FQReference::is_non_peered)
+            .def("has_output", &FQReference::has_output)
+            .def("is_valid", &FQReference::is_valid)
+            .def_prop_ro("kind", [](const FQReference& self) { return self.kind; })
+            .def_prop_ro("node_id", [](const FQReference& self) { return self.node_id; })
+            .def_prop_ro("port_type", [](const FQReference& self) { return self.port_type; })
+            .def_prop_ro("indices", [](const FQReference& self) { return self.indices; })
+            .def_prop_ro("items", [](const FQReference& self) { return self.items; })
+            .def("__str__", &FQReference::to_string)
+            .def("__repr__", &FQReference::to_string)
+            .def("__eq__", [](const FQReference& self, const FQReference& other) {
+                return self == other;
+            }, nb::is_operator());
+
+        // ============================================================
+        // TimeSeriesReference - Legacy output-pointer based reference
+        // ============================================================
+
         nb::class_<TimeSeriesReference>(m, "TimeSeriesReference")
             .def("__str__", &TimeSeriesReference::to_string)
             .def("__repr__", &TimeSeriesReference::to_string)

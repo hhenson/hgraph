@@ -230,7 +230,7 @@ def test_default_scalar_uses_opaque_storage():
     cpp_type = meta.cpp_type
 
     assert cpp_type is not None
-    assert cpp_type.kind.name == "Scalar"
+    assert cpp_type.kind.name == "Atomic"
 
 
 def test_cpp_native_scalar_uses_expanded_storage():
@@ -274,7 +274,7 @@ def test_overridden_to_false_uses_opaque_storage():
     cpp_type = meta.cpp_type
 
     assert cpp_type is not None
-    assert cpp_type.kind.name == "Scalar"
+    assert cpp_type.kind.name == "Atomic"
 
 
 # ============================================================================
@@ -300,7 +300,7 @@ def test_get_opaque_cpp_type_returns_scalar():
     cpp_type = meta._get_opaque_cpp_type()
 
     assert cpp_type is not None
-    assert cpp_type.kind.name == "Scalar"
+    assert cpp_type.kind.name == "Atomic"
 
 
 def test_expanded_type_has_correct_field_count():
@@ -324,7 +324,7 @@ def test_parse_and_cpp_type_for_default():
 
     meta = HgTypeMetaData.parse_type(DefaultScalar)
     assert isinstance(meta, HgCompoundScalarType)
-    assert meta.cpp_type.kind.name == "Scalar"
+    assert meta.cpp_type.kind.name == "Atomic"
 
 
 def test_parse_and_cpp_type_for_cpp_native_flag():

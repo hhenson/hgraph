@@ -10,7 +10,7 @@ namespace hgraph {
 
     /**
      * @brief Hash functor for PlainValue with transparent lookup support.
-     * Enables heterogeneous lookup with ConstValueView keys.
+     * Enables heterogeneous lookup with View keys.
      */
     struct PlainValueHash {
         using is_transparent = void;  // Enable heterogeneous lookup
@@ -19,14 +19,14 @@ namespace hgraph {
             return v.hash();
         }
 
-        size_t operator()(const value::ConstValueView& v) const {
+        size_t operator()(const value::View& v) const {
             return v.hash();
         }
     };
 
     /**
      * @brief Equality functor for PlainValue with transparent lookup support.
-     * Enables heterogeneous comparison with ConstValueView keys.
+     * Enables heterogeneous comparison with View keys.
      */
     struct PlainValueEqual {
         using is_transparent = void;  // Enable heterogeneous lookup
@@ -35,15 +35,15 @@ namespace hgraph {
             return a.equals(b.const_view());
         }
 
-        bool operator()(const value::PlainValue& a, const value::ConstValueView& b) const {
+        bool operator()(const value::PlainValue& a, const value::View& b) const {
             return a.equals(b);
         }
 
-        bool operator()(const value::ConstValueView& a, const value::PlainValue& b) const {
+        bool operator()(const value::View& a, const value::PlainValue& b) const {
             return b.equals(a);
         }
 
-        bool operator()(const value::ConstValueView& a, const value::ConstValueView& b) const {
+        bool operator()(const value::View& a, const value::View& b) const {
             if (!a.valid() || !b.valid()) return false;
             return a.hash() == b.hash() && a.schema() == b.schema();
         }
@@ -197,11 +197,11 @@ namespace hgraph {
      *
      * Usage:
      * - Create with key_type to specify the key schema
-     * - Call create_or_increment/release with ConstValueView keys
-     * - Call update with ConstValueView keys when values change
+     * - Call create_or_increment/release with View keys
+     * - Call update with View keys when values change
      */
     struct FeatureOutputExtensionValue {
-        using feature_fn = std::function<void(const TimeSeriesOutput &, TimeSeriesOutput &, const value::ConstValueView &)>;
+        using feature_fn = std::function<void(const TimeSeriesOutput &, TimeSeriesOutput &, const value::View &)>;
         using outputs_map_type = std::unordered_map<value::PlainValue, FeatureOutputRequestTracker,
                                                      PlainValueHash, PlainValueEqual>;
 
@@ -214,18 +214,18 @@ namespace hgraph {
         /**
          * @brief Get or create a feature output for the given key.
          *
-         * @param key The key as a ConstValueView
+         * @param key The key as a View
          * @param requester Opaque pointer to track the requester
          * @return Reference to the output shared_ptr
          */
-        time_series_output_s_ptr& create_or_increment(const value::ConstValueView& key, const void *requester);
+        time_series_output_s_ptr& create_or_increment(const value::View& key, const void *requester);
 
         /**
          * @brief Update the feature output for a key.
          *
-         * @param key The key as a ConstValueView
+         * @param key The key as a View
          */
-        void update(const value::ConstValueView& key);
+        void update(const value::View& key);
 
         /**
          * @brief Update from Python object key.
@@ -237,10 +237,10 @@ namespace hgraph {
         /**
          * @brief Release a requester's interest in a key.
          *
-         * @param key The key as a ConstValueView
+         * @param key The key as a View
          * @param requester The requester to release
          */
-        void release(const value::ConstValueView& key, const void *requester);
+        void release(const value::View& key, const void *requester);
 
         /**
          * @brief Check if there are any outputs.

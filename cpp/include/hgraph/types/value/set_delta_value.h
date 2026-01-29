@@ -49,7 +49,7 @@ struct SetDeltaValue {
     /**
      * @brief Construct from existing set views (copies data).
      */
-    SetDeltaValue(ConstSetView added_view, ConstSetView removed_view,
+    SetDeltaValue(SetView added_view, SetView removed_view,
                   const TypeMeta* element_type)
         : _element_type(element_type) {
         if (_element_type) {
@@ -60,11 +60,11 @@ struct SetDeltaValue {
             // Copy elements from views
             auto add_set = _added.view().as_set();
             for (auto elem : added_view) {
-                add_set.insert(elem);
+                add_set.add(elem);
             }
             auto rem_set = _removed.view().as_set();
             for (auto elem : removed_view) {
-                rem_set.insert(elem);
+                rem_set.add(elem);
             }
         }
     }
@@ -80,14 +80,14 @@ struct SetDeltaValue {
     /**
      * @brief Get const view of added elements.
      */
-    [[nodiscard]] ConstSetView added() const {
+    [[nodiscard]] SetView added() const {
         return _added.const_view().as_set();
     }
 
     /**
      * @brief Get const view of removed elements.
      */
-    [[nodiscard]] ConstSetView removed() const {
+    [[nodiscard]] SetView removed() const {
         return _removed.const_view().as_set();
     }
 

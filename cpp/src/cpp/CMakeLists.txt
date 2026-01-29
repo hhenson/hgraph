@@ -9,12 +9,15 @@ set(HGRAPH_SOURCES
         api/python/py_time_series.cpp
         api/python/py_ref.cpp
         api/python/py_signal.cpp
+        api/python/py_signal_view.cpp
         api/python/py_ts.cpp
         api/python/py_tsb.cpp
         api/python/py_tsd.cpp
         api/python/py_tsl.cpp
         api/python/py_tss.cpp
         api/python/py_tsw.cpp
+        api/python/py_ts_type_registry.cpp
+        api/python/py_ts_value.cpp
         api/python/py_value.cpp
         api/python/wrapper_factory.cpp
         builders/builder.cpp
@@ -106,6 +109,14 @@ set(HGRAPH_SOURCES
         types/tsw.cpp
         types/value/type_registry.cpp
         types/value/type_meta_bindings.cpp
+        types/time_series/ts_type_registry.cpp
+        types/time_series/ts_meta_schema.cpp
+        types/time_series/ts_reference.cpp
+        types/time_series/ts_value.cpp
+        types/time_series/ts_view.cpp
+        types/time_series/ts_view_range.cpp
+        types/time_series/ts_ops.cpp
+        types/time_series/signal_view.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
@@ -118,7 +129,7 @@ add_definitions(-Dhgraph_EXPORTS)
 nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
-target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor)
+target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor sul::dynamic_bitset)
 
 # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
 if (HGRAPH_WITH_BACKWARD)
