@@ -7,6 +7,8 @@
  */
 
 #include <hgraph/types/time_series/ts_meta_schema.h>
+#include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/time_series/ts_reference_ops.h>
 #include <hgraph/types/value/composite_ops.h>
 
 namespace hgraph {
@@ -109,6 +111,9 @@ TSMetaSchemaCache::TSMetaSchemaCache() {
     // bool - for link flags (used in TSB per-field links)
     bool_meta_ = value::scalar_type_meta<bool>();
 
+    // TSReference - for REF type values
+    ts_reference_meta_ = value::scalar_type_meta<TSReference>();
+
     // LinkTarget - for collection-level links (TSL/TSD)
     auto link_target_m = std::make_unique<value::TypeMeta>();
     link_target_m->size = sizeof(LinkTarget);
@@ -160,6 +165,10 @@ const value::TypeMeta* TSMetaSchemaCache::bool_meta() {
 
 const value::TypeMeta* TSMetaSchemaCache::link_target_meta() {
     return link_target_meta_;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::ts_reference_meta() {
+    return ts_reference_meta_;
 }
 
 // ============================================================================

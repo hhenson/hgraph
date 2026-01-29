@@ -11,6 +11,7 @@
 
 #include <hgraph/api/python/py_ts_type_registry.h>
 #include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/python/chrono.h>
 
 #include <nanobind/stl/string.h>
@@ -222,6 +223,78 @@ static void register_ts_type_registry(nb::module_& m) {
 }
 
 // ============================================================================
+// TSMetaSchemaCache Binding
+// ============================================================================
+
+static void register_ts_meta_schema_cache(nb::module_& m) {
+    nb::class_<TSMetaSchemaCache>(m, "TSMetaSchemaCache",
+        "Cache for generated TypeMeta schemas for TSMeta parallel structures (singleton)")
+
+        // Singleton accessor
+        .def_static("instance", &TSMetaSchemaCache::instance,
+            nb::rv_policy::reference,
+            "Get the singleton instance")
+
+        // Schema accessors
+        .def("get_time_schema", &TSMetaSchemaCache::get_time_schema,
+            nb::rv_policy::reference,
+            "ts_meta"_a,
+            "Get the time schema for a TSMeta")
+
+        .def("get_observer_schema", &TSMetaSchemaCache::get_observer_schema,
+            nb::rv_policy::reference,
+            "ts_meta"_a,
+            "Get the observer schema for a TSMeta")
+
+        .def("get_delta_value_schema", &TSMetaSchemaCache::get_delta_value_schema,
+            nb::rv_policy::reference,
+            "ts_meta"_a,
+            "Get the delta value schema for a TSMeta (or None if no delta)")
+
+        .def("get_link_schema", &TSMetaSchemaCache::get_link_schema,
+            nb::rv_policy::reference,
+            "ts_meta"_a,
+            "Get the link schema for a TSMeta (or None if no links needed)")
+
+        // Singleton TypeMeta accessors
+        .def("engine_time_meta", &TSMetaSchemaCache::engine_time_meta,
+            nb::rv_policy::reference,
+            "Get the TypeMeta for engine_time_t")
+
+        .def("observer_list_meta", &TSMetaSchemaCache::observer_list_meta,
+            nb::rv_policy::reference,
+            "Get the TypeMeta for ObserverList")
+
+        .def("set_delta_meta", &TSMetaSchemaCache::set_delta_meta,
+            nb::rv_policy::reference,
+            "Get the TypeMeta for SetDelta")
+
+        .def("map_delta_meta", &TSMetaSchemaCache::map_delta_meta,
+            nb::rv_policy::reference,
+            "Get the TypeMeta for MapDelta")
+
+        .def("bundle_delta_nav_meta", &TSMetaSchemaCache::bundle_delta_nav_meta,
+            nb::rv_policy::reference,
+            "Get the TypeMeta for BundleDeltaNav")
+
+        .def("list_delta_nav_meta", &TSMetaSchemaCache::list_delta_nav_meta,
+            nb::rv_policy::reference,
+            "Get the TypeMeta for ListDeltaNav")
+
+        .def("bool_meta", &TSMetaSchemaCache::bool_meta,
+            nb::rv_policy::reference,
+            "Get the TypeMeta for bool (used for link flags)")
+
+        .def("link_target_meta", &TSMetaSchemaCache::link_target_meta,
+            nb::rv_policy::reference,
+            "Get the TypeMeta for LinkTarget (used for collection-level links)")
+
+        .def("ts_reference_meta", &TSMetaSchemaCache::ts_reference_meta,
+            nb::rv_policy::reference,
+            "Get the TypeMeta for TSReference (used for REF type values)");
+}
+
+// ============================================================================
 // Module Registration
 // ============================================================================
 
@@ -230,6 +303,7 @@ void ts_type_registry_register_with_nanobind(nb::module_& m) {
     register_tsb_field_info(m);
     register_ts_meta(m);
     register_ts_type_registry(m);
+    register_ts_meta_schema_cache(m);
 }
 
 } // namespace hgraph

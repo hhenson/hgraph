@@ -156,6 +156,11 @@ public:
      */
     const value::TypeMeta* link_target_meta();
 
+    /**
+     * @brief Get the TypeMeta for TSReference (used for REF type values).
+     */
+    const value::TypeMeta* ts_reference_meta();
+
 private:
     TSMetaSchemaCache();
     ~TSMetaSchemaCache() = default;
@@ -184,6 +189,7 @@ private:
     const value::TypeMeta* list_delta_nav_meta_{nullptr};
     const value::TypeMeta* bool_meta_{nullptr};
     const value::TypeMeta* link_target_meta_{nullptr};
+    const value::TypeMeta* ts_reference_meta_{nullptr};
 
     // ========== Owned TypeMetas ==========
 

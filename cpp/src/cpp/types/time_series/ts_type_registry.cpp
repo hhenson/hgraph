@@ -6,6 +6,7 @@
  */
 
 #include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/value/type_registry.h>
 
 #include <cstring>
@@ -263,6 +264,8 @@ const TSMeta* TSTypeRegistry::ref(const TSMeta* referenced_ts) {
     auto* meta = create_schema();
     meta->kind = TSKind::REF;
     meta->element_ts = referenced_ts;
+    // REF stores TSReference as its value type
+    meta->value_type = TSMetaSchemaCache::instance().ts_reference_meta();
 
     // Cache and return
     ref_cache_[referenced_ts] = meta;

@@ -74,7 +74,9 @@ TSValue::TSValue(const TSMeta* meta)
             }
             break;
         case TSKind::REF:
-            // REF types are deferred - create empty for now
+            // REF[T]: value is TSReference (stored in meta_->value_type)
+            // This enables REF -> REF binding (equivalent to TS[TSReference])
+            value_schema = meta_->value_type;
             break;
     }
 
