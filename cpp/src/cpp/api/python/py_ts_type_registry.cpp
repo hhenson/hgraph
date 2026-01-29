@@ -205,7 +205,20 @@ static void register_ts_type_registry(nb::module_& m) {
         // SIGNAL
         .def("signal", &TSTypeRegistry::signal,
             nb::rv_policy::reference,
-            "Get the SIGNAL schema singleton");
+            "Get the SIGNAL schema singleton")
+
+        // Schema dereferencing
+        .def("dereference", &TSTypeRegistry::dereference,
+            nb::rv_policy::reference,
+            "source"_a,
+            "Get or create the dereferenced version of a schema.\n\n"
+            "Recursively transforms REF[T] -> T throughout the schema tree.\n"
+            "Returns the original schema if no REF types are present.")
+
+        .def_static("contains_ref", &TSTypeRegistry::contains_ref,
+            "meta"_a,
+            "Check if a schema contains any REF types.\n\n"
+            "Recursively checks the schema tree for REF nodes.");
 }
 
 // ============================================================================

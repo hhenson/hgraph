@@ -9,6 +9,7 @@ set(HGRAPH_SOURCES
         api/python/py_time_series.cpp
         api/python/py_ref.cpp
         api/python/py_signal.cpp
+        api/python/py_signal_view.cpp
         api/python/py_ts.cpp
         api/python/py_tsb.cpp
         api/python/py_tsd.cpp
@@ -114,6 +115,7 @@ set(HGRAPH_SOURCES
         types/time_series/ts_view.cpp
         types/time_series/ts_view_range.cpp
         types/time_series/ts_ops.cpp
+        types/time_series/signal_view.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp

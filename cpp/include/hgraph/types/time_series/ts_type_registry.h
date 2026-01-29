@@ -167,6 +167,41 @@ public:
      */
     const TSMeta* signal();
 
+    // ========== Schema Dereferencing ==========
+
+    /**
+     * @brief Get or create the dereferenced version of a schema.
+     *
+     * Recursively transforms REF[T] → T throughout the schema tree.
+     * This is used by SIGNAL to bind to the actual data sources rather
+     * than reference wrappers.
+     *
+     * If the schema contains no REF types, returns the original schema.
+     * Results are cached for efficiency.
+     *
+     * @param source The source schema (may contain REF types)
+     * @return The dereferenced schema (no REF types), or source if unchanged
+     *
+     * @code
+     * // Example transformations:
+     * // REF[TS[float]]                    → TS[float]
+     * // TSB[a: REF[TS[int]], b: TS[str]]  → TSB[a: TS[int], b: TS[str]]
+     * // TSD[str, REF[TS[float]]]          → TSD[str, TS[float]]
+     * // TS[int]                           → TS[int] (unchanged)
+     * @endcode
+     */
+    const TSMeta* dereference(const TSMeta* source);
+
+    /**
+     * @brief Check if a schema contains any REF types.
+     *
+     * Recursively checks the schema tree for REF nodes.
+     *
+     * @param meta The schema to check
+     * @return true if the schema or any nested schema is REF
+     */
+    static bool contains_ref(const TSMeta* meta);
+
 private:
     TSTypeRegistry() = default;
     ~TSTypeRegistry() = default;
@@ -271,6 +306,10 @@ private:
 
     /// SIGNAL singleton
     const TSMeta* signal_singleton_ = nullptr;
+
+    /// Dereference cache: source_ts -> dereferenced_ts
+    /// Note: If dereferenced == source, we still cache to avoid re-checking
+    std::unordered_map<const TSMeta*, const TSMeta*> deref_cache_;
 
     // ========== String Storage ==========
 

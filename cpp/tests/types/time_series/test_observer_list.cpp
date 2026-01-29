@@ -12,24 +12,19 @@
 using namespace hgraph;
 
 // ============================================================================
-// Mock TSObserver
+// Mock Observer
 // ============================================================================
 
 namespace {
 
-class MockTSObserver : public TSObserver {
+class MockObserver : public Notifiable {
 public:
-    int modified_count = 0;
-    int removed_count = 0;
+    int notify_count = 0;
     engine_time_t last_time = MIN_ST;
 
-    void notify_modified(engine_time_t t) override {
-        ++modified_count;
+    void notify(engine_time_t t) override {
+        ++notify_count;
         last_time = t;
-    }
-
-    void notify_removed() override {
-        ++removed_count;
     }
 };
 
@@ -47,7 +42,7 @@ TEST_CASE("ObserverList - default construction creates empty list", "[time_serie
 
 TEST_CASE("ObserverList - copy construction", "[time_series][phase1][observer]") {
     ObserverList obs_list1;
-    MockTSObserver obs;
+    MockObserver obs;
     obs_list1.add_observer(&obs);
 
     ObserverList obs_list2(obs_list1);
@@ -56,7 +51,7 @@ TEST_CASE("ObserverList - copy construction", "[time_series][phase1][observer]")
 
 TEST_CASE("ObserverList - move construction", "[time_series][phase1][observer]") {
     ObserverList obs_list1;
-    MockTSObserver obs;
+    MockObserver obs;
     obs_list1.add_observer(&obs);
 
     ObserverList obs_list2(std::move(obs_list1));
@@ -69,7 +64,7 @@ TEST_CASE("ObserverList - move construction", "[time_series][phase1][observer]")
 
 TEST_CASE("ObserverList - add_observer increases size", "[time_series][phase1][observer]") {
     ObserverList obs_list;
-    MockTSObserver obs;
+    MockObserver obs;
 
     obs_list.add_observer(&obs);
 
@@ -79,7 +74,7 @@ TEST_CASE("ObserverList - add_observer increases size", "[time_series][phase1][o
 
 TEST_CASE("ObserverList - remove_observer decreases size", "[time_series][phase1][observer]") {
     ObserverList obs_list;
-    MockTSObserver obs;
+    MockObserver obs;
 
     obs_list.add_observer(&obs);
     obs_list.remove_observer(&obs);
@@ -90,7 +85,7 @@ TEST_CASE("ObserverList - remove_observer decreases size", "[time_series][phase1
 
 TEST_CASE("ObserverList - remove non-existent observer is safe", "[time_series][phase1][observer]") {
     ObserverList obs_list;
-    MockTSObserver obs1, obs2;
+    MockObserver obs1, obs2;
 
     obs_list.add_observer(&obs1);
     obs_list.remove_observer(&obs2);  // Not in list
@@ -100,7 +95,7 @@ TEST_CASE("ObserverList - remove non-existent observer is safe", "[time_series][
 
 TEST_CASE("ObserverList - clear removes all observers", "[time_series][phase1][observer]") {
     ObserverList obs_list;
-    MockTSObserver obs1, obs2, obs3;
+    MockObserver obs1, obs2, obs3;
 
     obs_list.add_observer(&obs1);
     obs_list.add_observer(&obs2);
@@ -123,7 +118,7 @@ TEST_CASE("ObserverList - add null observer is safe", "[time_series][phase1][obs
 
 TEST_CASE("ObserverList - notify_modified calls all observers", "[time_series][phase1][observer]") {
     ObserverList obs_list;
-    MockTSObserver obs1, obs2;
+    MockObserver obs1, obs2;
 
     obs_list.add_observer(&obs1);
     obs_list.add_observer(&obs2);
@@ -131,23 +126,10 @@ TEST_CASE("ObserverList - notify_modified calls all observers", "[time_series][p
     const engine_time_t t = MIN_ST + std::chrono::microseconds(1000);
     obs_list.notify_modified(t);
 
-    CHECK(obs1.modified_count == 1);
+    CHECK(obs1.notify_count == 1);
     CHECK(obs1.last_time == t);
-    CHECK(obs2.modified_count == 1);
+    CHECK(obs2.notify_count == 1);
     CHECK(obs2.last_time == t);
-}
-
-TEST_CASE("ObserverList - notify_removed calls all observers", "[time_series][phase1][observer]") {
-    ObserverList obs_list;
-    MockTSObserver obs1, obs2;
-
-    obs_list.add_observer(&obs1);
-    obs_list.add_observer(&obs2);
-
-    obs_list.notify_removed();
-
-    CHECK(obs1.removed_count == 1);
-    CHECK(obs2.removed_count == 1);
 }
 
 TEST_CASE("ObserverList - notify on empty list is safe", "[time_series][phase1][observer]") {
@@ -155,14 +137,13 @@ TEST_CASE("ObserverList - notify on empty list is safe", "[time_series][phase1][
 
     // Should not crash
     obs_list.notify_modified(MIN_ST + std::chrono::microseconds(1000));
-    obs_list.notify_removed();
 
     CHECK(obs_list.empty());
 }
 
 TEST_CASE("ObserverList - multiple notifications accumulate", "[time_series][phase1][observer]") {
     ObserverList obs_list;
-    MockTSObserver obs;
+    MockObserver obs;
 
     obs_list.add_observer(&obs);
 
@@ -174,18 +155,18 @@ TEST_CASE("ObserverList - multiple notifications accumulate", "[time_series][pha
     obs_list.notify_modified(t2);
     obs_list.notify_modified(t3);
 
-    CHECK(obs.modified_count == 3);
+    CHECK(obs.notify_count == 3);
     CHECK(obs.last_time == t3);
 }
 
 TEST_CASE("ObserverList - same observer added multiple times gets multiple notifications", "[time_series][phase1][observer]") {
     ObserverList obs_list;
-    MockTSObserver obs;
+    MockObserver obs;
 
     obs_list.add_observer(&obs);
     obs_list.add_observer(&obs);  // Added twice
 
     obs_list.notify_modified(MIN_ST);
 
-    CHECK(obs.modified_count == 2);
+    CHECK(obs.notify_count == 2);
 }

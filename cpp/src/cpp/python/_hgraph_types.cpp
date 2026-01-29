@@ -1,4 +1,5 @@
 #include <hgraph/api/python/py_signal.h>
+#include <hgraph/api/python/py_signal_view.h>
 #include <hgraph/api/python/py_ts.h>
 #include <hgraph/api/python/py_tsl.h>
 #include <hgraph/api/python/py_ts_type_registry.h>
@@ -51,6 +52,7 @@ void export_types(nb::module_ &m) {
 
     ref_register_with_nanobind(m);
     signal_register_with_nanobind(m);
+    register_signal_view(m);
     ts_register_with_nanobind(m);
     tsb_register_with_nanobind(m);
     tsd_register_with_nanobind(m);

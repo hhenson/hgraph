@@ -82,13 +82,12 @@ public:
     /**
      * @brief Called before a key is erased from a slot.
      *
-     * Notifies all observers of the removal, then clears the list.
+     * Clears the observer list for the slot.
      *
      * @param slot The slot index being erased
      */
     void on_erase(size_t slot) override {
         if (slot < observers_.size()) {
-            observers_[slot].notify_removed();
             observers_[slot].clear();
         }
         --size_;
@@ -109,11 +108,10 @@ public:
     /**
      * @brief Called when all keys are cleared.
      *
-     * Notifies all observers of removal, then clears all lists.
+     * Clears all observer lists.
      */
     void on_clear() override {
         for (auto& obs_list : observers_) {
-            obs_list.notify_removed();
             obs_list.clear();
         }
         size_ = 0;

@@ -12,24 +12,19 @@
 using namespace hgraph;
 
 // ============================================================================
-// Mock TSObserver (same as in test_observer_list.cpp)
+// Mock Observer (same as in test_observer_list.cpp)
 // ============================================================================
 
 namespace {
 
-class MockTSObserver : public TSObserver {
+class MockObserver : public Notifiable {
 public:
-    int modified_count = 0;
-    int removed_count = 0;
+    int notify_count = 0;
     engine_time_t last_time = MIN_ST;
 
-    void notify_modified(engine_time_t t) override {
-        ++modified_count;
+    void notify(engine_time_t t) override {
+        ++notify_count;
         last_time = t;
-    }
-
-    void notify_removed() override {
-        ++removed_count;
     }
 };
 
@@ -78,7 +73,7 @@ TEST_CASE("ObserverArray - on_insert clears existing ObserverList", "[time_serie
     oa.on_capacity(0, 10);
     oa.on_insert(0);
 
-    MockTSObserver obs;
+    MockObserver obs;
     oa.at(0).add_observer(&obs);
     CHECK(oa.at(0).size() == 1);
 
@@ -89,18 +84,16 @@ TEST_CASE("ObserverArray - on_insert clears existing ObserverList", "[time_serie
     CHECK(oa.at(0).empty());
 }
 
-TEST_CASE("ObserverArray - on_erase notifies and clears", "[time_series][phase1][observer]") {
+TEST_CASE("ObserverArray - on_erase clears observer list", "[time_series][phase1][observer]") {
     ObserverArray oa;
     oa.on_capacity(0, 10);
     oa.on_insert(0);
 
-    MockTSObserver obs;
+    MockObserver obs;
     oa.at(0).add_observer(&obs);
 
     oa.on_erase(0);
 
-    // Observer should have been notified of removal
-    CHECK(obs.removed_count == 1);
     // ObserverList should be cleared
     CHECK(oa.at(0).empty());
     CHECK(oa.size() == 0);
@@ -111,23 +104,22 @@ TEST_CASE("ObserverArray - on_update is no-op", "[time_series][phase1][observer]
     oa.on_capacity(0, 10);
     oa.on_insert(0);
 
-    MockTSObserver obs;
+    MockObserver obs;
     oa.at(0).add_observer(&obs);
 
     oa.on_update(0);
 
     // Observer should not have been notified
-    CHECK(obs.modified_count == 0);
-    CHECK(obs.removed_count == 0);
+    CHECK(obs.notify_count == 0);
     // ObserverList should be unchanged
     CHECK(oa.at(0).size() == 1);
 }
 
-TEST_CASE("ObserverArray - on_clear notifies and clears all", "[time_series][phase1][observer]") {
+TEST_CASE("ObserverArray - on_clear clears all observer lists", "[time_series][phase1][observer]") {
     ObserverArray oa;
     oa.on_capacity(0, 10);
 
-    MockTSObserver obs1, obs2, obs3;
+    MockObserver obs1, obs2, obs3;
     oa.on_insert(0);
     oa.on_insert(1);
     oa.on_insert(2);
@@ -137,11 +129,6 @@ TEST_CASE("ObserverArray - on_clear notifies and clears all", "[time_series][pha
     oa.at(2).add_observer(&obs3);
 
     oa.on_clear();
-
-    // All observers should have been notified of removal
-    CHECK(obs1.removed_count == 1);
-    CHECK(obs2.removed_count == 1);
-    CHECK(obs3.removed_count == 1);
 
     // All ObserverLists should be cleared
     CHECK(oa.at(0).empty());
@@ -159,13 +146,13 @@ TEST_CASE("ObserverArray - at returns modifiable ObserverList", "[time_series][p
     oa.on_capacity(0, 10);
     oa.on_insert(0);
 
-    MockTSObserver obs;
+    MockObserver obs;
     oa.at(0).add_observer(&obs);
 
     const auto t = MIN_ST + std::chrono::microseconds(1000);
     oa.at(0).notify_modified(t);
 
-    CHECK(obs.modified_count == 1);
+    CHECK(obs.notify_count == 1);
     CHECK(obs.last_time == t);
 }
 
@@ -174,7 +161,7 @@ TEST_CASE("ObserverArray - const at returns const ObserverList", "[time_series][
     oa.on_capacity(0, 10);
     oa.on_insert(0);
 
-    MockTSObserver obs;
+    MockObserver obs;
     oa.at(0).add_observer(&obs);
 
     const ObserverArray& const_oa = oa;
@@ -187,15 +174,15 @@ TEST_CASE("ObserverArray - slots are independent", "[time_series][phase1][observ
     oa.on_insert(0);
     oa.on_insert(1);
 
-    MockTSObserver obs1, obs2;
+    MockObserver obs1, obs2;
     oa.at(0).add_observer(&obs1);
     oa.at(1).add_observer(&obs2);
 
     // Notify only slot 0
     oa.at(0).notify_modified(MIN_ST);
 
-    CHECK(obs1.modified_count == 1);
-    CHECK(obs2.modified_count == 0);
+    CHECK(obs1.notify_count == 1);
+    CHECK(obs2.notify_count == 0);
 }
 
 TEST_CASE("ObserverArray - size returns active slot count", "[time_series][phase1][observer]") {

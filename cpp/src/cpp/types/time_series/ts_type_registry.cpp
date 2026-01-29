@@ -6,6 +6,7 @@
  */
 
 #include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/value/type_registry.h>
 
 #include <cstring>
 
@@ -216,6 +217,20 @@ const TSMeta* TSTypeRegistry::tsb(
         field_array[i].ts_type = fields[i].second;
     }
 
+    // Build the bundle value schema from fields
+    // This is needed for ts_ops::make_value_view to work correctly
+    const value::TypeMeta* value_schema = nullptr;
+    if (field_count > 0) {
+        auto builder = value::TypeRegistry::instance().bundle(name);
+        for (size_t i = 0; i < field_count; ++i) {
+            const auto& f = fields[i];
+            if (f.second && f.second->value_type) {
+                builder.field(f.first.c_str(), f.second->value_type);
+            }
+        }
+        value_schema = builder.build();
+    }
+
     // Create new schema
     auto* meta = create_schema();
     meta->kind = TSKind::TSB;
@@ -223,6 +238,7 @@ const TSMeta* TSTypeRegistry::tsb(
     meta->field_count = field_count;
     meta->bundle_name = intern_string(name);
     meta->python_type = std::move(python_type);
+    meta->value_type = value_schema;  // Store bundle value schema for ts_ops
 
     // Store field array for ownership
     field_arrays_.push_back(std::move(field_array));
@@ -266,6 +282,149 @@ const TSMeta* TSTypeRegistry::signal() {
     meta->kind = TSKind::SIGNAL;
     signal_singleton_ = meta;
     return meta;
+}
+
+// ============================================================================
+// Schema Dereferencing
+// ============================================================================
+
+bool TSTypeRegistry::contains_ref(const TSMeta* meta) {
+    if (!meta) {
+        return false;
+    }
+
+    switch (meta->kind) {
+        case TSKind::REF:
+            return true;
+
+        case TSKind::TSB:
+            // Check all fields for REF
+            for (size_t i = 0; i < meta->field_count; ++i) {
+                if (contains_ref(meta->fields[i].ts_type)) {
+                    return true;
+                }
+            }
+            return false;
+
+        case TSKind::TSL:
+            // Check element type
+            return contains_ref(meta->element_ts);
+
+        case TSKind::TSD:
+            // Check value type (keys are scalars, never TS)
+            return contains_ref(meta->element_ts);
+
+        case TSKind::TSValue:
+        case TSKind::TSS:
+        case TSKind::TSW:
+        case TSKind::SIGNAL:
+            // These don't contain nested TS types
+            return false;
+
+        default:
+            return false;
+    }
+}
+
+const TSMeta* TSTypeRegistry::dereference(const TSMeta* source) {
+    if (!source) {
+        return nullptr;
+    }
+
+    // Check cache first
+    auto it = deref_cache_.find(source);
+    if (it != deref_cache_.end()) {
+        return it->second;
+    }
+
+    const TSMeta* result = nullptr;
+
+    switch (source->kind) {
+        case TSKind::REF: {
+            // REF[T] → dereference(T)
+            // The target might also contain REFs, so recurse
+            result = dereference(source->element_ts);
+            break;
+        }
+
+        case TSKind::TSB: {
+            // Check if any field contains REF
+            bool has_ref = false;
+            for (size_t i = 0; i < source->field_count; ++i) {
+                if (contains_ref(source->fields[i].ts_type)) {
+                    has_ref = true;
+                    break;
+                }
+            }
+
+            if (!has_ref) {
+                // No REFs in fields, return original
+                result = source;
+            } else {
+                // Build dereferenced fields
+                std::vector<std::pair<std::string, const TSMeta*>> deref_fields;
+                deref_fields.reserve(source->field_count);
+
+                for (size_t i = 0; i < source->field_count; ++i) {
+                    const auto& field = source->fields[i];
+                    deref_fields.emplace_back(
+                        field.name,
+                        dereference(field.ts_type)
+                    );
+                }
+
+                // Create new TSB with dereferenced fields
+                // Append "_deref" to name to distinguish from original
+                std::string deref_name = source->bundle_name ? source->bundle_name : "";
+                if (!deref_name.empty()) {
+                    deref_name += "_deref";
+                }
+
+                result = tsb(deref_fields, deref_name, source->python_type);
+            }
+            break;
+        }
+
+        case TSKind::TSL: {
+            // Dereference element type
+            const TSMeta* deref_element = dereference(source->element_ts);
+            if (deref_element == source->element_ts) {
+                // No change
+                result = source;
+            } else {
+                result = tsl(deref_element, source->fixed_size);
+            }
+            break;
+        }
+
+        case TSKind::TSD: {
+            // Dereference value type (key type stays same - it's a scalar)
+            const TSMeta* deref_value = dereference(source->element_ts);
+            if (deref_value == source->element_ts) {
+                // No change
+                result = source;
+            } else {
+                result = tsd(source->key_type, deref_value);
+            }
+            break;
+        }
+
+        case TSKind::TSValue:
+        case TSKind::TSS:
+        case TSKind::TSW:
+        case TSKind::SIGNAL:
+            // These don't contain nested TS types with potential REFs
+            result = source;
+            break;
+
+        default:
+            result = source;
+            break;
+    }
+
+    // Cache the result (even if unchanged, to avoid re-checking)
+    deref_cache_[source] = result;
+    return result;
 }
 
 } // namespace hgraph
