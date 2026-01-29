@@ -125,47 +125,26 @@ public:
 ## TSInput
 
 ### Purpose
-Subscribes to TSOutput(s) and provides access to linked values. **Never materializes** - always delegates to source via AccessStrategy.
+Subscribes to TSOutput(s) and provides access to linked values. TSInput owns a TSValue containing Links at its leaves that point to bound output values.
 
 ### Structure
 
 ```cpp
 class TSInput : public Notifiable {
-    std::unique_ptr<AccessStrategy> strategy_;  // Delegates all access to source
+    TSValue value_;                             // Contains Links at leaves pointing to outputs
     Value active_value_;                        // Subscription state (mirrors TS schema)
     const TSMeta* meta_;                        // Schema
-    ShortPath path_;                            // Location in graph
-    bool bound_ = false;                        // Whether binding is complete
+    Node* owning_node_;                         // For scheduling
 
 public:
-    // State queries - delegate to strategy
-    bool modified(engine_time_t current_time) const {
-        return active() && strategy_->modified(current_time);
-    }
-
-    bool valid() const {
-        return strategy_->valid();
-    }
-
-    bool active() const;
-
-    // Value access - NEVER materializes, always fresh from source
-    TSView view(engine_time_t current_time) const {
-        return strategy_->view(current_time);
-    }
-
-    // Delta access
-    DeltaView delta(engine_time_t current_time) const {
-        return strategy_->delta(current_time);
+    // View access - returns TSInputView
+    TSInputView view(engine_time_t time, const TSMeta& schema) {
+        return TSInputView(&value_, &active_value_, this, time, schema);
     }
 
     // Subscription control
     void set_active(bool active);
     void set_active(std::string_view field, bool active);  // For TSB
-
-    // Binding - creates appropriate AccessStrategy
-    void bind(TSOutput& source);
-    void unbind();
 
     // Notifiable interface - called when source changes
     void notify() override;
@@ -175,58 +154,81 @@ public:
 };
 ```
 
-### Never-Materialized Pattern
+### Value Structure with Links
 
-**Critical Design Decision**: TSInput never stores a copy of the source value. Every access goes through the AccessStrategy to the source TSOutput.
+TSInput's value_ has a mixed structure:
+- **Non-peered nodes**: Internal structure (bundles, lists) owned locally
+- **Link leaves**: Terminal nodes that point to output values via ViewData
+
+```
+TSInput.value_:
+├── TSB (non-peered, local)
+│   ├── a: Link → Output1.native_value_.a
+│   └── b: TSL (non-peered, local)
+│       ├── [0]: Link → Output2.native_value_
+│       └── [1]: Link → Output3.native_value_
+```
+
+### TSInputView
+
+TSInputView wraps a Link for O(1) data access without runtime navigation:
 
 ```cpp
-// WRONG - materializing the value
-class BadTSInput {
-    TSValue cached_value_;  // NO! Don't do this
+class TSInputView {
+    Link* link_;                    // ViewData: path + data + ops
+    Value* active_value_;           // Active state at this path
+    engine_time_t current_time_;
+    TSInput* input_;
 
-    TSView view(engine_time_t t) const {
-        return cached_value_.view(t);  // Stale data!
+public:
+    // Convert Link to TSView (just adds current_time)
+    TSView ts_view() const {
+        return TSView{link_->view_data, current_time_};
     }
-};
 
-// CORRECT - always delegate to source
-class TSInput {
-    AccessStrategy* strategy_;
-
-    TSView view(engine_time_t t) const {
-        return strategy_->view(t);  // Always fresh
+    // Delegate to Link's ViewData for data access
+    View value() const {
+        return View{link_->view_data.data, link_->view_data.ops};
     }
+
+    bool modified() const;
+    bool valid() const;
+
+    // Input-specific binding
+    void bind(TSOutputView& output);
+    void unbind();
+
+    // Subscription control
+    void make_active();
+    void make_passive();
+    bool active() const;
+
+    // Navigation - returns new views with child Links
+    TSInputView field(std::string_view name);
+    TSInputView operator[](size_t index);
 };
 ```
 
-**Why this matters**:
-1. **REF correctness**: REF targets can change at runtime. Cached values would be stale.
-2. **Memory efficiency**: No duplicate storage of values.
-3. **Consistency**: Single source of truth for each value.
-
 ### Binding Process
 
+Binding establishes Links from input leaves to output values:
+
 ```cpp
-void TSInput::bind(TSOutput& source) {
-    // 1. Select appropriate strategy based on types
-    strategy_ = select_strategy(this, &source);
+void TSInputView::bind(TSOutputView& output) {
+    // 1. Populate Link's ViewData from output
+    link_->view_data.path = output.short_path();
+    link_->view_data.data = output.data_ptr();
+    link_->view_data.ops = output.ops();
 
-    // 2. Register as observer
-    source.add_observer(this);
-
-    // 3. Initialize active state
-    initialize_active_state();
-
-    bound_ = true;
+    // 2. Subscribe if active
+    if (active()) {
+        output.subscribe(input_);
+    }
 }
 
-void TSInput::unbind() {
-    if (strategy_) {
-        // Unregister from source
-        strategy_->source()->remove_observer(this);
-        strategy_.reset();
-    }
-    bound_ = false;
+void TSInputView::unbind() {
+    // Unsubscribe and clear link
+    // ...
 }
 ```
 
@@ -244,22 +246,14 @@ active_value_ (Value with bool at each TS leaf):
 
 ### Partial Binding (Un-Peered TSB)
 
-For un-peered bundles, each field can have its own AccessStrategy:
+For un-peered bundles, each field has its own Link:
 
 ```cpp
-class TSBInput : public TSInput {
-    std::vector<std::unique_ptr<AccessStrategy>> field_strategies_;
-
-public:
-    void bind_field(size_t index, TSOutput& source) {
-        field_strategies_[index] = select_strategy(field_input(index), &source);
-        source.add_observer(this);
-    }
-
-    TSView field_view(size_t index, engine_time_t t) const {
-        return field_strategies_[index]->view(t);
-    }
-};
+// Each field in TSInput.value_ has a Link at its leaf
+// Binding happens per-field:
+input_view.field("a").bind(output1_view);
+input_view.field("b")[0].bind(output2_view);
+input_view.field("b")[1].bind(output3_view);
 ```
 
 ### Observer Notification

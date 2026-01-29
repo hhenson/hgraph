@@ -613,15 +613,7 @@ static void register_bundle_views(nb::module_& m) {
                 result.append(nb::make_tuple(nb::cast(name), field.to_python()));
             }
             return result;
-        }, "Iterate over (name, value) pairs")
-        // items_views() - yields (name, View) pairs without conversion
-        .def("items_views", [](const BundleView& self) {
-            nb::list result;
-            for (auto [name, field] : self.items()) {
-                result.append(nb::make_tuple(nb::cast(name), nb::cast(field)));
-            }
-            return result;
-        }, "Iterate over (name, view) pairs as View objects");
+        }, "Iterate over (name, value) pairs");
 }
 
 // ============================================================================
@@ -748,15 +740,7 @@ static void register_list_views(nb::module_& m) {
                 result.append(nb::make_tuple(nb::cast(idx), elem.to_python()));
             }
             return result;
-        }, "Iterate over (index, value) pairs")
-        // items_views() - yields (index, View) pairs without conversion
-        .def("items_views", [](const ListView& self) {
-            nb::list result;
-            for (auto [idx, elem] : self.items()) {
-                result.append(nb::make_tuple(nb::cast(idx), nb::cast(elem)));
-            }
-            return result;
-        }, "Iterate over (index, view) pairs as View objects");
+        }, "Iterate over (index, value) pairs");
 }
 
 // ============================================================================
@@ -1081,15 +1065,7 @@ static void register_map_views(nb::module_& m) {
                 result.append(nb::make_tuple(key.to_python(), val.to_python()));
             }
             return result;
-        }, "Iterate over (key, value) pairs")
-        // items_views() - yields (View, View) pairs without conversion
-        .def("items_views", [](const MapView& self) {
-            nb::list result;
-            for (auto [key, val] : self.items()) {
-                result.append(nb::make_tuple(nb::cast(key), nb::cast(val)));
-            }
-            return result;
-        }, "Iterate over (key, value) pairs as View objects");
+        }, "Iterate over (key, value) pairs");
 }
 
 // ============================================================================

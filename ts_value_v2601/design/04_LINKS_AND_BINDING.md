@@ -3,206 +3,153 @@
 ## Overview
 
 Links provide the mechanism for connecting TSInputs to TSOutputs:
-- **Link**: ViewData pointing to source data
-- **Binding**: Process of connecting inputs to outputs
+- **Link**: ViewData stored at a position, pointing to source data
+- **Binding**: Process of creating links via TSView operations
 - **REF**: Dynamic reference with runtime binding
 
 ## Link
 
 ### Purpose
-A ViewData stored at the leaf of a TSInput's value structure, pointing to TSOutput data.
 
-### Structure
+A Link is an **internal storage mechanism** (not an exposed type). Conceptually like a filesystem symlink, it creates a branch from one position in a TSValue to a position in another TSValue.
+
+A Link is **ViewData stored at a position** in the value structure:
 
 ```cpp
-struct Link {
-    // Link = ViewData (no current_time)
-    ShortPath path;     // Source location
-    void* data;         // Pointer to TSOutput's data
-    ts_ops* ops;        // Operations for the linked data
+struct ViewData {
+    ShortPath path;     // Graph-aware path to source
+    void* data;         // Pointer to source data
+    ts_ops* ops;        // Operations vtable for source
+};
+```
+
+### Link Storage and Identification
+
+Each position in a TSValue can contain either local data or a Link. A discriminator distinguishes them:
+
+```cpp
+// Storage slot at each position
+struct StorageSlot {
+    enum class Kind : uint8_t { DATA, LINK };
+    Kind kind;
+
+    union {
+        struct {
+            void* data;
+            // ... local data storage
+        } local;
+        ViewData link;  // When kind == LINK
+    };
 };
 ```
 
 ### Link Resolution
 
 ```
-TSInput                         TSOutput
-┌─────────────┐                ┌─────────────┐
-│ value_      │                │ native_value│
-│  └─ [Link]──┼───────────────►│  └─ data    │
-│             │                │             │
-│ active_     │                │             │
-│  └─ bool    │                │             │
-└─────────────┘                └─────────────┘
+TSInput.value_                  TSOutput.native_value_
+┌─────────────────┐             ┌─────────────────┐
+│ field_a:        │             │ field_a:        │
+│   kind: LINK    │             │   kind: DATA    │
+│   link: ────────┼────────────►│   data: 42      │
+│                 │             │                 │
+│ field_b:        │             │                 │
+│   kind: LINK ───┼─────────┐   │                 │
+└─────────────────┘         │   └─────────────────┘
+                            │
+                            │   TSOutput2.native_value_
+                            │   ┌─────────────────┐
+                            └──►│ kind: DATA      │
+                                │ data: 3.14      │
+                                └─────────────────┘
 ```
 
+### Navigation with Links
+
+When TSView navigates to a position:
+
+```cpp
+TSView TSView::navigate_to(size_t index) {
+    StorageSlot& slot = get_slot(index);
+
+    if (slot.kind == StorageSlot::Kind::LINK) {
+        // Follow the link - return view of target
+        return TSView{slot.link, current_time_};
+    } else {
+        // Local data - return view of this data
+        return TSView{make_view_data(slot.local), current_time_};
+    }
+}
+```
+
+The caller sees a TSView either way - Links are transparent.
+
 ## Binding
+
+### TSView Bind Operations
+
+Links are created via `bind()` / `unbind()` on a mutable TSView:
+
+```cpp
+class TSView {
+public:
+    // Create a Link at this position pointing to source
+    void bind(const TSView& source) {
+        StorageSlot& slot = get_current_slot();
+        slot.kind = StorageSlot::Kind::LINK;
+        slot.link = source.view_data();
+    }
+
+    // Remove Link at this position
+    void unbind() {
+        StorageSlot& slot = get_current_slot();
+        slot.kind = StorageSlot::Kind::DATA;
+        // Clear or reset to default
+    }
+
+    // Check if this position is a Link
+    bool is_bound() const {
+        return get_current_slot().kind == StorageSlot::Kind::LINK;
+    }
+};
+```
 
 ### Binding Process
 
 1. **Wiring Phase**: Graph construction determines connections
-2. **Bind Phase**: Links are established from inputs to outputs
-3. **Runtime**: Links are followed for value access
+2. **Bind Phase**: TSView::bind() creates Links at appropriate positions
+3. **Runtime**: Navigation transparently follows Links
 
-### Bind Operation
+### TSInputView Binding
+
+TSInputView wraps TSView binding and adds subscription management:
 
 ```cpp
-void TSInput::bind(TSOutput& source) {
-    // TODO: Define binding logic
+void TSInputView::bind(TSOutputView& output) {
+    // 1. Create Link at TSValue level
+    ts_view_.bind(output.ts_view());
 
-    // 1. Store link to source's data
-    // 2. Set up observer registration
-    // 3. Initialize active state
+    // 2. Subscribe for notifications if active
+    if (active()) {
+        output.subscribe(owning_input_);
+    }
 }
 ```
 
 ### Un-Peered Binding
 
-For un-peered TSB:
-- Each field can bind to different sources
-- Links stored at each field's leaf
-
-```
-TSInput[TSB[a, b]]          TSOutput1    TSOutput2
-     value_                      │            │
-       ├─ a: [Link] ─────────────┘            │
-       └─ b: [Link] ──────────────────────────┘
-```
-
-## AccessStrategy Pattern
-
-### Purpose
-
-Abstraction for flexible binding that handles different access scenarios uniformly. TSInput delegates value access to an AccessStrategy, enabling clean handling of direct binding, collection navigation, and REF wrapping.
-
-### Strategy Types
+For un-peered TSB, each field can bind to different sources:
 
 ```cpp
-class AccessStrategy {
-public:
-    virtual ~AccessStrategy() = default;
-
-    // Core access - always queries source freshly (never materializes)
-    virtual TSView view(engine_time_t current_time) const = 0;
-    virtual bool modified(engine_time_t current_time) const = 0;
-    virtual bool valid() const = 0;
-
-    // Delta access
-    virtual DeltaView delta(engine_time_t current_time) const = 0;
-};
+// Each field binds independently
+input_view.field("a").bind(output1_view);
+input_view.field("b").bind(output2_view);
 ```
 
-### DirectAccess
-
-Most common case - TSInput directly bound to a TSOutput.
-
-```cpp
-class DirectAccess : public AccessStrategy {
-    TSOutput* source_;
-
-public:
-    explicit DirectAccess(TSOutput* source) : source_(source) {}
-
-    TSView view(engine_time_t t) const override {
-        return source_->view(t);
-    }
-
-    bool modified(engine_time_t t) const override {
-        return source_->modified(t);
-    }
-
-    bool valid() const override {
-        return source_->valid();
-    }
-};
 ```
-
-### CollectionAccess
-
-For TSInput bound to an element within a collection (TSL, TSD, TSB field).
-
-```cpp
-class CollectionAccess : public AccessStrategy {
-    AccessStrategy* parent_;      // Strategy for parent collection
-    size_t index_;                // For TSL element or TSB field
-    // OR
-    Key key_;                     // For TSD element
-
-public:
-    TSView view(engine_time_t t) const override {
-        TSView parent_view = parent_->view(t);
-        return parent_view.at(index_);  // or .get(key_)
-    }
-};
+TSInput.value_[TSB]         TSOutput1    TSOutput2
+       ├─ a: LINK ──────────────┘            │
+       └─ b: LINK ───────────────────────────┘
 ```
-
-### RefObserverAccess
-
-For non-REF TSInput bound to a REF TSOutput. Follows the reference to get actual value.
-
-```cpp
-class RefObserverAccess : public AccessStrategy {
-    TSOutput* ref_output_;        // The REF[T] output
-
-public:
-    TSView view(engine_time_t t) const override {
-        // Follow the reference to get target TSView
-        TSView ref_view = ref_output_->view(t);
-        return ref_view.dereference();  // Follow REF to target
-    }
-
-    bool modified(engine_time_t t) const override {
-        // Modified if reference changed OR target ticked
-        // (unless sampled mode)
-        return ref_output_->modified(t) ||
-               (!ref_output_->is_sampled() && target_modified(t));
-    }
-};
-```
-
-### RefWrapperAccess
-
-For REF TSInput bound to a non-REF TSOutput. Wraps the output to provide REF semantics.
-
-```cpp
-class RefWrapperAccess : public AccessStrategy {
-    TSOutput* source_;
-
-public:
-    TSView view(engine_time_t t) const override {
-        // Return a REF-wrapped view of the source
-        return TSView::make_ref_wrapper(source_->view(t));
-    }
-};
-```
-
-### Strategy Selection
-
-During binding, the appropriate strategy is selected based on input/output types:
-
-```cpp
-AccessStrategy* select_strategy(TSInput* input, TSOutput* output) {
-    bool input_is_ref = input->schema()->ts_kind() == TSKind::REF;
-    bool output_is_ref = output->schema()->ts_kind() == TSKind::REF;
-
-    if (!input_is_ref && !output_is_ref) {
-        return new DirectAccess(output);
-    } else if (!input_is_ref && output_is_ref) {
-        return new RefObserverAccess(output);
-    } else if (input_is_ref && !output_is_ref) {
-        return new RefWrapperAccess(output);
-    } else {
-        return new DirectAccess(output);  // REF to REF
-    }
-}
-```
-
-### Benefits
-
-1. **Uniform interface**: TSInput always calls `strategy_->view(t)` regardless of binding type
-2. **Never materializes**: Views are computed fresh on each access (critical for REF correctness)
-3. **Composable**: CollectionAccess can wrap any other strategy for nested access
-4. **Extensible**: New binding patterns can be added without modifying TSInput
 
 ## Memory Stability
 

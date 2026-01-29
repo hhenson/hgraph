@@ -36,37 +36,89 @@ Through the link:
 
 ### Link Internal Structure
 
-Internally, a Link **contains** a ViewData (see [Time-Series - TSView Internal Structure](03_TIME_SERIES.md#tsview-internal-structure)):
+A Link is **not an exposed data structure** - it's an internal storage mechanism. Conceptually, a Link is like a filesystem symlink: it creates a branch from one position in a TSValue to a position in another TSValue.
+
+Internally, a Link is **ViewData stored at a position** in the value structure:
 
 ```cpp
-struct Link {
-    ViewData view_data;     // Path + data + ops
-
-    void bind();            // Populate view_data, subscribe
-    void unbind();          // Clear view_data, unsubscribe
-    bool is_bound() const;  // Check if bound
+struct ViewData {
+    ShortPath path;     // Graph-aware path to source
+    void* data;         // Pointer to source data
+    ts_ops* ops;        // Operations vtable for source
 };
 ```
 
-- **Link** contains ViewData (no current_time needed)
-- **TSView** = ViewData + `engine_time_t current_time_`
+When a position contains a Link (ViewData), navigation to that position transparently follows the link and returns a view of the target data.
 
-Converting a Link to TSView just adds the current_time. Links provide O(1) access to bound data without navigation at runtime.
+### Creating Links via TSView
 
-See [TSOutput and TSInput - ViewData and Link](05_TSOUTPUT_TSINPUT.md#viewdata-and-link) for detailed Link documentation.
+Links are created using `bind()` / `unbind()` operations on a mutable TSView:
 
-### Link States
+```cpp
+// TSView binding operations
+class TSView {
+    void bind(const TSView& source);   // Store source's ViewData as Link
+    void unbind();                      // Remove Link at this position
+    bool is_bound() const;              // Check if position is a Link
+};
 
-A link can be in one of these states:
+// Example: Bind one view to another
+TSView input_view = input_ts_value.view(time);
+TSView output_view = output_ts_value.view(time);
 
-| State | Description |
-|-------|-------------|
-| **Unbound** | Not connected to any output (placeholder) |
-| **Bound** | Connected to a specific output |
-| **Active** | Bound and currently notifying on changes |
-| **Passive** | Bound but not triggering notifications |
+input_view.field("price").bind(output_view.field("price"));
+// Now input's "price" position contains a Link to output's "price"
+```
 
-Most links are **bound and active** during normal operation.
+After binding, accessing `input_view.field("price")` returns a view of the output's data - the Link is followed transparently.
+
+### Link Identification
+
+Each position in a TSValue can contain either **local data** or a **Link**. The storage uses a discriminator to distinguish between them:
+
+```cpp
+// Conceptual storage at each position
+struct StorageSlot {
+    enum class Kind { DATA, LINK };
+    Kind kind;
+    union {
+        // Actual data (when kind == DATA)
+        // Link/ViewData (when kind == LINK)
+    };
+};
+```
+
+When navigating:
+1. Check the slot's kind
+2. If `LINK` → follow the ViewData to create a view of the target
+3. If `DATA` → create a view of the local data
+
+The caller sees a TSView either way - Links are transparent.
+
+### Link vs Subscription (Active/Passive)
+
+Links and subscriptions are separate concerns:
+
+| Concept | Responsibility |
+|---------|----------------|
+| **Link** | Data access - where to find the data |
+| **Subscription** | Notification - when to be notified of changes |
+
+A Link can exist without a subscription (passive), or with a subscription (active). The TSInputView layer manages subscriptions on top of the Link mechanism:
+
+```cpp
+class TSInputView {
+    void bind(TSOutputView& output) {
+        // 1. Create Link at TSValue level
+        ts_view_.bind(output.ts_view());
+
+        // 2. Subscribe for notifications if active
+        if (active()) {
+            output.subscribe(owning_input_);
+        }
+    }
+};
+```
 
 ---
 
