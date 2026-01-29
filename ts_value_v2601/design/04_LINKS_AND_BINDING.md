@@ -25,58 +25,71 @@ struct ViewData {
 
 ### Link Storage and Identification
 
-Each position in a TSValue can contain either local data or a Link. A discriminator distinguishes them:
+Links exist only within collections. The storage strategy is optimized per collection type:
+
+**TSL/TSD: Collection-Level Flag**
+
+For TSL and TSD, if one element is a link, all elements are links (uniform). A single flag at the collection level:
 
 ```cpp
-// Storage slot at each position
-struct StorageSlot {
-    enum class Kind : uint8_t { DATA, LINK };
-    Kind kind;
+struct CollectionStorage {
+    bool is_linked = false;  // If true, elements store ViewData (links)
 
-    union {
-        struct {
-            void* data;
-            // ... local data storage
-        } local;
-        ViewData link;  // When kind == LINK
-    };
+    // When is_linked == false: elements contain local TS data
+    // When is_linked == true:  elements contain ViewData array
+    std::vector<std::byte> elements;
 };
 ```
+
+**TSB: Per-Field Bitset**
+
+TSB fields can independently be local or linked:
+
+```cpp
+#include <sul/dynamic_bitset.hpp>
+
+struct BundleStorage {
+    sul::dynamic_bitset<> link_flags;  // Empty if no links; bit[i] indicates field i is a link
+    // Each field contains local data or ViewData based on its flag
+};
+```
+
+The bitset is empty (zero overhead) when no fields are linked. Uses `sul::dynamic_bitset` (already integrated via FetchContent).
 
 ### Link Resolution
 
 ```
-TSInput.value_                  TSOutput.native_value_
-┌─────────────────┐             ┌─────────────────┐
-│ field_a:        │             │ field_a:        │
-│   kind: LINK    │             │   kind: DATA    │
-│   link: ────────┼────────────►│   data: 42      │
-│                 │             │                 │
-│ field_b:        │             │                 │
-│   kind: LINK ───┼─────────┐   │                 │
-└─────────────────┘         │   └─────────────────┘
-                            │
-                            │   TSOutput2.native_value_
+TSInput.value_ (TSB)            TSOutput1.native_value_
+┌─────────────────────┐         ┌─────────────────┐
+│ link_flags: [1, 1]  │         │ data: 42        │
+│ field_a: ViewData ──┼────────►└─────────────────┘
+│ field_b: ViewData ──┼─────┐
+└─────────────────────┘     │   TSOutput2.native_value_
                             │   ┌─────────────────┐
-                            └──►│ kind: DATA      │
-                                │ data: 3.14      │
+                            └──►│ data: 3.14      │
                                 └─────────────────┘
 ```
 
 ### Navigation with Links
 
-When TSView navigates to a position:
-
 ```cpp
-TSView TSView::navigate_to(size_t index) {
-    StorageSlot& slot = get_slot(index);
-
-    if (slot.kind == StorageSlot::Kind::LINK) {
-        // Follow the link - return view of target
-        return TSView{slot.link, current_time_};
+// TSL/TSD navigation
+TSView TSLView::element(size_t index) {
+    if (storage_.is_linked) {
+        ViewData& vd = get_view_data_at(index);
+        return TSView{vd, current_time_};
     } else {
-        // Local data - return view of this data
-        return TSView{make_view_data(slot.local), current_time_};
+        return TSView{make_local_view_data(index), current_time_};
+    }
+}
+
+// TSB navigation
+TSView TSBView::field(size_t index) {
+    if (!link_flags_.empty() && link_flags_[index]) {
+        ViewData& vd = get_view_data_at(index);
+        return TSView{vd, current_time_};
+    } else {
+        return TSView{make_local_view_data(index), current_time_};
     }
 }
 ```
@@ -93,30 +106,39 @@ Links are created via `bind()` / `unbind()` on a mutable TSView:
 class TSView {
 public:
     // Create a Link at this position pointing to source
-    void bind(const TSView& source) {
-        StorageSlot& slot = get_current_slot();
-        slot.kind = StorageSlot::Kind::LINK;
-        slot.link = source.view_data();
-    }
+    void bind(const TSView& source);
 
-    // Remove Link at this position
-    void unbind() {
-        StorageSlot& slot = get_current_slot();
-        slot.kind = StorageSlot::Kind::DATA;
-        // Clear or reset to default
-    }
+    // Remove Link at this position (revert to local data)
+    void unbind();
 
     // Check if this position is a Link
-    bool is_bound() const {
-        return get_current_slot().kind == StorageSlot::Kind::LINK;
-    }
+    bool is_bound() const;
 };
+```
+
+Implementation depends on the parent collection type:
+
+```cpp
+// For TSL/TSD element binding (sets collection-level flag)
+void TSLView::bind_all(const TSLView& source) {
+    storage_.is_linked = true;
+    for (size_t i = 0; i < size(); ++i) {
+        store_view_data_at(i, source.element(i).view_data());
+    }
+}
+
+// For TSB field binding (sets per-field flag)
+void TSBView::bind_field(size_t index, const TSView& source) {
+    ensure_link_flags_allocated();
+    link_flags_.set(index, true);
+    store_view_data_at(index, source.view_data());
+}
 ```
 
 ### Binding Process
 
 1. **Wiring Phase**: Graph construction determines connections
-2. **Bind Phase**: TSView::bind() creates Links at appropriate positions
+2. **Bind Phase**: TSView::bind() creates Links, sets appropriate flags
 3. **Runtime**: Navigation transparently follows Links
 
 ### TSInputView Binding
@@ -135,7 +157,7 @@ void TSInputView::bind(TSOutputView& output) {
 }
 ```
 
-### Un-Peered Binding
+### Un-Peered Binding (TSB)
 
 For un-peered TSB, each field can bind to different sources:
 
@@ -146,9 +168,20 @@ input_view.field("b").bind(output2_view);
 ```
 
 ```
-TSInput.value_[TSB]         TSOutput1    TSOutput2
-       ├─ a: LINK ──────────────┘            │
-       └─ b: LINK ───────────────────────────┘
+TSInput.value_[TSB]
+  link_flags: [1, 1]
+  ├─ a: ViewData ───────► TSOutput1
+  └─ b: ViewData ───────► TSOutput2
+```
+
+### Peered Binding (TSL/TSD)
+
+For TSL/TSD, binding is all-or-nothing:
+
+```cpp
+// Entire list binds to source list
+input_list_view.bind(output_list_view);
+// Sets is_linked = true, all elements become ViewData
 ```
 
 ## Memory Stability

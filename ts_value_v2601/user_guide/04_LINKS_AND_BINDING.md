@@ -61,37 +61,64 @@ class TSView {
     void unbind();                      // Remove Link at this position
     bool is_bound() const;              // Check if position is a Link
 };
+```
 
-// Example: Bind one view to another
+**TSB (per-field binding):**
+```cpp
 TSView input_view = input_ts_value.view(time);
 TSView output_view = output_ts_value.view(time);
 
+// Bind individual fields
 input_view.field("price").bind(output_view.field("price"));
-// Now input's "price" position contains a Link to output's "price"
+input_view.field("volume").bind(other_output_view);
+// Each field independently linked; link_flags tracks which are links
 ```
 
-After binding, accessing `input_view.field("price")` returns a view of the output's data - the Link is followed transparently.
+**TSL/TSD (whole-collection binding):**
+```cpp
+// Entire collection binds at once (all-or-nothing)
+input_list_view.bind(output_list_view);
+// Sets is_linked = true; all elements become ViewData pointing to source
+```
+
+After binding, accessing elements returns views of the output's data - Links are followed transparently.
 
 ### Link Identification
 
-Each position in a TSValue can contain either **local data** or a **Link**. The storage uses a discriminator to distinguish between them:
+Links exist only within collections (TSL, TSD, TSB). The storage strategy differs by collection type:
+
+**TSL and TSD (Uniform)**
+
+If one element is a link, all elements are links. A single collection-level flag indicates whether elements contain local data or ViewData:
 
 ```cpp
-// Conceptual storage at each position
-struct StorageSlot {
-    enum class Kind { DATA, LINK };
-    Kind kind;
-    union {
-        // Actual data (when kind == DATA)
-        // Link/ViewData (when kind == LINK)
-    };
+struct CollectionStorage {
+    bool is_linked = false;  // True = elements are ViewData (links)
+    std::vector<std::byte> elements;  // Local data OR ViewData array
 };
 ```
 
-When navigating:
-1. Check the slot's kind
-2. If `LINK` → follow the ViewData to create a view of the target
-3. If `DATA` → create a view of the local data
+**TSB (Per-Field)**
+
+Each field can independently be local or linked. A bitset tracks which fields are links:
+
+```cpp
+#include <sul/dynamic_bitset.hpp>
+
+struct BundleStorage {
+    sul::dynamic_bitset<> link_flags;  // Empty if no links; bit[i] = true means field i is a link
+    // Field storage contains local data or ViewData based on flag
+};
+```
+
+The bitset is empty (zero overhead) when no fields are linked - the common case for outputs.
+
+**Navigation**
+
+When navigating to an element:
+1. Check the collection's link flag (TSL/TSD) or bitlist (TSB)
+2. If linked → create view from stored ViewData
+3. If local → create view of local data
 
 The caller sees a TSView either way - Links are transparent.
 
