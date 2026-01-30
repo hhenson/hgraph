@@ -637,9 +637,18 @@ void establish_alternative_links(TSValue& alt, TSValue& native, const TSMeta& ta
 | TS[T] | TS[T] | Link → native | Via Link |
 | REF[TS[T]] | REF[TS[T]] | Link → native | Via Link |
 | REF[TS[T]] | TS[T] | REFLink | REF source + current target |
+| REF[X] | Y (X≠Y) | REFLink + nested conversion | REF source + recursive |
 | TS[T] | REF[TS[T]] | TSReference value | None (value is static) |
 | TSD/TSL | TSD/TSL | Per-element links | Native structure changes |
 | TSB | TSB | Per-field links | Per-field as above |
+
+**Nested Conversion Example**: `REF[TSD[str, TS[int]]] → TSD[str, REF[TS[int]]]`
+
+1. REFLink dereferences outer REF to get link to the actual `TSD[str, TS[int]]` (on a different output)
+2. Element-level conversion (`TS[int] → REF[TS[int]]`) happens on that **linked TSD output**, creating TSReferences that point to its elements
+3. When REF changes target, REFLink rebinds to new TSD and regenerates element TSReferences for new target's elements
+
+Note: The alternative does NOT copy the TSD - it links to the dereferenced TSD and wraps its elements.
 
 ### No Explicit Sync
 
