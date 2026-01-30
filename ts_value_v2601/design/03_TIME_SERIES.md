@@ -8,12 +8,13 @@ Time series extend values with temporal semantics:
 
 ## TSMeta Schema Generation
 
-When a TSMeta is created, it generates four parallel schemas from the core TS type:
+When a TSMeta is created, it generates five parallel schemas from the core TS type:
 
 1. **value_schema_**: Schema for user-visible data
 2. **time_meta_**: Schema for modification timestamps (mirrors data structure)
 3. **observer_meta_**: Schema for observer lists (mirrors data structure)
 4. **delta_value_meta_**: Schema for delta tracking data (only where TSS/TSD exist)
+5. **link_schema_**: Schema for link tracking data (REFLink storage for binding support)
 
 ### TS Type to Value Schema Mapping
 
@@ -399,6 +400,42 @@ void clear_delta(ListDeltaNav& d) {
 
 For TSS/TSD, delta stores slot indices (not element copies). Element data is accessed via KeySet when iterating. This enables zero-copy delta during the tick.
 
+### Link Schema Generation
+
+The link schema provides storage for binding support. It uses **REFLink** at each position that can be bound, enabling both simple linking and REF→TS dereferencing.
+
+#### Link Schema Rules
+
+```
+link_schema(TS[T])     = nullptr                  // Scalars don't support binding
+link_schema(TSS[T])    = nullptr                  // Sets don't support binding
+link_schema(TSW[T])    = nullptr                  // Windows don't support binding
+link_schema(REF[T])    = nullptr                  // REFs don't support binding
+link_schema(SIGNAL)    = nullptr                  // Signals don't support binding
+link_schema(TSB[...])  = fixed_list[REFLink, field_count]  // Per-field REFLink
+link_schema(TSL[T])    = REFLink                  // Collection-level REFLink
+link_schema(TSD[K,V])  = REFLink                  // Collection-level REFLink
+```
+
+| TS Type | Link Schema | Notes |
+|---------|-------------|-------|
+| TS[T] | `nullptr` | Scalars are bound at parent level |
+| TSB[...] | `fixed_list[REFLink, N]` | One REFLink per field |
+| TSL[T] | `REFLink` | Single collection-level link |
+| TSD[K,V] | `REFLink` | Single collection-level link |
+| TSS[T] | `nullptr` | Sets don't support binding |
+| TSW[T] | `nullptr` | Windows don't support binding |
+| REF[T] | `nullptr` | References don't support binding |
+| SIGNAL | `nullptr` | Signals don't support binding |
+
+#### REFLink Purpose
+
+REFLink serves dual purposes:
+1. **Simple linking**: When not bound to a REF source, stores target ViewData (like a simple pointer)
+2. **REF dereferencing**: When bound to a REF source, handles dynamic rebinding when the REF value changes
+
+See [Links and Binding](04_LINKS_AND_BINDING.md) for detailed REFLink documentation.
+
 ### TSW WindowStorage
 
 TSW requires a custom storage type that maintains a time-ordered window of values:
@@ -444,6 +481,7 @@ class TSValue {
     Value time_;              // Modification timestamps (schema from ts_meta->time_meta_)
     Value observer_;          // Observer lists (schema from ts_meta->observer_meta_)
     Value delta_value_;       // Delta tracking data (schema from ts_meta->delta_value_meta_)
+    Value link_;              // Link tracking data (schema from link_schema, see 04_LINKS_AND_BINDING)
     const TSMeta* meta_;      // Time-series schema
     engine_time_t last_delta_clear_time_{MIN_ENGINE_TIME};  // For lazy clearing
 
@@ -454,6 +492,7 @@ public:
         , time_(meta->time_meta())
         , observer_(meta->observer_meta())
         , delta_value_(meta->delta_value_meta())  // May be void if no TSS/TSD
+        , link_(generate_link_schema(meta))       // REFLink storage for binding support
         , meta_(meta)
     {}
 
@@ -501,9 +540,17 @@ This eliminates the need for explicit `begin_tick()` calls - delta state is mana
 
 **Note**: `delta_value_` may be void if the TS type contains no TSS/TSD. In that case, delta access is a no-op.
 
-### Four-Value Parallel Structure
+### Five-Value Parallel Structure
 
-Each TSValue has four separate Value instances. Examples:
+Each TSValue has five separate Value instances:
+
+1. **value_**: User-visible data (schema from ts_meta->value_schema_)
+2. **time_**: Modification timestamps (recursive, mirrors data structure)
+3. **observer_**: Observer lists (recursive, mirrors data structure)
+4. **delta_value_**: Delta tracking data (only where TSS/TSD exist)
+5. **link_**: Link tracking data (REFLink storage for binding support)
+
+Examples:
 
 **TS[int]** (atomic, no delta tracking):
 

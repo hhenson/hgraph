@@ -23,47 +23,56 @@ struct ViewData {
 };
 ```
 
-### Link Storage and Identification
+### Link Storage
 
-Links exist only within collections. The storage strategy is optimized per collection type:
+Links are stored using **REFLink** structures that support both simple linking and REF→TS dereferencing. The storage is part of TSValue's five-value structure in the `link_` storage:
 
-**TSL/TSD: Collection-Level Flag**
+**Link Schema Generation**
 
-For TSL and TSD, if one element is a link, all elements are links (uniform). A single flag at the collection level:
+| Type | Link Schema |
+|------|-------------|
+| `TS[T]` | `nullptr` (scalars don't support binding) |
+| `TSB[...]` | `fixed_list[REFLink, field_count]` (per-field REFLink) |
+| `TSL[T]` | `REFLink` (collection-level) |
+| `TSD[K,V]` | `REFLink` (collection-level) |
 
-```cpp
-struct CollectionStorage {
-    bool is_linked = false;  // If true, elements store ViewData (links)
+**TSL/TSD: Collection-Level REFLink**
 
-    // When is_linked == false: elements contain local TS data
-    // When is_linked == true:  elements contain ViewData array
-    std::vector<std::byte> elements;
-};
-```
-
-**TSB: Per-Field Bitset**
-
-TSB fields can independently be local or linked:
+For TSL and TSD, a single REFLink at the collection level handles the entire binding:
 
 ```cpp
-#include <sul/dynamic_bitset.hpp>
-
-struct BundleStorage {
-    sul::dynamic_bitset<> link_flags;  // Empty if no links; bit[i] indicates field i is a link
-    // Each field contains local data or ViewData based on its flag
-};
+// link_data points to a single REFLink
+REFLink* ref_link = static_cast<REFLink*>(view_data.link_data);
+if (ref_link && ref_link->is_bound()) {
+    // Entire collection is linked to source
+}
 ```
 
-The bitset is empty (zero overhead) when no fields are linked. Uses `sul::dynamic_bitset` (already integrated via FetchContent).
+**TSB: Per-Field REFLink Array**
+
+TSB fields each have an independent REFLink stored in a fixed-size array:
+
+```cpp
+// link_data points to fixed_list[REFLink, field_count]
+REFLink* ref_links = static_cast<REFLink*>(view_data.link_data);
+REFLink& field_link = ref_links[field_index];
+if (field_link.is_bound()) {
+    // This field is linked to source
+}
+```
+
+This design provides:
+- **Uniform storage**: Same REFLink type handles both simple links and REF dereferencing
+- **Stable addresses**: Inline storage ensures REFLink addresses don't change
+- **Automatic lifecycle**: REFLink cleanup happens when parent element is destroyed
 
 ### Link Resolution
 
 ```
 TSInput.value_ (TSB)            TSOutput1.native_value_
 ┌─────────────────────┐         ┌─────────────────┐
-│ link_flags: [1, 1]  │         │ data: 42        │
-│ field_a: ViewData ──┼────────►└─────────────────┘
-│ field_b: ViewData ──┼─────┐
+│ link_[0]: REFLink ──┼────────►│ data: 42        │
+│ link_[1]: REFLink ──┼─────┐   └─────────────────┘
 └─────────────────────┘     │   TSOutput2.native_value_
                             │   ┌─────────────────┐
                             └──►│ data: 3.14      │
@@ -73,24 +82,25 @@ TSInput.value_ (TSB)            TSOutput1.native_value_
 ### Navigation with Links
 
 ```cpp
-// TSL/TSD navigation
+// TSL/TSD navigation - check collection-level REFLink
 TSView TSLView::element(size_t index) {
-    if (storage_.is_linked) {
-        ViewData& vd = get_view_data_at(index);
-        return TSView{vd, current_time_};
-    } else {
-        return TSView{make_local_view_data(index), current_time_};
+    REFLink* link = get_collection_link();
+    if (link && link->is_bound()) {
+        // Navigate through the linked target
+        TSView target = link->target_view(current_time_);
+        return target[index];
     }
+    return TSView{make_local_view_data(index), current_time_};
 }
 
-// TSB navigation
+// TSB navigation - check per-field REFLink
 TSView TSBView::field(size_t index) {
-    if (!link_flags_.empty() && link_flags_[index]) {
-        ViewData& vd = get_view_data_at(index);
-        return TSView{vd, current_time_};
-    } else {
-        return TSView{make_local_view_data(index), current_time_};
+    REFLink* field_link = get_field_link(index);
+    if (field_link && field_link->is_bound()) {
+        // Return target view for this field
+        return field_link->target_view(current_time_);
     }
+    return TSView{make_local_view_data(index), current_time_};
 }
 ```
 
@@ -116,30 +126,32 @@ public:
 };
 ```
 
-Implementation depends on the parent collection type:
+Implementation uses REFLink at the appropriate position:
 
 ```cpp
-// For TSL/TSD element binding (sets collection-level flag)
-void TSLView::bind_all(const TSLView& source) {
-    storage_.is_linked = true;
-    for (size_t i = 0; i < size(); ++i) {
-        store_view_data_at(i, source.element(i).view_data());
+// For TSL/TSD binding (collection-level REFLink)
+void TSView::bind(const TSView& source) {
+    REFLink* link = get_ref_link();
+    if (link) {
+        // Store source's ViewData in the REFLink target
+        link->bind_to_target(source, current_time_);
     }
 }
 
-// For TSB field binding (sets per-field flag)
+// For TSB field binding (per-field REFLink)
 void TSBView::bind_field(size_t index, const TSView& source) {
-    ensure_link_flags_allocated();
-    link_flags_.set(index, true);
-    store_view_data_at(index, source.view_data());
+    REFLink* field_link = get_field_link(index);
+    if (field_link) {
+        field_link->bind_to_target(source, current_time_);
+    }
 }
 ```
 
 ### Binding Process
 
 1. **Wiring Phase**: Graph construction determines connections
-2. **Bind Phase**: TSView::bind() creates Links, sets appropriate flags
-3. **Runtime**: Navigation transparently follows Links
+2. **Bind Phase**: TSView::bind() configures REFLink to point to source
+3. **Runtime**: Navigation transparently follows REFLink targets
 
 ### TSInputView Binding
 
@@ -169,9 +181,8 @@ input_view.field("b").bind(output2_view);
 
 ```
 TSInput.value_[TSB]
-  link_flags: [1, 1]
-  ├─ a: ViewData ───────► TSOutput1
-  └─ b: ViewData ───────► TSOutput2
+  link_[0]: REFLink ───────► TSOutput1
+  link_[1]: REFLink ───────► TSOutput2
 ```
 
 ### Peered Binding (TSL/TSD)
@@ -181,7 +192,7 @@ For TSL/TSD, binding is all-or-nothing:
 ```cpp
 // Entire list binds to source list
 input_list_view.bind(output_list_view);
-// Sets is_linked = true, all elements become ViewData
+// Collection-level REFLink binds to source, navigation follows link
 ```
 
 ## Memory Stability

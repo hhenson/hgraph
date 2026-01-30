@@ -83,42 +83,34 @@ input_list_view.bind(output_list_view);
 
 After binding, accessing elements returns views of the output's data - Links are followed transparently.
 
-### Link Identification
+### Link Storage
 
-Links exist only within collections (TSL, TSD, TSB). The storage strategy differs by collection type:
+Links are stored using **REFLink** - a structure that supports both simple linking and REF→TS dereferencing. Link storage is part of TSValue's five parallel structures (see [Time Series](03_TIME_SERIES.md)).
 
-**TSL and TSD (Uniform)**
+**TSL and TSD (Collection-Level)**
 
-If one element is a link, all elements are links. A single collection-level flag indicates whether elements contain local data or ViewData:
+TSL and TSD use a single REFLink for the entire collection. When bound, all navigation through the collection follows the link:
 
 ```cpp
-struct CollectionStorage {
-    bool is_linked = false;  // True = elements are ViewData (links)
-    std::vector<std::byte> elements;  // Local data OR ViewData array
-};
+// TSL/TSD: Single REFLink stored in link_ value
+// When is_linked() == true, navigation follows link to target
 ```
 
 **TSB (Per-Field)**
 
-Each field can independently be local or linked. A bitset tracks which fields are links:
+Each TSB field has its own REFLink in a fixed-size array:
 
 ```cpp
-#include <sul/dynamic_bitset.hpp>
-
-struct BundleStorage {
-    sul::dynamic_bitset<> link_flags;  // Empty if no links; bit[i] = true means field i is a link
-    // Field storage contains local data or ViewData based on flag
-};
+// TSB: fixed_list[REFLink, field_count] stored in link_ value
+// Each field can independently be linked or local
 ```
-
-The bitset is empty (zero overhead) when no fields are linked - the common case for outputs.
 
 **Navigation**
 
 When navigating to an element:
-1. Check the collection's link flag (TSL/TSD) or bitlist (TSB)
-2. If linked → create view from stored ViewData
-3. If local → create view of local data
+1. Check if the position's REFLink is linked (via `is_bound()`)
+2. If linked → navigation follows link to target data
+3. If local → navigation accesses local data
 
 The caller sees a TSView either way - Links are transparent.
 
