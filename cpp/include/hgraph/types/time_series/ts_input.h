@@ -1,0 +1,195 @@
+#pragma once
+
+/**
+ * @file ts_input.h
+ * @brief TSInput - Consumer of time-series values.
+ *
+ * TSInput subscribes to TSOutput(s) and provides access to linked values.
+ * Owns a TSValue containing Links at its leaves that point to bound output values.
+ *
+ * @see design/05_TSOUTPUT_TSINPUT.md
+ * @see user_guide/05_TSOUTPUT_TSINPUT.md
+ */
+
+#include <hgraph/types/time_series/ts_value.h>
+#include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
+#include <hgraph/types/time_series/short_path.h>
+#include <hgraph/types/notifiable.h>
+#include <hgraph/hgraph_forward_declarations.h>
+
+namespace hgraph {
+
+// Forward declarations
+class TSInputView;
+class TSOutputView;
+
+/**
+ * @brief Consumer of time-series values.
+ *
+ * TSInput subscribes to TSOutput(s) and provides access to linked values.
+ * It owns a TSValue containing Links at its leaves that point to bound output values.
+ *
+ * Key responsibilities:
+ * - Owns TSValue with link storage at leaves
+ * - Manages active/passive subscription state
+ * - Implements Notifiable to receive notifications from outputs
+ * - Provides TSInputView for access
+ *
+ * Usage:
+ * @code
+ * // Create input with schema
+ * TSInput input(ts_meta, owning_node);
+ *
+ * // Get view for binding
+ * TSInputView input_view = input.view(current_time);
+ * TSOutputView output_view = output.view(current_time);
+ *
+ * // Bind input to output
+ * input_view.bind(output_view);
+ *
+ * // Make active to receive notifications
+ * input_view.make_active();
+ *
+ * // Access value (reads from linked output)
+ * value::View val = input_view.value();
+ * @endcode
+ */
+class TSInput : public Notifiable {
+public:
+    // ========== Construction ==========
+
+    /**
+     * @brief Construct TSInput with schema and owning node.
+     *
+     * @param ts_meta Schema for this input
+     * @param owner The Node that owns this input
+     */
+    TSInput(const TSMeta* ts_meta, node_ptr owner);
+
+    /**
+     * @brief Default constructor - creates invalid TSInput.
+     */
+    TSInput() noexcept = default;
+
+    // Non-copyable, movable
+    TSInput(const TSInput&) = delete;
+    TSInput& operator=(const TSInput&) = delete;
+    TSInput(TSInput&&) noexcept = default;
+    TSInput& operator=(TSInput&&) noexcept = default;
+
+    ~TSInput() override = default;
+
+    // ========== View Access ==========
+
+    /**
+     * @brief Get view for this input at current time.
+     *
+     * @param current_time The current engine time
+     * @return TSInputView for access
+     */
+    TSInputView view(engine_time_t current_time);
+
+    /**
+     * @brief Get view for this input at current time with specific schema.
+     *
+     * The schema parameter allows requesting a different view of the bound data.
+     *
+     * @param current_time The current engine time
+     * @param schema The requested schema
+     * @return TSInputView for the requested schema
+     */
+    TSInputView view(engine_time_t current_time, const TSMeta* schema);
+
+    // ========== Subscription Control ==========
+
+    /**
+     * @brief Set active/passive state for entire input.
+     *
+     * When active, receives notifications from bound outputs.
+     * When passive, does not receive notifications (polling mode).
+     *
+     * @param active true to activate, false to deactivate
+     */
+    void set_active(bool active);
+
+    /**
+     * @brief Set active/passive state for specific field (TSB).
+     *
+     * Only valid for bundle inputs.
+     *
+     * @param field The field name
+     * @param active true to activate, false to deactivate
+     */
+    void set_active(const std::string& field, bool active);
+
+    /**
+     * @brief Check if this input (root level) is active.
+     */
+    [[nodiscard]] bool active() const noexcept;
+
+    /**
+     * @brief Get a mutable view of the active state data.
+     * @return Mutable view of active_
+     */
+    [[nodiscard]] value::View active_view();
+
+    /**
+     * @brief Get a const view of the active state data.
+     * @return Const view of active_
+     */
+    [[nodiscard]] value::View active_view() const;
+
+    // ========== Notifiable Interface ==========
+
+    /**
+     * @brief Called when source output changes.
+     *
+     * Schedules owning node for execution.
+     *
+     * @param et The time at which the modification occurred
+     */
+    void notify(engine_time_t et) override;
+
+    // ========== Accessors ==========
+
+    /**
+     * @brief Get the owning node.
+     */
+    [[nodiscard]] node_ptr owning_node() const noexcept { return owning_node_; }
+
+    /**
+     * @brief Get the input schema.
+     */
+    [[nodiscard]] const TSMeta* meta() const noexcept { return meta_; }
+
+    /**
+     * @brief Get mutable reference to the value (contains links).
+     */
+    [[nodiscard]] TSValue& value() noexcept { return value_; }
+
+    /**
+     * @brief Get const reference to the value.
+     */
+    [[nodiscard]] const TSValue& value() const noexcept { return value_; }
+
+    /**
+     * @brief Get the root ShortPath for this input.
+     */
+    [[nodiscard]] ShortPath root_path() const {
+        return ShortPath(owning_node_, PortType::INPUT, {});
+    }
+
+    /**
+     * @brief Check if valid (has schema).
+     */
+    [[nodiscard]] bool valid() const noexcept { return meta_ != nullptr; }
+
+private:
+    TSValue value_;                     ///< Contains Links at leaves pointing to outputs
+    value::Value<> active_;             ///< Hierarchical active state (mirrors schema structure)
+    const TSMeta* meta_{nullptr};       ///< Schema
+    node_ptr owning_node_{nullptr};     ///< For scheduling
+};
+
+} // namespace hgraph

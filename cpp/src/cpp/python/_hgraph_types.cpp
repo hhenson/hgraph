@@ -4,6 +4,7 @@
 #include <hgraph/api/python/py_tsl.h>
 #include <hgraph/api/python/py_ts_type_registry.h>
 #include <hgraph/api/python/py_ts_value.h>
+#include <hgraph/api/python/py_ts_input_output.h>
 #include <hgraph/api/python/py_value.h>
 
 #include <hgraph/api/python/py_ref.h>
@@ -36,6 +37,9 @@ void export_types(nb::module_ &m) {
 
     // TSValue and TSView (must come after TSTypeRegistry)
     ts_value_register_with_nanobind(m);
+
+    // TSInput, TSOutput, and views (must come after TSValue)
+    ts_input_output_register_with_nanobind(m);
 
     // Schema and scalar types (must come before time series types that use them)
     AbstractSchema::register_with_nanobind(m);

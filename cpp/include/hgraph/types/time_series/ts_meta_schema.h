@@ -12,6 +12,7 @@
  * 3. observer_schema: Observer lists (recursive, mirrors data structure)
  * 4. delta_value_schema: Delta tracking data (only where TSS/TSD exist)
  * 5. link_schema: Link flags for binding support (parallel to value structure)
+ * 6. active_schema: Active/passive subscription flags (for TSInput only)
  *
  * Schema Generation Rules:
  *
@@ -39,6 +40,12 @@
  *   TSD[K,V] -> bool (collection-level link flag)
  *   TSL[T]   -> bool (collection-level link flag)
  *   TSB[...] -> fixed_list[bool x field_count] (per-field link flags)
+ *
+ * active_schema (for TSInput only):
+ *   TS[T], TSS, SIGNAL, TSW, REF -> bool
+ *   TSD[K,V] -> tuple[bool, var_list[active_schema(V)]]
+ *   TSB[...] -> tuple[bool, fixed_list[active_schema(field_i) for each field]]
+ *   TSL[T]   -> tuple[bool, fixed_list[active_schema(element) x size]]
  */
 
 #include <hgraph/types/time_series/ts_meta.h>
@@ -114,6 +121,21 @@ public:
      */
     const value::TypeMeta* get_link_schema(const TSMeta* ts_meta);
 
+    /**
+     * @brief Get the active schema for a TSMeta.
+     *
+     * Active schema is used for tracking active/passive subscription state at each
+     * position in the input hierarchy. This is used by TSInput (not TSOutput).
+     * - Scalars (TS, TSS, SIGNAL, TSW, REF): bool
+     * - TSD[K,V]: tuple[bool, var_list[active_schema(V)]]
+     * - TSB[...]: tuple[bool, fixed_list[active_schema(field) for each field]]
+     * - TSL[T]: tuple[bool, fixed_list[active_schema(element) x size]]
+     *
+     * @param ts_meta The time-series metadata
+     * @return TypeMeta for the active_ parallel Value
+     */
+    const value::TypeMeta* get_active_schema(const TSMeta* ts_meta);
+
     // ========== Singleton Type Accessors ==========
 
     /**
@@ -171,6 +193,7 @@ private:
     const value::TypeMeta* generate_observer_schema_impl(const TSMeta* ts_meta);
     const value::TypeMeta* generate_delta_value_schema_impl(const TSMeta* ts_meta);
     const value::TypeMeta* generate_link_schema_impl(const TSMeta* ts_meta);
+    const value::TypeMeta* generate_active_schema_impl(const TSMeta* ts_meta);
 
     // ========== Caches ==========
 
@@ -178,6 +201,7 @@ private:
     std::unordered_map<const TSMeta*, const value::TypeMeta*> observer_schema_cache_;
     std::unordered_map<const TSMeta*, const value::TypeMeta*> delta_value_schema_cache_;
     std::unordered_map<const TSMeta*, const value::TypeMeta*> link_schema_cache_;
+    std::unordered_map<const TSMeta*, const value::TypeMeta*> active_schema_cache_;
 
     // ========== Singleton TypeMetas ==========
 
@@ -299,6 +323,25 @@ inline const value::TypeMeta* generate_delta_value_schema(const TSMeta* ts_meta)
  */
 inline const value::TypeMeta* generate_link_schema(const TSMeta* ts_meta) {
     return TSMetaSchemaCache::instance().get_link_schema(ts_meta);
+}
+
+/**
+ * @brief Generate the active schema for a TSMeta.
+ *
+ * Convenience function that delegates to TSMetaSchemaCache.
+ *
+ * Active schema is used for tracking active/passive subscription state at each
+ * position in the input hierarchy. This mirrors the data structure with bools.
+ * - Scalars (TS, TSS, SIGNAL, TSW, REF): bool
+ * - TSD[K,V]: tuple[bool, var_list[active_schema(V)]]
+ * - TSB[...]: tuple[bool, fixed_list[active_schema(field) for each field]]
+ * - TSL[T]: tuple[bool, fixed_list[active_schema(element) x size]]
+ *
+ * @param ts_meta The time-series metadata
+ * @return TypeMeta for the active_ parallel Value
+ */
+inline const value::TypeMeta* generate_active_schema(const TSMeta* ts_meta) {
+    return TSMetaSchemaCache::instance().get_active_schema(ts_meta);
 }
 
 } // namespace hgraph

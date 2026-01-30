@@ -235,6 +235,21 @@ const value::TypeMeta* TSMetaSchemaCache::get_link_schema(const TSMeta* ts_meta)
     return schema;
 }
 
+const value::TypeMeta* TSMetaSchemaCache::get_active_schema(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    // Check cache
+    auto it = active_schema_cache_.find(ts_meta);
+    if (it != active_schema_cache_.end()) {
+        return it->second;
+    }
+
+    // Generate and cache
+    const value::TypeMeta* schema = generate_active_schema_impl(ts_meta);
+    active_schema_cache_[ts_meta] = schema;
+    return schema;
+}
+
 // ============================================================================
 // Time Schema Generation
 // ============================================================================
@@ -474,6 +489,85 @@ const value::TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta
     }
 
     return nullptr;
+}
+
+// ============================================================================
+// Active Schema Generation
+// ============================================================================
+
+const value::TypeMeta* TSMetaSchemaCache::generate_active_schema_impl(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    switch (ts_meta->kind) {
+        case TSKind::TSValue:
+        case TSKind::TSS:
+        case TSKind::TSW:
+        case TSKind::REF:
+        case TSKind::SIGNAL:
+            // Atomic time-series types: just bool for active state
+            return bool_meta_;
+
+        case TSKind::TSD: {
+            // TSD[K,V] -> tuple[bool, var_list[active_schema(V)]]
+            const value::TypeMeta* child_active = get_active_schema(ts_meta->element_ts);
+
+            auto& registry = value::TypeRegistry::instance();
+
+            // Build var_list for child active states (dynamic list)
+            const value::TypeMeta* var_list_type = registry.list(child_active).build();
+
+            // Build tuple[bool, var_list[...]]
+            return registry.tuple()
+                .element(bool_meta_)
+                .element(var_list_type)
+                .build();
+        }
+
+        case TSKind::TSB: {
+            // TSB[...] -> tuple[bool, fixed_list[active_schema(field_i) for each field]]
+            auto& registry = value::TypeRegistry::instance();
+            auto builder = registry.tuple();
+
+            // First element: container active state
+            builder.element(bool_meta_);
+
+            // Subsequent elements: per-field active schemas
+            for (size_t i = 0; i < ts_meta->field_count; ++i) {
+                const value::TypeMeta* field_active = get_active_schema(ts_meta->fields[i].ts_type);
+                builder.element(field_active);
+            }
+
+            return builder.build();
+        }
+
+        case TSKind::TSL: {
+            // TSL[T] -> tuple[bool, fixed_list[active_schema(element) x size]]
+            const value::TypeMeta* element_active = get_active_schema(ts_meta->element_ts);
+
+            auto& registry = value::TypeRegistry::instance();
+
+            if (ts_meta->fixed_size > 0) {
+                // Fixed-size list
+                const value::TypeMeta* fixed_list_type =
+                    registry.fixed_list(element_active, ts_meta->fixed_size).build();
+
+                return registry.tuple()
+                    .element(bool_meta_)
+                    .element(fixed_list_type)
+                    .build();
+            } else {
+                // Dynamic list
+                const value::TypeMeta* var_list_type = registry.list(element_active).build();
+
+                return registry.tuple()
+                    .element(bool_meta_)
+                    .element(var_list_type)
+                    .build();
+            }
+        }
+    }
+
+    return bool_meta_;
 }
 
 } // namespace hgraph

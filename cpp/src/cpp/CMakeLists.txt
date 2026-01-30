@@ -18,6 +18,7 @@ set(HGRAPH_SOURCES
         api/python/py_tsw.cpp
         api/python/py_ts_type_registry.cpp
         api/python/py_ts_value.cpp
+        api/python/py_ts_input_output.cpp
         api/python/py_value.cpp
         api/python/wrapper_factory.cpp
         builders/builder.cpp
@@ -117,6 +118,9 @@ set(HGRAPH_SOURCES
         types/time_series/ts_view_range.cpp
         types/time_series/ts_ops.cpp
         types/time_series/signal_view.cpp
+        types/time_series/ts_output.cpp
+        types/time_series/ts_input.cpp
+        types/time_series/ref_link.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
