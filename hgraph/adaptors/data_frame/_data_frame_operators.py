@@ -183,5 +183,8 @@ def ungroup_with_key(
 
 @compute_node
 def sorted_(ts: TS[Frame[COMPOUND_SCALAR]], by: str, descending: bool = False) -> TS[Frame[COMPOUND_SCALAR]]:
-    if not ts.value.is_empty():
-        return ts.value.sort(by, descending=descending)
+    ts = ts.value
+    if len(ts) < 2:
+        return ts
+    else:
+        return ts.sort(by, descending=descending)
