@@ -930,9 +930,6 @@ async function getContextActionColumns(from) {
     const actions = context_mapping.filter((x) => x.source === from_title);
     for (const action of actions) {
         columns.add(action.context);
-        if (action.title){
-            required_cols = [...action.format.matchAll(FORMAT_REGEX)].map((x) => x[1]);
-        }
     }
     return [...columns];
 }
