@@ -430,75 +430,224 @@ std::vector<size_t> get_removed_this_tick(const SetStorage* storage, engine_time
 ## REF (Dynamic Reference)
 
 ### Purpose
-Runtime-determined reference to another time-series.
+Runtime-determined reference to another time-series. REF enables dynamic routing where the target isn't known until runtime.
 
-### Structure
+### TSReference Value Type
+
+`TSReference` is the value stored in a `REF[TS[T]]` time-series. It represents a pointer to another time-series location.
 
 ```cpp
-struct REF {
-    // TODO: Define REF structure
+struct TSReference {
+    enum class Kind { EMPTY, PEERED, NON_PEERED };
 
-    // Reference target (set at runtime)
-    // ShortPath target_path;
+    Kind kind;
 
-    // Sampled flag
-    // bool sampled;
+    // For PEERED: direct reference to a single output
+    ShortPath target_path;
+
+    // For NON_PEERED: collection of child references (for TSL/TSD/TSB)
+    std::vector<TSReference> items;
+
+    bool is_empty() const { return kind == Kind::EMPTY; }
+    bool is_peered() const { return kind == Kind::PEERED; }
+    bool is_non_peered() const { return kind == Kind::NON_PEERED; }
+
+    // Resolve to ViewData for binding
+    ViewData resolve() const;
 };
 ```
 
-### REF Modes
+### FQReference (Serialization)
 
-| Mode | Sampled Flag | Behavior |
-|------|--------------|----------|
-| Normal | false | Ticks when reference or target ticks |
-| Sampled | true | Only ticks when reference changes |
-
-### REF Resolution
+For Python interop and serialization, `FQReference` uses stable node IDs instead of pointers:
 
 ```cpp
-TSView REF::resolve(engine_time_t current_time) const {
-    // TODO: Define resolution logic
+struct FQReference {
+    enum class Kind { EMPTY, PEERED, NON_PEERED };
 
-    // 1. Follow reference path to target
-    // 2. Return TSView of target
-    // 3. Handle sampled flag for modification
+    Kind kind;
+    uint64_t node_id;              // Stable node identifier
+    PortType port_type;
+    std::vector<size_t> indices;   // Path through compound types
+    std::vector<FQReference> items; // For NON_PEERED
+
+    // Convert to/from TSReference given graph context
+    TSReference to_ts_reference(Graph& graph) const;
+    static FQReference from_ts_reference(const TSReference& ref);
+};
+```
+
+### REFLink
+
+`REFLink` is used when an alternative needs to dereference a REF (REF → TS conversion). It manages two subscriptions:
+1. To the REF source (for rebind notifications)
+2. To the current dereferenced target (for value notifications)
+
+```cpp
+struct REFLink {
+    Link target;             // Current dereferenced target
+    Link ref_source;         // Link to the REF source
+
+    // Called when ref_source's TSReference value changes
+    void on_ref_changed(engine_time_t current_time) {
+        // 1. Unbind from old target (unsubscribes)
+        target.unbind();
+
+        // 2. Get new TSReference from ref_source
+        TSView ref_view{ref_source.view_data, current_time};
+        TSReference new_ref = ref_view.value().as<TSReference>();
+
+        // 3. Resolve and bind to new target
+        if (!new_ref.is_empty()) {
+            target.bind(new_ref.resolve());
+        }
+    }
+};
+```
+
+### REF Binding Modes
+
+REF participates in three binding modes:
+
+| Mode | Native | Alternative | Mechanism |
+|------|--------|-------------|-----------|
+| TS → REF | TS[T] | REF[TS[T]] | Create TSReference pointing to native |
+| REF → REF | REF[TS[T]] | REF[TS[T]] | Normal LINK (TSReference is the value) |
+| REF → TS | REF[TS[T]] | TS[T] | REFLink that follows the reference |
+
+### REF → TS (Dereferencing)
+
+When an input needs `TS[T]` but output provides `REF[TS[T]]`, the alternative uses REFLink:
+
+```
+Native: TSB[a: REF[TS[int]], b: TS[float]]
+
+Alternative: TSB[a: TS[int], b: TS[float]]
+┌────────────────────────────────────────────────────┐
+│ a: REFLink                                         │
+│    ├── ref_source: Link → Native.a (the REF)       │
+│    └── target: Link → dereferenced target          │
+│ b: Link → Native.b                                 │
+└────────────────────────────────────────────────────┘
+```
+
+The REFLink subscribes to the REF source. When the TSReference changes, it unbinds from the old target and binds to the new one.
+
+### TS → REF (Wrapping)
+
+When an input needs `REF[TS[T]]` but output provides `TS[T]`, the alternative stores TSReference values:
+
+```
+Native: TSB[a: TS[int], b: TS[float]]
+
+Alternative: TSB[a: REF[TS[int]], b: TS[float]]
+┌────────────────────────────────────────────────────┐
+│ a: TSReference(path=Native.a)  ← constructed value │
+│ b: Link → Native.b                                 │
+└────────────────────────────────────────────────────┘
+```
+
+The TSReference is constructed from the native's ShortPath at that position. Per Mode 1 behavior, the REF position does NOT tick when the underlying TS changes - only when the reference itself would change (which in this case is only at creation/rebind time).
+
+For collections (TSD/TSL), the alternative mirrors the native's structure:
+
+```
+Native: TSD[str, TS[int]]              Alternative: TSD[str, REF[TS[int]]]
+┌──────────────────────────┐           ┌───────────────────────────────────┐
+│ "a" → TS[int] (value=1)  │           │ "a" → TSReference(path=Native.a)  │
+│ "b" → TS[int] (value=2)  │           │ "b" → TSReference(path=Native.b)  │
+└──────────────────────────┘           └───────────────────────────────────┘
+```
+
+The alternative subscribes to native's structural changes:
+- **Key/element added**: Create new TSReference pointing to new native element
+- **Key/element removed**: Remove corresponding TSReference from alternative
+
+### Sampled Flag
+
+When a REF → TS link is traversed and the REF was modified (reference changed), the resulting view is marked as **sampled**:
+
+```cpp
+bool REFLink::modified(engine_time_t current_time) const {
+    // Modified if REF source changed OR target changed
+    TSView ref_view{ref_source.view_data, current_time};
+    if (ref_view.modified()) {
+        return true;  // Reference changed - always report modified (sampled)
+    }
+    TSView target_view{target.view_data, current_time};
+    return target_view.modified();
 }
 ```
+
+This ensures consumers are notified when their data source changes, even if the new target wasn't modified at that tick.
 
 ## Cast Logic
 
 ### Cast Storage
 
-Casts are stored in TSOutput::alternatives_:
+Alternatives (casts) are stored in TSOutput and indexed by target schema:
 
 ```cpp
 class TSOutput {
     TSValue native_value_;
-    std::unordered_map<TypeMeta*, TSValue> alternatives_;
+    std::map<const TSMeta*, TSValue> alternatives_;
+
+    TSValue& get_or_create_alternative(const TSMeta& schema);
 };
 ```
 
-### Cast Creation
+### Alternative Structure
+
+Alternatives are TSValues that contain a mixture of:
+- **Link**: Direct link to native position (no schema conversion needed)
+- **REFLink**: For REF → TS positions (dereferencing)
+- **TSReference values**: For TS → REF positions (wrapping)
+
+### Alternative Creation
+
+When creating an alternative, walk the native and target schemas in parallel:
 
 ```cpp
-TSView TSOutput::cast_to(TypeMeta* target_type) {
-    // Check if cast exists
-    auto it = alternatives_.find(target_type);
+TSValue& TSOutput::get_or_create_alternative(const TSMeta& target_schema) {
+    auto it = alternatives_.find(&target_schema);
     if (it != alternatives_.end()) {
-        return it->second.ts_view(current_time_);
+        return it->second;
     }
 
-    // Create new cast
-    TSValue cast_value = create_cast(native_value_, target_type);
-    alternatives_[target_type] = std::move(cast_value);
-    return alternatives_[target_type].ts_view(current_time_);
+    // Create new alternative with appropriate link structure
+    TSValue alt(target_schema);
+    establish_alternative_links(alt, native_value_, target_schema);
+
+    return alternatives_.emplace(&target_schema, std::move(alt)).first->second;
+}
+
+void establish_alternative_links(TSValue& alt, TSValue& native, const TSMeta& target_schema) {
+    // Walk schemas in parallel, at each position:
+    // - Native REF, Target TS: Create REFLink
+    // - Native TS, Target REF: Store TSReference value
+    // - Same type: Create direct Link
+    // - Collection: Recurse into elements, subscribe to structural changes
 }
 ```
 
-### Cast Invalidation
+### Position-by-Position Logic
 
-- Casts are invalidated when source is modified
-- Lazy recomputation on next access
+| Native Type | Target Type | Alternative Contains | Subscription |
+|-------------|-------------|---------------------|--------------|
+| TS[T] | TS[T] | Link → native | Via Link |
+| REF[TS[T]] | REF[TS[T]] | Link → native | Via Link |
+| REF[TS[T]] | TS[T] | REFLink | REF source + current target |
+| TS[T] | REF[TS[T]] | TSReference value | None (value is static) |
+| TSD/TSL | TSD/TSL | Per-element links | Native structure changes |
+| TSB | TSB | Per-field links | Per-field as above |
+
+### No Explicit Sync
+
+Alternatives do not require explicit synchronization:
+- **Link positions**: Directly access native data
+- **REFLink positions**: Subscribe to REF source and current target
+- **TSReference positions**: Value is constructed once from native path
+- **Structural changes**: Alternative subscribes to native for key/element changes
 
 ## Open Questions
 

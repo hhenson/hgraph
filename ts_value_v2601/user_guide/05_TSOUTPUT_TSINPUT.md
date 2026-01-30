@@ -132,8 +132,8 @@ public:
     void apply_delta(DeltaView dv) { ts_view_.apply_delta(dv); }
 
     // Observer management (delegates to observer_value_)
-    void subscribe(TSInput* input);
-    void unsubscribe(TSInput* input);
+    void subscribe(Notifiable* observer);
+    void unsubscribe(Notifiable* observer);
 
     // Navigation - wraps TSView navigation
     TSOutputView field(std::string_view name);
@@ -175,13 +175,13 @@ view.unsubscribe(input_ptr);
 // Internally, TSOutputView delegates to observer_value_
 class TSOutputView {
 public:
-    void subscribe(TSInput* input) {
+    void subscribe(Notifiable* observer) {
         // Delegates to TSValue's observer_value_
-        get_ts_value()->subscribe(input);
+        get_ts_value()->subscribe(observer);
     }
 
-    void unsubscribe(TSInput* input) {
-        get_ts_value()->unsubscribe(input);
+    void unsubscribe(Notifiable* observer) {
+        get_ts_value()->unsubscribe(observer);
     }
 };
 ```
@@ -506,8 +506,8 @@ public:
     }
 
     // Output-specific: observer management
-    void subscribe(TSInput* input);
-    void unsubscribe(TSInput* input);
+    void subscribe(Notifiable* observer);
+    void unsubscribe(Notifiable* observer);
 };
 ```
 

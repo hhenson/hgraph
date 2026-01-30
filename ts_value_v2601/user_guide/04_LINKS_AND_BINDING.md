@@ -352,15 +352,15 @@ class TSOutputView {
     TSOutput* output_;    // For context
 
 public:
-    void subscribe(TSInput* input) {
+    void subscribe(Notifiable* observer) {
         // Delegates to TSValue's observer_value_
-        // Adds input to notification list at the appropriate path
-        ts_view_.subscribe(input);
+        // Adds observer to notification list at the appropriate path
+        ts_view_.subscribe(observer);
     }
 
-    void unsubscribe(TSInput* input) {
-        // Removes input from notification list
-        ts_view_.unsubscribe(input);
+    void unsubscribe(Notifiable* observer) {
+        // Removes observer from notification list
+        ts_view_.unsubscribe(observer);
     }
 };
 
@@ -374,12 +374,12 @@ The `observer_value_` in TSValue mirrors the time-series structure, allowing fin
 // For TSB[a: TS[int], b: TSL[TS[float], 2]]
 // observer_value_ mirrors the structure:
 // Bundle {
-//   _observers: vector<TSInput*>    // Root observers
-//   a: vector<TSInput*>             // Field a observers
+//   _observers: vector<Notifiable*>    // Root observers
+//   a: vector<Notifiable*>             // Field a observers
 //   b: Bundle {
-//     _observers: vector<TSInput*>  // TSL root observers
-//     0: vector<TSInput*>           // Element 0 observers
-//     1: vector<TSInput*>           // Element 1 observers
+//     _observers: vector<Notifiable*>  // TSL root observers
+//     0: vector<Notifiable*>           // Element 0 observers
+//     1: vector<Notifiable*>           // Element 1 observers
 //   }
 // }
 ```

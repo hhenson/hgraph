@@ -10,41 +10,74 @@ TSOutput and TSInput are the graph endpoints:
 
 ### Purpose
 Owns native time-series value and manages cast alternatives. Provides views to consumers.
+Observer management is delegated to TSValue's `observer_value_` component.
 
 ### Structure
 
 ```cpp
 class TSOutput {
-    TSValue native_value_;                              // Native representation
-    robin_hood::unordered_map<const TSMeta*, TSValue> alternatives_;  // Cast/peer representations
-    const TSMeta* meta_;                                // Schema
-    ShortPath path_;                                    // Location in graph
-    ObserverList observers_;                            // Subscribed inputs
+    TSValue native_value_;                              // Native representation (includes observer_value_)
+    robin_hood::unordered_map<const TSMeta*, TSValue> alternatives_;     // Cast/peer representations
+    Node* owning_node_;                                 // For graph context
 
 public:
-    // View access (always returns fresh view, never materializes)
-    TSView view(engine_time_t current_time) const {
-        return native_value_.view(current_time);
+    TSOutput(const TSMeta& ts_meta, Node* owner)
+        : native_value_(ts_meta), owning_node_(owner) {}
+
+    // View access - returns TSOutputView, schema determines native vs alternative
+    TSOutputView view(engine_time_t current_time, const TSMeta& schema) {
+        if (&schema == &native_value_.ts_meta()) {
+            return TSOutputView(&native_value_, this, current_time);
+        }
+        // Get or create alternative for this schema
+        TSValue& alt = get_or_create_alternative(schema);
+        return TSOutputView(&alt, this, current_time);
     }
 
-    // Alternative view (for casts/peering)
-    TSView view(const TSMeta* target_meta, engine_time_t current_time);
+    // Bulk mutation via delta
+    void apply_value(const DeltaValue& delta) {
+        native_value_.apply_delta(delta);
+        // Alternatives subscribe to native (or its components) and sync via notifications
+    }
 
-    // Modification
-    void set_value(const View& value, engine_time_t time);
-    void mark_modified(engine_time_t time);
+    // Graph context
+    Node* owning_node() const { return owning_node_; }
 
-    // State queries
-    bool modified(engine_time_t current_time) const;
-    bool valid() const;
+    // Schema access (delegates to native_value_)
+    const TSMeta& ts_meta() const { return native_value_.ts_meta(); }
 
-    // Observer management
-    void add_observer(Notifiable* observer);
-    void remove_observer(Notifiable* observer);
-    void notify_observers();
+private:
+    TSValue& get_or_create_alternative(const TSMeta& schema);
+};
 
-    // Schema access
-    const TSMeta* meta() const { return meta_; }
+// TSOutputView wraps TSView, adds output-specific operations
+class TSOutputView {
+    TSView ts_view_;                // Core view (ViewData + current_time)
+    TSOutput* output_;              // For context
+
+public:
+    // Delegates to TSView for data access
+    View value() { return ts_view_.value(); }
+    DeltaView delta_value() { return ts_view_.delta_value(); }
+    bool modified() { return ts_view_.modified(); }
+    bool valid() { return ts_view_.valid(); }
+
+    // Output-specific mutation
+    void set_value(View v) { ts_view_.set_value(v); }
+    void apply_delta(DeltaView dv) { ts_view_.apply_delta(dv); }
+
+    // Observer management (delegates to TSValue's observer_value_)
+    void subscribe(Notifiable* observer);
+    void unsubscribe(Notifiable* observer);
+
+    // Navigation - wraps TSView navigation
+    TSOutputView field(std::string_view name);
+    TSOutputView operator[](size_t index);
+    TSOutputView operator[](View key);
+
+    // Path access
+    const ShortPath& short_path() const { return ts_view_.short_path(); }
+    FQPath fq_path() const { return ts_view_.fq_path(); }
 };
 ```
 
@@ -63,43 +96,34 @@ TSOutput
 
 ### Alternative Management
 
-Alternatives are created on-demand when a consumer requests a different schema:
+Alternatives are created on-demand when a consumer requests a different schema.
+The `view()` method on TSOutput handles this transparently:
 
 ```cpp
-TSView TSOutput::view(const TSMeta* target_meta, engine_time_t current_time) {
-    // Native schema - return directly
-    if (target_meta == meta_) {
-        return native_value_.view(current_time);
-    }
-
-    // Check for existing alternative
-    auto it = alternatives_.find(target_meta);
+TSValue& TSOutput::get_or_create_alternative(const TSMeta& schema) {
+    auto it = alternatives_.find(&schema);
     if (it != alternatives_.end()) {
         // Sync alternative with native if native was modified
         if (native_value_.last_modified_time() > it->second.last_modified_time()) {
             sync_alternative(it->second, native_value_);
         }
-        return it->second.view(current_time);
+        return it->second;
     }
 
     // Create new alternative
-    TSValue alt = create_alternative(native_value_, target_meta);
-    auto [inserted_it, _] = alternatives_.emplace(target_meta, std::move(alt));
-    return inserted_it->second.view(current_time);
+    auto& alt = alternatives_.emplace(&schema, TSValue(schema)).first->second;
+    establish_sync(native_value_, alt);
+    return alt;
 }
 ```
 
 ### Alternative Sync
 
-When native value is modified, alternatives are lazily synced on next access:
+Alternatives subscribe to the native value (or its components) and sync via notifications.
+When an alternative is created, it establishes subscriptions to the relevant parts of the native value.
+This is handled by `establish_sync()` during alternative creation.
 
-```cpp
-void TSOutput::set_value(const View& value, engine_time_t time) {
-    native_value_.set_value(value, time);
-    // Alternatives NOT immediately updated - lazy sync on access
-    notify_observers();
-}
-```
+Observers of the output are notified through TSValue's `observer_value_` component.
 
 ### Python Value Cache
 
@@ -206,6 +230,10 @@ public:
     // Navigation - returns new views with child Links
     TSInputView field(std::string_view name);
     TSInputView operator[](size_t index);
+
+    // Path access (via Link's ViewData)
+    const ShortPath& short_path() const { return link_->view_data.path; }
+    FQPath fq_path() const { return link_->view_data.path.to_fq(); }
 };
 ```
 
