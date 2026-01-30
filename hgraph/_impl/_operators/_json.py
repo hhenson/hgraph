@@ -19,27 +19,42 @@ from hgraph import (
     operator,
     Type,
     DEFAULT,
+    LOGGER
 )
 
 
 @compute_node(overloads=json_decode)
-def json_decode_str(ts: TS[str]) -> TS[JSON]:
-    return JSON(json.loads(ts.value))
+def json_decode_str(ts: TS[str], _log: LOGGER = None) -> TS[JSON]:
+    try:
+        return JSON(json.loads(ts.value))
+    except:
+        _log.error(f"Failed to decode JSON {ts.value}")
 
 
 @compute_node(overloads=json_decode)
-def json_decode_bytes(ts: TS[bytes]) -> TS[JSON]:
-    return JSON(json.loads(ts.value))
+def json_decode_bytes(ts: TS[bytes], _log: LOGGER = None) -> TS[JSON]:
+    try:
+        return JSON(json.loads(ts.value))
+    except:
+        _log.error(f"Failed to decode JSON {ts.value}")
+
 
 
 @compute_node(overloads=json_encode)
-def json_encode_str(ts: TS[JSON], _tp: Type[str] = DEFAULT[SCALAR]) -> TS[str]:
-    return json.dumps(ts.value.json)
+def json_encode_str(ts: TS[JSON], _tp: Type[str] = DEFAULT[SCALAR], _log: LOGGER = None) -> TS[str]:
+    try:
+        return json.dumps(ts.value.json)
+    except:
+        _log.error(f"Failed to encode JSON {ts.value.json}")
+
 
 
 @compute_node(overloads=json_encode)
-def json_encode_bytes(ts: TS[JSON], _tp: Type[bytes] = DEFAULT[SCALAR]) -> TS[bytes]:
-    return json.dumps(ts.value.json).encode("utf-8")
+def json_encode_bytes(ts: TS[JSON], _tp: Type[bytes] = DEFAULT[SCALAR], _log: LOGGER = None) -> TS[bytes]:
+    try:
+        return json.dumps(ts.value.json).encode("utf-8")
+    except:
+        _log.error(f"Failed to encode JSON {ts.value.json}")
 
 
 @compute_node(overloads=getattr_, requires=lambda m, attr: attr == "str")
@@ -68,13 +83,28 @@ def getattr_json_obj(ts: TS[JSON], attr: str) -> TS[object]:
 
 
 @compute_node(overloads=getitem_)
-def getitem_json_str(ts: TS[JSON], key: str) -> TS[JSON]:
-    return JSON(ts.value.json.get(key))
+def getitem_json_str(ts: TS[JSON], key: str, _log: LOGGER = None) -> TS[JSON]:
+    try:
+        value = ts.value.json.get(key)
+        if value is None:
+            return
+        else:
+            return JSON(value)
+    except:
+        _log.error(f"Cannot get '{key}' from JSON '{ts.value.json}'")
+
 
 
 @compute_node(overloads=getitem_)
-def getitem_json_int(ts: TS[JSON], key: int) -> TS[JSON]:
-    return JSON(ts.value.json[key])
+def getitem_json_int(ts: TS[JSON], key: int, _log: LOGGER = None) -> TS[JSON]:
+    try:
+        value = ts.value.json[key]
+        if value is None:
+            return
+        else:
+            return JSON(value)
+    except:
+        _log.error(f"Cannot get '{key}' from JSON '{ts.value.json}'")
 
 
 @compute_node(

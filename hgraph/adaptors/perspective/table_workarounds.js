@@ -1,4 +1,4 @@
-export async function loadLayout(layout) {
+export async function loadLayout(layout, mode) {
     const workspaceTables = getWorkspaceTables()
     for (const [table_name, table_config] of Object.entries(workspaceTables)) {
         if (table_config.type === "client_only_table") {
@@ -9,12 +9,12 @@ export async function loadLayout(layout) {
             }
         } 
     }
-
+    Object.assign(mode, layout.mode || {});
     return layout.psp_config;
 }
 
-export async function saveLayout(config) {
-    const layout = {version: 1, psp_config: config};
+export async function saveLayout(config, mode) {
+    const layout = {version: 1, psp_config: config, mode: mode};
     const workspaceTables = getWorkspaceTables()
     for (const [table_name, table_config] of Object.entries(workspaceTables)) {
         if (table_config.type === "client_only_table") {
@@ -23,7 +23,6 @@ export async function saveLayout(config) {
             view.delete();
         } 
     }
-
     return layout;
 }
 
@@ -105,11 +104,42 @@ export function columnSettings(view, column, setting) {
     return col_settings[view]?.[column]?.[setting] ?? col_settings['all']?.[column]?.[setting];
 }
 
-export async function installTableWorkarounds(mode) {
+let lock_callback = null;
+export async function updateLockedMode(workspace, mode, locked, cb){
+    if (cb) {
+        lock_callback = cb;
+    }
+
+    mode.locked = locked;
+
+    if (locked) {
+        lockLayout(workspace);
+        addCustomContextMenuItems(workspace, [
+            {name: 'Unlock Layout', action: () => updateLockedMode(workspace, mode, false)}
+        ], 
+        {disableBuiltInItems: ['New Table', 'Duplicate', 'Create Global Filter', 'Open Settings', 'Reset', 'Close'], checkItems: ['New Table']});
+
+        if (lock_callback) {
+            lock_callback();
+        }
+    } else {
+        unlockLayout(workspace);
+        addCustomContextMenuItems(workspace, [
+            {name: 'Lock Layout', action: () => updateLockedMode(workspace, mode, true)}
+        ],
+        {checkItems: ['New Table']});
+    }
+}
+
+
+export async function installTableWorkarounds(mode, lockCallback) {
     await initViewSettings();
     await initColumnSettings();
 
     const config = await window.workspace.save();
+
+    await updateLockedMode(window.workspace, mode, mode.locked || false, lockCallback);
+
     for (const g of document.querySelectorAll("perspective-viewer")) {
         if (!g.dataset.events_set_up) {
             const viewer = g;
@@ -139,6 +169,21 @@ export async function installTableWorkarounds(mode) {
             g.addEventListener("perspective-config-update", async (event) => {
                 if (g.dataset.config_open === 'false') {
                     await refreshTimeSensitiveViews(event, g);
+                }
+                if (g.dataset.config_open !== 'true') {
+                    const title = view_config.title;
+                    if (viewSettings(title, "title_format")) {
+                        const format = viewSettings(title, "title_format");
+                        const formatted = format.replace(/\$\{(\w+)\}/g, (match, p1) => {
+                            event.detail.filter.forEach(([col, , val]) => {
+                                if (col === p1) {
+                                    match = val;
+                                }
+                            });
+                            return match;
+                        });
+                        window.workspace.workspace.getAllWidgets().filter((w) => w.viewer === g)[0].title.label = `${view_config.title} ${formatted}`;
+                    }
                 }
             });
             await refreshTimeSensitiveViews({detail: config.viewers[g.slot]}, g);
@@ -1134,29 +1179,41 @@ class tooltip_info{
 const FORMAT_REGEX = /(?<!\{)\{([^\{\}]*?)\}(?!\})/g;
 
 function createButtonAction(td, action, metadata, model, viewer) {
-    if (td.querySelector("button") === null) {
-        td.innerHTML = "<button style='font: inherit'>" + action.label + "</button>";
-        const btn = td.querySelector("button");
+    td.innerHTML = "<button style='font: inherit'>" + action.label + "</button>";
+    const btn = td.querySelector("button");
+    const id = model._ids[metadata.y - metadata.y0];
+    if (id){
         btn.addEventListener("click", async () => {
-            const id = model._ids[metadata.y - metadata.y0];
-            if (id){
-                const tbl = await viewer.getTable();
-                const index = await tbl.get_index();
-                const view = await tbl.view({filter: [[index, '==', id.join(',')]]});
-                const row = (await (view).to_json())[0];
-                view.delete();
-                if (row){
-                    switch (action.action.type) {
-                    case 'url':
-                        const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
-                        btn.disabled = true;
-                        await fetch (url, {method: 'GET'});
-                        btn.disabled = false;
+            const tbl = await viewer.getTable();
+            const index = await tbl.get_index();
+            const view = await tbl.view({filter: [[index, '==', id.join(',')]]});
+            const row = (await (view).to_json())[0];
+            view.delete();
+            if (row){
+                switch (action.action.type) {
+                case 'url':
+                    const url = action.action.url.replace(FORMAT_REGEX, (match, p1) => row[p1]);
+                    btn.disabled = true;
+                    btn.style.cursor = "progress";
+                    console.server(`Action: ${btn.innerText}, Fetching URL: ${url} at time ${new Date().toISOString()}`);
+                    const reply = await fetch (url, {method: 'GET'});
+                    btn.disabled = false;
+                    btn.style.cursor = "default";
+                    if (reply.ok) {
+                        console.server(`Action: ${btn.innerText}, Successfully fetched URL: ${url} at time ${new Date().toISOString()}`);
+                    } else {
+                        const error_text = await reply.text();
+                        console.server(`Action: ${btn.innerText}, Failed to fetch URL: ${url} with status ${reply.status} and message: '${error_text}' at time ${new Date().toISOString()}`);
+                        alert(`Action failed with status ${reply.status} and message: '${error_text}'`);
                     }
                 }
             }
         });
-    }
+    } else {
+        btn.disabled = true;
+        btn.style.cursor = "not-allowed";
+        console.error(`Action: ${btn.innerText}, Cannot attach action because row ID is missing.`);
+    }        
 }
 
 function parseActionConfig(action) {
@@ -1190,7 +1247,9 @@ async function createViewAndGetRows(tbl, view_config, id, metadata, required_col
         get_rows = async () => await view.to_json();
     } else if (view_config.split_by.length == 0) {
         const query_config = {
-            filter: [...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])), ...view_config.group_by.map((x, i) => [x, '==', id[i]])],
+            filter: [
+                ...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])), 
+                ...view_config.group_by.map((x, i) => [x, id[i] === null ? 'is null' : '==', id[i]])],
             group_by: view_config.group_by,
             aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique']))},
             expressions: view_config.expressions,
@@ -1205,8 +1264,8 @@ async function createViewAndGetRows(tbl, view_config, id, metadata, required_col
         const query_config = {
             filter: [
                 ...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])),
-                ...view_config.group_by.map((x, i) => [x, '==', id[i]]),
-                ...view_config.split_by.map((x, i) => [x, '==', metadata.column_header[i]])
+                ...view_config.group_by.map((x, i) => [x, id[i] === null ? 'is null' : '==', id[i]]),
+                ...view_config.split_by.map((x, i) => [x, metadata.column_header[i] === null ? 'is null' : '==', metadata.column_header[i]])
                 ],
             group_by: view_config.group_by,
             aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique']))},
@@ -1800,3 +1859,306 @@ function hideExpandedRowContent(table) {
     }
 }
 
+const layoutLockHandler = (() => {
+    const handler = (e) => {
+        const workspaceElement = document.querySelector('perspective-workspace');
+        if (workspaceElement?.dataset.layoutLocked === 'true') {
+            // Always block all events on the workspace when locked
+            // This is a last resort to catch anything CSS doesn't block
+            const isTabBar = e.target.closest('.lm-TabBar');
+            const isHandle = e.target.closest('.lm-SplitPanel-handle') || e.target.closest('.lm-DockPanel-handle');
+
+            if (isTabBar || isHandle) {
+                e.stopImmediatePropagation();
+                e.stopPropagation();
+                e.preventDefault();
+                return false;
+            }
+        }
+    };
+    return handler;
+})();
+
+function lockLayout(workspace) {
+    const workspaceElement = document.querySelector('perspective-workspace');
+    if (!workspaceElement) {
+        console.error("Cannot lock layout: perspective-workspace element not found");
+        return;
+    }
+
+    const shadow = workspaceElement.shadowRoot;
+    if (!shadow) {
+        console.error("Cannot lock layout: shadowRoot not found");
+        return;
+    }
+
+    if (workspaceElement.dataset.layoutLocked === 'true') {
+        return;
+    }
+
+    workspaceElement.dataset.layoutLocked = 'true';
+
+    // Add CSS styles to shadow DOM
+    const style = document.createElement('style');
+    style.id = 'layout-lock-styles';
+    style.textContent = `
+        .lm-SplitPanel-handle {
+            pointer-events: none !important;
+            opacity: 0.5 !important;
+            cursor: default !important;
+        }
+        .lm-DockPanel-handle {
+            pointer-events: none !important;
+            opacity: 0.5 !important;
+            cursor: default !important;
+        }
+        .lm-TabBar-tabCloseIcon {
+            display: none !important;
+        }
+        .lm-TabBar {
+            pointer-events: none !important;
+            user-select: none !important;
+        }
+        .lm-TabBar-tab {
+            cursor: default !important;
+        }
+        .lm-TabBar-tabLabel {
+            cursor: default !important;
+        }
+        /* Allow tab switcher dropdown to work */
+        .bookmarks-button {
+            pointer-events: auto !important;
+        }
+    `;
+    shadow.appendChild(style);
+
+    // Block settings button on each viewer
+    const viewers = document.querySelectorAll('perspective-viewer');
+    for (const viewer of viewers) {
+        const viewerShadow = viewer.shadowRoot;
+        if (viewerShadow) {
+            const settingsBtn = viewerShadow.querySelector('#settings_button');
+            if (settingsBtn) {
+                settingsBtn.style.pointerEvents = 'none';
+                settingsBtn.style.opacity = '0.5';
+            }
+        }
+    }
+}
+
+function unlockLayout(workspace) {
+    const workspaceElement = document.querySelector('perspective-workspace');
+    if (!workspaceElement) {
+        console.error("Cannot unlock layout: perspective-workspace element not found");
+        return;
+    }
+
+    const shadow = workspaceElement.shadowRoot;
+    if (!shadow) {
+        console.error("Cannot unlock layout: shadowRoot not found");
+        return;
+    }
+
+    if (workspaceElement.dataset.layoutLocked !== 'true') {
+        return;
+    }
+
+    delete workspaceElement.dataset.layoutLocked;
+
+    // Remove CSS styles
+    const lockStyle = shadow.querySelector('style#layout-lock-styles');
+    if (lockStyle) {
+        lockStyle.remove();
+    }
+
+    // Re-enable settings buttons on each viewer
+    const viewers = document.querySelectorAll('perspective-viewer');
+    for (const viewer of viewers) {
+        const viewerShadow = viewer.shadowRoot;
+        if (viewerShadow) {
+            const settingsBtn = viewerShadow.querySelector('#settings_button');
+            if (settingsBtn) {
+                settingsBtn.style.pointerEvents = '';
+                settingsBtn.style.opacity = '';
+            }
+        }
+    }
+}   
+
+// Custom context menu items
+let menuObserverInstance = null;
+let currentCustomItems = [];
+let currentDisabledItems = [];
+let currentCheckItems = [];
+
+export function addCustomContextMenuItems(workspace, customItems, options = {}) {
+    const { disableBuiltInItems = [], checkItems = [] } = options;
+
+    // Store items and disabled list for use across multiple menu opens
+    currentCustomItems = customItems;
+    currentDisabledItems = disableBuiltInItems;
+    currentCheckItems = checkItems;
+
+    // Disconnect existing observer if any
+    if (menuObserverInstance) {
+        menuObserverInstance.disconnect();
+    }
+
+    // Find the menu element's shadow root
+    const workspaceElement = workspace.node || workspace;
+    const shadow = workspaceElement.shadowRoot;
+    if (!shadow) {
+        console.error("Cannot add custom menu items: workspace shadowRoot not found");
+        return { disconnect: () => {} };
+    }
+
+    const menuHost = shadow.querySelector('perspective-workspace-menu');
+    if (!menuHost || !menuHost.shadowRoot) {
+        console.error("Cannot add custom menu items: menu shadowRoot not found");
+        return { disconnect: () => {} };
+    }
+
+    // Observe the menu's shadow root for new menus
+    const observer = new MutationObserver((mutations) => {
+        for (const mutation of mutations) {
+            for (const node of mutation.addedNodes) {
+                if (node.classList?.contains("lm-Menu")) {
+                    // A menu was just created, add our custom items
+                    setTimeout(() => {
+                        addItemsToMenu(node, currentCustomItems, currentDisabledItems, currentCheckItems);
+                    }, 0);
+                }
+            }
+        }
+    });
+
+    observer.observe(menuHost.shadowRoot, { childList: true, subtree: true });
+    menuObserverInstance = observer;
+
+    return {
+        disconnect: () => {
+            observer.disconnect();
+            if (menuObserverInstance === observer) {
+                menuObserverInstance = null;
+            }
+        }
+    };
+}
+
+function addItemsToMenu(menuElement, customItems, disableBuiltInItems, checkItems) {
+    if (!menuElement || menuElement.dataset.customItemsAdded) return;
+    menuElement.dataset.customItemsAdded = "true";
+
+    const menuContent = menuElement.querySelector(".lm-Menu-content");
+    if (!menuContent) return;
+
+    if (checkItems.length > 0) {
+        let pass = 0;
+        const allItems = menuContent.querySelectorAll('.lm-Menu-item');
+        for (const item of allItems) {
+            const label = item.querySelector('.lm-Menu-itemLabel')?.textContent;
+            if (label && checkItems.includes(label)) {
+                pass += 1;
+            }
+        }
+        if (pass !== checkItems.length) {
+            return;
+        }
+    }
+
+    // Disable built-in items if requested
+    if (disableBuiltInItems.length > 0) {
+        const allItems = menuContent.querySelectorAll('.lm-Menu-item');
+        for (const item of allItems) {
+            const label = item.querySelector('.lm-Menu-itemLabel')?.textContent;
+            if (label && disableBuiltInItems.includes(label)) {
+                item.classList.add('lm-mod-disabled');
+                item.setAttribute('aria-disabled', 'true');
+                item.style.opacity = '0.5';
+
+                const blockEvent = (e) => {
+                    e.stopImmediatePropagation();
+                    e.stopPropagation();
+                    e.preventDefault();
+                    return false;
+                };
+
+                // Block all mouse events in capture phase to prevent clicks and hover effects
+                item.addEventListener('click', blockEvent, true);
+                item.addEventListener('mousedown', blockEvent, true);
+                item.addEventListener('mouseup', blockEvent, true);
+                item.addEventListener('mouseenter', blockEvent, true);
+                item.addEventListener('mouseover', blockEvent, true);
+                item.addEventListener('mousemove', blockEvent, true);
+            }
+        }
+    }
+
+    // Add separator before custom items
+    const separator = document.createElement("li");
+    separator.className = "lm-Menu-item";
+    separator.setAttribute('tabindex', '0');
+    separator.setAttribute('role', 'presentation');
+    separator.setAttribute('data-type', 'separator');
+
+    const sepLabel = document.createElement("div");
+    sepLabel.className = "lm-Menu-itemLabel p-Menu-itemLabel";
+
+    const sepShortcut = document.createElement("div");
+    sepShortcut.className = "lm-Menu-itemShortcut";
+
+    const sepSubmenu = document.createElement("div");
+    sepSubmenu.className = "lm-Menu-itemSubmenuIcon p-Menu-itemSubmenuIcon";
+
+    separator.appendChild(sepLabel);
+    separator.appendChild(sepShortcut);
+    separator.appendChild(sepSubmenu);
+    menuContent.appendChild(separator);
+
+    // Add each custom item
+    for (const item of customItems) {
+        const menuItem = document.createElement("li");
+        menuItem.className = "lm-Menu-item";
+        menuItem.setAttribute('data-type', 'command');
+        menuItem.setAttribute("role", "menuitem");
+
+        const label = document.createElement("div");
+        label.className = "lm-Menu-itemLabel";
+        label.textContent = item.name;
+
+        const shortcut = document.createElement("div");
+        shortcut.className = "lm-Menu-itemShortcut";
+
+        const submenuIcon = document.createElement("div");
+        submenuIcon.className = "lm-Menu-itemSubmenuIcon";
+
+        menuItem.appendChild(label);
+        menuItem.appendChild(shortcut);
+        menuItem.appendChild(submenuIcon);
+
+        menuItem.addEventListener("click", (e) => {
+            e.stopPropagation();
+            // Close menu
+            menuElement.style.display = 'none';
+            menuElement.remove();
+            // Execute callback
+            if (item.action) {
+                item.action();
+            }
+        });
+
+        menuItem.addEventListener("mouseenter", () => {
+            // Remove active from all items
+            menuContent.querySelectorAll('.lm-mod-active').forEach(el => {
+                el.classList.remove('lm-mod-active');
+            });
+            menuItem.classList.add("lm-mod-active");
+        });
+
+        menuItem.addEventListener("mouseleave", () => {
+            menuItem.classList.remove("lm-mod-active");
+        });
+
+        menuContent.appendChild(menuItem);
+    }
+}

@@ -241,16 +241,16 @@ def throttle_default(
             _state.tick = _state.fn(ts, _state.tick)
         elif delay_first_tick:
             _state.tick = _state.fn(ts, _state.tick)
-            _sched.schedule(period.value, tag='')
+            _sched.schedule(period.value, tag='-')
         else:
             _state.tick = {}
-            _sched.schedule(period.value, tag='')
+            _sched.schedule(period.value, tag='-')
             return ts.delta_value
 
     if _sched.is_scheduled_now:
         if tick := _state.tick:
             _state.tick = {}
-            _sched.schedule(period.value, on_wall_clock=use_wall_clock, tag='')
+            _sched.schedule(period.value, on_wall_clock=use_wall_clock, tag='-')
             return tick
 
 
@@ -275,6 +275,23 @@ def take_by_count(ts: TIME_SERIES_TYPE, count: int = 1, state: STATE[CounterStat
         if c == count:
             ts.make_passive()
         return ts.delta_value
+
+
+@compute_node(overloads=take, valid=())
+def take_by_count(ts: TIME_SERIES_TYPE, reset: SIGNAL, count: int = 1, state: STATE[CounterState] = None) -> TIME_SERIES_TYPE:
+    if reset.modified:
+        state.count = 0
+        ts.make_active()
+        
+    if ts.modified and ts.active:
+        if count == 0:
+            ts.make_passive
+        else:
+            state.count += 1
+            c = state.count
+            if c == count:
+                ts.make_passive()
+            return ts.delta_value
 
 
 @dataclass
@@ -429,7 +446,7 @@ def gate_default(
         elif (condition.modified or _sched.is_scheduled_now) and _state.buffer:
             out = _state.buffer.popleft()
             if _state.buffer:
-                _sched.schedule(MIN_TD, tag='')
+                _sched.schedule(MIN_TD, tag='-')
             return out
 
 
@@ -460,7 +477,7 @@ def batch_default(
         return
 
     if not _sched.is_scheduled and not condition.modified:  # only schedule on data ticks
-        _sched.schedule(delay, tag='')
+        _sched.schedule(delay, tag='-')
 
     if (_sched.is_scheduled_now or condition.modified) and _state.buffer:
         out = tuple(_state.buffer)

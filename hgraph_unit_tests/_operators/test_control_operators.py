@@ -63,6 +63,13 @@ def test_all_invalid():
 
     assert eval_node(app) == [False]
 
+def test_all_tsd():
+    @graph
+    def app(ts: TSD[int, TS[bool]]) -> TS[bool]:
+        return all_(ts)
+
+    assert eval_node(app, [{}, {1: False}, {2: True}, {1: True}, {2: False}, {2: True}, {2: False}, {2: REMOVE}, {1: REMOVE}]) == [True, False, False, True, False, True, False, True, True]
+
 
 def test_any_false():
     @graph
@@ -87,6 +94,13 @@ def test_any_invalid():
         return any_(const(True), invalid, const(True), const(True))
 
     assert eval_node(app) == [True]
+
+def test_any_tsd():
+    @graph
+    def app(ts: TSD[int, TS[bool]]) -> TS[bool]:
+        return any_(ts)
+
+    assert eval_node(app, [{}, {1: False}, {2: False}, {1: True}, {2: False}, {2: True}, {2: False}, {2: REMOVE}, {1: REMOVE}]) == [False, False, False, True, True, True, True, True, False]
 
 
 def test_if_then_else():

@@ -13,7 +13,12 @@ from hgraph import (
     valid,
     last_modified_time,
     modified,
-    TimeSeriesReference, evaluation_time_in_range, CmpResult,
+    TimeSeriesReference,
+    evaluation_time_in_range,
+    CmpResult,
+    const,
+    TSD,
+    if_,
 )
 from hgraph.test import eval_node
 
@@ -41,12 +46,30 @@ def test_valid_1():
 
     assert eval_node(g, a=[None, None, None, None, 1], b=[None, None, 1, None, None], i=[2, 1, None, 0, None, 2]) == [
         False,
-        False,
+        None,
         True,
         False,
         True,
         False,
     ]
+
+
+def test_tsd_validity():
+    @graph
+    def g() -> TS[bool]:
+        tsd = const({1: 1}, TSD[int, TS[int]], delay=MIN_TD*1)
+        return valid(tsd)
+
+    assert eval_node(g) == [False, True]
+
+
+def test_tsd_validity_rebind():
+    @graph
+    def g(ts: TS[bool]) -> TS[bool]:
+        tsd = if_(ts, const({1: 1}, TSD[int, TS[int]], delay=MIN_TD*1)).true
+        return valid(tsd)
+
+    assert eval_node(g, [True, None, False, True]) == [False, True, None, None]
 
 
 def test_last_modified_time():

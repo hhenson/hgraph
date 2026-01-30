@@ -1,7 +1,7 @@
 import pytest
 pytestmark = pytest.mark.smoke
 
-from hgraph import DEFAULT, REMOVE, REMOVE_IF_EXISTS, const, debug_print, graph, TSD, TS, log_, reduce, add_, Size, TSL, SIZE, map_, default, format_, sum_, switch_
+from hgraph import DEFAULT, REMOVE, REMOVE_IF_EXISTS, const, debug_print, graph, TSD, TS, log_, reduce, add_, Size, TSL, SIZE, map_, default, format_, sum_, switch_, compute_node, if_, TS_OUT, TimeSeriesSchema, TSB
 from hgraph.test import eval_node
 
 
@@ -148,13 +148,13 @@ def test_reduce_map_and_switch():
         ])
     
     assert res == [16, None, 8, None, 0, None, 16, None]
-    
-    
+
+
 def test_reduce_map_and_switch_2():
     @graph
     def g(items: TSD[int, TS[int]]) -> TS[int]:
         a = map_(lambda i: switch_(i, {
-                0: lambda: const({0: 0}, TSD[int, TS[int]]), 
+                0: lambda: const({0: 0}, TSD[int, TS[int]]),
                 DEFAULT: lambda: const({1: 1}, TSD[int, TS[int]])}), items)
         b = a.reduce(lambda x, y: map_(lambda i, j: default(i, 0) + default(j, 0), x, y))
         c = b.reduce(lambda x, y: x + y, 0)
@@ -170,8 +170,75 @@ def test_reduce_map_and_switch_2():
         {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16},
         None
         ])
-    
+
     assert res == [16, None, 5, None, 0, None, 16, None]
+
+
+def test_reduce_17():
+    @compute_node(valid=())
+    def add_non_strict(lhs: TS[int], rhs: TS[int], _output: TS_OUT[float] = None) -> TS[int]:
+        if lhs.valid and rhs.valid:
+            return lhs.value + rhs.value
+        elif lhs.valid:
+            return lhs.value
+        elif rhs.valid:
+            return rhs.value
+        else:
+            _output.invalidate()
+            
+
+    @graph
+    def g(items: TSD[int, TS[int]]) -> TS[int]:
+        a = map_(lambda i: i + 1, items)
+        b = a.reduce(lambda x, y: add_non_strict(x, y), None)
+        return b
+
+    res = eval_node(g, [
+        {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 12, 13: 13, 14: 14, 15: 15, 16: 16},
+        None,
+        {1: REMOVE},
+        None,
+        ],
+        __trace__=True)
+
+    assert res == [153, None, 151, None]
+
+
+def test_reduce_ref():
+    class RB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[bool]
+
+    @graph
+    def g(items: TSD[int, TSB[RB]], use: TS[bool]) -> TS[int]:
+        a = if_(use, items).true
+        b = a.a.reduce(lambda x, y: x + y, 0)
+        return b
+
+    iterations, flip_at = 5, 3
+    ticks = []
+    flips = []
+    for i in range(iterations):
+        ticks.append({i: {'a': i, 'b': True}})
+    for i in range(iterations):
+        ticks.append({i: REMOVE})
+    for i in range(iterations * 2):
+        flips.append({0: False, 1: True}.get(i % flip_at, None))
+    on = False
+    outs = []
+    for i in range(iterations * 2):
+        on = on if flips[i] is None else flips[i]
+        if on:
+            outs.append(sum(i['a'] if i is not REMOVE else -k for x in ticks[:i+1] for k, i in x.items()))
+        else:
+            outs.append(0)
+
+    res = eval_node(g,
+                    ticks,
+                    flips,
+                    __trace__=True)
+
+    assert res == outs
 
 
 def test_reduce_preexisting_items():

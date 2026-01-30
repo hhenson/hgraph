@@ -17,6 +17,13 @@ These tests verify the Queue implementation including:
 
 import pytest
 
+try:
+    from hgraph._hgraph import (
+        value,
+    )
+except ImportError:
+    pytest.skip("value types not available in bindings", allow_module_level=True)
+
 
 def test_create_unbounded_queue():
     """Create an unbounded queue."""

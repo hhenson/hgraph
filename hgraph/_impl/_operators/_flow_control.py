@@ -12,7 +12,7 @@ from hgraph._types._scalar_types import CompoundScalar, STATE, SCALAR, SIZE, SIZ
 from hgraph._types._time_series_types import OUT, TIME_SERIES_TYPE, K, TIME_SERIES_TYPE_2
 from hgraph._types._ts_type import TS, TS_OUT
 from hgraph._types._tsb_type import TSB, TS_SCHEMA
-from hgraph._types._tsd_type import TSD
+from hgraph._types._tsd_type import TSD, K
 from hgraph._types._tsl_type import TSL
 from hgraph._types._type_meta_data import AUTO_RESOLVE
 from hgraph._wiring._decorators import graph, compute_node
@@ -21,17 +21,45 @@ from hgraph._wiring._reduce import reduce
 __all__ = ("reduce_tsd_with_race", "reduce_tsd_of_bundles_with_race")
 
 
-@graph(overloads=all_)
+@compute_node(overloads=all_)
 def all_default(*args: TSL[TS[bool], SIZE]) -> TS[bool]:
-    return reduce(bit_and, args, False)
+    return all(args.value)
 
 
-@graph(overloads=any_)
+@compute_node(overloads=all_)
+def all_tsd(arg: TSD[K, TS[bool]], _output: TS_OUT[bool] = None) -> TS[bool]:
+    has_false = any(v.value == False for v in arg.modified_values())
+    if has_false:
+        return False
+    if _output.valid:
+        if _output.value == True: # all values were true before, no change
+            return True
+    else:
+        return True # first time all true
+    
+    # note there is no need to check removals as that can only turn False -> True is False is removed, but we will end up here anyway
+    return all(v.value for v in arg.values())
+
+
+@compute_node(overloads=any_)
 def any_default(*args: TSL[TS[bool], SIZE]) -> TS[bool]:
     """
     Graph version of python `any` operator
     """
-    return reduce(bit_or, args, False)
+    return any(args.value)
+
+
+@compute_node(overloads=any_)
+def any_tsd(arg: TSD[K, TS[bool]], _output: TS_OUT[bool] = None) -> TS[bool]:
+    has_true = any(v.value == True for v in arg.modified_values())
+    if has_true:
+        return True
+    if _output.valid:   
+        if _output.value == False:
+            return False
+    else:
+        return False
+    return any(v.value for v in arg.values())
 
 
 @compute_node(overloads=merge, valid=())
