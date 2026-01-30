@@ -411,21 +411,21 @@ def test_tsl_unbind_twice_is_safe(hgraph_module, tsl_ts_int_meta):
 
 
 def test_tsl_link_view_is_link_target(hgraph_module, tsl_ts_int_meta):
-    """TSL link_view should contain a LinkTarget value (tuple with is_linked flag)."""
+    """TSL link_view should contain a REFLink value (tuple with is_bound, is_linked flags)."""
     TSValue = hgraph_module.TSValue
 
     ts_value = TSValue(tsl_ts_int_meta)
     link_view = ts_value.link_view()
 
     assert link_view.valid()
-    # LinkTarget's to_python returns a tuple (is_linked,)
+    # REFLink's to_python returns a tuple (is_bound, is_linked)
     link_val = link_view.to_python()
     assert isinstance(link_val, tuple)
-    assert link_val == (False,)  # Not linked by default
+    assert link_val == (False, False)  # Not bound or linked by default
 
 
 def test_tsd_link_view_is_link_target(hgraph_module, tsd_str_ts_int_meta):
-    """TSD link_view should contain a LinkTarget value."""
+    """TSD link_view should contain a REFLink value."""
     TSValue = hgraph_module.TSValue
 
     ts_value = TSValue(tsd_str_ts_int_meta)
@@ -434,7 +434,7 @@ def test_tsd_link_view_is_link_target(hgraph_module, tsd_str_ts_int_meta):
     assert link_view.valid()
     link_val = link_view.to_python()
     assert isinstance(link_val, tuple)
-    assert link_val == (False,)  # Not linked by default
+    assert link_val == (False, False)  # Not bound or linked by default
 
 
 def test_tsl_bind_changes_link_view_value(hgraph_module, tsl_ts_int_meta):
@@ -449,12 +449,12 @@ def test_tsl_bind_changes_link_view_value(hgraph_module, tsl_ts_int_meta):
 
     # Before bind
     link_view_before = source_value.link_view()
-    assert link_view_before.to_python() == (False,)
+    assert link_view_before.to_python() == (False, False)
 
-    # After bind
+    # After bind - is_linked becomes True (is_bound stays False for simple binding)
     source_view.bind(target_view)
     link_view_after = source_value.link_view()
-    assert link_view_after.to_python() == (True,)
+    assert link_view_after.to_python() == (False, True)
 
 
 def test_tsl_unbind_changes_link_view_value(hgraph_module, tsl_ts_int_meta):
@@ -468,10 +468,10 @@ def test_tsl_unbind_changes_link_view_value(hgraph_module, tsl_ts_int_meta):
     target_view = target_value.ts_view(TEST_TIME)
 
     source_view.bind(target_view)
-    assert source_value.link_view().to_python() == (True,)
+    assert source_value.link_view().to_python() == (False, True)
 
     source_view.unbind()
-    assert source_value.link_view().to_python() == (False,)
+    assert source_value.link_view().to_python() == (False, False)
 
 
 # ============================================================================

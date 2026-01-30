@@ -1257,6 +1257,31 @@ For alternative representations with REF elements:
 - If primary uses stable storage, REF targets remain valid
 - REFLinks handle the notification forwarding
 
+### REFLink Storage
+
+REFLink (used for REF→TS dereferencing) is stored **inline** as part of the link schema, not in a separate collection. This follows the same pattern as LinkTarget:
+
+- **Inline storage is stable**: Data in TSValue storage has stable addresses - elements are never moved after insertion
+- **Automatic cleanup**: When an element is removed, its inline REFLink is destroyed automatically
+- **No tracking needed**: The REFLink is co-located with the position it manages
+
+### Element Removal Lifecycle
+
+Element removal uses a **two-phase lifecycle** to ensure safe notification handling:
+
+**Phase 1: Mark as dead**
+- Element is logically removed
+- All notification subscriptions are cancelled (unsubscribe)
+- No more callbacks will arrive
+- Storage persists - other code can still read "last value" this engine cycle
+
+**Phase 2: Later destroy**
+- Called when slot is reused or container destroyed
+- Destructor runs and frees resources
+- Safe because subscriptions were already cancelled
+
+This separation prevents dangling pointer issues - the notification system never has references to destroyed elements because unsubscription happens before destruction.
+
 ---
 
 ## Next

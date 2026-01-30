@@ -179,22 +179,14 @@ private:
 
     TSValue native_value_;                                          ///< Native representation
     std::unordered_map<const TSMeta*, TSValue> alternatives_;       ///< Cast/peer representations
-    std::vector<std::unique_ptr<REFLink>> ref_links_;               ///< REFLinks for REF→TS conversions
     node_ptr owning_node_{nullptr};                                 ///< For graph context
     size_t port_index_{0};                                          ///< Port index on node
 
-    /**
-     * @brief Create a REFLink for REF→TS dereferencing.
-     *
-     * Creates a REFLink that watches the REF source and provides access
-     * to the dereferenced target. The REFLink is stored in ref_links_.
-     *
-     * @param alt_view View into the alternative (where to put the link)
-     * @param native_view View of the native REF position
-     * @param current_time Current engine time
-     * @return Pointer to the created REFLink
-     */
-    REFLink* create_ref_link(TSView alt_view, TSView native_view, engine_time_t current_time);
+    // Note: REFLinks are stored inline in the alternative TSValue's link storage.
+    // The link schema uses REFLink at each position, which can function as either
+    // a simple link (like LinkTarget) or a full REFLink for REF→TS dereferencing.
+    // This provides stable addresses and proper lifecycle management with the
+    // two-phase removal pattern (mark dead + unsubscribe, then later destroy).
 };
 
 } // namespace hgraph

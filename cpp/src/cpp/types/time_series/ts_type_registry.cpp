@@ -95,11 +95,21 @@ const TSMeta* TSTypeRegistry::tsd(const value::TypeMeta* key_type, const TSMeta*
         return it->second;
     }
 
+    // Build the map value schema from key and value's value type
+    // This is needed for ts_ops::make_value_view to work correctly
+    const value::TypeMeta* value_schema = nullptr;
+    if (key_type && value_ts && value_ts->value_type) {
+        value_schema = value::TypeRegistry::instance()
+            .map(key_type, value_ts->value_type)
+            .build();
+    }
+
     // Create new schema
     auto* meta = create_schema();
     meta->kind = TSKind::TSD;
     meta->key_type = key_type;
     meta->element_ts = value_ts;
+    meta->value_type = value_schema;  // Store map value schema for ts_ops
 
     // Cache and return
     tsd_cache_[cache_key] = meta;
@@ -118,11 +128,21 @@ const TSMeta* TSTypeRegistry::tsl(const TSMeta* element_ts, size_t fixed_size) {
         return it->second;
     }
 
+    // Build the list value schema from element's value type
+    // This is needed for ts_ops::make_value_view to work correctly
+    const value::TypeMeta* value_schema = nullptr;
+    if (element_ts && element_ts->value_type) {
+        value_schema = value::TypeRegistry::instance()
+            .fixed_list(element_ts->value_type, fixed_size)
+            .build();
+    }
+
     // Create new schema
     auto* meta = create_schema();
     meta->kind = TSKind::TSL;
     meta->element_ts = element_ts;
     meta->fixed_size = fixed_size;
+    meta->value_type = value_schema;  // Store list value schema for ts_ops
 
     // Cache and return
     tsl_cache_[cache_key] = meta;

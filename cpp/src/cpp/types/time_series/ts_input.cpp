@@ -47,6 +47,32 @@ void TSInput::set_active(bool active) {
         if (root) {
             *static_cast<bool*>(root.data()) = active;
         }
+
+        // For TSL/TSD, also set element active states
+        if (meta_->is_collection()) {
+            value::View element_list = tv[1];
+            if (element_list) {
+                value::ListView lv = element_list.as_list();
+                for (size_t i = 0; i < lv.size(); ++i) {
+                    value::View elem_active = lv[i];
+                    if (elem_active) {
+                        // Element active could be bool (scalar) or tuple (composite)
+                        const TSMeta* elem_ts = meta_->element_ts;
+                        if (elem_ts && (elem_ts->is_collection() || elem_ts->kind == TSKind::TSB)) {
+                            // Composite element: set first element (root bool)
+                            value::TupleView elem_tv = elem_active.as_tuple();
+                            value::View elem_root = elem_tv[0];
+                            if (elem_root) {
+                                *static_cast<bool*>(elem_root.data()) = active;
+                            }
+                        } else {
+                            // Scalar element: set directly
+                            *static_cast<bool*>(elem_active.data()) = active;
+                        }
+                    }
+                }
+            }
+        }
     } else {
         // Scalar: just bool
         *static_cast<bool*>(av.data()) = active;
@@ -261,11 +287,18 @@ TSInputView TSInputView::operator[](size_t index) const {
                 value::TupleView tv = active_view_.as_tuple();
                 child_active = tv[index + 1];
             } else if (meta->is_collection()) {
-                // For TSL/TSD, there's a shared active state for all elements
-                // Active schema: tuple[bool, element_active_schema]
-                // The element active state is at index 1 (same for all elements)
+                // For TSL/TSD, each element has its own active state
+                // Active schema: tuple[bool, list[element_active]]
+                // The element active states are in a list at index 1
                 value::TupleView tv = active_view_.as_tuple();
-                child_active = tv[1];
+                value::View element_list = tv[1];
+                if (element_list) {
+                    // Access the element's active state from the list
+                    value::ListView lv = element_list.as_list();
+                    if (index < lv.size()) {
+                        child_active = lv[index];
+                    }
+                }
             }
         }
     }

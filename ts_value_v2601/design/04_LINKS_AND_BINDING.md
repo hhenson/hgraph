@@ -505,6 +505,72 @@ struct REFLink {
 };
 ```
 
+### REFLink Inline Storage
+
+REFLink is stored **inline** as part of the link schema at each position that requires REF→TS dereferencing. This is the same pattern used for LinkTarget - the data is co-located with the position it belongs to.
+
+**Why inline storage works:**
+
+1. **Memory stability**: Inline data in TSValue storage has stable addresses by definition. Elements are never moved after insertion - only marked dead and later erased.
+
+2. **Automatic lifecycle**: When an alternative element is removed (e.g., TSD key deleted), the inline REFLink is destroyed along with its containing storage, automatically cleaning up subscriptions.
+
+3. **No external tracking needed**: Unlike a separate `std::vector<REFLink>`, inline storage doesn't require searching to find which REFLink corresponds to which position.
+
+**Incorrect approach** (do not use):
+```cpp
+// WRONG: Separate vector makes removal complex
+class TSOutput {
+    std::vector<std::unique_ptr<REFLink>> ref_links_;  // Hard to track ownership
+};
+```
+
+**Correct approach** (inline storage):
+```cpp
+// RIGHT: REFLink stored inline in link schema
+// Each position that needs REF→TS has REFLink in its link_data slot
+// Lifecycle managed automatically with the element
+```
+
+### REFLink Removal Lifecycle
+
+Element removal follows a **two-phase lifecycle**:
+
+1. **Mark as dead** → Unsubscribe from notifications
+   - Called when the element is logically removed
+   - Stops all notification callbacks immediately
+   - The element is no longer "live" but storage persists
+
+2. **Later destroy** → Actually free the storage
+   - Called when the slot is reused or container is destroyed
+   - REFLink destructor runs, cleaning up any remaining resources
+   - Safe because subscriptions were already removed in phase 1
+
+```cpp
+// Phase 1: Mark dead and unsubscribe
+void mark_element_dead(size_t index, engine_time_t death_time) {
+    // Get the REFLink at this position
+    REFLink* ref_link = get_ref_link_at(index);
+    if (ref_link) {
+        ref_link->unsubscribe();  // Stop receiving notifications
+    }
+    set_death_time(index, death_time);
+    // Storage persists - can still read "last value" this cycle
+}
+
+// Phase 2: Actual destruction (later, when slot reused)
+void destroy_element(size_t index) {
+    // REFLink destructor runs - safe because already unsubscribed
+    destruct_at(index);
+}
+```
+
+This separation ensures:
+- No notification callbacks arrive for "dead" elements
+- Other parts of the graph can still read the "last value" during the current engine cycle
+- No dangling pointer issues in notification handlers
+```
+
 ### REF Binding Modes
 
 REF participates in three binding modes:

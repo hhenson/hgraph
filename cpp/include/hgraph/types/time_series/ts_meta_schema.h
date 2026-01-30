@@ -174,9 +174,21 @@ public:
     const value::TypeMeta* bool_meta();
 
     /**
-     * @brief Get the TypeMeta for LinkTarget (used for collection-level links).
+     * @brief Get the TypeMeta for LinkTarget (used for direct links).
      */
     const value::TypeMeta* link_target_meta();
+
+    /**
+     * @brief Get the TypeMeta for REFLink (used for inline link storage).
+     *
+     * REFLink is used in link schemas for all positions. It can function as:
+     * - A simple link (like LinkTarget) when not bound to a REF source
+     * - A full REFLink for REF→TS dereferencing when bound to a REF source
+     *
+     * This enables inline storage with stable addresses and proper lifecycle
+     * management through the two-phase removal pattern.
+     */
+    const value::TypeMeta* ref_link_meta();
 
     /**
      * @brief Get the TypeMeta for TSReference (used for REF type values).
@@ -213,6 +225,7 @@ private:
     const value::TypeMeta* list_delta_nav_meta_{nullptr};
     const value::TypeMeta* bool_meta_{nullptr};
     const value::TypeMeta* link_target_meta_{nullptr};
+    const value::TypeMeta* ref_link_meta_{nullptr};
     const value::TypeMeta* ts_reference_meta_{nullptr};
 
     // ========== Owned TypeMetas ==========

@@ -9,6 +9,7 @@
 #include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/time_series/ts_reference_ops.h>
+#include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/value/composite_ops.h>
 
 namespace hgraph {
@@ -114,7 +115,7 @@ TSMetaSchemaCache::TSMetaSchemaCache() {
     // TSReference - for REF type values
     ts_reference_meta_ = value::scalar_type_meta<TSReference>();
 
-    // LinkTarget - for collection-level links (TSL/TSD)
+    // LinkTarget - for direct links (internal use)
     auto link_target_m = std::make_unique<value::TypeMeta>();
     link_target_m->size = sizeof(LinkTarget);
     link_target_m->alignment = alignof(LinkTarget);
@@ -129,6 +130,22 @@ TSMetaSchemaCache::TSMetaSchemaCache() {
     link_target_m->fixed_size = 0;
     link_target_meta_ = link_target_m.get();
     owned_metas_.push_back(std::move(link_target_m));
+
+    // REFLink - for inline link storage (supports both simple links and REF→TS)
+    auto ref_link_m = std::make_unique<value::TypeMeta>();
+    ref_link_m->size = sizeof(REFLink);
+    ref_link_m->alignment = alignof(REFLink);
+    ref_link_m->kind = value::TypeKind::Atomic;
+    ref_link_m->flags = value::TypeFlags::None;
+    ref_link_m->ops = REFLinkOps::ops();
+    ref_link_m->name = "REFLink";
+    ref_link_m->element_type = nullptr;
+    ref_link_m->key_type = nullptr;
+    ref_link_m->fields = nullptr;
+    ref_link_m->field_count = 0;
+    ref_link_m->fixed_size = 0;
+    ref_link_meta_ = ref_link_m.get();
+    owned_metas_.push_back(std::move(ref_link_m));
 }
 
 // ============================================================================
@@ -165,6 +182,10 @@ const value::TypeMeta* TSMetaSchemaCache::bool_meta() {
 
 const value::TypeMeta* TSMetaSchemaCache::link_target_meta() {
     return link_target_meta_;
+}
+
+const value::TypeMeta* TSMetaSchemaCache::ref_link_meta() {
+    return ref_link_meta_;
 }
 
 const value::TypeMeta* TSMetaSchemaCache::ts_reference_meta() {
@@ -472,19 +493,22 @@ const value::TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta
 
         case TSKind::TSD:
         case TSKind::TSL:
-            // TSD and TSL: LinkTarget for collection-level link
-            // Contains is_linked flag plus target ViewData pointers
-            return link_target_meta_;
+            // TSD and TSL: REFLink for collection-level link
+            // REFLink stores the link target inline and can also handle REF→TS
+            // dereferencing when needed. This provides stable addresses for
+            // the two-phase removal lifecycle.
+            return ref_link_meta_;
 
         case TSKind::TSB: {
-            // TSB: fixed_list[LinkTarget] with one entry per field
-            // Each field can be independently linked to different targets
+            // TSB: fixed_list[REFLink] with one entry per field
+            // Each field can be independently linked to different targets.
+            // Using REFLink enables inline storage with proper lifecycle management.
             if (ts_meta->field_count == 0) {
                 return nullptr;
             }
 
             auto& registry = value::TypeRegistry::instance();
-            return registry.fixed_list(link_target_meta_, ts_meta->field_count).build();
+            return registry.fixed_list(ref_link_meta_, ts_meta->field_count).build();
         }
     }
 

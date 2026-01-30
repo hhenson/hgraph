@@ -76,17 +76,31 @@ void TSOutput::establish_links_recursive(
     if (native_meta->kind == TSKind::REF) {
         const TSMeta* deref_meta = native_meta->element_ts;  // REF's element_ts is the referenced type
 
+        // Get the REFLink from the alternative's link storage (inline storage)
+        // The link schema uses REFLink at each position, providing stable addresses
+        // for proper lifecycle management with two-phase removal
+        void* link_data = alt_view.view_data().link_data;
+        if (!link_data) {
+            // No link storage available - fall back to direct bind
+            alt_view.bind(native_view);
+            return;
+        }
+
+        REFLink* ref_link = static_cast<REFLink*>(link_data);
+
+        // Bind the REFLink to the REF source - this sets up:
+        // 1. Subscription to REF source for rebind notifications
+        // 2. Initial dereference to get current target
+        ref_link->bind_to_ref(native_view, MIN_ST);
+
         if (target_meta == deref_meta) {
             // REF[X] → X: Simple REFLink dereference
-            // Create a REFLink that watches the REF source and provides the dereferenced target
-            REFLink* ref_link = create_ref_link(alt_view, native_view, MIN_ST);
-
-            // The alternative's value access will go through the REFLink's target
-            // For now, we bind the alternative to the REFLink's target view
-            // The REFLink handles rebinding when the REF changes
-            if (ref_link && ref_link->valid()) {
+            // The REFLink's target is now the dereferenced value
+            if (ref_link->valid()) {
                 TSView target = ref_link->target_view(MIN_ST);
                 if (target) {
+                    // For simple dereference, the alternative's value access
+                    // goes through the REFLink's target
                     alt_view.bind(target);
                 }
             }
@@ -94,15 +108,9 @@ void TSOutput::establish_links_recursive(
             // REF[X] → Y where X != Y: REFLink + nested conversion
             // Example: REF[TSD[str, TS[int]]] → TSD[str, REF[TS[int]]]
             //
-            // 1. Create REFLink to dereference REF, getting link to actual X
-            // 2. Element conversion happens on the LINKED output (the dereferenced TSD)
-            // 3. TSReferences point to the linked output's elements
-            //
-            // Create the REFLink to dereference the outer REF
-            REFLink* ref_link = create_ref_link(alt_view, native_view, MIN_ST);
-
-            // If we have a valid target, set up nested conversion on the linked target
-            if (ref_link && ref_link->valid()) {
+            // The REFLink dereferences the outer REF to get the actual X
+            // Then we recursively establish links for the X → Y conversion
+            if (ref_link->valid()) {
                 TSView linked_target = ref_link->target_view(MIN_ST);
                 if (linked_target) {
                     // Now recursively establish links between alt_view and linked_target
@@ -216,21 +224,6 @@ TSOutputView TSOutputView::field(const std::string& name) const {
 TSOutputView TSOutputView::operator[](size_t index) const {
     TSView child = ts_view_[index];
     return TSOutputView(std::move(child), output_);
-}
-
-// ============================================================================
-// REFLink Creation
-// ============================================================================
-
-REFLink* TSOutput::create_ref_link(TSView alt_view, TSView native_view, engine_time_t current_time) {
-    // Create a new REFLink that watches the native REF source
-    auto ref_link = std::make_unique<REFLink>(native_view, current_time);
-
-    // Store in our container and return raw pointer
-    REFLink* ptr = ref_link.get();
-    ref_links_.push_back(std::move(ref_link));
-
-    return ptr;
 }
 
 } // namespace hgraph

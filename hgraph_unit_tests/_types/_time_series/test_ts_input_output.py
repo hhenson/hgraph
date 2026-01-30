@@ -179,7 +179,6 @@ class TestTSOutputBasics:
         # This is expected behavior per the implementation
         assert ts_view.valid() == True
 
-    @pytest.mark.xfail(reason="TSLView.at() has issue with value_type being None for TSL")
     def test_ts_value_navigation_with_index(self, hgraph_module, tsl_ts_int_meta):
         """TSL supports navigation via as_list().at()."""
         TSValue = hgraph_module.TSValue
@@ -242,7 +241,6 @@ class TestTSInputBasics:
 
         assert ts_view is not None
 
-    @pytest.mark.xfail(reason="TSLView.at() has issue with value_type being None for TSL")
     def test_ts_value_navigation_index_for_tsl(self, hgraph_module, tsl_ts_int_meta):
         """TSL input supports navigation via as_list().at()."""
         TSValue = hgraph_module.TSValue
@@ -564,7 +562,6 @@ class TestHierarchicalActiveState:
         assert input_view.field("x").active() == True
         assert input_view.field("y").active() == False
 
-    @pytest.mark.xfail(reason="TSInput hierarchical active state not yet exposed to Python")
     def test_tsl_element_active_state(self, hgraph_module, tsl_ts_int_meta):
         """TSL elements can have active state."""
         TSInput = hgraph_module.TSInput
@@ -658,7 +655,6 @@ class TestTSOutputViewAccess:
 class TestTSInputViewAccess:
     """Tests for TSInputView specific functionality."""
 
-    @pytest.mark.xfail(reason="TSLView.at() has issue with value_type being None for TSL")
     def test_tsl_input_navigation(self, hgraph_module, tsl_ts_int_meta):
         """TSL input supports navigation to elements via as_list().at()."""
         TSValue = hgraph_module.TSValue

@@ -16,6 +16,9 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/notifiable.h>
 
+#include <new>
+#include <string>
+
 namespace hgraph {
 
 /**
@@ -171,6 +174,95 @@ private:
     LinkTarget target_;                     ///< Current dereferenced target
     ViewData ref_source_view_data_;         ///< ViewData for the REF source
     bool ref_source_bound_{false};          ///< Whether bound to a REF source
+};
+
+/**
+ * @brief TypeOps implementation for REFLink.
+ *
+ * Provides the TypeOps interface for REFLink so it can be stored
+ * in Value structures as part of the link schema.
+ *
+ * REFLink is stored inline in the link schema and provides:
+ * - Simple link functionality (like LinkTarget) when not bound to a REF
+ * - Full REF→TS dereferencing when bound to a REF source
+ */
+struct REFLinkOps {
+    static void construct(void* dst, const value::TypeMeta*) {
+        new (dst) REFLink();
+    }
+
+    static void destruct(void* obj, const value::TypeMeta*) {
+        static_cast<REFLink*>(obj)->~REFLink();
+    }
+
+    static void copy_assign(void* dst, const void* src, const value::TypeMeta*) {
+        // REFLink is non-copyable due to subscriptions
+        // For schema operations, just default-construct
+        static_cast<REFLink*>(dst)->~REFLink();
+        new (dst) REFLink();
+        (void)src;
+    }
+
+    static void move_assign(void* dst, void* src, const value::TypeMeta*) {
+        *static_cast<REFLink*>(dst) = std::move(*static_cast<REFLink*>(src));
+    }
+
+    static void move_construct(void* dst, void* src, const value::TypeMeta*) {
+        new (dst) REFLink(std::move(*static_cast<REFLink*>(src)));
+    }
+
+    static bool equals(const void* a, const void* b, const value::TypeMeta*) {
+        const auto* rl_a = static_cast<const REFLink*>(a);
+        const auto* rl_b = static_cast<const REFLink*>(b);
+        return rl_a->is_bound() == rl_b->is_bound() &&
+               rl_a->target().is_linked == rl_b->target().is_linked;
+    }
+
+    static std::string to_string(const void* obj, const value::TypeMeta*) {
+        const auto* rl = static_cast<const REFLink*>(obj);
+        return "REFLink(bound=" + std::string(rl->is_bound() ? "true" : "false") +
+               ", linked=" + std::string(rl->target().is_linked ? "true" : "false") + ")";
+    }
+
+    static nb::object to_python(const void* obj, const value::TypeMeta*) {
+        const auto* rl = static_cast<const REFLink*>(obj);
+        return nb::make_tuple(rl->is_bound(), rl->target().is_linked);
+    }
+
+    static void from_python(void*, const nb::object&, const value::TypeMeta*) {
+        // REFLink cannot be set from Python - it's managed internally
+        throw std::runtime_error("REFLink cannot be set from Python");
+    }
+
+    /// Get the operations vtable for REFLink
+    static const value::TypeOps* ops() {
+        static const value::TypeOps ref_link_ops = {
+            &construct,
+            &destruct,
+            &copy_assign,
+            &move_assign,
+            &move_construct,
+            &equals,
+            &to_string,
+            &to_python,
+            &from_python,
+            nullptr,   // hash (not hashable)
+            nullptr,   // less_than (not comparable)
+            nullptr,   // size (not iterable)
+            nullptr,   // get_at (not indexable)
+            nullptr,   // set_at (not indexable)
+            nullptr,   // get_field (not bundle)
+            nullptr,   // set_field (not bundle)
+            nullptr,   // contains (not set)
+            nullptr,   // insert (not set)
+            nullptr,   // erase (not set)
+            nullptr,   // map_get (not map)
+            nullptr,   // map_set (not map)
+            nullptr,   // resize (not resizable)
+            nullptr,   // clear (not clearable)
+        };
+        return &ref_link_ops;
+    }
 };
 
 } // namespace hgraph

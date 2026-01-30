@@ -57,24 +57,26 @@ void REFLink::bind_to_ref(TSView ref_source, engine_time_t current_time) {
 }
 
 void REFLink::unbind() {
-    if (!ref_source_bound_) return;
-
-    // Unsubscribe from REF source
-    if (ref_source_view_data_.observer_data) {
-        auto* obs_list = static_cast<ObserverList*>(ref_source_view_data_.observer_data);
-        obs_list->remove_observer(this);
+    // Handle REF source unsubscription if bound
+    if (ref_source_bound_) {
+        // Unsubscribe from REF source
+        if (ref_source_view_data_.observer_data) {
+            auto* obs_list = static_cast<ObserverList*>(ref_source_view_data_.observer_data);
+            obs_list->remove_observer(this);
+        }
+        ref_source_view_data_ = ViewData{};
+        ref_source_bound_ = false;
     }
 
+    // Always handle target cleanup - whether this was a REF link or a simple link
     // Unsubscribe from current target
     if (target_.is_linked && target_.observer_data) {
         auto* target_obs = static_cast<ObserverList*>(target_.observer_data);
         target_obs->remove_observer(this);
     }
 
-    // Clear state
+    // Clear target state
     target_.clear();
-    ref_source_view_data_ = ViewData{};
-    ref_source_bound_ = false;
 }
 
 TSView REFLink::target_view(engine_time_t current_time) const {
