@@ -295,7 +295,7 @@
             window.addEventListener("DOMContentLoaded", async function () {
                 const workspace = window.workspace
 
-                let mode = { editable: false };
+                let mode = { editable: false, locked: false };
 
                 try {
                     document.getElementById('loading-message').innerText = "Logging in...";
@@ -369,9 +369,19 @@
                     const management_ws = undefined;
                     {% end %}
 
+                    const lockCallback = async () => {
+                        const config = await window.workspace.save();
+                        const has_viewers = Object.keys(config.viewers).length;
+                        if (has_viewers) {  // prevent saving broken empty views
+                            const layout = await saveLayout(config, mode);
+                            await fetch("/layout/{{url}}", {method: "post", body: JSON.stringify(layout)});
+                            management_ws && management_ws.send({type: 'save_layout', layout: '{{url}}'});
+                        }
+                    }
+
                     window.workspace.addEventListener("workspace-layout-update", async () => {
                         setTimeout(async () => {
-                            installTableWorkarounds(mode);
+                            installTableWorkarounds(mode, lockCallback);
                             setupInspectorTable();
                         }, 100);
                     });
@@ -385,7 +395,7 @@
                         let json = await (await req).json();
 
                         if (json.version && json.version >= 1) {
-                            json = await loadLayout(json);
+                            json = await loadLayout(json, mode);
                         }
 
                         await ensureTablesForConfig(json, (progress, message, error, key, status) => {
@@ -437,13 +447,14 @@
                                 const config = await window.workspace.save();
                                 const has_viewers = Object.keys(config.viewers).length;
                                 if (has_viewers) {  // prevent saving broken empty views
-                                    const layout = await saveLayout(config);
+                                    const layout = await saveLayout(config, mode);
                                     await fetch("/layout/{{url}}", {method: "post", body: JSON.stringify(layout)});
                                     management_ws && management_ws.send({type: 'save_layout', layout: '{{url}}'});
                                 }
                             }
                         });
                     }, 10000);  // not saving anything for a bit
+
                 } catch (error) {
                     console.error(error);
                     const errorList = document.querySelector('.error-list');
