@@ -26,8 +26,8 @@ from hgraph import (
     TS_SCHEMA,
     REF,
     nothing,
+    TimeSeriesReference,
 )
-from hgraph._impl._types._ref import EmptyTimeSeriesReference
 from hgraph.arrow import eval_, if_then, c, assert_
 
 from hgraph.test import eval_node
@@ -274,7 +274,7 @@ def test_tsb_output_access():
 def test_tsb_ref_flipping():
     @generator
     def null_ref(tpe: type[TSB[MyTsb]]) -> REF[TSB[MyTsb]]:
-        yield timedelta(), EmptyTimeSeriesReference()
+        yield timedelta(), TimeSeriesReference.make()
     
     @graph
     def g(tsb1: TSB[MyTsb], tsb2: TSB[MyTsb], i: TS[int]) -> TSB[MyTsb]:

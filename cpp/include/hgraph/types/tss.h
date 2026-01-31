@@ -279,6 +279,13 @@ namespace hgraph {
         [[nodiscard]] nb::object py_value() const override;
         [[nodiscard]] nb::object py_delta_value() const override;
 
+        /**
+         * @brief Override valid() to match Python behavior.
+         * TSS input is valid if it was ever sampled (_sample_time > MIN_DT),
+         * which allows reading delta values from _prev_output even when unbound.
+         */
+        [[nodiscard]] bool valid() const override;
+
         [[nodiscard]] size_t size() const override;
         [[nodiscard]] bool empty() const override;
 

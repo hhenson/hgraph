@@ -1093,6 +1093,13 @@ namespace hgraph
                std::any_of(_ts_values.begin(), _ts_values.end(), [](const auto &pair) { return pair.second->modified(); });
     }
 
+    bool TimeSeriesDictInputImpl::valid() const {
+        // Match Python behavior: TSD input is valid if it was ever sampled (_sample_time > MIN_DT),
+        // which allows reading data even when unbound.
+        // Python: return self._sample_time > MIN_DT or (self.bound and self.output.valid)
+        return sample_time() > MIN_DT || TimeSeriesDictInput::valid();
+    }
+
     engine_time_t TimeSeriesDictInputImpl::last_modified_time() const {
         if (has_peer()) { return TimeSeriesDictInput::last_modified_time(); }
         if (active()) { return std::max(std::max(_last_modified_time, key_set().last_modified_time()), sample_time()); }

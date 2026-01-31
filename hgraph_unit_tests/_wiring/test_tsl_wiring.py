@@ -1,6 +1,5 @@
 from datetime import timedelta
-from hgraph import REF, TS, combine, generator, graph, TSL, Size, SCALAR, compute_node, SIZE, getitem_, const
-from hgraph._impl._types._ref import EmptyTimeSeriesReference
+from hgraph import REF, TS, combine, generator, graph, TSL, Size, SCALAR, compute_node, SIZE, getitem_, const, TimeSeriesReference
 from hgraph.nodes import flatten_tsl_values
 from hgraph.test import eval_node
 
@@ -80,7 +79,7 @@ def test_tsl_get_item():
 def test_tsl_ref_flipping():
     @generator
     def null_ref() -> REF[TSL[TS[int], Size[2]]]:
-        yield timedelta(), EmptyTimeSeriesReference()
+        yield timedelta(), TimeSeriesReference.make()
     
     @graph
     def g(tsb1: TSL[TS[int], Size[2]], tsb2: TSL[TS[int], Size[2]], i: TS[int]) -> TSL[TS[int], Size[2]]:
