@@ -943,3 +943,221 @@ class TestTSOutputViewDirect:
         output_view.subscribe(mock)
         output_view.unsubscribe(mock)
         # Subscription removed
+
+
+# ============================================================================
+# Section 12: TSOutput Alternatives
+# ============================================================================
+
+
+def test_output_view_with_same_schema_returns_native(hgraph_module, ts_int_meta):
+    """view(time, schema) with native schema returns native view."""
+    TSOutput = hgraph_module.TSOutput
+
+    output_ts = TSOutput(ts_int_meta, None)
+
+    # Set a value on native
+    native_view = output_ts.view(TEST_TIME)
+    native_view.from_python(42)
+
+    # Request view with same schema
+    alt_view = output_ts.view(TEST_TIME, ts_int_meta)
+
+    # Should see same value (same underlying storage)
+    assert alt_view.value().to_python() == 42
+
+
+def test_output_view_with_tsl_same_schema_returns_native(hgraph_module, tsl_ts_int_meta):
+    """TSL view(time, schema) with native schema returns native view."""
+    TSOutput = hgraph_module.TSOutput
+
+    output_ts = TSOutput(tsl_ts_int_meta, None)
+
+    native_view = output_ts.view(TEST_TIME)
+    alt_view = output_ts.view(TEST_TIME, tsl_ts_int_meta)
+
+    # Both should be valid and show same state
+    assert native_view.valid() == alt_view.valid()
+
+
+def test_output_view_with_tsd_same_schema_returns_native(hgraph_module, tsd_str_ts_int_meta):
+    """TSD view(time, schema) with native schema returns native view."""
+    TSOutput = hgraph_module.TSOutput
+
+    output_ts = TSOutput(tsd_str_ts_int_meta, None)
+
+    native_view = output_ts.view(TEST_TIME)
+    alt_view = output_ts.view(TEST_TIME, tsd_str_ts_int_meta)
+
+    # Both should be valid and show same state
+    assert native_view.valid() == alt_view.valid()
+
+
+# ============================================================================
+# Section 13: REF Type Fixtures and Tests
+# ============================================================================
+
+
+@pytest.fixture
+def ref_ts_int_meta(hgraph_module):
+    """Create TSMeta for REF[TS[int]]."""
+    from hgraph._types._ref_meta_data import HgREFTypeMetaData
+    from hgraph._types._ts_meta_data import HgTSTypeMetaData
+    from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+
+    ts_meta = HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(int))
+    ref_meta = HgREFTypeMetaData(ts_meta)
+    return ref_meta.cpp_type
+
+
+@pytest.fixture
+def ref_tsd_str_ts_int_meta(hgraph_module):
+    """Create TSMeta for REF[TSD[str, TS[int]]]."""
+    from hgraph._types._ref_meta_data import HgREFTypeMetaData
+    from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+    from hgraph._types._ts_meta_data import HgTSTypeMetaData
+    from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+
+    key_type = HgScalarTypeMetaData.parse_type(str)
+    value_ts = HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(int))
+    tsd_meta = HgTSDTypeMetaData(key_type, value_ts)
+    ref_meta = HgREFTypeMetaData(tsd_meta)
+    return ref_meta.cpp_type
+
+
+@pytest.fixture
+def tsd_str_ref_ts_int_meta(hgraph_module):
+    """Create TSMeta for TSD[str, REF[TS[int]]]."""
+    from hgraph._types._ref_meta_data import HgREFTypeMetaData
+    from hgraph._types._tsd_meta_data import HgTSDTypeMetaData
+    from hgraph._types._ts_meta_data import HgTSTypeMetaData
+    from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
+
+    key_type = HgScalarTypeMetaData.parse_type(str)
+    value_ts = HgTSTypeMetaData(HgScalarTypeMetaData.parse_type(int))
+    ref_ts = HgREFTypeMetaData(value_ts)
+    tsd_meta = HgTSDTypeMetaData(key_type, ref_ts)
+    return tsd_meta.cpp_type
+
+
+def test_ref_ts_int_meta_creation(hgraph_module, ref_ts_int_meta):
+    """REF[TS[int]] TSMeta can be created."""
+    assert ref_ts_int_meta is not None
+    assert ref_ts_int_meta.kind == hgraph_module.TSKind.REF
+
+
+def test_ref_tsd_meta_creation(hgraph_module, ref_tsd_str_ts_int_meta):
+    """REF[TSD[str, TS[int]]] TSMeta can be created."""
+    assert ref_tsd_str_ts_int_meta is not None
+    assert ref_tsd_str_ts_int_meta.kind == hgraph_module.TSKind.REF
+
+
+def test_tsd_ref_meta_creation(hgraph_module, tsd_str_ref_ts_int_meta):
+    """TSD[str, REF[TS[int]]] TSMeta can be created."""
+    assert tsd_str_ref_ts_int_meta is not None
+    assert tsd_str_ref_ts_int_meta.kind == hgraph_module.TSKind.TSD
+
+
+def test_ts_value_with_ref_type(hgraph_module, ref_ts_int_meta):
+    """TSValue can be constructed with REF[TS[int]] schema."""
+    TSValue = hgraph_module.TSValue
+
+    ts_value = TSValue(ref_ts_int_meta)
+    assert ts_value.meta is not None
+    assert ts_value.meta.kind == hgraph_module.TSKind.REF
+
+
+def test_ts_output_with_ref_type(hgraph_module, ref_ts_int_meta):
+    """TSOutput can be constructed with REF[TS[int]] schema."""
+    TSOutput = hgraph_module.TSOutput
+
+    output_ts = TSOutput(ref_ts_int_meta, None)
+    assert output_ts.ts_meta is not None
+    assert output_ts.ts_meta.kind == hgraph_module.TSKind.REF
+
+
+# ============================================================================
+# Section 14: Alternative with Schema Conversion (REF→TS and TS→REF)
+# ============================================================================
+
+
+@pytest.mark.xfail(reason="REF→scalar TS conversion fails: scalar types lack link storage")
+def test_ref_to_ts_alternative_simple(hgraph_module, ref_ts_int_meta, ts_int_meta):
+    """REF[TS[int]] output can provide TS[int] alternative view.
+
+    This tests simple REF→TS dereferencing where the alternative
+    uses a REFLink to follow the reference.
+    """
+    TSOutput = hgraph_module.TSOutput
+
+    # Create output with REF[TS[int]] native schema
+    output_ts = TSOutput(ref_ts_int_meta, None)
+
+    # Request alternative view with TS[int] schema
+    alt_view = output_ts.view(TEST_TIME, ts_int_meta)
+
+    # Alternative should be created (even if not yet bound to anything)
+    assert alt_view is not None
+    assert alt_view.ts_meta.kind == hgraph_module.TSKind.TSValue
+
+
+def test_ts_to_ref_alternative_simple(hgraph_module, ts_int_meta, ref_ts_int_meta):
+    """TS[int] output can provide REF[TS[int]] alternative view.
+
+    This tests TS→REF wrapping where the alternative stores
+    a TSReference pointing to the native value.
+    """
+    TSOutput = hgraph_module.TSOutput
+
+    # Create output with TS[int] native schema
+    output_ts = TSOutput(ts_int_meta, None)
+
+    # Request alternative view with REF[TS[int]] schema
+    alt_view = output_ts.view(TEST_TIME, ref_ts_int_meta)
+
+    # Alternative should be created with TSReference value
+    assert alt_view is not None
+    assert alt_view.ts_meta.kind == hgraph_module.TSKind.REF
+
+
+def test_ref_tsd_to_tsd_ref_alternative(
+    hgraph_module, ref_tsd_str_ts_int_meta, tsd_str_ref_ts_int_meta
+):
+    """REF[TSD[str, TS[int]]] can provide TSD[str, REF[TS[int]]] alternative.
+
+    This tests nested REF→TS conversion:
+    1. Outer REF is dereferenced via REFLink
+    2. Elements recursively establish TS[int] → REF[TS[int]] links
+    """
+    TSOutput = hgraph_module.TSOutput
+
+    # Create output with REF[TSD[str, TS[int]]] native schema
+    output_ts = TSOutput(ref_tsd_str_ts_int_meta, None)
+
+    # Request alternative view with TSD[str, REF[TS[int]]] schema
+    alt_view = output_ts.view(TEST_TIME, tsd_str_ref_ts_int_meta)
+
+    # Alternative should be created
+    assert alt_view is not None
+    assert alt_view.ts_meta.kind == hgraph_module.TSKind.TSD
+
+
+def test_tsd_ts_to_tsd_ref_alternative(
+    hgraph_module, tsd_str_ts_int_meta, tsd_str_ref_ts_int_meta
+):
+    """TSD[str, TS[int]] can provide TSD[str, REF[TS[int]]] alternative.
+
+    This tests nested TS→REF wrapping where each element's value
+    is wrapped in a TSReference.
+    """
+    TSOutput = hgraph_module.TSOutput
+
+    # Create output with TSD[str, TS[int]] native schema
+    output_ts = TSOutput(tsd_str_ts_int_meta, None)
+
+    # Request alternative view with TSD[str, REF[TS[int]]] schema
+    alt_view = output_ts.view(TEST_TIME, tsd_str_ref_ts_int_meta)
+
+    # Alternative should be created
+    assert alt_view is not None
+    assert alt_view.ts_meta.kind == hgraph_module.TSKind.TSD
