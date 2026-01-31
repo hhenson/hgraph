@@ -7,6 +7,8 @@
 #include <hgraph/types/time_series/map_delta.h>
 #include <hgraph/types/time_series/ts_dict_view.h>
 #include <hgraph/types/time_series/ts_list_view.h>
+#include <hgraph/types/value/map_storage.h>
+#include <hgraph/types/value/key_set.h>
 
 namespace hgraph {
 
@@ -24,7 +26,28 @@ AlternativeStructuralObserver::AlternativeStructuralObserver(
     , alt_(alt)
     , native_meta_(native_meta)
     , target_meta_(target_meta)
+    , registered_key_set_(nullptr)
 {}
+
+AlternativeStructuralObserver::~AlternativeStructuralObserver() {
+    // Unregister from KeySet if registered
+    if (registered_key_set_) {
+        registered_key_set_->remove_observer(this);
+        registered_key_set_ = nullptr;
+    }
+}
+
+void AlternativeStructuralObserver::register_with(value::KeySet* key_set) {
+    // Unregister from previous KeySet if any
+    if (registered_key_set_) {
+        registered_key_set_->remove_observer(this);
+    }
+
+    registered_key_set_ = key_set;
+    if (key_set) {
+        key_set->add_observer(this);
+    }
+}
 
 void AlternativeStructuralObserver::on_capacity(size_t /*old_cap*/, size_t /*new_cap*/) {
     // Alternative capacity is managed separately - no action needed
@@ -101,8 +124,8 @@ void AlternativeStructuralObserver::on_clear() {
     alt_view.unbind();
 }
 
-void TSOutput::subscribe_structural_observer(TSView native_view, value::SlotObserver* observer) {
-    // For TSD/TSL types, we need to subscribe to the delta storage
+void TSOutput::subscribe_structural_observer(TSView native_view, AlternativeStructuralObserver* observer) {
+    // For TSD/TSL types, we need to subscribe to the KeySet
     // to receive insert/erase notifications
 
     if (!observer) return;
@@ -111,37 +134,20 @@ void TSOutput::subscribe_structural_observer(TSView native_view, value::SlotObse
     if (!meta) return;
 
     if (meta->kind == TSKind::TSD) {
-        // For TSD, get the MapDelta from the delta storage
-        value::View delta_view = native_view.delta_value();
-        if (delta_view) {
-            auto* map_delta = static_cast<MapDelta*>(delta_view.data());
-            if (map_delta) {
-                // MapDelta uses SetDelta for key tracking which implements SlotObserver
-                // We need to register with the KeySet's observer dispatcher
-                // For now, we'll need to access it through the native's key storage
-
-                // Note: The proper way to do this would be to get the KeySet
-                // from the native's storage and register with its observer dispatcher.
-                // However, this requires access to the underlying storage.
-                // A simpler approach is to have the alternative check the native's
-                // delta on each access.
-
-                // TODO: Implement proper observer registration with KeySet
-                // For now, the observer is created but not actively subscribed.
-                // The alternative will need to sync on demand.
-            }
+        // For TSD, register with the KeySet's observer dispatcher.
+        // The native's value_data points to a MapStorage which owns the KeySet.
+        const ViewData& vd = native_view.view_data();
+        if (vd.value_data) {
+            auto* map_storage = static_cast<value::MapStorage*>(vd.value_data);
+            // Use register_with for proper lifecycle management
+            observer->register_with(&map_storage->key_set());
         }
     } else if (meta->kind == TSKind::TSL) {
-        // For TSL, similar approach
-        // TSL structural changes come from size changes
-
-        // TODO: Implement proper observer registration for TSL
+        // For TSL, structural changes (size changes) are less common and typically
+        // handled differently. Fixed-size TSL doesn't have structural changes.
+        // Dynamic TSL would need similar observer registration when implemented.
+        // For now, TSL alternatives sync on access.
     }
-
-    // Note: Full implementation requires access to the KeySet/storage's
-    // observer dispatcher. The current approach creates the observer
-    // infrastructure but doesn't actively register for real-time notifications.
-    // Instead, alternatives should sync when accessed.
 }
 
 // ============================================================================

@@ -29,6 +29,10 @@ namespace hgraph {
 class TSOutputView;
 class TSOutput;
 
+namespace value {
+class KeySet;  // For AlternativeStructuralObserver registration
+} // namespace value
+
 /**
  * @brief Observer that syncs alternative TSD/TSL with native structural changes.
  *
@@ -58,13 +62,24 @@ public:
         const TSMeta* target_meta
     );
 
-    ~AlternativeStructuralObserver() override = default;
+    /**
+     * @brief Destructor - unregisters from KeySet if registered.
+     */
+    ~AlternativeStructuralObserver() override;
 
-    // Non-copyable, movable
+    // Non-copyable, non-movable (registered with KeySet)
     AlternativeStructuralObserver(const AlternativeStructuralObserver&) = delete;
     AlternativeStructuralObserver& operator=(const AlternativeStructuralObserver&) = delete;
-    AlternativeStructuralObserver(AlternativeStructuralObserver&&) noexcept = default;
-    AlternativeStructuralObserver& operator=(AlternativeStructuralObserver&&) noexcept = default;
+    AlternativeStructuralObserver(AlternativeStructuralObserver&&) = delete;
+    AlternativeStructuralObserver& operator=(AlternativeStructuralObserver&&) = delete;
+
+    // ========== Registration ==========
+
+    /**
+     * @brief Register with a KeySet for structural notifications.
+     * @param key_set The KeySet to observe
+     */
+    void register_with(value::KeySet* key_set);
 
     // ========== SlotObserver Implementation ==========
 
@@ -79,6 +94,7 @@ private:
     TSValue* alt_;                  ///< Alternative TSValue
     const TSMeta* native_meta_;     ///< Native element schema
     const TSMeta* target_meta_;     ///< Target element schema
+    value::KeySet* registered_key_set_{nullptr}; ///< KeySet we're registered with (for cleanup)
 };
 
 /**
@@ -236,12 +252,13 @@ private:
      * @brief Subscribe an observer to the native's structural changes.
      *
      * For TSD/TSL types, this registers the observer with the native's
-     * delta storage to receive insert/erase notifications.
+     * KeySet to receive insert/erase notifications. The observer uses
+     * register_with() for proper lifecycle management (auto-unregister on destruction).
      *
      * @param native_view View of the native TSD/TSL
-     * @param observer The observer to register
+     * @param observer The AlternativeStructuralObserver to register
      */
-    void subscribe_structural_observer(TSView native_view, value::SlotObserver* observer);
+    void subscribe_structural_observer(TSView native_view, AlternativeStructuralObserver* observer);
 
     // ========== Member Variables ==========
 
