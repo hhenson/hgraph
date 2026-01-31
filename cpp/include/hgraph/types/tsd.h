@@ -358,6 +358,13 @@ namespace hgraph
 
         [[nodiscard]] bool modified() const override;
 
+        /**
+         * @brief Override valid() to match Python behavior.
+         * TSD input is valid if it was ever sampled (_sample_time > MIN_DT),
+         * which allows reading data even when unbound.
+         */
+        [[nodiscard]] bool valid() const override;
+
         [[nodiscard]] engine_time_t last_modified_time() const override;
 
         // Creates a new time series for the given key and returns it.

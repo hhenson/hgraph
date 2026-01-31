@@ -683,6 +683,13 @@ namespace hgraph
         return PythonSetDelta(py_added(), py_removed());
     }
 
+    bool TimeSeriesSetInput::valid() const {
+        // Match Python behavior: TSS input is valid if it was ever sampled (_sample_time > MIN_DT),
+        // which allows reading delta values from _prev_output even when unbound.
+        // Python: return self._sample_time > MIN_DT or (self.bound and self.output.valid)
+        return sample_time() > MIN_DT || BaseTimeSeriesInput::valid();
+    }
+
     size_t TimeSeriesSetInput::size() const {
         return has_output() ? set_output().size() : 0;
     }
