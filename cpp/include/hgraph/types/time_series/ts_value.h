@@ -301,8 +301,11 @@ private:
      * @brief Link tracking data (parallel to value structure).
      *
      * Schema from generate_link_schema(meta_), may be null for scalar types.
-     * For TSL/TSD: Single bool indicating collection-level link.
-     * For TSB: fixed_list[bool] with one entry per field.
+     * For TSL/TSD: REFLink for collection-level link with inline target storage.
+     * For TSB: fixed_list[REFLink] with one entry per field.
+     *
+     * REFLink stores both the link target information and handles REF→TS
+     * dereferencing when needed, providing stable addresses for lifecycle management.
      */
     value::Value<> link_;
 

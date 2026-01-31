@@ -58,7 +58,8 @@ public:
         : set_(std::move(other.set_))
         , values_(std::move(other.values_))
         , key_type_(other.key_type_)
-        , value_type_(other.value_type_) {
+        , value_type_(other.value_type_)
+        , is_linked_(other.is_linked_) {
         // Re-register observer with new address
         set_.key_set().add_observer(&values_);
     }
@@ -72,6 +73,7 @@ public:
             values_ = std::move(other.values_);
             key_type_ = other.key_type_;
             value_type_ = other.value_type_;
+            is_linked_ = other.is_linked_;
 
             // Re-register observer with new address
             set_.key_set().add_observer(&values_);
@@ -192,6 +194,24 @@ public:
     [[nodiscard]] const TypeMeta* key_type() const { return key_type_; }
     [[nodiscard]] const TypeMeta* value_type() const { return value_type_; }
 
+    // ========== Link Support ==========
+
+    /**
+     * @brief Check if this map's values are links (ViewData) rather than local data.
+     *
+     * When is_linked is true, value slots contain ViewData pointers to other
+     * locations rather than actual value storage. Navigation methods should
+     * follow the links transparently.
+     */
+    [[nodiscard]] bool is_linked() const noexcept { return is_linked_; }
+
+    /**
+     * @brief Set the linked state.
+     *
+     * @param linked true if values are ViewData links
+     */
+    void set_linked(bool linked) noexcept { is_linked_ = linked; }
+
     // ========== Iteration Support ==========
 
     /**
@@ -222,6 +242,7 @@ private:
     ValueArray values_;        // Parallel value storage (observes KeySet)
     const TypeMeta* key_type_{nullptr};
     const TypeMeta* value_type_{nullptr};
+    bool is_linked_{false};    // If true, values store ViewData not local data
 };
 
 } // namespace hgraph::value

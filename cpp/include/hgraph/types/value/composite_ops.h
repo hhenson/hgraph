@@ -520,6 +520,7 @@ struct TupleOps {
 struct DynamicListStorage {
     std::vector<std::byte> data;  // Element storage (capacity managed by vector)
     size_t size{0};               // Current number of valid elements
+    bool is_linked{false};        // If true, data contains ViewData array
 
     DynamicListStorage() = default;
 
@@ -535,6 +536,12 @@ struct DynamicListStorage {
 
     /// Get capacity in bytes
     [[nodiscard]] size_t byte_capacity() const { return data.capacity(); }
+
+    /// Check if this list's elements are links (ViewData) rather than local data
+    [[nodiscard]] bool linked() const noexcept { return is_linked; }
+
+    /// Set the linked state
+    void set_linked(bool linked) noexcept { is_linked = linked; }
 };
 
 /**
