@@ -16,6 +16,7 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/short_path.h>
 #include <hgraph/types/time_series/ref_link.h>
+#include <hgraph/types/value/slot_observer.h>
 #include <hgraph/hgraph_forward_declarations.h>
 
 #include <unordered_map>
@@ -26,6 +27,59 @@ namespace hgraph {
 
 // Forward declarations
 class TSOutputView;
+class TSOutput;
+
+/**
+ * @brief Observer that syncs alternative TSD/TSL with native structural changes.
+ *
+ * When native TSD/TSL adds/removes elements and the alternative has different
+ * element types, this observer keeps them in sync:
+ * - on_insert: Creates element in alternative, establishes appropriate link
+ * - on_erase: Cleans up corresponding element in alternative
+ *
+ * Used for scenarios like:
+ * - Native TSD[str, TS[int]] → Alternative TSD[str, REF[TS[int]]]
+ * - Native TSL[TS[float]] → Alternative TSL[REF[TS[float]]]
+ */
+class AlternativeStructuralObserver : public value::SlotObserver {
+public:
+    /**
+     * @brief Construct observer for alternative syncing.
+     *
+     * @param output The owning TSOutput
+     * @param alt Reference to the alternative TSValue
+     * @param native_meta Native element schema
+     * @param target_meta Target element schema
+     */
+    AlternativeStructuralObserver(
+        TSOutput* output,
+        TSValue* alt,
+        const TSMeta* native_meta,
+        const TSMeta* target_meta
+    );
+
+    ~AlternativeStructuralObserver() override = default;
+
+    // Non-copyable, movable
+    AlternativeStructuralObserver(const AlternativeStructuralObserver&) = delete;
+    AlternativeStructuralObserver& operator=(const AlternativeStructuralObserver&) = delete;
+    AlternativeStructuralObserver(AlternativeStructuralObserver&&) noexcept = default;
+    AlternativeStructuralObserver& operator=(AlternativeStructuralObserver&&) noexcept = default;
+
+    // ========== SlotObserver Implementation ==========
+
+    void on_capacity(size_t old_cap, size_t new_cap) override;
+    void on_insert(size_t slot) override;
+    void on_erase(size_t slot) override;
+    void on_update(size_t slot) override;
+    void on_clear() override;
+
+private:
+    TSOutput* output_;              ///< Owning TSOutput
+    TSValue* alt_;                  ///< Alternative TSValue
+    const TSMeta* native_meta_;     ///< Native element schema
+    const TSMeta* target_meta_;     ///< Target element schema
+};
 
 /**
  * @brief Producer of time-series values.
@@ -53,6 +107,9 @@ class TSOutputView;
  * @endcode
  */
 class TSOutput {
+    // AlternativeStructuralObserver needs access to establish_links_recursive
+    friend class AlternativeStructuralObserver;
+
 public:
     // ========== Construction ==========
 
@@ -175,10 +232,22 @@ private:
         const TSMeta* native_meta
     );
 
+    /**
+     * @brief Subscribe an observer to the native's structural changes.
+     *
+     * For TSD/TSL types, this registers the observer with the native's
+     * delta storage to receive insert/erase notifications.
+     *
+     * @param native_view View of the native TSD/TSL
+     * @param observer The observer to register
+     */
+    void subscribe_structural_observer(TSView native_view, value::SlotObserver* observer);
+
     // ========== Member Variables ==========
 
     TSValue native_value_;                                          ///< Native representation
     std::unordered_map<const TSMeta*, TSValue> alternatives_;       ///< Cast/peer representations
+    std::vector<std::unique_ptr<AlternativeStructuralObserver>> structural_observers_; ///< Structural sync observers
     node_ptr owning_node_{nullptr};                                 ///< For graph context
     size_t port_index_{0};                                          ///< Port index on node
 

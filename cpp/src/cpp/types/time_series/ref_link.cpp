@@ -177,8 +177,23 @@ void REFLink::rebind_target(engine_time_t current_time) {
             target_obs->add_observer(this);
         }
     }
-    // NON_PEERED references would need different handling
-    // TODO: Handle NON_PEERED references
+    else if (ts_ref->is_non_peered()) {
+        // NON_PEERED references represent composite types (e.g., REF[TSL], REF[TSD])
+        // where each element has its own individual reference.
+        //
+        // A single REFLink cannot handle a NON_PEERED reference because:
+        // 1. NON_PEERED contains a collection of child references (items)
+        // 2. Each child reference may point to different targets
+        // 3. The proper handling is at the container level, where each element
+        //    in the alternative gets its own REFLink binding.
+        //
+        // If we reach here, it means a NON_PEERED reference was set on a REF
+        // position that expects a single target. This is a schema mismatch
+        // that should be caught during graph construction or alternative creation.
+        //
+        // For now, leave target_ invalid - accesses will fail gracefully.
+    }
+    // EMPTY references: target_ remains invalid (cleared above)
 }
 
 engine_time_t REFLink::last_rebind_time() const noexcept {

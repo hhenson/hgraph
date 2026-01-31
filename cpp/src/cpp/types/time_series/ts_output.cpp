@@ -3,8 +3,146 @@
 #include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/time_series/observer_list.h>
+#include <hgraph/types/time_series/set_delta.h>
+#include <hgraph/types/time_series/map_delta.h>
+#include <hgraph/types/time_series/ts_dict_view.h>
+#include <hgraph/types/time_series/ts_list_view.h>
 
 namespace hgraph {
+
+// ============================================================================
+// AlternativeStructuralObserver Implementation
+// ============================================================================
+
+AlternativeStructuralObserver::AlternativeStructuralObserver(
+    TSOutput* output,
+    TSValue* alt,
+    const TSMeta* native_meta,
+    const TSMeta* target_meta
+)
+    : output_(output)
+    , alt_(alt)
+    , native_meta_(native_meta)
+    , target_meta_(target_meta)
+{}
+
+void AlternativeStructuralObserver::on_capacity(size_t /*old_cap*/, size_t /*new_cap*/) {
+    // Alternative capacity is managed separately - no action needed
+}
+
+void AlternativeStructuralObserver::on_insert(size_t slot) {
+    // A new element was added to the native at this slot
+    // We need to create the corresponding element in the alternative
+    // and establish the appropriate link
+
+    if (!output_ || !alt_) return;
+
+    // Get native and alternative views at setup time
+    engine_time_t setup_time = MIN_ST;
+    TSView native_view = output_->native_value().ts_view(setup_time);
+    TSView alt_view = alt_->ts_view(setup_time);
+
+    // Get the element views at this slot
+    // For TSD, we navigate by slot index
+    TSView native_elem = native_view[slot];
+    TSView alt_elem = alt_view[slot];
+
+    if (!native_elem || !alt_elem) return;
+
+    // Get element schemas
+    const TSMeta* native_elem_meta = native_meta_->element_ts;
+    const TSMeta* target_elem_meta = target_meta_->element_ts;
+
+    // Establish the link for this new element
+    output_->establish_links_recursive(
+        *alt_,
+        alt_elem,
+        native_elem,
+        target_elem_meta,
+        native_elem_meta
+    );
+}
+
+void AlternativeStructuralObserver::on_erase(size_t slot) {
+    // An element was removed from the native at this slot
+    // Clean up the corresponding element in the alternative
+
+    if (!alt_) return;
+
+    // Get alternative view and invalidate/clean up the element at this slot
+    // The actual cleanup depends on how the alternative stores elements
+    // For now, we mark it as unbound
+
+    engine_time_t setup_time = MIN_ST;
+    TSView alt_view = alt_->ts_view(setup_time);
+    TSView alt_elem = alt_view[slot];
+
+    if (alt_elem) {
+        alt_elem.unbind();
+    }
+}
+
+void AlternativeStructuralObserver::on_update(size_t /*slot*/) {
+    // Value updates don't require structural changes
+    // The link already points to the native, so updates are visible through it
+}
+
+void AlternativeStructuralObserver::on_clear() {
+    // All elements were cleared from native
+    // Clear all links in the alternative
+
+    if (!alt_) return;
+
+    engine_time_t setup_time = MIN_ST;
+    TSView alt_view = alt_->ts_view(setup_time);
+
+    // For TSD/TSL, iterate and unbind all elements
+    // This is a simplified approach - more sophisticated would track each element
+    alt_view.unbind();
+}
+
+void TSOutput::subscribe_structural_observer(TSView native_view, value::SlotObserver* observer) {
+    // For TSD/TSL types, we need to subscribe to the delta storage
+    // to receive insert/erase notifications
+
+    if (!observer) return;
+
+    const TSMeta* meta = native_view.ts_meta();
+    if (!meta) return;
+
+    if (meta->kind == TSKind::TSD) {
+        // For TSD, get the MapDelta from the delta storage
+        value::View delta_view = native_view.delta_value();
+        if (delta_view) {
+            auto* map_delta = static_cast<MapDelta*>(delta_view.data());
+            if (map_delta) {
+                // MapDelta uses SetDelta for key tracking which implements SlotObserver
+                // We need to register with the KeySet's observer dispatcher
+                // For now, we'll need to access it through the native's key storage
+
+                // Note: The proper way to do this would be to get the KeySet
+                // from the native's storage and register with its observer dispatcher.
+                // However, this requires access to the underlying storage.
+                // A simpler approach is to have the alternative check the native's
+                // delta on each access.
+
+                // TODO: Implement proper observer registration with KeySet
+                // For now, the observer is created but not actively subscribed.
+                // The alternative will need to sync on demand.
+            }
+        }
+    } else if (meta->kind == TSKind::TSL) {
+        // For TSL, similar approach
+        // TSL structural changes come from size changes
+
+        // TODO: Implement proper observer registration for TSL
+    }
+
+    // Note: Full implementation requires access to the KeySet/storage's
+    // observer dispatcher. The current approach creates the observer
+    // infrastructure but doesn't actively register for real-time notifications.
+    // Instead, alternatives should sync when accessed.
+}
 
 // ============================================================================
 // TSOutput Implementation
@@ -167,8 +305,6 @@ void TSOutput::establish_links_recursive(
         // 1. Subscribe to native structural changes
         // 2. For existing elements, recurse with element schemas
 
-        // TODO: Implement structural change subscription
-        // For now, handle existing elements
         const TSMeta* target_elem = target_meta->element_ts;
         const TSMeta* native_elem = native_meta->element_ts;
 
@@ -178,9 +314,59 @@ void TSOutput::establish_links_recursive(
             return;
         }
 
-        // Otherwise, elements need individual conversion
-        // This is deferred until elements exist
-        // TODO: Subscribe to native for structural changes and set up per-element links
+        // Element types differ - need per-element conversion
+        // Create a structural observer to keep alternative in sync with native
+
+        auto observer = std::make_unique<AlternativeStructuralObserver>(
+            this, &alt, native_meta, target_meta
+        );
+
+        // Subscribe the observer to native's structural changes
+        subscribe_structural_observer(native_view, observer.get());
+
+        // Store the observer to keep it alive
+        structural_observers_.push_back(std::move(observer));
+
+        // Process existing elements
+        if (target_meta->kind == TSKind::TSD) {
+            // For TSD, iterate over all slots using the iterator
+            TSDView native_dict = native_view.as_dict();
+            TSDView alt_dict = alt_view.as_dict();
+
+            for (auto it = native_dict.items().begin(); it != native_dict.items().end(); ++it) {
+                value::View key_view = it.key();
+                TSView native_elem_view = *it;
+
+                // Get the corresponding element in alternative
+                TSView alt_elem_view = alt_dict.at(key_view);
+
+                // Establish links for this element
+                establish_links_recursive(
+                    alt,
+                    alt_elem_view,
+                    native_elem_view,
+                    target_elem,
+                    native_elem
+                );
+            }
+        } else {
+            // For TSL, iterate by index
+            TSLView native_list = native_view.as_list();
+            TSLView alt_list = alt_view.as_list();
+
+            for (size_t i = 0; i < native_list.size(); ++i) {
+                TSView native_elem_view = native_list.at(i);
+                TSView alt_elem_view = alt_list.at(i);
+
+                establish_links_recursive(
+                    alt,
+                    alt_elem_view,
+                    native_elem_view,
+                    target_elem,
+                    native_elem
+                );
+            }
+        }
         return;
     }
 

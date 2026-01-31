@@ -78,8 +78,10 @@ void TSInput::set_active(bool active) {
         *static_cast<bool*>(av.data()) = active;
     }
 
-    // TODO: If we have bound outputs, subscribe/unsubscribe from them
-    // This requires tracking bound outputs at each position
+    // Note: Subscription management is handled at the view level
+    // via TSInputView::make_active() and TSInputView::make_passive().
+    // This method only sets the boolean active flags.
+    // Callers should use the view methods to properly manage subscriptions.
 }
 
 void TSInput::set_active(const std::string& field, bool active) {

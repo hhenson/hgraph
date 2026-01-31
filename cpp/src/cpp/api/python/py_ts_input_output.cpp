@@ -16,16 +16,87 @@
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/notifiable.h>
 #include <hgraph/types/node.h>
 #include <hgraph/python/chrono.h>
 
 #include <nanobind/stl/string.h>
+#include <unordered_map>
+#include <memory>
 
 namespace hgraph {
 
 using namespace nanobind::literals;
 
+// ============================================================================
+// PyNotifiable - Wrapper to allow Python objects to be used as Notifiable
+// ============================================================================
+
+// Forward declare hash struct before use
+struct PyNotifiableKeyHash {
+    std::size_t operator()(const std::pair<void*, std::uintptr_t>& key) const {
+        return std::hash<void*>{}(key.first) ^ (std::hash<std::uintptr_t>{}(key.second) << 1);
+    }
+};
+
+/**
+ * @brief Wrapper that allows Python objects with a notify(et) method to be
+ *        used as C++ Notifiable observers.
+ *
+ * This class holds a reference to a Python object and calls its notify method
+ * when the C++ notify() is invoked.
+ */
+class PyNotifiable : public Notifiable {
+public:
+    explicit PyNotifiable(nb::object py_observer)
+        : py_observer_(std::move(py_observer)) {}
+
+    void notify(engine_time_t et) override {
+        // Acquire GIL and call the Python method
+        nb::gil_scoped_acquire gil;
+        try {
+            py_observer_.attr("notify")(et);
+        } catch (const nb::python_error& e) {
+            // Log or handle Python exception
+            // For now, just let it propagate
+            throw;
+        }
+    }
+
+    // Get the underlying Python object for identity comparison
+    nb::object py_object() const { return py_observer_; }
+
+private:
+    nb::object py_observer_;
+};
+
+// Registry to manage PyNotifiable lifetimes
+// Maps (TSOutput*, Python object id) -> PyNotifiable
+// Using heap-allocated registry that's intentionally never freed to avoid
+// shutdown ordering issues with Python GIL
+using PyNotifiableRegistry = std::unordered_map<std::pair<void*, std::uintptr_t>,
+                                                 std::unique_ptr<PyNotifiable>,
+                                                 PyNotifiableKeyHash>;
+
+static PyNotifiableRegistry& get_py_notifiable_registry() {
+    // Leak the registry at shutdown - this is intentional to avoid
+    // GIL issues during Python interpreter finalization
+    static PyNotifiableRegistry* registry = new PyNotifiableRegistry();
+    return *registry;
+}
+
+// Helper to get Python object identity
+static std::uintptr_t py_object_id(const nb::object& obj) {
+    return reinterpret_cast<std::uintptr_t>(obj.ptr());
+}
+
+
 void ts_input_output_register_with_nanobind(nb::module_& m) {
+    // Note: We intentionally don't register cleanup at exit because:
+    // 1. The GIL may not be in a valid state during Py_AtExit
+    // 2. nb::object destructors require the GIL
+    // 3. The registry uses a heap pointer that's never freed - this is intentional
+    // 4. The OS reclaims all memory at process exit anyway
 
     // ========================================================================
     // TSOutput - Producer of time-series values
@@ -115,11 +186,51 @@ void ts_input_output_register_with_nanobind(nb::module_& m) {
         .def("to_python", &TSOutputView::to_python,
             "Convert the value to a Python object.")
 
-        .def("subscribe", &TSOutputView::subscribe,
-            "observer"_a,
-            "Subscribe observer for notifications.")
+        .def("subscribe", [](TSOutputView& self, nb::object observer) {
+                // Get output pointer for registry key
+                void* output_ptr = self.output();
+                auto obj_id = py_object_id(observer);
+                auto key = std::make_pair(output_ptr, obj_id);
 
-        .def("unsubscribe", &TSOutputView::unsubscribe,
+                // Check if already subscribed
+                auto it = get_py_notifiable_registry().find(key);
+                if (it != get_py_notifiable_registry().end()) {
+                    return;  // Already subscribed
+                }
+
+                // Create PyNotifiable wrapper
+                auto py_notifiable = std::make_unique<PyNotifiable>(observer);
+                Notifiable* raw_ptr = py_notifiable.get();
+
+                // Store in registry
+                get_py_notifiable_registry()[key] = std::move(py_notifiable);
+
+                // Subscribe the C++ Notifiable
+                self.subscribe(raw_ptr);
+            },
+            "observer"_a,
+            "Subscribe observer for notifications.\n\n"
+            "The observer must have a notify(et) method that will be called\n"
+            "when the output value changes.")
+
+        .def("unsubscribe", [](TSOutputView& self, nb::object observer) {
+                // Get output pointer for registry key
+                void* output_ptr = self.output();
+                auto obj_id = py_object_id(observer);
+                auto key = std::make_pair(output_ptr, obj_id);
+
+                // Find in registry
+                auto it = get_py_notifiable_registry().find(key);
+                if (it == get_py_notifiable_registry().end()) {
+                    return;  // Not subscribed
+                }
+
+                // Unsubscribe the C++ Notifiable
+                self.unsubscribe(it->second.get());
+
+                // Remove from registry (destroys PyNotifiable)
+                get_py_notifiable_registry().erase(it);
+            },
             "observer"_a,
             "Unsubscribe observer.")
 

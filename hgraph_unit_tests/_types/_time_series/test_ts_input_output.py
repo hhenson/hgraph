@@ -481,12 +481,10 @@ class TestObserverNotifications:
         obs_view = ts_view.observer()
         assert obs_view.valid()
 
-    @pytest.mark.xfail(reason="subscribe/unsubscribe require C++ Notifiable - Python objects not supported")
     def test_subscribe_adds_observer(self, hgraph_module, ts_int_meta):
         """TSOutputView.subscribe() adds observer to the list.
 
-        Note: This test is xfail because subscribe/unsubscribe require a C++ Notifiable
-        object, not a Python object. Python observers would need a wrapper class.
+        Python objects with a notify(et) method can be subscribed via PyNotifiable wrapper.
         """
         TSValue = hgraph_module.TSValue
         TSOutputView = hgraph_module.TSOutputView
@@ -509,12 +507,10 @@ class TestObserverNotifications:
 
         # Verify subscription (would need internal access)
 
-    @pytest.mark.xfail(reason="subscribe/unsubscribe require C++ Notifiable - Python objects not supported")
     def test_unsubscribe_removes_observer(self, hgraph_module, ts_int_meta):
         """TSOutputView.unsubscribe() removes observer from the list.
 
-        Note: This test is xfail because subscribe/unsubscribe require a C++ Notifiable
-        object, not a Python object. Python observers would need a wrapper class.
+        Python objects with a notify(et) method can be unsubscribed via PyNotifiable wrapper.
         """
         TSValue = hgraph_module.TSValue
         TSOutputView = hgraph_module.TSOutputView
@@ -913,12 +909,10 @@ class TestTSOutputViewDirect:
         output_view.from_python(42)
         assert output_view.value().to_python() == 42
 
-    @pytest.mark.xfail(reason="subscribe/unsubscribe require C++ Notifiable - Python objects not supported")
     def test_ts_output_view_subscribe(self, hgraph_module, ts_int_meta):
         """TSOutputView.subscribe() adds observer.
 
-        Note: This test is xfail because subscribe/unsubscribe require a C++ Notifiable
-        object, not a Python object. Python observers would need a wrapper class.
+        Python objects with a notify(et) method can be subscribed via PyNotifiable wrapper.
         """
         TSOutput = hgraph_module.TSOutput
         output_ts = TSOutput(ts_int_meta, None)
@@ -932,12 +926,10 @@ class TestTSOutputViewDirect:
         output_view.subscribe(mock)
         # Subscription added (would need internal inspection)
 
-    @pytest.mark.xfail(reason="subscribe/unsubscribe require C++ Notifiable - Python objects not supported")
     def test_ts_output_view_unsubscribe(self, hgraph_module, ts_int_meta):
         """TSOutputView.unsubscribe() removes observer.
 
-        Note: This test is xfail because subscribe/unsubscribe require a C++ Notifiable
-        object, not a Python object. Python observers would need a wrapper class.
+        Python objects with a notify(et) method can be unsubscribed via PyNotifiable wrapper.
         """
         TSOutput = hgraph_module.TSOutput
         output_ts = TSOutput(ts_int_meta, None)
