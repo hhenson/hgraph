@@ -93,7 +93,10 @@ if is_feature_enabled("use_cpp"):
 
             def make_input_builder(self, value_tp):
                 return {
-                    hgraph.HgSignalMetaData: lambda: _hgraph.InputBuilder_TS_Signal(),
+                    hgraph.HgSignalMetaData: lambda: (
+                        _hgraph.InputBuilder_TS_Signal(self.make_input_builder(value_tp.value_tp))
+                        if value_tp.value_tp else _hgraph.InputBuilder_TS_Signal()
+                    ),
                     hgraph.HgTSTypeMetaData: lambda: _ts_input_builder_type_for(value_tp.value_scalar_tp)(),
                     hgraph.HgTSWTypeMetaData: lambda: self._make_tsw_input_builder(value_tp),
                     hgraph.HgTSLTypeMetaData: lambda: _hgraph.InputBuilder_TSL(

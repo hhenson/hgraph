@@ -36,12 +36,20 @@ namespace hgraph {
 
         void make_passive() override;
 
+        // Override to delegate to impl or propagate to children
+        bool bind_output(time_series_output_s_ptr output) override;
+
+        void un_bind_output(bool unbind_refs) override;
+
         void do_un_bind_output(bool unbind_refs) override;
+
+        [[nodiscard]] bool bound() const override;
 
         VISITOR_SUPPORT()
 
     private:
         friend TimeSeriesSignalInputBuilder;
+        TimeSeriesInput::s_ptr _impl; // Delegate input for when bound to dereferenced type
         mutable std::vector<TimeSeriesInput::s_ptr> _ts_values; // Lazily created child signals
     };
 }
