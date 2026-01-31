@@ -89,12 +89,76 @@ namespace hgraph {
     void ReduceNode::eval() {
         mark_evaluated();
 
-        auto &key_set = ts()->key_set();
+        auto tsd = ts();
+        auto &key_set = tsd->key_set();
 
         // Process removals first, then additions
-        // Build vectors from Value-based iteration
         auto removed_keys = key_set.collect_removed();
         remove_nodes_from_views(removed_keys);
+
+        // Check for stale REF values: when the upstream REF becomes empty,
+        // the accessor doesn't explicitly remove keys (only modified_items are processed).
+        // We need to detect keys bound to empty/invalid REF values and remove them.
+        bool accessor_input_empty = false;
+        if (tsd->has_output() && tsd->output()) {
+            auto tsd_output = tsd->output();
+            if (tsd_output->has_owning_node()) {
+                auto accessor_node = tsd_output->owning_node();
+                auto accessor_input = accessor_node->input();
+                if (accessor_input) {
+                    for (size_t i = 0; i < accessor_input->size(); ++i) {
+                        auto input_item = (*accessor_input)[i];
+                        // Check if accessor input is a REF with empty value
+                        if (auto ref_input = dynamic_cast<TimeSeriesReferenceInput*>(input_item.get())) {
+                            if (ref_input->value().is_empty()) {
+                                accessor_input_empty = true;
+                                break;
+                            }
+                        }
+                        // Check if accessor input is a TSD with no output binding
+                        if (auto tsd_input = dynamic_cast<TimeSeriesDictInput*>(input_item.get())) {
+                            if (!tsd_input->has_output()) {
+                                accessor_input_empty = true;
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (!bound_node_indexes_.empty()) {
+            std::vector<value::ConstValueView> stale_keys;
+
+            // If the TSD has no output OR accessor's input is empty/unbound, all keys are stale
+            if (!tsd->has_output() || accessor_input_empty) {
+                for (const auto& [key, ndx] : bound_node_indexes_) {
+                    stale_keys.push_back(key.const_view());
+                }
+            } else {
+                // Check individual keys for stale REF values
+                for (const auto& [key, ndx] : bound_node_indexes_) {
+                    if (tsd->contains(key.const_view())) {
+                        auto ts_ptr = (*tsd)[key.const_view()];
+                        if (auto ref_input = dynamic_cast<TimeSeriesReferenceInput*>(ts_ptr.get())) {
+                            auto ref_value = ref_input->value();
+                            bool has_out = ref_value.has_output();
+                            bool out_valid = has_out && ref_value.output()->valid();
+                            if (ref_value.is_empty() || (has_out && !out_valid)) {
+                                stale_keys.push_back(key.const_view());
+                            }
+                        }
+                    } else {
+                        // Key in bound_node_indexes_ but not in TSD - was removed elsewhere
+                        stale_keys.push_back(key.const_view());
+                    }
+                }
+            }
+
+            if (!stale_keys.empty()) {
+                remove_nodes_from_views(stale_keys);
+            }
+        }
 
         auto added_keys = key_set.collect_added();
         add_nodes_from_views(added_keys);
