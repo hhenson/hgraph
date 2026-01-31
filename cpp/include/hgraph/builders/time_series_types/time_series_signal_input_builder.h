@@ -12,7 +12,12 @@ namespace hgraph {
 
     struct HGRAPH_EXPORT TimeSeriesSignalInputBuilder : InputBuilder {
         using ptr = nb::ref<TimeSeriesSignalInputBuilder>;
-        using InputBuilder::InputBuilder;
+
+        // Constructor for signal without impl (basic signal)
+        TimeSeriesSignalInputBuilder() = default;
+
+        // Constructor for signal with impl (signal bound to a dereferenced type)
+        explicit TimeSeriesSignalInputBuilder(InputBuilder::ptr impl_builder);
 
         time_series_input_s_ptr make_instance(node_ptr owning_node) const override;
 
@@ -27,6 +32,9 @@ namespace hgraph {
         [[nodiscard]] size_t type_alignment() const override;
 
         static void register_with_nanobind(nb::module_ &m);
+
+    private:
+        InputBuilder::ptr impl_builder_{nullptr};
     };
 } // namespace hgraph
 
