@@ -146,15 +146,15 @@ def test_tsvalue_for_tsd_has_link_view(hgraph_module, tsd_str_ts_int_meta):
     assert link_view.valid()
 
 
-def test_tsvalue_for_scalar_ts_has_no_link_view(hgraph_module, ts_int_meta):
-    """TSValue for scalar TS[int] should have invalid link_view() (no link schema)."""
+def test_tsvalue_for_scalar_ts_has_link_view(hgraph_module, ts_int_meta):
+    """TSValue for scalar TS[int] has valid link_view (REFLink storage for alternatives)."""
     TSValue = hgraph_module.TSValue
 
     ts_value = TSValue(ts_int_meta)
     link_view = ts_value.link_view()
 
-    # For scalar TS, link schema is nullptr, so link_view should be invalid
-    assert not link_view.valid()
+    # Scalar types have REFLink storage to support REF→TS alternative conversion
+    assert link_view.valid()
 
 
 # ============================================================================

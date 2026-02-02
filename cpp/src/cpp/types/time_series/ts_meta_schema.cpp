@@ -487,9 +487,9 @@ const value::TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta
         case TSKind::TSW:
         case TSKind::REF:
         case TSKind::SIGNAL:
-            // Scalar time-series types: no link tracking at this level
-            // Links are managed at the parent container level
-            return nullptr;
+            // Scalar time-series types: REFLink for link storage
+            // Enables REF→TS conversion when used as alternatives
+            return ref_link_meta_;
 
         case TSKind::TSD:
         case TSKind::TSL:

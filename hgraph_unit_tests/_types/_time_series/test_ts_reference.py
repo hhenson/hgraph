@@ -362,8 +362,8 @@ def test_ref_tsvalue_observer_schema():
     assert observer_schema.kind == _hgraph.value.TypeKind.Atomic
 
 
-def test_ref_tsvalue_no_link_schema():
-    """Test that REF TSValue has no link schema (scalar type)."""
+def test_ref_tsvalue_has_link_schema():
+    """Test that REF TSValue has link schema (REFLink for alternative conversion)."""
     import hgraph._hgraph as _hgraph
     from hgraph import TS
     from hgraph._types._ref_meta_data import HgREFTypeMetaData
@@ -377,8 +377,8 @@ def test_ref_tsvalue_no_link_schema():
     cache = _hgraph.TSMetaSchemaCache.instance()
     link_schema = cache.get_link_schema(cpp_type)
 
-    # Link schema should be None for scalar types (REF is scalar-like)
-    assert link_schema is None
+    # Scalar types now have REFLink schema to support REF→TS alternative conversion
+    assert link_schema is not None
 
 
 def test_ref_tsvalue_update_value():

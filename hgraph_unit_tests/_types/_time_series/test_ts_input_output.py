@@ -1081,7 +1081,6 @@ def test_ts_output_with_ref_type(hgraph_module, ref_ts_int_meta):
 # ============================================================================
 
 
-@pytest.mark.xfail(reason="REF→scalar TS conversion fails: scalar types lack link storage")
 def test_ref_to_ts_alternative_simple(hgraph_module, ref_ts_int_meta, ts_int_meta):
     """REF[TS[int]] output can provide TS[int] alternative view.
 
