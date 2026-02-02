@@ -340,7 +340,12 @@ void add_tsb_field_to_vector(std::vector<std::pair<std::string, const TSMeta*>>&
  *
  * Each field is an independently tracked time-series.
  *
+ * Can be used with or without a name:
+ * - Named: First argument is name<"...">, followed by field<..., TSType> arguments
+ * - Anonymous: All arguments are field<..., TSType> (no name tag)
+ *
  * @code
+ * // Named TSB
  * using QuoteSchema = TSB<
  *     name<"Quote">,
  *     field<"bid", TS<double>>,

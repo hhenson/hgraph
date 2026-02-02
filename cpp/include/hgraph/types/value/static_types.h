@@ -234,15 +234,25 @@ void add_field_to_builder(BundleTypeBuilder& builder) {
 /**
  * @brief Static bundle type definition.
  *
- * First template argument should be name<"...">, followed by field<...> arguments.
+ * Can be used with or without a name:
+ * - Named: First argument is name<"...">, followed by field<...> arguments
+ * - Anonymous: All arguments are field<...> (no name tag)
  *
  * @code
+ * // Named bundle
  * using PointSchema = Bundle<
  *     name<"Point">,
  *     field<"x", double>,
  *     field<"y", double>,
  *     field<"z", double>
  * >;
+ *
+ * // Anonymous bundle (no name)
+ * using AnonymousPoint = Bundle<
+ *     field<"x", double>,
+ *     field<"y", double>
+ * >;
+ *
  * const TypeMeta* schema = PointSchema::schema();
  * @endcode
  */
