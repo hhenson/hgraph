@@ -1,5 +1,8 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/tsw.h>
+#include <hgraph/types/value/cyclic_buffer_ops.h>
+
+#include <cstring>
 
 namespace hgraph
 {
@@ -7,48 +10,100 @@ namespace hgraph
 
     TimeSeriesFixedWindowOutput::TimeSeriesFixedWindowOutput(node_ptr parent, size_t size, size_t min_size,
                                                              const value::TypeMeta* element_type)
-        : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size), _element_type(element_type) {
-        _buffer.reserve(_size);
-        for (size_t i = 0; i < _size; ++i) {
-            _buffer.emplace_back(_element_type);
-        }
-        _times.resize(_size, engine_time_t{});
+        : BaseTimeSeriesOutput(parent), _capacity(size + 1), _min_size(min_size), _user_size(size), _element_type(element_type) {
+        // Allocate capacity + 1 so removed value stays in buffer until next update
+        allocate_buffers();
     }
 
     TimeSeriesFixedWindowOutput::TimeSeriesFixedWindowOutput(time_series_output_ptr parent, size_t size, size_t min_size,
                                                              const value::TypeMeta* element_type)
-        : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size), _element_type(element_type) {
-        _buffer.reserve(_size);
-        for (size_t i = 0; i < _size; ++i) {
-            _buffer.emplace_back(_element_type);
+        : BaseTimeSeriesOutput(parent), _capacity(size + 1), _min_size(min_size), _user_size(size), _element_type(element_type) {
+        // Allocate capacity + 1 so removed value stays in buffer until next update
+        allocate_buffers();
+    }
+
+    TimeSeriesFixedWindowOutput::~TimeSeriesFixedWindowOutput() {
+        deallocate_buffers();
+    }
+
+    void TimeSeriesFixedWindowOutput::allocate_buffers() {
+        if (_capacity == 0 || !_element_type) return;
+
+        // Allocate contiguous buffer for values (capacity = user_size + 1)
+        // The extra slot holds the removed value until next update
+        size_t elem_size = _element_type->size;
+        _value_storage.capacity = _capacity;
+        _value_storage.size = 0;
+        _value_storage.head = 0;
+        _value_storage.data = std::malloc(_capacity * elem_size);
+
+        if (!_value_storage.data) {
+            throw std::bad_alloc();
         }
-        _times.resize(_size, engine_time_t{});
+
+        // Construct all elements in the buffer (they may be overwritten later)
+        for (size_t i = 0; i < _capacity; ++i) {
+            void* elem_ptr = static_cast<char*>(_value_storage.data) + i * elem_size;
+            if (_element_type->ops && _element_type->ops->construct) {
+                _element_type->ops->construct(elem_ptr, _element_type);
+            }
+        }
+
+        // Allocate timestamps array
+        _times.resize(_capacity, engine_time_t{});
+    }
+
+    void TimeSeriesFixedWindowOutput::deallocate_buffers() {
+        // Destruct and free value buffer
+        if (_value_storage.data && _element_type) {
+            size_t elem_size = _element_type->size;
+            for (size_t i = 0; i < _capacity; ++i) {
+                void* elem_ptr = static_cast<char*>(_value_storage.data) + i * elem_size;
+                if (_element_type->ops && _element_type->ops->destruct) {
+                    _element_type->ops->destruct(elem_ptr, _element_type);
+                }
+            }
+            std::free(_value_storage.data);
+            _value_storage.data = nullptr;
+        }
+        // Note: removed value lives in the buffer, no separate deallocation needed
+    }
+
+    void* TimeSeriesFixedWindowOutput::get_value_ptr(size_t logical_index) {
+        size_t physical = (_value_storage.head + logical_index) % _capacity;
+        return static_cast<char*>(_value_storage.data) + physical * _element_type->size;
+    }
+
+    const void* TimeSeriesFixedWindowOutput::get_value_ptr(size_t logical_index) const {
+        size_t physical = (_value_storage.head + logical_index) % _capacity;
+        return static_cast<const char*>(_value_storage.data) + physical * _element_type->size;
     }
 
     nb::object TimeSeriesFixedWindowOutput::py_value() const {
         if (!all_valid()) return nb::none();
 
         nb::list result;
-        if (_length < _size) {
-            // No rotation has occurred; use the first _length elements
-            for (size_t i = 0; i < _length; ++i) {
-                result.append(_element_type->ops->to_python(_buffer[i].data(), _element_type));
-            }
-        } else {
-            // Buffer is full with rotation
-            for (size_t i = 0; i < _size; ++i) {
-                size_t idx = (_start + i) % _size;
-                result.append(_element_type->ops->to_python(_buffer[idx].data(), _element_type));
-            }
+        // Return only active elements in logical order (oldest first)
+        // Active count = min(_value_storage.size, _user_size)
+        size_t active_count = len();
+        for (size_t i = 0; i < active_count; ++i) {
+            const void* elem_ptr = get_value_ptr(i);
+            result.append(_element_type->ops->to_python(elem_ptr, _element_type));
         }
         return result;
     }
 
     nb::object TimeSeriesFixedWindowOutput::py_delta_value() const {
-        if (_length == 0) return nb::none();
-        size_t pos = (_length < _size) ? (_length - 1) : ((_start + _length - 1) % _size);
-        if (_times[pos] == owning_graph()->evaluation_time()) {
-            return _element_type->ops->to_python(_buffer[pos].data(), _element_type);
+        size_t active_count = len();
+        if (active_count == 0) return nb::none();
+
+        // Get the newest active element (last logical index)
+        size_t last_idx = active_count - 1;
+        size_t physical = (_value_storage.head + last_idx) % _capacity;
+
+        if (_times[physical] == owning_graph()->evaluation_time()) {
+            const void* elem_ptr = get_value_ptr(last_idx);
+            return _element_type->ops->to_python(elem_ptr, _element_type);
         }
         return nb::none();
     }
@@ -59,10 +114,41 @@ namespace hgraph
             return;
         }
         try {
-            _length += 1;
-            if (_length > _size) {
+            size_t& size = _value_storage.size;
+            size_t& head = _value_storage.head;
+
+            // If we previously had a removed value, clear that flag first
+            // (the old removed slot is about to be overwritten with the new value)
+            _has_removed_value = false;
+
+            if (size < _user_size) {
+                // Buffer not yet at user-specified size: add at end
+                size_t physical = (head + size) % _capacity;
+                void* elem_ptr = static_cast<char*>(_value_storage.data) + physical * _element_type->size;
+                _element_type->ops->from_python(elem_ptr, value, _element_type);
+                _times[physical] = owning_graph()->evaluation_time();
+                size++;
+            } else {
+                // At user-specified size: the oldest becomes the removed value
+                // Write new value at (head + _user_size) % _capacity
+                // This is the slot just past the active window (either fresh or the previous removed slot)
+                size_t write_pos = (head + _user_size) % _capacity;
+                void* elem_ptr = static_cast<char*>(_value_storage.data) + write_pos * _element_type->size;
+                _element_type->ops->from_python(elem_ptr, value, _element_type);
+                _times[write_pos] = owning_graph()->evaluation_time();
+
+                // Mark that we have a removed value (at current head before we advance)
                 _has_removed_value = true;
-                _removed_value = value::PlainValue::copy(_buffer[_start]);
+
+                // Advance head - old head is now the "removed" slot
+                head = (head + 1) % _capacity;
+
+                // Size reaches capacity once and stays there
+                if (size < _capacity) {
+                    size++;
+                }
+
+                // Schedule cleanup of removed value flag after evaluation
                 auto weak_self = weak_from_this();
                 owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self]() {
                     if (auto self = weak_self.lock()) {
@@ -70,12 +156,8 @@ namespace hgraph
                         tsw->_has_removed_value = false;
                     }
                 });
-                _start  = (_start + 1) % _size;
-                _length = _size;
             }
-            size_t pos = (_start + _length - 1) % _size;
-            _element_type->ops->from_python(_buffer[pos].data(), value, _element_type);
-            _times[pos] = owning_graph()->evaluation_time();
+
             mark_modified();
         } catch (const std::exception &e) {
             throw std::runtime_error(std::string("Cannot apply node output: ") + e.what());
@@ -88,15 +170,14 @@ namespace hgraph
     }
 
     void TimeSeriesFixedWindowOutput::mark_invalid() {
-        _start  = 0;
-        _length = 0;
-        _buffer.clear();
+        _value_storage.size = 0;
+        _value_storage.head = 0;
         _has_removed_value = false;
         BaseTimeSeriesOutput::mark_invalid();
     }
 
     bool TimeSeriesFixedWindowOutput::all_valid() const {
-        return valid() && _length >= _min_size;
+        return valid() && len() >= _min_size;
     }
 
     nb::object TimeSeriesFixedWindowOutput::py_value_times() const {
@@ -105,34 +186,46 @@ namespace hgraph
 
     std::vector<engine_time_t> TimeSeriesFixedWindowOutput::value_times() const {
         std::vector<engine_time_t> out;
-        if (_length < _size) {
-            out.assign(_times.begin(), _times.begin() + _length);
-        } else {
-            out.reserve(_size);
-            auto split = _times.begin() + _start;
-            out.insert(out.end(), split, _times.end());
-            out.insert(out.end(), _times.begin(), split);
+        size_t active_count = len();
+        out.reserve(active_count);
+
+        // Return timestamps for active elements only, in logical order
+        for (size_t i = 0; i < active_count; ++i) {
+            size_t physical = (_value_storage.head + i) % _capacity;
+            out.push_back(_times[physical]);
         }
         return out;
     }
 
     engine_time_t TimeSeriesFixedWindowOutput::first_modified_time() const {
-        return _times.empty() ? engine_time_t{} : _times[_start];
+        if (_value_storage.size == 0) return engine_time_t{};
+        return _times[_value_storage.head];
     }
 
     void TimeSeriesFixedWindowOutput::copy_from_output(const TimeSeriesOutput &output) {
         auto &o = dynamic_cast<const TimeSeriesFixedWindowOutput &>(output);
-        _buffer.clear();
-        _buffer.reserve(o._buffer.size());
-        for (const auto& v : o._buffer) {
-            _buffer.push_back(value::PlainValue::copy(v));
+
+        // Copy only active elements (not the removed value)
+        size_t src_active_count = o.len();
+        size_t copy_count = std::min(src_active_count, _user_size);
+
+        for (size_t i = 0; i < copy_count; ++i) {
+            size_t src_physical = (o._value_storage.head + i) % o._capacity;
+            size_t dst_physical = i;
+
+            const void* src = static_cast<const char*>(o._value_storage.data) + src_physical * _element_type->size;
+            void* dst = static_cast<char*>(_value_storage.data) + dst_physical * _element_type->size;
+
+            if (_element_type->ops->copy_assign) {
+                _element_type->ops->copy_assign(dst, src, _element_type);
+            }
+            _times[dst_physical] = o._times[src_physical];
         }
-        _times = o._times;
-        _start = o._start;
-        _length = o._length;
-        _size = o._size;
-        _min_size = o._min_size;
-        _element_type = o._element_type;
+
+        _value_storage.size = copy_count;
+        _value_storage.head = 0;  // Reset head since we copied in order
+        _has_removed_value = false;
+
         mark_modified();
     }
 
@@ -147,15 +240,17 @@ namespace hgraph
 
     nb::object TimeSeriesFixedWindowOutput::py_removed_value() const {
         if (!_has_removed_value) return nb::none();
-        return _element_type->ops->to_python(_removed_value.data(), _element_type);
+        // Removed value is at (head - 1 + capacity) % capacity
+        // This is the slot just before the current head
+        size_t removed_pos = (_value_storage.head + _capacity - 1) % _capacity;
+        const void* elem_ptr = static_cast<const char*>(_value_storage.data) + removed_pos * _element_type->size;
+        return _element_type->ops->to_python(elem_ptr, _element_type);
     }
 
     void TimeSeriesFixedWindowOutput::reset_value() {
-        _buffer.clear();
-        _times.clear();
+        _value_storage.size = 0;
+        _value_storage.head = 0;
         _has_removed_value = false;
-        _start = 0;
-        _length = 0;
     }
 
     // ========== TimeSeriesWindowInput Implementation ==========
@@ -167,9 +262,7 @@ namespace hgraph
         : BaseTimeSeriesInput(parent), _element_type(element_type) {}
 
     const value::TypeMeta* TimeSeriesWindowInput::element_type() const {
-        // First check local element type (set during construction)
         if (_element_type) return _element_type;
-        // Fall back to output's element type if available
         if (auto *f = as_fixed_output()) return f->element_type();
         if (auto *t = as_time_output()) return t->element_type();
         return nullptr;
@@ -191,7 +284,6 @@ namespace hgraph
         if (!valid()) return false;
         if (auto *f = as_fixed_output()) return f->len() >= f->min_size();
         if (auto *t = as_time_output()) {
-            // For time windows, check if enough time has passed
             auto elapsed =
                 owning_graph()->evaluation_time() - owning_graph()->evaluation_engine_api()->start_time();
             return elapsed >= t->min_size();
@@ -233,24 +325,68 @@ namespace hgraph
 
     TimeSeriesTimeWindowOutput::TimeSeriesTimeWindowOutput(node_ptr parent, engine_time_delta_t size,
                                                            engine_time_delta_t min_size, const value::TypeMeta* element_type)
-        : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size), _ready(false), _element_type(element_type) {
+        : BaseTimeSeriesOutput(parent), _window_duration(size), _min_duration(min_size),
+          _ready(false), _element_type(element_type), _element_size(element_type ? element_type->size : 0) {
     }
 
     TimeSeriesTimeWindowOutput::TimeSeriesTimeWindowOutput(time_series_output_ptr parent, engine_time_delta_t size,
                                                            engine_time_delta_t min_size, const value::TypeMeta* element_type)
-        : BaseTimeSeriesOutput(parent), _size(size), _min_size(min_size), _ready(false), _element_type(element_type) {
+        : BaseTimeSeriesOutput(parent), _window_duration(size), _min_duration(min_size),
+          _ready(false), _element_type(element_type), _element_size(element_type ? element_type->size : 0) {
+    }
+
+    TimeSeriesTimeWindowOutput::~TimeSeriesTimeWindowOutput() {
+        // Free all allocated elements
+        for (void* ptr : _buffer_ptrs) {
+            deallocate_element(ptr);
+        }
+        _buffer_ptrs.clear();
+
+        for (void* ptr : _removed_value_ptrs) {
+            deallocate_element(ptr);
+        }
+        _removed_value_ptrs.clear();
+    }
+
+    void* TimeSeriesTimeWindowOutput::allocate_element() {
+        if (!_element_type || _element_size == 0) return nullptr;
+
+        void* ptr = std::malloc(_element_size);
+        if (!ptr) throw std::bad_alloc();
+
+        if (_element_type->ops && _element_type->ops->construct) {
+            _element_type->ops->construct(ptr, _element_type);
+        }
+        return ptr;
+    }
+
+    void TimeSeriesTimeWindowOutput::deallocate_element(void* ptr) {
+        if (!ptr) return;
+
+        if (_element_type && _element_type->ops && _element_type->ops->destruct) {
+            _element_type->ops->destruct(ptr, _element_type);
+        }
+        std::free(ptr);
     }
 
     void TimeSeriesTimeWindowOutput::_roll() const {
-        auto tm = owning_graph()->evaluation_time() - _size;
-        if (!_times.empty() && _times.front() < tm) {
-            std::vector<value::PlainValue> removed;
-            while (!_times.empty() && _times.front() < tm) {
-                _times.pop_front();
-                removed.push_back(std::move(_buffer.front()));
-                _buffer.pop_front();
-            }
-            _removed_values = std::move(removed);
+        // Check if we've already rolled this tick
+        auto current = owning_graph()->evaluation_time();
+        if (!_needs_roll && _last_roll_time == current) {
+            return;
+        }
+
+        auto cutoff = current - _window_duration;
+        while (!_times.empty() && _times.front() < cutoff) {
+            _times.pop_front();
+
+            // Move element to removed list
+            void* removed_ptr = _buffer_ptrs.front();
+            _buffer_ptrs.pop_front();
+            _removed_value_ptrs.push_back(removed_ptr);
+        }
+
+        if (!_removed_value_ptrs.empty()) {
             auto weak_self = std::const_pointer_cast<TimeSeriesOutput>(shared_from_this());
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification([weak_self = std::weak_ptr(weak_self)]() {
                 if (auto self = weak_self.lock()) {
@@ -258,39 +394,44 @@ namespace hgraph
                 }
             });
         }
+
+        _last_roll_time = current;
+        _needs_roll = false;
     }
 
     void TimeSeriesTimeWindowOutput::_reset_removed_values() {
-        _removed_values.clear();
+        for (void* ptr : _removed_value_ptrs) {
+            deallocate_element(ptr);
+        }
+        _removed_value_ptrs.clear();
     }
 
     bool TimeSeriesTimeWindowOutput::has_removed_value() const {
         _roll();
-        return !_removed_values.empty();
+        return !_removed_value_ptrs.empty();
     }
 
     nb::object TimeSeriesTimeWindowOutput::py_removed_value() const {
         _roll();
-        if (_removed_values.empty()) return nb::none();
-        // Return the removed values as a list
+        if (_removed_value_ptrs.empty()) return nb::none();
+
         nb::list result;
-        for (const auto& v : _removed_values) {
-            result.append(_element_type->ops->to_python(v.data(), _element_type));
+        for (void* ptr : _removed_value_ptrs) {
+            result.append(_element_type->ops->to_python(ptr, _element_type));
         }
         return result;
     }
 
     size_t TimeSeriesTimeWindowOutput::len() const {
         _roll();
-        return _buffer.size();
+        return _buffer_ptrs.size();
     }
 
     nb::object TimeSeriesTimeWindowOutput::py_value() const {
         if (!_ready) {
-            // Check if enough time has passed
             auto elapsed =
                 owning_graph()->evaluation_time() - owning_graph()->evaluation_engine_api()->start_time();
-            if (elapsed >= _min_size) {
+            if (elapsed >= _min_duration) {
                 _ready = true;
             } else {
                 return nb::none();
@@ -298,28 +439,26 @@ namespace hgraph
         }
 
         _roll();
-        if (_buffer.empty()) return nb::none();
+        if (_buffer_ptrs.empty()) return nb::none();
 
-        // Convert deque to Python list
         nb::list result;
-        for (const auto& v : _buffer) {
-            result.append(_element_type->ops->to_python(v.data(), _element_type));
+        for (void* ptr : _buffer_ptrs) {
+            result.append(_element_type->ops->to_python(ptr, _element_type));
         }
         return result;
     }
 
     nb::object TimeSeriesTimeWindowOutput::py_delta_value() const {
-        // Check if enough time has passed to make the window ready
         if (!_ready) {
             auto elapsed =
                 owning_graph()->evaluation_time() - owning_graph()->evaluation_engine_api()->start_time();
-            if (elapsed >= _min_size) { _ready = true; }
+            if (elapsed >= _min_duration) { _ready = true; }
         }
 
         if (_ready && !_times.empty()) {
             auto current_time = owning_graph()->evaluation_time();
             if (_times.back() == current_time) {
-                return _element_type->ops->to_python(_buffer.back().data(), _element_type);
+                return _element_type->ops->to_python(_buffer_ptrs.back(), _element_type);
             }
         }
         return nb::none();
@@ -330,17 +469,17 @@ namespace hgraph
             invalidate();
             return;
         }
-        // This should not be called for time windows - they only append
         throw std::runtime_error("py_set_value should not be called on TimeSeriesTimeWindowOutput");
     }
 
     void TimeSeriesTimeWindowOutput::apply_result(const nb::object& value) {
         if (!value.is_valid() || value.is_none()) return;
         try {
-            value::PlainValue v(_element_type);
-            _element_type->ops->from_python(v.data(), value, _element_type);
-            _buffer.push_back(std::move(v));
+            void* elem_ptr = allocate_element();
+            _element_type->ops->from_python(elem_ptr, value, _element_type);
+            _buffer_ptrs.push_back(elem_ptr);
             _times.push_back(owning_graph()->evaluation_time());
+            _needs_roll = true;  // Next access should check for expired items
             mark_modified();
         } catch (const std::exception &e) {
             throw std::runtime_error(std::string("Cannot apply node output: ") + e.what());
@@ -348,10 +487,19 @@ namespace hgraph
     }
 
     void TimeSeriesTimeWindowOutput::mark_invalid() {
-        _buffer.clear();
+        for (void* ptr : _buffer_ptrs) {
+            deallocate_element(ptr);
+        }
+        _buffer_ptrs.clear();
         _times.clear();
         _ready = false;
-        _removed_values.clear();
+        _needs_roll = true;
+
+        for (void* ptr : _removed_value_ptrs) {
+            deallocate_element(ptr);
+        }
+        _removed_value_ptrs.clear();
+
         BaseTimeSeriesOutput::mark_invalid();
     }
 
@@ -369,15 +517,29 @@ namespace hgraph
 
     void TimeSeriesTimeWindowOutput::copy_from_output(const TimeSeriesOutput &output) {
         auto &o = dynamic_cast<const TimeSeriesTimeWindowOutput &>(output);
-        _buffer.clear();
-        for (const auto& v : o._buffer) {
-            _buffer.push_back(value::PlainValue::copy(v));
+
+        // Clear current state
+        for (void* ptr : _buffer_ptrs) {
+            deallocate_element(ptr);
+        }
+        _buffer_ptrs.clear();
+        _times.clear();
+
+        // Copy elements
+        for (size_t i = 0; i < o._buffer_ptrs.size(); ++i) {
+            void* new_elem = allocate_element();
+            if (_element_type->ops->copy_assign) {
+                _element_type->ops->copy_assign(new_elem, o._buffer_ptrs[i], _element_type);
+            }
+            _buffer_ptrs.push_back(new_elem);
         }
         _times = o._times;
-        _size = o._size;
-        _min_size = o._min_size;
+
+        _window_duration = o._window_duration;
+        _min_duration = o._min_duration;
         _ready = o._ready;
-        _element_type = o._element_type;
+        _needs_roll = true;
+
         mark_modified();
     }
 
