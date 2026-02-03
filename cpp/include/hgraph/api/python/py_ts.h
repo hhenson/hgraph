@@ -7,7 +7,12 @@ namespace hgraph
     struct PyTimeSeriesValueOutput : PyTimeSeriesOutput
     {
         using api_ptr = ApiPtr<TimeSeriesType>;
+
+        // Legacy constructor - uses ApiPtr
         explicit PyTimeSeriesValueOutput(api_ptr impl);
+
+        // New view-based constructor
+        explicit PyTimeSeriesValueOutput(TSOutputView view);
 
         // Move constructor
         PyTimeSeriesValueOutput(PyTimeSeriesValueOutput&& other) noexcept
@@ -29,7 +34,12 @@ namespace hgraph
     struct PyTimeSeriesValueInput : PyTimeSeriesInput
     {
         using api_ptr = ApiPtr<TimeSeriesType>;
+
+        // Legacy constructor - uses ApiPtr
         explicit PyTimeSeriesValueInput(api_ptr impl);
+
+        // New view-based constructor
+        explicit PyTimeSeriesValueInput(TSInputView view);
 
         // Move constructor
         PyTimeSeriesValueInput(PyTimeSeriesValueInput&& other) noexcept

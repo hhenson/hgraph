@@ -17,10 +17,16 @@ namespace hgraph
     {
         using underlying_type = T_U;
         using api_ptr = ApiPtr<underlying_type>;
+        // View type depends on whether this is input or output
+        using view_type = std::conditional_t<std::is_same_v<T_TS, PyTimeSeriesOutput>, TSOutputView, TSInputView>;
 
+        // Legacy constructors - uses ApiPtr
         explicit PyTimeSeriesList(api_ptr impl);
         explicit PyTimeSeriesList(underlying_type *impl, const control_block_ptr &cb);
         explicit PyTimeSeriesList(underlying_type *impl);
+
+        // New view-based constructor
+        explicit PyTimeSeriesList(view_type view);
 
         // Move constructor
         PyTimeSeriesList(PyTimeSeriesList&& other) noexcept

@@ -1,10 +1,24 @@
 #include <hgraph/api/python/py_tsd.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/tsd.h>
+#include <hgraph/types/time_series/ts_dict_view.h>
 #include <hgraph/util/date_time.h>
 
 namespace hgraph
 {
+
+    // Helper to convert Python key to value::Value using TSMeta
+    static value::Value<> key_from_python_with_meta(const nb::object &key, const TSMeta* meta) {
+        const auto *key_schema = meta->key_type;
+        value::Value<> key_val(key_schema);
+        key_schema->ops->from_python(key_val.data(), key, key_schema);
+        return key_val;
+    }
+
+    // Helper to convert value::View key to Python
+    static nb::object key_view_to_python(const value::View& key, const TSMeta* meta) {
+        return meta->key_type->ops->to_python(key.data(), meta->key_type);
+    }
 
     // ===== PyTimeSeriesDictOutput Implementation =====
 
@@ -13,6 +27,9 @@ namespace hgraph
     }
 
     value::Value<> PyTimeSeriesDictOutput::key_from_python(const nb::object &key) const {
+        if (has_output_view()) {
+            return key_from_python_with_meta(key, view().ts_meta());
+        }
         auto self = impl();
         const auto *key_schema = self->key_type_meta();
         value::Value<> key_val(key_schema);
@@ -21,17 +38,36 @@ namespace hgraph
     }
 
     size_t PyTimeSeriesDictOutput::size() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            return dict_view.size();
+        }
         return impl()->size();
     }
 
     nb::object PyTimeSeriesDictOutput::get_item(const nb::object &item) const {
-        auto self = impl();
         if (get_key_set_id().is(item)) { return key_set(); }
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            auto key_val = key_from_python(item);
+            TSView elem_view = dict_view.at(key_val.const_view());
+            return wrap_output_view(TSOutputView(elem_view, nullptr));
+        }
+        auto self = impl();
         auto key_val = key_from_python(item);
         return wrap_time_series(self->operator[](key_val.const_view()));
     }
 
     nb::object PyTimeSeriesDictOutput::get(const nb::object &item, const nb::object &default_value) const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            auto key_val = key_from_python(item);
+            if (dict_view.contains(key_val.const_view())) {
+                TSView elem_view = dict_view.at(key_val.const_view());
+                return wrap_output_view(TSOutputView(elem_view, nullptr));
+            }
+            return default_value;
+        }
         auto self = impl();
         auto key_val = key_from_python(item);
         if (self->contains(key_val.const_view())) { return wrap_time_series(self->operator[](key_val.const_view())); }
@@ -53,104 +89,260 @@ namespace hgraph
     }
 
     bool PyTimeSeriesDictOutput::contains(const nb::object &item) const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            auto key_val = key_from_python(item);
+            return dict_view.contains(key_val.const_view());
+        }
         auto key_val = key_from_python(item);
         return impl()->contains(key_val.const_view());
     }
 
     nb::object PyTimeSeriesDictOutput::key_set() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            TSSView tss_view = dict_view.key_set();
+            // Wrap the TSSView as a TSOutputView (TSS is output-like for reading)
+            // Use the parent view's current_time since TSSView doesn't expose it
+            return wrap_output_view(TSOutputView(TSView(tss_view.view_data(), view().current_time()), nullptr));
+        }
         return wrap_time_series(impl()->key_set().shared_from_this());
     }
 
     nb::object PyTimeSeriesDictOutput::keys() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto key : dict_view.keys()) {
+                result.append(key_view_to_python(key, dict_view.meta()));
+            }
+            return result;
+        }
         auto self = impl();
         return keys_to_list(self->begin(), self->end());
     }
 
     nb::object PyTimeSeriesDictOutput::values() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_output_view(TSOutputView(ts_view, nullptr)));
+            }
+            return result;
+        }
         auto self = impl();
         return values_to_list(self->begin(), self->end());
     }
 
     nb::object PyTimeSeriesDictOutput::items() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_output_view(TSOutputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+            return result;
+        }
         auto self = impl();
         return items_to_list(self->begin(), self->end());
     }
 
     nb::object PyTimeSeriesDictOutput::modified_keys() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto key : dict_view.modified_keys()) {
+                result.append(key_view_to_python(key, dict_view.meta()));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->modified_items();
         return keys_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictOutput::modified_values() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.modified_items().begin(); it != dict_view.modified_items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_output_view(TSOutputView(ts_view, nullptr)));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->modified_items();
         return values_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictOutput::modified_items() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.modified_items().begin(); it != dict_view.modified_items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_output_view(TSOutputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->modified_items();
         return items_to_list(items.begin(), items.end());
     }
 
     bool PyTimeSeriesDictOutput::was_modified(const nb::object &key) const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            // For view-based, check if key is in modified slots
+            auto key_val = key_from_python(key);
+            // Check if key exists and if it's in modified set
+            if (!dict_view.contains(key_val.const_view())) return false;
+            // Get the value and check if it's modified
+            TSView elem = dict_view.at(key_val.const_view());
+            return elem.modified();
+        }
         auto key_val = key_from_python(key);
         return impl()->was_modified(key_val.const_view());
     }
 
     nb::object PyTimeSeriesDictOutput::valid_keys() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.valid_items().begin(); it != dict_view.valid_items().end(); ++it) {
+                result.append(key_view_to_python(it.key(), dict_view.meta()));
+            }
+            return result;
+        }
         auto self = impl();
         const auto& items = self->valid_items();
         return keys_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictOutput::valid_values() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.valid_items().begin(); it != dict_view.valid_items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_output_view(TSOutputView(ts_view, nullptr)));
+            }
+            return result;
+        }
         auto self = impl();
         const auto& items = self->valid_items();
         return values_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictOutput::valid_items() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.valid_items().begin(); it != dict_view.valid_items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_output_view(TSOutputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+            return result;
+        }
         auto self = impl();
         const auto& items = self->valid_items();
         return items_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictOutput::added_keys() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto key : dict_view.added_keys()) {
+                result.append(key_view_to_python(key, dict_view.meta()));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->added_items();
         return keys_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictOutput::added_values() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.added_items().begin(); it != dict_view.added_items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_output_view(TSOutputView(ts_view, nullptr)));
+            }
+            return result;
+        }
         auto self = impl();
         const auto& items = self->added_items();
         return values_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictOutput::added_items() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.added_items().begin(); it != dict_view.added_items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_output_view(TSOutputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+            return result;
+        }
         auto self = impl();
         const auto& items = self->added_items();
         return items_to_list(items.begin(), items.end());
     }
 
     bool PyTimeSeriesDictOutput::has_added() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            return !dict_view.added_slots().empty();
+        }
         return impl()->has_added();
     }
 
     bool PyTimeSeriesDictOutput::was_added(const nb::object &key) const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            auto key_val = key_from_python(key);
+            return dict_view.was_added(key_val.const_view());
+        }
         auto key_val = key_from_python(key);
         return impl()->was_added(key_val.const_view());
     }
 
     nb::object PyTimeSeriesDictOutput::removed_keys() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto key : dict_view.removed_keys()) {
+                result.append(key_view_to_python(key, dict_view.meta()));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->removed_items();
         return keys_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictOutput::removed_values() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.removed_items().begin(); it != dict_view.removed_items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_output_view(TSOutputView(ts_view, nullptr)));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->removed_items();
         // removed_items now stores pair<value, was_valid>, extract value
@@ -162,6 +354,16 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::removed_items() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.removed_items().begin(); it != dict_view.removed_items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_output_view(TSOutputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->removed_items();
         // removed_items now stores pair<value, was_valid>, extract value
@@ -173,15 +375,30 @@ namespace hgraph
     }
 
     bool PyTimeSeriesDictOutput::has_removed() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            return !dict_view.removed_slots().empty();
+        }
         return impl()->has_removed();
     }
 
     bool PyTimeSeriesDictOutput::was_removed(const nb::object &key) const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            auto key_val = key_from_python(key);
+            return dict_view.was_removed(key_val.const_view());
+        }
         auto key_val = key_from_python(key);
         return impl()->was_removed(key_val.const_view());
     }
 
     nb::object PyTimeSeriesDictOutput::key_from_value(const nb::object &value) const {
+        // For view-based mode, this operation requires the impl since we need to look up
+        // which key corresponds to a given time-series value pointer
+        if (has_output_view()) {
+            // Not supported in view mode - would need additional infrastructure
+            throw std::runtime_error("key_from_value not supported in view mode");
+        }
         auto p = unwrap_output(value).get();
         if (p == nullptr) {
             throw std::runtime_error("Value is not a valid TimeSeries");
@@ -196,6 +413,12 @@ namespace hgraph
     }
 
     nb::str PyTimeSeriesDictOutput::py_str() const {
+        if (has_output_view()) {
+            auto dict_view = view().as_dict();
+            auto str = fmt::format("TimeSeriesDictOutput@{:p}[size={}, valid={}]",
+                                   static_cast<const void *>(&dict_view), dict_view.size(), dict_view.valid());
+            return nb::str(str.c_str());
+        }
         auto self = impl();
         auto str = fmt::format("TimeSeriesDictOutput@{:p}[size={}, valid={}]",
                                static_cast<const void *>(self), self->size(), self->valid());
@@ -233,6 +456,9 @@ namespace hgraph
     }
 
     value::Value<> PyTimeSeriesDictInput::key_from_python(const nb::object &key) const {
+        if (has_input_view()) {
+            return key_from_python_with_meta(key, input_view().ts_meta());
+        }
         auto self = impl();
         const auto *key_schema = self->key_type_meta();
         value::Value<> key_val(key_schema);
@@ -241,17 +467,36 @@ namespace hgraph
     }
 
     size_t PyTimeSeriesDictInput::size() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            return dict_view.size();
+        }
         return impl()->size();
     }
 
     nb::object PyTimeSeriesDictInput::get_item(const nb::object &item) const {
-        auto self = impl();
         if (get_key_set_id().is(item)) { return key_set(); }
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            auto key_val = key_from_python(item);
+            TSView elem_view = dict_view.at(key_val.const_view());
+            return wrap_input_view(TSInputView(elem_view, nullptr));
+        }
+        auto self = impl();
         auto key_val = key_from_python(item);
         return wrap_time_series(self->operator[](key_val.const_view()));
     }
 
     nb::object PyTimeSeriesDictInput::get(const nb::object &item, const nb::object &default_value) const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            auto key_val = key_from_python(item);
+            if (dict_view.contains(key_val.const_view())) {
+                TSView elem_view = dict_view.at(key_val.const_view());
+                return wrap_input_view(TSInputView(elem_view, nullptr));
+            }
+            return default_value;
+        }
         auto self = impl();
         auto key_val = key_from_python(item);
         if (self->contains(key_val.const_view())) { return wrap_time_series(self->operator[](key_val.const_view())); }
@@ -273,125 +518,301 @@ namespace hgraph
     }
 
     bool PyTimeSeriesDictInput::contains(const nb::object &item) const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            auto key_val = key_from_python(item);
+            return dict_view.contains(key_val.const_view());
+        }
         auto key_val = key_from_python(item);
         return impl()->contains(key_val.const_view());
     }
 
     nb::object PyTimeSeriesDictInput::key_set() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            TSSView tss_view = dict_view.key_set();
+            // Wrap the TSSView as a TSInputView (TSS is input-like for reading)
+            // Use the parent view's current_time since TSSView doesn't expose it
+            return wrap_input_view(TSInputView(TSView(tss_view.view_data(), input_view().current_time()), nullptr));
+        }
         return wrap_time_series(impl()->key_set().shared_from_this());
     }
 
     nb::object PyTimeSeriesDictInput::keys() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto key : dict_view.keys()) {
+                result.append(key_view_to_python(key, dict_view.meta()));
+            }
+            return result;
+        }
         auto self = impl();
         return keys_to_list(self->begin(), self->end());
     }
 
     nb::object PyTimeSeriesDictInput::values() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_input_view(TSInputView(ts_view, nullptr)));
+            }
+            return result;
+        }
         auto self = impl();
         return values_to_list(self->begin(), self->end());
     }
 
     nb::object PyTimeSeriesDictInput::items() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_input_view(TSInputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+            return result;
+        }
         auto self = impl();
         return items_to_list(self->begin(), self->end());
     }
 
     nb::object PyTimeSeriesDictInput::modified_keys() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto key : dict_view.modified_keys()) {
+                result.append(key_view_to_python(key, dict_view.meta()));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->modified_items();
         return keys_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictInput::modified_values() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.modified_items().begin(); it != dict_view.modified_items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_input_view(TSInputView(ts_view, nullptr)));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->modified_items();
         return values_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictInput::modified_items() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.modified_items().begin(); it != dict_view.modified_items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_input_view(TSInputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->modified_items();
         return items_to_list(items.begin(), items.end());
     }
 
     bool PyTimeSeriesDictInput::was_modified(const nb::object &key) const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            auto key_val = key_from_python(key);
+            if (!dict_view.contains(key_val.const_view())) return false;
+            TSView elem = dict_view.at(key_val.const_view());
+            return elem.modified();
+        }
         auto key_val = key_from_python(key);
         return impl()->was_modified(key_val.const_view());
     }
 
     nb::object PyTimeSeriesDictInput::valid_keys() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.valid_items().begin(); it != dict_view.valid_items().end(); ++it) {
+                result.append(key_view_to_python(it.key(), dict_view.meta()));
+            }
+            return result;
+        }
         auto self = impl();
         const auto& items = self->valid_items();
         return keys_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictInput::valid_values() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.valid_items().begin(); it != dict_view.valid_items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_input_view(TSInputView(ts_view, nullptr)));
+            }
+            return result;
+        }
         auto self = impl();
         const auto& items = self->valid_items();
         return values_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictInput::valid_items() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.valid_items().begin(); it != dict_view.valid_items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_input_view(TSInputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+            return result;
+        }
         auto self = impl();
         const auto& items = self->valid_items();
         return items_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictInput::added_keys() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto key : dict_view.added_keys()) {
+                result.append(key_view_to_python(key, dict_view.meta()));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->added_items();
         return keys_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictInput::added_values() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.added_items().begin(); it != dict_view.added_items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_input_view(TSInputView(ts_view, nullptr)));
+            }
+            return result;
+        }
         auto self = impl();
         const auto& items = self->added_items();
         return values_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictInput::added_items() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.added_items().begin(); it != dict_view.added_items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_input_view(TSInputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+            return result;
+        }
         auto self = impl();
         const auto& items = self->added_items();
         return items_to_list(items.begin(), items.end());
     }
 
     bool PyTimeSeriesDictInput::has_added() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            return !dict_view.added_slots().empty();
+        }
         return impl()->has_added();
     }
 
     bool PyTimeSeriesDictInput::was_added(const nb::object &key) const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            auto key_val = key_from_python(key);
+            return dict_view.was_added(key_val.const_view());
+        }
         auto key_val = key_from_python(key);
         return impl()->was_added(key_val.const_view());
     }
 
     nb::object PyTimeSeriesDictInput::removed_keys() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto key : dict_view.removed_keys()) {
+                result.append(key_view_to_python(key, dict_view.meta()));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->removed_items();
         return keys_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictInput::removed_values() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.removed_items().begin(); it != dict_view.removed_items().end(); ++it) {
+                TSView ts_view = *it;
+                result.append(wrap_input_view(TSInputView(ts_view, nullptr)));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->removed_items();
         return values_to_list(items.begin(), items.end());
     }
 
     nb::object PyTimeSeriesDictInput::removed_items() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            nb::list result;
+            for (auto it = dict_view.removed_items().begin(); it != dict_view.removed_items().end(); ++it) {
+                TSView ts_view = *it;
+                auto wrapped_value = wrap_input_view(TSInputView(ts_view, nullptr));
+                result.append(nb::make_tuple(key_view_to_python(it.key(), dict_view.meta()), wrapped_value));
+            }
+            return result;
+        }
         auto self = impl();
         const auto &items = self->removed_items();
         return items_to_list(items.begin(), items.end());
     }
 
     bool PyTimeSeriesDictInput::has_removed() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            return !dict_view.removed_slots().empty();
+        }
         return impl()->has_removed();
     }
 
     bool PyTimeSeriesDictInput::was_removed(const nb::object &key) const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            auto key_val = key_from_python(key);
+            return dict_view.was_removed(key_val.const_view());
+        }
         auto key_val = key_from_python(key);
         return impl()->was_removed(key_val.const_view());
     }
 
     nb::object PyTimeSeriesDictInput::key_from_value(const nb::object &value) const {
+        // For view-based mode, this operation requires the impl
+        if (has_input_view()) {
+            throw std::runtime_error("key_from_value not supported in view mode");
+        }
         auto p = unwrap_input(value).get();
         if (p == nullptr) {
             throw std::runtime_error("Value is not a valid TimeSeries");
@@ -406,6 +827,12 @@ namespace hgraph
     }
 
     nb::str PyTimeSeriesDictInput::py_str() const {
+        if (has_input_view()) {
+            auto dict_view = input_view().ts_view().as_dict();
+            auto str = fmt::format("TimeSeriesDictInput@{:p}[size={}, valid={}]",
+                                   static_cast<const void *>(&dict_view), dict_view.size(), dict_view.valid());
+            return nb::str(str.c_str());
+        }
         auto self = impl();
         auto str = fmt::format("TimeSeriesDictInput@{:p}[size={}, valid={}]",
                                static_cast<const void *>(self), self->size(), self->valid());

@@ -3,9 +3,23 @@
 #include "api_ptr.h"
 
 #include <hgraph/hgraph_base.h>
+#include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/time_series/ts_input_view.h>
+
+#include <optional>
 
 namespace hgraph
 {
+    /**
+     * @brief Base class for Python time-series wrappers.
+     *
+     * MIGRATION NOTE: This class supports both construction patterns during migration:
+     * - Legacy: ApiPtr<TimeSeriesType> (via visitor pattern) - uses _impl
+     * - New: TSOutputView / TSInputView (via TSMeta::kind dispatch) - uses view_
+     *
+     * Methods check which storage is active and delegate appropriately.
+     * Once migration is complete, _impl will be removed.
+     */
     struct HGRAPH_EXPORT PyTimeSeriesType
     {
         using api_ptr = ApiPtr<TimeSeriesType>;
@@ -14,12 +28,14 @@ namespace hgraph
 
         // Move constructor
         PyTimeSeriesType(PyTimeSeriesType&& other) noexcept
-            : _impl(std::move(other._impl)) {}
+            : _impl(std::move(other._impl))
+            , view_(std::move(other.view_)) {}
 
         // Move assignment
         PyTimeSeriesType& operator=(PyTimeSeriesType&& other) noexcept {
             if (this != &other) {
                 _impl = std::move(other._impl);
+                view_ = std::move(other.view_);
             }
             return *this;
         }
@@ -49,10 +65,21 @@ namespace hgraph
 
         [[nodiscard]] virtual nb::bool_ is_reference() const;
 
+        // Check if using view-based storage (public for cross-instance access)
+        [[nodiscard]] bool has_view() const { return view_.has_value(); }
+
+        // Get the view (throws if not view-based) (public for cross-instance access)
+        [[nodiscard]] TSView& view() { return *view_; }
+        [[nodiscard]] const TSView& view() const { return *view_; }
+
         static void register_with_nanobind(nb::module_ &m);
 
       protected:
+        // Legacy constructor - uses ApiPtr
         explicit PyTimeSeriesType(api_ptr impl);
+
+        // New view-based constructor - uses TSView
+        explicit PyTimeSeriesType(TSView view);
 
         [[nodiscard]] control_block_ptr control_block() const;
 
@@ -63,7 +90,8 @@ namespace hgraph
         template <typename U> std::shared_ptr<U> impl_s_ptr() const { return _impl.control_block_typed<U>(); }
 
       private:
-        api_ptr _impl;
+        api_ptr _impl;                      // Legacy storage (OLD)
+        std::optional<TSView> view_;        // View-based storage (NEW)
     };
 
     struct PyTimeSeriesInput;
@@ -98,14 +126,25 @@ namespace hgraph
         // The queue and perform the change, if the change is successful, we then pop the queue.
         bool can_apply_result(nb::object value);
 
+        // Get the output view (throws if not view-based) (public for cross-instance access)
+        [[nodiscard]] TSOutputView& output_view() { return output_view_.value(); }
+        [[nodiscard]] const TSOutputView& output_view() const { return output_view_.value(); }
+        [[nodiscard]] bool has_output_view() const { return output_view_.has_value(); }
+
         static void register_with_nanobind(nb::module_ &m);
 
       protected:
+        // Legacy constructor - uses ApiPtr
         using PyTimeSeriesType::PyTimeSeriesType;
+
+        // New view-based constructor
+        explicit PyTimeSeriesOutput(TSOutputView view);
 
       private:
         friend time_series_output_s_ptr unwrap_output(const PyTimeSeriesOutput &output_);
         [[nodiscard]] TimeSeriesOutput *impl() const;
+
+        std::optional<TSOutputView> output_view_;  // Output-specific view storage
     };
 
     struct HGRAPH_EXPORT PyTimeSeriesInput : PyTimeSeriesType
@@ -139,14 +178,25 @@ namespace hgraph
         // This is a hack to support REF time-series binding, this definitely needs to be revisited.
         [[nodiscard]] nb::object get_input(size_t index) const;
 
+        // Get the input view (throws if not view-based) (public for cross-instance access)
+        [[nodiscard]] TSInputView& input_view() { return input_view_.value(); }
+        [[nodiscard]] const TSInputView& input_view() const { return input_view_.value(); }
+        [[nodiscard]] bool has_input_view() const { return input_view_.has_value(); }
+
         static void register_with_nanobind(nb::module_ &m);
 
       protected:
+        // Legacy constructor - uses ApiPtr
         using PyTimeSeriesType::PyTimeSeriesType;
+
+        // New view-based constructor
+        explicit PyTimeSeriesInput(TSInputView view);
 
       private:
         [[nodiscard]] TimeSeriesInput *impl() const;
         friend time_series_input_s_ptr unwrap_input(const PyTimeSeriesInput &input_);
+
+        std::optional<TSInputView> input_view_;  // Input-specific view storage
     };
 
 }  // namespace hgraph

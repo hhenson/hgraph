@@ -13,6 +13,29 @@ namespace hgraph
 
     struct PyTimeSeriesReferenceOutput : PyTimeSeriesOutput
     {
+        using api_ptr = ApiPtr<TimeSeriesReferenceOutput>;
+
+        // Legacy constructor - uses ApiPtr
+        explicit PyTimeSeriesReferenceOutput(api_ptr impl);
+
+        // New view-based constructor
+        explicit PyTimeSeriesReferenceOutput(TSOutputView view);
+
+        // Move constructor
+        PyTimeSeriesReferenceOutput(PyTimeSeriesReferenceOutput&& other) noexcept
+            : PyTimeSeriesOutput(std::move(other)) {}
+
+        // Move assignment
+        PyTimeSeriesReferenceOutput& operator=(PyTimeSeriesReferenceOutput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesOutput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesReferenceOutput(const PyTimeSeriesReferenceOutput&) = delete;
+        PyTimeSeriesReferenceOutput& operator=(const PyTimeSeriesReferenceOutput&) = delete;
 
         [[nodiscard]] nb::str to_string() const;
         [[nodiscard]] nb::str to_repr() const;
@@ -20,6 +43,7 @@ namespace hgraph
         static void register_with_nanobind(nb::module_ &m);
 
     protected:
+        // Allow derived classes to use either constructor type
         using PyTimeSeriesOutput::PyTimeSeriesOutput;
 
     private:
@@ -28,12 +52,37 @@ namespace hgraph
 
     struct PyTimeSeriesReferenceInput : PyTimeSeriesInput
     {
+        using api_ptr = ApiPtr<TimeSeriesReferenceInput>;
+
+        // Legacy constructor - uses ApiPtr
+        explicit PyTimeSeriesReferenceInput(api_ptr impl);
+
+        // New view-based constructor
+        explicit PyTimeSeriesReferenceInput(TSInputView view);
+
+        // Move constructor
+        PyTimeSeriesReferenceInput(PyTimeSeriesReferenceInput&& other) noexcept
+            : PyTimeSeriesInput(std::move(other)) {}
+
+        // Move assignment
+        PyTimeSeriesReferenceInput& operator=(PyTimeSeriesReferenceInput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesInput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesReferenceInput(const PyTimeSeriesReferenceInput&) = delete;
+        PyTimeSeriesReferenceInput& operator=(const PyTimeSeriesReferenceInput&) = delete;
+
         [[nodiscard]] nb::str to_string() const;
         [[nodiscard]] nb::str to_repr() const;
 
         static void register_with_nanobind(nb::module_ &m);
 
     protected:
+        // Allow derived classes to use either constructor type
         using PyTimeSeriesInput::PyTimeSeriesInput;
 
     private:

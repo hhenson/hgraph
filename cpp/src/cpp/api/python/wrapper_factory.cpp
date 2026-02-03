@@ -17,6 +17,9 @@
 #include <hgraph/api/python/py_tss.h>
 #include <hgraph/api/python/py_tsw.h>
 #include <hgraph/api/python/wrapper_factory.h>
+#include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/nodes/mesh_node.h>
 #include <hgraph/nodes/push_queue_node.h>
@@ -278,6 +281,100 @@ namespace
     nb::object wrap_traits(const Traits *impl, const control_block_ptr &control_block) {
         if (!impl) { return nb::none(); }
         return nb::cast(PyTraits(PyTraits::api_ptr(impl, control_block)));
+    }
+
+    // ========== View-Based Factory Functions ==========
+    //
+    // These functions create Python wrappers from TSOutputView/TSInputView.
+    // They use TSMeta::kind to dispatch to the appropriate wrapper type.
+    //
+    // NOTE: This is a transitional implementation. Currently, most wrapper
+    // classes don't support view-based construction. As they are migrated,
+    // the cases below will be updated to create actual wrappers.
+
+    nb::object wrap_output_view(TSOutputView view) {
+        if (!view) { return nb::none(); }
+
+        const auto* meta = view.ts_meta();
+        if (!meta) {
+            throw std::runtime_error("wrap_output_view: TSOutputView has no TSMeta");
+        }
+
+        switch (meta->kind) {
+            case TSKind::TSValue:
+                return nb::cast(PyTimeSeriesValueOutput(std::move(view)));
+
+            case TSKind::TSB:
+                return nb::cast(PyTimeSeriesBundleOutput(std::move(view)));
+
+            case TSKind::TSL:
+                return nb::cast(PyTimeSeriesListOutput(std::move(view)));
+
+            case TSKind::TSD:
+                return nb::cast(PyTimeSeriesDictOutput(std::move(view)));
+
+            case TSKind::TSS:
+                return nb::cast(PyTimeSeriesSetOutput(std::move(view)));
+
+            case TSKind::TSW:
+                if (meta->is_duration_based) {
+                    return nb::cast(PyTimeSeriesTimeWindowOutput(std::move(view)));
+                } else {
+                    return nb::cast(PyTimeSeriesFixedWindowOutput(std::move(view)));
+                }
+
+            case TSKind::REF:
+                return nb::cast(PyTimeSeriesReferenceOutput(std::move(view)));
+
+            case TSKind::SIGNAL:
+                // SIGNAL is input-only, there's no output type
+                throw std::runtime_error("wrap_output_view: SIGNAL is input-only, no output type exists");
+
+            default:
+                throw std::runtime_error(
+                    fmt::format("wrap_output_view: Unknown TSKind {}", static_cast<int>(meta->kind))
+                );
+        }
+    }
+
+    nb::object wrap_input_view(TSInputView view) {
+        if (!view) { return nb::none(); }
+
+        const auto* meta = view.ts_meta();
+        if (!meta) {
+            throw std::runtime_error("wrap_input_view: TSInputView has no TSMeta");
+        }
+
+        switch (meta->kind) {
+            case TSKind::TSValue:
+                return nb::cast(PyTimeSeriesValueInput(std::move(view)));
+
+            case TSKind::TSB:
+                return nb::cast(PyTimeSeriesBundleInput(std::move(view)));
+
+            case TSKind::TSL:
+                return nb::cast(PyTimeSeriesListInput(std::move(view)));
+
+            case TSKind::TSD:
+                return nb::cast(PyTimeSeriesDictInput(std::move(view)));
+
+            case TSKind::TSS:
+                return nb::cast(PyTimeSeriesSetInput(std::move(view)));
+
+            case TSKind::TSW:
+                return nb::cast(PyTimeSeriesWindowInput(std::move(view)));
+
+            case TSKind::REF:
+                return nb::cast(PyTimeSeriesReferenceInput(std::move(view)));
+
+            case TSKind::SIGNAL:
+                return nb::cast(PyTimeSeriesSignalInput(std::move(view)));
+
+            default:
+                throw std::runtime_error(
+                    fmt::format("wrap_input_view: Unknown TSKind {}", static_cast<int>(meta->kind))
+                );
+        }
     }
 
 }  // namespace hgraph

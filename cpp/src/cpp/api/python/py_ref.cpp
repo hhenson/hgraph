@@ -154,7 +154,18 @@ namespace hgraph
         PyTimeSeriesWindowReferenceOutput::register_with_nanobind(m);
     }
 
+    // Base REF Output constructors
+    PyTimeSeriesReferenceOutput::PyTimeSeriesReferenceOutput(api_ptr impl)
+        : PyTimeSeriesOutput(std::move(impl)) {}
+
+    PyTimeSeriesReferenceOutput::PyTimeSeriesReferenceOutput(TSOutputView view)
+        : PyTimeSeriesOutput(std::move(view)) {}
+
     nb::str PyTimeSeriesReferenceOutput::to_string() const {
+        if (has_output_view()) {
+            auto v = fmt::format("TimeSeriesReferenceOutput[view]");
+            return nb::str(v.c_str());
+        }
         auto impl_{impl()};
         auto v{fmt::format("TimeSeriesReferenceOutput@{:p}[{}]", static_cast<const void *>(impl_),
                            impl_->has_value() ? impl_->value().to_string() : "None")};
@@ -162,6 +173,10 @@ namespace hgraph
     }
 
     nb::str PyTimeSeriesReferenceOutput::to_repr() const {
+        if (has_output_view()) {
+            auto v = fmt::format("TimeSeriesReferenceOutput[view]");
+            return nb::str(v.c_str());
+        }
         auto impl_{impl()};
         auto v{fmt::format("TimeSeriesReferenceOutput@{:p}[{}]", static_cast<const void *>(impl_),
                            impl_->has_value() ? impl_->value().to_string() : "None")};
@@ -185,7 +200,17 @@ namespace hgraph
 
     TimeSeriesReferenceOutput *PyTimeSeriesReferenceOutput::impl() const { return static_cast_impl<TimeSeriesReferenceOutput>(); }
 
+    // Base REF Input constructors
+    PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput(api_ptr impl)
+        : PyTimeSeriesInput(std::move(impl)) {}
+
+    PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput(TSInputView view)
+        : PyTimeSeriesInput(std::move(view)) {}
+
     nb::str PyTimeSeriesReferenceInput::to_string() const {
+        if (has_input_view()) {
+            return nb::str("TimeSeriesReferenceInput[view]");
+        }
         auto       *impl_{impl()};
         std::string value_str = "None";
         if (impl_->has_value()) {

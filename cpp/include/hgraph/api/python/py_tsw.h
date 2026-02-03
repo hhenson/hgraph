@@ -12,7 +12,27 @@ namespace hgraph
     {
         using api_ptr = ApiPtr<TimeSeriesFixedWindowOutput>;
 
+        // Legacy constructor - uses ApiPtr
         explicit PyTimeSeriesFixedWindowOutput(api_ptr impl);
+
+        // New view-based constructor
+        explicit PyTimeSeriesFixedWindowOutput(TSOutputView view);
+
+        // Move constructor
+        PyTimeSeriesFixedWindowOutput(PyTimeSeriesFixedWindowOutput&& other) noexcept
+            : PyTimeSeriesOutput(std::move(other)) {}
+
+        // Move assignment
+        PyTimeSeriesFixedWindowOutput& operator=(PyTimeSeriesFixedWindowOutput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesOutput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesFixedWindowOutput(const PyTimeSeriesFixedWindowOutput&) = delete;
+        PyTimeSeriesFixedWindowOutput& operator=(const PyTimeSeriesFixedWindowOutput&) = delete;
 
         [[nodiscard]] nb::object value_times() const;
         [[nodiscard]] engine_time_t first_modified_time() const;
@@ -33,7 +53,27 @@ namespace hgraph
     {
         using api_ptr = ApiPtr<TimeSeriesTimeWindowOutput>;
 
+        // Legacy constructor - uses ApiPtr
         explicit PyTimeSeriesTimeWindowOutput(api_ptr impl);
+
+        // New view-based constructor
+        explicit PyTimeSeriesTimeWindowOutput(TSOutputView view);
+
+        // Move constructor
+        PyTimeSeriesTimeWindowOutput(PyTimeSeriesTimeWindowOutput&& other) noexcept
+            : PyTimeSeriesOutput(std::move(other)) {}
+
+        // Move assignment
+        PyTimeSeriesTimeWindowOutput& operator=(PyTimeSeriesTimeWindowOutput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesOutput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesTimeWindowOutput(const PyTimeSeriesTimeWindowOutput&) = delete;
+        PyTimeSeriesTimeWindowOutput& operator=(const PyTimeSeriesTimeWindowOutput&) = delete;
 
         [[nodiscard]] nb::object value_times() const;
         [[nodiscard]] engine_time_t first_modified_time() const;
@@ -54,7 +94,27 @@ namespace hgraph
     {
         using api_ptr = ApiPtr<TimeSeriesWindowInput>;
 
+        // Legacy constructor - uses ApiPtr
         explicit PyTimeSeriesWindowInput(api_ptr impl);
+
+        // New view-based constructor
+        explicit PyTimeSeriesWindowInput(TSInputView view);
+
+        // Move constructor
+        PyTimeSeriesWindowInput(PyTimeSeriesWindowInput&& other) noexcept
+            : PyTimeSeriesInput(std::move(other)) {}
+
+        // Move assignment
+        PyTimeSeriesWindowInput& operator=(PyTimeSeriesWindowInput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesInput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesWindowInput(const PyTimeSeriesWindowInput&) = delete;
+        PyTimeSeriesWindowInput& operator=(const PyTimeSeriesWindowInput&) = delete;
 
         [[nodiscard]] nb::object value_times() const;
         [[nodiscard]] engine_time_t first_modified_time() const;

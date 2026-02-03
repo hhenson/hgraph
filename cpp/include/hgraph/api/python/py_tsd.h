@@ -8,7 +8,28 @@ namespace hgraph
     struct PyTimeSeriesDictOutput : PyTimeSeriesOutput
     {
         using api_ptr = ApiPtr<TimeSeriesOutput>;
+
+        // Legacy constructor - uses ApiPtr
         explicit PyTimeSeriesDictOutput(api_ptr impl) : PyTimeSeriesOutput(std::move(impl)) {}
+
+        // New view-based constructor
+        explicit PyTimeSeriesDictOutput(TSOutputView view) : PyTimeSeriesOutput(std::move(view)) {}
+
+        // Move constructor
+        PyTimeSeriesDictOutput(PyTimeSeriesDictOutput&& other) noexcept
+            : PyTimeSeriesOutput(std::move(other)) {}
+
+        // Move assignment
+        PyTimeSeriesDictOutput& operator=(PyTimeSeriesDictOutput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesOutput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesDictOutput(const PyTimeSeriesDictOutput&) = delete;
+        PyTimeSeriesDictOutput& operator=(const PyTimeSeriesDictOutput&) = delete;
 
         [[nodiscard]] size_t size() const;
 
@@ -91,7 +112,28 @@ namespace hgraph
     struct PyTimeSeriesDictInput : PyTimeSeriesInput
     {
         using api_ptr = ApiPtr<TimeSeriesInput>;
+
+        // Legacy constructor - uses ApiPtr
         explicit PyTimeSeriesDictInput(api_ptr impl) : PyTimeSeriesInput(std::move(impl)) {}
+
+        // New view-based constructor
+        explicit PyTimeSeriesDictInput(TSInputView view) : PyTimeSeriesInput(std::move(view)) {}
+
+        // Move constructor
+        PyTimeSeriesDictInput(PyTimeSeriesDictInput&& other) noexcept
+            : PyTimeSeriesInput(std::move(other)) {}
+
+        // Move assignment
+        PyTimeSeriesDictInput& operator=(PyTimeSeriesDictInput&& other) noexcept {
+            if (this != &other) {
+                PyTimeSeriesInput::operator=(std::move(other));
+            }
+            return *this;
+        }
+
+        // Delete copy constructor and assignment
+        PyTimeSeriesDictInput(const PyTimeSeriesDictInput&) = delete;
+        PyTimeSeriesDictInput& operator=(const PyTimeSeriesDictInput&) = delete;
 
         [[nodiscard]] size_t size() const;
 
