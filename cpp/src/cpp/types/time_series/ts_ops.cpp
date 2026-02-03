@@ -13,7 +13,9 @@
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
+#include <hgraph/types/time_series/set_delta.h>
 #include <hgraph/types/value/map_storage.h>
+#include <hgraph/types/value/set_storage.h>
 #include <hgraph/types/node.h>
 
 #include <stdexcept>
@@ -987,6 +989,81 @@ bool is_bound(const ViewData& vd) {
     return false;
 }
 
+// ========== Set-Specific Mutation Operations ==========
+
+bool set_add(ViewData& vd, const value::View& elem, engine_time_t current_time) {
+    if (!vd.value_data || !vd.time_data) {
+        throw std::runtime_error("set_add on invalid ViewData");
+    }
+
+    // Get the SetStorage
+    auto* storage = static_cast<value::SetStorage*>(vd.value_data);
+
+    // Add the element (SetDelta is notified via SlotObserver if registered)
+    bool added = storage->add(elem.data());
+
+    if (added) {
+        // Update timestamp
+        *static_cast<engine_time_t*>(vd.time_data) = current_time;
+
+        // Notify observers
+        if (vd.observer_data) {
+            auto* observers = static_cast<ObserverList*>(vd.observer_data);
+            observers->notify_modified(current_time);
+        }
+    }
+
+    return added;
+}
+
+bool set_remove(ViewData& vd, const value::View& elem, engine_time_t current_time) {
+    if (!vd.value_data || !vd.time_data) {
+        throw std::runtime_error("set_remove on invalid ViewData");
+    }
+
+    // Get the SetStorage
+    auto* storage = static_cast<value::SetStorage*>(vd.value_data);
+
+    // Remove the element (SetDelta is notified via SlotObserver if registered)
+    bool removed = storage->remove(elem.data());
+
+    if (removed) {
+        // Update timestamp
+        *static_cast<engine_time_t*>(vd.time_data) = current_time;
+
+        // Notify observers
+        if (vd.observer_data) {
+            auto* observers = static_cast<ObserverList*>(vd.observer_data);
+            observers->notify_modified(current_time);
+        }
+    }
+
+    return removed;
+}
+
+void set_clear(ViewData& vd, engine_time_t current_time) {
+    if (!vd.value_data || !vd.time_data) {
+        throw std::runtime_error("set_clear on invalid ViewData");
+    }
+
+    // Get the SetStorage
+    auto* storage = static_cast<value::SetStorage*>(vd.value_data);
+
+    if (!storage->empty()) {
+        // Clear all elements (SetDelta is notified via SlotObserver if registered)
+        storage->clear();
+
+        // Update timestamp
+        *static_cast<engine_time_t*>(vd.time_data) = current_time;
+
+        // Notify observers
+        if (vd.observer_data) {
+            auto* observers = static_cast<ObserverList*>(vd.observer_data);
+            observers->notify_modified(current_time);
+        }
+    }
+}
+
 } // namespace set_ops
 
 // ============================================================================
@@ -1754,6 +1831,9 @@ size_t window_length(const ViewData& vd) {
     .window_size = nullptr, \
     .window_min_size = nullptr, \
     .window_length = nullptr, \
+    .set_add = nullptr, \
+    .set_remove = nullptr, \
+    .set_clear = nullptr, \
 }
 
 // Macro for window types (includes window ops)
@@ -1791,17 +1871,61 @@ size_t window_length(const ViewData& vd) {
     .window_size = ns::window_size, \
     .window_min_size = ns::window_min_size, \
     .window_length = ns::window_length, \
+    .set_add = nullptr, \
+    .set_remove = nullptr, \
+    .set_clear = nullptr, \
+}
+
+// Macro for set types (includes set mutation ops)
+#define MAKE_SET_TS_OPS(ns) ts_ops { \
+    .ts_meta = [](const ViewData& vd) { return vd.meta; }, \
+    .last_modified_time = ns::last_modified_time, \
+    .modified = ns::modified, \
+    .valid = ns::valid, \
+    .all_valid = ns::all_valid, \
+    .sampled = ns::sampled, \
+    .value = ns::value, \
+    .delta_value = ns::delta_value, \
+    .has_delta = ns::has_delta, \
+    .set_value = ns::set_value, \
+    .apply_delta = ns::apply_delta, \
+    .invalidate = ns::invalidate, \
+    .to_python = ns::to_python, \
+    .delta_to_python = ns::delta_to_python, \
+    .from_python = ns::from_python, \
+    .child_at = ns::child_at, \
+    .child_by_name = ns::child_by_name, \
+    .child_by_key = ns::child_by_key, \
+    .child_count = ns::child_count, \
+    .observer = ns::observer, \
+    .notify_observers = ns::notify_observers, \
+    .bind = ns::bind, \
+    .unbind = ns::unbind, \
+    .is_bound = ns::is_bound, \
+    .window_value_times = nullptr, \
+    .window_value_times_count = nullptr, \
+    .window_first_modified_time = nullptr, \
+    .window_has_removed_value = nullptr, \
+    .window_removed_value = nullptr, \
+    .window_removed_value_count = nullptr, \
+    .window_size = nullptr, \
+    .window_min_size = nullptr, \
+    .window_length = nullptr, \
+    .set_add = ns::set_add, \
+    .set_remove = ns::set_remove, \
+    .set_clear = ns::set_clear, \
 }
 
 static const ts_ops scalar_ts_ops = MAKE_TS_OPS(scalar_ops);
 static const ts_ops bundle_ts_ops = MAKE_TS_OPS(bundle_ops);
 static const ts_ops list_ts_ops = MAKE_TS_OPS(list_ops);
-static const ts_ops set_ts_ops = MAKE_TS_OPS(set_ops);
+static const ts_ops set_ts_ops = MAKE_SET_TS_OPS(set_ops);
 static const ts_ops dict_ts_ops = MAKE_TS_OPS(dict_ops);
 static const ts_ops fixed_window_ts_ops = MAKE_WINDOW_TS_OPS(fixed_window_ops);
 static const ts_ops time_window_ts_ops = MAKE_WINDOW_TS_OPS(time_window_ops);
 
 #undef MAKE_TS_OPS
+#undef MAKE_SET_TS_OPS
 #undef MAKE_WINDOW_TS_OPS
 
 // ============================================================================
