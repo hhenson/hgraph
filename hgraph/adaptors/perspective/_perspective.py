@@ -410,6 +410,11 @@ class PerspectiveTablesManager:
         for c in self._table_configs:
             config |= json.loads(c)
         return config
+    
+    def add_table_configs(self, table_configs: tuple):
+        for c in table_configs:
+            json.loads(c)  # check if it is valid json
+        self._table_configs += table_configs
 
     def get_view_names(self):
         return list(self._views.keys())
