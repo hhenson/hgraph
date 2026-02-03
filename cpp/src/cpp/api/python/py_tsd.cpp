@@ -75,11 +75,23 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::get_or_create(const nb::object &key) {
+        if (has_output_view()) {
+            auto dict_view = output_view().ts_view().as_dict();
+            auto key_val = key_from_python(key);
+            TSView elem_view = dict_view.get_or_create(key_val.const_view());
+            return wrap_output_view(TSOutputView(elem_view, nullptr));
+        }
         auto key_val = key_from_python(key);
         return wrap_time_series(impl()->get_or_create(key_val.const_view()));
     }
 
     void PyTimeSeriesDictOutput::create(const nb::object &item) {
+        if (has_output_view()) {
+            auto dict_view = output_view().ts_view().as_dict();
+            auto key_val = key_from_python(item);
+            dict_view.create(key_val.const_view());
+            return;
+        }
         auto key_val = key_from_python(item);
         impl()->create(key_val.const_view());
     }
@@ -430,10 +442,29 @@ namespace hgraph
     }
 
     void PyTimeSeriesDictOutput::set_item(const nb::object &key, const nb::object &value) {
+        if (has_output_view()) {
+            auto dict_view = output_view().ts_view().as_dict();
+            auto key_val = key_from_python(key);
+
+            // Get element value type from TSMeta and convert Python value
+            const TSMeta* meta = dict_view.meta();
+            const value::TypeMeta* elem_value_type = meta->element_ts->value_type;
+            value::Value<> value_val(elem_value_type);
+            elem_value_type->ops->from_python(value_val.data(), value, elem_value_type);
+
+            dict_view.set(key_val.const_view(), value_val.const_view());
+            return;
+        }
         impl()->py_set_item(key, value);
     }
 
     void PyTimeSeriesDictOutput::del_item(const nb::object &key) {
+        if (has_output_view()) {
+            auto dict_view = output_view().ts_view().as_dict();
+            auto key_val = key_from_python(key);
+            dict_view.remove(key_val.const_view());
+            return;
+        }
         impl()->py_del_item(key);
     }
 

@@ -332,6 +332,52 @@ struct ts_ops {
      * @param current_time The current engine time for timestamp update
      */
     void (*set_clear)(ViewData& vd, engine_time_t current_time);
+
+    // ========== Dict-Specific Operations ==========
+    // These are nullptr for non-dict types (TSValue, TSB, TSL, TSS, TSW, REF, SIGNAL)
+
+    /**
+     * @brief Remove a key from a dict.
+     *
+     * Only valid for TSD. Updates timestamp and notifies observers on success.
+     * The removed entry's value remains accessible during the current tick
+     * (the slot is placed on a free list used in the next engine cycle).
+     *
+     * @param vd The ViewData for the dict
+     * @param key The key to remove
+     * @param current_time The current engine time for timestamp update
+     * @return true if key was removed (was present)
+     */
+    bool (*dict_remove)(ViewData& vd, const value::View& key, engine_time_t current_time);
+
+    /**
+     * @brief Create a new entry in a dict.
+     *
+     * Only valid for TSD. Creates a new key-value entry with default-initialized
+     * value storage. Updates timestamp and notifies observers on success.
+     * If the key already exists, returns a view to the existing entry without
+     * modification.
+     *
+     * @param vd The ViewData for the dict
+     * @param key The key to create
+     * @param current_time The current engine time for timestamp update
+     * @return TSView for the created (or existing) value entry
+     */
+    TSView (*dict_create)(ViewData& vd, const value::View& key, engine_time_t current_time);
+
+    /**
+     * @brief Set a key-value pair in a dict.
+     *
+     * Only valid for TSD. Creates the entry if the key doesn't exist, then sets
+     * the value. Updates both element and container timestamps, notifies observers.
+     *
+     * @param vd The ViewData for the dict
+     * @param key The key to set
+     * @param value The value to set
+     * @param current_time The current engine time for timestamp update
+     * @return TSView for the value entry
+     */
+    TSView (*dict_set)(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time);
 };
 
 /**

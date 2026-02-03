@@ -446,6 +446,71 @@ public:
         return last_modified_time() != MIN_ST;
     }
 
+    // ========== Mutation (for outputs) ==========
+
+    /**
+     * @brief Remove a key from the dict.
+     *
+     * Updates timestamp and notifies observers if key was removed.
+     * The removed entry's value remains accessible during the current tick
+     * (the slot is placed on a free list used in the next engine cycle).
+     *
+     * @param key The key to remove
+     * @return true if key was removed (was present)
+     */
+    bool remove(const value::View& key) {
+        if (!view_data_.ops || !view_data_.ops->dict_remove) {
+            throw std::runtime_error("remove not available for this view");
+        }
+        return view_data_.ops->dict_remove(const_cast<ViewData&>(view_data_), key, current_time_);
+    }
+
+    /**
+     * @brief Create a new entry in the dict with default-initialized value.
+     *
+     * If the key already exists, returns a view to the existing entry.
+     * Updates timestamp and notifies observers if a new entry is created.
+     *
+     * @param key The key to create
+     * @return TSView for the created (or existing) value entry
+     */
+    [[nodiscard]] TSView create(const value::View& key) {
+        if (!view_data_.ops || !view_data_.ops->dict_create) {
+            throw std::runtime_error("create not available for this view");
+        }
+        return view_data_.ops->dict_create(const_cast<ViewData&>(view_data_), key, current_time_);
+    }
+
+    /**
+     * @brief Get or create an entry in the dict.
+     *
+     * If the key exists, returns a view to the existing entry.
+     * Otherwise, creates a new entry with default-initialized value.
+     *
+     * @param key The key to get or create
+     * @return TSView for the value entry
+     */
+    [[nodiscard]] TSView get_or_create(const value::View& key) {
+        return create(key);  // create() handles both cases
+    }
+
+    /**
+     * @brief Set a key-value pair in the dict.
+     *
+     * Creates the entry if the key doesn't exist, then sets the value.
+     * Updates both element and container timestamps.
+     *
+     * @param key The key to set
+     * @param value The value to set
+     * @return TSView for the value entry
+     */
+    [[nodiscard]] TSView set(const value::View& key, const value::View& value) {
+        if (!view_data_.ops || !view_data_.ops->dict_set) {
+            throw std::runtime_error("set not available for this view");
+        }
+        return view_data_.ops->dict_set(const_cast<ViewData&>(view_data_), key, value, current_time_);
+    }
+
 private:
     /**
      * @brief Get the value view (internal).

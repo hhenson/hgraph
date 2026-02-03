@@ -1408,6 +1408,223 @@ bool is_bound(const ViewData& vd) {
     return rl && rl->target().is_linked;
 }
 
+// ========== Dict-Specific Mutation Operations ==========
+
+bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_time) {
+    // If linked, delegate to target (write through)
+    if (auto* rl = get_ref_link(vd.link_data)) {
+        if (rl->target().valid()) {
+            ViewData target_vd = make_view_data_from_link(*rl, vd.path);
+            return rl->target().ops->dict_remove(target_vd, key, current_time);
+        }
+    }
+
+    if (!vd.value_data || !vd.time_data) {
+        throw std::runtime_error("dict_remove on invalid ViewData");
+    }
+
+    // Get the MapStorage
+    auto* storage = static_cast<value::MapStorage*>(vd.value_data);
+
+    // Remove the key (MapDelta is notified via SlotObserver if registered)
+    bool removed = storage->remove(key.data());
+
+    if (removed) {
+        // Update container timestamp
+        auto time_view = make_time_view(vd);
+        time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
+
+        // Notify observers
+        if (vd.observer_data) {
+            auto observer_view = make_observer_view(vd);
+            auto* observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
+            observers->notify_modified(current_time);
+        }
+    }
+
+    return removed;
+}
+
+TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_time) {
+    // If linked, delegate to target (write through)
+    if (auto* rl = get_ref_link(vd.link_data)) {
+        if (rl->target().valid()) {
+            ViewData target_vd = make_view_data_from_link(*rl, vd.path);
+            return rl->target().ops->dict_create(target_vd, key, current_time);
+        }
+    }
+
+    if (!vd.value_data || !vd.time_data || !vd.meta || !vd.meta->element_ts) {
+        throw std::runtime_error("dict_create on invalid ViewData");
+    }
+
+    // Get the MapStorage and check if key exists
+    auto* storage = static_cast<value::MapStorage*>(vd.value_data);
+    size_t existing_slot = storage->key_set().find(key.data());
+
+    if (existing_slot != static_cast<size_t>(-1)) {
+        // Key already exists - return existing entry
+        auto time_view = make_time_view(vd);
+        auto observer_view = make_observer_view(vd);
+        const TSMeta* elem_meta = vd.meta->element_ts;
+
+        ViewData elem_vd;
+        elem_vd.path = vd.path.child(existing_slot);
+        elem_vd.value_data = storage->value_at_slot(existing_slot);
+        elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(existing_slot).data();
+        elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(existing_slot).data();
+        elem_vd.delta_data = nullptr;
+        elem_vd.ops = get_ts_ops(elem_meta);
+        elem_vd.meta = elem_meta;
+
+        return TSView(elem_vd, current_time);
+    }
+
+    // Get time and observer views for the var_lists
+    auto time_view = make_time_view(vd);
+    auto observer_view = make_observer_view(vd);
+
+    // Access the element var_lists (index 1 in the tuple)
+    auto time_list = time_view.as_tuple().at(1).as_list();
+    auto observer_list = observer_view.as_tuple().at(1).as_list();
+
+    // Create default value for the key (this will be set on the slot)
+    const value::TypeMeta* value_type = storage->value_type();
+    value::Value<> default_value(value_type);
+
+    // Insert the key into MapStorage (allocates slot and value storage)
+    // This calls set_item which handles both key and value storage
+    storage->set_item(key.data(), default_value.data());
+
+    // Get the slot that was allocated
+    size_t slot = storage->key_set().find(key.data());
+    if (slot == static_cast<size_t>(-1)) {
+        throw std::runtime_error("dict_create: failed to insert key");
+    }
+
+    // Ensure var_lists can accommodate the slot
+    // var_lists are dynamic (var_list type), so we can resize them
+    if (slot >= time_list.size()) {
+        time_list.resize(slot + 1);
+    }
+    if (slot >= observer_list.size()) {
+        observer_list.resize(slot + 1);
+    }
+
+    // Initialize the time at this slot to MIN_ST (unset)
+    time_list.at(slot).as<engine_time_t>() = MIN_ST;
+
+    // The observer at this slot is already default-constructed by resize
+
+    // Update container timestamp
+    time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
+
+    // Notify container observers
+    if (vd.observer_data) {
+        auto* observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
+        observers->notify_modified(current_time);
+    }
+
+    // Build ViewData for the new element
+    const TSMeta* elem_meta = vd.meta->element_ts;
+
+    ViewData elem_vd;
+    elem_vd.path = vd.path.child(slot);
+    elem_vd.value_data = storage->value_at_slot(slot);
+    elem_vd.time_data = time_list.at(slot).data();
+    elem_vd.observer_data = observer_list.at(slot).data();
+    elem_vd.delta_data = nullptr;
+    elem_vd.ops = get_ts_ops(elem_meta);
+    elem_vd.meta = elem_meta;
+
+    return TSView(elem_vd, current_time);
+}
+
+TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time) {
+    // If linked, delegate to target (write through)
+    if (auto* rl = get_ref_link(vd.link_data)) {
+        if (rl->target().valid()) {
+            ViewData target_vd = make_view_data_from_link(*rl, vd.path);
+            return rl->target().ops->dict_set(target_vd, key, value, current_time);
+        }
+    }
+
+    if (!vd.value_data || !vd.time_data || !vd.meta || !vd.meta->element_ts) {
+        throw std::runtime_error("dict_set on invalid ViewData");
+    }
+
+    // Get the MapStorage
+    auto* storage = static_cast<value::MapStorage*>(vd.value_data);
+
+    // Get time and observer views
+    auto time_view = make_time_view(vd);
+    auto observer_view = make_observer_view(vd);
+    auto time_list = time_view.as_tuple().at(1).as_list();
+    auto observer_list = observer_view.as_tuple().at(1).as_list();
+
+    // Check if key exists
+    size_t slot = storage->key_set().find(key.data());
+    bool is_new = (slot == static_cast<size_t>(-1));
+
+    if (is_new) {
+        // Insert new key with the provided value
+        storage->set_item(key.data(), value.data());
+
+        // Get the allocated slot
+        slot = storage->key_set().find(key.data());
+        if (slot == static_cast<size_t>(-1)) {
+            throw std::runtime_error("dict_set: failed to insert key");
+        }
+
+        // Ensure var_lists can accommodate the slot
+        if (slot >= time_list.size()) {
+            time_list.resize(slot + 1);
+        }
+        if (slot >= observer_list.size()) {
+            observer_list.resize(slot + 1);
+        }
+    } else {
+        // Key exists - just update the value
+        void* val_ptr = storage->value_at_slot(slot);
+        const value::TypeMeta* value_type = storage->value_type();
+        if (value_type && value_type->ops && value_type->ops->copy_assign) {
+            value_type->ops->copy_assign(val_ptr, value.data(), value_type);
+        }
+    }
+
+    // Update element timestamp
+    time_list.at(slot).as<engine_time_t>() = current_time;
+
+    // Notify element observers
+    auto* elem_observers = static_cast<ObserverList*>(observer_list.at(slot).data());
+    if (elem_observers) {
+        elem_observers->notify_modified(current_time);
+    }
+
+    // Update container timestamp
+    time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
+
+    // Notify container observers
+    if (vd.observer_data) {
+        auto* observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
+        observers->notify_modified(current_time);
+    }
+
+    // Build ViewData for the element
+    const TSMeta* elem_meta = vd.meta->element_ts;
+
+    ViewData elem_vd;
+    elem_vd.path = vd.path.child(slot);
+    elem_vd.value_data = storage->value_at_slot(slot);
+    elem_vd.time_data = time_list.at(slot).data();
+    elem_vd.observer_data = observer_list.at(slot).data();
+    elem_vd.delta_data = nullptr;
+    elem_vd.ops = get_ts_ops(elem_meta);
+    elem_vd.meta = elem_meta;
+
+    return TSView(elem_vd, current_time);
+}
+
 } // namespace dict_ops
 
 // ============================================================================
@@ -1834,6 +2051,9 @@ size_t window_length(const ViewData& vd) {
     .set_add = nullptr, \
     .set_remove = nullptr, \
     .set_clear = nullptr, \
+    .dict_remove = nullptr, \
+    .dict_create = nullptr, \
+    .dict_set = nullptr, \
 }
 
 // Macro for window types (includes window ops)
@@ -1874,6 +2094,9 @@ size_t window_length(const ViewData& vd) {
     .set_add = nullptr, \
     .set_remove = nullptr, \
     .set_clear = nullptr, \
+    .dict_remove = nullptr, \
+    .dict_create = nullptr, \
+    .dict_set = nullptr, \
 }
 
 // Macro for set types (includes set mutation ops)
@@ -1914,18 +2137,65 @@ size_t window_length(const ViewData& vd) {
     .set_add = ns::set_add, \
     .set_remove = ns::set_remove, \
     .set_clear = ns::set_clear, \
+    .dict_remove = nullptr, \
+    .dict_create = nullptr, \
+    .dict_set = nullptr, \
+}
+
+// Macro for dict types (includes dict mutation ops)
+#define MAKE_DICT_TS_OPS(ns) ts_ops { \
+    .ts_meta = [](const ViewData& vd) { return vd.meta; }, \
+    .last_modified_time = ns::last_modified_time, \
+    .modified = ns::modified, \
+    .valid = ns::valid, \
+    .all_valid = ns::all_valid, \
+    .sampled = ns::sampled, \
+    .value = ns::value, \
+    .delta_value = ns::delta_value, \
+    .has_delta = ns::has_delta, \
+    .set_value = ns::set_value, \
+    .apply_delta = ns::apply_delta, \
+    .invalidate = ns::invalidate, \
+    .to_python = ns::to_python, \
+    .delta_to_python = ns::delta_to_python, \
+    .from_python = ns::from_python, \
+    .child_at = ns::child_at, \
+    .child_by_name = ns::child_by_name, \
+    .child_by_key = ns::child_by_key, \
+    .child_count = ns::child_count, \
+    .observer = ns::observer, \
+    .notify_observers = ns::notify_observers, \
+    .bind = ns::bind, \
+    .unbind = ns::unbind, \
+    .is_bound = ns::is_bound, \
+    .window_value_times = nullptr, \
+    .window_value_times_count = nullptr, \
+    .window_first_modified_time = nullptr, \
+    .window_has_removed_value = nullptr, \
+    .window_removed_value = nullptr, \
+    .window_removed_value_count = nullptr, \
+    .window_size = nullptr, \
+    .window_min_size = nullptr, \
+    .window_length = nullptr, \
+    .set_add = nullptr, \
+    .set_remove = nullptr, \
+    .set_clear = nullptr, \
+    .dict_remove = ns::dict_remove, \
+    .dict_create = ns::dict_create, \
+    .dict_set = ns::dict_set, \
 }
 
 static const ts_ops scalar_ts_ops = MAKE_TS_OPS(scalar_ops);
 static const ts_ops bundle_ts_ops = MAKE_TS_OPS(bundle_ops);
 static const ts_ops list_ts_ops = MAKE_TS_OPS(list_ops);
 static const ts_ops set_ts_ops = MAKE_SET_TS_OPS(set_ops);
-static const ts_ops dict_ts_ops = MAKE_TS_OPS(dict_ops);
+static const ts_ops dict_ts_ops = MAKE_DICT_TS_OPS(dict_ops);
 static const ts_ops fixed_window_ts_ops = MAKE_WINDOW_TS_OPS(fixed_window_ops);
 static const ts_ops time_window_ts_ops = MAKE_WINDOW_TS_OPS(time_window_ops);
 
 #undef MAKE_TS_OPS
 #undef MAKE_SET_TS_OPS
+#undef MAKE_DICT_TS_OPS
 #undef MAKE_WINDOW_TS_OPS
 
 // ============================================================================
