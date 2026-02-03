@@ -240,6 +240,16 @@ TSDView TSView::as_dict() const {
     return TSDView(view_data_, current_time_);
 }
 
+TSWView TSView::as_window() const {
+    if (!view_data_.valid() || !view_data_.meta) {
+        throw std::runtime_error("as_window on invalid TSView");
+    }
+    if (view_data_.meta->kind != TSKind::TSW) {
+        throw std::runtime_error("as_window called on non-TSW type");
+    }
+    return TSWView(view_data_, current_time_);
+}
+
 // ============================================================================
 // ShortPath
 // ============================================================================

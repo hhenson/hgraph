@@ -219,6 +219,82 @@ struct ts_ops {
      * @return true if the position is linked to another target
      */
     bool (*is_bound)(const ViewData& vd);
+
+    // ========== Window-Specific Operations ==========
+    // These are nullptr for non-window types (TSValue, TSB, TSL, TSD, TSS, REF, SIGNAL)
+
+    /**
+     * @brief Get timestamps for all values in the window.
+     *
+     * Only valid for TSW. Returns nullptr for other kinds.
+     *
+     * @return Pointer to timestamps array, or nullptr
+     */
+    const engine_time_t* (*window_value_times)(const ViewData& vd);
+
+    /**
+     * @brief Get the number of timestamps (same as window length).
+     *
+     * Only valid for TSW. Returns 0 for other kinds.
+     */
+    size_t (*window_value_times_count)(const ViewData& vd);
+
+    /**
+     * @brief Get the timestamp of the oldest entry in the window.
+     *
+     * Only valid for TSW. Returns MIN_ST for other kinds.
+     */
+    engine_time_t (*window_first_modified_time)(const ViewData& vd);
+
+    /**
+     * @brief Check if values were evicted from the window this tick.
+     *
+     * Only valid for TSW. Returns false for other kinds.
+     */
+    bool (*window_has_removed_value)(const ViewData& vd);
+
+    /**
+     * @brief Get the evicted value(s).
+     *
+     * Only valid for TSW. Returns invalid View for other kinds.
+     * For fixed windows: single element
+     * For time windows: may be multiple elements
+     */
+    value::View (*window_removed_value)(const ViewData& vd);
+
+    /**
+     * @brief Get the number of removed values.
+     *
+     * Only valid for TSW. Returns 0 for other kinds.
+     * For fixed windows: 0 or 1
+     * For time windows: 0 to N
+     */
+    size_t (*window_removed_value_count)(const ViewData& vd);
+
+    /**
+     * @brief Get the window capacity/duration parameter.
+     *
+     * Only valid for TSW.
+     * For fixed windows: returns tick count (size_t)
+     * For time windows: returns duration in nanoseconds (cast from engine_time_delta_t)
+     */
+    size_t (*window_size)(const ViewData& vd);
+
+    /**
+     * @brief Get the minimum window size parameter.
+     *
+     * Only valid for TSW.
+     * For fixed windows: returns min tick count
+     * For time windows: returns min duration in nanoseconds
+     */
+    size_t (*window_min_size)(const ViewData& vd);
+
+    /**
+     * @brief Get the current number of elements in the window.
+     *
+     * Only valid for TSW. Returns 0 for other kinds.
+     */
+    size_t (*window_length)(const ViewData& vd);
 };
 
 /**
@@ -226,19 +302,21 @@ struct ts_ops {
  *
  * @param kind The time-series kind
  * @return Pointer to the ops table for that kind
+ *
+ * @note For TSW, this returns scalar_ops. Use get_ts_ops(const TSMeta*)
+ * to get the correct window-specific ops based on is_duration_based.
  */
 const ts_ops* get_ts_ops(TSKind kind);
 
 /**
  * @brief Get the ts_ops for a TSMeta.
  *
- * Convenience function that extracts the kind from the meta.
+ * For TSW types, this selects the appropriate window ops table based on
+ * TSMeta::is_duration_based (fixed_window_ts_ops or time_window_ts_ops).
  *
  * @param meta The time-series metadata
  * @return Pointer to the ops table
  */
-inline const ts_ops* get_ts_ops(const TSMeta* meta) {
-    return meta ? get_ts_ops(meta->kind) : nullptr;
-}
+const ts_ops* get_ts_ops(const TSMeta* meta);
 
 } // namespace hgraph

@@ -1334,9 +1334,392 @@ bool is_bound(const ViewData& vd) {
 } // namespace dict_ops
 
 // ============================================================================
+// Fixed Window Operations
+// ============================================================================
+
+namespace fixed_window_ops {
+
+// Fixed windows use CyclicBufferStorage for values
+// Time data points to a structure with:
+// - engine_time_t (container last_modified_time)
+// - std::vector<engine_time_t> (parallel array of timestamps)
+
+// Storage structure for fixed window (matches TimeSeriesFixedWindowOutput layout)
+struct FixedWindowData {
+    value::CyclicBufferStorage* value_storage;   // From value_data
+    std::vector<engine_time_t>* times;           // From time_data
+    size_t capacity;                             // user_size + 1
+    size_t user_size;                            // user-specified size
+    size_t min_size;                             // minimum for all_valid
+    bool* has_removed;                           // flag pointer
+    engine_time_t* last_modified;                // container modification time
+};
+
+// Helper to get storage pointers from ViewData
+// For fixed windows, the value_data holds CyclicBufferStorage
+// time_data layout: [engine_time_t last_modified, size_t user_size, size_t min_size, bool has_removed, vector<times>...]
+// For now, we'll work with the existing storage structure directly
+
+engine_time_t last_modified_time(const ViewData& vd) {
+    if (!vd.time_data) return MIN_ST;
+    return *static_cast<engine_time_t*>(vd.time_data);
+}
+
+bool modified(const ViewData& vd, engine_time_t current_time) {
+    return last_modified_time(vd) >= current_time;
+}
+
+bool valid(const ViewData& vd) {
+    return last_modified_time(vd) != MIN_ST;
+}
+
+bool all_valid(const ViewData& vd) {
+    if (!valid(vd)) return false;
+    if (!vd.value_data || !vd.meta) return false;
+
+    auto* storage = static_cast<const value::CyclicBufferStorage*>(vd.value_data);
+    // For fixed windows, size params are in window.tick
+    size_t min_size = vd.meta->window.tick.min_period;
+    size_t user_size = vd.meta->window.tick.period;
+    size_t current_len = std::min(storage->size, user_size);
+    return current_len >= min_size;
+}
+
+bool sampled(const ViewData& vd) {
+    return false;
+}
+
+value::View value(const ViewData& vd) {
+    return make_value_view(vd);
+}
+
+value::View delta_value(const ViewData& vd) {
+    // TSW doesn't have standard delta tracking
+    return value::View{};
+}
+
+bool has_delta(const ViewData& vd) {
+    return false;
+}
+
+void set_value(ViewData& vd, const value::View& src, engine_time_t current_time) {
+    throw std::runtime_error("set_value not supported for fixed window - use apply_delta");
+}
+
+void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_time) {
+    // Would push to the cyclic buffer
+    throw std::runtime_error("apply_delta for fixed window not yet implemented in view mode");
+}
+
+void invalidate(ViewData& vd) {
+    if (vd.time_data) {
+        *static_cast<engine_time_t*>(vd.time_data) = MIN_ST;
+    }
+    if (vd.value_data) {
+        auto* storage = static_cast<value::CyclicBufferStorage*>(vd.value_data);
+        storage->size = 0;
+        storage->head = 0;
+    }
+}
+
+nb::object to_python(const ViewData& vd) {
+    if (!all_valid(vd)) return nb::none();
+    auto v = make_value_view(vd);
+    if (!v.valid()) return nb::none();
+    return v.to_python();
+}
+
+nb::object delta_to_python(const ViewData& vd) {
+    return nb::none();
+}
+
+void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+    throw std::runtime_error("from_python not supported for fixed window - use apply_delta");
+}
+
+TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
+    // Windows don't have navigable children
+    return TSView{};
+}
+
+TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t current_time) {
+    return TSView{};
+}
+
+TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t current_time) {
+    return TSView{};
+}
+
+size_t child_count(const ViewData& vd) {
+    return 0;
+}
+
+value::View observer(const ViewData& vd) {
+    return make_observer_view(vd);
+}
+
+void notify_observers(ViewData& vd, engine_time_t current_time) {
+    if (vd.observer_data) {
+        auto* observers = static_cast<ObserverList*>(vd.observer_data);
+        observers->notify_modified(current_time);
+    }
+}
+
+void bind(ViewData& vd, const ViewData& target) {
+    throw std::runtime_error("bind not supported for fixed window types");
+}
+
+void unbind(ViewData& vd) {
+    throw std::runtime_error("unbind not supported for fixed window types");
+}
+
+bool is_bound(const ViewData& vd) {
+    return false;
+}
+
+// Window-specific operations
+
+const engine_time_t* window_value_times(const ViewData& vd) {
+    if (!vd.delta_data) return nullptr;  // times stored in delta_data for windows
+    auto* times = static_cast<const std::vector<engine_time_t>*>(vd.delta_data);
+    return times->data();
+}
+
+size_t window_value_times_count(const ViewData& vd) {
+    if (!vd.value_data || !vd.meta) return 0;
+    auto* storage = static_cast<const value::CyclicBufferStorage*>(vd.value_data);
+    return std::min(storage->size, vd.meta->window.tick.period);
+}
+
+engine_time_t window_first_modified_time(const ViewData& vd) {
+    if (!vd.value_data || !vd.delta_data) return MIN_ST;
+    auto* storage = static_cast<const value::CyclicBufferStorage*>(vd.value_data);
+    if (storage->size == 0) return MIN_ST;
+    auto* times = static_cast<const std::vector<engine_time_t>*>(vd.delta_data);
+    return (*times)[storage->head];
+}
+
+bool window_has_removed_value(const ViewData& vd) {
+    if (!vd.link_data) return false;  // has_removed flag stored in link_data for windows
+    return *static_cast<const bool*>(vd.link_data);
+}
+
+value::View window_removed_value(const ViewData& vd) {
+    if (!window_has_removed_value(vd)) return value::View{};
+    if (!vd.value_data || !vd.meta) return value::View{};
+
+    auto* storage = static_cast<const value::CyclicBufferStorage*>(vd.value_data);
+    size_t capacity = vd.meta->window.tick.period + 1;
+    // Removed value is at (head - 1 + capacity) % capacity
+    size_t removed_pos = (storage->head + capacity - 1) % capacity;
+    size_t elem_size = vd.meta->value_type->element_type->size;
+    void* elem_ptr = static_cast<char*>(storage->data) + removed_pos * elem_size;
+    return value::View(elem_ptr, vd.meta->value_type->element_type);
+}
+
+size_t window_removed_value_count(const ViewData& vd) {
+    return window_has_removed_value(vd) ? 1 : 0;
+}
+
+size_t window_size(const ViewData& vd) {
+    return vd.meta ? vd.meta->window.tick.period : 0;
+}
+
+size_t window_min_size(const ViewData& vd) {
+    return vd.meta ? vd.meta->window.tick.min_period : 0;
+}
+
+size_t window_length(const ViewData& vd) {
+    if (!vd.value_data || !vd.meta) return 0;
+    auto* storage = static_cast<const value::CyclicBufferStorage*>(vd.value_data);
+    return std::min(storage->size, vd.meta->window.tick.period);
+}
+
+} // namespace fixed_window_ops
+
+// ============================================================================
+// Time Window Operations
+// ============================================================================
+
+namespace time_window_ops {
+
+// Time windows use deques for values and times
+// value_data: std::deque<void*>
+// time_data: engine_time_t (last_modified) followed by time window state
+// delta_data: std::deque<engine_time_t>* (timestamps)
+// link_data: std::vector<void*>* (removed values)
+
+engine_time_t last_modified_time(const ViewData& vd) {
+    if (!vd.time_data) return MIN_ST;
+    return *static_cast<engine_time_t*>(vd.time_data);
+}
+
+bool modified(const ViewData& vd, engine_time_t current_time) {
+    return last_modified_time(vd) >= current_time;
+}
+
+bool valid(const ViewData& vd) {
+    return last_modified_time(vd) != MIN_ST;
+}
+
+bool all_valid(const ViewData& vd) {
+    if (!valid(vd)) return false;
+    if (!vd.delta_data || !vd.meta) return false;
+
+    auto* times = static_cast<const std::deque<engine_time_t>*>(vd.delta_data);
+    if (times->empty()) return false;
+
+    engine_time_delta_t span = times->back() - times->front();
+    return span >= vd.meta->window.duration.min_time_range;
+}
+
+bool sampled(const ViewData& vd) {
+    return false;
+}
+
+value::View value(const ViewData& vd) {
+    return make_value_view(vd);
+}
+
+value::View delta_value(const ViewData& vd) {
+    return value::View{};
+}
+
+bool has_delta(const ViewData& vd) {
+    return false;
+}
+
+void set_value(ViewData& vd, const value::View& src, engine_time_t current_time) {
+    throw std::runtime_error("set_value not supported for time window - use apply_delta");
+}
+
+void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_time) {
+    throw std::runtime_error("apply_delta for time window not yet implemented in view mode");
+}
+
+void invalidate(ViewData& vd) {
+    if (vd.time_data) {
+        *static_cast<engine_time_t*>(vd.time_data) = MIN_ST;
+    }
+}
+
+nb::object to_python(const ViewData& vd) {
+    if (!all_valid(vd)) return nb::none();
+    auto v = make_value_view(vd);
+    if (!v.valid()) return nb::none();
+    return v.to_python();
+}
+
+nb::object delta_to_python(const ViewData& vd) {
+    return nb::none();
+}
+
+void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+    throw std::runtime_error("from_python not supported for time window - use apply_delta");
+}
+
+TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
+    return TSView{};
+}
+
+TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t current_time) {
+    return TSView{};
+}
+
+TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t current_time) {
+    return TSView{};
+}
+
+size_t child_count(const ViewData& vd) {
+    return 0;
+}
+
+value::View observer(const ViewData& vd) {
+    return make_observer_view(vd);
+}
+
+void notify_observers(ViewData& vd, engine_time_t current_time) {
+    if (vd.observer_data) {
+        auto* observers = static_cast<ObserverList*>(vd.observer_data);
+        observers->notify_modified(current_time);
+    }
+}
+
+void bind(ViewData& vd, const ViewData& target) {
+    throw std::runtime_error("bind not supported for time window types");
+}
+
+void unbind(ViewData& vd) {
+    throw std::runtime_error("unbind not supported for time window types");
+}
+
+bool is_bound(const ViewData& vd) {
+    return false;
+}
+
+// Window-specific operations
+
+const engine_time_t* window_value_times(const ViewData& vd) {
+    if (!vd.delta_data) return nullptr;
+    auto* times = static_cast<const std::deque<engine_time_t>*>(vd.delta_data);
+    // deque doesn't guarantee contiguous storage, but for typical use this works
+    // In practice, we'd need a wrapper that copies to a vector
+    return times->empty() ? nullptr : &(*times)[0];
+}
+
+size_t window_value_times_count(const ViewData& vd) {
+    if (!vd.delta_data) return 0;
+    auto* times = static_cast<const std::deque<engine_time_t>*>(vd.delta_data);
+    return times->size();
+}
+
+engine_time_t window_first_modified_time(const ViewData& vd) {
+    if (!vd.delta_data) return MIN_ST;
+    auto* times = static_cast<const std::deque<engine_time_t>*>(vd.delta_data);
+    return times->empty() ? MIN_ST : times->front();
+}
+
+bool window_has_removed_value(const ViewData& vd) {
+    if (!vd.link_data) return false;
+    auto* removed = static_cast<const std::vector<void*>*>(vd.link_data);
+    return !removed->empty();
+}
+
+value::View window_removed_value(const ViewData& vd) {
+    if (!window_has_removed_value(vd)) return value::View{};
+    // For time windows, removed_value returns array of removed values
+    // This would need a special view type for multiple elements
+    return value::View{};  // Placeholder - to_python handles this differently
+}
+
+size_t window_removed_value_count(const ViewData& vd) {
+    if (!vd.link_data) return 0;
+    auto* removed = static_cast<const std::vector<void*>*>(vd.link_data);
+    return removed->size();
+}
+
+size_t window_size(const ViewData& vd) {
+    // For time windows, size is duration in microseconds
+    return vd.meta ? static_cast<size_t>(vd.meta->window.duration.time_range.count()) : 0;
+}
+
+size_t window_min_size(const ViewData& vd) {
+    return vd.meta ? static_cast<size_t>(vd.meta->window.duration.min_time_range.count()) : 0;
+}
+
+size_t window_length(const ViewData& vd) {
+    if (!vd.delta_data) return 0;
+    auto* times = static_cast<const std::deque<engine_time_t>*>(vd.delta_data);
+    return times->size();
+}
+
+} // namespace time_window_ops
+
+// ============================================================================
 // Static ts_ops Tables
 // ============================================================================
 
+// Macro for non-window types (window ops are nullptr)
 #define MAKE_TS_OPS(ns) ts_ops { \
     .ts_meta = [](const ViewData& vd) { return vd.meta; }, \
     .last_modified_time = ns::last_modified_time, \
@@ -1362,6 +1745,52 @@ bool is_bound(const ViewData& vd) {
     .bind = ns::bind, \
     .unbind = ns::unbind, \
     .is_bound = ns::is_bound, \
+    .window_value_times = nullptr, \
+    .window_value_times_count = nullptr, \
+    .window_first_modified_time = nullptr, \
+    .window_has_removed_value = nullptr, \
+    .window_removed_value = nullptr, \
+    .window_removed_value_count = nullptr, \
+    .window_size = nullptr, \
+    .window_min_size = nullptr, \
+    .window_length = nullptr, \
+}
+
+// Macro for window types (includes window ops)
+#define MAKE_WINDOW_TS_OPS(ns) ts_ops { \
+    .ts_meta = [](const ViewData& vd) { return vd.meta; }, \
+    .last_modified_time = ns::last_modified_time, \
+    .modified = ns::modified, \
+    .valid = ns::valid, \
+    .all_valid = ns::all_valid, \
+    .sampled = ns::sampled, \
+    .value = ns::value, \
+    .delta_value = ns::delta_value, \
+    .has_delta = ns::has_delta, \
+    .set_value = ns::set_value, \
+    .apply_delta = ns::apply_delta, \
+    .invalidate = ns::invalidate, \
+    .to_python = ns::to_python, \
+    .delta_to_python = ns::delta_to_python, \
+    .from_python = ns::from_python, \
+    .child_at = ns::child_at, \
+    .child_by_name = ns::child_by_name, \
+    .child_by_key = ns::child_by_key, \
+    .child_count = ns::child_count, \
+    .observer = ns::observer, \
+    .notify_observers = ns::notify_observers, \
+    .bind = ns::bind, \
+    .unbind = ns::unbind, \
+    .is_bound = ns::is_bound, \
+    .window_value_times = ns::window_value_times, \
+    .window_value_times_count = ns::window_value_times_count, \
+    .window_first_modified_time = ns::window_first_modified_time, \
+    .window_has_removed_value = ns::window_has_removed_value, \
+    .window_removed_value = ns::window_removed_value, \
+    .window_removed_value_count = ns::window_removed_value_count, \
+    .window_size = ns::window_size, \
+    .window_min_size = ns::window_min_size, \
+    .window_length = ns::window_length, \
 }
 
 static const ts_ops scalar_ts_ops = MAKE_TS_OPS(scalar_ops);
@@ -1369,8 +1798,11 @@ static const ts_ops bundle_ts_ops = MAKE_TS_OPS(bundle_ops);
 static const ts_ops list_ts_ops = MAKE_TS_OPS(list_ops);
 static const ts_ops set_ts_ops = MAKE_TS_OPS(set_ops);
 static const ts_ops dict_ts_ops = MAKE_TS_OPS(dict_ops);
+static const ts_ops fixed_window_ts_ops = MAKE_WINDOW_TS_OPS(fixed_window_ops);
+static const ts_ops time_window_ts_ops = MAKE_WINDOW_TS_OPS(time_window_ops);
 
 #undef MAKE_TS_OPS
+#undef MAKE_WINDOW_TS_OPS
 
 // ============================================================================
 // get_ts_ops Implementation
@@ -1379,10 +1811,14 @@ static const ts_ops dict_ts_ops = MAKE_TS_OPS(dict_ops);
 const ts_ops* get_ts_ops(TSKind kind) {
     switch (kind) {
         case TSKind::TSValue:
-        case TSKind::TSW:
         case TSKind::SIGNAL:
         case TSKind::REF:
             return &scalar_ts_ops;
+
+        case TSKind::TSW:
+            // For TSW without TSMeta, default to fixed window
+            // Use get_ts_ops(const TSMeta*) for proper selection
+            return &fixed_window_ts_ops;
 
         case TSKind::TSB:
             return &bundle_ts_ops;
@@ -1399,6 +1835,22 @@ const ts_ops* get_ts_ops(TSKind kind) {
 
     // Should never reach here
     return &scalar_ts_ops;
+}
+
+const ts_ops* get_ts_ops(const TSMeta* meta) {
+    if (!meta) return &scalar_ts_ops;
+
+    // For TSW, select based on is_duration_based
+    if (meta->kind == TSKind::TSW) {
+        if (meta->is_duration_based) {
+            return &time_window_ts_ops;
+        } else {
+            return &fixed_window_ts_ops;
+        }
+    }
+
+    // For all other kinds, delegate to the kind-based version
+    return get_ts_ops(meta->kind);
 }
 
 } // namespace hgraph

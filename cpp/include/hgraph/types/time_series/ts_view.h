@@ -32,6 +32,7 @@ class TSBView;
 class TSLView;
 class TSSView;
 class TSDView;
+class TSWView;
 
 /**
  * @brief Non-owning view of a time-series value.
@@ -383,6 +384,16 @@ public:
      */
     [[nodiscard]] TSDView as_dict() const;
 
+    /**
+     * @brief Get as a window view.
+     *
+     * Valid for: TSW
+     *
+     * @return TSWView for window operations
+     * @throws std::runtime_error if not a window
+     */
+    [[nodiscard]] TSWView as_window() const;
+
     // ========== Raw Access ==========
 
     /**
@@ -415,3 +426,4 @@ private:
 #include <hgraph/types/time_series/ts_list_view.h>
 #include <hgraph/types/time_series/ts_set_view.h>
 #include <hgraph/types/time_series/ts_dict_view.h>
+#include <hgraph/types/time_series/ts_window_view.h>
