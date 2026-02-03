@@ -295,6 +295,43 @@ struct ts_ops {
      * Only valid for TSW. Returns 0 for other kinds.
      */
     size_t (*window_length)(const ViewData& vd);
+
+    // ========== Set-Specific Operations ==========
+    // These are nullptr for non-set types (TSValue, TSB, TSL, TSD, TSW, REF, SIGNAL)
+
+    /**
+     * @brief Add an element to a set.
+     *
+     * Only valid for TSS. Updates timestamp and notifies observers on success.
+     *
+     * @param vd The ViewData for the set
+     * @param elem The element to add
+     * @param current_time The current engine time for timestamp update
+     * @return true if element was added (not already present)
+     */
+    bool (*set_add)(ViewData& vd, const value::View& elem, engine_time_t current_time);
+
+    /**
+     * @brief Remove an element from a set.
+     *
+     * Only valid for TSS. Updates timestamp and notifies observers on success.
+     *
+     * @param vd The ViewData for the set
+     * @param elem The element to remove
+     * @param current_time The current engine time for timestamp update
+     * @return true if element was removed (was present)
+     */
+    bool (*set_remove)(ViewData& vd, const value::View& elem, engine_time_t current_time);
+
+    /**
+     * @brief Clear all elements from a set.
+     *
+     * Only valid for TSS. Updates timestamp and notifies observers if set was non-empty.
+     *
+     * @param vd The ViewData for the set
+     * @param current_time The current engine time for timestamp update
+     */
+    void (*set_clear)(ViewData& vd, engine_time_t current_time);
 };
 
 /**

@@ -265,6 +265,50 @@ public:
         return last_modified_time() != MIN_ST;
     }
 
+    // ========== Mutation (for outputs) ==========
+
+    /**
+     * @brief Add an element to the set.
+     *
+     * Updates timestamp and notifies observers if element was added.
+     *
+     * @param elem The element to add
+     * @return true if element was added (not already present)
+     */
+    bool add(const value::View& elem) {
+        if (!view_data_.ops || !view_data_.ops->set_add) {
+            throw std::runtime_error("add not available for this view");
+        }
+        return view_data_.ops->set_add(const_cast<ViewData&>(view_data_), elem, current_time_);
+    }
+
+    /**
+     * @brief Remove an element from the set.
+     *
+     * Updates timestamp and notifies observers if element was removed.
+     *
+     * @param elem The element to remove
+     * @return true if element was removed (was present)
+     */
+    bool remove(const value::View& elem) {
+        if (!view_data_.ops || !view_data_.ops->set_remove) {
+            throw std::runtime_error("remove not available for this view");
+        }
+        return view_data_.ops->set_remove(const_cast<ViewData&>(view_data_), elem, current_time_);
+    }
+
+    /**
+     * @brief Clear all elements from the set.
+     *
+     * Updates timestamp and notifies observers if set was non-empty.
+     */
+    void clear() {
+        if (!view_data_.ops || !view_data_.ops->set_clear) {
+            throw std::runtime_error("clear not available for this view");
+        }
+        view_data_.ops->set_clear(const_cast<ViewData&>(view_data_), current_time_);
+    }
+
 private:
     /**
      * @brief Get the value view (internal).

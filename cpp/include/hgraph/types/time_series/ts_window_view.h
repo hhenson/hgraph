@@ -18,6 +18,8 @@
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
 
+#include <vector>
+
 namespace hgraph {
 
 /**
@@ -223,6 +225,20 @@ public:
     [[nodiscard]] size_t length() const {
         if (!view_data_.ops || !view_data_.ops->window_length) return 0;
         return view_data_.ops->window_length(view_data_);
+    }
+
+    /**
+     * @brief Get direct access to removed value pointers (for time windows).
+     *
+     * For time windows, removed values are stored in a vector of void pointers.
+     * This method provides direct access for Python interop.
+     *
+     * @return Pointer to vector of removed value pointers, or nullptr
+     */
+    [[nodiscard]] const std::vector<void*>* removed_value_ptrs() const {
+        if (!is_duration_based()) return nullptr;
+        // link_data holds std::vector<void*>* for time windows
+        return static_cast<const std::vector<void*>*>(view_data_.link_data);
     }
 
     // ========== Time-Series Semantics (delegate to ops) ==========
