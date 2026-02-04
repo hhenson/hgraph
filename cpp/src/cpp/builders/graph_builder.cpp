@@ -16,7 +16,6 @@
 #include <hgraph/types/tsb.h>
 
 #include <string_view>
-#include <iostream>
 
 namespace hgraph
 {
