@@ -55,7 +55,7 @@ TSOutput owns and manages **multiple representations** of its data:
 │    value(), delta_value(), modified(), valid()              │
 │    set_value(), apply_delta()                               │
 │    subscribe(), unsubscribe()                               │
-│    Navigation: field(), operator[], navigate()              │
+│    Navigation: field(), operator[]                          │
 │    (does NOT support: bind, make_active/passive)            │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -139,7 +139,6 @@ public:
     TSOutputView field(std::string_view name);
     TSOutputView operator[](size_t index);
     TSOutputView operator[](View key);
-    TSOutputView navigate(std::string_view path);
 };
 ```
 
@@ -228,7 +227,7 @@ TSInput owns a **single TSValue** representing its view of bound data:
 │    value(), delta(), modified(), valid()                    │
 │    bind(), unbind()                                         │
 │    make_active(), make_passive(), active()                  │
-│    Navigation: field(), operator[], navigate()              │
+│    Navigation: field(), operator[]                          │
 │    (does NOT support: set_value, subscribe/unsubscribe)     │
 └─────────────────────────────────────────────────────────────┘
 ```
@@ -310,7 +309,6 @@ public:
     TSInputView field(std::string_view name);
     TSInputView operator[](size_t index);
     TSInputView operator[](View key);
-    TSInputView navigate(std::string_view path);
 };
 
 // Usage - input and output may have different schemas
@@ -725,12 +723,8 @@ This means the FQ path can reconstruct navigation even if the TSD's internal lay
 auto sp = view.short_path();    // ShortPath: node + port_type + [0, 3] indices
 auto fq = view.fq_path();       // {node_id: 42, expanded: ["prices", 3]}
 
-// Navigate using short path (within same root)
-TSOutputView root = output.view(time, schema);
-TSOutputView target = root.navigate(sp);    // Same as field("prices")[3]
-
 // Navigate using FQ path (from anywhere)
-TSOutputView target2 = graph.resolve(fq);   // Finds node, then navigates
+TSOutputView target = graph.resolve(fq);   // Finds node, then navigates to path
 
 // Compare paths
 bool same_location = (view1.short_path() == view2.short_path());  // Includes node + indices
