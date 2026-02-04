@@ -10,6 +10,7 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_meta_schema.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
@@ -312,6 +313,26 @@ bool is_bound(const ViewData& vd) {
     return false;
 }
 
+void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
+    if (!active_view) return;
+
+    // Scalar active schema is just a bool
+    *static_cast<bool*>(active_view.data()) = active;
+
+    // Manage subscription for scalar input if bound
+    if (vd.link_data) {
+        auto* rl = get_ref_link(vd.link_data);
+        if (rl && rl->target().is_linked && rl->target().observer_data) {
+            auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+            if (active) {
+                observers->add_observer(input);
+            } else {
+                observers->remove_observer(input);
+            }
+        }
+    }
+}
+
 } // namespace scalar_ops
 
 // ============================================================================
@@ -595,6 +616,62 @@ void unbind(ViewData& vd) {
 bool is_bound(const ViewData& vd) {
     // TSB is considered bound if any field is bound
     return any_field_linked(vd);
+}
+
+void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
+    if (!active_view || !vd.meta) return;
+
+    // TSB active schema: tuple[bool, active_schema(field_0), active_schema(field_1), ...]
+    value::TupleView tv = active_view.as_tuple();
+    value::View root = tv[0];
+    if (root) {
+        *static_cast<bool*>(root.data()) = active;
+    }
+
+    // Get link view for subscription management
+    auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+    value::View link_view = link_schema ? value::View(vd.link_data, link_schema) : value::View{};
+    value::ListView link_list = link_view ? link_view.as_list() : value::ListView{};
+
+    // Process each field
+    for (size_t i = 0; i < vd.meta->field_count; ++i) {
+        value::View field_active = tv[i + 1]; // +1 because index 0 is root bool
+        if (!field_active) continue;
+
+        const TSMeta* field_ts = vd.meta->fields[i].ts_type;
+
+        // Set the field's active state
+        if (field_ts->is_collection() || field_ts->kind == TSKind::TSB) {
+            // Composite field - recurse
+            ViewData field_vd;
+            field_vd.meta = field_ts;
+            field_vd.ops = get_ts_ops(field_ts);
+            // Get link data for this field
+            if (link_list && i < link_list.size()) {
+                auto* rl = static_cast<REFLink*>(link_list.at(i).data());
+                if (rl && rl->target().is_linked) {
+                    field_vd.link_data = rl->target().link_data;
+                }
+            }
+            field_vd.ops->set_active(field_vd, field_active, active, input);
+        } else {
+            // Scalar field - set directly
+            *static_cast<bool*>(field_active.data()) = active;
+        }
+
+        // Manage subscription for bound fields
+        if (link_list && i < link_list.size()) {
+            auto* rl = static_cast<REFLink*>(link_list.at(i).data());
+            if (rl && rl->target().is_linked && rl->target().observer_data) {
+                auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+                if (active) {
+                    observers->add_observer(input);
+                } else {
+                    observers->remove_observer(input);
+                }
+            }
+        }
+    }
 }
 
 } // namespace bundle_ops
@@ -896,6 +973,54 @@ bool is_bound(const ViewData& vd) {
     return rl && rl->target().is_linked;
 }
 
+void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
+    if (!active_view || !vd.meta) return;
+
+    // TSL active schema: tuple[bool, list[element_active]]
+    value::TupleView tv = active_view.as_tuple();
+    value::View root = tv[0];
+    if (root) {
+        *static_cast<bool*>(root.data()) = active;
+    }
+
+    // Set active for each element
+    value::View element_list = tv[1];
+    if (element_list && element_list.is_list()) {
+        value::ListView lv = element_list.as_list();
+        const TSMeta* elem_ts = vd.meta->element_ts;
+
+        for (size_t i = 0; i < lv.size(); ++i) {
+            value::View elem_active = lv[i];
+            if (!elem_active) continue;
+
+            if (elem_ts && (elem_ts->is_collection() || elem_ts->kind == TSKind::TSB)) {
+                // Composite element - recurse
+                ViewData elem_vd;
+                elem_vd.meta = elem_ts;
+                elem_vd.ops = get_ts_ops(elem_ts);
+                // TODO: Get link data for this element if linked
+                elem_vd.ops->set_active(elem_vd, elem_active, active, input);
+            } else {
+                // Scalar element - set directly
+                *static_cast<bool*>(elem_active.data()) = active;
+            }
+        }
+    }
+
+    // Manage subscription for collection-level link
+    if (vd.link_data) {
+        auto* rl = get_ref_link(vd.link_data);
+        if (rl && rl->target().is_linked && rl->target().observer_data) {
+            auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+            if (active) {
+                observers->add_observer(input);
+            } else {
+                observers->remove_observer(input);
+            }
+        }
+    }
+}
+
 } // namespace list_ops
 
 // ============================================================================
@@ -1121,6 +1246,15 @@ void set_clear(ViewData& vd, engine_time_t current_time) {
             observers->notify_modified(current_time);
         }
     }
+}
+
+void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
+    if (!active_view) return;
+
+    // TSS active schema is just a bool (set elements are values, not time-series)
+    *static_cast<bool*>(active_view.data()) = active;
+
+    // TSS doesn't support binding, so no subscription management needed
 }
 
 } // namespace set_ops
@@ -1688,6 +1822,54 @@ TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, 
     return TSView(elem_vd, current_time);
 }
 
+void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
+    if (!active_view || !vd.meta) return;
+
+    // TSD active schema: tuple[bool, list[element_active]]
+    value::TupleView tv = active_view.as_tuple();
+    value::View root = tv[0];
+    if (root) {
+        *static_cast<bool*>(root.data()) = active;
+    }
+
+    // Set active for each element
+    value::View element_list = tv[1];
+    if (element_list && element_list.is_list()) {
+        value::ListView lv = element_list.as_list();
+        const TSMeta* elem_ts = vd.meta->element_ts;
+
+        for (size_t i = 0; i < lv.size(); ++i) {
+            value::View elem_active = lv[i];
+            if (!elem_active) continue;
+
+            if (elem_ts && (elem_ts->is_collection() || elem_ts->kind == TSKind::TSB)) {
+                // Composite element - recurse
+                ViewData elem_vd;
+                elem_vd.meta = elem_ts;
+                elem_vd.ops = get_ts_ops(elem_ts);
+                // TODO: Get link data for this element if linked
+                elem_vd.ops->set_active(elem_vd, elem_active, active, input);
+            } else {
+                // Scalar element - set directly
+                *static_cast<bool*>(elem_active.data()) = active;
+            }
+        }
+    }
+
+    // Manage subscription for collection-level link
+    if (vd.link_data) {
+        auto* rl = get_ref_link(vd.link_data);
+        if (rl && rl->target().is_linked && rl->target().observer_data) {
+            auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+            if (active) {
+                observers->add_observer(input);
+            } else {
+                observers->remove_observer(input);
+            }
+        }
+    }
+}
+
 } // namespace dict_ops
 
 // ============================================================================
@@ -1892,6 +2074,26 @@ size_t window_length(const ViewData& vd) {
     return std::min(storage->size, vd.meta->window.tick.period);
 }
 
+void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
+    if (!active_view) return;
+
+    // TSW active schema is just a bool
+    *static_cast<bool*>(active_view.data()) = active;
+
+    // Manage subscription for window input if bound
+    if (vd.link_data) {
+        auto* rl = get_ref_link(vd.link_data);
+        if (rl && rl->target().is_linked && rl->target().observer_data) {
+            auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+            if (active) {
+                observers->add_observer(input);
+            } else {
+                observers->remove_observer(input);
+            }
+        }
+    }
+}
+
 } // namespace fixed_window_ops
 
 // ============================================================================
@@ -2070,6 +2272,26 @@ size_t window_length(const ViewData& vd) {
     return times->size();
 }
 
+void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
+    if (!active_view) return;
+
+    // TSW active schema is just a bool
+    *static_cast<bool*>(active_view.data()) = active;
+
+    // Manage subscription for window input if bound
+    if (vd.link_data) {
+        auto* rl = get_ref_link(vd.link_data);
+        if (rl && rl->target().is_linked && rl->target().observer_data) {
+            auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+            if (active) {
+                observers->add_observer(input);
+            } else {
+                observers->remove_observer(input);
+            }
+        }
+    }
+}
+
 } // namespace time_window_ops
 
 // ============================================================================
@@ -2102,6 +2324,7 @@ size_t window_length(const ViewData& vd) {
     .bind = ns::bind, \
     .unbind = ns::unbind, \
     .is_bound = ns::is_bound, \
+    .set_active = ns::set_active, \
     .window_value_times = nullptr, \
     .window_value_times_count = nullptr, \
     .window_first_modified_time = nullptr, \
@@ -2145,6 +2368,7 @@ size_t window_length(const ViewData& vd) {
     .bind = ns::bind, \
     .unbind = ns::unbind, \
     .is_bound = ns::is_bound, \
+    .set_active = ns::set_active, \
     .window_value_times = ns::window_value_times, \
     .window_value_times_count = ns::window_value_times_count, \
     .window_first_modified_time = ns::window_first_modified_time, \
@@ -2188,6 +2412,7 @@ size_t window_length(const ViewData& vd) {
     .bind = ns::bind, \
     .unbind = ns::unbind, \
     .is_bound = ns::is_bound, \
+    .set_active = ns::set_active, \
     .window_value_times = nullptr, \
     .window_value_times_count = nullptr, \
     .window_first_modified_time = nullptr, \
@@ -2231,6 +2456,7 @@ size_t window_length(const ViewData& vd) {
     .bind = ns::bind, \
     .unbind = ns::unbind, \
     .is_bound = ns::is_bound, \
+    .set_active = ns::set_active, \
     .window_value_times = nullptr, \
     .window_value_times_count = nullptr, \
     .window_first_modified_time = nullptr, \

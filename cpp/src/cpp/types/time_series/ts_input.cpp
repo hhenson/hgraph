@@ -38,103 +38,15 @@ TSInputView TSInput::view(engine_time_t current_time, const TSMeta* schema) {
 }
 
 void TSInput::set_active(bool active) {
-    // Set the root-level active state
+    // Get active view - return early if not available
     value::View av = active_view();
-    if (!av) return;
+    if (!av || !meta_) return;
 
-    // Handle different active schema structures:
-    // - Scalar (TSValue, TSW, SIGNAL): just a bool
-    // - TSB: tuple[bool, field0_active, field1_active, ...]
-    // - TSL/TSD/TSS: tuple[bool, list[element_active]]
+    // Build ViewData from TSValue for dispatch
+    ViewData vd = value_.make_view_data();
 
-    if (meta_->kind == TSKind::TSB) {
-        // TSB: tuple[bool, field0_active, field1_active, ...]
-        value::TupleView tv = av.as_tuple();
-        value::View root = tv[0];
-        if (root) {
-            *static_cast<bool*>(root.data()) = active;
-        }
-        // Also set active for all fields and manage subscriptions
-        value::View link_view = value_.link_view();
-        value::ListView link_list = link_view ? link_view.as_list() : value::ListView{};
-
-        for (size_t i = 0; i < meta_->field_count; ++i) {
-            value::View field_active = tv[i + 1]; // +1 because index 0 is root bool
-            if (field_active) {
-                const TSMeta* field_ts = meta_->fields[i].ts_type;
-                if (field_ts->is_collection() || field_ts->kind == TSKind::TSB) {
-                    // Composite field: set first element (root bool)
-                    value::TupleView field_tv = field_active.as_tuple();
-                    value::View field_root = field_tv[0];
-                    if (field_root) {
-                        *static_cast<bool*>(field_root.data()) = active;
-                    }
-                } else {
-                    // Scalar field: set directly
-                    *static_cast<bool*>(field_active.data()) = active;
-                }
-            }
-
-            // Manage subscriptions for bound fields
-            if (link_list && i < link_list.size()) {
-                auto* rl = static_cast<REFLink*>(link_list.at(i).data());
-                if (rl && rl->target().is_linked && rl->target().observer_data) {
-                    auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
-                    if (active) {
-                        observers->add_observer(this);
-                    } else {
-                        observers->remove_observer(this);
-                    }
-                }
-            }
-        }
-    } else if (meta_->is_collection()) {
-        // TSL/TSD/TSS: tuple[bool, list[element_active]]
-        value::TupleView tv = av.as_tuple();
-        value::View root = tv[0];
-        if (root) {
-            *static_cast<bool*>(root.data()) = active;
-        }
-        value::View element_list = tv[1];
-        if (element_list && element_list.is_list()) {
-            value::ListView lv = element_list.as_list();
-            for (size_t i = 0; i < lv.size(); ++i) {
-                value::View elem_active = lv[i];
-                if (elem_active) {
-                    const TSMeta* elem_ts = meta_->element_ts;
-                    if (elem_ts && (elem_ts->is_collection() || elem_ts->kind == TSKind::TSB)) {
-                        // Composite element: set first element (root bool)
-                        value::TupleView elem_tv = elem_active.as_tuple();
-                        value::View elem_root = elem_tv[0];
-                        if (elem_root) {
-                            *static_cast<bool*>(elem_root.data()) = active;
-                        }
-                    } else {
-                        // Scalar element: set directly
-                        *static_cast<bool*>(elem_active.data()) = active;
-                    }
-                }
-            }
-        }
-        // TODO: Add subscription management for collection elements
-    } else {
-        // Scalar (TSValue, TSW, SIGNAL): just a bool
-        *static_cast<bool*>(av.data()) = active;
-
-        // Manage subscription for scalar input if bound
-        value::View link_view = value_.link_view();
-        if (link_view) {
-            auto* rl = static_cast<REFLink*>(link_view.data());
-            if (rl && rl->target().is_linked && rl->target().observer_data) {
-                auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
-                if (active) {
-                    observers->add_observer(this);
-                } else {
-                    observers->remove_observer(this);
-                }
-            }
-        }
-    }
+    // Dispatch through ts_ops table
+    vd.ops->set_active(vd, av, active, this);
 }
 
 void TSInput::set_active(const std::string& field, bool active) {

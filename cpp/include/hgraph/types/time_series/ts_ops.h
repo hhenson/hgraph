@@ -23,6 +23,7 @@ namespace hgraph {
 struct ViewData;
 class TSView;
 class ShortPath;
+class TSInput;
 
 /**
  * @brief Operations vtable for time-series types.
@@ -219,6 +220,25 @@ struct ts_ops {
      * @return true if the position is linked to another target
      */
     bool (*is_bound)(const ViewData& vd);
+
+    // ========== Input Active State Management ==========
+
+    /**
+     * @brief Set the active state for an input at this position.
+     *
+     * Recursively sets the active state for this position and all children,
+     * and manages subscriptions on linked outputs.
+     *
+     * For scalars: Sets the active bool and manages subscription
+     * For bundles: Sets root bool, recursively sets on all fields
+     * For collections: Sets root bool, recursively sets on all elements
+     *
+     * @param vd The ViewData for the current position
+     * @param active_view The active schema view for this position
+     * @param active The active state to set
+     * @param input The TSInput for subscription management
+     */
+    void (*set_active)(ViewData& vd, value::View active_view, bool active, TSInput* input);
 
     // ========== Window-Specific Operations ==========
     // These are nullptr for non-window types (TSValue, TSB, TSL, TSD, TSS, REF, SIGNAL)
