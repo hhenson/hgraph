@@ -330,21 +330,27 @@ export async function installTableWorkarounds(mode, lockCallback) {
         }, 100);
 
         if ((table_config && table_config.selection) || viewSettings(view_config.title, "track_selection")) {
-            table.addEventListener("click", async (event) => {
-                    await trackSelection(event, table, viewer, table_config, model);
-            });
+            const options = {
+                row_selection: viewSettings(view_config.title, "row_selection") || true,
+                group_selection: viewSettings(view_config.title, "group_selection") || false,
+                split_selection: viewSettings(view_config.title, "split_selection") || false,
+                block_selection: viewSettings(view_config.title, "block_selection") || false
+            };
+            table.addEventListener("mousedown", async (event) => {
+                    await trackSelection(event, table, viewer, table_config, model, options);
+            }, true);
             new MutationObserver(async (mutations) => {
                 for (const mutation of mutations) {
-                    if (mutation.type === "attributes" && mutation.attributeName === "data-selected_row") {
-                        await trackSelectionChange(table, viewer, table_config, model);
+                    if (mutation.type === "attributes" && mutation.attributeName === "data-selection_values") {
+                        await trackSelectionChange(table, viewer, table_config, model, options);
                     }
                 }
             }).observe(table, {
                 attributes: true,
-                attributeFilter: ["data-selected_row"]
+                attributeFilter: ["data-selection_values"]
             });
             table.addStyleListener(() => {
-                highlightSelection(table, viewer);
+                highlightSelection(table, viewer, model);
             });
         }       
 
@@ -383,7 +389,7 @@ export async function installTableWorkarounds(mode, lockCallback) {
                 const ids = {};
                 const values = new Array(styles.scheme.length).fill(null);
                 const values_to_index = {};
-                if (g._settings.data){
+                if (g._settings.data && g._settings.data.length > 0) {
                     let i = 0;
                     for (const key of Object.keys(g._settings.data[0])){
                         if (key === '__ROW_PATH__') continue;
@@ -826,38 +832,106 @@ async function maintainAddButtonOnFilter(event, table, viewer, config) {
 }
 
 
-function highlightSelection(table, viewer) {    
+function highlightSelection(table, viewer, model) {    
     for (const t of table.querySelectorAll('.highlight')){
         t.classList.remove("highlight");
     }
 
-    if (!table.dataset.selected_row) return; 
+    const selection_type = table.dataset.selection_type;
+    if (!selection_type) return;
 
-    const selection_row = parseInt(table.dataset.selected_row);
-    const selection_col = parseInt(table.dataset.selected_col);
+    const selection_meta = table.dataset.selection_meta ? JSON.parse(table.dataset.selection_meta) : null;
 
-    const selected = table.table_model.body._fetch_cell(selection_row - table._start_row, selection_col - table._start_col + table.table_model._row_headers_length);
-    if (!selected) return;
-    const metadata = table.getMeta(selected);
-    if (!metadata || !metadata.column_header) return;
-    const split_header = metadata.column_header.slice(0, metadata.column_header.length - 1);
+    const tbody = table.children[0].children[1];
+    for (const tr of tbody.children){
+        const meta = table.getMeta(tr.children[tr.children.length-1]);
+        const id = model._ids[meta.y - meta.y0];
+        if (id && selection_meta.row_header.length <= id.length && selection_meta.row_header.every((v, i) => v == id[i])) {
+            for (const td of tr.children){
+                const meta = table.getMeta(td);
+                const id = model._ids[meta.y - meta.y0];
 
-    // if (selected){
-    //     selected.parentElement.classList.add("highlight");
-    // }
-
-    for (const td of selected.parentElement.children){
-        const meta = table.getMeta(td);
-
-        if (meta.column_header && meta.column_header.slice(0, meta.column_header.length - 1).every((x, i) => x == split_header[i])) {
-            td.classList.add("highlight");
+                if (meta.column_header && selection_meta.column_header.every((x, i) => x == meta.column_header[i])) {
+                    td.classList.add("highlight");
+                }
+            }
         }
     }
 }
 
-async function trackSelection(event, table, viewer, config, model) {
-    if (event.target.tagName === "TD"){
-        const td = event.target;
+async function metadataToSelection(table, viewer, model, metadata, options) {
+    const view_config = await viewer.save();
+    const tbl = await viewer.getTable();
+    const index = await tbl.get_index();
+
+    const id = model._ids[metadata.y - metadata.y0];
+    const column_header = id ?  // if id is undefined it was a column click, then value says which level of split was clicked
+        (metadata.column_header ? metadata.column_header.slice(0, metadata.column_header.length - 1) : []) :
+        (metadata.column_header ? metadata.column_header.slice(0, metadata.column_header.indexOf(metadata.value) + 1) : [])
+        ;
+
+    const split_by = view_config.split_by || [];
+    const group_by = view_config.group_by.length ? view_config.group_by : [index];
+
+    const selection_names = [...split_by, ...group_by];
+
+    const selection_meta = {
+        column_header: column_header,
+        row_header: id || []
+    }
+    const selection_values = {
+        ...(id ? Object.fromEntries(id.map((v, i) => [group_by[i], v])) : []),
+        ...(metadata.column_header ? Object.fromEntries(column_header.map((val, i) => [split_by[i], val])) : [])
+    };
+
+    const leaf_row = id && id.length == group_by.length;
+    const has_row = 'y' in metadata;
+    const has_col = 'x' in metadata;
+
+    let selection_type = "uknown";
+    if (leaf_row && has_row && has_col){
+        selection_type = "row";
+        if (options.row_selection === false){
+            return {selection_type: undefined, selection_meta: undefined, selection_names: undefined, selection_values: undefined};
+        }
+    } else if (!leaf_row && has_row && has_col){
+        selection_type = "block";
+        if (options.block_selection === false){
+            return {selection_type: undefined, selection_meta: undefined, selection_names: undefined, selection_values: undefined};
+        }
+    } else if (has_row && !has_col){
+        selection_type = "group";
+        if (options.group_selection === false){
+            return {selection_type: undefined, selection_meta: undefined, selection_names: undefined, selection_values: undefined};
+        }
+    } else if (!has_row && has_col){
+        selection_type = "split";
+        if (options.split_selection === false){
+            return {selection_type: undefined, selection_meta: undefined, selection_names: undefined, selection_values: undefined};
+        }
+    }
+
+    return {selection_type, selection_meta, selection_names, selection_values};
+}
+
+async function trackSelection(event, table, viewer, config, model, options) {
+    const target = (event.target.tagName === "SPAN") ? event.target.parentElement : event.target;
+
+    if (target.classList.contains('psp-tree-label')) {
+        // Get the computed style to find actual icon width
+        const style = window.getComputedStyle(target, '::before');
+        const paddingRight = parseFloat(style.paddingRight) || 11;
+        const iconWidth = parseFloat(style.width) || 10;
+        const clickableArea = paddingRight + iconWidth + 5; // Add 5px buffer
+        
+        if (event.offsetX >= clickableArea) {
+            event.stopPropagation();
+            event.preventDefault();
+        }
+    }
+
+    if (["TD", "TH"].includes(target.tagName)){
+        const td = target;
         const metadata = table.getMeta(td);
         if (config.editable && '_id' in config.schema){
             const id = model._ids[metadata.y - metadata.y0];
@@ -870,13 +944,34 @@ async function trackSelection(event, table, viewer, config, model) {
         }
         if (metadata){
             const selected = table.querySelector(".highlight");
-            if (selected){
+            if (!td.classList.contains("highlight")){
+                const {selection_type, selection_meta, selection_names, selection_values} = await metadataToSelection(table, viewer, model, metadata, options);
+
+                if (selection_type){
+                    table.dataset.selection_type = selection_type;
+                    table.dataset.selection_names = JSON.stringify(selection_names);
+                    table.dataset.selection_meta = JSON.stringify(selection_meta);
+                    table.dataset.selection_values = JSON.stringify(selection_values);
+
+                    if ('y' in metadata)
+                        table.dataset.selected_row = metadata.y;
+                    if ('x' in metadata)
+                        table.dataset.selected_col = metadata.x;
+                } else {
+                    delete table.dataset.selected_row;
+                    delete table.dataset.selected_col;
+                    delete table.dataset.selection_type;
+                    delete table.dataset.selection_values;
+                    delete table.dataset.selection_names;
+                    delete table.dataset.selection_meta;
+                }
+            } else if (selected) {
                 delete table.dataset.selected_row;
                 delete table.dataset.selected_col;
-            }
-            if (!td.classList.contains("highlight")){
-                table.dataset.selected_row = metadata.y;
-                table.dataset.selected_col = metadata.x;
+                delete table.dataset.selection_type;
+                delete table.dataset.selection_values;
+                delete table.dataset.selection_names;
+                delete table.dataset.selection_meta;
             }
             setTimeout(() => {
                 table.draw();
@@ -887,29 +982,47 @@ async function trackSelection(event, table, viewer, config, model) {
 }
 
 async function trackSelectionChange(table, viewer, config, model) {
-    const selected_row = table.dataset.selected_row;
-    if (selected_row !== undefined) {
-        const x = table.dataset.selected_col !== undefined ? parseInt(table.dataset.selected_col) : 1;
-        const y = parseInt(selected_row);
-        const metadata = table.getMeta({dy: y - table._start_row, dx: x - table._start_col});
-        if (!metadata) return;
-        const id = model._ids[metadata.dy];
-        if (metadata && id){
-            const tbl = await viewer.getTable();
-            const index = await tbl.get_index();
-            const view_config = await viewer.save();
-            const required_cols = await getContextActionColumns(viewer.slot);
-            if (required_cols.length === 0)
-                return;
+    const selection_type = table.dataset.selection_type;
+    const selection_names = table.dataset.selection_names;
+    const selection_values = table.dataset.selection_values;
+    if (selection_values !== undefined) {
+        const values = JSON.parse(selection_values);
+        const tbl = await viewer.getTable();
+        const index = await tbl.get_index();
+        const view_config = await viewer.save();
+        const { required_cols, required_vals } = await getContextActionColumns(viewer.slot);
+        if (required_cols.length === 0)
+            return;
 
-            const { view, get_rows } = await createViewAndGetRows(tbl, view_config, id, metadata, required_cols, index);
-            const rows = await get_rows();
-            if (rows && rows.length == 1){
-                await fireContextActions(viewer.slot, rows[0]);
-            } else {
-                await fireContextActions(viewer.slot, null);
+        let rows = [];
+        if (required_cols.every((col) => selection_names.includes(col))) {
+            rows = [values];
+            if (required_vals.length > 0) {
+                const { view, get_rows } = await createViewAndGetRows(tbl, view_config, values, required_vals, index, false);
+                const val_rows = await get_rows();
+                await view.delete();
+                if (val_rows.length === 1){
+                    rows[0] = {...rows[0], ...val_rows[0]};
+                } else if (val_rows.length > 1){
+                    rows = val_rows.map((r) => ({...rows[0], ...r}));
+                }            
             }
+        } else {
+            const { view, get_rows } = await createViewAndGetRows(tbl, view_config, values, [...required_cols, ...required_vals], index, false);
+            rows = await get_rows();
             await view.delete();
+        }
+        if (rows.length > 1){
+            const row_reduce = Object.fromEntries(
+                [...required_cols, ...required_vals]
+                    .map((col) => [col, new Set(rows.map((r) => r[col]))])
+                    .map(([c, s]) => s.size == 1 ? [c, s.values().next().value] : [c, [...s]])
+                );
+            await fireContextActions(viewer.slot, row_reduce);
+        } else if (rows && rows.length == 1){
+            await fireContextActions(viewer.slot, rows[0]);
+        } else {
+            await fireContextActions(viewer.slot, null);
         }
     } else {
         await fireContextActions(viewer.slot, null);
@@ -927,11 +1040,17 @@ async function getContextActionColumns(from) {
     const from_title = config.viewers[from].title;
 
     const columns = new Set();
+    const values = new Set();
     const actions = context_mapping.filter((x) => x.source === from_title);
     for (const action of actions) {
         columns.add(action.context);
+        if (action.title){
+            [...action.title.matchAll(FORMAT_REGEX)].map((x) => x[1]).forEach((col) => values.add(col));
+        }
     }
-    return [...columns];
+    const required_cols = [...columns];
+    const required_vals = [...values];
+    return {required_cols, required_vals}
 }
 
 async function fireContextActions(from, row) {
@@ -945,25 +1064,51 @@ async function fireContextActions(from, row) {
     const from_title = config.viewers[from].title;
 
     const actions = context_mapping.filter((x) => x.source === from_title);
-    for (const action of actions) {
-        const target = Object.entries(config.viewers).filter((x) => x[1].title === action.target)[0];
+    const targets = new Set(actions.map((x) => x.target));
+    for (const target_title of targets) {
+        const target = Object.entries(config.viewers).filter((x) => x[1].title === target_title)[0];
         if (!target) continue;
 
         const viewer = document.querySelector(`perspective-viewer[slot="${target[0]}"]`);
         const view = await viewer.getView();
         const target_config = await view.get_config();
         const filters = target_config.filter;
-        if (row){
-            const new_filter = [...filters.filter((x) => x[0] !== action.column), [action.column, '==', row[action.context]]];
-            viewer.restore({filter: new_filter});
-        } else {
-            if (action.null === "null"){
-                const new_filter = [...filters.filter((x) => x[0] !== action.column), [action.column, 'is null', null]];
-                viewer.restore({filter: new_filter});
+
+        let new_filter = filters;
+        let new_title = null;
+        for (const action of actions.filter((x) => x.target === target_title)) {
+            if (row){
+                let filter = [];
+                if (row[action.context] === null){
+                    filter = [[action.column, 'is null', null]];
+                } else if (Array.isArray(row[action.context])){
+                    if (row[action.context].length === 1){
+                        filter = [[action.column, '==', row[action.context][0]]];
+                    } else {
+                        filter = [[action.column, 'in', row[action.context]]];
+                    }
+                } else if (action.context in row){
+                    filter = [[action.column, '==', row[action.context]]];
+                }
+                new_filter = [...new_filter.filter((x) => x[0] !== action.column), ...filter];
+                if (action.title){
+                    new_title = action.title.replace(FORMAT_REGEX, (match, p1) => row[p1] || '*');
+                }
             } else {
-                const new_filter = [...filters.filter((x) => x[0] !== action.column), [action.column, '==', action.null]];
-                viewer.restore({filter: new_filter});
+                if (action.null === "null"){
+                    new_filter = [...new_filter.filter((x) => x[0] !== action.column), [action.column, 'is null', null]];
+                } else if (action.null === ""){
+                    new_filter = [...new_filter.filter((x) => x[0] !== action.column)];
+                } else {
+                    new_filter = [...new_filter.filter((x) => x[0] !== action.column), [action.column, '==', action.null]];
+                }
             }
+        }
+        if (new_filter !== filters){
+            await viewer.restore({filter: new_filter});
+        }
+        if (new_title !== null){
+            window.workspace.workspace.getAllWidgets().filter((w) => w.viewer === viewer)[0].title.label = `${target_title} ${new_title}`;
         }
     }
 }
@@ -1238,19 +1383,19 @@ function parseActionConfig(action) {
     return { required_cols, method, format };
 }
 
-async function createViewAndGetRows(tbl, view_config, id, metadata, required_cols, index) {
+async function createViewAndGetRows(tbl, view_config, values, required_cols, index, unique=true) {
     let view;
     let get_rows;
     
     if (view_config.group_by.length == 0 && view_config.split_by.length == 0) {
-        view = await tbl.view({filter: [[index, '==', id[0]]]});
+        view = await tbl.view({filter: [[index, '==', values[index]]]});
         get_rows = async () => await view.to_json();
     } else if (view_config.split_by.length == 0) {
         const query_config = {
             filter: [
                 ...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])), 
-                ...view_config.group_by.map((x, i) => [x, id[i] === null ? 'is null' : '==', id[i]])],
-            group_by: view_config.group_by,
+                ...view_config.group_by.filter((x) => x in values).map((x, i) => [x, values[x] === null ? 'is null' : '==', values[x]])],
+            group_by: unique ? view_config.group_by : [],
             aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique']))},
             expressions: view_config.expressions,
             columns: [index, ...required_cols]
@@ -1264,10 +1409,10 @@ async function createViewAndGetRows(tbl, view_config, id, metadata, required_col
         const query_config = {
             filter: [
                 ...view_config.filter.filter((x) => !view_config.group_by.includes(x[0])),
-                ...view_config.group_by.map((x, i) => [x, id[i] === null ? 'is null' : '==', id[i]]),
-                ...view_config.split_by.map((x, i) => [x, metadata.column_header[i] === null ? 'is null' : '==', metadata.column_header[i]])
+                ...view_config.group_by.filter((x) => x in values).map((x, i) => [x, values[x] === null ? 'is null' : '==', values[x]]),
+                ...view_config.split_by.filter((x) => x in values).map((x, i) => [x, values[x] === null ? 'is null' : '==', values[x]])
                 ],
-            group_by: view_config.group_by,
+            group_by: unique ? view_config.group_by : [],
             aggregates: {...Object.fromEntries(required_cols.map((x) => [x, 'unique']))},
             expressions: view_config.expressions,
             columns: [index, ...required_cols]
@@ -1275,7 +1420,7 @@ async function createViewAndGetRows(tbl, view_config, id, metadata, required_col
         view = await tbl.view(query_config);
         get_rows = async () => {
             const rows = await view.to_json()
-            return rows.filter((x) => x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x[col] !== null));
+            return rows.filter((x) => !unique || (x["__ROW_PATH__"].length === view_config.group_by.length && required_cols.every((col) => x[col] !== null)));
         }
     }
     
@@ -1315,7 +1460,7 @@ async function updateTooltipContent(text, method, action, tt) {
     }
 }
 
-function createTooltipAction(td, action, metadata, model, viewer, table) {
+async function createTooltipAction(td, action, metadata, model, viewer, table) {
     td.addEventListener("mouseenter", (event, a=action) => {
         if (td.dataset.tooltipTimeout) return;
 
@@ -1330,7 +1475,10 @@ function createTooltipAction(td, action, metadata, model, viewer, table) {
                 const index = await tbl.get_index();
 
                 const { required_cols, method, format } = parseActionConfig(action);
-                const { view, get_rows } = await createViewAndGetRows(tbl, view_config, id, metadata, required_cols, index);
+                const { selection_type, selection_meta, selection_values} = await metadataToSelection(table, viewer, model, metadata, {row_selection: true});
+                if (!selection_type) return;
+
+                const { view, get_rows } = await createViewAndGetRows(tbl, view_config, selection_values, required_cols, index);
                 
                 const rows = await get_rows();
                 if (rows && rows.length == 1) {
