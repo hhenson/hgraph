@@ -8,6 +8,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/util/lifecycle.h>
 #include <format>
 
@@ -15,12 +16,12 @@ namespace hgraph {
     // Helper functions for checking time-series validity and extracting values
     // These need to handle TimeSeriesReference specially
 
-    static bool _get_ts_valid(const time_series_input_s_ptr &ts) {
-        if (!ts->valid()) {
+    static bool _get_ts_valid(TSInputView view) {
+        if (!view.valid()) {
             return false;
         }
 
-        auto value = ts->py_value();
+        auto value = view.to_python();
 
         // Check if it's a TimeSeriesReference using nanobind's isinstance
         // In Python: TimeSeriesReference.is_instance(value)
@@ -33,8 +34,8 @@ namespace hgraph {
         }
     }
 
-    static nb::object _get_ts_value(const time_series_input_s_ptr &ts) {
-        auto value = ts->py_value();
+    static nb::object _get_ts_value(TSInputView view) {
+        auto value = view.to_python();
 
         // Check if it's a TimeSeriesReference
         try {
@@ -51,9 +52,13 @@ namespace hgraph {
     }
 
     ComponentNode::ComponentNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                                 nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
+                                 nb::dict scalars,
+                                 const TSMeta* input_meta, const TSMeta* output_meta,
+                                 const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
+                                 graph_builder_s_ptr nested_graph_builder,
                                  const std::unordered_map<std::string, int> &input_node_ids, int output_node_id)
-        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
+        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+                     input_meta, output_meta, error_output_meta, recordable_state_meta),
           m_nested_graph_builder_(std::move(nested_graph_builder)), m_input_node_ids_(input_node_ids),
           m_output_node_id_(output_node_id), m_active_graph_(nullptr), m_last_evaluation_time_(std::nullopt) {
     }
@@ -109,12 +114,14 @@ namespace hgraph {
                     return {id_, false}; // Not started yet, can't read ts values
                 }
 
-                // Check all ts values are valid
-                // Use input() to get the bundle, then access individual inputs
-                auto input_bundle = input();
+                // Check all ts values are valid using TSInput view
+                if (!ts_input()) {
+                    return {id_, false};
+                }
+                auto input_view = ts_input()->view(graph()->evaluation_time());
                 for (const auto &k: ts_values) {
-                    auto ts = (*input_bundle)[k];
-                    if (!_get_ts_valid(ts)) {
+                    auto field_view = input_view.field(k);
+                    if (!_get_ts_valid(field_view)) {
                         return {id_, false}; // Not all inputs valid yet
                     }
                 }
@@ -122,12 +129,12 @@ namespace hgraph {
 
             // Build args map for formatting
             nb::dict args;
-            auto input_bundle = input();
+            auto input_view = ts_input() ? ts_input()->view(graph()->evaluation_time()) : TSInputView{};
             for (const auto &k: dependencies) {
                 if (scalars().contains(k)) {
                     args[k.c_str()] = scalars()[k.c_str()];
                 } else {
-                    args[k.c_str()] = _get_ts_value((*input_bundle)[k]);
+                    args[k.c_str()] = _get_ts_value(input_view.field(k));
                 }
             }
 
@@ -174,24 +181,33 @@ namespace hgraph {
         // Initialize the graph
         initialise_component(*m_active_graph_);
 
-        // Wire inputs
-        auto input_bundle = input();
-        for (const auto &[arg, node_ndx]: m_input_node_ids_) {
-            auto node = m_active_graph_->nodes()[node_ndx];
-            node->notify();
+        // Wire inputs - using TSInput views
+        // TODO: Cross-graph input wiring needs architectural review for TSInput system
+        // The nested graph's stub source nodes need to read from the same source as
+        // the component's inputs. In the new system, this requires binding the inner
+        // graph's input nodes' TSInputViews to the component's TSInput source outputs.
+        if (ts_input()) {
+            auto input_view = ts_input()->view(graph()->evaluation_time());
+            for (const auto &[arg, node_ndx]: m_input_node_ids_) {
+                auto node = m_active_graph_->nodes()[node_ndx];
+                node->notify();
 
-            auto ts = (*input_bundle)[arg];
-            // Copy input with new parent
-            node->reset_input(node->input()->copy_with(node.get(), {ts->shared_from_this()}));
+                // Get the input view for this field
+                auto field_view = input_view.field(arg);
 
-            // Re-parent the ts input
-            ts->re_parent(node->input().get());
+                // TODO: Need to implement cross-graph binding
+                // The stub source node needs to mirror data from field_view's source
+                // This requires the inner node to have a mechanism to receive data
+                // from an external source
+            }
         }
 
-        // Wire outputs
-        if (m_output_node_id_ >= 0) {
+        // Wire outputs - using TSOutput views
+        // TODO: Cross-graph output wiring needs architectural review for TSOutput system
+        if (m_output_node_id_ >= 0 && ts_output()) {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
-            node->set_output(output());
+            // TODO: Need to implement cross-graph output binding
+            // The inner graph's output node should write to this component's TSOutput
         }
 
         // Start if already started

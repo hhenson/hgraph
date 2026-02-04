@@ -6,6 +6,8 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
 
 namespace hgraph
 {
@@ -23,12 +25,11 @@ namespace hgraph
 
     nb::object PyTimeSeriesType::owning_graph() const {
         if (has_view()) {
-            // View-based: get graph from node
+            // View-based: get graph from node->graph() back-pointer
             auto node_ptr = view().short_path().node();
             if (node_ptr) {
-                auto graph_id = node_ptr->owning_graph_id();
-                // TODO: Need to resolve graph_id to Graph pointer
-                // For now, return none - this will be addressed in full migration
+                auto graph_ptr = node_ptr->graph();
+                return graph_ptr ? wrap_graph(graph_ptr->shared_from_this()) : nb::none();
             }
             return nb::none();
         }
@@ -131,18 +132,44 @@ namespace hgraph
         , output_view_{std::move(view)} {}
 
     nb::object PyTimeSeriesOutput::parent_output() const {
-        // View-based: not yet implemented - parent navigation needs work
         if (has_output_view()) {
-            // TODO: Implement parent navigation for views
-            return nb::none();
+            const ShortPath& path = output_view().short_path();
+            if (path.is_root()) {
+                return nb::none();  // No parent - this is root
+            }
+
+            // Get parent path (removes last index)
+            ShortPath parent_path = path.parent();
+
+            // Get TSOutput for navigation (const_cast safe: we're creating a new view, not modifying)
+            TSOutput* output = const_cast<TSOutput*>(output_view().output());
+            if (!output) {
+                return nb::none();
+            }
+
+            // Get root view from TSOutput's native value
+            engine_time_t current_time = output_view().current_time();
+            TSView parent_view = output->native_value().ts_view(current_time);
+
+            // Navigate through parent indices
+            for (size_t idx : parent_path.indices()) {
+                parent_view = parent_view[idx];
+            }
+
+            // Set the path on the view
+            parent_view.view_data().path = parent_path;
+
+            // Create and return wrapped TSOutputView
+            TSOutputView parent_output_view(std::move(parent_view), output);
+            return wrap_output_view(parent_output_view);
         }
         return impl()->parent_output() ? wrap_output(impl()->parent_output()) : nb::none();
     }
 
     nb::bool_ PyTimeSeriesOutput::has_parent_output() const {
         if (has_output_view()) {
-            // TODO: Implement parent check for views
-            return nb::bool_(false);
+            // View-based: has parent if path is not root (has indices)
+            return nb::bool_(!output_view().short_path().is_root());
         }
         return nb::bool_(impl()->has_parent_output());
     }
@@ -250,16 +277,43 @@ namespace hgraph
 
     nb::object PyTimeSeriesInput::parent_input() const {
         if (has_input_view()) {
-            // TODO: Implement parent navigation for views
-            return nb::none();
+            const ShortPath& path = input_view().short_path();
+            if (path.is_root()) {
+                return nb::none();  // No parent - this is root
+            }
+
+            // Get parent path (removes last index)
+            ShortPath parent_path = path.parent();
+
+            // Get TSInput for navigation (const_cast safe: we're creating a new view, not modifying)
+            TSInput* input = const_cast<TSInput*>(input_view().input());
+            if (!input) {
+                return nb::none();
+            }
+
+            // Get root view from TSInput
+            engine_time_t current_time = input_view().current_time();
+            TSInputView root_view = input->view(current_time);
+
+            // Navigate through parent indices
+            TSInputView parent_view = root_view;
+            for (size_t idx : parent_path.indices()) {
+                parent_view = parent_view[idx];
+            }
+
+            // The path is already set by navigation, but ensure it's correct
+            parent_view.ts_view().view_data().path = parent_path;
+
+            // Return wrapped TSInputView
+            return wrap_input_view(parent_view);
         }
         return impl()->parent_input() ? wrap_input(impl()->parent_input()) : nb::none();
     }
 
     nb::bool_ PyTimeSeriesInput::has_parent_input() const {
         if (has_input_view()) {
-            // TODO: Implement parent check for views
-            return nb::bool_(false);
+            // View-based: has parent if path is not root (has indices)
+            return nb::bool_(!input_view().short_path().is_root());
         }
         return nb::bool_(impl()->has_parent_input());
     }
@@ -296,16 +350,32 @@ namespace hgraph
 
     nb::bool_ PyTimeSeriesInput::has_peer() const {
         if (has_input_view()) {
-            // TODO: Implement peer check for views
-            return nb::bool_(false);
+            // Peer means bound and NOT via REF indirection
+            if (!input_view().is_bound()) {
+                return nb::bool_(false);
+            }
+            // Get the schema of what we're bound to
+            const TSMeta* bound_meta = input_view().ts_meta();
+            if (!bound_meta) {
+                return nb::bool_(false);
+            }
+            // Peer = bound and not a REF type
+            return nb::bool_(bound_meta->kind != TSKind::REF);
         }
         return nb::bool_(impl()->has_peer());
     }
 
     nb::object PyTimeSeriesInput::output() const {
         if (has_input_view()) {
-            // TODO: Wrap the bound output as a view-based wrapper
-            return nb::none();
+            TSOutput* bound = input_view().bound_output();
+            if (!bound) {
+                return nb::none();
+            }
+            // Create output view with current time and input's schema
+            engine_time_t current_time = input_view().current_time();
+            const TSMeta* schema = input_view().ts_meta();
+            TSOutputView out_view = bound->view(current_time, schema);
+            return wrap_output_view(out_view);
         }
         return wrap_output(impl()->output());
     }
@@ -345,8 +415,19 @@ namespace hgraph
 
     nb::object PyTimeSeriesInput::reference_output() const {
         if (has_input_view()) {
-            // TODO: Implement reference output for views
-            return nb::none();
+            // Check if bound to a REF type
+            const TSMeta* bound_meta = input_view().ts_meta();
+            if (!bound_meta || bound_meta->kind != TSKind::REF) {
+                return nb::none();
+            }
+            // Bound to REF - return the bound output
+            TSOutput* bound = input_view().bound_output();
+            if (!bound) {
+                return nb::none();
+            }
+            engine_time_t current_time = input_view().current_time();
+            TSOutputView out_view = bound->view(current_time, bound_meta);
+            return wrap_output_view(out_view);
         }
         return wrap_output(impl()->reference_output());
     }

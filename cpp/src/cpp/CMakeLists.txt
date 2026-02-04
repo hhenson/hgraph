@@ -26,6 +26,7 @@ set(HGRAPH_SOURCES
         builders/input_builder.cpp
         builders/node_builder.cpp
         builders/output_builder.cpp
+        builders/ts_builders.cpp
         builders/nodes/python_node_builder.cpp
         builders/nodes/python_generator_node_builder.cpp
         builders/nodes/tsd_map_node_builder.cpp

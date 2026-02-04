@@ -2,6 +2,8 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/runtime/evaluation_context.h>
 #include <algorithm>
@@ -380,11 +382,16 @@ namespace hgraph {
 
     void InspectionObserver::on_after_graph_push_nodes_evaluation(graph_ptr graph) {
         auto observation_begin = std::chrono::high_resolution_clock::now();
-        
+
         for (int64_t i = 0; i < graph->push_source_nodes_end(); ++i) {
             auto node = graph->nodes()[i];
-            if (node->output()->modified()) {
-                _process_node_after_eval(node.get());
+            // TODO: Convert to TSOutput-based approach
+            // Check if output is modified via TSOutputView
+            if (node->ts_output()) {
+                auto output_view = node->ts_output()->view(graph->evaluation_time());
+                if (output_view.ts_view().modified()) {
+                    _process_node_after_eval(node.get());
+                }
             }
         }
         

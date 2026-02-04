@@ -26,6 +26,8 @@ namespace hgraph {
 
         ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                    nb::dict scalars,
+                   const TSMeta* input_meta, const TSMeta* output_meta,
+                   const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                    graph_builder_s_ptr nested_graph_builder, const std::tuple<int64_t, int64_t> &input_node_ids,
                    int64_t output_node_id);
 

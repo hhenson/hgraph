@@ -1,50 +1,27 @@
 #include "hgraph/types/tsd.h"
 #include <hgraph/builders/builder.h>
 #include <hgraph/builders/graph_builder.h>
+#include <fmt/format.h>
 #include <hgraph/builders/node_builder.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/traits.h>
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/tsb.h>
 
 #include <string_view>
+#include <iostream>
 
 namespace hgraph
 {
     constexpr int64_t ERROR_PATH = -1;  // The path in the wiring edges representing the error output of the node
     constexpr int64_t STATE_PATH = -2;
     // The path in the wiring edges representing the recordable state output of the node
-    constexpr int64_t KEY_SET = -3;  // The path in the wiring edges representing the recordable state output of the node
-
-    time_series_output_s_ptr _extract_output(node_ptr node, const std::vector<int64_t> &path) {
-        if (path.empty()) { throw std::runtime_error("No path to find an output for"); }
-
-        time_series_output_s_ptr output = node->output();
-        for (auto index : path) {
-            if (index == KEY_SET) {
-                auto tsd_output = std::dynamic_pointer_cast<TimeSeriesDictOutput>(output);
-                if (!tsd_output) { throw std::runtime_error("Output is not a TSD for KEY_SET access"); }
-                output = tsd_output->key_set().shared_from_this();
-            } else {
-                auto indexed_output = std::dynamic_pointer_cast<IndexedTimeSeriesOutput>(output);
-                if (!indexed_output) { throw std::runtime_error("Output is not an indexed time series"); }
-                output = (*indexed_output)[index];
-            }
-        }
-        return output;
-    }
-
-    time_series_input_s_ptr _extract_input(node_ptr node, const std::vector<int64_t> &path) {
-        if (path.empty()) { throw std::runtime_error("No path to find an input for"); }
-
-        time_series_input_s_ptr input = std::static_pointer_cast<TimeSeriesInput>(node->input());
-
-        for (const auto &ndx : path) { input = input->get_input(ndx); }
-        return input;
-    }
+    constexpr int64_t KEY_SET = -3;  // The path in the wiring edges representing the key_set output of the node
 
     GraphBuilder::GraphBuilder(std::vector<node_builder_s_ptr> node_builders_, std::vector<Edge> edges_)
         : node_builders{std::move(node_builders_)}, edges{std::move(edges_)} {
@@ -104,22 +81,45 @@ namespace hgraph
             nodes.push_back(node_builders[i]->make_instance(graph_id, i + first_node_ndx));
         }
 
+        // Use a placeholder time for view creation during binding
+        // This is fine because binding doesn't depend on current_time value
+        engine_time_t bind_time = MIN_ST;
         for (const auto &edge : edges) {
             auto src_node = nodes[edge.src_node].get();
             auto dst_node = nodes[edge.dst_node].get();
 
-            time_series_output_s_ptr output;
+            // Determine the source output
+            TSOutput* src_output = nullptr;
             if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
-                output = src_node->error_output();
+                // Error output - need to handle this specially
+                // For now, skip - error outputs may need different handling
+                continue;  // TODO: Handle error output binding
             } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
-                output = std::static_pointer_cast<TimeSeriesOutput>(src_node->recordable_state());
+                // Recordable state output - need to handle this specially
+                continue;  // TODO: Handle recordable state binding
             } else {
-                output = edge.output_path.empty() ? src_node->output() : _extract_output(src_node, edge.output_path);
+                src_output = src_node->ts_output();
             }
 
-            auto input = _extract_input(dst_node, edge.input_path);
-            // Convert raw output pointer to shared_ptr for bind_output
-            input->bind_output(output ? output->shared_from_this() : time_series_output_s_ptr{});
+            if (!src_output) {
+                throw std::runtime_error("Source node does not have TSOutput");
+            }
+
+            // The input path must have at least one element (the field index in the input bundle)
+            if (edge.input_path.empty()) {
+                throw std::runtime_error("Cannot bind input with empty path");
+            }
+
+            if (!dst_node->has_input()) {
+                throw std::runtime_error("Node does not have TSInput for binding");
+            }
+
+            // Get the field index from the first element of the input path
+            size_t field_index = static_cast<size_t>(edge.input_path[0]);
+
+            // The output path is used to navigate within the output
+            // For the current binding model, we pass the output_path to bind_field
+            dst_node->ts_input()->bind_field(field_index, src_output, edge.output_path, bind_time);
         }
 
         return nodes;

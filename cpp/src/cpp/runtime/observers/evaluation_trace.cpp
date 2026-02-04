@@ -1,6 +1,8 @@
 #include <hgraph/runtime/observers/evaluation_trace.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/runtime/evaluation_context.h>
 #include <fmt/format.h>
 #include <iostream>
@@ -83,37 +85,41 @@ namespace hgraph {
                                      bool add_input, bool add_output,
                                      bool add_scheduled_time) const {
         std::string node_signature = _node_name(node);
-        
-        // TODO: Add input/output value printing when time series access is available
+
+        // TODO: Convert to TSInput-based approach for input value printing
+        // The input delta value needs to be accessed via TSInputView
         if (add_input &&
             node->signature().time_series_inputs.has_value() &&
             node->signature().time_series_inputs.value().size() > 0) {
-            auto delta = node->input()->py_delta_value();
-            node_signature += nb::str(delta).c_str();
+            // Stub: was node->input()->py_delta_value()
+            node_signature += "..."; // TODO: TSInputView delta access
         } else {
             node_signature += "...";
         }
-        
-        node_signature += ")";
-        
-        // TODO: Add output value when available
-        if (add_output && node->output()) {
-            if (node->output()->modified()) {
-                node_signature += " *->* ";
-                node_signature += nb::str(node->output()->py_delta_value()).c_str();
-            } else if (node->output()->valid()) {
 
+        node_signature += ")";
+
+        // TODO: Convert to TSOutput-based approach for output value printing
+        // The output delta value needs to be accessed via TSOutputView
+        if (add_output && node->ts_output()) {
+            auto output_view = node->ts_output()->view(node->graph()->evaluation_time());
+            if (output_view.ts_view().modified()) {
+                node_signature += " *->* ";
+                // Stub: was node->output()->py_delta_value()
+                node_signature += "..."; // TODO: TSOutputView delta access
+            } else if (output_view.ts_view().valid()) {
+                // Valid but not modified - no output to show
             } else {
                 node_signature += "<UnSet>";
             }
         }
-        
+
         std::string scheduled_msg = "";
         if (add_scheduled_time) {
             // TODO: Add scheduler info when available
             // scheduled_msg = fmt::format(" SCHED[{}]", ...);
         }
-        
+
         _print(node->graph()->evaluation_time(),
                fmt::format("{} {} {}{}",
                           _graph_name(node->graph()),

@@ -277,9 +277,35 @@ std::string ShortPath::to_string() const {
 }
 
 TSView ShortPath::resolve(engine_time_t current_time) const {
-    // TODO: Implement resolution from node's port through indices
-    // This requires access to the node's input/output TSValue
-    throw std::runtime_error("ShortPath::resolve not yet implemented");
+    if (!node_) {
+        throw std::runtime_error("ShortPath::resolve() called on invalid path (no node)");
+    }
+
+    TSView view;
+
+    if (port_type_ == PortType::INPUT) {
+        TSInput* input = node_->ts_input();
+        if (!input) {
+            throw std::runtime_error("ShortPath::resolve() failed: node has no TSInput");
+        }
+        view = input->value().ts_view(current_time);
+    } else {
+        TSOutput* output = node_->ts_output();
+        if (!output) {
+            throw std::runtime_error("ShortPath::resolve() failed: node has no TSOutput");
+        }
+        view = output->native_value().ts_view(current_time);
+    }
+
+    // Navigate through indices
+    for (size_t idx : indices_) {
+        view = view[idx];
+    }
+
+    // Set the path on the resolved view
+    view.view_data().path = *this;
+
+    return view;
 }
 
 // ============================================================================

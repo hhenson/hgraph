@@ -18,10 +18,13 @@
 #include <hgraph/types/notifiable.h>
 #include <hgraph/hgraph_forward_declarations.h>
 
+#include <vector>
+
 namespace hgraph {
 
 // Forward declarations
 class TSInputView;
+class TSOutput;
 class TSOutputView;
 
 /**
@@ -184,6 +187,21 @@ public:
      * @brief Check if valid (has schema).
      */
     [[nodiscard]] bool valid() const noexcept { return meta_ != nullptr; }
+
+    // ========== Field Binding (for graph wiring) ==========
+
+    /**
+     * @brief Bind a specific field to an output.
+     *
+     * Used by graph wiring to bind individual fields of the input bundle
+     * to specific outputs. This sets up the link at the specified field index.
+     *
+     * @param field_index Index of the field in the input bundle
+     * @param output The TSOutput to bind to
+     * @param output_path Path within the output (for nested outputs)
+     * @param current_time Current engine time
+     */
+    void bind_field(size_t field_index, TSOutput* output, const std::vector<int64_t>& output_path, engine_time_t current_time);
 
 private:
     TSValue value_;                     ///< Contains Links at leaves pointing to outputs

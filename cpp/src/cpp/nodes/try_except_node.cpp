@@ -5,22 +5,21 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/tsb.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
     void TryExceptNode::wire_outputs() {
-        if (m_output_node_id_ >= 0) {
+        // TODO: Convert to TSOutput-based approach
+        // For TryExceptNode, the output is a bundle with "out" and "exception" fields
+        // The inner node's output should be bound to the "out" field
+        if (m_output_node_id_ >= 0 && ts_output()) {
             auto node = m_active_graph_->nodes()[m_output_node_id_];
-            // Python parity: set the outer REF 'out' to reference the inner node's existing output.
-            // Do NOT replace the inner node's output pointer.
-            // AB: why is this ^ ? I wrote a test taht fails because of this and made it set output to fix - see test_tsb_out_of_try_except
-            if (auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(output().get())) {
-                auto out_ts = (*bundle)["out"]; // TimeSeriesOutput::ptr (expected TimeSeriesReferenceOutput)
-                node->set_output(out_ts);
-            } else {
-                // Non-bundle case (sink): nothing to wire here
-            }
+            // TODO: Need to implement cross-graph output binding
+            // The inner node's output should write to our TSOutput's "out" field
+            (void)node; // Suppress unused warning
         }
     }
 
@@ -43,17 +42,23 @@ namespace hgraph {
             // Create a heap-allocated copy managed by nanobind
             auto error_ptr = nb::ref<NodeError>(new NodeError(err));
 
-            if (auto bundle = dynamic_cast<TimeSeriesBundleOutput *>(output().get())) {
-                // Write to the 'exception' field of the bundle
-                auto exception_ts = (*bundle)["exception"];
-                try {
-                    exception_ts->py_set_value(nb::cast(error_ptr));
-                } catch (const std::exception &set_err) {
-                    exception_ts->py_set_value(nb::str(err.to_string().c_str()));
+            // TODO: Convert to TSOutput-based approach
+            // Output is either a bundle with "exception" field, or direct TS[NodeError]
+            if (ts_output()) {
+                auto output_view = ts_output()->view(graph()->evaluation_time());
+                const TSMeta* meta = ts_output()->ts_meta();
+                if (meta && meta->kind == TSKind::TSB && meta->field_count > 0) {
+                    // Bundle case: write to "exception" field
+                    auto exception_view = output_view.field("exception");
+                    try {
+                        exception_view.from_python(nb::cast(error_ptr));
+                    } catch (const std::exception &set_err) {
+                        exception_view.from_python(nb::str(err.to_string().c_str()));
+                    }
+                } else {
+                    // Sink case: direct TS[NodeError]
+                    output_view.from_python(nb::cast(error_ptr));
                 }
-            } else {
-                // Sink case: direct TS[NodeError]
-                output()->py_set_value(nb::cast(error_ptr));
             }
 
             // Stop the nested component to mirror Python try/except behavior

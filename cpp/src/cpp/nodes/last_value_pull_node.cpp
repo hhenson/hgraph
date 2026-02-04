@@ -1,5 +1,8 @@
 #include <hgraph/nodes/last_value_pull_node.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/graph.h>
 
 namespace hgraph {
     void LastValuePullNode::do_start() {
@@ -25,8 +28,8 @@ namespace hgraph {
     }
 
     void LastValuePullNode::_setup_combine_function() {
-        // Determine which combine function to use based on the output type
-        if (!has_output()) {
+        // Determine which combine function to use based on the output type's TSMeta
+        if (!has_output() || !ts_output()) {
             // Default to simple replacement
             _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
                 return new_delta;
@@ -34,30 +37,34 @@ namespace hgraph {
             return;
         }
 
-        auto output_obj = output().get();
-
-        // Check the type of the output and set the appropriate combine function
-        // TimeSeriesSet (TSS)
-        if (dynamic_cast<TimeSeriesSetOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tss_delta;
-        }
-        // TimeSeriesDict (TSD)
-        else if (dynamic_cast<TimeSeriesDictOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tsd_delta;
-        }
-        // TimeSeriesBundle (TSB)
-        else if (dynamic_cast<TimeSeriesBundleOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tsb_delta;
-        }
-        // TimeSeriesList (TSL)
-        else if (dynamic_cast<TimeSeriesListOutput *>(output_obj)) {
-            _delta_combine_fn = _combine_tsl_delta_value;
-        }
-        // Default: simple replacement
-        else {
+        const TSMeta* meta = ts_output()->ts_meta();
+        if (!meta) {
             _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
                 return new_delta;
             };
+            return;
+        }
+
+        // Check the type of the output based on TSMeta kind
+        switch (meta->kind) {
+            case TSKind::TSS:
+                _delta_combine_fn = _combine_tss_delta;
+                break;
+            case TSKind::TSD:
+                _delta_combine_fn = _combine_tsd_delta;
+                break;
+            case TSKind::TSB:
+                _delta_combine_fn = _combine_tsb_delta;
+                break;
+            case TSKind::TSL:
+                _delta_combine_fn = _combine_tsl_delta_value;
+                break;
+            default:
+                // Default: simple replacement
+                _delta_combine_fn = [](const nb::object &old_delta, const nb::object &new_delta) {
+                    return new_delta;
+                };
+                break;
         }
     }
 
@@ -106,8 +113,9 @@ namespace hgraph {
     }
 
     void LastValuePullNode::do_eval() {
-        if (_delta_value.has_value()) {
-            output()->apply_result(_delta_value.value());
+        if (_delta_value.has_value() && ts_output()) {
+            auto view = ts_output()->view(graph()->evaluation_time());
+            view.from_python(_delta_value.value());
             _delta_value.reset();
         }
     }

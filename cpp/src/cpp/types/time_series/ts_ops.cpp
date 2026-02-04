@@ -118,21 +118,45 @@ namespace scalar_ops {
 // For scalar TS types:
 // - time is directly engine_time_t*
 // - observer is directly ObserverList*
+// - link is REFLink (stores target ViewData when bound)
+
+// Helper: Check if this scalar is linked and get the REFLink
+inline const REFLink* get_active_link(const ViewData& vd) {
+    auto* rl = get_ref_link(vd.link_data);
+    return (rl && rl->target().valid()) ? rl : nullptr;
+}
 
 engine_time_t last_modified_time(const ViewData& vd) {
+    // If linked, delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
+    }
     if (!vd.time_data) return MIN_ST;
     return *static_cast<engine_time_t*>(vd.time_data);
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
+    // If linked, delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->modified(make_view_data_from_link(*rl, vd.path), current_time);
+    }
     return last_modified_time(vd) >= current_time;
 }
 
 bool valid(const ViewData& vd) {
-    return last_modified_time(vd) != MIN_ST;
+    // If linked, delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->valid(make_view_data_from_link(*rl, vd.path));
+    }
+    // Check against MIN_DT (the uninitialized sentinel), not MIN_ST (minimum start time)
+    return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {
+    // If linked, delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
+    }
     // Scalar has no children
     return valid(vd);
 }
@@ -143,16 +167,29 @@ bool sampled(const ViewData& vd) {
 }
 
 value::View value(const ViewData& vd) {
+    // If linked, delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path));
+    }
     return make_value_view(vd);
 }
 
 value::View delta_value(const ViewData& vd) {
-    // Scalar types (TSValue) don't have delta
-    return value::View{};
+    // If linked, delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path));
+    }
+    // For scalar types, delta_value == value (the "event" is the value itself)
+    return make_value_view(vd);
 }
 
 bool has_delta(const ViewData& vd) {
-    return false;
+    // If linked, delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path));
+    }
+    // Scalar types always have a delta when they have a value
+    return valid(vd);
 }
 
 void set_value(ViewData& vd, const value::View& src, engine_time_t current_time) {
@@ -186,14 +223,28 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
+    // If linked, delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
+    }
+    // Check time-series validity first (has value been set?)
+    if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
     return v.to_python();
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    // Scalar types don't have delta
-    return nb::none();
+    // If linked, delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
+    }
+    // For scalar types, delta_value == value (the "event" is the value itself)
+    // Check time-series validity first (has value been set?)
+    if (!valid(vd)) return nb::none();
+    auto v = make_value_view(vd);
+    if (!v.valid()) return nb::none();
+    return v.to_python();
 }
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
@@ -318,7 +369,7 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool valid(const ViewData& vd) {
-    return last_modified_time(vd) != MIN_ST;
+    return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {
@@ -397,6 +448,8 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
+    // Check time-series validity first (has value been set?)
+    if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
     return v.to_python();
@@ -587,7 +640,7 @@ bool valid(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->valid(make_view_data_from_link(*rl, vd.path));
     }
-    return last_modified_time(vd) != MIN_ST;
+    return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {
@@ -684,6 +737,8 @@ nb::object to_python(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
     }
+    // Check time-series validity first (has value been set?)
+    if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
     return v.to_python();
@@ -865,7 +920,7 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool valid(const ViewData& vd) {
-    return last_modified_time(vd) != MIN_ST;
+    return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {
@@ -916,12 +971,16 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
+    // Check time-series validity first (has value been set?)
+    if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
     return v.to_python();
 }
 
 nb::object delta_to_python(const ViewData& vd) {
+    // Check time-series validity first (has value been set?)
+    if (!valid(vd)) return nb::none();
     auto d = make_delta_view(vd);
     if (!d.valid()) return nb::none();
     return d.to_python();
@@ -1108,7 +1167,7 @@ bool valid(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->valid(make_view_data_from_link(*rl, vd.path));
     }
-    return last_modified_time(vd) != MIN_ST;
+    return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {
@@ -1214,6 +1273,8 @@ nb::object to_python(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
     }
+    // Check time-series validity first (has value been set?)
+    if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
     return v.to_python();
@@ -1224,6 +1285,8 @@ nb::object delta_to_python(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
     }
+    // Check time-series validity first (has value been set?)
+    if (!valid(vd)) return nb::none();
     auto d = make_delta_view(vd);
     if (!d.valid()) return nb::none();
     return d.to_python();
@@ -1664,7 +1727,7 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool valid(const ViewData& vd) {
-    return last_modified_time(vd) != MIN_ST;
+    return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {
@@ -1853,7 +1916,7 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool valid(const ViewData& vd) {
-    return last_modified_time(vd) != MIN_ST;
+    return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {

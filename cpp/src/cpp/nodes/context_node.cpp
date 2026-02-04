@@ -4,9 +4,11 @@
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/nodes/context_node.h>
 #include <hgraph/python/global_keys.h>
+#include <hgraph/types/graph.h>
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <nanobind/nanobind.h>
 
 namespace hgraph {
@@ -118,14 +120,20 @@ namespace hgraph {
         }
 
         // Finally, set this node's own REF output to the captured value (may be None)
-        auto my_output = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
-        if (!my_output) {
-            throw std::runtime_error("ContextStubSourceNode: output is not a TimeSeriesReferenceOutput");
-        }
-        if (value_ref.has_value()) {
-            my_output->set_value(*value_ref);
-        } else {
-            my_output->set_value(TimeSeriesReference::make());
+        // TODO: Convert to TSOutput-based approach for REF output type
+        // The ContextStubSourceNode has a REF (TimeSeriesReference) output
+        // Need to use ts_output()->view() and from_python() with the reference value
+        if (ts_output()) {
+            auto output_view = ts_output()->view(graph()->evaluation_time());
+            if (value_ref.has_value()) {
+                // Convert TimeSeriesReference to Python and set via from_python
+                nb::object py_ref = nb::cast(*value_ref);
+                output_view.from_python(py_ref);
+            } else {
+                // Set to empty reference
+                nb::object empty_ref = nb::cast(TimeSeriesReference::make());
+                output_view.from_python(empty_ref);
+            }
         }
     }
 

@@ -7,14 +7,22 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/traits.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/util/date_time.h>
+#include <iostream>
 
 namespace hgraph
 {
     BasePythonNode::BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                                   nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn)
-        : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)), _eval_fn{std::move(eval_fn)},
-          _start_fn{std::move(start_fn)}, _stop_fn{std::move(stop_fn)} {}
+                                   nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn,
+                                   const TSMeta* input_meta, const TSMeta* output_meta,
+                                   const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
+        : Node(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+               input_meta, output_meta, error_output_meta, recordable_state_meta),
+          _eval_fn{std::move(eval_fn)}, _start_fn{std::move(start_fn)}, _stop_fn{std::move(stop_fn)} {}
 
     void BasePythonNode::_initialise_kwargs() {
         // Assuming Injector and related types are properly defined, and scalars is a map-like container
@@ -42,8 +50,12 @@ namespace hgraph
                     if ((injectable & InjectableTypesEnum::NODE) != InjectableTypesEnum::NONE) {
                         wrapped_value = get_node_wrapper();
                     } else if ((injectable & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE) {
-                        auto out = output();
-                        wrapped_value = wrap_time_series(out);
+                        if (has_output()) {
+                            auto view = ts_output()->view(graph()->evaluation_time());
+                            wrapped_value = wrap_output_view(view);
+                        } else {
+                            wrapped_value = nb::none();
+                        }
                     } else if ((injectable & InjectableTypesEnum::SCHEDULER) != InjectableTypesEnum::NONE) {
                         auto sched    = scheduler();
                         wrapped_value = wrap_node_scheduler(sched);
@@ -72,9 +84,9 @@ namespace hgraph
                     } else if ((injectable & InjectableTypesEnum::TRAIT) != InjectableTypesEnum::NONE) {
                         wrapped_value = g ? wrap_traits(&g->traits(), g->shared_from_this()) : nb::none();
                     } else if ((injectable & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
-                        auto recordable_state = this->recordable_state();
-                        if (!recordable_state) { throw std::runtime_error("Recordable state not set"); }
-                        wrapped_value = wrap_time_series(recordable_state);
+                        if (!has_recordable_state()) { throw std::runtime_error("Recordable state not set"); }
+                        auto view = ts_recordable_state()->view(graph()->evaluation_time());
+                        wrapped_value = wrap_output_view(view);
                     } else {
                         // Fallback: call injector with this node (same behaviour as python impl)
                         wrapped_value = value(get_node_wrapper());
@@ -100,23 +112,27 @@ namespace hgraph
     void BasePythonNode::_initialise_kwarg_inputs() {
         // This can be called during wiring in the current flow, would be worth looking into that to clean up, but for now protect
         if (graph() == nullptr) { return; }
-        // If is not a compute node or sink node, there are no inputs to map
-        auto input_{input()};
-        if (!input_) { return; }
-        auto &signature_args = signature().args;
-        // Match main branch behavior: iterate over time_series_inputs
-        for (size_t i = 0, l = signature().time_series_inputs.has_value() ? signature().time_series_inputs->size() : 0;
-             i < l;
-             ++i) {
-            auto key{input_->schema().keys()[i]};
-            if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                auto wrapped = wrap_time_series(input_->operator[](i));
-                if (wrapped.is_none()) {
-                    throw std::runtime_error(
-                        std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap time-series input '") +
-                        key + "' - wrap_time_series returned None. This indicates a bug in the wrapper factory.");
+
+        // Check if we have TSInput (new path) or legacy input
+        if (has_input()) {
+            // TSInput path: wrap TSInputView for each field
+            auto &signature_args = signature().args;
+            const TSMeta* meta = ts_input()->meta();
+            if (!meta || meta->kind != TSKind::TSB) return; // Only bundles have fields
+
+            for (size_t i = 0; i < meta->field_count; ++i) {
+                std::string key = meta->fields[i].name;
+                if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
+                    // Get TSInputView for this field and wrap it for Python using the correct wrapper
+                    TSInputView field_view = ts_input()->view(graph()->evaluation_time())[i];
+                    nb::object wrapped = wrap_input_view(field_view);
+                    if (wrapped.is_none()) {
+                        throw std::runtime_error(
+                            std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap TSInputView for '") +
+                            key + "'.");
+                    }
+                    _kwargs[key.c_str()] = wrapped;
                 }
-                _kwargs[key.c_str()] = wrapped;
             }
         }
     }
@@ -167,13 +183,11 @@ namespace hgraph
         nb::object restored_state = replay_const(nb::str("__state__"), tsb_type, nb::arg("recordable_id") = recordable_id,
                                                  nb::arg("tm") = nb::cast(tm), nb::arg("as_of") = as_of);
 
-        // Set the value on recordable_state
-        recordable_state()->apply_result(restored_state.attr("value"));
-    }
-
-    void BasePythonNode::reset_input(const time_series_bundle_input_s_ptr& value) {
-        Node::reset_input(value);
-        _initialise_kwarg_inputs();
+        // Set the value on recordable_state via TSOutput
+        if (ts_recordable_state()) {
+            auto view = ts_recordable_state()->view(graph()->evaluation_time());
+            view.from_python(restored_state.attr("value"));
+        }
     }
 
     class ContextManager
@@ -182,11 +196,16 @@ namespace hgraph
         explicit ContextManager(BasePythonNode &node) {
             if (node.signature().context_inputs.has_value() && !node.signature().context_inputs->empty()) {
                 contexts_.reserve(node.signature().context_inputs->size());
-                for (const auto &context_key : *node.signature().context_inputs) {
-                    if ((*node.input())[context_key]->valid()) {
-                        nb::object context_value = (*node.input())[context_key]->py_value();
-                        context_value.attr("__enter__")();
-                        contexts_.push_back(context_value);
+                auto* ts_input = node.ts_input();
+                if (ts_input) {
+                    auto input_view = ts_input->view(node.graph()->evaluation_time());
+                    for (const auto &context_key : *node.signature().context_inputs) {
+                        auto field_view = input_view.field(context_key);
+                        if (field_view.valid()) {
+                            nb::object context_value = field_view.to_python();
+                            context_value.attr("__enter__")();
+                            contexts_.push_back(context_value);
+                        }
                     }
                 }
             }
@@ -215,8 +234,17 @@ namespace hgraph
         ContextManager context_manager(*this);
         try {
             auto out{_eval_fn(**_kwargs)};
-            if (!out.is_none()) { output()->apply_result(out); }
-        } catch (nb::python_error &e) { throw NodeException::capture_error(e, *this, "During Python node evaluation"); }
+            if (!out.is_none()) {
+                if (has_output()) {
+                    auto view = ts_output()->view(graph()->evaluation_time());
+                    view.from_python(out);
+                }
+            }
+        } catch (nb::python_error &e) {
+            throw NodeException::capture_error(e, *this, "During Python node evaluation");
+        } catch (std::exception &e) {
+            throw NodeException::capture_error(e, *this, "During Python node evaluation");
+        }
     }
 
     void BasePythonNode::do_start() {
@@ -265,7 +293,6 @@ namespace hgraph
         _initialise_kwargs();
         _initialise_inputs();
         _initialise_state();
-        // Now call parent class
         Node::start();
     }
 

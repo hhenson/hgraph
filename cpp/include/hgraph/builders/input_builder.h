@@ -8,6 +8,9 @@
 #include <hgraph/builders/builder.h>
 
 namespace hgraph {
+
+    // Forward declaration
+    struct TSMeta;
     // The InputBuilder class implementation
 
     struct InputBuilder : Builder {
@@ -30,6 +33,12 @@ namespace hgraph {
         virtual void release_instance(time_series_input_ptr item) const;
 
         virtual bool has_reference() const { return false; }
+
+        /**
+         * Get the TSMeta schema for this input, if available.
+         * Default returns nullptr; concrete builders override if they have TSMeta.
+         */
+        virtual const TSMeta* ts_meta() const { return nullptr; }
 
         static void register_with_nanobind(nb::module_ &m);
     };

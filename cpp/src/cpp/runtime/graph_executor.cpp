@@ -7,6 +7,7 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/util/lifecycle.h>
+#include <iostream>
 
 namespace hgraph
 {
@@ -114,7 +115,9 @@ namespace hgraph
             // Use RAII; StartStopContext destructor will stop and set Python error if exception occurs
             {
                 auto startStopContext = StartStopContext(*graph);
-                while (clock->evaluation_time() < end_time) { _evaluate(*evaluationEngine, *graph); }
+                while (clock->evaluation_time() < end_time) {
+                    _evaluate(*evaluationEngine, *graph);
+                }
             }
             // After StartStopContext destruction, check if a Python error was set during stop
             if (PyErr_Occurred()) { throw nb::python_error(); }

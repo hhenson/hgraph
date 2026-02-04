@@ -1,6 +1,7 @@
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_meta.h>
 
 #include <hgraph/builders/builder.h>
 #include <hgraph/builders/graph_builder.h>
@@ -56,10 +57,8 @@ namespace hgraph {
     }
 
     void NodeBuilder::release_instance(const node_s_ptr &item) const {
-        if (input_builder) { (*input_builder)->release_instance(item->input().get()); }
-        if (output_builder) { (*output_builder)->release_instance(item->output().get()); }
-        if (error_builder) { (*error_builder)->release_instance(item->error_output().get()); }
-        if (recordable_state_builder) { (*recordable_state_builder)->release_instance(item->recordable_state().get()); }
+        // TSInput/TSOutput are stored inline in the Node and cleaned up automatically by Node's destructor
+        // No explicit release needed
         dispose_component(*item);
     }
 
@@ -102,6 +101,34 @@ namespace hgraph {
         return total;
     }
 
+    const TSMeta* NodeBuilder::input_meta() const {
+        if (input_builder.has_value()) {
+            return (*input_builder)->ts_meta();
+        }
+        return nullptr;
+    }
+
+    const TSMeta* NodeBuilder::output_meta() const {
+        if (output_builder.has_value()) {
+            return (*output_builder)->ts_meta();
+        }
+        return nullptr;
+    }
+
+    const TSMeta* NodeBuilder::error_output_meta() const {
+        if (error_builder.has_value()) {
+            return (*error_builder)->ts_meta();
+        }
+        return nullptr;
+    }
+
+    const TSMeta* NodeBuilder::recordable_state_meta() const {
+        if (recordable_state_builder.has_value()) {
+            return (*recordable_state_builder)->ts_meta();
+        }
+        return nullptr;
+    }
+
     void NodeBuilder::register_with_nanobind(nb::module_ &m) {
         nb::class_ < NodeBuilder, Builder > (m, "NodeBuilder")
                 .def("make_instance", &NodeBuilder::make_instance, "owning_graph_id"_a, "node_ndx"_a)
@@ -140,26 +167,9 @@ namespace hgraph {
     }
 
     void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node) const {
-        if (input_builder.has_value()) {
-            auto ts_input = (*input_builder)->make_instance(node);
-            // The input is always a TimeSeriesBundleInput at this level.
-            node->set_input(std::static_pointer_cast<TimeSeriesBundleInput>(ts_input));
-        }
-
-        if (output_builder.has_value()) {
-            auto ts_output = (*output_builder)->make_instance(node);
-            node->set_output(ts_output);
-        }
-
-        if (error_builder.has_value()) {
-            auto ts_error_output = (*error_builder)->make_instance(node);
-            node->set_error_output(ts_error_output);
-        }
-
-        if (recordable_state_builder.has_value()) {
-            auto ts_recordable_state = (*recordable_state_builder)->make_instance(node);
-            // The recordable_state is always a TimeSeriesBundleOutput at this level.
-            node->set_recordable_state(std::static_pointer_cast<TimeSeriesBundleOutput>(ts_recordable_state));
-        }
+        // TSInput/TSOutput are now created by the Node constructor from TSMeta
+        // This method is kept for compatibility but is now a no-op
+        // The Node constructor receives TSMeta from input_meta(), output_meta(),
+        // error_output_meta(), and recordable_state_meta()
     }
 } // namespace hgraph

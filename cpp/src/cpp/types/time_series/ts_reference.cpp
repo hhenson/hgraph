@@ -412,12 +412,14 @@ nb::object ScalarOps<TSReference>::to_python(const void* obj, const TypeMeta*) {
 void ScalarOps<TSReference>::from_python(void* dst, const nb::object& src, const TypeMeta*) {
     auto& ref = *static_cast<TSReference*>(dst);
 
-    // Import Python TimeSeriesReference module
-    auto ref_module = nb::module_::import_("hgraph._types._ref_type");
-    auto ts_ref_type = ref_module.attr("TimeSeriesReference");
-
     if (src.is_none()) {
         ref = TSReference::empty();
+        return;
+    }
+
+    // Check if it's a C++ TSReference directly
+    if (nb::isinstance<TSReference>(src)) {
+        ref = nb::cast<TSReference>(src);
         return;
     }
 
@@ -444,7 +446,11 @@ void ScalarOps<TSReference>::from_python(void* dst, const nb::object& src, const
         }
     }
 
-    // Check if it's a TimeSeriesReference instance
+    // Import Python TimeSeriesReference module
+    auto ref_module = nb::module_::import_("hgraph._types._ref_type");
+    auto ts_ref_type = ref_module.attr("TimeSeriesReference");
+
+    // Check if it's a Python TimeSeriesReference instance
     if (nb::isinstance(src, ts_ref_type)) {
         // Check is_empty property
         if (nb::cast<bool>(src.attr("is_empty"))) {
@@ -455,8 +461,38 @@ void ScalarOps<TSReference>::from_python(void* dst, const nb::object& src, const
         // Check has_output (BoundTimeSeriesReference)
         if (nb::cast<bool>(src.attr("has_output"))) {
             // This is a BoundTimeSeriesReference - we need to extract the output's path
-            // TODO: Extract ShortPath from the output
-            // For now, create an empty reference as placeholder
+            // Get the output property
+            nb::object output_obj = src.attr("output");
+
+            // Try to get the short_path if the output has a TSOutputView
+            // This requires the output to have a short_path() method (C++ wrapper)
+            if (nb::hasattr(output_obj, "_short_path_for_ref")) {
+                // The output wrapper provides a helper method that returns the ShortPath
+                // as a tuple: (node_ptr, port_type, indices)
+                try {
+                    nb::tuple path_tuple = nb::cast<nb::tuple>(output_obj.attr("_short_path_for_ref")());
+                    // path_tuple is (node, port_type, indices)
+                    // For now, we can't easily reconstruct the ShortPath without the Node pointer
+                    // Fall back to storing as FQReference
+                    int node_id = 0;  // We don't have a reliable way to get node_id here
+                    PortType port_type = PortType::OUTPUT;
+
+                    std::vector<size_t> indices;
+                    nb::list indices_list = nb::cast<nb::list>(path_tuple[2]);
+                    for (size_t i = 0; i < nb::len(indices_list); ++i) {
+                        indices.push_back(nb::cast<size_t>(indices_list[i]));
+                    }
+
+                    FQReference fq = FQReference::peered(node_id, port_type, std::move(indices));
+                    ref = TSReference::from_fq(fq, nullptr);
+                    return;
+                } catch (...) {
+                    // Fall through to empty reference
+                }
+            }
+
+            // Couldn't extract path - create empty reference
+            // TODO: Improve this to properly extract path from Python outputs
             ref = TSReference::empty();
             return;
         }

@@ -5,6 +5,7 @@
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/feature_extension.h>
+#include <hgraph/types/time_series/ts_meta.h>
 #include <optional>
 #include <unordered_map>
 
@@ -39,6 +40,8 @@ namespace hgraph {
 
         SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                    nb::dict scalars,
+                   const TSMeta* input_meta, const TSMeta* output_meta,
+                   const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                    const value::TypeMeta* key_type,
                    graph_builders_map_ptr nested_graph_builders,
                    input_node_ids_map_ptr input_node_ids,

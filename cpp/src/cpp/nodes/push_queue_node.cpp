@@ -6,6 +6,8 @@
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/time_series_type.h>
+#include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/tsd.h>
 
 namespace hgraph {
@@ -18,84 +20,28 @@ namespace hgraph {
     }
 
     bool PushQueueNode::apply_message(nb::object message) {
-        if (_batch) {
-            // Batch mode: accumulate messages into a tuple
-            auto output_ptr = output();
+        // TODO: Convert to TSOutput-based approach
+        // This method needs significant rework for TSOutput:
+        // - For batch mode: accumulate messages, handle TSD special case
+        // - For non-batch: check can_apply_result and apply
+        // The _is_tsd flag and TSD-specific handling needs TSMeta-based detection
+        // and TSOutputView navigation
+        if (!ts_output()) {
+            return false;
+        }
 
-            if (_is_tsd) {
-                // TODO: This allows us to operate on the python level, would prefer to
-                //       Handle this better with correct type-matched objects.
-                auto tsd_output = wrap_time_series(output_ptr);
+        auto output_view = ts_output()->view(graph()->evaluation_time());
 
-                auto remove = get_remove();
-                auto remove_if_exist = get_remove_if_exists();
-
-                // For TSD outputs, iterate over message dict
-                auto msg_dict = nb::cast<nb::dict>(message);
-                for (auto [key, val]: msg_dict) {
-                    if (val.is(remove) || val.is(remove_if_exist)) {
-                        auto child_output = tsd_output.attr("get")(nb::cast<nb::object>(key), nb::none());
-                        if (!child_output.is_none()) {
-                            auto unwrapped = unwrap_output(child_output);
-                            if (unwrapped && unwrapped->modified()) {
-                                return false; // reject message because cannot remove when there is unprocessed data
-                           }
-                        }
-                    }
-                }
-                for (auto [key, val]: msg_dict) {
-                    if (!val.is(remove) && !val.is(remove_if_exist)) {
-                        auto child_output_obj = tsd_output.attr("get_or_create")(nb::cast<nb::object>(key));
-                        auto child_output = unwrap_output(child_output_obj);
-
-                        if (child_output->modified()) {
-                            // Append to existing tuple
-                            auto existing = child_output->py_value();
-                            size_t existing_len = PyTuple_Size(existing.ptr());
-                            nb::tuple new_tuple = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
-                            for (size_t i = 0; i < existing_len; ++i) {
-                                PyTuple_SET_ITEM(new_tuple.ptr(), i, nb::borrow(existing[i]).release().ptr());
-                            }
-                            PyTuple_SET_ITEM(new_tuple.ptr(), existing_len, nb::borrow(val).release().ptr());
-                            child_output->py_set_value(new_tuple);
-                        } else {
-                            // Create new tuple with single element
-                            nb::tuple new_tuple = nb::make_tuple(val);
-                            child_output->py_set_value(new_tuple);
-                        }
-                    } else {
-                        tsd_output.attr("pop")(nb::cast<nb::object>(key), nb::none());
-                    }
-                }
-            } else {
-                // For non-TSD outputs, accumulate messages into a tuple
-                if (output_ptr->modified()) {
-                    // Append to existing tuple
-                    auto existing = output_ptr->py_value();
-                    size_t existing_len = PyTuple_Size(existing.ptr());
-                    nb::tuple new_tuple = nb::steal<nb::tuple>(PyTuple_New(existing_len + 1));
-                    for (size_t i = 0; i < existing_len; ++i) {
-                        PyTuple_SET_ITEM(new_tuple.ptr(), i, nb::borrow(existing[i]).release().ptr());
-                    }
-                    PyTuple_SET_ITEM(new_tuple.ptr(), existing_len, message.release().ptr());
-                    output_ptr->py_set_value(new_tuple);
-                } else {
-                    // Create new tuple with single element
-                    nb::tuple new_tuple = nb::make_tuple(message);
-                    output_ptr->py_set_value(new_tuple);
-                }
-            }
-
+        // Non-batch simple case: just apply the message
+        if (!_batch) {
+            // TODO: Need can_apply_result equivalent for TSOutputView
+            output_view.from_python(std::move(message));
             ++_messages_dequeued;
             return true;
         }
 
-        if (_elide || output()->can_apply_result(message)) {
-            output()->apply_result(std::move(message));
-            ++_messages_dequeued;
-            return true;
-        }
-        return false;
+        // TODO: Batch mode with tuple accumulation needs implementation
+        throw std::runtime_error("PushQueueNode::apply_message batch mode needs TSOutput conversion - TODO");
     }
 
     int64_t PushQueueNode::messages_in_queue() const { return _messages_queued - _messages_dequeued; }
@@ -106,7 +52,8 @@ namespace hgraph {
         _receiver = &graph()->receiver();
         _elide = scalars().contains("elide") ? nb::cast<bool>(scalars()["elide"]) : false;
         _batch = scalars().contains("batch") ? nb::cast<bool>(scalars()["batch"]) : false;
-        _is_tsd = dynamic_cast<TimeSeriesDictOutput *>(output().get()) != nullptr;
+        // Determine if output is TSD using TSMeta
+        _is_tsd = ts_output() && ts_output()->ts_meta() && ts_output()->ts_meta()->kind == TSKind::TSD;
 
         // If an eval function was provided (from push_queue decorator), call it with a sender and scalar kwargs
         if (_eval_fn.is_valid() && !_eval_fn.is_none()) {

@@ -3,8 +3,12 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/observer_list.h>
+#include <hgraph/types/time_series/ref_link.h>
+#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/value/indexed_view.h>
 #include <hgraph/types/node.h>
+#include <iostream>
 
 namespace hgraph {
 
@@ -38,50 +42,99 @@ void TSInput::set_active(bool active) {
     value::View av = active_view();
     if (!av) return;
 
-    // For composite types, the first element is the root-level bool
-    // For scalar types, it's just a bool directly
-    if (meta_->is_collection() || meta_->kind == TSKind::TSB) {
-        // Composite: tuple[bool, ...]
+    // Handle different active schema structures:
+    // - Scalar (TSValue, TSW, SIGNAL): just a bool
+    // - TSB: tuple[bool, field0_active, field1_active, ...]
+    // - TSL/TSD/TSS: tuple[bool, list[element_active]]
+
+    if (meta_->kind == TSKind::TSB) {
+        // TSB: tuple[bool, field0_active, field1_active, ...]
         value::TupleView tv = av.as_tuple();
         value::View root = tv[0];
         if (root) {
             *static_cast<bool*>(root.data()) = active;
         }
+        // Also set active for all fields and manage subscriptions
+        value::View link_view = value_.link_view();
+        value::ListView link_list = link_view ? link_view.as_list() : value::ListView{};
 
-        // For TSL/TSD, also set element active states
-        if (meta_->is_collection()) {
-            value::View element_list = tv[1];
-            if (element_list) {
-                value::ListView lv = element_list.as_list();
-                for (size_t i = 0; i < lv.size(); ++i) {
-                    value::View elem_active = lv[i];
-                    if (elem_active) {
-                        // Element active could be bool (scalar) or tuple (composite)
-                        const TSMeta* elem_ts = meta_->element_ts;
-                        if (elem_ts && (elem_ts->is_collection() || elem_ts->kind == TSKind::TSB)) {
-                            // Composite element: set first element (root bool)
-                            value::TupleView elem_tv = elem_active.as_tuple();
-                            value::View elem_root = elem_tv[0];
-                            if (elem_root) {
-                                *static_cast<bool*>(elem_root.data()) = active;
-                            }
-                        } else {
-                            // Scalar element: set directly
-                            *static_cast<bool*>(elem_active.data()) = active;
-                        }
+        for (size_t i = 0; i < meta_->field_count; ++i) {
+            value::View field_active = tv[i + 1]; // +1 because index 0 is root bool
+            if (field_active) {
+                const TSMeta* field_ts = meta_->fields[i].ts_type;
+                if (field_ts->is_collection() || field_ts->kind == TSKind::TSB) {
+                    // Composite field: set first element (root bool)
+                    value::TupleView field_tv = field_active.as_tuple();
+                    value::View field_root = field_tv[0];
+                    if (field_root) {
+                        *static_cast<bool*>(field_root.data()) = active;
+                    }
+                } else {
+                    // Scalar field: set directly
+                    *static_cast<bool*>(field_active.data()) = active;
+                }
+            }
+
+            // Manage subscriptions for bound fields
+            if (link_list && i < link_list.size()) {
+                auto* rl = static_cast<REFLink*>(link_list.at(i).data());
+                if (rl && rl->target().is_linked && rl->target().observer_data) {
+                    auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+                    if (active) {
+                        observers->add_observer(this);
+                    } else {
+                        observers->remove_observer(this);
                     }
                 }
             }
         }
+    } else if (meta_->is_collection()) {
+        // TSL/TSD/TSS: tuple[bool, list[element_active]]
+        value::TupleView tv = av.as_tuple();
+        value::View root = tv[0];
+        if (root) {
+            *static_cast<bool*>(root.data()) = active;
+        }
+        value::View element_list = tv[1];
+        if (element_list && element_list.is_list()) {
+            value::ListView lv = element_list.as_list();
+            for (size_t i = 0; i < lv.size(); ++i) {
+                value::View elem_active = lv[i];
+                if (elem_active) {
+                    const TSMeta* elem_ts = meta_->element_ts;
+                    if (elem_ts && (elem_ts->is_collection() || elem_ts->kind == TSKind::TSB)) {
+                        // Composite element: set first element (root bool)
+                        value::TupleView elem_tv = elem_active.as_tuple();
+                        value::View elem_root = elem_tv[0];
+                        if (elem_root) {
+                            *static_cast<bool*>(elem_root.data()) = active;
+                        }
+                    } else {
+                        // Scalar element: set directly
+                        *static_cast<bool*>(elem_active.data()) = active;
+                    }
+                }
+            }
+        }
+        // TODO: Add subscription management for collection elements
     } else {
-        // Scalar: just bool
+        // Scalar (TSValue, TSW, SIGNAL): just a bool
         *static_cast<bool*>(av.data()) = active;
-    }
 
-    // Note: Subscription management is handled at the view level
-    // via TSInputView::make_active() and TSInputView::make_passive().
-    // This method only sets the boolean active flags.
-    // Callers should use the view methods to properly manage subscriptions.
+        // Manage subscription for scalar input if bound
+        value::View link_view = value_.link_view();
+        if (link_view) {
+            auto* rl = static_cast<REFLink*>(link_view.data());
+            if (rl && rl->target().is_linked && rl->target().observer_data) {
+                auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+                if (active) {
+                    observers->add_observer(this);
+                } else {
+                    observers->remove_observer(this);
+                }
+            }
+        }
+    }
 }
 
 void TSInput::set_active(const std::string& field, bool active) {
@@ -127,6 +180,23 @@ void TSInput::set_active(const std::string& field, bool active) {
         // Scalar: just set the bool directly
         *static_cast<bool*>(field_active.data()) = active;
     }
+
+    // Manage subscription for this field if bound
+    value::View link_view = value_.link_view();
+    if (link_view) {
+        auto link_list = link_view.as_list();
+        if (field_index < link_list.size()) {
+            auto* rl = static_cast<REFLink*>(link_list.at(field_index).data());
+            if (rl && rl->target().is_linked && rl->target().observer_data) {
+                auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+                if (active) {
+                    observers->add_observer(this);
+                } else {
+                    observers->remove_observer(this);
+                }
+            }
+        }
+    }
 }
 
 void TSInput::notify(engine_time_t et) {
@@ -165,6 +235,73 @@ value::View TSInput::active_view() {
 
 value::View TSInput::active_view() const {
     return const_cast<value::Value<>&>(active_).view();
+}
+
+void TSInput::bind_field(size_t field_index, TSOutput* output, const std::vector<int64_t>& output_path, engine_time_t current_time) {
+    // Only valid for bundle inputs
+    if (!meta_ || meta_->kind != TSKind::TSB) {
+        throw std::runtime_error("bind_field only valid for bundle (TSB) inputs");
+    }
+
+    if (field_index >= meta_->field_count) {
+        throw std::runtime_error("bind_field: field index out of range");
+    }
+
+    if (!output) {
+        throw std::runtime_error("bind_field: output is null");
+    }
+
+    // Get the link storage for this input
+    // The link schema for TSB is: fixed_list[REFLink] with one entry per field
+    auto link_schema = TSMetaSchemaCache::instance().get_link_schema(meta_);
+    if (!link_schema) {
+        throw std::runtime_error("bind_field: no link schema for input");
+    }
+
+    value::View link_view = value_.link_view();
+    if (!link_view) {
+        throw std::runtime_error("bind_field: no link data for input");
+    }
+
+    auto link_list = link_view.as_list();
+    if (field_index >= link_list.size()) {
+        throw std::runtime_error("bind_field: field index out of range in link list");
+    }
+
+    // Get the REFLink at this field index
+    auto* rl = static_cast<REFLink*>(link_list.at(field_index).data());
+    if (!rl) {
+        throw std::runtime_error("bind_field: no REFLink at field index");
+    }
+
+    // Navigate to the output field using the output path
+    TSOutputView output_view = output->view(current_time);
+    for (auto idx : output_path) {
+        if (idx >= 0) {
+            output_view = output_view[static_cast<size_t>(idx)];
+        }
+        // Skip negative indices (like KEY_SET) for now
+    }
+
+    // Get the target ViewData from the output
+    const ViewData& target_vd = output_view.view_data();
+
+    // Set up the link target - access the target through the public interface
+    // and then modify the internal state
+    LinkTarget& lt = const_cast<LinkTarget&>(rl->target());
+    lt.is_linked = true;
+    lt.value_data = target_vd.value_data;
+    lt.time_data = target_vd.time_data;
+    lt.observer_data = target_vd.observer_data;
+    lt.delta_data = target_vd.delta_data;
+    lt.link_data = target_vd.link_data;
+    lt.ops = target_vd.ops;
+    lt.meta = target_vd.meta;
+
+    // Subscribe to the output if active
+    if (active()) {
+        output_view.subscribe(this);
+    }
 }
 
 // ============================================================================

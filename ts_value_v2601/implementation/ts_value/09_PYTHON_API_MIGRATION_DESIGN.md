@@ -2,9 +2,11 @@
 
 ## TSView-Based Python Wrapper Architecture
 
-**Version**: 2.0 (Revised)
-**Date**: 2026-01-30
-**Status**: Design - Ready for Review
+**Version**: 2.1 (Corrected)
+**Date**: 2026-02-03
+**Status**: Implementation In Progress
+
+> **IMPORTANT CORRECTION**: This document describes **replacing** `_impl` with `view_` in existing wrappers, NOT creating new wrapper classes or maintaining dual storage permanently.
 
 ---
 
@@ -92,14 +94,23 @@ TSOutput and TSInput are stored in Node as value members, not heap-allocated via
 
 ### 2.4 Lifetime Management Changes
 
-**Old Approach:**
+**Old Approach (being removed):**
 ```cpp
 // ApiPtr holds shared_ptr to heap-allocated TimeSeriesType
 ApiPtr<TimeSeriesOutput> _impl;
 // Control block manages lifetime
 ```
 
-**New Approach:**
+**Current State (transitional):**
+```cpp
+// Both old and new storage present during migration
+struct PyTimeSeriesOutput {
+    api_ptr _impl;                           // LEGACY - TO BE REMOVED
+    std::optional<TSOutputView> output_view_; // NEW - REPLACEMENT
+};
+```
+
+**Target State (end goal):**
 ```cpp
 // TSOutput/TSInput are value members in Node
 struct Node {
@@ -107,12 +118,9 @@ struct Node {
     std::vector<TSInput> inputs_;
 };
 
-// Python wrappers hold:
-// 1. shared_ptr<Node> for lifetime guarantee
-// 2. TSOutputView/TSInputView for data access
+// Python wrappers hold only view-based storage:
 struct PyTimeSeriesOutput {
-    std::shared_ptr<Node> node_;    // Keeps Node alive
-    TSOutputView view_;              // View into output
+    TSOutputView output_view_;    // View into output (includes node lifetime)
 };
 ```
 
@@ -1246,35 +1254,39 @@ nb::object create_wrapper_for_kind(
 
 ---
 
-## 11. Implementation Strategy
+## 11. Implementation Strategy (CORRECTED)
 
-### 11.1 Phase 1: Parallel Implementation
+> **CORRECTION**: We are NOT creating new wrapper classes. We are replacing `_impl` with `view_` in the EXISTING wrappers.
 
-Create new wrapper classes alongside old ones:
-- `PyTimeSeriesOutputV2`, `PyTimeSeriesInputV2`, etc.
-- New wrappers use TSView-based backing
-- Register with different Python names initially for testing
+### 11.1 Phase 1: Add View-Based Infrastructure ✅ COMPLETE
 
-### 11.2 Phase 2: Feature Parity Testing
+Add view-based storage and methods to existing wrappers:
+- Add `view_` / `output_view_` / `input_view_` members
+- Add view-based constructors
+- Implement view-based code paths in all methods
+- Transitionally use `has_view()` checks to support both paths
 
-Verify all existing tests pass with new wrappers:
-- Run test suite with both implementations
-- Compare behavior for edge cases
-- Ensure Python API is identical
+### 11.2 Phase 2: Update Call Sites 🚧 IN PROGRESS
 
-### 11.3 Phase 3: Migration
+Update all code that creates wrappers:
+- Wrapper factory functions
+- Node output/input creation
+- Navigation methods (get_item, field, etc.)
 
-Replace old wrappers with new ones:
-- Update factory functions to create new wrappers
-- Remove old wrapper classes
-- Update any internal usage
+### 11.3 Phase 3: Remove Legacy Code ⏳ PENDING
 
-### 11.4 Phase 4: Cleanup
+Once all call sites use views:
+- Remove `_impl` member from PyTimeSeriesType
+- Remove legacy constructors
+- Remove `has_view()` checks and legacy branches
+- Simplify method implementations to direct view access
 
-Remove deprecated code:
-- Old TimeSeriesInput/TimeSeriesOutput class hierarchy (if fully replaced)
-- ApiPtr usage for time-series (kept for other types)
-- Virtual method implementations in old classes
+### 11.4 Phase 4: Cleanup ⏳ PENDING
+
+Final cleanup:
+- Remove ApiPtr usage for time-series types
+- Remove old TimeSeriesType C++ class hierarchy (if fully replaced)
+- Simplify wrapper_factory.cpp
 
 ---
 

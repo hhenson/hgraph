@@ -119,26 +119,41 @@ namespace hgraph
     }
 
     nb::object PyNode::input() const {
-        auto inp = _impl->input();
-        return inp ? wrap_input(inp) : nb::none();
+        auto* ts_input = _impl->ts_input();
+        if (!ts_input) { return nb::none(); }
+        auto view = ts_input->view(_impl->graph()->evaluation_time());
+        return wrap_input_view(view);
     }
 
     nb::dict PyNode::inputs() const {
         nb::dict d;
-        auto inp_ = _impl->input();
-        if (!inp_) { return d; }
-        for (const auto &key : inp_->schema().keys()) { d[key.c_str()] = wrap_input((*inp_)[key]); }
+        auto* ts_input = _impl->ts_input();
+        if (!ts_input) { return d; }
+        const TSMeta* meta = ts_input->meta();
+        if (!meta || meta->kind != TSKind::TSB) { return d; }
+        auto view = ts_input->view(_impl->graph()->evaluation_time());
+        for (size_t i = 0; i < meta->field_count; ++i) {
+            auto field_view = view[i];
+            d[meta->fields[i].name] = wrap_input_view(field_view);
+        }
         return d;
     }
 
     nb::tuple PyNode::start_inputs() const { return nb::tuple(nb::cast(_impl->start_inputs())); }
 
     nb::object PyNode::output() {
-        auto out = _impl->output();
-        return out ? wrap_output(out) : nb::none();
+        auto* ts_output = _impl->ts_output();
+        if (!ts_output) { return nb::none(); }
+        auto view = ts_output->view(_impl->graph()->evaluation_time());
+        return wrap_output_view(view);
     }
 
-    nb::object PyNode::recordable_state() { return wrap_time_series(_impl->recordable_state()); }
+    nb::object PyNode::recordable_state() {
+        auto* ts_recordable = _impl->ts_recordable_state();
+        if (!ts_recordable) { return nb::none(); }
+        auto view = ts_recordable->view(_impl->graph()->evaluation_time());
+        return wrap_output_view(view);
+    }
 
     nb::bool_ PyNode::has_recordable_state() const { return nb::bool_(_impl->has_recordable_state()); }
 
@@ -146,7 +161,12 @@ namespace hgraph
 
     nb::bool_ PyNode::has_scheduler() const { return nb::bool_(_impl->has_scheduler()); }
 
-    nb::object PyNode::error_output() { return wrap_output(_impl->error_output()); }
+    nb::object PyNode::error_output() {
+        auto* ts_error = _impl->ts_error_output();
+        if (!ts_error) { return nb::none(); }
+        auto view = ts_error->view(_impl->graph()->evaluation_time());
+        return wrap_output_view(view);
+    }
 
     nb::bool_ PyNode::has_input() const { return nb::bool_(_impl->has_input()); }
 

@@ -14,8 +14,9 @@ namespace hgraph {
 
     node_s_ptr LastValuePullNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id,
                                                      int64_t node_ndx) const {
-        auto node = arena_make_shared_as<LastValuePullNode, Node>(node_ndx, owning_graph_id, signature, scalars);
-        _build_inputs_and_outputs(node.get());
+        auto node = arena_make_shared_as<LastValuePullNode, Node>(
+            node_ndx, owning_graph_id, signature, scalars,
+            input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
         return node;
     }
 

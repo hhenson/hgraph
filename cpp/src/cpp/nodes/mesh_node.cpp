@@ -73,11 +73,14 @@ namespace hgraph {
 
     MeshNode::MeshNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                        nb::dict scalars,
+                       const TSMeta* input_meta, const TSMeta* output_meta,
+                       const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                        graph_builder_s_ptr nested_graph_builder,
                        const std::unordered_map<std::string, int64_t> &input_node_ids,
                        int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args,
                        const std::string &key_arg, const std::string &context_path)
         : TsdMapNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+                     input_meta, output_meta, error_output_meta, recordable_state_meta,
                      std::move(nested_graph_builder), input_node_ids, output_node_id, multiplexed_args, key_arg) {
         // Build full context key using centralized key builder to match Python format
         full_context_path_ = keys::context_output_key(this->owning_graph_id(), context_path);
@@ -104,18 +107,16 @@ namespace hgraph {
 
         // Set up the reference output and register in GlobalState
         if (GlobalState::has_instance()) {
-            auto *tsb_output = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
-            // Get the "out" and "ref" outputs from the output bundle
-            auto tsd_output_ptr = (*tsb_output)["out"];
-            auto &ref_output = dynamic_cast<TimeSeriesReferenceOutput &>(*(*tsb_output)["ref"]);
-
-            // Create a TimeSeriesReference from the "out" output and set it on the "ref" output
-            // Pass the shared_ptr directly to keep the output alive
-            auto reference = TimeSeriesReference::make(tsd_output_ptr);
-            ref_output.set_value(reference);
-
-            // Store the ref output in GlobalState using shared_ptr-based wrapping
-            GlobalState::set(full_context_path_, wrap_output(ref_output.shared_from_this()));
+            // TODO: Convert to TSOutput-based approach
+            // The MeshNode needs to access its TSB output and get the "out" and "ref" fields
+            // to set up TimeSeriesReference and store in GlobalState
+            // This requires TSOutputView navigation by field name
+            if (ts_output()) {
+                auto output_view = ts_output()->view(graph()->evaluation_time());
+                // TODO: Navigate to "out" and "ref" fields using output_view
+                // For now, throw to indicate this needs implementation
+                throw std::runtime_error("MeshNode::do_start needs TSOutput conversion - TODO");
+            }
         } else {
             throw std::runtime_error("GlobalState instance required for MeshNode");
         }
@@ -131,139 +132,32 @@ namespace hgraph {
     void MeshNode::eval() {
         this->mark_evaluated();
 
-        // 1. Process keys input (additions/removals)
-        auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
-        auto &keys = dynamic_cast<TimeSeriesSetInput &>(*input_bundle[TsdMapNode::KEYS_ARG]);
-        if (keys.modified()) {
-            // Iterate added keys using Value API
-            for (auto key_view : keys.set_output().added_view()) {
-                if (this->active_graphs_.find(key_view) == this->active_graphs_.end()) {
-                    create_new_graph(key_view);
+        // TODO: MeshNode::eval needs full conversion to TSInput/TSOutput-based approach
+        // The MeshNode needs to:
+        // 1. Access TSB input's "keys" field (TSS type) to get added/removed keys
+        // 2. Use TSS-specific iteration APIs (added_view, removed_view, modified, contains)
+        // 3. Access TSB output's "out" field (TSD type) for writes
+        //
+        // This requires:
+        // - TSInputView navigation with field() for TSB bundles
+        // - TSS-specific value iteration methods (added_view, removed_view)
+        // - TSS contains() check
+        // - TSD-specific write operations
+        //
+        // For now, this throws to indicate the conversion is incomplete
 
-                    // If this key was pending (requested as a dependency), re-rank its dependents
-                    if (auto pending_it = this->pending_keys_.find(key_view); pending_it != this->pending_keys_.end()) {
-                        this->pending_keys_.erase(pending_it);
-                        auto deps_it = active_graphs_dependencies_.find(key_view);
-                        if (deps_it != active_graphs_dependencies_.end()) {
-                            for (const auto &d : deps_it->second) {
-                                re_rank(d.const_view(), key_view);
-                            }
-                        }
-                    }
-                }
-            }
-            // Iterate removed keys using Value API
-            for (auto key_view : keys.set_output().removed_view()) {
-                // Only remove if no dependencies
-                auto deps_it = active_graphs_dependencies_.find(key_view);
-                if (deps_it == active_graphs_dependencies_.end() || deps_it->second.empty()) {
-                    auto rank_it = active_graphs_rank_.find(key_view);
-                    if (rank_it != active_graphs_rank_.end()) {
-                        auto& rank_map = scheduled_keys_by_rank_[rank_it->second];
-                        if (auto sched_it = rank_map.find(key_view); sched_it != rank_map.end()) {
-                            rank_map.erase(sched_it);
-                        }
-                    }
-                    TsdMapNode::remove_graph(key_view);
-                }
-            }
-        }
-
-        // 2. Process pending keys (keys added due to dependencies)
-        if (!this->pending_keys_.empty()) {
-            std::vector<value::PlainValue> pending_copy;
-            pending_copy.reserve(pending_keys_.size());
-            for (const auto& k : pending_keys_) {
-                pending_copy.push_back(k.const_view().clone());
-            }
-            pending_keys_.clear();
-
-            for (const auto &k : pending_copy) {
-                create_new_graph(k.const_view(), 0);
-                auto deps_it = active_graphs_dependencies_.find(k.const_view());
-                if (deps_it != active_graphs_dependencies_.end()) {
-                    for (const auto &d : deps_it->second) {
-                        re_rank(d.const_view(), k.const_view());
-                    }
-                }
-            }
-        }
-
-        // 3. Process graphs to remove
-        if (!graphs_to_remove_.empty()) {
-            std::vector<value::PlainValue> to_remove;
-            to_remove.reserve(graphs_to_remove_.size());
-            for (const auto& k : graphs_to_remove_) {
-                to_remove.push_back(k.const_view().clone());
-            }
-            graphs_to_remove_.clear();
-
-            for (const auto &k : to_remove) {
-                auto deps_it = active_graphs_dependencies_.find(k.const_view());
-                if ((deps_it == active_graphs_dependencies_.end() || deps_it->second.empty()) &&
-                    !keys.contains(k.const_view())) {
-                    remove_graph(k.const_view());
-                }
-            }
-        }
-
-        // 4. Evaluate scheduled graphs by rank
-        engine_time_t next_time = MAX_DT;
-        int rank = 0;
-        while (rank <= max_rank_) {
-            current_eval_rank_ = rank;
-            auto rank_it = scheduled_ranks_.find(rank);
-            engine_time_t dt = (rank_it != scheduled_ranks_.end()) ? rank_it->second : MIN_DT;
-
-            if (dt == this->last_evaluation_time()) {
-                scheduled_ranks_.erase(rank);
-                auto graphs_it = scheduled_keys_by_rank_.find(rank);
-                if (graphs_it != scheduled_keys_by_rank_.end()) {
-                    auto graphs = std::move(graphs_it->second);
-                    scheduled_keys_by_rank_.erase(rank);
-
-                    for (const auto &[k, dtg] : graphs) {
-                        if (dtg == dt) {
-                            current_eval_graph_ = k.const_view().clone();
-                            engine_time_t next_dtg = TsdMapNode::evaluate_graph(k.const_view());
-                            current_eval_graph_ = std::nullopt;
-
-                            if (next_dtg != MAX_DT && next_dtg > this->last_evaluation_time()) {
-                                schedule_graph(k.const_view(), next_dtg);
-                                next_time = std::min(next_time, next_dtg);
-                            }
-                        } else if (dtg != MAX_DT && dtg > this->last_evaluation_time()) {
-                            schedule_graph(k.const_view(), dtg);
-                            next_time = std::min(next_time, dtg);
-                        }
-                    }
-                }
-            } else if (dt != MIN_DT && dt > this->last_evaluation_time()) {
-                next_time = std::min(next_time, dt);
-            }
-
-            rank++;
-        }
-
-        current_eval_rank_ = std::nullopt;
-
-        // 5. Process re-ranking requests
-        if (!re_rank_requests_.empty()) {
-            auto requests = std::move(re_rank_requests_);
-            re_rank_requests_.clear();
-            for (const auto &[k, d] : requests) {
-                re_rank(k.const_view(), d.const_view());
-            }
-        }
-
-        // 6. Schedule next evaluation if needed
-        if (next_time < MAX_DT) { this->graph()->schedule_node(this->node_ndx(), next_time); }
+        throw std::runtime_error("MeshNode::eval needs TSInput/TSOutput conversion - TODO");
     }
 
     TimeSeriesDictOutputImpl &MeshNode::tsd_output() {
-        // Access output bundle's "out" member - output() returns smart pointer to TimeSeriesBundleOutput
-        auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
-        return dynamic_cast<TimeSeriesDictOutputImpl &>(*(*output_bundle)["out"]);
+        // TODO: Convert to TSOutput-based approach
+        // The MeshNode needs to access its TSB output's "out" field which is a TSD
+        // This requires TSOutputView navigation and TSD-specific access
+        // For now, throw since legacy output() method no longer exists
+        throw std::runtime_error("MeshNode::tsd_output needs TSOutput conversion - TODO");
+        // Original:
+        // auto *output_bundle = dynamic_cast<TimeSeriesBundleOutput *>(this->output().get());
+        // return dynamic_cast<TimeSeriesDictOutputImpl &>(*(*output_bundle)["out"]);
     }
 
     void MeshNode::create_new_graph(const value::View &key, int rank) {
@@ -323,9 +217,13 @@ namespace hgraph {
 
     void MeshNode::remove_graph(const value::View &key) {
         // Remove error output if using exception capture
-        if (this->signature().capture_exception) {
-            auto &error_output_ = dynamic_cast<TimeSeriesDictOutputImpl &>(*this->error_output());
-            error_output_.erase(key);
+        if (this->signature().capture_exception && ts_error_output()) {
+            // TODO: Convert to TSOutput-based approach for error output TSD
+            // The error output is a TSD and we need to erase the key from it
+            // This requires TSOutputView with TSD-specific erase operation
+            // For now, skip the erase - the error will be orphaned
+            // auto &error_output_ = dynamic_cast<TimeSeriesDictOutputImpl &>(*this->error_output());
+            // error_output_.erase(key);
         }
 
         auto graph_it = this->active_graphs_.find(key);
@@ -383,11 +281,15 @@ namespace hgraph {
 
             // Check if we should remove the dependency graph
             if (deps_it->second.empty()) {
-                auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
-                auto &keys = dynamic_cast<TimeSeriesSetInput &>(*input_bundle[TsdMapNode::KEYS_ARG]);
-                if (!keys.contains(depends_on)) {
-                    graphs_to_remove_.insert(depends_on.clone());
-                }
+                // TODO: Convert to TSInput-based approach
+                // Need to check if depends_on is still in the keys TSS input
+                // This requires TSInputView with TSS-specific contains operation
+                // For now, assume the key should be removed
+                // auto &input_bundle = dynamic_cast<TimeSeriesBundleInput &>(*this->input());
+                // auto &keys = dynamic_cast<TimeSeriesSetInput &>(*input_bundle[TsdMapNode::KEYS_ARG]);
+                // if (!keys.contains(depends_on)) {
+                graphs_to_remove_.insert(depends_on.clone());
+                // }
             }
         }
     }

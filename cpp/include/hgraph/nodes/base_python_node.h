@@ -22,16 +22,17 @@ namespace hgraph {
      * - PythonGeneratorNode: Generator-based nodes
      */
     struct BasePythonNode : Node {
+        /// Constructor - creates TSInput/TSOutput from TSMeta
         BasePythonNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                       nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn);
+                       nb::dict scalars, nb::callable eval_fn, nb::callable start_fn, nb::callable stop_fn,
+                       const TSMeta* input_meta, const TSMeta* output_meta,
+                       const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
         void _initialise_kwargs();
 
         void _initialise_kwarg_inputs();
 
         void _initialise_state();
-
-        void reset_input(const time_series_bundle_input_s_ptr& value) override;
 
         VISITOR_SUPPORT()
 

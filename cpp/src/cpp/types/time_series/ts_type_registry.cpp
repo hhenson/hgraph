@@ -303,6 +303,9 @@ const TSMeta* TSTypeRegistry::signal() {
 
     auto* meta = create_schema();
     meta->kind = TSKind::SIGNAL;
+    // SIGNAL needs a value_type so it can be included in bundle schemas
+    // The value is a bool - True when signaled (matching Python's behavior)
+    meta->value_type = value::scalar_type_meta<bool>();
     signal_singleton_ = meta;
     return meta;
 }

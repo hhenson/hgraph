@@ -5,6 +5,9 @@
 #include <ranges>
 
 namespace hgraph {
+
+    // Forward declaration
+    struct TSMeta;
     struct HGRAPH_EXPORT OutputBuilder : Builder {
         using ptr = nb::ref<OutputBuilder>;
         using Builder::Builder;
@@ -16,6 +19,12 @@ namespace hgraph {
         virtual void release_instance(time_series_output_ptr item) const;
 
         virtual bool has_reference() const { return false; }
+
+        /**
+         * Get the TSMeta schema for this output, if available.
+         * Default returns nullptr; concrete builders override if they have TSMeta.
+         */
+        virtual const TSMeta* ts_meta() const { return nullptr; }
 
         static void register_with_nanobind(nb::module_ &m);
     };
