@@ -126,7 +126,6 @@ def group_by(
     overloads=group_by,
     resolvers={
         KEYABLE_SCALAR: lambda m, by: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[by]
-            if s["by"].__class__ is str else None
     },
 )
 def group_by_single(
