@@ -101,6 +101,24 @@ public:
     }
 
     /**
+     * @brief Access an element by index using [] operator.
+     *
+     * Equivalent to at(index).
+     *
+     * @param index The element index
+     * @return TSView for the element
+     *
+     * Usage:
+     * @code
+     * TSLView prices = ...;
+     * double first = prices[0].value<double>();  // Same as prices.at(0)
+     * @endcode
+     */
+    [[nodiscard]] TSView operator[](size_t index) const {
+        return at(index);
+    }
+
+    /**
      * @brief Get the number of elements.
      */
     [[nodiscard]] size_t size() const {

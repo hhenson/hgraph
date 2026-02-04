@@ -112,6 +112,24 @@ public:
     }
 
     /**
+     * @brief Access a field by index using [] operator.
+     *
+     * Equivalent to field(index).
+     *
+     * @param index The field index
+     * @return TSView for the field
+     *
+     * Usage:
+     * @code
+     * TSBView quote = ...;
+     * double bid = quote[0].value<double>();  // Same as quote.field(0)
+     * @endcode
+     */
+    [[nodiscard]] TSView operator[](size_t index) const {
+        return field(index);
+    }
+
+    /**
      * @brief Get the number of fields.
      */
     [[nodiscard]] size_t field_count() const {

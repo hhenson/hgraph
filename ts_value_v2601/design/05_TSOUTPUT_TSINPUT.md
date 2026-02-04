@@ -19,10 +19,11 @@ class TSOutput {
     TSValue native_value_;                              // Native representation (includes observer_value_)
     robin_hood::unordered_map<const TSMeta*, TSValue> alternatives_;     // Cast/peer representations
     Node* owning_node_;                                 // For graph context
+    size_t port_index_;                                 // Port index on owning node
 
 public:
-    TSOutput(const TSMeta& ts_meta, Node* owner)
-        : native_value_(ts_meta), owning_node_(owner) {}
+    TSOutput(const TSMeta& ts_meta, Node* owner, size_t port_index = 0)
+        : native_value_(ts_meta), owning_node_(owner), port_index_(port_index) {}
 
     // View access - returns TSOutputView, schema determines native vs alternative
     TSOutputView view(engine_time_t current_time, const TSMeta& schema) {
@@ -81,6 +82,55 @@ public:
 };
 ```
 
+### Port Index
+
+The `port_index_` field identifies which output port this TSOutput represents on its owning node.
+Nodes can have multiple outputs (e.g., a node returning a tuple), and each output needs a unique
+identifier for path construction.
+
+**Purpose:**
+- Distinguishes between multiple outputs on the same node
+- Used as the first index in ShortPath construction
+- Essential for resolving references and navigation
+
+**ShortPath Construction:**
+
+When creating the root path for a TSOutput, `port_index_` becomes the first element in the
+path's index vector:
+
+```cpp
+ShortPath TSOutput::root_path() const {
+    return ShortPath(owning_node_, PortType::OUTPUT, {port_index_});
+}
+```
+
+For a node with multiple outputs:
+```
+Node (e.g., returning TSB[a: TS[int], b: TS[float]])
+├── outputs_[0]: TSOutput with port_index_ = 0
+│   └── root_path: ShortPath(node, OUTPUT, {0})
+│       └── field "a": ShortPath(node, OUTPUT, {0, 0})
+│       └── field "b": ShortPath(node, OUTPUT, {0, 1})
+└── outputs_[1]: TSOutput with port_index_ = 1  (if separate outputs)
+    └── root_path: ShortPath(node, OUTPUT, {1})
+```
+
+**Multi-Output Nodes:**
+
+When a node produces multiple independent time-series outputs:
+1. Each output is stored in `Node::outputs_[i]`
+2. Each TSOutput is constructed with `port_index = i`
+3. Path resolution uses `port_index` to locate the correct output
+
+```cpp
+// Node construction with multiple outputs
+Node::Node(...) {
+    for (size_t i = 0; i < num_outputs; ++i) {
+        outputs_.emplace_back(output_metas[i], this, i);  // port_index = i
+    }
+}
+```
+
 ### Native vs Alternatives
 
 TSOutput maintains the native representation plus alternative views for different schemas:
@@ -124,6 +174,101 @@ When an alternative is created, it establishes subscriptions to the relevant par
 This is handled by `establish_sync()` during alternative creation.
 
 Observers of the output are notified through TSValue's `observer_value_` component.
+
+### AlternativeStructuralObserver
+
+When TSOutput creates an alternative for TSD/TSL types where the element types differ
+(e.g., native `TSD[str, TS[int]]` with alternative `TSD[str, REF[TS[int]]]`), a simple
+bind at the collection level is insufficient. Each element needs individual link
+establishment, and structural changes (inserts/erases) in the native must be reflected
+in the alternative.
+
+`AlternativeStructuralObserver` implements `SlotObserver` to keep alternatives synchronized:
+
+```cpp
+class AlternativeStructuralObserver : public value::SlotObserver {
+    TSOutput* output_;              // Owning TSOutput
+    TSValue* alt_;                  // Alternative TSValue
+    const TSMeta* native_meta_;     // Native element schema
+    const TSMeta* target_meta_;     // Target element schema
+    value::KeySet* registered_key_set_; // KeySet we're registered with
+
+public:
+    void on_insert(size_t slot) override;  // Element added to native
+    void on_erase(size_t slot) override;   // Element removed from native
+    void on_update(size_t slot) override;  // Value update (no-op, links handle this)
+    void on_clear() override;              // All elements cleared
+    void on_capacity(size_t, size_t) override; // Capacity change (no-op)
+
+    void register_with(value::KeySet* key_set);
+};
+```
+
+#### When It's Created
+
+An `AlternativeStructuralObserver` is created during `establish_links_recursive()` when:
+
+1. Both native and target are the same collection kind (TSD or TSL)
+2. Their element types differ (requiring per-element conversion)
+
+```cpp
+// In establish_links_recursive(), Case 5: Both are lists/dicts
+if (target_elem != native_elem) {
+    auto observer = std::make_unique<AlternativeStructuralObserver>(
+        this, &alt, native_meta, target_meta
+    );
+    subscribe_structural_observer(native_view, observer.get());
+    structural_observers_.push_back(std::move(observer));
+}
+```
+
+#### How It Syncs Structural Changes
+
+**on_insert(slot)**: When a new element is inserted into the native TSD/TSL at a slot:
+1. Gets TSView for the new native element at that slot
+2. Gets the corresponding alternative element view
+3. Calls `establish_links_recursive()` to set up the appropriate link (e.g., REFLink for REF conversion)
+
+**on_erase(slot)**: When an element is removed from the native:
+1. Gets the alternative element at that slot
+2. Calls `unbind()` to clean up the link
+
+**on_clear()**: When all elements are cleared:
+1. Unbinds the entire alternative view
+
+**on_update(slot)**: No action needed - the established link already points to the native,
+so value updates are visible through the existing link.
+
+#### KeySet Registration
+
+For TSD types, the observer registers with the native's `KeySet`:
+
+```cpp
+void TSOutput::subscribe_structural_observer(TSView native_view,
+                                              AlternativeStructuralObserver* observer) {
+    if (meta->kind == TSKind::TSD) {
+        auto* map_storage = static_cast<value::MapStorage*>(vd.value_data);
+        observer->register_with(&map_storage->key_set());
+    }
+}
+```
+
+The `register_with()` method:
+1. Unregisters from any previous KeySet (if re-registering)
+2. Stores the KeySet pointer for cleanup on destruction
+3. Calls `key_set->add_observer(this)`
+
+The destructor automatically unregisters from the KeySet, ensuring proper cleanup
+when the TSOutput (and its structural observers) are destroyed.
+
+#### Lifecycle Management
+
+- Observers are owned by `TSOutput::structural_observers_` (vector of unique_ptr)
+- Non-copyable, non-movable (registered with KeySet by raw pointer)
+- Destructor auto-unregisters from KeySet if still registered
+
+This design ensures alternatives stay synchronized with native structural changes
+without requiring polling or manual synchronization.
 
 ### Python Value Cache
 
@@ -239,24 +384,35 @@ public:
 
 ### Binding Process
 
-Binding establishes Links from input leaves to output values:
+Binding establishes Links from input leaves to output values. The actual implementation delegates to TSView for core binding and separately manages subscription lifecycle:
 
 ```cpp
 void TSInputView::bind(TSOutputView& output) {
-    // 1. Populate Link's ViewData from output
-    link_->view_data.path = output.short_path();
-    link_->view_data.data = output.data_ptr();
-    link_->view_data.ops = output.ops();
+    // 1. Delegate link creation to TSView layer
+    //    TSView::bind() handles populating the Link's ViewData from output
+    ts_view_.bind(output.ts_view());
 
-    // 2. Subscribe if active
-    if (active()) {
+    // 2. Track the bound output for subscription management
+    bound_output_ = output.output();
+
+    // 3. Subscribe for notifications if active
+    if (input_ && input_->active()) {
         output.subscribe(input_);
     }
 }
 
 void TSInputView::unbind() {
-    // Unsubscribe and clear link
-    // ...
+    // 1. Unsubscribe if we were active and bound
+    if (bound_output_ && input_ && input_->active()) {
+        TSOutputView output_view = bound_output_->view(ts_view_.current_time());
+        output_view.unsubscribe(input_);
+    }
+
+    // 2. Clear the bound output reference
+    bound_output_ = nullptr;
+
+    // 3. Delegate link removal to TSView layer
+    ts_view_.unbind();
 }
 ```
 

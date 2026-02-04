@@ -566,6 +566,194 @@ void lookup(
 
 ---
 
+## REFLink: The REF-to-TS Dereferencing Mechanism
+
+### What Is REFLink?
+
+**REFLink** is the internal mechanism that implements REF-to-TS conversion. When an alternative representation needs to dereference a REF (convert a reference to the actual time-series data), REFLink manages the dynamic binding and notification flow.
+
+REFLink is more sophisticated than a simple `LinkTarget` because it must track **two sources**:
+1. **The REF source** - the time-series containing the `TSReference` value
+2. **The current dereferenced target** - the time-series the reference points to
+
+When the REF source changes (the reference now points to a different target), REFLink automatically rebinds to the new target.
+
+### REFLink vs Simple LinkTarget
+
+| Aspect | LinkTarget | REFLink |
+|--------|-----------|---------|
+| **Purpose** | Direct link to a fixed target | Dynamic link through a REF |
+| **Target changes** | Never (set once at bind) | When REF value changes |
+| **Subscriptions** | One (to target) | Two (REF source + current target) |
+| **Rebinding** | Not supported | Automatic on REF change |
+| **Sampled flag** | Not applicable | Set when REF changes |
+
+`LinkTarget` is a simple structure storing pointers to a target's data. `REFLink` is a `Notifiable` that actively responds to changes in both the REF source and the current target.
+
+### When REFLink Is Used
+
+REFLink is used in **alternative representations** when converting REF elements to their dereferenced form:
+
+```
+Primary: TSD[str, REF[TS[int]]]        Alternative: TSD[str, TS[int]]
+┌─────────────────────────────┐        ┌─────────────────────────────────┐
+│  "a" → REF[TS[int]] ────────┼────────┼──▶ "a" → REFLink → Target A     │
+│  "b" → REF[TS[int]] ────────┼────────┼──▶ "b" → REFLink → Target B     │
+└─────────────────────────────┘        └─────────────────────────────────┘
+         REF source                       REFLink dereferences to target
+```
+
+Each element in the alternative uses a REFLink that:
+- Watches the corresponding REF element for changes
+- Maintains a link to the current dereferenced target
+- Provides a TSView of the target data
+
+### REFLink Lifecycle
+
+**1. Binding to the REF Source**
+
+When `bind_to_ref()` is called:
+```cpp
+REFLink ref_link;
+ref_link.bind_to_ref(ref_source_view, current_time);
+```
+
+The REFLink:
+- Stores the REF source's ViewData
+- Subscribes to the REF source's observer list
+- Reads the current `TSReference` value
+- Resolves and binds to the initial target
+
+**2. Notification When REF Changes**
+
+When the REF source is modified (the reference now points to a different target):
+```cpp
+// REFLink::notify() is called by the observer system
+void REFLink::notify(engine_time_t et) {
+    // Rebind to the new target
+    rebind_target(et);
+}
+```
+
+The rebind process:
+1. Unsubscribes from the old target's observer list
+2. Clears the old target link
+3. Reads the new `TSReference` from the REF source
+4. Resolves the reference to get the new target
+5. Subscribes to the new target's observer list
+
+**3. Target Access**
+
+Consumers access the dereferenced target through:
+```cpp
+TSView target = ref_link.target_view(current_time);
+```
+
+This returns a TSView of the current target, allowing normal value access.
+
+**4. Modification Tracking**
+
+`modified()` returns true if either:
+- The REF source changed (reference rebinding occurred)
+- The current target's value changed
+
+```cpp
+bool REFLink::modified(engine_time_t current_time) const {
+    // Check if REF source changed (sampled semantics)
+    TSView ref_view(ref_source_view_data_, current_time);
+    if (ref_view && ref_view.last_modified_time() >= current_time) {
+        return true;  // Reference changed - sampled
+    }
+
+    // Check if target changed
+    TSView tv = target_view(current_time);
+    return tv && tv.modified();
+}
+```
+
+**5. Cleanup**
+
+When the REFLink is unbound or destroyed:
+```cpp
+ref_link.unbind();
+// or destructor ~REFLink() calls unbind()
+```
+
+This:
+- Unsubscribes from the REF source's observer list
+- Unsubscribes from the current target's observer list
+- Clears all stored data
+
+### Sampled Semantics
+
+When the REF source changes, REFLink ensures **sampled semantics**: even if the new target wasn't modified at the current time, consumers see `modified() == true` because their data source changed.
+
+```
+T1: REF → Target A, Target A modified    → REFLink.modified() = true
+T2: REF → Target B, Target B not modified → REFLink.modified() = true (sampled!)
+T3: REF → Target B, Target B not modified → REFLink.modified() = false
+```
+
+The sampled flag is determined by checking if the REF source's `last_modified_time()` equals the current time.
+
+### Handling Different Reference Types
+
+`TSReference` can be one of three kinds:
+
+| Kind | Description | REFLink Behavior |
+|------|-------------|------------------|
+| **EMPTY** | No reference set | Target remains invalid |
+| **PEERED** | Points to a single time-series | Resolves and binds to target |
+| **NON_PEERED** | Composite reference (e.g., `REF[TSL]`) | Not handled by single REFLink |
+
+For **NON_PEERED** references (like `REF[TSL[TS[int], N]]`), each element has its own individual reference. These require container-level handling where each element in the alternative gets its own REFLink.
+
+### UML: REFLink Rebinding Flow
+
+```mermaid
+sequenceDiagram
+    participant RS as REF Source
+    participant RL as REFLink
+    participant OldT as Old Target
+    participant NewT as New Target
+    participant Cons as Consumer
+
+    Note over RS,Cons: Initial state: REFLink bound to Old Target
+
+    RS->>RS: set_value(new_reference)
+    RS->>RL: notify(current_time)
+    RL->>OldT: unsubscribe()
+    RL->>RL: clear target_
+    RL->>RS: read TSReference
+    RL->>NewT: resolve reference
+    RL->>NewT: subscribe()
+    RL->>RL: store target data
+
+    Note over RL: sampled flag set (REF changed)
+
+    Cons->>RL: modified()?
+    RL-->>Cons: true (sampled)
+    Cons->>RL: target_view()
+    RL-->>Cons: TSView of New Target
+```
+
+### Implementation Notes
+
+REFLink is stored **inline** in the link schema structure, following the same pattern as LinkTarget:
+
+```cpp
+// TSB link schema: fixed_list[REFLink, field_count]
+// TSL/TSD link schema: single REFLink (or per-element REFLinks for alternatives)
+```
+
+Key implementation details:
+- REFLink is **non-copyable** due to active subscriptions
+- REFLink is **movable** (transfers subscription ownership)
+- Destruction automatically calls `unbind()` for cleanup
+- `REFLinkOps` provides TypeOps interface for schema storage
+
+---
+
 ## Cast Logic: Schema Conversion at Bind Time
 
 ### Overview

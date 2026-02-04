@@ -43,8 +43,9 @@ TSBView quote = ...;  // TSB[bid: TS[float], ask: TS[float]]
 double bid_price = quote.field("bid").value<double>();
 double ask_price = quote.field("ask").value<double>();
 
-// Access by index
-double first_field = quote[0].value<double>();  // Same as bid
+// Access by index - two equivalent ways:
+double first_field = quote[0].value<double>();       // [] operator syntax
+double first_alt = quote.field(0).value<double>();   // field() method syntax
 
 // Check individual field modification
 if (quote.field("bid").modified()) {
@@ -65,8 +66,9 @@ nb::object data = quote.to_python();
 ```cpp
 TSLView prices = ...;
 
-// Access by index (type-erased)
-double first = prices[0].value().as<double>();
+// Access by index - two equivalent ways:
+double first = prices[0].value().as<double>();       // [] operator syntax
+double first_alt = prices.at(0).value().as<double>(); // at() method syntax
 double last = prices[prices.size() - 1].value().as<double>();  // No negative indexing
 
 // Bounds
@@ -86,23 +88,26 @@ nb::object all_values = prices.to_python();
 ```cpp
 TSDView stock_prices = ...;  // TSD[int, TS[float]]
 
-// Access by key
-double price_123 = stock_prices[123].value();
+// Access by key - two equivalent ways:
+value::View key = value::make_scalar<int64_t>(123);
+double price_123 = stock_prices[key].value<double>();      // [] operator syntax
+double price_alt = stock_prices.at(key).value<double>();   // at() method syntax
 
 // Check key existence
-if (stock_prices.contains(456)) {
-    double price_456 = stock_prices[456].value();
+value::View key456 = value::make_scalar<int64_t>(456);
+if (stock_prices.contains(key456)) {
+    double price_456 = stock_prices[key456].value<double>();
 }
 
 // Key iteration
 for (auto key : stock_prices.keys()) {
-    std::cout << key.as<int64_t>() << ": " << stock_prices[key].value() << "\n";
+    std::cout << key.as<int64_t>() << ": " << stock_prices[key].value<double>() << "\n";
 }
 
 // Key-value iteration
 for (auto [key, ts] : stock_prices.items()) {
     if (ts.modified()) {
-        std::cout << key.as<int64_t>() << " updated to " << ts.value() << "\n";
+        std::cout << key.as<int64_t>() << " updated to " << ts.value<double>() << "\n";
     }
 }
 ```

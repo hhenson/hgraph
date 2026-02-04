@@ -106,6 +106,25 @@ public:
     }
 
     /**
+     * @brief Access a value by key using [] operator.
+     *
+     * Equivalent to at(key).
+     *
+     * @param key The key (as a value::View)
+     * @return TSView for the value
+     *
+     * Usage:
+     * @code
+     * TSDView stock_prices = ...;
+     * value::View key = value::make_scalar<int64_t>(123);
+     * double price = stock_prices[key].value<double>();  // Same as stock_prices.at(key)
+     * @endcode
+     */
+    [[nodiscard]] TSView operator[](const value::View& key) const {
+        return at(key);
+    }
+
+    /**
      * @brief Check if the dict contains a key.
      *
      * @param key The key (as a value::View)
