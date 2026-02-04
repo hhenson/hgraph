@@ -29,6 +29,7 @@ namespace hgraph {
 // Forward declarations
 class TSValue;
 class FQPath;
+class TSReference;
 class TSBView;
 class TSLView;
 class TSSView;
@@ -311,6 +312,16 @@ public:
      * @return FQPath with path elements
      */
     [[nodiscard]] FQPath fq_path() const;
+
+    /**
+     * @brief Create a TSReference pointing to this view's output.
+     *
+     * Creates a PEERED reference that can be stored in a REF output
+     * and bound to REF inputs.
+     *
+     * @return TSReference pointing to this view's path
+     */
+    [[nodiscard]] TSReference ref() const;
 
     // ========== Observer Access ==========
 

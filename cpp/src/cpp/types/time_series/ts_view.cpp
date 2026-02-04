@@ -6,6 +6,7 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/fq_path.h>
+#include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/value/map_storage.h>
 
@@ -274,6 +275,10 @@ FQPath TSView::fq_path() const {
     }
 
     return fq;
+}
+
+TSReference TSView::ref() const {
+    return TSReference::peered(view_data_.path);
 }
 
 // ============================================================================

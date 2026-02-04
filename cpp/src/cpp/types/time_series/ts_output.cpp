@@ -7,6 +7,7 @@
 #include <hgraph/types/time_series/map_delta.h>
 #include <hgraph/types/time_series/ts_dict_view.h>
 #include <hgraph/types/time_series/ts_list_view.h>
+#include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/value/map_storage.h>
 #include <hgraph/types/value/key_set.h>
 
@@ -391,9 +392,22 @@ void TSOutputView::subscribe(Notifiable* observer) {
     value::View obs_view = ts_view_.observer();
     if (!obs_view) return;
 
-    // Cast to ObserverList and add
-    auto* obs_list = static_cast<ObserverList*>(obs_view.data());
-    obs_list->add_observer(observer);
+    // For composite types (TSB, TSL, TSD), the observer schema is tuple[ObserverList, ...]
+    // For scalar types, the observer schema is just ObserverList
+    const TSMeta* meta = ts_view_.view_data().meta;
+    ObserverList* obs_list = nullptr;
+
+    if (meta && (meta->kind == TSKind::TSB || meta->kind == TSKind::TSL || meta->kind == TSKind::TSD)) {
+        // Composite type: navigate to element 0 of the tuple
+        obs_list = static_cast<ObserverList*>(obs_view.as_tuple().at(0).data());
+    } else {
+        // Scalar type: observer is directly ObserverList
+        obs_list = static_cast<ObserverList*>(obs_view.data());
+    }
+
+    if (obs_list) {
+        obs_list->add_observer(observer);
+    }
 }
 
 void TSOutputView::unsubscribe(Notifiable* observer) {
@@ -403,9 +417,22 @@ void TSOutputView::unsubscribe(Notifiable* observer) {
     value::View obs_view = ts_view_.observer();
     if (!obs_view) return;
 
-    // Cast to ObserverList and remove
-    auto* obs_list = static_cast<ObserverList*>(obs_view.data());
-    obs_list->remove_observer(observer);
+    // For composite types (TSB, TSL, TSD), the observer schema is tuple[ObserverList, ...]
+    // For scalar types, the observer schema is just ObserverList
+    const TSMeta* meta = ts_view_.view_data().meta;
+    ObserverList* obs_list = nullptr;
+
+    if (meta && (meta->kind == TSKind::TSB || meta->kind == TSKind::TSL || meta->kind == TSKind::TSD)) {
+        // Composite type: navigate to element 0 of the tuple
+        obs_list = static_cast<ObserverList*>(obs_view.as_tuple().at(0).data());
+    } else {
+        // Scalar type: observer is directly ObserverList
+        obs_list = static_cast<ObserverList*>(obs_view.data());
+    }
+
+    if (obs_list) {
+        obs_list->remove_observer(observer);
+    }
 }
 
 TSOutputView TSOutputView::field(const std::string& name) const {

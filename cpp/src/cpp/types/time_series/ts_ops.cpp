@@ -307,50 +307,26 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
 }
 
 void bind(ViewData& vd, const ViewData& target) {
-    // For scalars that are part of a bundle input, link_data points to the REFLink
-    // that manages this field's binding
+    // For scalar TS types, binding stores the target ViewData in the REFLink.
+    // This enables the scalar to delegate value/modified/valid checks to the target.
     if (!vd.link_data) {
-        throw std::runtime_error("bind not supported for scalar types without link storage");
+        throw std::runtime_error("bind on scalar without link data");
     }
-
     auto* rl = get_ref_link(vd.link_data);
     if (!rl) {
-        throw std::runtime_error("bind: invalid link data");
+        throw std::runtime_error("bind on scalar with invalid link data");
     }
-
-    // Configure the LinkTarget to point to the target's data
-    LinkTarget& lt = const_cast<LinkTarget&>(rl->target());
-    lt.is_linked = true;
-    lt.value_data = target.value_data;
-    lt.time_data = target.time_data;
-    lt.observer_data = target.observer_data;
-    lt.delta_data = target.delta_data;
-    lt.link_data = target.link_data;
-    lt.ops = target.ops;
-    lt.meta = target.meta;
+    store_link_target(*rl, target);
 }
 
 void unbind(ViewData& vd) {
-    // For scalars that are part of a bundle input, link_data points to the REFLink
-    if (!vd.link_data) {
-        throw std::runtime_error("unbind not supported for scalar types without link storage");
-    }
+    // For scalar TS types, unbinding clears the REFLink target.
+    if (!vd.link_data) return;
 
     auto* rl = get_ref_link(vd.link_data);
-    if (!rl) {
-        throw std::runtime_error("unbind: invalid link data");
+    if (rl) {
+        rl->unbind();
     }
-
-    // Clear the LinkTarget
-    LinkTarget& lt = const_cast<LinkTarget&>(rl->target());
-    lt.is_linked = false;
-    lt.value_data = nullptr;
-    lt.time_data = nullptr;
-    lt.observer_data = nullptr;
-    lt.delta_data = nullptr;
-    lt.link_data = nullptr;
-    lt.ops = nullptr;
-    lt.meta = nullptr;
 }
 
 bool is_bound(const ViewData& vd) {
@@ -530,11 +506,17 @@ value::View value(const ViewData& vd) {
 }
 
 value::View delta_value(const ViewData& vd) {
-    // TSB doesn't have delta
-    return value::View{};
+    return make_delta_view(vd);
 }
 
 bool has_delta(const ViewData& vd) {
+    if (!vd.delta_data) return false;
+    if (!vd.meta) return false;
+    for (size_t i = 0; i < vd.meta->field_count; ++i) {
+        if (::hgraph::has_delta(vd.meta->fields[i].ts_type)) {
+            return true;
+        }
+    }
     return false;
 }
 
@@ -594,10 +576,36 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
     auto time_view = make_time_view(vd);
     time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
 
+    // Notify bundle-level observers
     if (vd.observer_data) {
         auto observer_view = make_observer_view(vd);
         auto* observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
         observers->notify_modified(current_time);
+
+        // Also notify field-level observers (for subscribers bound to individual fields)
+        // This matches Python behavior where setting tsb.value sets each field individually
+        if (vd.meta) {
+            auto observer_tuple = observer_view.as_tuple();
+            for (size_t i = 0; i < vd.meta->field_count; ++i) {
+                value::View field_obs = observer_tuple.at(i + 1);  // +1 for bundle-level observer
+                if (field_obs) {
+                    const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+                    ObserverList* field_observers = nullptr;
+
+                    if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
+                        // Composite field: observer is tuple[ObserverList, ...]
+                        field_observers = static_cast<ObserverList*>(field_obs.as_tuple().at(0).data());
+                    } else {
+                        // Scalar field: observer is just ObserverList
+                        field_observers = static_cast<ObserverList*>(field_obs.data());
+                    }
+
+                    if (field_observers) {
+                        field_observers->notify_modified(current_time);
+                    }
+                }
+            }
+        }
     }
 }
 
@@ -610,14 +618,13 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
 
     // Check if this scalar field is linked (composite fields have nested link storage)
     if (field_meta && field_meta->is_scalar_ts()) {
-        if (auto* rl = get_scalar_field_ref_link(vd, index)) {
-            if (rl->target().valid()) {
-                // Field is linked - return TSView pointing to target
-                // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
-                bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
-                ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index), is_sampled);
-                return TSView(target_vd, current_time);
-            }
+        auto* rl = get_scalar_field_ref_link(vd, index);
+        if (rl && rl->target().valid()) {
+            // Field is linked - return TSView pointing to target
+            // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
+            bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+            ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index), is_sampled);
+            return TSView(target_vd, current_time);
         }
     }
 
@@ -701,8 +708,10 @@ void bind(ViewData& vd, const ViewData& target) {
         const TSMeta* field_meta = vd.meta->fields[i].ts_type;
 
         // Navigate to target's field
+        // Note: We check structural validity (operator bool), not time-series validity (valid())
+        // The field may not have a value yet, but the structure should be valid for binding
         TSView target_field = target.ops->child_at(target, i, MIN_ST);
-        if (!target_field.valid()) continue;
+        if (!target_field) continue;  // Skip if structurally invalid (no view data)
 
         if (field_meta && field_meta->is_scalar_ts()) {
             // Scalar field: bind directly to the REFLink
@@ -790,14 +799,10 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
             field_vd.meta = field_ts;
             field_vd.ops = get_ts_ops(field_ts);
             // Get link data for this field (tuple index i+1 since element 0 is bundle REFLink)
+            // For composite fields, link_tuple.at(i+1) contains the nested link schema directly,
+            // not a REFLink. The data() pointer is the start of the nested link storage.
             if (link_tuple) {
-                void* field_link = link_tuple.at(i + 1).data();
-                // For composite fields in input bundles bound to outputs,
-                // the link data points to the target's link storage
-                auto* rl = static_cast<REFLink*>(field_link);
-                if (rl && rl->target().is_linked) {
-                    field_vd.link_data = rl->target().link_data;
-                }
+                field_vd.link_data = link_tuple.at(i + 1).data();
             }
             field_vd.ops->set_active(field_vd, field_active, active, input);
         } else {
@@ -949,7 +954,7 @@ value::View delta_value(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
-    return value::View{};
+    return make_delta_view(vd);
 }
 
 bool has_delta(const ViewData& vd) {
@@ -957,7 +962,9 @@ bool has_delta(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path));
     }
-    return false;
+    if (!vd.delta_data) return false;
+    if (!vd.meta) return false;
+    return ::hgraph::has_delta(vd.meta->element_ts);
 }
 
 void set_value(ViewData& vd, const value::View& src, engine_time_t current_time) {
@@ -1304,8 +1311,65 @@ void set_value(ViewData& vd, const value::View& src, engine_time_t current_time)
 }
 
 void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_time) {
-    // TODO: Implement proper delta application for sets
-    throw std::runtime_error("apply_delta for TSS not yet implemented");
+    if (!vd.value_data || !vd.time_data) {
+        throw std::runtime_error("apply_delta on invalid ViewData");
+    }
+
+    if (!delta.valid()) {
+        return;  // Nothing to apply
+    }
+
+    auto dst = make_value_view(vd);
+    if (!dst.valid()) {
+        throw std::runtime_error("apply_delta: TSS has no valid storage");
+    }
+
+    auto set_view = dst.as_set();
+
+    // The delta should be a bundle-like structure with 'added' and 'removed' fields
+    // For C++ SetDeltaStorage, it has added/removed collections
+    // For Python, it's typically a dict/object with 'added' and 'removed' attributes
+    if (delta.is_bundle()) {
+        auto delta_bundle = delta.as_bundle();
+
+        // Process removals first (to avoid removing newly added elements)
+        if (delta_bundle.has_field("removed")) {
+            auto removed_view = delta_bundle.at("removed");
+            if (removed_view.is_set()) {
+                for (auto elem : removed_view.as_set()) {
+                    set_view.remove(elem);
+                }
+            }
+        }
+
+        // Process additions
+        if (delta_bundle.has_field("added")) {
+            auto added_view = delta_bundle.at("added");
+            if (added_view.is_set()) {
+                for (auto elem : added_view.as_set()) {
+                    set_view.add(elem);
+                }
+            }
+        }
+    } else if (delta.is_set()) {
+        // If delta is just a set, treat it as "set all" (replace operation)
+        // This is a fallback for simple cases
+        set_view.clear();
+        for (auto elem : delta.as_set()) {
+            set_view.add(elem);
+        }
+    } else {
+        throw std::runtime_error("apply_delta for TSS: delta must be a bundle with 'added'/'removed' fields or a set");
+    }
+
+    // Update modification time
+    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+
+    // Notify observers
+    if (vd.observer_data) {
+        auto* observers = static_cast<ObserverList*>(vd.observer_data);
+        observers->notify_modified(current_time);
+    }
 }
 
 void invalidate(ViewData& vd) {
@@ -1602,8 +1666,91 @@ void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_t
             return;
         }
     }
-    // TODO: Implement proper delta application for dicts
-    throw std::runtime_error("apply_delta for TSD not yet implemented");
+
+    if (!vd.value_data || !vd.time_data) {
+        throw std::runtime_error("apply_delta on invalid ViewData");
+    }
+
+    if (!delta.valid()) {
+        return;  // Nothing to apply
+    }
+
+    auto dst = make_value_view(vd);
+    if (!dst.valid()) {
+        throw std::runtime_error("apply_delta: TSD has no valid storage");
+    }
+
+    auto map_view = dst.as_map();
+
+    // The delta should be a bundle-like structure with 'added', 'modified'/'updated', and 'removed' fields
+    // For C++ MapDeltaStorage, it has added/updated/removed collections
+    // For Python, it's typically a dict/object with these attributes
+    if (delta.is_bundle()) {
+        auto delta_bundle = delta.as_bundle();
+
+        // Process removals first (to avoid removing newly added entries)
+        if (delta_bundle.has_field("removed")) {
+            auto removed_view = delta_bundle.at("removed");
+            if (removed_view.is_set()) {
+                // removed is a set of keys
+                for (auto key : removed_view.as_set()) {
+                    map_view.remove(key);
+                }
+            } else if (removed_view.is_list()) {
+                // removed might be a list of keys
+                for (auto key : removed_view.as_list()) {
+                    map_view.remove(key);
+                }
+            }
+        }
+
+        // Process additions (new keys with values)
+        if (delta_bundle.has_field("added")) {
+            auto added_view = delta_bundle.at("added");
+            if (added_view.is_map()) {
+                // added is a map of key->value pairs
+                for (auto [key, value] : added_view.as_map().items()) {
+                    map_view.set_item(key, value);
+                }
+            }
+        }
+
+        // Process modifications/updates (existing keys with new values)
+        // Try both "modified" and "updated" field names for compatibility
+        value::View modified_view;
+        if (delta_bundle.has_field("modified")) {
+            modified_view = delta_bundle.at("modified");
+        } else if (delta_bundle.has_field("updated")) {
+            modified_view = delta_bundle.at("updated");
+        }
+
+        if (modified_view.valid() && modified_view.is_map()) {
+            // modified/updated is a map of key->value pairs
+            for (auto [key, value] : modified_view.as_map().items()) {
+                map_view.set_item(key, value);
+            }
+        }
+    } else if (delta.is_map()) {
+        // If delta is just a map, treat it as "set all" (replace operation)
+        // This is a fallback for simple cases
+        map_view.clear();
+        for (auto [key, value] : delta.as_map().items()) {
+            map_view.set_item(key, value);
+        }
+    } else {
+        throw std::runtime_error("apply_delta for TSD: delta must be a bundle with 'added'/'modified'/'removed' fields or a map");
+    }
+
+    // Update modification time
+    auto time_view = make_time_view(vd);
+    time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
+
+    // Notify observers
+    if (vd.observer_data) {
+        auto observer_view = make_observer_view(vd);
+        auto* observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
+        observers->notify_modified(current_time);
+    }
 }
 
 void invalidate(ViewData& vd) {

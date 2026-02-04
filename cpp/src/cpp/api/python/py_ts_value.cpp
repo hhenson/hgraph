@@ -13,6 +13,7 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/fq_path.h>
+#include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/time_series/ts_scalar_view.h>
 #include <hgraph/types/time_series/ts_bundle_view.h>
 #include <hgraph/types/time_series/ts_list_view.h>
@@ -346,6 +347,9 @@ static void register_ts_view(nb::module_& m) {
 
         .def("fq_path", &TSView::fq_path,
             "Get the fully-qualified path as an FQPath object")
+
+        .def("ref", &TSView::ref,
+            "Create a TSReference pointing to this view's output.")
 
         // Python interop
         .def("to_python", &TSView::to_python,
