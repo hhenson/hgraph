@@ -364,6 +364,9 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 
 namespace bundle_ops {
 
+// Forward declarations for functions used by all_valid
+TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time);
+
 // For TSB types:
 // - value is bundle type
 // - time is tuple[engine_time_t, field_times...]
@@ -472,56 +475,23 @@ bool valid(const ViewData& vd) {
 }
 
 bool all_valid(const ViewData& vd) {
+    // First check if this bundle itself is valid (any field has ticked)
     if (!valid(vd)) return false;
 
-    // Check all fields recursively
+    // Check all fields recursively using child_at which handles links properly
     if (!vd.meta) return false;
 
-    auto value_view = make_value_view(vd);
-    auto time_view = make_time_view(vd);
-    auto observer_view = make_observer_view(vd);
-
-    if (!time_view.valid()) return false;
+    // Use MIN_ST (smallest valid time) as the current_time parameter for child_at
+    // This ensures we get the proper child view regardless of when we're checking
+    engine_time_t query_time = MIN_ST;
 
     for (size_t i = 0; i < vd.meta->field_count; ++i) {
-        const TSMeta* field_meta = vd.meta->fields[i].ts_type;
-        auto ft = time_view.as_tuple().at(i + 1);
+        // Get the child view - this properly handles linked fields by delegating to target
+        TSView child_view = child_at(vd, i, query_time);
 
-        if (field_meta->is_scalar_ts()) {
-            // Check if this scalar field is linked
-            auto* rl = get_scalar_field_ref_link(vd, i);
-            if (rl && rl->target().valid()) {
-                // Field is linked - delegate all_valid to target
-                ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(i));
-                if (!target_vd.ops || !target_vd.ops->all_valid(target_vd)) {
-                    return false;
-                }
-            } else {
-                // Scalar field not linked - check timestamp directly
-                engine_time_t field_time = ft.as<engine_time_t>();
-                if (field_time == MIN_ST) return false;
-            }
-        } else {
-            // Composite field - check timestamp first
-            engine_time_t field_time = ft.as_tuple().at(0).as<engine_time_t>();
-            if (field_time == MIN_ST) return false;
-
-            // Construct child ViewData for recursive all_valid check
-            ViewData field_vd;
-            field_vd.path = vd.path.child(i);
-            field_vd.value_data = value_view.as_bundle().at(i).data();
-            field_vd.time_data = ft.data();
-            field_vd.observer_data = observer_view.valid() ? observer_view.as_tuple().at(i + 1).data() : nullptr;
-            field_vd.delta_data = nullptr;
-            field_vd.sampled = vd.sampled;
-            field_vd.link_data = get_field_link_data(vd, i);
-            field_vd.ops = get_ts_ops(field_meta);
-            field_vd.meta = field_meta;
-
-            // Recursively check all_valid on composite fields
-            if (!field_vd.ops || !field_vd.ops->all_valid(field_vd)) {
-                return false;
-            }
+        // Check if the child is all_valid
+        if (!child_view || !child_view.all_valid()) {
+            return false;
         }
     }
 
@@ -564,6 +534,25 @@ void set_value(ViewData& vd, const value::View& src, engine_time_t current_time)
     // Update container time
     auto time_view = make_time_view(vd);
     time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
+
+    // Also update field-level times (important for valid() checks on linked fields)
+    // This matches Python behavior where setting tsb.value sets each field individually
+    if (vd.meta) {
+        auto time_tuple = time_view.as_tuple();
+        for (size_t i = 0; i < vd.meta->field_count; ++i) {
+            value::View field_time = time_tuple.at(i + 1);  // +1 for bundle-level time
+            if (field_time) {
+                const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+                if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
+                    // Composite field: time is tuple[engine_time_t, ...]
+                    field_time.as_tuple().at(0).as<engine_time_t>() = current_time;
+                } else {
+                    // Scalar field: time is just engine_time_t
+                    *static_cast<engine_time_t*>(field_time.data()) = current_time;
+                }
+            }
+        }
+    }
 
     // Notify container observers
     if (vd.observer_data) {
@@ -663,6 +652,25 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
     auto time_view = make_time_view(vd);
     time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
 
+    // Also update field-level times (important for valid() checks on linked fields)
+    // This matches Python behavior where setting tsb.value sets each field individually
+    if (vd.meta) {
+        auto time_tuple = time_view.as_tuple();
+        for (size_t i = 0; i < vd.meta->field_count; ++i) {
+            value::View field_time = time_tuple.at(i + 1);  // +1 for bundle-level time
+            if (field_time) {
+                const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+                if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
+                    // Composite field: time is tuple[engine_time_t, ...]
+                    field_time.as_tuple().at(0).as<engine_time_t>() = current_time;
+                } else {
+                    // Scalar field: time is just engine_time_t
+                    *static_cast<engine_time_t*>(field_time.data()) = current_time;
+                }
+            }
+        }
+    }
+
     // Notify bundle-level observers
     if (vd.observer_data) {
         auto observer_view = make_observer_view(vd);
@@ -670,7 +678,6 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         observers->notify_modified(current_time);
 
         // Also notify field-level observers (for subscribers bound to individual fields)
-        // This matches Python behavior where setting tsb.value sets each field individually
         if (vd.meta) {
             auto observer_tuple = observer_view.as_tuple();
             for (size_t i = 0; i < vd.meta->field_count; ++i) {
@@ -920,6 +927,10 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 
 namespace list_ops {
 
+// Forward declarations for functions used by all_valid
+TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time);
+size_t child_count(const ViewData& vd);
+
 // For TSL types:
 // - value is list type
 // - time is tuple[engine_time_t, list[element_times]]
@@ -995,68 +1006,22 @@ bool all_valid(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
     }
+
+    // First check if this list itself is valid
     if (!valid(vd)) return false;
     if (!vd.meta) return false;
 
-    auto value_view = make_value_view(vd);
-    auto time_view = make_time_view(vd);
-    auto observer_view = make_observer_view(vd);
+    // Use MIN_ST (smallest valid time) as the current_time parameter for child_at
+    engine_time_t query_time = MIN_ST;
 
-    if (!value_view.valid() || !time_view.valid()) return false;
+    // Check all elements using child_at which handles links properly
+    size_t count = child_count(vd);
+    for (size_t i = 0; i < count; ++i) {
+        TSView child_view = child_at(vd, i, query_time);
 
-    auto value_list = value_view.as_list();
-    auto times_list = time_view.as_tuple().at(1).as_list();
-    auto observer_list = observer_view.valid() ? observer_view.as_tuple().at(1).as_list() : value::ListView{};
-
-    const TSMeta* elem_meta = vd.meta->element_ts;
-
-    for (size_t i = 0; i < value_list.size(); ++i) {
-        auto et = times_list.at(i);
-
-        // For fixed-size TSL with per-element binding, check element link
-        if (vd.meta->fixed_size > 0 && vd.link_data && elem_meta->is_scalar_ts()) {
-            auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
-            if (link_schema) {
-                value::View link_view(vd.link_data, link_schema);
-                auto link_list = link_view.as_list();
-                if (i < link_list.size()) {
-                    auto* rl = static_cast<const REFLink*>(link_list.at(i).data());
-                    if (rl && rl->target().valid()) {
-                        // Element is linked - delegate all_valid to target
-                        ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(i));
-                        if (!target_vd.ops || !target_vd.ops->all_valid(target_vd)) {
-                            return false;
-                        }
-                        continue;
-                    }
-                }
-            }
-        }
-
-        if (elem_meta->is_scalar_ts()) {
-            // Scalar element - check timestamp directly
-            engine_time_t elem_time = et.as<engine_time_t>();
-            if (elem_time == MIN_ST) return false;
-        } else {
-            // Composite element - check timestamp first
-            engine_time_t elem_time = et.as_tuple().at(0).as<engine_time_t>();
-            if (elem_time == MIN_ST) return false;
-
-            // Construct child ViewData for recursive all_valid check
-            ViewData elem_vd;
-            elem_vd.path = vd.path.child(i);
-            elem_vd.value_data = value_list.at(i).data();
-            elem_vd.time_data = et.data();
-            elem_vd.observer_data = observer_list.valid() && i < observer_list.size() ? observer_list.at(i).data() : nullptr;
-            elem_vd.delta_data = nullptr;
-            elem_vd.sampled = vd.sampled;
-            elem_vd.ops = get_ts_ops(elem_meta);
-            elem_vd.meta = elem_meta;
-
-            // Recursively check all_valid on composite elements
-            if (!elem_vd.ops || !elem_vd.ops->all_valid(elem_vd)) {
-                return false;
-            }
+        // Check if the child is all_valid
+        if (!child_view || !child_view.all_valid()) {
+            return false;
         }
     }
 
@@ -1680,6 +1645,10 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 
 namespace dict_ops {
 
+// Forward declarations for functions used by all_valid
+TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time);
+size_t child_count(const ViewData& vd);
+
 // For TSD types:
 // - value is map type
 // - time is tuple[engine_time_t, var_list[element_times]]
@@ -1724,55 +1693,22 @@ bool all_valid(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
     }
+
+    // First check if this dict itself is valid
     if (!valid(vd)) return false;
     if (!vd.meta || !vd.meta->element_ts) return false;
 
-    auto value_view = make_value_view(vd);
-    auto time_view = make_time_view(vd);
-    auto observer_view = make_observer_view(vd);
+    // Use MIN_ST (smallest valid time) as the current_time parameter for child_at
+    engine_time_t query_time = MIN_ST;
 
-    if (!value_view.valid() || !time_view.valid()) return false;
+    // Check all elements using child_at which handles links properly
+    size_t count = child_count(vd);
+    for (size_t i = 0; i < count; ++i) {
+        TSView child_view = child_at(vd, i, query_time);
 
-    auto times_list = time_view.as_tuple().at(1).as_list();
-    auto observer_list = observer_view.valid() ? observer_view.as_tuple().at(1).as_list() : value::ListView{};
-
-    const TSMeta* elem_meta = vd.meta->element_ts;
-
-    // Access the MapStorage directly to iterate over storage slots
-    auto* storage = static_cast<value::MapStorage*>(vd.value_data);
-    auto* index_set = storage->key_set().index_set();
-    if (!index_set) return true;  // Empty map is all_valid if valid
-
-    size_t logical_index = 0;
-    for (auto it = index_set->begin(); it != index_set->end(); ++it, ++logical_index) {
-        size_t storage_slot = *it;
-        auto et = times_list.at(storage_slot);
-
-        if (elem_meta->is_scalar_ts()) {
-            // Scalar element - check timestamp directly
-            engine_time_t elem_time = et.as<engine_time_t>();
-            if (elem_time == MIN_ST) return false;
-        } else {
-            // Composite element - check timestamp first
-            engine_time_t elem_time = et.as_tuple().at(0).as<engine_time_t>();
-            if (elem_time == MIN_ST) return false;
-
-            // Construct child ViewData for recursive all_valid check
-            ViewData elem_vd;
-            elem_vd.path = vd.path.child(logical_index);
-            elem_vd.value_data = storage->value_at_slot(storage_slot);
-            elem_vd.time_data = et.data();
-            elem_vd.observer_data = observer_list.valid() && storage_slot < observer_list.size()
-                                     ? observer_list.at(storage_slot).data() : nullptr;
-            elem_vd.delta_data = nullptr;
-            elem_vd.sampled = vd.sampled;
-            elem_vd.ops = get_ts_ops(elem_meta);
-            elem_vd.meta = elem_meta;
-
-            // Recursively check all_valid on composite elements
-            if (!elem_vd.ops || !elem_vd.ops->all_valid(elem_vd)) {
-                return false;
-            }
+        // Check if the child is all_valid
+        if (!child_view || !child_view.all_valid()) {
+            return false;
         }
     }
 
