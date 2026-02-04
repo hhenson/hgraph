@@ -92,9 +92,6 @@ namespace hgraph {
 
     struct BaseNodeBuilder : NodeBuilder {
         using NodeBuilder::NodeBuilder;
-
-    protected:
-        void _build_inputs_and_outputs(node_ptr node) const;
     };
 } // namespace hgraph
 

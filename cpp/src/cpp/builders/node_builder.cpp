@@ -166,10 +166,4 @@ namespace hgraph {
         last_value_pull_node_builder_register_with_nanobind(m);
     }
 
-    void BaseNodeBuilder::_build_inputs_and_outputs(node_ptr node) const {
-        // TSInput/TSOutput are now created by the Node constructor from TSMeta
-        // This method is kept for compatibility but is now a no-op
-        // The Node constructor receives TSMeta from input_meta(), output_meta(),
-        // error_output_meta(), and recordable_state_meta()
-    }
 } // namespace hgraph
