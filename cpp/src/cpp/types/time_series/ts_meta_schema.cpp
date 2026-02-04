@@ -492,23 +492,44 @@ const value::TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta
             return ref_link_meta_;
 
         case TSKind::TSD:
-        case TSKind::TSL:
-            // TSD and TSL: REFLink for collection-level link
+            // TSD: REFLink for collection-level link
             // REFLink stores the link target inline and can also handle REF→TS
             // dereferencing when needed. This provides stable addresses for
             // the two-phase removal lifecycle.
             return ref_link_meta_;
 
+        case TSKind::TSL: {
+            // TSL: For fixed-size lists (inputs), use fixed_list[REFLink] for per-element binding
+            // For dynamic lists, use single REFLink for collection-level link
+            if (ts_meta->fixed_size > 0) {
+                auto& registry = value::TypeRegistry::instance();
+                return registry.fixed_list(ref_link_meta_, ts_meta->fixed_size).build();
+            }
+            return ref_link_meta_;
+        }
+
         case TSKind::TSB: {
-            // TSB: fixed_list[REFLink] with one entry per field
-            // Each field can be independently linked to different targets.
-            // Using REFLink enables inline storage with proper lifecycle management.
+            // TSB[...] -> tuple[REFLink, link_schema(field_0), link_schema(field_1), ...]
+            // The first element is the bundle-level REFLink (for binding the whole bundle).
+            // Subsequent elements are per-field link schemas, enabling nested link storage
+            // for composite fields (TSL, TSD, TSB within the bundle).
             if (ts_meta->field_count == 0) {
                 return nullptr;
             }
 
             auto& registry = value::TypeRegistry::instance();
-            return registry.fixed_list(ref_link_meta_, ts_meta->field_count).build();
+            auto builder = registry.tuple();
+
+            // First element: bundle-level REFLink
+            builder.element(ref_link_meta_);
+
+            // Subsequent elements: per-field link schemas
+            for (size_t i = 0; i < ts_meta->field_count; ++i) {
+                const value::TypeMeta* field_link = get_link_schema(ts_meta->fields[i].ts_type);
+                builder.element(field_link);
+            }
+
+            return builder.build();
         }
     }
 
