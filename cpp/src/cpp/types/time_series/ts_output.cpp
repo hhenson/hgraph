@@ -418,4 +418,17 @@ TSOutputView TSOutputView::operator[](size_t index) const {
     return TSOutputView(std::move(child), output_);
 }
 
+TSOutputView TSOutputView::operator[](const value::View& key) const {
+    TSView child = ts_view_.as_dict().at(key);
+    return TSOutputView(std::move(child), output_);
+}
+
+FQPath TSOutputView::fq_path() const {
+    if (!output_) {
+        // No owner context - return empty FQPath
+        return FQPath();
+    }
+    return output_->to_fq_path(ts_view_);
+}
+
 } // namespace hgraph

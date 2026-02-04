@@ -106,6 +106,22 @@ struct ViewData {
      */
     void* link_data{nullptr};
 
+    // ========== Sampled Flag ==========
+
+    /**
+     * @brief Whether this view was obtained through a modified REF.
+     *
+     * When a REF changes target (rebinds), views obtained through it are
+     * "sampled" - they report modified=true even if the new target wasn't
+     * actually modified at the current tick. This allows consumers to
+     * distinguish between "target actually modified" vs "target changed
+     * due to REF rebinding".
+     *
+     * This flag is set during navigation (child_at, etc.) when traversing
+     * through a REFLink that was rebound at the current time.
+     */
+    bool sampled{false};
+
     // ========== Operations ==========
 
     /**
@@ -140,13 +156,15 @@ struct ViewData {
              void* delta_data_,
              void* link_data_,
              const ts_ops* ops_,
-             const TSMeta* meta_) noexcept
+             const TSMeta* meta_,
+             bool sampled_ = false) noexcept
         : path(std::move(path_))
         , value_data(value_data_)
         , time_data(time_data_)
         , observer_data(observer_data_)
         , delta_data(delta_data_)
         , link_data(link_data_)
+        , sampled(sampled_)
         , ops(ops_)
         , meta(meta_) {}
 
@@ -159,13 +177,15 @@ struct ViewData {
              void* observer_data_,
              void* delta_data_,
              const ts_ops* ops_,
-             const TSMeta* meta_) noexcept
+             const TSMeta* meta_,
+             bool sampled_ = false) noexcept
         : path(std::move(path_))
         , value_data(value_data_)
         , time_data(time_data_)
         , observer_data(observer_data_)
         , delta_data(delta_data_)
         , link_data(nullptr)
+        , sampled(sampled_)
         , ops(ops_)
         , meta(meta_) {}
 

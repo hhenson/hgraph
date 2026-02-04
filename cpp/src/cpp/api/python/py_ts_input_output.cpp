@@ -239,12 +239,27 @@ void ts_input_output_register_with_nanobind(nb::module_& m) {
             "name"_a,
             "Navigate to field by name (for TSB types).")
 
-        .def("__getitem__", &TSOutputView::operator[],
+        .def("__getitem__", [](const TSOutputView& self, size_t index) {
+                return self[index];
+            },
             "index"_a,
             "Navigate to child by index.")
 
+        .def("__getitem__", [](const TSOutputView& self, const value::View& key) {
+                return self[key];
+            },
+            "key"_a,
+            "Navigate to child by key (for TSD types).")
+
         .def("size", &TSOutputView::size,
             "Get the number of children.")
+
+        .def("short_path", [](const TSOutputView& self) {
+                return self.short_path().to_string();
+            }, "Get the graph-aware path as a string.")
+
+        .def("fq_path", &TSOutputView::fq_path,
+            "Get the fully-qualified path as an FQPath object.")
 
         .def("ts_view", [](TSOutputView& self) -> TSView& {
                 return self.ts_view();
@@ -364,6 +379,18 @@ void ts_input_output_register_with_nanobind(nb::module_& m) {
         .def("active", &TSInputView::active,
             "Check if this position is active.")
 
+        .def("any_active", &TSInputView::any_active,
+            "Check if any child is active.\n\n"
+            "For TSB: returns true if any field is active.\n"
+            "For TSL/TSD: returns true if any element is active.\n"
+            "For scalars: returns same as active().")
+
+        .def("all_active", &TSInputView::all_active,
+            "Check if all children are active.\n\n"
+            "For TSB: returns true if all fields are active.\n"
+            "For TSL/TSD: returns true if all elements are active.\n"
+            "For scalars: returns same as active().")
+
         .def("field", &TSInputView::field,
             "name"_a,
             "Navigate to field by name (for TSB types).")
@@ -374,6 +401,13 @@ void ts_input_output_register_with_nanobind(nb::module_& m) {
 
         .def("size", &TSInputView::size,
             "Get the number of children.")
+
+        .def("short_path", [](const TSInputView& self) {
+                return self.short_path().to_string();
+            }, "Get the graph-aware path as a string.")
+
+        .def("fq_path", &TSInputView::fq_path,
+            "Get the fully-qualified path as an FQPath object.")
 
         .def("input", [](TSInputView& self) -> TSInput* {
                 return self.input();

@@ -326,6 +326,60 @@ TEST_CASE("TSFieldIterator - name accessor with null meta", "[time_series][view_
 }
 
 // ============================================================================
+// TSFieldNameRange Tests
+// ============================================================================
+
+TEST_CASE("TSFieldNameRange - default construction", "[time_series][view_range][ts_field_name]") {
+    TSFieldNameRange range;
+
+    CHECK(range.empty());
+    CHECK(range.size() == 0);
+    CHECK(range.begin() == range.end());
+}
+
+TEST_CASE("TSFieldNameIterator - default construction", "[time_series][view_range][ts_field_name]") {
+    TSFieldNameIterator it;
+    TSFieldNameIterator end;
+
+    CHECK(it == end);
+}
+
+TEST_CASE("TSFieldNameIterator - index accessor", "[time_series][view_range][ts_field_name]") {
+    TSFieldNameIterator it(nullptr, 3, 10);
+
+    CHECK(it.index() == 3);
+}
+
+TEST_CASE("TSFieldNameIterator - name with null meta returns empty string", "[time_series][view_range][ts_field_name]") {
+    TSFieldNameIterator it(nullptr, 0, 1);
+
+    CHECK(std::string(*it) == "");
+}
+
+TEST_CASE("TSFieldNameIterator - increment", "[time_series][view_range][ts_field_name]") {
+    TSFieldNameIterator it(nullptr, 0, 3);
+
+    CHECK(it.index() == 0);
+    ++it;
+    CHECK(it.index() == 1);
+    ++it;
+    CHECK(it.index() == 2);
+}
+
+TEST_CASE("TSFieldNameIterator - equality comparison", "[time_series][view_range][ts_field_name]") {
+    TSFieldNameIterator it1(nullptr, 5, 10);
+    TSFieldNameIterator it2(nullptr, 5, 10);
+    TSFieldNameIterator it3(nullptr, 6, 10);
+
+    CHECK(it1 == it2);
+    CHECK(it1 != it3);
+}
+
+TEST_CASE("TSFieldNameIterator - is forward iterator", "[time_series][view_range][ts_field_name]") {
+    static_assert(std::is_same_v<TSFieldNameIterator::iterator_category, std::forward_iterator_tag>);
+}
+
+// ============================================================================
 // TSDictRange Tests
 // ============================================================================
 

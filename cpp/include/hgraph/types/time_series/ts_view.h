@@ -28,6 +28,7 @@ namespace hgraph {
 
 // Forward declarations
 class TSValue;
+class FQPath;
 class TSBView;
 class TSLView;
 class TSSView;
@@ -301,12 +302,15 @@ public:
     }
 
     /**
-     * @brief Get the fully-qualified path as a string.
-     * @return String representation of the path
+     * @brief Get the fully-qualified path.
+     *
+     * Note: Without owner context (TSOutput/TSInput), this returns an FQPath
+     * with indices only. For full semantic conversion (field names, keys),
+     * use TSOutputView::fq_path() or TSInputView::fq_path().
+     *
+     * @return FQPath with path elements
      */
-    [[nodiscard]] std::string fq_path() const {
-        return view_data_.path.to_string();
-    }
+    [[nodiscard]] FQPath fq_path() const;
 
     // ========== Observer Access ==========
 

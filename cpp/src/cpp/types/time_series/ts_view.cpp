@@ -253,6 +253,30 @@ TSWView TSView::as_window() const {
 }
 
 // ============================================================================
+// FQPath Access
+// ============================================================================
+
+FQPath TSView::fq_path() const {
+    // TSView without owner context can only provide indices (not full semantic conversion)
+    // For full FQPath with field names and keys, use TSOutputView::fq_path() or TSInputView::fq_path()
+    const ShortPath& sp = view_data_.path;
+
+    std::vector<int64_t> node_id;
+    if (sp.node()) {
+        node_id = sp.node()->node_id();
+    }
+
+    FQPath fq(node_id, sp.port_type());
+
+    // Add indices as PathElement::index (since we don't have root context for semantic conversion)
+    for (size_t idx : sp.indices()) {
+        fq.push_index(idx);
+    }
+
+    return fq;
+}
+
+// ============================================================================
 // ShortPath
 // ============================================================================
 

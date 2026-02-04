@@ -14,6 +14,7 @@
  */
 
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/fq_path.h>
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/notifiable.h>
 
@@ -187,6 +188,16 @@ public:
     [[nodiscard]] TSOutputView operator[](size_t index) const;
 
     /**
+     * @brief Navigate to child by key.
+     *
+     * Only valid for TSD (dict) types.
+     *
+     * @param key The key (as a value::View)
+     * @return TSOutputView for the value at that key
+     */
+    [[nodiscard]] TSOutputView operator[](const value::View& key) const;
+
+    /**
      * @brief Get the number of children.
      */
     [[nodiscard]] size_t size() const { return ts_view_.size(); }
@@ -199,6 +210,12 @@ public:
     [[nodiscard]] const ShortPath& short_path() const noexcept {
         return ts_view_.short_path();
     }
+
+    /**
+     * @brief Get the fully-qualified path.
+     * @return FQPath with semantic path elements
+     */
+    [[nodiscard]] FQPath fq_path() const;
 
     // ========== Internal Access ==========
 

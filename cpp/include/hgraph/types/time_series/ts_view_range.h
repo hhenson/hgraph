@@ -398,6 +398,111 @@ using ValidTSFieldRange = FilteredTSFieldRange<TSFilter::VALID>;
 using ModifiedTSFieldRange = FilteredTSFieldRange<TSFilter::MODIFIED>;
 
 /**
+ * @brief Iterator for bundle field names only.
+ *
+ * Yields field names as const char* without creating TSView objects.
+ */
+class TSFieldNameIterator {
+public:
+    using iterator_category = std::forward_iterator_tag;
+    using value_type = const char*;
+    using difference_type = std::ptrdiff_t;
+    using pointer = const char**;
+    using reference = const char*;
+
+    TSFieldNameIterator() noexcept
+        : meta_(nullptr)
+        , current_index_(0)
+    {}
+
+    TSFieldNameIterator(const TSMeta* meta, size_t index, [[maybe_unused]] size_t end) noexcept
+        : meta_(meta)
+        , current_index_(index)
+    {}
+
+    /**
+     * @brief Dereference to get field name.
+     */
+    reference operator*() const noexcept {
+        if (meta_ && current_index_ < meta_->field_count) {
+            return meta_->fields[current_index_].name;
+        }
+        return "";
+    }
+
+    /**
+     * @brief Get the current field index.
+     */
+    [[nodiscard]] size_t index() const noexcept { return current_index_; }
+
+    TSFieldNameIterator& operator++() {
+        ++current_index_;
+        return *this;
+    }
+
+    TSFieldNameIterator operator++(int) {
+        TSFieldNameIterator tmp = *this;
+        ++(*this);
+        return tmp;
+    }
+
+    bool operator==(const TSFieldNameIterator& other) const noexcept {
+        return current_index_ == other.current_index_;
+    }
+
+    bool operator!=(const TSFieldNameIterator& other) const noexcept {
+        return !(*this == other);
+    }
+
+private:
+    const TSMeta* meta_;
+    size_t current_index_;
+};
+
+/**
+ * @brief Range for iterating over bundle field names.
+ *
+ * Provides begin()/end() for range-based for loops over field names.
+ *
+ * Usage:
+ * @code
+ * for (const auto& field_name : bundle.keys()) {
+ *     std::cout << field_name << "\n";
+ * }
+ * @endcode
+ */
+class TSFieldNameRange {
+public:
+    TSFieldNameRange() noexcept
+        : meta_(nullptr)
+        , begin_index_(0)
+        , end_index_(0)
+    {}
+
+    TSFieldNameRange(const TSMeta* meta, size_t begin_idx, size_t end_idx) noexcept
+        : meta_(meta)
+        , begin_index_(begin_idx)
+        , end_index_(end_idx)
+    {}
+
+    [[nodiscard]] TSFieldNameIterator begin() const {
+        return TSFieldNameIterator(meta_, begin_index_, end_index_);
+    }
+
+    [[nodiscard]] TSFieldNameIterator end() const {
+        return TSFieldNameIterator(meta_, end_index_, end_index_);
+    }
+
+    [[nodiscard]] size_t size() const { return end_index_ - begin_index_; }
+    [[nodiscard]] bool empty() const { return begin_index_ == end_index_; }
+
+private:
+    const TSMeta* meta_;
+    size_t begin_index_;
+    size_t end_index_;
+};
+
+/**
  * @brief Filtered iterator for list values (compile-time optimized).
  *
  * @tparam Filter The filter to apply (TSFilter::VALID or TSFilter::MODIFIED)

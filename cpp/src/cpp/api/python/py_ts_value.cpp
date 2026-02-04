@@ -12,6 +12,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/fq_path.h>
 #include <hgraph/types/time_series/ts_scalar_view.h>
 #include <hgraph/types/time_series/ts_bundle_view.h>
 #include <hgraph/types/time_series/ts_list_view.h>
@@ -97,6 +98,37 @@ static void register_ts_view_iterators(nb::module_& m) {
         .def("__len__", &TSFieldRange::size)
 
         .def("empty", &TSFieldRange::empty,
+            "Check if the range is empty");
+
+    // TSFieldNameIterator - bundle field name iterator
+    nb::class_<TSFieldNameIterator>(m, "TSFieldNameIterator",
+        "Iterator for bundle field names only.\n\n"
+        "Yields field names as strings.")
+
+        .def("index", &TSFieldNameIterator::index,
+            "Get the current field index")
+
+        .def("__next__", [](TSFieldNameIterator& self, TSFieldNameIterator& end) -> const char* {
+            if (self == end) {
+                throw nb::stop_iteration();
+            }
+            const char* result = *self;
+            ++self;
+            return result;
+        });
+
+    // TSFieldNameRange - iterable range of bundle field names
+    nb::class_<TSFieldNameRange>(m, "TSFieldNameRange",
+        "Range for iterating over bundle field names.\n\n"
+        "Use in a for loop: for name in bundle.keys(): ...")
+
+        .def("__iter__", [](TSFieldNameRange& self) {
+            return std::make_pair(self.begin(), self.end());
+        })
+
+        .def("__len__", &TSFieldNameRange::size)
+
+        .def("empty", &TSFieldNameRange::empty,
             "Check if the range is empty");
 
     // TSDictIterator - dict entry iterator with key access
@@ -313,7 +345,7 @@ static void register_ts_view(nb::module_& m) {
         }, "Get the graph-aware path as a string")
 
         .def("fq_path", &TSView::fq_path,
-            "Get the fully-qualified path as a string")
+            "Get the fully-qualified path as an FQPath object")
 
         // Python interop
         .def("to_python", &TSView::to_python,
@@ -395,6 +427,10 @@ static void register_tsb_view(nb::module_& m) {
         .def("items", &TSBView::items,
             "Iterate over all fields.\n\n"
             "Returns a TSFieldRange. Use the iterator's name() for field names.")
+
+        .def("keys", &TSBView::keys,
+            "Iterate over field names.\n\n"
+            "Returns a TSFieldNameRange for iterating over field names.")
 
         .def("valid_items", &TSBView::valid_items,
             "Iterate over valid fields only")

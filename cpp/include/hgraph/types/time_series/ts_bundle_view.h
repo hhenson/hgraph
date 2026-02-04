@@ -135,6 +135,27 @@ public:
     }
 
     /**
+     * @brief Iterate over field names.
+     *
+     * Returns an iterator over field names without creating TSView objects.
+     *
+     * @return TSFieldNameRange for iteration
+     *
+     * Usage:
+     * @code
+     * for (const auto& field_name : bundle.keys()) {
+     *     std::cout << field_name << "\n";
+     * }
+     * @endcode
+     */
+    [[nodiscard]] TSFieldNameRange keys() const {
+        if (!meta()) {
+            return TSFieldNameRange{};
+        }
+        return TSFieldNameRange(meta(), 0, field_count());
+    }
+
+    /**
      * @brief Iterate over valid fields only.
      *
      * @return FilteredTSFieldRange that skips invalid fields

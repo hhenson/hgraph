@@ -14,6 +14,7 @@
  */
 
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/fq_path.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/short_path.h>
 
@@ -179,6 +180,24 @@ public:
      */
     [[nodiscard]] bool active() const;
 
+    /**
+     * @brief Check if any child is active.
+     *
+     * For TSB: returns true if any field is active
+     * For TSL/TSD: returns true if any element is active
+     * For scalars: returns same as active()
+     */
+    [[nodiscard]] bool any_active() const;
+
+    /**
+     * @brief Check if all children are active.
+     *
+     * For TSB: returns true if all fields are active
+     * For TSL/TSD: returns true if all elements are active
+     * For scalars: returns same as active()
+     */
+    [[nodiscard]] bool all_active() const;
+
     // ========== Navigation ==========
 
     /**
@@ -216,6 +235,12 @@ public:
     [[nodiscard]] const ShortPath& short_path() const noexcept {
         return ts_view_.short_path();
     }
+
+    /**
+     * @brief Get the fully-qualified path.
+     * @return FQPath with semantic path elements
+     */
+    [[nodiscard]] FQPath fq_path() const;
 
     // ========== Internal Access ==========
 

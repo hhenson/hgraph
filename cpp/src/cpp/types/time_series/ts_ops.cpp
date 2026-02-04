@@ -75,7 +75,8 @@ inline const REFLink* get_ref_link(const void* link_data) {
 }
 
 // Create ViewData from a REFLink's target
-inline ViewData make_view_data_from_link(const REFLink& rl, const ShortPath& path) {
+// The sampled parameter indicates whether this view was obtained through a modified REF
+inline ViewData make_view_data_from_link(const REFLink& rl, const ShortPath& path, bool sampled = false) {
     const LinkTarget& lt = rl.target();
     ViewData vd;
     vd.path = path;
@@ -84,9 +85,15 @@ inline ViewData make_view_data_from_link(const REFLink& rl, const ShortPath& pat
     vd.observer_data = lt.observer_data;
     vd.delta_data = lt.delta_data;
     vd.link_data = lt.link_data;
+    vd.sampled = sampled;
     vd.ops = lt.ops;
     vd.meta = lt.meta;
     return vd;
+}
+
+// Check if a REFLink was rebound at the given time (indicating sampled semantics)
+inline bool is_ref_sampled(const REFLink& rl, engine_time_t current_time) {
+    return rl.is_bound() && rl.last_rebind_time() >= current_time;
 }
 
 // Store ViewData into a REFLink's internal target (for simple link usage)
@@ -163,8 +170,9 @@ bool all_valid(const ViewData& vd) {
 }
 
 bool sampled(const ViewData& vd) {
-    // TODO: Implement for REF support
-    return false;
+    // Return the sampled flag from ViewData
+    // This flag is set when navigating through a REFLink that was rebound
+    return vd.sampled;
 }
 
 value::View value(const ViewData& vd) {
@@ -513,7 +521,8 @@ bool all_valid(const ViewData& vd) {
 }
 
 bool sampled(const ViewData& vd) {
-    return false;
+    // Return the sampled flag from ViewData
+    return vd.sampled;
 }
 
 value::View value(const ViewData& vd) {
@@ -604,7 +613,9 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
         if (auto* rl = get_scalar_field_ref_link(vd, index)) {
             if (rl->target().valid()) {
                 // Field is linked - return TSView pointing to target
-                ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index));
+                // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
+                bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+                ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index), is_sampled);
                 return TSView(target_vd, current_time);
             }
         }
@@ -621,6 +632,7 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
     field_vd.time_data = time_view.as_tuple().at(index + 1).data();
     field_vd.observer_data = observer_view.as_tuple().at(index + 1).data();
     field_vd.delta_data = nullptr;  // Field deltas not supported yet
+    field_vd.sampled = vd.sampled;  // Propagate sampled flag from parent
 
     // Set link_data for binding support
     // - For scalar fields: points to the REFLink (so binding stores target there)
@@ -915,17 +927,19 @@ bool all_valid(const ViewData& vd) {
 }
 
 bool sampled(const ViewData& vd) {
-    // If linked, delegate to target
+    // Return the sampled flag from ViewData
+    // This flag is set when navigating through a REFLink that was rebound
+    // If linked, also check target's sampled flag (propagates through chain)
     if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->sampled(make_view_data_from_link(*rl, vd.path));
+        return vd.sampled || rl->target().ops->sampled(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
-    return false;
+    return vd.sampled;
 }
 
 value::View value(const ViewData& vd) {
     // If linked, delegate to target
     if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path));
+        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
     return make_value_view(vd);
 }
@@ -933,7 +947,7 @@ value::View value(const ViewData& vd) {
 value::View delta_value(const ViewData& vd) {
     // If linked, delegate to target
     if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path));
+        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
     return value::View{};
 }
@@ -1024,9 +1038,16 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
 
 TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
     // If linked, navigate through target
+    // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
     if (auto* rl = get_active_link(vd)) {
-        ViewData target_vd = make_view_data_from_link(*rl, vd.path);
-        return rl->target().ops->child_at(target_vd, index, current_time);
+        bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+        ViewData target_vd = make_view_data_from_link(*rl, vd.path, is_sampled);
+        TSView result = rl->target().ops->child_at(target_vd, index, current_time);
+        // Ensure sampled flag is propagated to the result
+        if (is_sampled && result.view_data().valid()) {
+            result.view_data().sampled = true;
+        }
+        return result;
     }
 
     if (!vd.meta || !vd.meta->element_ts) {
@@ -1054,6 +1075,7 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
     elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(index).data();
     elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(index).data();
     elem_vd.delta_data = nullptr;
+    elem_vd.sampled = vd.sampled;  // Propagate sampled flag from parent
     elem_vd.ops = get_ts_ops(elem_meta);
     elem_vd.meta = elem_meta;
 
@@ -1072,9 +1094,15 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
 
 TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t current_time) {
     // If linked, navigate through target
+    // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
     if (auto* rl = get_active_link(vd)) {
-        ViewData target_vd = make_view_data_from_link(*rl, vd.path);
-        return rl->target().ops->child_by_name(target_vd, name, current_time);
+        bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+        ViewData target_vd = make_view_data_from_link(*rl, vd.path, is_sampled);
+        TSView result = rl->target().ops->child_by_name(target_vd, name, current_time);
+        if (is_sampled && result.view_data().valid()) {
+            result.view_data().sampled = true;
+        }
+        return result;
     }
     // Lists don't have named children
     return TSView{};
@@ -1082,9 +1110,15 @@ TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t 
 
 TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t current_time) {
     // If linked, navigate through target
+    // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
     if (auto* rl = get_active_link(vd)) {
-        ViewData target_vd = make_view_data_from_link(*rl, vd.path);
-        return rl->target().ops->child_by_key(target_vd, key, current_time);
+        bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+        ViewData target_vd = make_view_data_from_link(*rl, vd.path, is_sampled);
+        TSView result = rl->target().ops->child_by_key(target_vd, key, current_time);
+        if (is_sampled && result.view_data().valid()) {
+            result.view_data().sampled = true;
+        }
+        return result;
     }
     // Lists don't support key access
     return TSView{};
@@ -1093,7 +1127,7 @@ TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t cu
 size_t child_count(const ViewData& vd) {
     // If linked, delegate to target
     if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->child_count(make_view_data_from_link(*rl, vd.path));
+        return rl->target().ops->child_count(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
     auto value_view = make_value_view(vd);
     if (!value_view.valid()) return 0;
@@ -1237,7 +1271,8 @@ bool all_valid(const ViewData& vd) {
 }
 
 bool sampled(const ViewData& vd) {
-    return false;
+    // Return the sampled flag from ViewData
+    return vd.sampled;
 }
 
 value::View value(const ViewData& vd) {
@@ -1499,17 +1534,18 @@ bool all_valid(const ViewData& vd) {
 }
 
 bool sampled(const ViewData& vd) {
-    // If linked, delegate to target
+    // Return the sampled flag from ViewData
+    // If linked, also check target's sampled flag (propagates through chain)
     if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->sampled(make_view_data_from_link(*rl, vd.path));
+        return vd.sampled || rl->target().ops->sampled(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
-    return false;
+    return vd.sampled;
 }
 
 value::View value(const ViewData& vd) {
     // If linked, delegate to target
     if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path));
+        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
     return make_value_view(vd);
 }
@@ -1517,7 +1553,7 @@ value::View value(const ViewData& vd) {
 value::View delta_value(const ViewData& vd) {
     // If linked, delegate to target
     if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path));
+        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
     return make_delta_view(vd);
 }
@@ -1525,7 +1561,7 @@ value::View delta_value(const ViewData& vd) {
 bool has_delta(const ViewData& vd) {
     // If linked, delegate to target
     if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path));
+        return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
     return vd.delta_data != nullptr;
 }
@@ -1534,7 +1570,7 @@ void set_value(ViewData& vd, const value::View& src, engine_time_t current_time)
     // If linked, delegate to target (write through)
     if (auto* rl = get_ref_link(vd.link_data)) {
         if (rl->target().valid()) {
-            ViewData target_vd = make_view_data_from_link(*rl, vd.path);
+            ViewData target_vd = make_view_data_from_link(*rl, vd.path, vd.sampled);
             rl->target().ops->set_value(target_vd, src, current_time);
             return;
         }
@@ -1639,9 +1675,15 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
 
 TSView child_at(const ViewData& vd, size_t slot, engine_time_t current_time) {
     // If linked, navigate through target
+    // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
     if (auto* rl = get_active_link(vd)) {
-        ViewData target_vd = make_view_data_from_link(*rl, vd.path);
-        return rl->target().ops->child_at(target_vd, slot, current_time);
+        bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+        ViewData target_vd = make_view_data_from_link(*rl, vd.path, is_sampled);
+        TSView result = rl->target().ops->child_at(target_vd, slot, current_time);
+        if (is_sampled && result.view_data().valid()) {
+            result.view_data().sampled = true;
+        }
+        return result;
     }
 
     if (!vd.meta || !vd.meta->element_ts) return TSView{};
@@ -1671,6 +1713,7 @@ TSView child_at(const ViewData& vd, size_t slot, engine_time_t current_time) {
     elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(storage_slot).data();
     elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(storage_slot).data();
     elem_vd.delta_data = nullptr;
+    elem_vd.sampled = vd.sampled;  // Propagate sampled flag from parent
     elem_vd.ops = get_ts_ops(elem_meta);
     elem_vd.meta = elem_meta;
 
@@ -1679,9 +1722,15 @@ TSView child_at(const ViewData& vd, size_t slot, engine_time_t current_time) {
 
 TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t current_time) {
     // If linked, navigate through target
+    // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
     if (auto* rl = get_active_link(vd)) {
-        ViewData target_vd = make_view_data_from_link(*rl, vd.path);
-        return rl->target().ops->child_by_name(target_vd, name, current_time);
+        bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+        ViewData target_vd = make_view_data_from_link(*rl, vd.path, is_sampled);
+        TSView result = rl->target().ops->child_by_name(target_vd, name, current_time);
+        if (is_sampled && result.view_data().valid()) {
+            result.view_data().sampled = true;
+        }
+        return result;
     }
     // TSD uses keys, not names - would need key type conversion
     return TSView{};
@@ -1689,9 +1738,15 @@ TSView child_by_name(const ViewData& vd, const std::string& name, engine_time_t 
 
 TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t current_time) {
     // If linked, navigate through target
+    // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
     if (auto* rl = get_active_link(vd)) {
-        ViewData target_vd = make_view_data_from_link(*rl, vd.path);
-        return rl->target().ops->child_by_key(target_vd, key, current_time);
+        bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+        ViewData target_vd = make_view_data_from_link(*rl, vd.path, is_sampled);
+        TSView result = rl->target().ops->child_by_key(target_vd, key, current_time);
+        if (is_sampled && result.view_data().valid()) {
+            result.view_data().sampled = true;
+        }
+        return result;
     }
 
     if (!vd.meta || !vd.meta->element_ts) return TSView{};
@@ -1716,6 +1771,7 @@ TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t cu
     elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(slot).data();
     elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(slot).data();
     elem_vd.delta_data = nullptr;
+    elem_vd.sampled = vd.sampled;  // Propagate sampled flag from parent
     elem_vd.ops = get_ts_ops(elem_meta);
     elem_vd.meta = elem_meta;
 
@@ -1725,7 +1781,7 @@ TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t cu
 size_t child_count(const ViewData& vd) {
     // If linked, delegate to target
     if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->child_count(make_view_data_from_link(*rl, vd.path));
+        return rl->target().ops->child_count(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
     auto value_view = make_value_view(vd);
     if (!value_view.valid()) return 0;
@@ -2109,7 +2165,8 @@ bool all_valid(const ViewData& vd) {
 }
 
 bool sampled(const ViewData& vd) {
-    return false;
+    // Return the sampled flag from ViewData
+    return vd.sampled;
 }
 
 value::View value(const ViewData& vd) {
@@ -2317,7 +2374,8 @@ bool all_valid(const ViewData& vd) {
 }
 
 bool sampled(const ViewData& vd) {
-    return false;
+    // Return the sampled flag from ViewData
+    return vd.sampled;
 }
 
 value::View value(const ViewData& vd) {

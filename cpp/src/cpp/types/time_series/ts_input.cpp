@@ -289,4 +289,90 @@ TSInputView TSInputView::operator[](size_t index) const {
     return TSInputView(std::move(child), input_, child_active);
 }
 
+bool TSInputView::any_active() const {
+    const TSMeta* meta = ts_meta();
+    if (!meta) return false;
+
+    // For scalar types, return same as active()
+    if (meta->is_scalar_ts()) {
+        return active();
+    }
+
+    // For TSB: check all fields
+    if (meta->kind == TSKind::TSB) {
+        for (size_t i = 0; i < meta->field_count; ++i) {
+            TSInputView child = (*this)[i];
+            if (child.active()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // For TSL/TSD: check all elements
+    if (meta->is_collection()) {
+        size_t count = size();
+        for (size_t i = 0; i < count; ++i) {
+            TSInputView child = (*this)[i];
+            if (child.active()) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    // Default fallback
+    return active();
+}
+
+bool TSInputView::all_active() const {
+    const TSMeta* meta = ts_meta();
+    if (!meta) return false;
+
+    // For scalar types, return same as active()
+    if (meta->is_scalar_ts()) {
+        return active();
+    }
+
+    // For TSB: check all fields
+    if (meta->kind == TSKind::TSB) {
+        if (meta->field_count == 0) {
+            return true; // Empty bundle - vacuously true
+        }
+        for (size_t i = 0; i < meta->field_count; ++i) {
+            TSInputView child = (*this)[i];
+            if (!child.active()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // For TSL/TSD: check all elements
+    if (meta->is_collection()) {
+        size_t count = size();
+        if (count == 0) {
+            return true; // Empty collection - vacuously true
+        }
+        for (size_t i = 0; i < count; ++i) {
+            TSInputView child = (*this)[i];
+            if (!child.active()) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    // Default fallback
+    return active();
+}
+
+FQPath TSInputView::fq_path() const {
+    if (!input_) {
+        // No owner context - return empty FQPath
+        return FQPath();
+    }
+    return input_->to_fq_path(ts_view_);
+}
+
 } // namespace hgraph

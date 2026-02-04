@@ -412,15 +412,16 @@ class TestFQPathIntegration:
         assert isinstance(path, str)
 
     def test_output_fq_path_method(self, hgraph_module, ts_int_meta):
-        """TSView has fq_path method returning string."""
+        """TSView has fq_path method returning FQPath."""
         TSOutput = hgraph_module.TSOutput
+        FQPath = hgraph_module.FQPath
 
         output = TSOutput(ts_int_meta, None)
         view = output.view(TEST_TIME)
 
         ts_view = view.ts_view()
-        fq_str = ts_view.fq_path()
-        assert isinstance(fq_str, str)
+        fq = ts_view.fq_path()
+        assert isinstance(fq, FQPath)
 
 
 # ============================================================================
