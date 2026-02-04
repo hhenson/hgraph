@@ -5,7 +5,9 @@
 
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_value.h>
+#include <hgraph/types/time_series/fq_path.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/value/map_storage.h>
 
 #include <stdexcept>
 
@@ -274,6 +276,82 @@ std::string ShortPath::to_string() const {
     }
 
     return result;
+}
+
+FQPath ShortPath::to_fq(const ViewData& root_vd) const {
+    if (!node_) {
+        throw std::runtime_error("ShortPath::to_fq() called on invalid path (no node)");
+    }
+
+    // Start with node ID and port type
+    FQPath fq(node_->node_id(), port_type_);
+
+    if (indices_.empty()) {
+        return fq;  // Root path, nothing to navigate
+    }
+
+    // Navigate through the ViewData, extracting semantic path elements
+    ViewData current_vd = root_vd;
+
+    for (size_t idx : indices_) {
+        if (!current_vd.valid() || !current_vd.meta) {
+            throw std::runtime_error("ShortPath::to_fq() navigation failed: invalid ViewData");
+        }
+
+        switch (current_vd.meta->kind) {
+            case TSKind::TSB: {
+                // Bundle: convert index to field name
+                if (idx >= current_vd.meta->field_count) {
+                    throw std::runtime_error("ShortPath::to_fq() bundle index out of range");
+                }
+                const TSBFieldInfo& field_info = current_vd.meta->fields[idx];
+                fq.push_field(field_info.name);
+
+                // Navigate to child
+                current_vd = current_vd.child_at(idx);
+                break;
+            }
+
+            case TSKind::TSL: {
+                // List: index stays as index
+                fq.push_index(idx);
+
+                // Navigate to child
+                current_vd = current_vd.child_at(idx);
+                break;
+            }
+
+            case TSKind::TSD: {
+                // Dict: convert slot index to actual key value
+                auto* storage = static_cast<value::MapStorage*>(current_vd.value_data);
+                if (!storage) {
+                    throw std::runtime_error("ShortPath::to_fq() TSD has no storage");
+                }
+
+                if (!storage->key_set().is_alive(idx)) {
+                    throw std::runtime_error("ShortPath::to_fq() TSD slot is not alive");
+                }
+
+                // Get the key from the slot
+                const void* key_ptr = storage->key_at_slot(idx);
+                const value::TypeMeta* key_type = storage->key_type();
+
+                // Create a View from the key and clone it to PathElement
+                value::View key_view(key_ptr, key_type);
+                fq.push(PathElement::key_from_view(key_view));
+
+                // Navigate to child
+                current_vd = current_vd.child_at(idx);
+                break;
+            }
+
+            default:
+                // Scalar types shouldn't have children to navigate
+                throw std::runtime_error("ShortPath::to_fq() unexpected navigation into scalar type");
+        }
+    }
+
+    return fq;
 }
 
 TSView ShortPath::resolve(engine_time_t current_time) const {
