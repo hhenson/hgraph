@@ -286,8 +286,8 @@ def test_tsd_unbind_after_bind_clears_is_bound(hgraph_module, tsd_str_ts_int_met
 # ============================================================================
 
 
-def test_scalar_ts_bind_raises_error(hgraph_module, ts_int_meta):
-    """Scalar TS bind() should raise RuntimeError."""
+def test_scalar_ts_bind_succeeds(hgraph_module, ts_int_meta):
+    """Scalar TS bind() now succeeds (needed for TSB field binding)."""
     TSValue = hgraph_module.TSValue
 
     source_value = TSValue(ts_int_meta)
@@ -296,19 +296,19 @@ def test_scalar_ts_bind_raises_error(hgraph_module, ts_int_meta):
     source_view = source_value.ts_view(TEST_TIME)
     target_view = target_value.ts_view(TEST_TIME)
 
-    with pytest.raises(RuntimeError, match="scalar"):
-        source_view.bind(target_view)
+    # Should not raise - scalar binding is now supported
+    source_view.bind(target_view)
 
 
-def test_scalar_ts_unbind_raises_error(hgraph_module, ts_int_meta):
-    """Scalar TS unbind() should raise RuntimeError."""
+def test_scalar_ts_unbind_succeeds(hgraph_module, ts_int_meta):
+    """Scalar TS unbind() now succeeds (no-op on unbound scalars)."""
     TSValue = hgraph_module.TSValue
 
     ts_value = TSValue(ts_int_meta)
     ts_view = ts_value.ts_view(TEST_TIME)
 
-    with pytest.raises(RuntimeError, match="scalar"):
-        ts_view.unbind()
+    # Should not raise - unbind on unbound scalar is a no-op
+    ts_view.unbind()
 
 
 def test_scalar_ts_is_bound_returns_false(hgraph_module, ts_int_meta):

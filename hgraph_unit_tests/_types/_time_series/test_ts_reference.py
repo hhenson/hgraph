@@ -198,9 +198,9 @@ def test_ref_tsvalue_stores_empty_reference():
     current_time = datetime(2024, 1, 1, 12, 0, 0)
     ts_view = ts_value.ts_view(current_time)
 
-    # Store an empty reference using value().from_python()
+    # Store an empty reference using from_python() which updates both value and time
     empty_ref = _hgraph.TSReference.empty()
-    ts_view.value().from_python(empty_ref)
+    ts_view.from_python(empty_ref)
 
     # Retrieve the value via to_python()
     # Note: to_python() returns a Python TimeSeriesReference object,
@@ -234,7 +234,7 @@ def test_ref_tsvalue_stores_peered_reference():
     # For now, we test with empty TSReference since full FQ->TSReference
     # conversion requires a Graph context
     empty_ref = _hgraph.TSReference.empty()
-    ts_view.value().from_python(empty_ref)
+    ts_view.from_python(empty_ref)
 
     # Verify storage works
     result = ts_view.to_python()
@@ -261,7 +261,7 @@ def test_ref_tsvalue_modification_tracking():
     ts_view = ts_value.ts_view(t1)
 
     # Set the value - this should mark the time
-    ts_view.value().from_python(_hgraph.TSReference.empty())
+    ts_view.from_python(_hgraph.TSReference.empty())
 
     # Check validity
     assert ts_view.valid()
@@ -295,8 +295,8 @@ def test_ref_tsvalue_value_equality():
     ts_view2 = ts_value2.ts_view(current_time)
 
     empty_ref = _hgraph.TSReference.empty()
-    ts_view1.value().from_python(empty_ref)
-    ts_view2.value().from_python(empty_ref)
+    ts_view1.from_python(empty_ref)
+    ts_view2.from_python(empty_ref)
 
     # Values should be equal (compare the Python representations)
     val1 = ts_view1.to_python()
@@ -399,7 +399,7 @@ def test_ref_tsvalue_update_value():
     # Set initial value
     t1 = datetime(2024, 1, 1, 12, 0, 0)
     ts_view1 = ts_value.ts_view(t1)
-    ts_view1.value().from_python(_hgraph.TSReference.empty())
+    ts_view1.from_python(_hgraph.TSReference.empty())
 
     val1 = ts_view1.to_python()
     assert val1.is_empty  # is_empty is a property
@@ -407,7 +407,7 @@ def test_ref_tsvalue_update_value():
     # Update at later time (still empty, just different time)
     t2 = t1 + timedelta(seconds=1)
     ts_view2 = ts_value.ts_view(t2)
-    ts_view2.value().from_python(_hgraph.TSReference.empty())
+    ts_view2.from_python(_hgraph.TSReference.empty())
 
     # Value should still be retrievable
     val2 = ts_view2.to_python()

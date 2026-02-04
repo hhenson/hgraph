@@ -372,8 +372,8 @@ class TestBinding:
         # last_modified_time should match
         assert source_view.last_modified_time() == target_view.last_modified_time()
 
-    def test_scalar_ts_bind_raises_error(self, hgraph_module, ts_int_meta):
-        """Scalar TS bind() raises RuntimeError (not supported at scalar level)."""
+    def test_scalar_ts_bind_succeeds(self, hgraph_module, ts_int_meta):
+        """Scalar TS bind() now succeeds (needed for TSB field binding)."""
         TSValue = hgraph_module.TSValue
 
         source_value = TSValue(ts_int_meta)
@@ -382,11 +382,11 @@ class TestBinding:
         source_view = source_value.ts_view(TEST_TIME)
         target_view = target_value.ts_view(TEST_TIME)
 
-        with pytest.raises(RuntimeError, match="scalar"):
-            source_view.bind(target_view)
+        # Should not raise - scalar binding is now supported
+        source_view.bind(target_view)
 
-    def test_scalar_ts_is_bound_returns_false(self, hgraph_module, ts_int_meta):
-        """Scalar TS is_bound() returns False (no binding at scalar level)."""
+    def test_scalar_ts_is_bound_returns_false_before_bind(self, hgraph_module, ts_int_meta):
+        """Scalar TS is_bound() returns False before binding."""
         TSValue = hgraph_module.TSValue
 
         ts_value = TSValue(ts_int_meta)
@@ -807,15 +807,15 @@ class TestEdgeCases:
         source_view.unbind()
         assert source_view.is_bound() == False
 
-    def test_scalar_unbind_raises_error(self, hgraph_module, ts_int_meta):
-        """Scalar TS unbind() raises RuntimeError."""
+    def test_scalar_unbind_succeeds_on_unbound(self, hgraph_module, ts_int_meta):
+        """Scalar TS unbind() now succeeds (no-op on unbound scalars)."""
         TSValue = hgraph_module.TSValue
 
         ts_value = TSValue(ts_int_meta)
         ts_view = ts_value.ts_view(TEST_TIME)
 
-        with pytest.raises(RuntimeError, match="scalar"):
-            ts_view.unbind()
+        # Should not raise - unbind on unbound scalar is a no-op
+        ts_view.unbind()
 
 
 # ============================================================================

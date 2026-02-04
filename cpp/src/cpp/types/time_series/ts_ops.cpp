@@ -474,23 +474,55 @@ bool valid(const ViewData& vd) {
 bool all_valid(const ViewData& vd) {
     if (!valid(vd)) return false;
 
-    // Check all fields
+    // Check all fields recursively
     if (!vd.meta) return false;
+
+    auto value_view = make_value_view(vd);
     auto time_view = make_time_view(vd);
+    auto observer_view = make_observer_view(vd);
+
     if (!time_view.valid()) return false;
 
     for (size_t i = 0; i < vd.meta->field_count; ++i) {
         const TSMeta* field_meta = vd.meta->fields[i].ts_type;
         auto ft = time_view.as_tuple().at(i + 1);
 
-        engine_time_t field_time;
         if (field_meta->is_scalar_ts()) {
-            field_time = ft.as<engine_time_t>();
+            // Check if this scalar field is linked
+            auto* rl = get_scalar_field_ref_link(vd, i);
+            if (rl && rl->target().valid()) {
+                // Field is linked - delegate all_valid to target
+                ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(i));
+                if (!target_vd.ops || !target_vd.ops->all_valid(target_vd)) {
+                    return false;
+                }
+            } else {
+                // Scalar field not linked - check timestamp directly
+                engine_time_t field_time = ft.as<engine_time_t>();
+                if (field_time == MIN_ST) return false;
+            }
         } else {
-            field_time = ft.as_tuple().at(0).as<engine_time_t>();
-        }
+            // Composite field - check timestamp first
+            engine_time_t field_time = ft.as_tuple().at(0).as<engine_time_t>();
+            if (field_time == MIN_ST) return false;
 
-        if (field_time == MIN_ST) return false;
+            // Construct child ViewData for recursive all_valid check
+            ViewData field_vd;
+            field_vd.path = vd.path.child(i);
+            field_vd.value_data = value_view.as_bundle().at(i).data();
+            field_vd.time_data = ft.data();
+            field_vd.observer_data = observer_view.valid() ? observer_view.as_tuple().at(i + 1).data() : nullptr;
+            field_vd.delta_data = nullptr;
+            field_vd.sampled = vd.sampled;
+            field_vd.link_data = get_field_link_data(vd, i);
+            field_vd.ops = get_ts_ops(field_meta);
+            field_vd.meta = field_meta;
+
+            // Recursively check all_valid on composite fields
+            if (!field_vd.ops || !field_vd.ops->all_valid(field_vd)) {
+                return false;
+            }
+        }
     }
 
     return true;
@@ -556,13 +588,68 @@ void invalidate(ViewData& vd) {
 nb::object to_python(const ViewData& vd) {
     // Check time-series validity first (has value been set?)
     if (!valid(vd)) return nb::none();
+
+    // For input bundles with per-field links, we need to build the dict
+    // by following the links to get actual values from the bound outputs
+    if (vd.link_data && vd.meta) {
+        auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+        if (link_schema) {
+            value::View link_view(vd.link_data, link_schema);
+            auto link_tuple = link_view.as_tuple();
+
+            // Check if any field has a valid link (indicating this is a linked input bundle)
+            bool has_links = false;
+            for (size_t i = 0; i < vd.meta->field_count; ++i) {
+                const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+                if (field_meta && field_meta->is_scalar_ts()) {
+                    value::View field_link = link_tuple.at(i + 1);  // +1 for bundle-level link
+                    auto* rl = static_cast<const REFLink*>(field_link.data());
+                    if (rl && rl->target().is_linked) {
+                        has_links = true;
+                        break;
+                    }
+                }
+            }
+
+            if (has_links) {
+                // Build dict from linked field values
+                nb::dict result;
+                for (size_t i = 0; i < vd.meta->field_count; ++i) {
+                    const TSBFieldInfo& field_info = vd.meta->fields[i];
+                    const TSMeta* field_meta = field_info.ts_type;
+                    const char* field_name = field_info.name;
+
+                    if (field_meta && field_meta->is_scalar_ts()) {
+                        value::View field_link = link_tuple.at(i + 1);
+                        auto* rl = static_cast<const REFLink*>(field_link.data());
+                        if (rl && rl->target().is_linked && rl->target().ops) {
+                            // Follow link to get value from target
+                            ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(i));
+                            nb::object field_val = target_vd.ops->to_python(target_vd);
+                            result[field_name] = field_val;
+                        } else {
+                            result[field_name] = nb::none();
+                        }
+                    } else {
+                        // Composite field - get from local storage for now
+                        // TODO: handle linked composite fields
+                        result[field_name] = nb::none();
+                    }
+                }
+                return result;
+            }
+        }
+    }
+
+    // No links or not an input bundle - use local value storage
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
     return v.to_python();
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    return nb::none();
+    // For TSB, delta equals value (no delta tracking)
+    return to_python(vd);
 }
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
@@ -911,21 +998,66 @@ bool all_valid(const ViewData& vd) {
     if (!valid(vd)) return false;
     if (!vd.meta) return false;
 
+    auto value_view = make_value_view(vd);
     auto time_view = make_time_view(vd);
-    if (!time_view.valid()) return false;
+    auto observer_view = make_observer_view(vd);
+
+    if (!value_view.valid() || !time_view.valid()) return false;
+
+    auto value_list = value_view.as_list();
+    auto times_list = time_view.as_tuple().at(1).as_list();
+    auto observer_list = observer_view.valid() ? observer_view.as_tuple().at(1).as_list() : value::ListView{};
 
     const TSMeta* elem_meta = vd.meta->element_ts;
-    auto times_list = time_view.as_tuple().at(1).as_list();
 
-    for (size_t i = 0; i < times_list.size(); ++i) {
+    for (size_t i = 0; i < value_list.size(); ++i) {
         auto et = times_list.at(i);
-        engine_time_t elem_time;
-        if (elem_meta->is_scalar_ts()) {
-            elem_time = et.as<engine_time_t>();
-        } else {
-            elem_time = et.as_tuple().at(0).as<engine_time_t>();
+
+        // For fixed-size TSL with per-element binding, check element link
+        if (vd.meta->fixed_size > 0 && vd.link_data && elem_meta->is_scalar_ts()) {
+            auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+            if (link_schema) {
+                value::View link_view(vd.link_data, link_schema);
+                auto link_list = link_view.as_list();
+                if (i < link_list.size()) {
+                    auto* rl = static_cast<const REFLink*>(link_list.at(i).data());
+                    if (rl && rl->target().valid()) {
+                        // Element is linked - delegate all_valid to target
+                        ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(i));
+                        if (!target_vd.ops || !target_vd.ops->all_valid(target_vd)) {
+                            return false;
+                        }
+                        continue;
+                    }
+                }
+            }
         }
-        if (elem_time == MIN_ST) return false;
+
+        if (elem_meta->is_scalar_ts()) {
+            // Scalar element - check timestamp directly
+            engine_time_t elem_time = et.as<engine_time_t>();
+            if (elem_time == MIN_ST) return false;
+        } else {
+            // Composite element - check timestamp first
+            engine_time_t elem_time = et.as_tuple().at(0).as<engine_time_t>();
+            if (elem_time == MIN_ST) return false;
+
+            // Construct child ViewData for recursive all_valid check
+            ViewData elem_vd;
+            elem_vd.path = vd.path.child(i);
+            elem_vd.value_data = value_list.at(i).data();
+            elem_vd.time_data = et.data();
+            elem_vd.observer_data = observer_list.valid() && i < observer_list.size() ? observer_list.at(i).data() : nullptr;
+            elem_vd.delta_data = nullptr;
+            elem_vd.sampled = vd.sampled;
+            elem_vd.ops = get_ts_ops(elem_meta);
+            elem_vd.meta = elem_meta;
+
+            // Recursively check all_valid on composite elements
+            if (!elem_vd.ops || !elem_vd.ops->all_valid(elem_vd)) {
+                return false;
+            }
+        }
     }
 
     return true;
@@ -1593,7 +1725,57 @@ bool all_valid(const ViewData& vd) {
         return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
     }
     if (!valid(vd)) return false;
-    // TODO: Check all value entries
+    if (!vd.meta || !vd.meta->element_ts) return false;
+
+    auto value_view = make_value_view(vd);
+    auto time_view = make_time_view(vd);
+    auto observer_view = make_observer_view(vd);
+
+    if (!value_view.valid() || !time_view.valid()) return false;
+
+    auto times_list = time_view.as_tuple().at(1).as_list();
+    auto observer_list = observer_view.valid() ? observer_view.as_tuple().at(1).as_list() : value::ListView{};
+
+    const TSMeta* elem_meta = vd.meta->element_ts;
+
+    // Access the MapStorage directly to iterate over storage slots
+    auto* storage = static_cast<value::MapStorage*>(vd.value_data);
+    auto* index_set = storage->key_set().index_set();
+    if (!index_set) return true;  // Empty map is all_valid if valid
+
+    size_t logical_index = 0;
+    for (auto it = index_set->begin(); it != index_set->end(); ++it, ++logical_index) {
+        size_t storage_slot = *it;
+        auto et = times_list.at(storage_slot);
+
+        if (elem_meta->is_scalar_ts()) {
+            // Scalar element - check timestamp directly
+            engine_time_t elem_time = et.as<engine_time_t>();
+            if (elem_time == MIN_ST) return false;
+        } else {
+            // Composite element - check timestamp first
+            engine_time_t elem_time = et.as_tuple().at(0).as<engine_time_t>();
+            if (elem_time == MIN_ST) return false;
+
+            // Construct child ViewData for recursive all_valid check
+            ViewData elem_vd;
+            elem_vd.path = vd.path.child(logical_index);
+            elem_vd.value_data = storage->value_at_slot(storage_slot);
+            elem_vd.time_data = et.data();
+            elem_vd.observer_data = observer_list.valid() && storage_slot < observer_list.size()
+                                     ? observer_list.at(storage_slot).data() : nullptr;
+            elem_vd.delta_data = nullptr;
+            elem_vd.sampled = vd.sampled;
+            elem_vd.ops = get_ts_ops(elem_meta);
+            elem_vd.meta = elem_meta;
+
+            // Recursively check all_valid on composite elements
+            if (!elem_vd.ops || !elem_vd.ops->all_valid(elem_vd)) {
+                return false;
+            }
+        }
+    }
+
     return true;
 }
 

@@ -93,11 +93,14 @@ void TSInput::set_active(const std::string& field, bool active) {
     }
 
     // Manage subscription for this field if bound
+    // TSB link schema is: tuple[REFLink, link_schema(field_0), link_schema(field_1), ...]
     value::View link_view = value_.link_view();
     if (link_view) {
-        auto link_list = link_view.as_list();
-        if (field_index < link_list.size()) {
-            auto* rl = static_cast<REFLink*>(link_list.at(field_index).data());
+        value::TupleView link_tuple = link_view.as_tuple();
+        // Field's link is at index (field_index + 1) because index 0 is the bundle-level REFLink
+        value::View field_link_view = link_tuple[field_index + 1];
+        if (field_link_view) {
+            auto* rl = static_cast<REFLink*>(field_link_view.data());
             if (rl && rl->target().is_linked && rl->target().observer_data) {
                 auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
                 if (active) {

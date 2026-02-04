@@ -358,6 +358,26 @@ static void register_ts_view(nb::module_& m) {
         .def("delta_to_python", &TSView::delta_to_python,
             "Convert the delta to a Python object")
 
+        .def("from_python", &TSView::from_python,
+            "src"_a,
+            "Set the value from a Python object.\n\n"
+            "This updates both the value and the modification time.")
+
+        // Mutation
+        .def("set_value", &TSView::set_value,
+            "src"_a,
+            "Set the value from a value::View.\n\n"
+            "This updates both the value and the modification time.")
+
+        .def("apply_delta", &TSView::apply_delta,
+            "delta"_a,
+            "Apply a delta value from a value::View.\n\n"
+            "This updates both the value and the modification time.")
+
+        .def("invalidate", &TSView::invalidate,
+            "Invalidate this time-series.\n\n"
+            "Resets the modification time to MIN_ST.")
+
         // Kind-specific views
         .def("as_bundle", &TSView::as_bundle,
             "Get as a bundle view (for TSB)")
