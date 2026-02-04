@@ -384,10 +384,11 @@ namespace bundle_ops {
 // - value is bundle type
 // - time is tuple[engine_time_t, field_times...]
 // - observer is tuple[ObserverList, field_observers...]
-// - link is fixed_list[REFLink] with one entry per field
+// - link is tuple[REFLink, link_schema(field_0), link_schema(field_1), ...]
+//   where element 0 is the bundle-level REFLink, and elements 1+ are per-field link data
 
-// Helper: Get REFLink for a specific field index
-inline REFLink* get_field_ref_link(const ViewData& vd, size_t field_index) {
+// Helper: Get link data for a specific field (returns void* to field's link storage)
+inline void* get_field_link_data(const ViewData& vd, size_t field_index) {
     if (!vd.link_data || !vd.meta || field_index >= vd.meta->field_count) {
         return nullptr;
     }
@@ -395,24 +396,34 @@ inline REFLink* get_field_ref_link(const ViewData& vd, size_t field_index) {
     if (!link_schema) return nullptr;
 
     value::View link_view(vd.link_data, link_schema);
-    auto link_list = link_view.as_list();
-    if (field_index >= link_list.size()) return nullptr;
-
-    return static_cast<REFLink*>(link_list.at(field_index).data());
+    // Field link is at index field_index + 1 (since element 0 is bundle-level REFLink)
+    return link_view.as_tuple().at(field_index + 1).data();
 }
 
-// Helper: Check if any field is linked
+// Helper: Get REFLink for a scalar field (field's link is just a REFLink)
+inline REFLink* get_scalar_field_ref_link(const ViewData& vd, size_t field_index) {
+    void* link_data = get_field_link_data(vd, field_index);
+    if (!link_data) return nullptr;
+    return static_cast<REFLink*>(link_data);
+}
+
+// Helper: Check if any field is linked (only checks scalar fields)
 inline bool any_field_linked(const ViewData& vd) {
     if (!vd.link_data || !vd.meta) return false;
     auto link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
     if (!link_schema) return false;
 
     value::View link_view(vd.link_data, link_schema);
-    auto link_list = link_view.as_list();
-    for (size_t i = 0; i < link_list.size(); ++i) {
-        auto* rl = static_cast<const REFLink*>(link_list.at(i).data());
-        if (rl && rl->target().is_linked) {
-            return true;
+    auto link_tuple = link_view.as_tuple();
+
+    // Check each scalar field's link (starting at index 1)
+    for (size_t i = 0; i < vd.meta->field_count; ++i) {
+        const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+        if (field_meta && field_meta->is_scalar_ts()) {
+            auto* rl = static_cast<const REFLink*>(link_tuple.at(i + 1).data());
+            if (rl && rl->target().is_linked) {
+                return true;
+            }
         }
     }
     return false;
@@ -430,7 +441,7 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 
 bool valid(const ViewData& vd) {
     // First check if the bundle's own time indicates validity
-    if (last_modified_time(vd) != MIN_DT) {
+    if (last_modified_time(vd) != MIN_ST) {
         return true;
     }
 
@@ -441,15 +452,34 @@ bool valid(const ViewData& vd) {
     if (!link_schema) return false;
 
     value::View link_view(vd.link_data, link_schema);
-    auto link_list = link_view.as_list();
+    auto link_tuple = link_view.as_tuple();
 
     // Check each field's link - if any field is linked and valid, the bundle is valid
-    for (size_t i = 0; i < link_list.size() && i < vd.meta->field_count; ++i) {
-        auto* rl = static_cast<const REFLink*>(link_list.at(i).data());
-        if (rl && rl->target().is_linked && rl->target().ops) {
-            ViewData field_vd = make_view_data_from_link(*rl, vd.path);
-            if (rl->target().ops->valid(field_vd)) {
-                return true;
+    for (size_t i = 0; i < vd.meta->field_count; ++i) {
+        const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+        if (!field_meta) continue;
+
+        if (field_meta->is_scalar_ts()) {
+            // Scalar field: link is a REFLink
+            auto* rl = static_cast<const REFLink*>(link_tuple.at(i + 1).data());
+            if (rl && rl->target().is_linked && rl->target().ops) {
+                ViewData field_vd = make_view_data_from_link(*rl, vd.path);
+                if (rl->target().ops->valid(field_vd)) {
+                    return true;
+                }
+            }
+        } else {
+            // Composite field (TSL, TSD, TSB): recursively check validity
+            // The link data for composite fields is their nested link storage
+            void* field_link_data = link_tuple.at(i + 1).data();
+            if (field_link_data) {
+                ViewData field_vd;
+                field_vd.link_data = field_link_data;
+                field_vd.meta = field_meta;
+                field_vd.ops = get_ts_ops(field_meta);
+                if (field_vd.ops && field_vd.ops->valid(field_vd)) {
+                    return true;
+                }
             }
         }
     }
@@ -567,16 +597,18 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
         return TSView{};
     }
 
-    // Check if this field is linked
-    if (auto* rl = get_field_ref_link(vd, index)) {
-        if (rl->target().valid()) {
-            // Field is linked - return TSView pointing to target
-            ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index));
-            return TSView(target_vd, current_time);
+    const TSMeta* field_meta = vd.meta->fields[index].ts_type;
+
+    // Check if this scalar field is linked (composite fields have nested link storage)
+    if (field_meta && field_meta->is_scalar_ts()) {
+        if (auto* rl = get_scalar_field_ref_link(vd, index)) {
+            if (rl->target().valid()) {
+                // Field is linked - return TSView pointing to target
+                ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index));
+                return TSView(target_vd, current_time);
+            }
         }
     }
-
-    const TSMeta* field_meta = vd.meta->fields[index].ts_type;
 
     auto value_view = make_value_view(vd);
     auto time_view = make_time_view(vd);
@@ -589,11 +621,12 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
     field_vd.time_data = time_view.as_tuple().at(index + 1).data();
     field_vd.observer_data = observer_view.as_tuple().at(index + 1).data();
     field_vd.delta_data = nullptr;  // Field deltas not supported yet
-    // For inputs: set link_data to point to the field's REFLink for binding support
-    // get_field_ref_link returns the REFLink* even if not yet linked
-    if (auto* rl = get_field_ref_link(vd, index)) {
-        field_vd.link_data = rl;
-    }
+
+    // Set link_data for binding support
+    // - For scalar fields: points to the REFLink (so binding stores target there)
+    // - For composite fields: points to the field's nested link storage
+    field_vd.link_data = get_field_link_data(vd, index);
+
     field_vd.ops = get_ts_ops(field_meta);
     field_vd.meta = field_meta;
 
@@ -646,19 +679,33 @@ void bind(ViewData& vd, const ViewData& target) {
         throw std::runtime_error("bind on bundle without link schema");
     }
 
-    // For TSB, link_data points to fixed_list[REFLink]
+    // For TSB, link_data points to tuple[REFLink, link_schema(field_0), ...]
     // Bind each field to the corresponding field in target
     value::View link_view(vd.link_data, link_schema);
-    auto link_list = link_view.as_list();
+    auto link_tuple = link_view.as_tuple();
 
     // Get target field data for each field
-    for (size_t i = 0; i < link_list.size() && i < vd.meta->field_count; ++i) {
-        auto* rl = static_cast<REFLink*>(link_list.at(i).data());
-        if (rl) {
-            // Navigate to target's field and store that
-            TSView target_field = target.ops->child_at(target, i, MIN_ST);
-            if (target_field.valid()) {
+    for (size_t i = 0; i < vd.meta->field_count; ++i) {
+        const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+
+        // Navigate to target's field
+        TSView target_field = target.ops->child_at(target, i, MIN_ST);
+        if (!target_field.valid()) continue;
+
+        if (field_meta && field_meta->is_scalar_ts()) {
+            // Scalar field: bind directly to the REFLink
+            auto* rl = static_cast<REFLink*>(link_tuple.at(i + 1).data());
+            if (rl) {
                 store_link_target(*rl, target_field.view_data());
+            }
+        } else {
+            // Composite field: recursively bind using the nested link storage
+            ViewData field_vd;
+            field_vd.link_data = link_tuple.at(i + 1).data();
+            field_vd.meta = field_meta;
+            field_vd.ops = get_ts_ops(field_meta);
+            if (field_vd.ops && field_vd.ops->bind) {
+                field_vd.ops->bind(field_vd, target_field.view_data());
             }
         }
     }
@@ -673,11 +720,26 @@ void unbind(ViewData& vd) {
     if (!link_schema) return;
 
     value::View link_view(vd.link_data, link_schema);
-    auto link_list = link_view.as_list();
-    for (size_t i = 0; i < link_list.size(); ++i) {
-        auto* rl = static_cast<REFLink*>(link_list.at(i).data());
-        if (rl) {
-            rl->unbind();
+    auto link_tuple = link_view.as_tuple();
+
+    for (size_t i = 0; i < vd.meta->field_count; ++i) {
+        const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+
+        if (field_meta && field_meta->is_scalar_ts()) {
+            // Scalar field: unbind the REFLink directly
+            auto* rl = static_cast<REFLink*>(link_tuple.at(i + 1).data());
+            if (rl) {
+                rl->unbind();
+            }
+        } else {
+            // Composite field: recursively unbind
+            ViewData field_vd;
+            field_vd.link_data = link_tuple.at(i + 1).data();
+            field_vd.meta = field_meta;
+            field_vd.ops = get_ts_ops(field_meta);
+            if (field_vd.ops && field_vd.ops->unbind) {
+                field_vd.ops->unbind(field_vd);
+            }
         }
     }
 }
@@ -700,7 +762,7 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     // Get link view for subscription management
     auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
     value::View link_view = link_schema ? value::View(vd.link_data, link_schema) : value::View{};
-    value::ListView link_list = link_view ? link_view.as_list() : value::ListView{};
+    value::TupleView link_tuple = link_view ? link_view.as_tuple() : value::TupleView{};
 
     // Process each field
     for (size_t i = 0; i < vd.meta->field_count; ++i) {
@@ -715,9 +777,12 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
             ViewData field_vd;
             field_vd.meta = field_ts;
             field_vd.ops = get_ts_ops(field_ts);
-            // Get link data for this field
-            if (link_list && i < link_list.size()) {
-                auto* rl = static_cast<REFLink*>(link_list.at(i).data());
+            // Get link data for this field (tuple index i+1 since element 0 is bundle REFLink)
+            if (link_tuple) {
+                void* field_link = link_tuple.at(i + 1).data();
+                // For composite fields in input bundles bound to outputs,
+                // the link data points to the target's link storage
+                auto* rl = static_cast<REFLink*>(field_link);
                 if (rl && rl->target().is_linked) {
                     field_vd.link_data = rl->target().link_data;
                 }
@@ -728,9 +793,9 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
             *static_cast<bool*>(field_active.data()) = active;
         }
 
-        // Manage subscription for bound fields
-        if (link_list && i < link_list.size()) {
-            auto* rl = static_cast<REFLink*>(link_list.at(i).data());
+        // Manage subscription for bound scalar fields
+        if (field_ts->is_scalar_ts() && link_tuple) {
+            auto* rl = static_cast<REFLink*>(link_tuple.at(i + 1).data());
             if (rl && rl->target().is_linked && rl->target().observer_data) {
                 auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
                 if (active) {
@@ -755,10 +820,17 @@ namespace list_ops {
 // - value is list type
 // - time is tuple[engine_time_t, list[element_times]]
 // - observer is tuple[ObserverList, list[element_observers]]
-// - link is REFLink (stores target ViewData when bound, can also handle REF→TS)
+// - link: For dynamic TSL, single REFLink for collection-level binding
+//         For fixed-size TSL, fixed_list[REFLink] for per-element binding
 
-// Helper: Check if this TSL is linked and get the REFLink
+// Helper: Check if this TSL has collection-level linking (dynamic TSL only)
+// Fixed-size TSL uses per-element binding, so doesn't have collection-level link
 inline const REFLink* get_active_link(const ViewData& vd) {
+    // Only check for collection-level link if this is a dynamic TSL (fixed_size == 0)
+    // Fixed-size TSL uses per-element binding via fixed_list[REFLink]
+    if (vd.meta && vd.meta->fixed_size > 0) {
+        return nullptr;  // Per-element binding, no collection-level link
+    }
     auto* rl = get_ref_link(vd.link_data);
     return (rl && rl->target().valid()) ? rl : nullptr;
 }
@@ -782,11 +854,36 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool valid(const ViewData& vd) {
-    // If linked, delegate to target
+    // If linked (dynamic TSL), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->valid(make_view_data_from_link(*rl, vd.path));
     }
-    return last_modified_time(vd) != MIN_DT;
+
+    // Check if the list's own time indicates validity
+    if (last_modified_time(vd) != MIN_DT) {
+        return true;
+    }
+
+    // For fixed-size TSL inputs with per-element binding, check if any element link is valid
+    if (vd.meta && vd.meta->fixed_size > 0 && vd.link_data) {
+        auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+        if (link_schema) {
+            value::View link_view(vd.link_data, link_schema);
+            auto link_list = link_view.as_list();
+
+            for (size_t i = 0; i < link_list.size() && i < static_cast<size_t>(vd.meta->fixed_size); ++i) {
+                auto* rl = static_cast<const REFLink*>(link_list.at(i).data());
+                if (rl && rl->target().is_linked && rl->target().ops) {
+                    ViewData elem_vd = make_view_data_from_link(*rl, vd.path.child(i));
+                    if (rl->target().ops->valid(elem_vd)) {
+                        return true;
+                    }
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 bool all_valid(const ViewData& vd) {
@@ -932,14 +1029,22 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
         return rl->target().ops->child_at(target_vd, index, current_time);
     }
 
-    if (!vd.meta || !vd.meta->element_ts) return TSView{};
+    if (!vd.meta || !vd.meta->element_ts) {
+        return TSView{};
+    }
 
     auto value_view = make_value_view(vd);
     auto time_view = make_time_view(vd);
     auto observer_view = make_observer_view(vd);
 
+    if (!value_view.valid()) {
+        return TSView{};
+    }
+
     auto value_list = value_view.as_list();
-    if (index >= value_list.size()) return TSView{};
+    if (index >= value_list.size()) {
+        return TSView{};
+    }
 
     const TSMeta* elem_meta = vd.meta->element_ts;
 
@@ -951,6 +1056,16 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
     elem_vd.delta_data = nullptr;
     elem_vd.ops = get_ts_ops(elem_meta);
     elem_vd.meta = elem_meta;
+
+    // For fixed-size TSL, set element's link_data to its REFLink in the fixed_list
+    // This enables per-element binding for TSL inputs
+    if (vd.link_data && vd.meta->fixed_size > 0) {
+        auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+        if (link_schema && index < static_cast<size_t>(vd.meta->fixed_size)) {
+            value::View link_view(vd.link_data, link_schema);
+            elem_vd.link_data = link_view.as_list().at(index).data();
+        }
+    }
 
     return TSView(elem_vd, current_time);
 }

@@ -488,21 +488,29 @@ def test_tsl_linked_view_valid_reflects_target_state(hgraph_module, tsl_ts_int_m
     - Even though source's local data was never set
     """
     TSValue = hgraph_module.TSValue
+    TSOutput = hgraph_module.TSOutput
+    TSInput = hgraph_module.TSInput
 
-    source_value = TSValue(tsl_ts_int_meta)
-    target_value = TSValue(tsl_ts_int_meta)
+    # Create source (input) and target (output)
+    source_input = TSInput(tsl_ts_int_meta, None)
+    target_output = TSOutput(tsl_ts_int_meta, None)
 
-    source_view = source_value.ts_view(TEST_TIME)
-    target_view = target_value.ts_view(TEST_TIME)
+    source_view = source_input.view(TEST_TIME)
+    target_output_view = target_output.view(TEST_TIME)
+    target_view = target_output_view.ts_view()
 
-    # Target is valid (TSL initializes with valid container time)
+    # Target is not valid initially (no value set yet)
+    assert target_view.valid() is False
+
+    # Set a value on the target to make it valid
+    target_output_view.from_python([1, 2, 3])
     assert target_view.valid() is True
 
     # Bind source to target
-    source_view.bind(target_view)
+    source_view.bind(target_output_view)
 
     # After binding, source.valid() should reflect target's validity
-    assert source_view.valid() is True, "Linked view should reflect target's valid state"
+    assert source_view.ts_view().valid() is True, "Linked view should reflect target's valid state"
 
 
 def test_tsl_linked_view_modified_reflects_target_state(hgraph_module, tsl_ts_int_meta):

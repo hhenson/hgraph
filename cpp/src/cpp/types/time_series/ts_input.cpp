@@ -8,7 +8,6 @@
 #include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/value/indexed_view.h>
 #include <hgraph/types/node.h>
-#include <iostream>
 
 namespace hgraph {
 

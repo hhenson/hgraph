@@ -164,20 +164,19 @@ class TestTSOutputBasics:
         assert result == 42
 
     def test_ts_value_has_valid_state_after_construction(self, hgraph_module, ts_int_meta):
-        """TSValue for scalar TS initializes with valid state.
+        """TSValue for scalar TS initializes with invalid state.
 
-        Note: TSValue for scalar TS types initializes with a valid timestamp
-        because the container time is set during construction.
+        Note: TSValue for scalar TS types initializes with time=MIN_DT (epoch),
+        which means valid() returns False until a value is set.
         """
         TSValue = hgraph_module.TSValue
 
         ts_value = TSValue(ts_int_meta)
         ts_view = ts_value.ts_view(TEST_TIME)
 
-        # TSValue sets container time during construction
-        # so valid() returns True for initialized containers
-        # This is expected behavior per the implementation
-        assert ts_view.valid() == True
+        # TSValue initializes with MIN_DT (epoch) timestamp
+        # so valid() returns False until a value is explicitly set
+        assert ts_view.valid() == False
 
     def test_ts_value_navigation_with_index(self, hgraph_module, tsl_ts_int_meta):
         """TSL supports navigation via as_list().at()."""
