@@ -1127,12 +1127,73 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         throw std::runtime_error("from_python on invalid ViewData");
     }
 
+    // Handle dict format for sparse TSL updates (e.g., {0: value, 2: value})
+    // This mirrors Python's TSL.value setter behavior
+    if (nb::isinstance<nb::dict>(src)) {
+        auto dict = nb::cast<nb::dict>(src);
+        for (auto item : dict) {
+            auto key = nb::cast<size_t>(item.first);
+            auto val = nb::borrow<nb::object>(item.second);
+            if (!val.is_none()) {
+                TSView child = child_at(vd, key, current_time);
+                if (child.view_data().valid()) {
+                    child.view_data().ops->from_python(child.view_data(), val, current_time);
+                }
+            }
+        }
+        // Update container time and notify observers (same as list/tuple path)
+        auto time_view = make_time_view(vd);
+        time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
+
+        if (vd.observer_data) {
+            auto observer_view = make_observer_view(vd);
+            auto* observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
+            observers->notify_modified(current_time);
+        }
+        return;
+    }
+
     auto dst = make_value_view(vd);
     dst.from_python(src);
 
     auto time_view = make_time_view(vd);
+    // Set container time
     time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
 
+    // Also set each element's time for values that were set (not None)
+    // This is required for element-level valid() checks to work
+    // AND notify each element's observers (required for per-element binding)
+    if (nb::isinstance<nb::sequence>(src)) {
+        auto seq = nb::cast<nb::sequence>(src);
+        size_t src_len = nb::len(seq);
+        auto elem_times = time_view.as_tuple().at(1).as_list();
+        size_t max_idx = std::min(src_len, elem_times.size());
+
+        // Get element observers list for notifications
+        value::ListView elem_observers;
+        if (vd.observer_data) {
+            auto observer_view = make_observer_view(vd);
+            elem_observers = observer_view.as_tuple().at(1).as_list();
+        }
+
+        for (size_t i = 0; i < max_idx; ++i) {
+            nb::object elem = seq[i];
+            if (!elem.is_none()) {
+                // Set element time
+                elem_times.at(i).as<engine_time_t>() = current_time;
+
+                // Notify element observers (for per-element binding)
+                if (elem_observers && i < elem_observers.size()) {
+                    auto* elem_obs = static_cast<ObserverList*>(elem_observers.at(i).data());
+                    if (elem_obs) {
+                        elem_obs->notify_modified(current_time);
+                    }
+                }
+            }
+        }
+    }
+
+    // Notify container observers
     if (vd.observer_data) {
         auto observer_view = make_observer_view(vd);
         auto* observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
@@ -1141,7 +1202,7 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
 }
 
 TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
-    // If linked, navigate through target
+    // If linked (dynamic TSL), navigate through target
     // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
     if (auto* rl = get_active_link(vd)) {
         bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
@@ -1158,6 +1219,24 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
         return TSView{};
     }
 
+    const TSMeta* elem_meta = vd.meta->element_ts;
+
+    // For fixed-size TSL with per-element binding, check if this element is linked
+    if (vd.link_data && vd.meta->fixed_size > 0 && index < static_cast<size_t>(vd.meta->fixed_size)) {
+        auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+        if (link_schema) {
+            value::View link_view(vd.link_data, link_schema);
+            auto* rl = static_cast<REFLink*>(link_view.as_list().at(index).data());
+            if (rl && rl->target().is_linked && rl->target().ops) {
+                // Element is linked - return TSView pointing to target
+                bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+                ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index), is_sampled);
+                return TSView(target_vd, current_time);
+            }
+        }
+    }
+
+    // Fall back to local storage (for outputs or unlinked inputs)
     auto value_view = make_value_view(vd);
     auto time_view = make_time_view(vd);
     auto observer_view = make_observer_view(vd);
@@ -1171,8 +1250,6 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
         return TSView{};
     }
 
-    const TSMeta* elem_meta = vd.meta->element_ts;
-
     ViewData elem_vd;
     elem_vd.path = vd.path.child(index);
     elem_vd.value_data = value_list.at(index).data();
@@ -1183,8 +1260,7 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
     elem_vd.ops = get_ts_ops(elem_meta);
     elem_vd.meta = elem_meta;
 
-    // For fixed-size TSL, set element's link_data to its REFLink in the fixed_list
-    // This enables per-element binding for TSL inputs
+    // For fixed-size TSL outputs, also set link_data for potential future binding
     if (vd.link_data && vd.meta->fixed_size > 0) {
         auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
         if (link_schema && index < static_cast<size_t>(vd.meta->fixed_size)) {
@@ -1229,10 +1305,16 @@ TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t cu
 }
 
 size_t child_count(const ViewData& vd) {
-    // If linked, delegate to target
+    // If linked (dynamic TSL), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->child_count(make_view_data_from_link(*rl, vd.path, vd.sampled));
     }
+
+    // For fixed-size TSL, return the fixed size
+    if (vd.meta && vd.meta->fixed_size > 0) {
+        return static_cast<size_t>(vd.meta->fixed_size);
+    }
+
     auto value_view = make_value_view(vd);
     if (!value_view.valid()) return 0;
     return value_view.as_list().size();
@@ -1264,18 +1346,39 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
 }
 
 void bind(ViewData& vd, const ViewData& target) {
-    // TSL: Bind the entire list to target (collection-level link)
     if (!vd.link_data) {
         throw std::runtime_error("bind on list without link data");
     }
 
-    // For TSL, link_data points to a REFLink
+    // Fixed-size TSL uses per-element binding (fixed_list[REFLink])
+    if (vd.meta && vd.meta->fixed_size > 0) {
+        auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+        if (!link_schema) {
+            throw std::runtime_error("bind on fixed-size list without link schema");
+        }
+
+        value::View link_view(vd.link_data, link_schema);
+        auto link_list = link_view.as_list();
+
+        // Bind each element to the corresponding element in target
+        for (size_t i = 0; i < static_cast<size_t>(vd.meta->fixed_size) && i < link_list.size(); ++i) {
+            auto* rl = static_cast<REFLink*>(link_list.at(i).data());
+            if (rl) {
+                // Get target's element
+                TSView target_elem = target.ops->child_at(target, i, MIN_ST);
+                if (target_elem) {
+                    store_link_target(*rl, target_elem.view_data());
+                }
+            }
+        }
+        return;
+    }
+
+    // Dynamic TSL uses collection-level binding (single REFLink)
     auto* rl = get_ref_link(vd.link_data);
     if (!rl) {
         throw std::runtime_error("bind on list with invalid link data");
     }
-
-    // Store the target ViewData in the REFLink's internal LinkTarget
     store_link_target(*rl, target);
 }
 
@@ -1284,6 +1387,24 @@ void unbind(ViewData& vd) {
         return;  // No-op if not linked
     }
 
+    // Fixed-size TSL uses per-element binding
+    if (vd.meta && vd.meta->fixed_size > 0) {
+        auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+        if (link_schema) {
+            value::View link_view(vd.link_data, link_schema);
+            auto link_list = link_view.as_list();
+
+            for (size_t i = 0; i < static_cast<size_t>(vd.meta->fixed_size) && i < link_list.size(); ++i) {
+                auto* rl = static_cast<REFLink*>(link_list.at(i).data());
+                if (rl) {
+                    rl->unbind();
+                }
+            }
+        }
+        return;
+    }
+
+    // Dynamic TSL uses collection-level binding
     auto* rl = get_ref_link(vd.link_data);
     if (rl) {
         rl->unbind();
@@ -1291,6 +1412,24 @@ void unbind(ViewData& vd) {
 }
 
 bool is_bound(const ViewData& vd) {
+    // Fixed-size TSL uses per-element binding - check if any element is bound
+    if (vd.meta && vd.meta->fixed_size > 0 && vd.link_data) {
+        auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+        if (link_schema) {
+            value::View link_view(vd.link_data, link_schema);
+            auto link_list = link_view.as_list();
+
+            for (size_t i = 0; i < static_cast<size_t>(vd.meta->fixed_size) && i < link_list.size(); ++i) {
+                auto* rl = static_cast<const REFLink*>(link_list.at(i).data());
+                if (rl && rl->target().is_linked) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    // Dynamic TSL uses collection-level binding
     auto* rl = get_ref_link(vd.link_data);
     return rl && rl->target().is_linked;
 }
@@ -1329,15 +1468,37 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
         }
     }
 
-    // Manage subscription for collection-level link
+    // Manage subscription based on link type
     if (vd.link_data) {
-        auto* rl = get_ref_link(vd.link_data);
-        if (rl && rl->target().is_linked && rl->target().observer_data) {
-            auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
-            if (active) {
-                observers->add_observer(input);
-            } else {
-                observers->remove_observer(input);
+        // Fixed-size TSL uses per-element binding (fixed_list[REFLink])
+        if (vd.meta->fixed_size > 0) {
+            auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+            if (link_schema) {
+                value::View link_view(vd.link_data, link_schema);
+                auto link_list = link_view.as_list();
+
+                for (size_t i = 0; i < link_list.size() && i < static_cast<size_t>(vd.meta->fixed_size); ++i) {
+                    auto* rl = static_cast<REFLink*>(link_list.at(i).data());
+                    if (rl && rl->target().is_linked && rl->target().observer_data) {
+                        auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+                        if (active) {
+                            observers->add_observer(input);
+                        } else {
+                            observers->remove_observer(input);
+                        }
+                    }
+                }
+            }
+        } else {
+            // Dynamic TSL uses collection-level binding (single REFLink)
+            auto* rl = get_ref_link(vd.link_data);
+            if (rl && rl->target().is_linked && rl->target().observer_data) {
+                auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+                if (active) {
+                    observers->add_observer(input);
+                } else {
+                    observers->remove_observer(input);
+                }
             }
         }
     }
