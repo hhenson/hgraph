@@ -8,7 +8,9 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/traits.h>
 #include <hgraph/types/ts_signal.h>
 #include <hgraph/types/tsb.h>
@@ -114,12 +116,29 @@ namespace hgraph
                 throw std::runtime_error("Node does not have TSInput for binding");
             }
 
-            // Get the field index from the first element of the input path
-            size_t field_index = static_cast<size_t>(edge.input_path[0]);
+            // View-based binding approach:
+            // 1. Get input view and navigate to the target field
+            TSInputView input_view = dst_node->ts_input()->view(bind_time);
 
-            // The output path is used to navigate within the output
-            // For the current binding model, we pass the output_path to bind_field
-            dst_node->ts_input()->bind_field(field_index, src_output, edge.output_path, bind_time);
+            for (auto idx : edge.input_path) {
+                if (idx >= 0) {
+                    input_view = input_view[static_cast<size_t>(idx)];
+                }
+                // Skip negative indices (like KEY_SET) for now
+            }
+
+            // 2. Get output view and navigate to the source position
+            TSOutputView output_view = src_output->view(bind_time);
+
+            for (auto idx : edge.output_path) {
+                if (idx >= 0) {
+                    output_view = output_view[static_cast<size_t>(idx)];
+                }
+                // Skip negative indices (like KEY_SET) for now
+            }
+
+            // 3. Bind the input view to the output view
+            input_view.bind(output_view);
         }
 
         return nodes;

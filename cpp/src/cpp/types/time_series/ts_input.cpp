@@ -114,7 +114,6 @@ void TSInput::set_active(const std::string& field, bool active) {
 void TSInput::notify(engine_time_t et) {
     // Called when a bound output changes
     // Schedule the owning node for execution
-
     if (owning_node_) {
         // Delegate to the node's notify method which handles scheduling
         owning_node_->notify(et);
@@ -149,72 +148,6 @@ value::View TSInput::active_view() const {
     return const_cast<value::Value<>&>(active_).view();
 }
 
-void TSInput::bind_field(size_t field_index, TSOutput* output, const std::vector<int64_t>& output_path, engine_time_t current_time) {
-    // Only valid for bundle inputs
-    if (!meta_ || meta_->kind != TSKind::TSB) {
-        throw std::runtime_error("bind_field only valid for bundle (TSB) inputs");
-    }
-
-    if (field_index >= meta_->field_count) {
-        throw std::runtime_error("bind_field: field index out of range");
-    }
-
-    if (!output) {
-        throw std::runtime_error("bind_field: output is null");
-    }
-
-    // Get the link storage for this input
-    // The link schema for TSB is: fixed_list[REFLink] with one entry per field
-    auto link_schema = TSMetaSchemaCache::instance().get_link_schema(meta_);
-    if (!link_schema) {
-        throw std::runtime_error("bind_field: no link schema for input");
-    }
-
-    value::View link_view = value_.link_view();
-    if (!link_view) {
-        throw std::runtime_error("bind_field: no link data for input");
-    }
-
-    auto link_list = link_view.as_list();
-    if (field_index >= link_list.size()) {
-        throw std::runtime_error("bind_field: field index out of range in link list");
-    }
-
-    // Get the REFLink at this field index
-    auto* rl = static_cast<REFLink*>(link_list.at(field_index).data());
-    if (!rl) {
-        throw std::runtime_error("bind_field: no REFLink at field index");
-    }
-
-    // Navigate to the output field using the output path
-    TSOutputView output_view = output->view(current_time);
-    for (auto idx : output_path) {
-        if (idx >= 0) {
-            output_view = output_view[static_cast<size_t>(idx)];
-        }
-        // Skip negative indices (like KEY_SET) for now
-    }
-
-    // Get the target ViewData from the output
-    const ViewData& target_vd = output_view.view_data();
-
-    // Set up the link target - access the target through the public interface
-    // and then modify the internal state
-    LinkTarget& lt = const_cast<LinkTarget&>(rl->target());
-    lt.is_linked = true;
-    lt.value_data = target_vd.value_data;
-    lt.time_data = target_vd.time_data;
-    lt.observer_data = target_vd.observer_data;
-    lt.delta_data = target_vd.delta_data;
-    lt.link_data = target_vd.link_data;
-    lt.ops = target_vd.ops;
-    lt.meta = target_vd.meta;
-
-    // Subscribe to the output if active
-    if (active()) {
-        output_view.subscribe(this);
-    }
-}
 
 // ============================================================================
 // TSInputView Implementation

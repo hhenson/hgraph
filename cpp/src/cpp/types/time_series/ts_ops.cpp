@@ -228,6 +228,7 @@ nb::object to_python(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
     }
+
     // Check time-series validity first (has value been set?)
     if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
@@ -298,19 +299,57 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
 }
 
 void bind(ViewData& vd, const ViewData& target) {
-    // Scalar types don't support binding at this level
-    // Binding is managed by the parent container
-    throw std::runtime_error("bind not supported for scalar types");
+    // For scalars that are part of a bundle input, link_data points to the REFLink
+    // that manages this field's binding
+    if (!vd.link_data) {
+        throw std::runtime_error("bind not supported for scalar types without link storage");
+    }
+
+    auto* rl = get_ref_link(vd.link_data);
+    if (!rl) {
+        throw std::runtime_error("bind: invalid link data");
+    }
+
+    // Configure the LinkTarget to point to the target's data
+    LinkTarget& lt = const_cast<LinkTarget&>(rl->target());
+    lt.is_linked = true;
+    lt.value_data = target.value_data;
+    lt.time_data = target.time_data;
+    lt.observer_data = target.observer_data;
+    lt.delta_data = target.delta_data;
+    lt.link_data = target.link_data;
+    lt.ops = target.ops;
+    lt.meta = target.meta;
 }
 
 void unbind(ViewData& vd) {
-    // Scalar types don't support unbinding
-    throw std::runtime_error("unbind not supported for scalar types");
+    // For scalars that are part of a bundle input, link_data points to the REFLink
+    if (!vd.link_data) {
+        throw std::runtime_error("unbind not supported for scalar types without link storage");
+    }
+
+    auto* rl = get_ref_link(vd.link_data);
+    if (!rl) {
+        throw std::runtime_error("unbind: invalid link data");
+    }
+
+    // Clear the LinkTarget
+    LinkTarget& lt = const_cast<LinkTarget&>(rl->target());
+    lt.is_linked = false;
+    lt.value_data = nullptr;
+    lt.time_data = nullptr;
+    lt.observer_data = nullptr;
+    lt.delta_data = nullptr;
+    lt.link_data = nullptr;
+    lt.ops = nullptr;
+    lt.meta = nullptr;
 }
 
 bool is_bound(const ViewData& vd) {
-    // Scalar types are never bound at this level
-    return false;
+    if (!vd.link_data) return false;
+
+    auto* rl = get_ref_link(vd.link_data);
+    return rl && rl->target().is_linked;
 }
 
 void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
@@ -390,7 +429,32 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool valid(const ViewData& vd) {
-    return last_modified_time(vd) != MIN_DT;
+    // First check if the bundle's own time indicates validity
+    if (last_modified_time(vd) != MIN_DT) {
+        return true;
+    }
+
+    // For input bundles, check if any linked field is valid
+    // (input bundles don't have their own time set - they delegate through links)
+    if (!vd.link_data || !vd.meta) return false;
+    auto link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+    if (!link_schema) return false;
+
+    value::View link_view(vd.link_data, link_schema);
+    auto link_list = link_view.as_list();
+
+    // Check each field's link - if any field is linked and valid, the bundle is valid
+    for (size_t i = 0; i < link_list.size() && i < vd.meta->field_count; ++i) {
+        auto* rl = static_cast<const REFLink*>(link_list.at(i).data());
+        if (rl && rl->target().is_linked && rl->target().ops) {
+            ViewData field_vd = make_view_data_from_link(*rl, vd.path);
+            if (rl->target().ops->valid(field_vd)) {
+                return true;
+            }
+        }
+    }
+
+    return false;
 }
 
 bool all_valid(const ViewData& vd) {
@@ -525,6 +589,11 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
     field_vd.time_data = time_view.as_tuple().at(index + 1).data();
     field_vd.observer_data = observer_view.as_tuple().at(index + 1).data();
     field_vd.delta_data = nullptr;  // Field deltas not supported yet
+    // For inputs: set link_data to point to the field's REFLink for binding support
+    // get_field_ref_link returns the REFLink* even if not yet linked
+    if (auto* rl = get_field_ref_link(vd, index)) {
+        field_vd.link_data = rl;
+    }
     field_vd.ops = get_ts_ops(field_meta);
     field_vd.meta = field_meta;
 

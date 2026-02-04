@@ -2,6 +2,7 @@
 #include "hgraph/types/time_series_type.h"
 
 #include <hgraph/api/python/py_time_series.h>
+#include <iostream>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/ref.h>

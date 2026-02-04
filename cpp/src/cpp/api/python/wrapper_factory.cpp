@@ -2,6 +2,7 @@
 // Wrapper Factory Implementation
 //
 
+#include <iostream>
 #include <fmt/format.h>
 #include <hgraph/api/python/py_evaluation_clock.h>
 #include <hgraph/api/python/py_evaluation_engine.h>
