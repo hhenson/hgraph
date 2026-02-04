@@ -15,6 +15,7 @@
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/short_path.h>
+#include <hgraph/types/time_series/fq_path.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/hgraph_forward_declarations.h>
 
@@ -181,6 +182,31 @@ public:
      */
     [[nodiscard]] ShortPath root_path() const {
         return ShortPath(owning_node_, PortType::INPUT, {});
+    }
+
+    /**
+     * @brief Get the root ViewData for this input's value.
+     *
+     * This is used for FQPath conversion - navigation starts from this root.
+     */
+    [[nodiscard]] ViewData root_view_data() const {
+        ViewData vd = const_cast<TSValue&>(value_).make_view_data();
+        vd.path = ShortPath(owning_node_, PortType::INPUT);
+        return vd;
+    }
+
+    /**
+     * @brief Convert a TSView's path to a fully-qualified FQPath.
+     *
+     * This navigates through the input's value structure to convert
+     * slot indices (used by ShortPath) to semantic elements (field names,
+     * actual TSD keys).
+     *
+     * @param view The TSView whose path to convert
+     * @return FQPath with semantic path elements
+     */
+    [[nodiscard]] FQPath to_fq_path(const TSView& view) const {
+        return view.view_data().path.to_fq(root_view_data());
     }
 
     /**
