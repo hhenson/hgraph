@@ -15,10 +15,7 @@ namespace hgraph
         // TSReference - Value-stack time-series reference
         // ============================================================
 
-        // PortType enum
-        nb::enum_<PortType>(m, "PortType")
-            .value("INPUT", PortType::INPUT)
-            .value("OUTPUT", PortType::OUTPUT);
+        // Note: PortType enum is registered in py_ts_input_output.cpp
 
         // TSReference class
         nb::class_<TSReference>(m, "TSReference")

@@ -16,6 +16,7 @@
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/fq_path.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/node.h>
 #include <hgraph/python/chrono.h>
@@ -384,6 +385,96 @@ void ts_input_output_register_with_nanobind(nb::module_& m) {
                 return static_cast<bool>(self);
             },
             "Check if this view is valid.");
+
+    // ========================================================================
+    // PathElement Binding
+    // ========================================================================
+    nb::class_<PathElement>(m, "PathElement",
+        "Single element in a fully-qualified path.\n\n"
+        "PathElement represents one navigation step: field name (TSB), "
+        "index (TSL), or key (TSD).")
+
+        .def("is_field", &PathElement::is_field,
+            "Check if this is a field name element (TSB).")
+
+        .def("is_index", &PathElement::is_index,
+            "Check if this is an index element (TSL).")
+
+        .def("is_key", &PathElement::is_key,
+            "Check if this is a key element (TSD).")
+
+        .def("as_field", &PathElement::as_field,
+            nb::rv_policy::reference,
+            "Get the field name (only valid if is_field()).")
+
+        .def("as_index", &PathElement::as_index,
+            "Get the index (only valid if is_index()).")
+
+        .def("to_python", &PathElement::to_python,
+            "Convert to Python object (str for field, int for index, key value for key).")
+
+        .def("__str__", &PathElement::to_string,
+            "String representation.")
+
+        .def("__repr__", [](const PathElement& self) {
+                return "PathElement(" + self.to_string() + ")";
+            })
+
+        .def("__eq__", &PathElement::operator==);
+
+    // ========================================================================
+    // FQPath Binding
+    // ========================================================================
+    nb::class_<FQPath>(m, "FQPath",
+        "Fully-qualified path for time-series navigation.\n\n"
+        "FQPath is a standalone, serializable path containing:\n"
+        "- Stable node identifier (survives across sessions)\n"
+        "- Port type (INPUT/OUTPUT)\n"
+        "- Semantic path elements (field names, indices, actual keys)\n\n"
+        "Unlike ShortPath which uses raw slot indices for TSD, FQPath stores "
+        "the actual key values, enabling proper serialization and debugging.")
+
+        .def(nb::init<>(),
+            "Create an empty FQPath.")
+
+        .def("node_id", &FQPath::node_id,
+            nb::rv_policy::reference,
+            "Get the node identifier (list of int for nested graphs).")
+
+        .def("port_type", &FQPath::port_type,
+            "Get the port type (INPUT or OUTPUT).")
+
+        .def("path", &FQPath::path,
+            nb::rv_policy::reference,
+            "Get the path elements.")
+
+        .def("depth", &FQPath::depth,
+            "Get the number of path elements.")
+
+        .def("is_root", &FQPath::is_root,
+            "Check if this is a root path (no elements).")
+
+        .def("to_python", &FQPath::to_python,
+            "Convert to Python tuple: (node_id_list, port_type_str, path_list).")
+
+        .def("__str__", &FQPath::to_string,
+            "String representation.")
+
+        .def("__repr__", [](const FQPath& self) {
+                return "FQPath(" + self.to_string() + ")";
+            })
+
+        .def("__eq__", &FQPath::operator==)
+
+        .def("__lt__", &FQPath::operator<);
+
+    // ========================================================================
+    // PortType Enum Binding
+    // ========================================================================
+    nb::enum_<PortType>(m, "PortType",
+        "Port type for time-series endpoints.")
+        .value("INPUT", PortType::INPUT, "TSInput port")
+        .value("OUTPUT", PortType::OUTPUT, "TSOutput port");
 }
 
 } // namespace hgraph

@@ -122,6 +122,7 @@ set(HGRAPH_SOURCES
         types/time_series/ts_output.cpp
         types/time_series/ts_input.cpp
         types/time_series/ref_link.cpp
+        types/time_series/fq_path.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
