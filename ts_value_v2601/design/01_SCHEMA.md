@@ -439,334 +439,305 @@ Describes time-series types with temporal tracking semantics.
 
 ### Structure
 
+TSMeta uses a **flat struct with tagged union** approach - the `kind` field determines which other fields are valid. This is more memory-efficient than an inheritance hierarchy and enables simple serialization.
+
 ```cpp
+/**
+ * Categories of time-series types.
+ */
+enum class TSKind : uint8_t {
+    TSValue,     // TS[T] - scalar time-series
+    TSS,         // TSS[T] - time-series set
+    TSD,         // TSD[K, V] - time-series dict
+    TSL,         // TSL[TS, Size] - time-series list
+    TSW,         // TSW[T, size, min_size] - time-series window
+    TSB,         // TSB[Schema] - time-series bundle
+    REF,         // REF[TS] - reference to time-series
+    SIGNAL       // SIGNAL - presence/absence marker
+};
+
+/**
+ * Metadata for a single field in a TSB (time-series bundle).
+ */
+struct TSBFieldInfo {
+    const char* name;        // Field name (owned by registry)
+    size_t index;            // 0-based field index
+    const TSMeta* ts_type;   // Field's time-series schema
+};
+
+/**
+ * Complete metadata describing a time-series type.
+ *
+ * TSMeta is the schema for a time-series type. It uses a tagged union approach
+ * where the `kind` field determines which members are valid:
+ *
+ * - TSValue: value_type is valid
+ * - TSS: value_type is valid (set element type)
+ * - TSD: key_type, element_ts are valid
+ * - TSL: element_ts, fixed_size are valid
+ * - TSW: value_type, is_duration_based, window union are valid
+ * - TSB: fields, field_count, bundle_name, python_type are valid
+ * - REF: element_ts is valid (referenced time-series)
+ * - SIGNAL: no additional fields
+ */
 struct TSMeta {
-    // Identity
-    TSKind kind_;                     // TS, TSB, TSL, TSD, TSS, REF, SIGNAL
+    TSKind kind;
 
-    // The underlying value schema
-    const TypeMeta* value_schema_;    // Schema for user-visible data
+    // ========== Value/Key Types ==========
+    // Valid for: TSValue (value), TSS (element), TSW (value), TSD (key)
 
-    // Timestamp tracking schema (mirrors data structure)
-    const TypeMeta* time_meta_;       // Schema for modification times
+    /// Value type - valid for: TSValue, TSS, TSW
+    const TypeMeta* value_type = nullptr;
 
-    // Observer list schema (mirrors data structure)
-    const TypeMeta* observer_meta_;   // Schema for observer lists
+    /// Key type - valid for: TSD
+    const TypeMeta* key_type = nullptr;
 
-    // Time-series operations vtable (stored by value to reduce pointer chasing)
-    ts_ops ops_;                      // Polymorphic operations - INLINE, not pointer
+    // ========== Nested Time-Series ==========
+    // Valid for: TSD (value TS), TSL (element TS), REF (referenced TS)
 
-    // Accessors
-    TSKind kind() const { return kind_; }
-    const TypeMeta& value_schema() const { return *value_schema_; }
-    const ts_ops& ops() const { return ops_; }  // Return by const ref (stored by value)
+    /// Element time-series - valid for: TSD (value), TSL (element), REF (referenced)
+    const TSMeta* element_ts = nullptr;
+
+    // ========== Size Information ==========
+
+    /// Fixed size - valid for: TSL (0 = dynamic SIZE)
+    size_t fixed_size = 0;
+
+    // ========== Window Parameters ==========
+    // Valid for: TSW
+
+    /// True if duration-based window, false if tick-based
+    bool is_duration_based = false;
+
+    /// Window parameters union - saves space since only one is used
+    union WindowParams {
+        struct {
+            size_t period;
+            size_t min_period;
+        } tick;
+        struct {
+            engine_time_delta_t time_range;
+            engine_time_delta_t min_time_range;
+        } duration;
+
+        // Default constructor - initialize tick params
+        WindowParams() : tick{0, 0} {}
+    } window;
+
+    // ========== Bundle Fields ==========
+    // Valid for: TSB
+
+    /// Field metadata array - valid for: TSB
+    const TSBFieldInfo* fields = nullptr;
+
+    /// Number of fields - valid for: TSB
+    size_t field_count = 0;
+
+    /// Bundle schema name - valid for: TSB
+    const char* bundle_name = nullptr;
+
+    /// Python type for reconstruction - valid for: TSB (optional)
+    /// When set, to_python conversion returns an instance of this class.
+    /// When not set (None), returns a dict.
+    nb::object python_type;
+
+    // ========== Helper Methods ==========
+
+    /**
+     * Check if this is a collection time-series.
+     * @return true if TSS, TSD, TSL, or TSB
+     */
+    bool is_collection() const noexcept {
+        return kind == TSKind::TSS || kind == TSKind::TSD ||
+               kind == TSKind::TSL || kind == TSKind::TSB;
+    }
+
+    /**
+     * Check if this is a scalar-like time-series.
+     * @return true if TS, TSW, or SIGNAL
+     */
+    bool is_scalar_ts() const noexcept {
+        return kind == TSKind::TSValue || kind == TSKind::TSW ||
+               kind == TSKind::SIGNAL;
+    }
 };
 ```
 
+### Field Validity by TSKind
+
+| TSKind | value_type | key_type | element_ts | fixed_size | window | fields/field_count | bundle_name |
+|--------|------------|----------|------------|------------|--------|-------------------|-------------|
+| TSValue | Y (value type) | - | - | - | - | - | - |
+| TSS | Y (element type) | - | - | - | - | - | - |
+| TSD | - | Y | Y (value TS) | - | - | - | - |
+| TSL | - | - | Y (element TS) | Y (0=dynamic) | - | - | - |
+| TSW | Y (value type) | - | - | - | Y | - | - |
+| TSB | - | - | - | - | - | Y | Y |
+| REF | - | - | Y (referenced TS) | - | - | - | - |
+| SIGNAL | - | - | - | - | - | - | - |
+
+### Operations Retrieval
+
+Operations for time-series types are retrieved via the `get_ts_ops()` function rather than being stored inline in TSMeta. This separation keeps TSMeta lightweight and allows different ops implementations for TSW variants.
+
+```cpp
+// Get ops by TSKind (for TSW, returns scalar_ops)
+const ts_ops* get_ts_ops(TSKind kind);
+
+// Get ops by TSMeta (for TSW, selects based on is_duration_based)
+const ts_ops* get_ts_ops(const TSMeta* meta);
+
+// Usage
+const ts_ops* ops = get_ts_ops(ts_meta);
+bool is_modified = ops->modified(view_data, current_time);
+```
+
+### Schema Generation via TSMetaSchemaCache
+
+Parallel Value structures (time tracking, observer lists, delta tracking, etc.) are generated dynamically based on the TSMeta structure. The `TSMetaSchemaCache` singleton provides caching for these generated schemas:
+
+```cpp
+class TSMetaSchemaCache {
+public:
+    static TSMetaSchemaCache& instance();
+
+    // Generated schemas - cached per TSMeta
+    const TypeMeta* get_time_schema(const TSMeta* ts_meta);
+    const TypeMeta* get_observer_schema(const TSMeta* ts_meta);
+    const TypeMeta* get_delta_value_schema(const TSMeta* ts_meta);
+    const TypeMeta* get_link_schema(const TSMeta* ts_meta);
+    const TypeMeta* get_active_schema(const TSMeta* ts_meta);  // For TSInput
+};
+```
+
+**Schema generation rules:**
+
+| Schema | Scalar Types | TSD | TSB | TSL |
+|--------|--------------|-----|-----|-----|
+| time | engine_time_t | tuple[t, var_list[...]] | tuple[t, fixed_list[...]] | tuple[t, fixed_list[...]] |
+| observer | ObserverList | tuple[OL, var_list[...]] | tuple[OL, fixed_list[...]] | tuple[OL, fixed_list[...]] |
+| delta_value | nullptr | MapDelta | BundleDeltaNav* | ListDeltaNav* |
+| link | nullptr | bool | fixed_list[bool] | bool |
+| active | bool | tuple[bool, var_list[...]] | tuple[bool, fixed_list[...]] | tuple[bool, fixed_list[...]] |
+
+*For TSB/TSL delta_value, returns nullptr if no nested TSS/TSD exists.
+
 ### TSOutput/TSInput Construction
 
-TSOutput and TSInput are constructed directly from TSMeta - the schema provides the type information needed to initialize all three value structures.
+TSOutput and TSInput are constructed directly from TSMeta. The required parallel schemas are obtained via TSMetaSchemaCache:
 
 ```cpp
 // Construction - TSMeta passed to constructor
 TSOutput output{ts_meta, node_ptr};
 TSInput input{ts_meta, node_ptr};
 
-// TSOutput constructor uses TSMeta to initialize:
-// - native_value_ (using value_schema_)
-// - time tracking (using time_meta_)
-// - observer lists (using observer_meta_)
-class TSOutput {
-public:
-    TSOutput(const TSMeta* meta, Node* node);
-};
-
-class TSInput {
-public:
-    TSInput(const TSMeta* meta, Node* node);
-};
-```
-
-### Python API Wrappers
-
-TSMeta provides factory methods for creating Python wrapper objects (since wrappers are kind-specific):
-
-```cpp
-class TSMeta {
-public:
-    // Python API wrapper factory - creates kind-specific wrapper
-    virtual nb::object as_output_api(TSView view, std::shared_ptr<Node> node) const = 0;
-    virtual nb::object as_input_api(TSInputView view, std::shared_ptr<Node> node) const = 0;
-};
-```
-
-### TSMeta Hierarchy
-
-Each time-series kind has a specialized TSMeta subclass:
-
-| TSMeta Subclass | TS Kind | Additional Info |
-|-----------------|---------|-----------------|
-| TSValueMeta | TS[T] | Scalar time-series |
-| TSBTypeMeta | TSB[...] | Field schemas, peered flag |
-| TSLTypeMeta | TSL[T] | Element schema, size bounds |
-| TSDTypeMeta | TSD[K,V] | Key schema, value schema |
-| TSSTypeMeta | TSS[T] | Element schema |
-| TSWTypeMeta | TSW[T] | Window configuration |
-| TSRefMeta | REF[T] | Referenced TS schema |
-| SIGNALMeta | SIGNAL | No value, pure tick notification |
-
-```cpp
-class TSValueMeta : public TSMeta {
-    // TS[T] - scalar time-series
-    // value_schema_: T
-    // time_meta_: engine_time_t
-    // observer_meta_: ObserverList
-};
-
-class TSBTypeMeta : public TSMeta {
-    std::vector<std::pair<std::string, const TSMeta*>> fields_;
-    bool peered_;  // All fields tick together?
-
-public:
-    const TSMeta* field_meta(std::string_view name) const;
-    const TSMeta* field_meta(size_t index) const;
-    size_t field_count() const;
-    bool is_peered() const { return peered_; }
-
-    // Schema generation:
-    // value_schema_: Bundle of field value types
-    // time_meta_: engine_time_t (peered) or Bundle[engine_time_t, ...] (un-peered)
-    // observer_meta_: ObserverList (peered) or Bundle[ObserverList, ...] (un-peered)
-};
-
-class TSLTypeMeta : public TSMeta {
-    const TSMeta* element_meta_;
-    size_t size_;  // Fixed size (0 for dynamic)
-
-public:
-    const TSMeta* element_meta() const { return element_meta_; }
-    size_t size() const { return size_; }
-    bool is_fixed_size() const { return size_ > 0; }
-
-    // Schema generation:
-    // value_schema_: List[element_value_type]
-    // time_meta_: List[engine_time_t]
-    // observer_meta_: List[ObserverList]
-};
-
-class TSDTypeMeta : public TSMeta {
-    const TypeMeta* key_meta_;
-    const TSMeta* value_meta_;
-
-public:
-    const TypeMeta* key_meta() const { return key_meta_; }
-    const TSMeta* value_meta() const { return value_meta_; }
-
-    // Schema generation:
-    // value_schema_: Map[K, V] (MapStorage with key set)
-    // time_meta_: List[engine_time_t] (parallel by slot index)
-    // observer_meta_: List[ObserverList] (parallel by slot index)
-};
-
-class TSSTypeMeta : public TSMeta {
-    const TypeMeta* element_meta_;
-
-public:
-    const TypeMeta* element_meta() const { return element_meta_; }
-
-    // Schema generation:
-    // value_schema_: Set[T] (SetStorage with delta tracking)
-    // time_meta_: List[engine_time_t] (parallel by slot index)
-    // observer_meta_: ObserverList (container-level only)
-};
-
-class TSWTypeMeta : public TSMeta {
-    const TypeMeta* element_meta_;
-    size_t period_;           // Cyclic buffer capacity
-    engine_time_delta_t min_window_period_;  // Minimum time span
-
-public:
-    const TypeMeta* element_meta() const { return element_meta_; }
-    size_t period() const { return period_; }
-    engine_time_delta_t min_window_period() const { return min_window_period_; }
-
-    // Schema generation:
-    // value_schema_: WindowStorage[T] (custom type with cyclic + queue buffers)
-    // time_meta_: (embedded in WindowStorage - times stored with values)
-    // observer_meta_: ObserverList (container-level only)
-};
-
-class TSRefMeta : public TSMeta {
-    const TSMeta* referenced_meta_;
-
-public:
-    const TSMeta* referenced_meta() const { return referenced_meta_; }
-
-    // Schema generation:
-    // value_schema_: TimeSeriesReference (pointer/handle to referenced TS)
-    // time_meta_: engine_time_t
-    // observer_meta_: ObserverList
-};
-
-class SIGNALMeta : public TSMeta {
-    // Schema generation:
-    // value_schema_: void (no data)
-    // time_meta_: engine_time_t
-    // observer_meta_: ObserverList
-};
+// Internally uses TSMetaSchemaCache for parallel structures:
+// - value storage: directly from TSMeta (value_type, element_ts, etc.)
+// - time tracking: TSMetaSchemaCache::get_time_schema(ts_meta)
+// - observer lists: TSMetaSchemaCache::get_observer_schema(ts_meta)
+// - delta tracking: TSMetaSchemaCache::get_delta_value_schema(ts_meta)
+// - active state (TSInput only): TSMetaSchemaCache::get_active_schema(ts_meta)
 ```
 
 ### ts_ops Vtable
 
-The TS layer uses the same `ViewRange` and `ViewPairRange` iterator types as the value layer.
+The `ts_ops` structure provides the operations vtable for time-series types. Unlike `type_ops` which may be stored inline, `ts_ops` is retrieved via the `get_ts_ops()` function based on the TSMeta.
 
 ```cpp
-// TS kind-specific extension ops
-struct ts_scalar_ops {
-    // Scalar TS has no additional ops beyond common
-};
-
-struct tsb_ops {
-    // Field access
-    TSView (*field_at_index)(void* ptr, size_t idx);
-    TSView (*field_at_name)(void* ptr, std::string_view name);
-    size_t (*field_count)(const void* ptr);
-    // Iteration (all return ViewPairRange: field_name -> TSView)
-    ViewPairRange (*items)(const void* ptr);
-    ViewPairRange (*valid_items)(const void* ptr);
-    ViewPairRange (*modified_items)(const void* ptr);
-};
-
-struct tsl_ops {
-    // Element access
-    TSView (*at)(void* ptr, size_t idx);
-    size_t (*size)(const void* ptr);
-    // Values iteration (ViewRange of TSView)
-    ViewRange (*values)(const void* ptr);
-    ViewRange (*valid_values)(const void* ptr);
-    ViewRange (*modified_values)(const void* ptr);
-    // Items iteration (ViewPairRange: index -> TSView)
-    ViewPairRange (*items)(const void* ptr);
-    ViewPairRange (*valid_items)(const void* ptr);
-    ViewPairRange (*modified_items)(const void* ptr);
-};
-
-struct tsd_ops {
-    // Entry access
-    TSView (*at)(void* ptr, View key);
-    bool (*contains)(const void* ptr, View key);
-    void (*set_item)(void* ptr, View key, TSView value);
-    bool (*remove)(void* ptr, View key);
-    size_t (*size)(const void* ptr);
-    TSSView (*key_set)(const void* ptr);  // Keys as TSS-like view
-    // Keys iteration (ViewRange)
-    ViewRange (*keys)(const void* ptr);
-    ViewRange (*valid_keys)(const void* ptr);
-    ViewRange (*added_keys)(const void* ptr);
-    ViewRange (*removed_keys)(const void* ptr);
-    ViewRange (*modified_keys)(const void* ptr);
-    // Items iteration (ViewPairRange: key -> TSView)
-    ViewPairRange (*items)(const void* ptr);
-    ViewPairRange (*valid_items)(const void* ptr);
-    ViewPairRange (*added_items)(const void* ptr);
-    ViewPairRange (*modified_items)(const void* ptr);
-};
-
-struct tss_ops {
-    // Membership
-    bool (*contains)(const void* ptr, View elem);
-    size_t (*size)(const void* ptr);
-    // Mutation
-    void (*add)(void* ptr, View elem);
-    bool (*remove)(void* ptr, View elem);
-    // Values iteration (ViewRange)
-    ViewRange (*values)(const void* ptr);
-    ViewRange (*added)(const void* ptr);
-    ViewRange (*removed)(const void* ptr);
-    bool (*was_added)(const void* ptr, View elem);
-    bool (*was_removed)(const void* ptr, View elem);
-};
-
-struct tsw_ops {
-    // Window properties
-    size_t (*size)(const void* ptr);
-    size_t (*capacity)(const void* ptr);
-    engine_time_t (*oldest_time)(const void* ptr);
-    engine_time_t (*newest_time)(const void* ptr);
-
-    // Value access
-    View (*at_time)(const void* ptr, engine_time_t t);
-
-    // Iteration (ViewRange of values, oldest first)
-    ViewRange (*values)(const void* ptr);
-    ViewRange (*times)(const void* ptr);
-    ViewRange (*range)(const void* ptr, engine_time_t start, engine_time_t end);
-
-    // Items iteration (ViewPairRange: time -> value)
-    ViewPairRange (*items)(const void* ptr);
-};
-
-struct ref_ops {
-    // REF uses common value()/set_value() with TimeSeriesReference
-    // Reserved for future operations
-};
-
-struct signal_ops {
-    void (*tick)(void* ptr);
-};
-
+/**
+ * Operations vtable for time-series types.
+ *
+ * ts_ops enables polymorphic dispatch for TSView operations based on
+ * the time-series kind (TS, TSB, TSL, TSD, TSS, TSW, REF, SIGNAL).
+ *
+ * Each TS kind has its own ts_ops instance with appropriate implementations.
+ * The ops pointer is stored in ViewData and used by TSView for dispatch.
+ */
 struct ts_ops {
-    // === Common operations (all TS kinds) ===
+    // ========== Schema Access ==========
+    const TSMeta* (*ts_meta)(const ViewData& vd);
 
-    // Lifecycle
-    void (*construct)(void* dst, engine_time_t time);
-    void (*destroy)(void* ptr);
-    void (*copy)(void* dst, const void* src);
+    // ========== Time-Series Semantics ==========
+    engine_time_t (*last_modified_time)(const ViewData& vd);
+    bool (*modified)(const ViewData& vd, engine_time_t current_time);
+    bool (*valid)(const ViewData& vd);
+    bool (*all_valid)(const ViewData& vd);
+    bool (*sampled)(const ViewData& vd);
 
-    // Tick detection
-    bool (*modified)(const void* ptr, engine_time_t time);
-    bool (*valid)(const void* ptr);
-    bool (*all_valid)(const void* ptr);  // For composites: all children valid
+    // ========== Value Access ==========
+    value::View (*value)(const ViewData& vd);
+    value::View (*delta_value)(const ViewData& vd);
+    bool (*has_delta)(const ViewData& vd);
 
-    // Time access
-    engine_time_t (*last_modified_time)(const void* ptr);
-    void (*set_modified_time)(void* ptr, engine_time_t time);
+    // ========== Mutation (for outputs) ==========
+    void (*set_value)(ViewData& vd, const value::View& src, engine_time_t current_time);
+    void (*apply_delta)(ViewData& vd, const value::View& delta, engine_time_t current_time);
+    void (*invalidate)(ViewData& vd);
 
-    // Value access (all TS types)
-    View (*value)(const void* ptr);
-    void (*set_value)(void* ptr, View value);
-    void (*apply_delta)(void* ptr, DeltaView delta);
+    // ========== Python Interop ==========
+    nb::object (*to_python)(const ViewData& vd);
+    nb::object (*delta_to_python)(const ViewData& vd);
+    void (*from_python)(ViewData& vd, const nb::object& src, engine_time_t current_time);
 
-    // Python conversion (all TS types)
-    nb::object (*to_python)(const void* ptr);
-    nb::object (*delta_to_python)(const void* ptr);
+    // ========== Navigation ==========
+    TSView (*child_at)(const ViewData& vd, size_t index, engine_time_t current_time);
+    TSView (*child_by_name)(const ViewData& vd, const std::string& name, engine_time_t current_time);
+    TSView (*child_by_key)(const ViewData& vd, const value::View& key, engine_time_t current_time);
+    size_t (*child_count)(const ViewData& vd);
 
-    // Delta access
-    DeltaView (*delta)(const void* ptr);
+    // ========== Observer Management ==========
+    value::View (*observer)(const ViewData& vd);
+    void (*notify_observers)(ViewData& vd, engine_time_t current_time);
 
-    // === Kind-specific extension ops (tagged by TSMeta::ts_kind_) ===
-    TSKind kind;
-    union {
-        ts_scalar_ops scalar;
-        tsb_ops bundle;
-        tsl_ops list;
-        tsd_ops dict;
-        tss_ops set;
-        tsw_ops window;
-        ref_ops ref;
-        signal_ops signal;
-    } specific;
+    // ========== Link Management ==========
+    void (*bind)(ViewData& vd, const ViewData& target);
+    void (*unbind)(ViewData& vd);
+    bool (*is_bound)(const ViewData& vd);
+
+    // ========== Input Active State Management ==========
+    void (*set_active)(ViewData& vd, value::View active_view, bool active, TSInput* input);
+
+    // ========== Kind-Specific Operations ==========
+    // Window operations (nullptr for non-TSW)
+    const engine_time_t* (*window_value_times)(const ViewData& vd);
+    size_t (*window_value_times_count)(const ViewData& vd);
+    engine_time_t (*window_first_modified_time)(const ViewData& vd);
+    bool (*window_has_removed_value)(const ViewData& vd);
+    value::View (*window_removed_value)(const ViewData& vd);
+    size_t (*window_removed_value_count)(const ViewData& vd);
+    size_t (*window_size)(const ViewData& vd);
+    size_t (*window_min_size)(const ViewData& vd);
+    size_t (*window_length)(const ViewData& vd);
+
+    // Set operations (nullptr for non-TSS)
+    bool (*set_add)(ViewData& vd, const value::View& elem, engine_time_t current_time);
+    bool (*set_remove)(ViewData& vd, const value::View& elem, engine_time_t current_time);
+    void (*set_clear)(ViewData& vd, engine_time_t current_time);
+
+    // Dict operations (nullptr for non-TSD)
+    bool (*dict_remove)(ViewData& vd, const value::View& key, engine_time_t current_time);
+    TSView (*dict_create)(ViewData& vd, const value::View& key, engine_time_t current_time);
+    TSView (*dict_set)(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time);
 };
+
+// Get ops by TSKind (for TSW, returns scalar_ops)
+const ts_ops* get_ts_ops(TSKind kind);
+
+// Get ops by TSMeta (for TSW, selects based on is_duration_based)
+const ts_ops* get_ts_ops(const TSMeta* meta);
 ```
 
-**Note**: The `specific` union is tagged by the `kind` field in ts_ops. Only access the union member corresponding to the TS type's kind.
+**Note**: The ops pointer is obtained via `get_ts_ops(meta)` and stored in `ViewData` during view construction. This allows different implementations for TSW variants (tick-based vs duration-based windows).
 
-### Three-Value Structure
+### Parallel Value Structures
 
-TSValue contains three parallel values (internal implementation):
-1. **value_**: User-visible data (described by `value_schema_`)
-2. **time_**: Modification timestamps (mirrors data structure, described by `time_meta_`)
-3. **observer_**: Observer lists (mirrors data structure, described by `observer_meta_`)
+Time-series values internally contain parallel structures for tracking:
+1. **value_**: User-visible data (schema from TSMeta fields)
+2. **time_**: Modification timestamps (schema from `TSMetaSchemaCache::get_time_schema()`)
+3. **observer_**: Observer lists (schema from `TSMetaSchemaCache::get_observer_schema()`)
+4. **delta_value_**: Delta tracking (schema from `TSMetaSchemaCache::get_delta_value_schema()`)
+5. **link_**: Link targets (schema from `TSMetaSchemaCache::get_link_schema()`)
+6. **active_** (TSInput only): Active state (schema from `TSMetaSchemaCache::get_active_schema()`)
 
 ## Type Registration
 
