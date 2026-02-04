@@ -25,6 +25,8 @@ namespace hgraph {
 
 // Forward declarations
 class TSView;
+class FQPath;
+struct ViewData;
 
 /**
  * @brief Port type for time-series endpoints.
@@ -240,6 +242,21 @@ public:
      * @return String representation of the path
      */
     [[nodiscard]] std::string to_string() const;
+
+    /**
+     * @brief Convert to a fully-qualified path (FQPath).
+     *
+     * Navigates through the ViewData structure to convert slot indices
+     * to semantic path elements:
+     * - TSB: slot index -> field name
+     * - TSL: slot index -> list index (unchanged)
+     * - TSD: slot index -> actual key value (cloned)
+     *
+     * @param root_vd The root ViewData for this path's port
+     * @return FQPath with semantic path elements
+     * @throws std::runtime_error if navigation fails
+     */
+    [[nodiscard]] FQPath to_fq(const ViewData& root_vd) const;
 
     // ========== Comparison ==========
 
