@@ -118,20 +118,42 @@ namespace hgraph
             // TSInput path: wrap TSInputView for each field
             auto &signature_args = signature().args;
             const TSMeta* meta = ts_input()->meta();
-            if (!meta || meta->kind != TSKind::TSB) return; // Only bundles have fields
+            if (!meta) return;
 
-            for (size_t i = 0; i < meta->field_count; ++i) {
-                std::string key = meta->fields[i].name;
-                if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
-                    // Get TSInputView for this field and wrap it for Python using the correct wrapper
-                    TSInputView field_view = ts_input()->view(graph()->evaluation_time())[i];
-                    nb::object wrapped = wrap_input_view(field_view);
-                    if (wrapped.is_none()) {
-                        throw std::runtime_error(
-                            std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap TSInputView for '") +
-                            key + "'.");
+            if (meta->kind == TSKind::TSB) {
+                // Bundle input: each field is a separate kwarg
+                for (size_t i = 0; i < meta->field_count; ++i) {
+                    std::string key = meta->fields[i].name;
+                    if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
+                        // Get TSInputView for this field and wrap it for Python using the correct wrapper
+                        TSInputView field_view = ts_input()->view(graph()->evaluation_time())[i];
+                        nb::object wrapped = wrap_input_view(field_view);
+                        if (wrapped.is_none()) {
+                            throw std::runtime_error(
+                                std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap TSInputView for '") +
+                                key + "'.");
+                        }
+                        _kwargs[key.c_str()] = wrapped;
                     }
-                    _kwargs[key.c_str()] = wrapped;
+                }
+            } else {
+                // Non-bundle (scalar) input: the entire input is a single kwarg
+                // Find the parameter name from time_series_inputs
+                if (signature().time_series_inputs.has_value()) {
+                    for (const auto& [key, _] : *signature().time_series_inputs) {
+                        if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
+                            // Wrap the entire TSInputView
+                            TSInputView input_view = ts_input()->view(graph()->evaluation_time());
+                            nb::object wrapped = wrap_input_view(input_view);
+                            if (wrapped.is_none()) {
+                                throw std::runtime_error(
+                                    std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap TSInputView for '") +
+                                    key + "'.");
+                            }
+                            _kwargs[key.c_str()] = wrapped;
+                            break;  // Only one scalar input expected for non-TSB
+                        }
+                    }
                 }
             }
         }

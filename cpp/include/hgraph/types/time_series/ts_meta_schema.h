@@ -136,6 +136,21 @@ public:
      */
     const value::TypeMeta* get_active_schema(const TSMeta* ts_meta);
 
+    /**
+     * @brief Get the input link schema for a TSMeta.
+     *
+     * Input link schema uses LinkTarget (not REFLink) because TSInput does simple
+     * binding without REF→TS dereferencing. The structure mirrors link_schema:
+     * - TSL/TSD: Single LinkTarget (collection-level link flag)
+     * - TSL (fixed): fixed_list[LinkTarget] with one entry per element
+     * - TSB: tuple[LinkTarget, input_link_schema(field) for each field]
+     * - Scalars: Single LinkTarget
+     *
+     * @param ts_meta The time-series metadata
+     * @return TypeMeta for the link_ parallel Value (LinkTarget-based)
+     */
+    const value::TypeMeta* get_input_link_schema(const TSMeta* ts_meta);
+
     // ========== Singleton Type Accessors ==========
 
     /**
@@ -206,6 +221,7 @@ private:
     const value::TypeMeta* generate_delta_value_schema_impl(const TSMeta* ts_meta);
     const value::TypeMeta* generate_link_schema_impl(const TSMeta* ts_meta);
     const value::TypeMeta* generate_active_schema_impl(const TSMeta* ts_meta);
+    const value::TypeMeta* generate_input_link_schema_impl(const TSMeta* ts_meta);
 
     // ========== Caches ==========
 
@@ -214,6 +230,7 @@ private:
     std::unordered_map<const TSMeta*, const value::TypeMeta*> delta_value_schema_cache_;
     std::unordered_map<const TSMeta*, const value::TypeMeta*> link_schema_cache_;
     std::unordered_map<const TSMeta*, const value::TypeMeta*> active_schema_cache_;
+    std::unordered_map<const TSMeta*, const value::TypeMeta*> input_link_schema_cache_;
 
     // ========== Singleton TypeMetas ==========
 
@@ -355,6 +372,24 @@ inline const value::TypeMeta* generate_link_schema(const TSMeta* ts_meta) {
  */
 inline const value::TypeMeta* generate_active_schema(const TSMeta* ts_meta) {
     return TSMetaSchemaCache::instance().get_active_schema(ts_meta);
+}
+
+/**
+ * @brief Generate the input link schema for a TSMeta.
+ *
+ * Convenience function that delegates to TSMetaSchemaCache.
+ *
+ * Input link schema uses LinkTarget (not REFLink) for TSInput simple binding.
+ * - TSL/TSD: Single LinkTarget (collection-level link flag)
+ * - TSL (fixed): fixed_list[LinkTarget] with one entry per element
+ * - TSB: tuple[LinkTarget, input_link_schema(field) for each field]
+ * - Scalars: Single LinkTarget
+ *
+ * @param ts_meta The time-series metadata
+ * @return TypeMeta for the link_ parallel Value (LinkTarget-based)
+ */
+inline const value::TypeMeta* generate_input_link_schema(const TSMeta* ts_meta) {
+    return TSMetaSchemaCache::instance().get_input_link_schema(ts_meta);
 }
 
 } // namespace hgraph

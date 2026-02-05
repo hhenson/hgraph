@@ -17,55 +17,58 @@ namespace hgraph {
 // Construction
 // ============================================================================
 
-TSValue::TSValue(const TSMeta* meta)
-    : meta_(meta)
-    , last_delta_clear_time_(MIN_ST)
-{
-    if (!meta_) {
-        return;
-    }
+// Internal helper to initialize common parts of TSValue
+static void init_ts_value_common(
+    TSValue& ts_value,
+    const TSMeta* meta,
+    value::Value<>& value_,
+    value::Value<>& time_,
+    value::Value<>& observer_,
+    value::Value<>& delta_value_
+) {
+    if (!meta) return;
 
     // Get the schema cache instance
     auto& cache = TSMetaSchemaCache::instance();
 
     // Generate value schema based on TS kind
     const value::TypeMeta* value_schema = nullptr;
-    switch (meta_->kind) {
+    switch (meta->kind) {
         case TSKind::TSValue:
         case TSKind::TSS:
         case TSKind::TSW:
         case TSKind::SIGNAL:
             // Scalar-like: use value_type directly
-            value_schema = meta_->value_type;
+            value_schema = meta->value_type;
             break;
         case TSKind::TSD:
             // TSD[K,V]: need to construct map type
-            if (meta_->key_type && meta_->element_ts && meta_->element_ts->value_type) {
+            if (meta->key_type && meta->element_ts && meta->element_ts->value_type) {
                 value_schema = value::TypeRegistry::instance()
-                    .map(meta_->key_type, meta_->element_ts->value_type)
+                    .map(meta->key_type, meta->element_ts->value_type)
                     .build();
             }
             break;
         case TSKind::TSL:
             // TSL[T]: need to construct list type
-            if (meta_->element_ts && meta_->element_ts->value_type) {
-                if (meta_->fixed_size > 0) {
+            if (meta->element_ts && meta->element_ts->value_type) {
+                if (meta->fixed_size > 0) {
                     value_schema = value::TypeRegistry::instance()
-                        .fixed_list(meta_->element_ts->value_type, meta_->fixed_size)
+                        .fixed_list(meta->element_ts->value_type, meta->fixed_size)
                         .build();
                 } else {
                     value_schema = value::TypeRegistry::instance()
-                        .list(meta_->element_ts->value_type)
+                        .list(meta->element_ts->value_type)
                         .build();
                 }
             }
             break;
         case TSKind::TSB:
             // TSB: need to construct bundle type from fields
-            if (meta_->fields && meta_->field_count > 0) {
-                auto builder = value::TypeRegistry::instance().bundle(meta_->bundle_name);
-                for (size_t i = 0; i < meta_->field_count; ++i) {
-                    const TSBFieldInfo& field = meta_->fields[i];
+            if (meta->fields && meta->field_count > 0) {
+                auto builder = value::TypeRegistry::instance().bundle(meta->bundle_name);
+                for (size_t i = 0; i < meta->field_count; ++i) {
+                    const TSBFieldInfo& field = meta->fields[i];
                     if (field.ts_type && field.ts_type->value_type) {
                         builder.field(field.name, field.ts_type->value_type);
                     }
@@ -74,9 +77,9 @@ TSValue::TSValue(const TSMeta* meta)
             }
             break;
         case TSKind::REF:
-            // REF[T]: value is TSReference (stored in meta_->value_type)
+            // REF[T]: value is TSReference (stored in meta->value_type)
             // This enables REF -> REF binding (equivalent to TS[TSReference])
-            value_schema = meta_->value_type;
+            value_schema = meta->value_type;
             break;
     }
 
@@ -86,30 +89,59 @@ TSValue::TSValue(const TSMeta* meta)
     }
 
     // Generate and allocate time storage
-    const value::TypeMeta* time_schema = cache.get_time_schema(meta_);
+    const value::TypeMeta* time_schema = cache.get_time_schema(meta);
     if (time_schema) {
         time_ = value::Value<>(time_schema);
     }
 
     // Generate and allocate observer storage
-    const value::TypeMeta* observer_schema = cache.get_observer_schema(meta_);
+    const value::TypeMeta* observer_schema = cache.get_observer_schema(meta);
     if (observer_schema) {
         observer_ = value::Value<>(observer_schema);
     }
 
     // Generate and allocate delta storage (may be nullptr)
-    const value::TypeMeta* delta_schema = cache.get_delta_value_schema(meta_);
+    const value::TypeMeta* delta_schema = cache.get_delta_value_schema(meta);
     if (delta_schema) {
         delta_value_ = value::Value<>(delta_schema);
     }
+}
 
-    // Generate and allocate link storage (may be nullptr for scalars)
-    const value::TypeMeta* link_schema = cache.get_link_schema(meta_);
+TSValue::TSValue(const TSMeta* meta)
+    : meta_(meta)
+    , last_delta_clear_time_(MIN_ST)
+{
+    if (!meta_) {
+        return;
+    }
+
+    // Initialize common parts
+    init_ts_value_common(*this, meta_, value_, time_, observer_, delta_value_);
+
+    // Generate and allocate link storage (REFLink-based for TSOutput alternatives)
+    const value::TypeMeta* link_schema = TSMetaSchemaCache::instance().get_link_schema(meta_);
     if (link_schema) {
         link_ = value::Value<>(link_schema);
-        // Initialize all link flags to false (not bound)
-        // For bool: default constructed is false
-        // For fixed_list[bool]: all elements default to false
+    }
+
+    // Wire observers for delta tracking
+    wire_observers();
+}
+
+TSValue::TSValue(const TSMeta* meta, const value::TypeMeta* link_schema)
+    : meta_(meta)
+    , last_delta_clear_time_(MIN_ST)
+{
+    if (!meta_) {
+        return;
+    }
+
+    // Initialize common parts
+    init_ts_value_common(*this, meta_, value_, time_, observer_, delta_value_);
+
+    // Use the provided link schema (LinkTarget-based for TSInput)
+    if (link_schema) {
+        link_ = value::Value<>(link_schema);
     }
 
     // Wire observers for delta tracking

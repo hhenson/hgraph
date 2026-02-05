@@ -106,7 +106,7 @@ struct ViewData {
      */
     void* link_data{nullptr};
 
-    // ========== Sampled Flag ==========
+    // ========== Flags ==========
 
     /**
      * @brief Whether this view was obtained through a modified REF.
@@ -121,6 +121,17 @@ struct ViewData {
      * through a REFLink that was rebound at the current time.
      */
     bool sampled{false};
+
+    /**
+     * @brief Whether link_data points to LinkTarget (true) or REFLink (false).
+     *
+     * TSInput uses LinkTarget-based link storage for simple binding.
+     * TSOutput alternatives use REFLink-based link storage for REF→TS dereferencing.
+     *
+     * When true: link_data is LinkTarget* (or array/tuple of LinkTarget)
+     * When false: link_data is REFLink* (or array/tuple of REFLink)
+     */
+    bool uses_link_target{false};
 
     // ========== Operations ==========
 
@@ -157,7 +168,8 @@ struct ViewData {
              void* link_data_,
              const ts_ops* ops_,
              const TSMeta* meta_,
-             bool sampled_ = false) noexcept
+             bool sampled_ = false,
+             bool uses_link_target_ = false) noexcept
         : path(std::move(path_))
         , value_data(value_data_)
         , time_data(time_data_)
@@ -165,6 +177,7 @@ struct ViewData {
         , delta_data(delta_data_)
         , link_data(link_data_)
         , sampled(sampled_)
+        , uses_link_target(uses_link_target_)
         , ops(ops_)
         , meta(meta_) {}
 
@@ -186,6 +199,7 @@ struct ViewData {
         , delta_data(delta_data_)
         , link_data(nullptr)
         , sampled(sampled_)
+        , uses_link_target(false)
         , ops(ops_)
         , meta(meta_) {}
 

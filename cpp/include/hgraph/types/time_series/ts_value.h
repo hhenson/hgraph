@@ -66,14 +66,28 @@ public:
     TSValue() noexcept = default;
 
     /**
-     * @brief Construct from TSMeta.
+     * @brief Construct from TSMeta (for TSOutput - uses REFLink in link schema).
      *
      * Allocates storage for all four parallel Values based on the
-     * TSMeta's generated schemas.
+     * TSMeta's generated schemas. Uses REFLink-based link schema for
+     * TSOutput alternatives that may need REF→TS dereferencing.
      *
      * @param meta The time-series metadata
      */
     explicit TSValue(const TSMeta* meta);
+
+    /**
+     * @brief Construct from TSMeta with custom link schema (for TSInput).
+     *
+     * Allocates storage for all four parallel Values based on the
+     * TSMeta's generated schemas, but uses the provided link schema
+     * instead of the default. TSInput uses this to get LinkTarget-based
+     * link schema for simple binding.
+     *
+     * @param meta The time-series metadata
+     * @param link_schema Custom link schema to use (nullptr for no link storage)
+     */
+    TSValue(const TSMeta* meta, const value::TypeMeta* link_schema);
 
     /**
      * @brief Destructor.

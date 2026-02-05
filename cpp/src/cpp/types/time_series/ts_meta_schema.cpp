@@ -271,6 +271,21 @@ const value::TypeMeta* TSMetaSchemaCache::get_active_schema(const TSMeta* ts_met
     return schema;
 }
 
+const value::TypeMeta* TSMetaSchemaCache::get_input_link_schema(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    // Check cache
+    auto it = input_link_schema_cache_.find(ts_meta);
+    if (it != input_link_schema_cache_.end()) {
+        return it->second;
+    }
+
+    // Generate and cache
+    const value::TypeMeta* schema = generate_input_link_schema_impl(ts_meta);
+    input_link_schema_cache_[ts_meta] = schema;
+    return schema;
+}
+
 // ============================================================================
 // Time Schema Generation
 // ============================================================================
@@ -613,6 +628,66 @@ const value::TypeMeta* TSMetaSchemaCache::generate_active_schema_impl(const TSMe
     }
 
     return bool_meta_;
+}
+
+// ============================================================================
+// Input Link Schema Generation
+// ============================================================================
+
+const value::TypeMeta* TSMetaSchemaCache::generate_input_link_schema_impl(const TSMeta* ts_meta) {
+    if (!ts_meta) return nullptr;
+
+    // Input link schema uses LinkTarget (not REFLink) because TSInput does simple
+    // binding without REF→TS dereferencing.
+
+    switch (ts_meta->kind) {
+        case TSKind::TSValue:
+        case TSKind::TSS:
+        case TSKind::TSW:
+        case TSKind::REF:
+        case TSKind::SIGNAL:
+            // Scalar time-series types: LinkTarget for simple binding
+            return link_target_meta_;
+
+        case TSKind::TSD:
+            // TSD: LinkTarget for collection-level link
+            return link_target_meta_;
+
+        case TSKind::TSL: {
+            // TSL: For fixed-size lists (inputs), use fixed_list[LinkTarget] for per-element binding
+            // For dynamic lists, use single LinkTarget for collection-level link
+            if (ts_meta->fixed_size > 0) {
+                auto& registry = value::TypeRegistry::instance();
+                return registry.fixed_list(link_target_meta_, ts_meta->fixed_size).build();
+            }
+            return link_target_meta_;
+        }
+
+        case TSKind::TSB: {
+            // TSB[...] -> tuple[LinkTarget, input_link_schema(field_0), input_link_schema(field_1), ...]
+            // The first element is the bundle-level LinkTarget (for binding the whole bundle).
+            // Subsequent elements are per-field input link schemas.
+            if (ts_meta->field_count == 0) {
+                return nullptr;
+            }
+
+            auto& registry = value::TypeRegistry::instance();
+            auto builder = registry.tuple();
+
+            // First element: bundle-level LinkTarget
+            builder.element(link_target_meta_);
+
+            // Subsequent elements: per-field input link schemas
+            for (size_t i = 0; i < ts_meta->field_count; ++i) {
+                const value::TypeMeta* field_link = get_input_link_schema(ts_meta->fields[i].ts_type);
+                builder.element(field_link);
+            }
+
+            return builder.build();
+        }
+    }
+
+    return nullptr;
 }
 
 } // namespace hgraph

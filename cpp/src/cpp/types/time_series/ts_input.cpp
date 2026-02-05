@@ -16,7 +16,7 @@ namespace hgraph {
 // ============================================================================
 
 TSInput::TSInput(const TSMeta* ts_meta, node_ptr owner)
-    : value_(ts_meta)
+    : value_(ts_meta, generate_input_link_schema(ts_meta))  // Use LinkTarget-based schema
     , active_(generate_active_schema(ts_meta))
     , meta_(ts_meta)
     , owning_node_(owner) {
@@ -26,6 +26,8 @@ TSInputView TSInput::view(engine_time_t current_time) {
     TSView ts_view = value_.ts_view(current_time);
     // Set the path on the view
     ts_view.view_data().path = root_path();
+    // Mark that this view uses LinkTarget (not REFLink) for link storage
+    ts_view.view_data().uses_link_target = true;
     // Pass the active view for hierarchical active state tracking
     return TSInputView(std::move(ts_view), this, active_.view());
 }
@@ -43,6 +45,8 @@ void TSInput::set_active(bool active) {
 
     // Build ViewData from TSValue for dispatch
     ViewData vd = value_.make_view_data();
+    // TSInput uses LinkTarget-based link schema (not REFLink)
+    vd.uses_link_target = true;
 
     // Dispatch through ts_ops table
     vd.ops->set_active(vd, av, active, this);
@@ -93,16 +97,16 @@ void TSInput::set_active(const std::string& field, bool active) {
     }
 
     // Manage subscription for this field if bound
-    // TSB link schema is: tuple[REFLink, link_schema(field_0), link_schema(field_1), ...]
+    // TSInput uses LinkTarget-based link schema: tuple[LinkTarget, link_schema(field_0), ...]
     value::View link_view = value_.link_view();
     if (link_view) {
         value::TupleView link_tuple = link_view.as_tuple();
-        // Field's link is at index (field_index + 1) because index 0 is the bundle-level REFLink
+        // Field's link is at index (field_index + 1) because index 0 is the bundle-level LinkTarget
         value::View field_link_view = link_tuple[field_index + 1];
         if (field_link_view) {
-            auto* rl = static_cast<REFLink*>(field_link_view.data());
-            if (rl && rl->target().is_linked && rl->target().observer_data) {
-                auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+            auto* lt = static_cast<LinkTarget*>(field_link_view.data());
+            if (lt && lt->is_linked && lt->observer_data) {
+                auto* observers = static_cast<ObserverList*>(lt->observer_data);
                 if (active) {
                     observers->add_observer(this);
                 } else {

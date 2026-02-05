@@ -192,6 +192,7 @@ public:
     [[nodiscard]] ViewData root_view_data() const {
         ViewData vd = const_cast<TSValue&>(value_).make_view_data();
         vd.path = ShortPath(owning_node_, PortType::INPUT);
+        vd.uses_link_target = true;  // TSInput uses LinkTarget (not REFLink)
         return vd;
     }
 
