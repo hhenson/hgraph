@@ -3,7 +3,9 @@
 #include <hgraph/types/ref.h>
 #include <hgraph/types/time_series_type.h>
 #include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/time_series/ts_reference_ops.h>
 #include <hgraph/types/ts_indexed.h>
+#include <hgraph/types/node.h>
 
 #include <utility>
 
@@ -33,7 +35,100 @@ namespace hgraph
             .def("__eq__", [](const TSReference& self, const TSReference& other) {
                 return self == other;
             }, nb::is_operator())
-            .def("to_fq", &TSReference::to_fq, "Convert to FQReference for serialization");
+            .def("to_fq", &TSReference::to_fq, "Convert to FQReference for serialization")
+            // Factory method compatible with Python TimeSeriesReference.make() API
+            // Returns TSReference (path-based) - the new system
+            .def_static(
+                "make",
+                [](nb::object ts, nb::object from_items) -> TSReference {
+                    // Case 1: No arguments - return empty reference
+                    if (ts.is_none() && from_items.is_none()) {
+                        return TSReference::empty();
+                    }
+
+                    // Case 2: from_items is provided - create NON_PEERED
+                    if (!from_items.is_none()) {
+                        std::vector<TSReference> items;
+                        for (auto item : from_items) {
+                            if (nb::isinstance<TSReference>(item)) {
+                                items.push_back(nb::cast<TSReference>(item));
+                            } else {
+                                items.push_back(TSReference::empty());
+                            }
+                        }
+                        return TSReference::non_peered(std::move(items));
+                    }
+
+                    // Case 3: ts is a TSReference directly - return it
+                    if (nb::isinstance<TSReference>(ts)) {
+                        return nb::cast<TSReference>(ts);
+                    }
+
+                    // Case 4: ts is an output - extract ShortPath
+                    if (nb::isinstance<PyTimeSeriesOutput>(ts)) {
+                        auto& py_output = nb::cast<PyTimeSeriesOutput&>(ts);
+                        if (py_output.has_output_view()) {
+                            const ShortPath& path = py_output.output_view().short_path();
+                            return TSReference::peered(path);
+                        }
+                        throw std::runtime_error("TSReference.make: Output does not have output_view - ensure new TSOutput system is used");
+                    }
+
+                    // Case 5: ts is a REF input - extract TSReference from its value
+                    if (nb::isinstance<PyTimeSeriesReferenceInput>(ts)) {
+                        auto& py_input = nb::cast<PyTimeSeriesReferenceInput&>(ts);
+                        if (py_input.has_input_view()) {
+                            auto input_view = py_input.input_view();
+                            if (input_view.valid()) {
+                                // Get the TSReference value from the REF input
+                                // The value type is TSReference for REF inputs
+                                auto val_view = input_view.value();
+                                return val_view.as<TSReference>();
+                            }
+                        }
+                        throw std::runtime_error("TSReference.make: REF input does not have input_view - ensure new TSInput system is used");
+                    }
+
+                    // Case 6: ts is a regular input with peer - wrap the bound output
+                    if (nb::isinstance<PyTimeSeriesInput>(ts)) {
+                        auto& py_input = nb::cast<PyTimeSeriesInput&>(ts);
+                        if (py_input.has_input_view()) {
+                            const auto& input_view = py_input.input_view();
+                            if (input_view.is_bound()) {
+                                TSOutput* bound_output = input_view.bound_output();
+                                if (bound_output) {
+                                    ShortPath path = bound_output->root_path();
+                                    return TSReference::peered(std::move(path));
+                                }
+                            }
+                        }
+                        throw std::runtime_error("TSReference.make: Input does not have input_view or is not bound - ensure new TSInput system is used");
+                    }
+
+                    // Fallback: empty reference
+                    return TSReference::empty();
+                },
+                "ts"_a = nb::none(), "from_items"_a = nb::none(),
+                "Create a TSReference from a time-series input/output or from items")
+            // ABC-compatible properties to match Python TimeSeriesReference
+            .def_prop_ro("is_valid", [](const TSReference& self) {
+                return !self.is_empty();
+            })
+            .def_prop_ro("is_bound", [](const TSReference& self) {
+                return self.is_peered();
+            })
+            .def_prop_ro("is_unbound", [](const TSReference& self) {
+                return self.is_non_peered();
+            })
+            .def_prop_ro("items", [](const TSReference& self) -> nb::object {
+                if (!self.is_non_peered()) {
+                    return nb::none();
+                }
+                return nb::cast(self.items());
+            })
+            .def("__getitem__", [](const TSReference& self, size_t idx) {
+                return self[idx];
+            });
 
         // TSReference::Kind enum
         nb::enum_<TSReference::Kind>(m, "TSReferenceKind")
@@ -67,73 +162,7 @@ namespace hgraph
                 return self == other;
             }, nb::is_operator());
 
-        // ============================================================
-        // TimeSeriesReference - Legacy output-pointer based reference
-        // ============================================================
-
-        nb::class_<TimeSeriesReference>(m, "TimeSeriesReference")
-            .def("__str__", &TimeSeriesReference::to_string)
-            .def("__repr__", &TimeSeriesReference::to_string)
-            .def(
-                "__eq__",
-                [](const TimeSeriesReference &self, nb::object other) {
-                    if (other.is_none()) { return false; }
-                    if (nb::isinstance<TimeSeriesReference>(other)) {
-                        return self == nb::cast<TimeSeriesReference>(other);
-                    }
-                    return false;
-                },
-                nb::arg("other"), nb::is_operator())
-            .def(
-                "bind_input",
-                [](TimeSeriesReference &self, PyTimeSeriesInput &ts_input) {
-                    auto input_{unwrap_input(ts_input)};
-                    if (input_) {
-                        self.bind_input(*input_);
-                    } else {
-                        throw std::runtime_error("Cannot bind to null input");
-                    }
-                },
-                "input_"_a)
-            .def_prop_ro("has_output", &TimeSeriesReference::has_output)
-            .def_prop_ro("is_empty", &TimeSeriesReference::is_empty)
-            .def_prop_ro("is_bound", &TimeSeriesReference::is_bound)
-            .def_prop_ro("is_unbound", &TimeSeriesReference::is_unbound)
-            .def_prop_ro("is_valid", &TimeSeriesReference::is_valid)
-            .def_prop_ro("output", [](TimeSeriesReference &self) { return wrap_output(self.output()); })
-            .def_prop_ro("items", &TimeSeriesReference::items)
-            .def("__getitem__", &TimeSeriesReference::operator[])
-            .def_static(
-                "make",
-                [](nb::object ts, nb::object items) -> TimeSeriesReference {
-                    if (!ts.is_none()) {
-                        if (nb::isinstance<PyTimeSeriesOutput>(ts))
-                            return TimeSeriesReference::make(unwrap_output(ts));
-                        if (nb::isinstance<PyTimeSeriesReferenceInput>(ts))
-                            return unwrap_input_as<TimeSeriesReferenceInput>(ts)->value();
-                        if (nb::isinstance<PyTimeSeriesInput>(ts)) {
-                            auto ts_input = unwrap_input(ts);
-                            if (ts_input->has_peer()) return TimeSeriesReference::make(ts_input->output());
-                            // Deal with list of inputs
-                            std::vector<TimeSeriesReference> items_list;
-                            auto                             ts_ndx{std::dynamic_pointer_cast<IndexedTimeSeriesInput>(ts_input)};
-                            items_list.reserve(ts_ndx->size());
-                            for (auto &ts_ptr : ts_ndx->values()) {
-                                auto ref_input{dynamic_cast<TimeSeriesReferenceInput *>(ts_ptr.get())};
-                                items_list.emplace_back(ref_input ? ref_input->value() : TimeSeriesReference::make());
-                            }
-                            return TimeSeriesReference::make(items_list);
-                        }
-                        // We may wish to raise an exception here?
-                    } else if (!items.is_none()) {
-                        auto items_list = nb::cast<std::vector<TimeSeriesReference>>(items);
-                        return TimeSeriesReference::make(items_list);
-                    }
-                    return TimeSeriesReference::make();
-                },
-                "ts"_a = nb::none(), "from_items"_a = nb::none());
-
-        // PyTS wrapper classes registration - left unregistered for now
+        // PyTS wrapper classes registration
         // These may require additional setup in wrapper_factory or elsewhere
         PyTimeSeriesReferenceOutput::register_with_nanobind(m);
         PyTimeSeriesReferenceInput::register_with_nanobind(m);
