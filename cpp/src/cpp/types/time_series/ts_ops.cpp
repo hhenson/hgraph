@@ -965,7 +965,36 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->modified(make_view_data_from_link(*rl, vd.path), current_time);
     }
-    return last_modified_time(vd) >= current_time;
+
+    // Check container time first
+    if (last_modified_time(vd) >= current_time) {
+        return true;
+    }
+
+    // For non-linked TSL (outputs), check if any element is modified
+    // This matches Python behavior: any(ts.modified for ts in self.values())
+    if (vd.meta && vd.meta->element_ts) {
+        size_t count = 0;
+        if (vd.meta->fixed_size > 0) {
+            count = static_cast<size_t>(vd.meta->fixed_size);
+        } else if (vd.value_data) {
+            auto value_view = make_value_view(vd);
+            if (value_view.valid()) {
+                count = value_view.as_list().size();
+            }
+        }
+
+        for (size_t i = 0; i < count; ++i) {
+            TSView child = child_at(vd, i, current_time);
+            if (child.view_data().valid() && child.view_data().ops) {
+                if (child.view_data().ops->modified(child.view_data(), current_time)) {
+                    return true;
+                }
+            }
+        }
+    }
+
+    return false;
 }
 
 bool valid(const ViewData& vd) {
@@ -1106,11 +1135,67 @@ nb::object to_python(const ViewData& vd) {
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    // If linked, delegate to target
+    // If linked (collection-level), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
     }
-    return nb::none();
+
+    // For non-linked TSL, return {index: element.delta_value for modified elements}
+    // This matches Python: {k: ts.delta_value for k, ts in self.modified_items()}
+    if (!vd.meta || !vd.meta->element_ts) {
+        return nb::none();
+    }
+
+    // Get element count
+    size_t count = 0;
+    if (vd.meta->fixed_size > 0) {
+        count = static_cast<size_t>(vd.meta->fixed_size);
+    } else if (vd.value_data) {
+        auto value_view = make_value_view(vd);
+        if (value_view.valid()) {
+            count = value_view.as_list().size();
+        }
+    }
+
+    if (count == 0) {
+        return nb::none();
+    }
+
+    // Get container time - used as reference but may be MIN_DT for per-element bound inputs
+    engine_time_t container_time = last_modified_time(vd);
+
+    // Build dict of modified elements
+    // For per-element binding, container_time may be MIN_DT, so we check each element's validity
+    nb::dict result;
+    for (size_t i = 0; i < count; ++i) {
+        // Use MIN_ST as current_time to get element regardless of sampling
+        TSView child = child_at(vd, i, MIN_ST);
+        if (child.view_data().valid() && child.view_data().ops) {
+            engine_time_t elem_time = child.view_data().ops->last_modified_time(child.view_data());
+            // Include element if:
+            // 1. Container time is valid AND element was modified at or after container time, OR
+            // 2. Container time is MIN_DT (per-element binding) AND element has been modified (time > MIN_DT)
+            bool include_element = false;
+            if (container_time != MIN_DT) {
+                include_element = (elem_time >= container_time);
+            } else {
+                // Per-element binding case - include any element that has been modified
+                include_element = (elem_time > MIN_DT);
+            }
+
+            if (include_element) {
+                nb::object elem_delta = child.view_data().ops->delta_to_python(child.view_data());
+                if (!elem_delta.is_none()) {
+                    result[nb::int_(i)] = elem_delta;
+                }
+            }
+        }
+    }
+
+    if (result.size() == 0) {
+        return nb::none();
+    }
+    return result;
 }
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
