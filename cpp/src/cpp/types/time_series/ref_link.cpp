@@ -1,5 +1,6 @@
 #include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/observer_list.h>
 
 namespace hgraph {
@@ -119,6 +120,18 @@ bool REFLink::valid() const {
     return tv.valid();
 }
 
+const TSMeta* REFLink::dereferenced_meta() const noexcept {
+    if (!ref_source_bound_) {
+        return nullptr;
+    }
+    // The REF source's meta is a REF type, its element_ts is the dereferenced type
+    const TSMeta* ref_meta = ref_source_view_data_.meta;
+    if (ref_meta && ref_meta->kind == TSKind::REF) {
+        return ref_meta->element_ts;
+    }
+    return nullptr;
+}
+
 void REFLink::notify(engine_time_t et) {
     // Called when REF source changes
     // Need to rebind to the new target
@@ -147,8 +160,13 @@ void REFLink::rebind_target(engine_time_t current_time) {
         return;
     }
 
-    // Get the TSReference
-    const TSReference* ts_ref = static_cast<const TSReference*>(ref_value.data());
+    const void* data_ptr = ref_value.data();
+    if (!data_ptr) {
+        return;
+    }
+
+    // Cast to TSReference - legacy TimeSeriesReference is NOT supported
+    const TSReference* ts_ref = static_cast<const TSReference*>(data_ptr);
     if (!ts_ref || ts_ref->is_empty()) {
         return;  // Empty reference
     }
@@ -177,22 +195,7 @@ void REFLink::rebind_target(engine_time_t current_time) {
             target_obs->add_observer(this);
         }
     }
-    else if (ts_ref->is_non_peered()) {
-        // NON_PEERED references represent composite types (e.g., REF[TSL], REF[TSD])
-        // where each element has its own individual reference.
-        //
-        // A single REFLink cannot handle a NON_PEERED reference because:
-        // 1. NON_PEERED contains a collection of child references (items)
-        // 2. Each child reference may point to different targets
-        // 3. The proper handling is at the container level, where each element
-        //    in the alternative gets its own REFLink binding.
-        //
-        // If we reach here, it means a NON_PEERED reference was set on a REF
-        // position that expects a single target. This is a schema mismatch
-        // that should be caught during graph construction or alternative creation.
-        //
-        // For now, leave target_ invalid - accesses will fail gracefully.
-    }
+    // NON_PEERED refs represent composite types - not handled by single REFLink
     // EMPTY references: target_ remains invalid (cleared above)
 }
 

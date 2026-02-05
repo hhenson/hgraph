@@ -126,7 +126,7 @@ namespace hgraph
                 // Skip negative indices (like KEY_SET) for now
             }
 
-            // 2. Get output view and navigate to the source position
+            // 2. Get output view and navigate to the source field
             TSOutputView output_view = src_output->view(bind_time);
 
             for (auto idx : edge.output_path) {

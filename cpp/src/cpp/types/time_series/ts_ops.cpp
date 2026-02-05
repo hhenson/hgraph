@@ -316,7 +316,17 @@ void bind(ViewData& vd, const ViewData& target) {
     if (!rl) {
         throw std::runtime_error("bind on scalar with invalid link data");
     }
-    store_link_target(*rl, target);
+
+    // Check if target is a REF type - if so, we need to dereference through it
+    if (target.meta && target.meta->kind == TSKind::REF) {
+        // Target is a REF - use bind_to_ref for dereferencing
+        // This sets up the REFLink to subscribe to the REF source and resolve the target
+        TSView target_view(target, MIN_ST);
+        rl->bind_to_ref(target_view, MIN_ST);
+    } else {
+        // Direct binding for non-REF targets
+        store_link_target(*rl, target);
+    }
 }
 
 void unbind(ViewData& vd) {
@@ -1318,6 +1328,15 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
                 ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index), is_sampled);
                 return TSView(target_vd, current_time);
             }
+            // If REFLink is bound to a REF source but target not resolved yet,
+            // we need to use the dereferenced meta type, not the REF meta
+            if (rl && rl->is_bound()) {
+                const TSMeta* deref_meta = rl->dereferenced_meta();
+                if (deref_meta) {
+                    // Use dereferenced meta - target will be resolved at runtime
+                    elem_meta = deref_meta;
+                }
+            }
         }
     }
 
@@ -1452,7 +1471,15 @@ void bind(ViewData& vd, const ViewData& target) {
                 // Get target's element
                 TSView target_elem = target.ops->child_at(target, i, MIN_ST);
                 if (target_elem) {
-                    store_link_target(*rl, target_elem.view_data());
+                    const TSMeta* target_meta = target_elem.view_data().meta;
+                    if (target_meta && target_meta->kind == TSKind::REF) {
+                        // Target is a REF - use bind_to_ref for dereferencing
+                        // This sets up the REFLink to dereference through the REF source
+                        rl->bind_to_ref(target_elem, MIN_ST);
+                    } else {
+                        // Direct binding for non-REF targets
+                        store_link_target(*rl, target_elem.view_data());
+                    }
                 }
             }
         }
@@ -2336,7 +2363,6 @@ void bind(ViewData& vd, const ViewData& target) {
         throw std::runtime_error("bind on dict with invalid link data");
     }
 
-    // Store the target ViewData in the REFLink's internal LinkTarget
     store_link_target(*rl, target);
 }
 

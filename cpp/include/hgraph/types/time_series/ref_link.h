@@ -21,6 +21,9 @@
 
 namespace hgraph {
 
+// Forward declaration
+struct TSMeta;
+
 /**
  * @brief Link that dereferences a REF source.
  *
@@ -104,6 +107,17 @@ public:
      * @brief Check if bound to a REF source.
      */
     [[nodiscard]] bool is_bound() const noexcept { return ref_source_bound_; }
+
+    /**
+     * @brief Get the dereferenced type meta (the type inside the REF).
+     *
+     * When bound to a REF source, returns element_ts from the REF source's meta.
+     * This is useful when the target hasn't resolved yet but we need to know
+     * the expected dereferenced type.
+     *
+     * @return Dereferenced TSMeta, or nullptr if not bound to a REF
+     */
+    [[nodiscard]] const TSMeta* dereferenced_meta() const noexcept;
 
     // ========== Target Access ==========
 
