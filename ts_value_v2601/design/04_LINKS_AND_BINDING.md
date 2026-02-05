@@ -25,80 +25,82 @@ struct ViewData {
 
 ### Link Storage
 
-Links are stored using **REFLink** structures that support both simple linking and REF→TS dereferencing. The storage is part of TSValue's five-value structure in the `link_` storage:
+Links are stored using **LinkTarget** structures for TSInput binding. The storage is part of TSValue's five-value structure in the `link_` storage.
 
-**Link Schema Generation**
+**Important**: LinkTarget is for TSInput simple binding only. REFLink (which contains a LinkTarget plus REF tracking) is used exclusively in TSOutput alternatives for REF→TS dereferencing. TSInput should NEVER dereference a REF - that logic belongs in TSOutput alternatives.
+
+**Link Schema Generation (TSInput)**
 
 | Type | Link Schema |
 |------|-------------|
 | `TS[T]` | `nullptr` (scalars don't support binding) |
-| `TSB[...]` | `fixed_list[REFLink, field_count]` (per-field REFLink) |
-| `TSL[T]` | `REFLink` (collection-level) |
-| `TSD[K,V]` | `REFLink` (collection-level) |
+| `TSB[...]` | `fixed_list[LinkTarget, field_count]` (per-field LinkTarget) |
+| `TSL[T]` | `LinkTarget` (collection-level) |
+| `TSD[K,V]` | `LinkTarget` (collection-level) |
 
-**TSL/TSD: Collection-Level REFLink**
+**TSL/TSD: Collection-Level LinkTarget**
 
-For TSL and TSD, a single REFLink at the collection level handles the entire binding:
+For TSL and TSD, a single LinkTarget at the collection level handles the entire binding:
 
 ```cpp
-// link_data points to a single REFLink
-REFLink* ref_link = static_cast<REFLink*>(view_data.link_data);
-if (ref_link && ref_link->is_bound()) {
+// link_data points to a single LinkTarget
+LinkTarget* link = static_cast<LinkTarget*>(view_data.link_data);
+if (link && link->is_linked) {
     // Entire collection is linked to source
 }
 ```
 
-**TSB: Per-Field REFLink Array**
+**TSB: Per-Field LinkTarget Array**
 
-TSB fields each have an independent REFLink stored in a fixed-size array:
+TSB fields each have an independent LinkTarget stored in a fixed-size array:
 
 ```cpp
-// link_data points to fixed_list[REFLink, field_count]
-REFLink* ref_links = static_cast<REFLink*>(view_data.link_data);
-REFLink& field_link = ref_links[field_index];
-if (field_link.is_bound()) {
+// link_data points to fixed_list[LinkTarget, field_count]
+LinkTarget* links = static_cast<LinkTarget*>(view_data.link_data);
+LinkTarget& field_link = links[field_index];
+if (field_link.is_linked) {
     // This field is linked to source
 }
 ```
 
 This design provides:
-- **Uniform storage**: Same REFLink type handles both simple links and REF dereferencing
-- **Stable addresses**: Inline storage ensures REFLink addresses don't change
-- **Automatic lifecycle**: REFLink cleanup happens when parent element is destroyed
+- **Clear separation**: LinkTarget for simple TSInput binding, REFLink only for TSOutput REF→TS alternatives
+- **Stable addresses**: Inline storage ensures LinkTarget addresses don't change
+- **Automatic lifecycle**: LinkTarget cleanup happens when parent element is destroyed
 
 ### Link Resolution
 
 ```
-TSInput.value_ (TSB)            TSOutput1.native_value_
-┌─────────────────────┐         ┌─────────────────┐
-│ link_[0]: REFLink ──┼────────►│ data: 42        │
-│ link_[1]: REFLink ──┼─────┐   └─────────────────┘
-└─────────────────────┘     │   TSOutput2.native_value_
-                            │   ┌─────────────────┐
-                            └──►│ data: 3.14      │
-                                └─────────────────┘
+TSInput.value_ (TSB)               TSOutput1.native_value_
+┌────────────────────────┐         ┌─────────────────┐
+│ link_[0]: LinkTarget ──┼────────►│ data: 42        │
+│ link_[1]: LinkTarget ──┼─────┐   └─────────────────┘
+└────────────────────────┘     │   TSOutput2.native_value_
+                               │   ┌─────────────────┐
+                               └──►│ data: 3.14      │
+                                   └─────────────────┘
 ```
 
 ### Navigation with Links
 
 ```cpp
-// TSL/TSD navigation - check collection-level REFLink
+// TSL/TSD navigation - check collection-level LinkTarget
 TSView TSLView::element(size_t index) {
-    REFLink* link = get_collection_link();
-    if (link && link->is_bound()) {
+    LinkTarget* link = get_collection_link();
+    if (link && link->is_linked) {
         // Navigate through the linked target
-        TSView target = link->target_view(current_time_);
+        TSView target = make_view_from_link(*link, current_time_);
         return target[index];
     }
     return TSView{make_local_view_data(index), current_time_};
 }
 
-// TSB navigation - check per-field REFLink
+// TSB navigation - check per-field LinkTarget
 TSView TSBView::field(size_t index) {
-    REFLink* field_link = get_field_link(index);
-    if (field_link && field_link->is_bound()) {
+    LinkTarget* field_link = get_field_link(index);
+    if (field_link && field_link->is_linked) {
         // Return target view for this field
-        return field_link->target_view(current_time_);
+        return make_view_from_link(*field_link, current_time_);
     }
     return TSView{make_local_view_data(index), current_time_};
 }
@@ -126,23 +128,23 @@ public:
 };
 ```
 
-Implementation uses REFLink at the appropriate position:
+Implementation uses LinkTarget at the appropriate position:
 
 ```cpp
-// For TSL/TSD binding (collection-level REFLink)
+// For TSL/TSD binding (collection-level LinkTarget)
 void TSView::bind(const TSView& source) {
-    REFLink* link = get_ref_link();
+    LinkTarget* link = get_link_target();
     if (link) {
-        // Store source's ViewData in the REFLink target
-        link->bind_to_target(source, current_time_);
+        // Store source's ViewData in the LinkTarget
+        store_view_data_in_link(*link, source.view_data());
     }
 }
 
-// For TSB field binding (per-field REFLink)
+// For TSB field binding (per-field LinkTarget)
 void TSBView::bind_field(size_t index, const TSView& source) {
-    REFLink* field_link = get_field_link(index);
+    LinkTarget* field_link = get_field_link(index);
     if (field_link) {
-        field_link->bind_to_target(source, current_time_);
+        store_view_data_in_link(*field_link, source.view_data());
     }
 }
 ```
@@ -181,8 +183,8 @@ input_view.field("b").bind(output2_view);
 
 ```
 TSInput.value_[TSB]
-  link_[0]: REFLink ───────► TSOutput1
-  link_[1]: REFLink ───────► TSOutput2
+  link_[0]: LinkTarget ───────► TSOutput1
+  link_[1]: LinkTarget ───────► TSOutput2
 ```
 
 ### Peered Binding (TSL/TSD)
@@ -488,39 +490,49 @@ struct FQReference {
 };
 ```
 
-### REFLink
+### REFLink (TSOutput Alternatives Only)
 
-`REFLink` is used when an alternative needs to dereference a REF (REF → TS conversion). It manages two subscriptions:
+`REFLink` is used **exclusively in TSOutput alternatives** when a REF needs to be dereferenced (REF → TS conversion). It manages two subscriptions:
 1. To the REF source (for rebind notifications)
 2. To the current dereferenced target (for value notifications)
 
-```cpp
-struct REFLink {
-    Link target;             // Current dereferenced target
-    Link ref_source;         // Link to the REF source
+**Important**: REFLink is NEVER used in TSInput. TSInput uses LinkTarget for simple binding. All REF dereferencing logic belongs in TSOutput alternatives.
 
-    // Called when ref_source's TSReference value changes
-    void on_ref_changed(engine_time_t current_time) {
+```cpp
+class REFLink : public Notifiable {
+    LinkTarget target_;              // Current dereferenced target
+    ViewData ref_source_view_data_;  // ViewData pointing to the REF source
+    bool ref_source_bound_{false};   // Whether bound to a REF source
+
+    // Called when ref_source's TSReference value changes (via notify())
+    void rebind_target(engine_time_t current_time) {
         // 1. Unbind from old target (unsubscribes)
-        target.unbind();
+        if (target_.is_linked && target_.observer_data) {
+            // Unsubscribe from old target
+        }
+        target_.clear();
 
         // 2. Get new TSReference from ref_source
-        TSView ref_view{ref_source.view_data, current_time};
+        TSView ref_view{ref_source_view_data_, current_time};
         TSReference new_ref = ref_view.value().as<TSReference>();
 
         // 3. Resolve and bind to new target
-        if (!new_ref.is_empty()) {
-            target.bind(new_ref.resolve());
+        if (!new_ref.is_empty() && new_ref.is_peered()) {
+            TSView resolved = new_ref.resolve(current_time);
+            // Store resolved ViewData in target_
+            // Subscribe to new target
         }
     }
 };
 ```
 
-### REFLink Inline Storage
+### REFLink Inline Storage (TSOutput Alternatives)
 
-REFLink is stored **inline** as part of the link schema at each position that requires REF→TS dereferencing. This is the same pattern used for LinkTarget - the data is co-located with the position it belongs to.
+In TSOutput alternatives that require REF→TS dereferencing, REFLink is stored **inline** as part of the alternative's link schema at each position that needs dereferencing. This is the same pattern used for LinkTarget in TSInput.
 
-**Why inline storage works:**
+**Context**: This applies to TSOutput alternatives only, not TSInput. TSInput uses LinkTarget directly.
+
+**Why inline storage works for alternatives:**
 
 1. **Memory stability**: Inline data in TSValue storage has stable addresses by definition. Elements are never moved after insertion - only marked dead and later erased.
 
@@ -536,16 +548,16 @@ class TSOutput {
 };
 ```
 
-**Correct approach** (inline storage):
+**Correct approach** (inline storage in alternatives):
 ```cpp
-// RIGHT: REFLink stored inline in link schema
-// Each position that needs REF→TS has REFLink in its link_data slot
-// Lifecycle managed automatically with the element
+// RIGHT: REFLink stored inline in alternative's link schema
+// Only for TSOutput alternatives where REF→TS dereferencing is needed
+// TSInput uses LinkTarget, not REFLink
 ```
 
-### REFLink Removal Lifecycle
+### REFLink Removal Lifecycle (TSOutput Alternatives)
 
-Element removal follows a **two-phase lifecycle**:
+For REFLink in TSOutput alternatives (where REF→TS dereferencing is used), element removal follows a **two-phase lifecycle**:
 
 1. **Mark as dead** → Unsubscribe from notifications
    - Called when the element is logically removed
@@ -558,12 +570,12 @@ Element removal follows a **two-phase lifecycle**:
    - Safe because subscriptions were already removed in phase 1
 
 ```cpp
-// Phase 1: Mark dead and unsubscribe
+// Phase 1: Mark dead and unsubscribe (TSOutput alternative element)
 void mark_element_dead(size_t index, engine_time_t death_time) {
-    // Get the REFLink at this position
+    // Get the REFLink at this position in the alternative
     REFLink* ref_link = get_ref_link_at(index);
     if (ref_link) {
-        ref_link->unsubscribe();  // Stop receiving notifications
+        ref_link->unbind();  // Stop receiving notifications, clear target
     }
     set_death_time(index, death_time);
     // Storage persists - can still read "last value" this cycle
@@ -571,7 +583,7 @@ void mark_element_dead(size_t index, engine_time_t death_time) {
 
 // Phase 2: Actual destruction (later, when slot reused)
 void destroy_element(size_t index) {
-    // REFLink destructor runs - safe because already unsubscribed
+    // REFLink destructor runs - safe because already unbound
     destruct_at(index);
 }
 ```
@@ -580,6 +592,8 @@ This separation ensures:
 - No notification callbacks arrive for "dead" elements
 - Other parts of the graph can still read the "last value" during the current engine cycle
 - No dangling pointer issues in notification handlers
+
+**Note**: For TSInput, which uses LinkTarget, there's no notification subscription to manage, so the lifecycle is simpler - LinkTarget is just cleared/destructed directly.
 ```
 
 ### REF Binding Modes
@@ -640,23 +654,23 @@ The alternative subscribes to native's structural changes:
 - **Key/element added**: Create new TSReference pointing to new native element
 - **Key/element removed**: Remove corresponding TSReference from alternative
 
-### Sampled Flag
+### Sampled Flag (TSOutput Alternatives)
 
-When a REF → TS link is traversed and the REF was modified (reference changed), the resulting view is marked as **sampled**:
+When a REF → TS link is traversed in a TSOutput alternative and the REF was modified (reference changed), the resulting view is marked as **sampled**:
 
 ```cpp
 bool REFLink::modified(engine_time_t current_time) const {
     // Modified if REF source changed OR target changed
-    TSView ref_view{ref_source.view_data, current_time};
+    TSView ref_view{ref_source_view_data_, current_time};
     if (ref_view.modified()) {
         return true;  // Reference changed - always report modified (sampled)
     }
-    TSView target_view{target.view_data, current_time};
+    TSView target_view = target_view(current_time);
     return target_view.modified();
 }
 ```
 
-This ensures consumers are notified when their data source changes, even if the new target wasn't modified at that tick.
+This ensures consumers of the alternative are notified when their data source changes, even if the new target wasn't modified at that tick. This logic is only relevant for REFLink in TSOutput alternatives, not for TSInput which uses simple LinkTarget binding.
 
 ## Cast Logic
 
@@ -676,8 +690,8 @@ class TSOutput {
 ### Alternative Structure
 
 Alternatives are TSValues that contain a mixture of:
-- **Link**: Direct link to native position (no schema conversion needed)
-- **REFLink**: For REF → TS positions (dereferencing)
+- **LinkTarget**: Direct link to native position (no schema conversion needed)
+- **REFLink**: For REF → TS positions (dereferencing) - TSOutput alternatives only
 - **TSReference values**: For TS → REF positions (wrapping)
 
 ### Alternative Creation
@@ -711,13 +725,13 @@ void establish_alternative_links(TSValue& alt, TSValue& native, const TSMeta& ta
 
 | Native Type | Target Type | Alternative Contains | Subscription |
 |-------------|-------------|---------------------|--------------|
-| TS[T] | TS[T] | Link → native | Via Link |
-| REF[TS[T]] | REF[TS[T]] | Link → native | Via Link |
+| TS[T] | TS[T] | LinkTarget → native | Via LinkTarget |
+| REF[TS[T]] | REF[TS[T]] | LinkTarget → native | Via LinkTarget |
 | REF[TS[T]] | TS[T] | REFLink | REF source + current target |
 | REF[X] | Y (X≠Y) | REFLink + nested conversion | REF source + recursive |
 | TS[T] | REF[TS[T]] | TSReference value | None (value is static) |
-| TSD/TSL | TSD/TSL | Per-element links | Native structure changes |
-| TSB | TSB | Per-field links | Per-field as above |
+| TSD/TSL | TSD/TSL | Per-element LinkTargets | Native structure changes |
+| TSB | TSB | Per-field LinkTargets | Per-field as above |
 
 **Nested Conversion Example**: `REF[TSD[str, TS[int]]] → TSD[str, REF[TS[int]]]`
 
@@ -730,8 +744,8 @@ Note: The alternative does NOT copy the TSD - it links to the dereferenced TSD a
 ### No Explicit Sync
 
 Alternatives do not require explicit synchronization:
-- **Link positions**: Directly access native data
-- **REFLink positions**: Subscribe to REF source and current target
+- **LinkTarget positions**: Directly access native data (for same-type bindings)
+- **REFLink positions**: Subscribe to REF source and current target (for REF→TS dereferencing)
 - **TSReference positions**: Value is constructed once from native path
 - **Structural changes**: Alternative subscribes to native for key/element changes
 
