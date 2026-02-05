@@ -40,9 +40,9 @@ if is_feature_enabled("use_cpp"):
         hgraph._runtime._evaluation_engine.EvaluationMode = _hgraph.EvaluationMode
         hgraph._runtime._evaluation_engine.EvaluationLifeCycleObserver = _hgraph.EvaluationLifeCycleObserver
 
-        # TimeSeriesReference builders
-        hgraph.TimeSeriesReference._BUILDER = _hgraph.TimeSeriesReference.make
-        hgraph.TimeSeriesReference._INSTANCE_OF = lambda obj: isinstance(obj, _hgraph.TimeSeriesReference)
+        # TimeSeriesReference builders - use TSReference for path-based references
+        hgraph.TimeSeriesReference._BUILDER = _hgraph.TSReference.make
+        hgraph.TimeSeriesReference._INSTANCE_OF = lambda obj: isinstance(obj, _hgraph.TSReference)
 
         # Edge type
         hgraph._builder._graph_builder.EDGE_TYPE = _hgraph.Edge
