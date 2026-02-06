@@ -259,35 +259,41 @@ Input sees only the keys (not values).
 
 ### How Notification Works
 
-When an output changes:
-1. Output marks itself modified (updates timestamp)
-2. Output notifies all subscribed observers
-3. Each linked input receives notification
-4. Input's owning node is scheduled for evaluation
+When a linked output changes, two things must happen:
+1. **Time-accounting**: Modification times are stamped up through the input's schema hierarchy so that composite `modified()` and `valid()` checks work in O(1) without scanning children.
+2. **Node-scheduling**: The owning node is scheduled for evaluation.
+
+These are implemented as **two independent notification chains**, each with its own subscription on the output's observer list.
 
 ```
-Output changes
-     │
-     ▼
-notify observers
-     │
-     ├──▶ Link 1 ──▶ Node A scheduled
-     ├──▶ Link 2 ──▶ Node B scheduled
-     └──▶ Link 3 ──▶ Node C scheduled
+Output changes → ObserverList::notify_modified() calls:
+├── LinkTarget::notify(et)     → stamp owner time → parent stamp → ... → root stamp
+└── ActiveNotifier::notify(et) → TSInput::notify(et) → node scheduled
 ```
+
+**Time-accounting chain** (always active when bound):
+- Each LinkTarget in the input's link storage is subscribed to the target output's observer list at **bind time**
+- When notified, it stamps `last_modified_time` at its level, then propagates up to the parent LinkTarget
+- This ensures composite types (TSB, TSL, TSD) report correct `modified()` and `valid()` without lazy child scanning
+
+**Node-scheduling chain** (only when active):
+- An embedded `ActiveNotifier` in each LinkTarget is subscribed to the target output's observer list at **set_active time**
+- When notified, it calls `TSInput::notify()` which schedules the owning node
+- Unsubscribed when `make_passive()` is called
 
 ### Input Subscription (Active Flag)
 
-An input must **subscribe** to receive notifications from its peer. This is controlled by the **active** flag:
+An input must **subscribe** to receive notifications from its peer. The **active** flag controls whether the node-scheduling chain is connected:
 
 ```cpp
-// Input subscribes to notifications
-input.make_active();     // Start receiving notifications
-input.make_passive();    // Stop receiving notifications
-bool is_active = input.active();  // Check if currently subscribed
+// Input subscribes for node scheduling
+input.make_active();     // Subscribe ActiveNotifier → node gets scheduled on changes
+input.make_passive();    // Unsubscribe ActiveNotifier → node no longer scheduled
+bool is_active = input.active();  // Check if currently subscribed for scheduling
 
-// When active, modifications to peer trigger notification
-// When passive, input can still read peer data, but won't be notified
+// Note: Time-accounting (LinkTarget subscription) is always active when bound,
+// regardless of the active/passive flag. This ensures modified() works correctly
+// even for passive inputs.
 ```
 
 The subscription mechanism:
@@ -296,39 +302,39 @@ The subscription mechanism:
 ┌────────────────┐                    ┌────────────────┐
 │     Output     │                    │     Input      │
 │                │                    │                │
-│  observers: ───┼────────────────────┼── (subscribed) │
-│    [input1,    │   subscription     │  active: true  │
-│     input2]    │◀───────────────────┼────────────────│
+│  observers: ───┼────────────────────┼── LinkTarget   │  (time-accounting, always)
+│  [link_target, │   subscriptions    │                │
+│   active_ntf]  │◀───────────────────┼── ActiveNtf    │  (node-scheduling, if active)
 │                │                    │                │
 └────────────────┘                    └────────────────┘
 
 When output.set_value() is called:
 1. Output updates its value and timestamp
-2. Output iterates through observers list
-3. For each subscribed (active) input, calls input.notify()
-4. Input's node is scheduled for evaluation
+2. Output notifies all observers in its ObserverList
+3. LinkTarget stamps modification times up through parent hierarchy
+4. ActiveNotifier (if present) schedules the owning node
 ```
 
 ### Subscription Lifecycle
 
 ```cpp
 // Typical lifecycle managed by runtime:
-// 1. Input is created (inactive by default)
-// 2. Input is bound to output (link established)
-// 3. Input subscribes to output (make_active)
-// 4. During graph execution, notifications flow
-// 5. On teardown, input unsubscribes (make_passive)
-// 6. Link is released
+// 1. Input is created (unbound, inactive)
+// 2. Input is bound to output → LinkTarget subscribed (time-accounting always on)
+// 3. Input made active → ActiveNotifier subscribed (node-scheduling on)
+// 4. During graph execution, both notification chains flow
+// 5. On teardown, input made passive → ActiveNotifier unsubscribed
+// 6. Input unbound → LinkTarget unsubscribed, link cleared
 
 // The subscribe/unsubscribe is typically called by the runtime:
 void on_bind(TSInput& input, TSOutput& output) {
-    input.bind_to(output);      // Establish link
-    input.make_active();        // Subscribe to notifications
+    input.bind_to(output);      // Establish link + subscribe LinkTarget
+    input.make_active();        // Subscribe ActiveNotifier
 }
 
 void on_unbind(TSInput& input) {
-    input.make_passive();       // Unsubscribe
-    input.unbind();             // Release link
+    input.make_passive();       // Unsubscribe ActiveNotifier
+    input.unbind();             // Unsubscribe LinkTarget + release link
 }
 ```
 
@@ -356,8 +362,9 @@ public:
     }
 };
 
-// When a value is modified, observers are notified via observer_value_
-// TSValue notifies all subscribed observers at the modified path
+// Each bound position has up to TWO observers in the target's list:
+// 1. LinkTarget* (time-accounting, always present when bound)
+// 2. ActiveNotifier* (node-scheduling, present only when active)
 ```
 
 The `observer_value_` in TSValue mirrors the time-series structure, allowing fine-grained subscription at any level:
@@ -367,7 +374,7 @@ The `observer_value_` in TSValue mirrors the time-series structure, allowing fin
 // observer_value_ mirrors the structure:
 // Bundle {
 //   _observers: vector<Notifiable*>    // Root observers
-//   a: vector<Notifiable*>             // Field a observers
+//   a: vector<Notifiable*>             // Field a observers (LinkTarget + ActiveNotifier)
 //   b: Bundle {
 //     _observers: vector<Notifiable*>  // TSL root observers
 //     0: vector<Notifiable*>           // Element 0 observers
@@ -376,9 +383,28 @@ The `observer_value_` in TSValue mirrors the time-series structure, allowing fin
 // }
 ```
 
+### Composite Notification (TSB Example)
+
+For a bundle `TSB[a: TS[int], b: TS[float]]`, when field `a` changes at time T:
+
+```
+Output.a set_value() → notify ObserverList at field a:
+  ├── field_a_LinkTarget.notify(T):
+  │     1. Stamp field_a time slot = T
+  │     2. Call parent_link->notify(T):
+  │           Stamp container time slot = T
+  │           parent_link is nullptr → stop
+  └── field_a_ActiveNotifier.notify(T):
+        Call TSInput::notify(T) → schedule node
+
+Result: Both field-level AND container-level modified() return true
+```
+
+This eliminates the need for lazy child-scanning in `modified()` and `valid()`.
+
 ### Active vs Passive Inputs
 
-**Active inputs** subscribe to notifications and trigger node evaluation:
+**Active inputs** have both chains connected — time-accounting AND node-scheduling:
 
 ```cpp
 void react_to_price(const TSView& price, TSView& output) {
@@ -388,16 +414,17 @@ void react_to_price(const TSView& price, TSView& output) {
 }
 ```
 
-**Passive inputs** are linked but don't subscribe - they can read data but don't trigger:
+**Passive inputs** have only the time-accounting chain — they track modifications but don't trigger node evaluation:
 
 ```cpp
 // Passive inputs marked in node signature/metadata
 void react_to_trigger(
     const TSView& trigger,      // Active - triggers evaluation
-    const TSView& price,        // Passive - readable but doesn't trigger
+    const TSView& price,        // Passive - tracks modifications but doesn't trigger
     TSView& output
 ) {
     // Only called when trigger changes
+    // price.modified() still works correctly (time-accounting is always on)
     if (trigger.value().as<bool>()) {
         output.set_value(value_from("Price is " + std::to_string(price.value().as<double>())));
     }
@@ -1096,30 +1123,37 @@ flowchart TD
         OBS[Observer List]
     end
 
-    subgraph Consumer Nodes
-        IN1[TSInput 1<br/>active=true]
-        IN2[TSInput 2<br/>active=true]
-        IN3[TSInput 3<br/>active=false]
+    subgraph "Consumer 1 (active)"
+        LT1[LinkTarget 1<br/>time-accounting]
+        AN1[ActiveNotifier 1<br/>node-scheduling]
+    end
+
+    subgraph "Consumer 2 (active)"
+        LT2[LinkTarget 2<br/>time-accounting]
+        AN2[ActiveNotifier 2<br/>node-scheduling]
+    end
+
+    subgraph "Consumer 3 (passive)"
+        LT3[LinkTarget 3<br/>time-accounting only]
     end
 
     subgraph Scheduler
         Q[Evaluation Queue]
     end
 
-    subgraph Nodes
-        N1[Node A]
-        N2[Node B]
-        N3[Node C]
-    end
-
     OUT -->|1. set_value| OBS
-    OBS -->|2. notify| IN1
-    OBS -->|2. notify| IN2
-    OBS -.->|skip passive| IN3
-    IN1 -->|3. schedule| Q
-    IN2 -->|3. schedule| Q
-    Q -->|4. evaluate| N1
-    Q -->|4. evaluate| N2
+    OBS -->|2. notify| LT1
+    OBS -->|2. notify| AN1
+    OBS -->|2. notify| LT2
+    OBS -->|2. notify| AN2
+    OBS -->|2. notify| LT3
+    LT1 -->|stamp times| LT1
+    LT2 -->|stamp times| LT2
+    LT3 -->|stamp times| LT3
+    AN1 -->|3. schedule| Q
+    AN2 -->|3. schedule| Q
+    Q -->|4. evaluate| N1[Node A]
+    Q -->|4. evaluate| N2[Node B]
 ```
 
 ### Link Lifecycle
@@ -1127,14 +1161,14 @@ flowchart TD
 ```mermaid
 sequenceDiagram
     participant W as Wiring System
-    participant L as Link
+    participant LT as LinkTarget
+    participant AN as ActiveNotifier
     participant I as TSInput
     participant O as TSOutput
     participant S as Scheduler
 
     rect rgb(200, 220, 240)
         Note over W,S: Construction Phase
-        W->>L: create link
         W->>I: create input
         W->>O: create output
     end
@@ -1142,15 +1176,20 @@ sequenceDiagram
     rect rgb(200, 240, 200)
         Note over W,S: Binding Phase
         W->>I: bind_to(output)
-        I->>O: register as observer
+        I->>O: subscribe LinkTarget (time-accounting)
+        Note over LT: Always subscribed when bound
         W->>I: make_active()
+        I->>O: subscribe ActiveNotifier (node-scheduling)
+        Note over AN: Only subscribed when active
     end
 
     rect rgb(240, 240, 200)
         Note over W,S: Runtime Phase
         loop On each tick
             O->>O: set_value()
-            O->>I: notify()
+            O->>LT: notify(et) → stamp times up hierarchy
+            O->>AN: notify(et) → TSInput::notify()
+            AN->>I: notify(et)
             I->>S: schedule(node)
             S->>I: node.evaluate()
             I->>O: read value()
@@ -1160,9 +1199,9 @@ sequenceDiagram
     rect rgb(240, 200, 200)
         Note over W,S: Teardown Phase
         W->>I: make_passive()
-        I->>O: unregister observer
+        I->>O: unsubscribe ActiveNotifier
         W->>I: unbind()
-        W->>L: release
+        I->>O: unsubscribe LinkTarget
     end
 ```
 

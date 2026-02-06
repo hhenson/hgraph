@@ -197,6 +197,128 @@ input_list_view.bind(output_list_view);
 // Collection-level REFLink binds to source, navigation follows link
 ```
 
+## Notification Model
+
+### Overview
+
+When a linked output changes, the notification system must accomplish two things:
+1. **Time-accounting**: Stamp modification times up through the input's schema hierarchy so that composite `modified()` and `valid()` checks work without scanning children.
+2. **Node-scheduling**: Schedule the owning node for evaluation.
+
+These are two **independent** notification chains, each with its own subscription and lifecycle.
+
+### Two Notification Chains
+
+```
+Target output changes → ObserverList::notify_modified() calls:
+├── LinkTarget::notify(et) → stamp owner_time → parent_link->notify(et) → ... → root stamp
+└── ActiveNotifier::notify(et) → TSInput::notify(et) → node scheduled
+```
+
+**Time-accounting chain** (link-owned):
+- Stamps `last_modified_time` at each level of the input's schema hierarchy
+- Always active — subscribed at **bind time**, regardless of active/passive state
+- Implemented by `LinkTarget` inheriting from `Notifiable`
+- Each LinkTarget stores `owner_time_ptr` (pointer to its level's time slot in the input's TSValue) and `parent_link` (pointer to parent level's LinkTarget)
+- Propagation: `notify(et)` stamps `*owner_time_ptr = et`, then calls `parent_link->notify(et)` up to the root
+- Deduplication guard: `last_notify_time == et` prevents re-stamping on the same tick
+
+**Node-scheduling chain** (TSInput subscription):
+- Schedules the owning node for evaluation
+- Only active when the input is active — subscribed at **set_active time**
+- Implemented by `ActiveNotifier` (embedded in each LinkTarget)
+- `ActiveNotifier::notify(et)` calls `TSInput::notify(et)` which schedules the node
+- Guard: `active_notifier.owning_input == nullptr` prevents double-subscription when `set_active` is called at multiple composite levels
+
+### LinkTarget as Notifiable
+
+LinkTarget inherits from `Notifiable` and carries structural fields for the time-accounting chain:
+
+```cpp
+struct LinkTarget : public Notifiable {
+    // --- Target-data fields (copied by store_to_link_target) ---
+    bool is_linked{false};
+    void* value_data{nullptr};
+    void* time_data{nullptr};
+    void* observer_data{nullptr};
+    void* delta_data{nullptr};
+    void* link_data{nullptr};
+    const ts_ops* ops{nullptr};
+    const TSMeta* meta{nullptr};
+
+    // --- Structural fields (NOT copied by store_to_link_target) ---
+    engine_time_t* owner_time_ptr{nullptr};   // This level's time slot in INPUT's TSValue
+    LinkTarget* parent_link{nullptr};          // Parent level's LinkTarget (nullptr at root)
+    engine_time_t last_notify_time{MIN_DT};   // Dedup guard
+
+    // --- Embedded node-scheduling wrapper ---
+    struct ActiveNotifier : public Notifiable {
+        TSInput* owning_input{nullptr};
+        void notify(engine_time_t et) override;
+    };
+    ActiveNotifier active_notifier;
+
+    // Notifiable interface — time-accounting only
+    void notify(engine_time_t et) override;
+};
+```
+
+**Critical**: `copy_assign` / `move_assign` on LinkTarget must only copy the target-data fields. The structural fields (`owner_time_ptr`, `parent_link`, `last_notify_time`, `active_notifier`) belong to the input's schema position and must not be overwritten when rebinding to a new target.
+
+### Subscription Points
+
+| Operation | Time-accounting (LinkTarget) | Node-scheduling (ActiveNotifier) |
+|-----------|-------|-------|
+| `bind()` | Subscribe LinkTarget to target's ObserverList | — |
+| `set_active(true)` | — | Subscribe ActiveNotifier to target's ObserverList |
+| `set_active(false)` | — | Unsubscribe ActiveNotifier |
+| `unbind()` | Unsubscribe LinkTarget | Unsubscribe ActiveNotifier (if active) |
+
+Each bound+active position has **two** entries in the target's ObserverList:
+- `LinkTarget*` (time-accounting, always present when bound)
+- `ActiveNotifier*` (node-scheduling, present only when active)
+
+### Composite Structure (TSB Example)
+
+For a TSB with fields `a: TS[int]`, `b: TS[float]`:
+
+```
+Input TSValue link storage: [container_LT, field_a_LT, field_b_LT]
+
+field_a_LT:
+  owner_time_ptr → &time_tuple[1]  (field a's time slot)
+  parent_link → container_LT
+  Subscribed to Output.a's ObserverList (time-accounting)
+  active_notifier subscribed to Output.a's ObserverList (if active)
+
+field_b_LT:
+  owner_time_ptr → &time_tuple[2]  (field b's time slot)
+  parent_link → container_LT
+  Subscribed to Output.b's ObserverList (time-accounting)
+  active_notifier subscribed to Output.b's ObserverList (if active)
+
+container_LT:
+  owner_time_ptr → &time_tuple[0]  (container's time slot)
+  parent_link → nullptr (root)
+  NOT subscribed to any observer (receives from children only)
+```
+
+When Output.a changes at time T:
+1. `field_a_LT.notify(T)` → stamps `time_tuple[1] = T`
+2. `field_a_LT.parent_link->notify(T)` → `container_LT.notify(T)` → stamps `time_tuple[0] = T`
+3. `field_a_LT.active_notifier.notify(T)` → `TSInput::notify(T)` → node scheduled
+
+### REFLink Integration
+
+REFLink follows the same dual-chain pattern with its own `owner_time_ptr`, `parent_link`, `last_notify_time`, and embedded `ActiveNotifier`. When the REF source changes and REFLink rebinds to a new target, both subscriptions (time-accounting and node-scheduling) are transferred to the new target's ObserverList.
+
+### Benefits Over Lazy Scanning
+
+Without proactive time-stamping, composite `modified()` and `valid()` must lazily scan all linked children — O(N) per query. With the dual-chain model:
+- `modified()` reduces to `last_modified_time >= current_time` — O(1)
+- `valid()` reduces to `last_modified_time != MIN_DT` — O(1)
+- Notification cost is O(depth) per change, amortized across all queries
+
 ## Memory Stability
 
 ### Requirement
