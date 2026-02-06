@@ -146,7 +146,7 @@ public:
      * For atomic TS types, this is the direct timestamp.
      * For composite types (TSB/TSL/TSD), this is the container's timestamp.
      *
-     * @return The last modification time, or MIN_ST if never modified
+     * @return The last modification time, or MIN_DT if never modified
      */
     [[nodiscard]] engine_time_t last_modified_time() const;
 
@@ -163,7 +163,7 @@ public:
     /**
      * @brief Check if the value has ever been set.
      *
-     * A value is valid if last_modified_time != MIN_ST.
+     * A value is valid if last_modified_time != MIN_DT.
      *
      * @return true if the value has been set at least once
      */
@@ -444,7 +444,7 @@ public:
 
 private:
     ViewData view_data_;
-    engine_time_t current_time_{MIN_ST};
+    engine_time_t current_time_{MIN_DT};
 };
 
 } // namespace hgraph

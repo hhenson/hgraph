@@ -61,7 +61,7 @@ struct ts_ops {
     /**
      * @brief Check if the value has ever been set.
      *
-     * Valid if last_modified_time != MIN_ST.
+     * Valid if last_modified_time != MIN_DT.
      */
     bool (*valid)(const ViewData& vd);
 
@@ -262,7 +262,7 @@ struct ts_ops {
     /**
      * @brief Get the timestamp of the oldest entry in the window.
      *
-     * Only valid for TSW. Returns MIN_ST for other kinds.
+     * Only valid for TSW. Returns MIN_DT for other kinds.
      */
     engine_time_t (*window_first_modified_time)(const ViewData& vd);
 

@@ -85,10 +85,10 @@ public:
 
     /**
      * @brief Check if the value has ever been set.
-     * @return true if last_modified_time != MIN_ST
+     * @return true if last_modified_time != MIN_DT
      */
     [[nodiscard]] bool valid() const {
-        return last_modified_time() != MIN_ST;
+        return last_modified_time() != MIN_DT;
     }
 
     // ========== Write Access ==========

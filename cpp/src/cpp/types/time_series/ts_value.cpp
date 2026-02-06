@@ -110,7 +110,7 @@ static void init_ts_value_common(
 
 TSValue::TSValue(const TSMeta* meta)
     : meta_(meta)
-    , last_delta_clear_time_(MIN_ST)
+    , last_delta_clear_time_(MIN_DT)
 {
     if (!meta_) {
         return;
@@ -131,7 +131,7 @@ TSValue::TSValue(const TSMeta* meta)
 
 TSValue::TSValue(const TSMeta* meta, const value::TypeMeta* link_schema)
     : meta_(meta)
-    , last_delta_clear_time_(MIN_ST)
+    , last_delta_clear_time_(MIN_DT)
 {
     if (!meta_) {
         return;
@@ -163,7 +163,7 @@ TSValue::TSValue(TSValue&& other) noexcept
     , last_delta_clear_time_(other.last_delta_clear_time_)
 {
     other.meta_ = nullptr;
-    other.last_delta_clear_time_ = MIN_ST;
+    other.last_delta_clear_time_ = MIN_DT;
 }
 
 TSValue& TSValue::operator=(TSValue&& other) noexcept {
@@ -176,7 +176,7 @@ TSValue& TSValue::operator=(TSValue&& other) noexcept {
         meta_ = other.meta_;
         last_delta_clear_time_ = other.last_delta_clear_time_;
         other.meta_ = nullptr;
-        other.last_delta_clear_time_ = MIN_ST;
+        other.last_delta_clear_time_ = MIN_DT;
     }
     return *this;
 }
@@ -236,7 +236,7 @@ value::View TSValue::link_view() const {
 
 engine_time_t TSValue::last_modified_time() const {
     if (!meta_ || !time_.valid()) {
-        return MIN_ST;
+        return MIN_DT;
     }
 
     // For atomic types, time_ is just engine_time_t
@@ -262,7 +262,7 @@ engine_time_t TSValue::last_modified_time() const {
             return time_v.as_tuple().at(0).as<engine_time_t>();
     }
 
-    return MIN_ST;
+    return MIN_DT;
 }
 
 bool TSValue::modified(engine_time_t current_time) const {
@@ -271,7 +271,7 @@ bool TSValue::modified(engine_time_t current_time) const {
 }
 
 bool TSValue::valid() const {
-    return last_modified_time() != MIN_ST;
+    return last_modified_time() != MIN_DT;
 }
 
 bool TSValue::has_delta() const {

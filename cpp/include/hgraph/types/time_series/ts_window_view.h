@@ -158,10 +158,10 @@ public:
     /**
      * @brief Get the timestamp of the oldest entry in the window.
      *
-     * @return Timestamp or MIN_ST if empty
+     * @return Timestamp or MIN_DT if empty
      */
     [[nodiscard]] engine_time_t first_modified_time() const {
-        if (!view_data_.ops || !view_data_.ops->window_first_modified_time) return MIN_ST;
+        if (!view_data_.ops || !view_data_.ops->window_first_modified_time) return MIN_DT;
         return view_data_.ops->window_first_modified_time(view_data_);
     }
 
@@ -247,7 +247,7 @@ public:
      * @brief Get the last modification time.
      */
     [[nodiscard]] engine_time_t last_modified_time() const {
-        if (!view_data_.ops) return MIN_ST;
+        if (!view_data_.ops) return MIN_DT;
         return view_data_.ops->last_modified_time(view_data_);
     }
 
@@ -280,7 +280,7 @@ public:
 
 private:
     ViewData view_data_;
-    engine_time_t current_time_{MIN_ST};
+    engine_time_t current_time_{MIN_DT};
 };
 
 } // namespace hgraph

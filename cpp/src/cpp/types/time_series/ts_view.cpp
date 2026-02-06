@@ -30,7 +30,7 @@ TSView::TSView(TSValue& ts_value, engine_time_t current_time)
 
 engine_time_t TSView::last_modified_time() const {
     if (!view_data_.valid() || !view_data_.ops) {
-        return MIN_ST;
+        return MIN_DT;
     }
     return view_data_.ops->last_modified_time(view_data_);
 }
@@ -425,8 +425,8 @@ ViewData ViewData::child_at(size_t index) const {
     }
 
     // Delegate to ts_ops::child_at and extract the ViewData
-    // Use MIN_ST as the time since ViewData doesn't track current_time
-    TSView child = ops->child_at(*this, index, MIN_ST);
+    // Use MIN_DT as the time since ViewData doesn't track current_time
+    TSView child = ops->child_at(*this, index, MIN_DT);
     return child.view_data();
 }
 
@@ -436,7 +436,7 @@ ViewData ViewData::child_by_name(const std::string& name) const {
     }
 
     // Delegate to ts_ops::child_by_name and extract the ViewData
-    TSView child = ops->child_by_name(*this, name, MIN_ST);
+    TSView child = ops->child_by_name(*this, name, MIN_DT);
     return child.view_data();
 }
 

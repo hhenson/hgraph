@@ -78,7 +78,7 @@ bool SignalView::valid() const {
 engine_time_t SignalView::last_modified_time() const {
     // If we have children, return MAX of all children
     if (has_children()) {
-        engine_time_t max_time = MIN_ST;
+        engine_time_t max_time = MIN_DT;
         for (const auto& child : children_) {
             max_time = std::max(max_time, child->last_modified_time());
         }
@@ -87,7 +87,7 @@ engine_time_t SignalView::last_modified_time() const {
 
     // No children: delegate to bound source
     if (!view_data_.valid()) {
-        return MIN_ST;
+        return MIN_DT;
     }
 
     return view_data_.ops->last_modified_time(view_data_);

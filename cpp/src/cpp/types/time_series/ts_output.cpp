@@ -62,7 +62,7 @@ void AlternativeStructuralObserver::on_insert(size_t slot) {
     if (!output_ || !alt_) return;
 
     // Get native and alternative views at setup time
-    engine_time_t setup_time = MIN_ST;
+    engine_time_t setup_time = MIN_DT;
     TSView native_view = output_->native_value().ts_view(setup_time);
     TSView alt_view = alt_->ts_view(setup_time);
 
@@ -97,7 +97,7 @@ void AlternativeStructuralObserver::on_erase(size_t slot) {
     // The actual cleanup depends on how the alternative stores elements
     // For now, we mark it as unbound
 
-    engine_time_t setup_time = MIN_ST;
+    engine_time_t setup_time = MIN_DT;
     TSView alt_view = alt_->ts_view(setup_time);
     TSView alt_elem = alt_view[slot];
 
@@ -117,7 +117,7 @@ void AlternativeStructuralObserver::on_clear() {
 
     if (!alt_) return;
 
-    engine_time_t setup_time = MIN_ST;
+    engine_time_t setup_time = MIN_DT;
     TSView alt_view = alt_->ts_view(setup_time);
 
     // For TSD/TSL, iterate and unbind all elements
@@ -195,7 +195,7 @@ TSValue& TSOutput::get_or_create_alternative(const TSMeta* schema) {
 
     // Establish appropriate links from alternative to native
     // Use a dummy time since we're just setting up structure
-    engine_time_t setup_time = MIN_ST;
+    engine_time_t setup_time = MIN_DT;
     TSView alt_view = alt.ts_view(setup_time);
     TSView native_view = native_value_.ts_view(setup_time);
 
@@ -236,13 +236,13 @@ void TSOutput::establish_links_recursive(
         // Bind the REFLink to the REF source - this sets up:
         // 1. Subscription to REF source for rebind notifications
         // 2. Initial dereference to get current target
-        ref_link->bind_to_ref(native_view, MIN_ST);
+        ref_link->bind_to_ref(native_view, MIN_DT);
 
         if (target_meta == deref_meta) {
             // REF[X] → X: Simple REFLink dereference
             // The REFLink's target is now the dereferenced value
             if (ref_link->valid()) {
-                TSView target = ref_link->target_view(MIN_ST);
+                TSView target = ref_link->target_view(MIN_DT);
                 if (target) {
                     // For simple dereference, the alternative's value access
                     // goes through the REFLink's target
@@ -256,7 +256,7 @@ void TSOutput::establish_links_recursive(
             // The REFLink dereferences the outer REF to get the actual X
             // Then we recursively establish links for the X → Y conversion
             if (ref_link->valid()) {
-                TSView linked_target = ref_link->target_view(MIN_ST);
+                TSView linked_target = ref_link->target_view(MIN_DT);
                 if (linked_target) {
                     // Now recursively establish links between alt_view and linked_target
                     // This handles the nested conversion (e.g., TS[int] → REF[TS[int]] for each element)

@@ -42,7 +42,7 @@ public:
         : nav_data_(nullptr)
         , current_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     TSViewIterator(const ViewData* nav_data, size_t index, size_t end, engine_time_t current_time) noexcept
@@ -113,7 +113,7 @@ public:
         : nav_data_()
         , begin_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     TSViewRange(ViewData nav_data, size_t begin_idx, size_t end_idx, engine_time_t current_time) noexcept
@@ -159,7 +159,7 @@ public:
         , meta_(nullptr)
         , current_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     TSFieldIterator(const ViewData* nav_data, const TSMeta* meta, size_t index, size_t end, engine_time_t current_time) noexcept
@@ -228,7 +228,7 @@ public:
         , meta_(nullptr)
         , begin_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     TSFieldRange(ViewData nav_data, const TSMeta* meta, size_t begin_idx, size_t end_idx, engine_time_t current_time) noexcept
@@ -291,7 +291,7 @@ public:
         , meta_(nullptr)
         , current_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     FilteredTSFieldIterator(const ViewData* nav_data, const TSMeta* meta,
@@ -362,7 +362,7 @@ public:
         , meta_(nullptr)
         , begin_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     FilteredTSFieldRange(ViewData nav_data, const TSMeta* meta,
@@ -520,7 +520,7 @@ public:
         : nav_data_(nullptr)
         , current_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     FilteredTSViewIterator(const ViewData* nav_data, size_t index, size_t end,
@@ -581,7 +581,7 @@ public:
         : nav_data_()
         , begin_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     FilteredTSViewRange(ViewData nav_data, size_t begin_idx, size_t end_idx,
@@ -631,7 +631,7 @@ public:
         , meta_(nullptr)
         , current_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     TSDictIterator(const ViewData* nav_data, const TSMeta* meta, size_t index, size_t end, engine_time_t current_time) noexcept
@@ -718,7 +718,7 @@ public:
         , meta_(nullptr)
         , begin_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     TSDictRange(ViewData nav_data, const TSMeta* meta, size_t begin_idx, size_t end_idx, engine_time_t current_time) noexcept
@@ -767,7 +767,7 @@ public:
         , meta_(nullptr)
         , current_()
         , end_()
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     TSDictSlotIterator(const ViewData* nav_data, const TSMeta* meta,
@@ -852,7 +852,7 @@ public:
         : nav_data_()
         , meta_(nullptr)
         , slots_(nullptr)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     TSDictSlotRange(ViewData nav_data, const TSMeta* meta,
@@ -906,7 +906,7 @@ public:
         , meta_(nullptr)
         , current_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     FilteredTSDictIterator(const ViewData* nav_data, const TSMeta* meta,
@@ -979,7 +979,7 @@ public:
         , meta_(nullptr)
         , begin_index_(0)
         , end_index_(0)
-        , current_time_(MIN_ST)
+        , current_time_(MIN_DT)
     {}
 
     FilteredTSDictRange(ViewData nav_data, const TSMeta* meta,

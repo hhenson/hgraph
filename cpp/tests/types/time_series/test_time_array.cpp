@@ -32,21 +32,21 @@ TEST_CASE("TimeArray - on_capacity resizes storage", "[time_series][phase1][time
     CHECK(ta.data() != nullptr);
 }
 
-TEST_CASE("TimeArray - on_capacity initializes new slots to MIN_ST", "[time_series][phase1][time]") {
+TEST_CASE("TimeArray - on_capacity initializes new slots to MIN_DT", "[time_series][phase1][time]") {
     TimeArray ta;
     ta.on_capacity(0, 5);
 
     for (size_t i = 0; i < 5; ++i) {
-        CHECK(ta.at(i) == MIN_ST);
+        CHECK(ta.at(i) == MIN_DT);
     }
 }
 
-TEST_CASE("TimeArray - on_insert initializes to MIN_ST", "[time_series][phase1][time]") {
+TEST_CASE("TimeArray - on_insert initializes to MIN_DT", "[time_series][phase1][time]") {
     TimeArray ta;
     ta.on_capacity(0, 10);
     ta.on_insert(0);
 
-    CHECK(ta.at(0) == MIN_ST);
+    CHECK(ta.at(0) == MIN_DT);
     CHECK(!ta.valid(0));
     CHECK(ta.size() == 1);
 }
@@ -61,7 +61,7 @@ TEST_CASE("TimeArray - on_insert multiple slots", "[time_series][phase1][time]")
 
     CHECK(ta.size() == 5);
     for (size_t i = 0; i < 5; ++i) {
-        CHECK(ta.at(i) == MIN_ST);
+        CHECK(ta.at(i) == MIN_DT);
     }
 }
 
@@ -70,7 +70,7 @@ TEST_CASE("TimeArray - on_erase preserves timestamp", "[time_series][phase1][tim
     ta.on_capacity(0, 10);
     ta.on_insert(0);
 
-    const auto t = MIN_ST + std::chrono::microseconds(1000);
+    const auto t = MIN_DT + std::chrono::microseconds(1000);
     ta.set(0, t);
 
     ta.on_erase(0);
@@ -85,7 +85,7 @@ TEST_CASE("TimeArray - on_update is no-op", "[time_series][phase1][time]") {
     ta.on_capacity(0, 10);
     ta.on_insert(0);
 
-    const auto t = MIN_ST + std::chrono::microseconds(1000);
+    const auto t = MIN_DT + std::chrono::microseconds(1000);
     ta.set(0, t);
 
     ta.on_update(0);
@@ -100,14 +100,14 @@ TEST_CASE("TimeArray - on_clear resets all slots", "[time_series][phase1][time]"
 
     for (size_t i = 0; i < 5; ++i) {
         ta.on_insert(i);
-        ta.set(i, MIN_ST + std::chrono::microseconds(1000 + static_cast<int64_t>(i)));
+        ta.set(i, MIN_DT + std::chrono::microseconds(1000 + static_cast<int64_t>(i)));
     }
 
     ta.on_clear();
 
     CHECK(ta.size() == 0);
     for (size_t i = 0; i < 5; ++i) {
-        CHECK(ta.at(i) == MIN_ST);
+        CHECK(ta.at(i) == MIN_DT);
     }
 }
 
@@ -120,20 +120,20 @@ TEST_CASE("TimeArray - set and at", "[time_series][phase1][time]") {
     ta.on_capacity(0, 10);
     ta.on_insert(0);
 
-    const auto t = MIN_ST + std::chrono::microseconds(1000);
+    const auto t = MIN_DT + std::chrono::microseconds(1000);
     ta.set(0, t);
 
     CHECK(ta.at(0) == t);
 }
 
-TEST_CASE("TimeArray - valid returns false for MIN_ST", "[time_series][phase1][time]") {
+TEST_CASE("TimeArray - valid returns false for MIN_DT", "[time_series][phase1][time]") {
     TimeArray ta;
     ta.on_capacity(0, 10);
     ta.on_insert(0);
 
     CHECK(!ta.valid(0));
 
-    ta.set(0, MIN_ST + std::chrono::microseconds(1000));
+    ta.set(0, MIN_DT + std::chrono::microseconds(1000));
     CHECK(ta.valid(0));
 }
 
@@ -142,9 +142,9 @@ TEST_CASE("TimeArray - modified uses >= comparison", "[time_series][phase1][time
     ta.on_capacity(0, 10);
     ta.on_insert(0);
 
-    const auto t1000 = MIN_ST + std::chrono::microseconds(1000);
-    const auto t999 = MIN_ST + std::chrono::microseconds(999);
-    const auto t1001 = MIN_ST + std::chrono::microseconds(1001);
+    const auto t1000 = MIN_DT + std::chrono::microseconds(1000);
+    const auto t999 = MIN_DT + std::chrono::microseconds(999);
+    const auto t1001 = MIN_DT + std::chrono::microseconds(1001);
 
     ta.set(0, t1000);
 
@@ -163,7 +163,7 @@ TEST_CASE("TimeArray - data returns pointer to storage", "[time_series][phase1][
     ta.on_capacity(0, 10);
     ta.on_insert(0);
 
-    const auto t = MIN_ST + std::chrono::microseconds(42);
+    const auto t = MIN_DT + std::chrono::microseconds(42);
     ta.set(0, t);
 
     engine_time_t* ptr = ta.data();
@@ -176,7 +176,7 @@ TEST_CASE("TimeArray - const data access", "[time_series][phase1][time]") {
     ta.on_capacity(0, 10);
     ta.on_insert(0);
 
-    const auto t = MIN_ST + std::chrono::microseconds(42);
+    const auto t = MIN_DT + std::chrono::microseconds(42);
     ta.set(0, t);
 
     const TimeArray& const_ta = ta;

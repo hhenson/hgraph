@@ -20,7 +20,7 @@ namespace {
 class MockObserver : public Notifiable {
 public:
     int notify_count = 0;
-    engine_time_t last_time = MIN_ST;
+    engine_time_t last_time = MIN_DT;
 
     void notify(engine_time_t t) override {
         ++notify_count;
@@ -123,7 +123,7 @@ TEST_CASE("ObserverList - notify_modified calls all observers", "[time_series][p
     obs_list.add_observer(&obs1);
     obs_list.add_observer(&obs2);
 
-    const engine_time_t t = MIN_ST + std::chrono::microseconds(1000);
+    const engine_time_t t = MIN_DT + std::chrono::microseconds(1000);
     obs_list.notify_modified(t);
 
     CHECK(obs1.notify_count == 1);
@@ -136,7 +136,7 @@ TEST_CASE("ObserverList - notify on empty list is safe", "[time_series][phase1][
     ObserverList obs_list;
 
     // Should not crash
-    obs_list.notify_modified(MIN_ST + std::chrono::microseconds(1000));
+    obs_list.notify_modified(MIN_DT + std::chrono::microseconds(1000));
 
     CHECK(obs_list.empty());
 }
@@ -147,9 +147,9 @@ TEST_CASE("ObserverList - multiple notifications accumulate", "[time_series][pha
 
     obs_list.add_observer(&obs);
 
-    const auto t1 = MIN_ST + std::chrono::microseconds(100);
-    const auto t2 = MIN_ST + std::chrono::microseconds(200);
-    const auto t3 = MIN_ST + std::chrono::microseconds(300);
+    const auto t1 = MIN_DT + std::chrono::microseconds(100);
+    const auto t2 = MIN_DT + std::chrono::microseconds(200);
+    const auto t3 = MIN_DT + std::chrono::microseconds(300);
 
     obs_list.notify_modified(t1);
     obs_list.notify_modified(t2);
@@ -166,7 +166,7 @@ TEST_CASE("ObserverList - same observer added multiple times gets multiple notif
     obs_list.add_observer(&obs);
     obs_list.add_observer(&obs);  // Added twice
 
-    obs_list.notify_modified(MIN_ST);
+    obs_list.notify_modified(MIN_DT);
 
     CHECK(obs.notify_count == 2);
 }

@@ -17,8 +17,17 @@ REFLink::REFLink(TSView ref_source, engine_time_t current_time)
 REFLink::REFLink(REFLink&& other) noexcept
     : target_(std::move(other.target_))
     , ref_source_view_data_(std::move(other.ref_source_view_data_))
-    , ref_source_bound_(other.ref_source_bound_) {
+    , ref_source_bound_(other.ref_source_bound_)
+    , owner_time_ptr_(other.owner_time_ptr_)
+    , parent_link_(other.parent_link_)
+    , last_notify_time_(other.last_notify_time_) {
     other.ref_source_bound_ = false;
+    other.owner_time_ptr_ = nullptr;
+    other.parent_link_ = nullptr;
+    other.last_notify_time_ = MIN_DT;
+    // Move active_notifier state
+    active_notifier_.owning_input = other.active_notifier_.owning_input;
+    other.active_notifier_.owning_input = nullptr;
 }
 
 REFLink& REFLink::operator=(REFLink&& other) noexcept {
@@ -29,7 +38,16 @@ REFLink& REFLink::operator=(REFLink&& other) noexcept {
         target_ = std::move(other.target_);
         ref_source_view_data_ = std::move(other.ref_source_view_data_);
         ref_source_bound_ = other.ref_source_bound_;
+        owner_time_ptr_ = other.owner_time_ptr_;
+        parent_link_ = other.parent_link_;
+        last_notify_time_ = other.last_notify_time_;
+        active_notifier_.owning_input = other.active_notifier_.owning_input;
+
         other.ref_source_bound_ = false;
+        other.owner_time_ptr_ = nullptr;
+        other.parent_link_ = nullptr;
+        other.last_notify_time_ = MIN_DT;
+        other.active_notifier_.owning_input = nullptr;
     }
     return *this;
 }
@@ -69,11 +87,16 @@ void REFLink::unbind() {
         ref_source_bound_ = false;
     }
 
-    // Always handle target cleanup - whether this was a REF link or a simple link
-    // Unsubscribe from current target
+    // Handle target cleanup - unsubscribe both chains
     if (target_.is_linked && target_.observer_data) {
         auto* target_obs = static_cast<ObserverList*>(target_.observer_data);
+        // Unsubscribe time-accounting (this REFLink)
         target_obs->remove_observer(this);
+        // Unsubscribe node-scheduling if active
+        if (active_notifier_.owning_input != nullptr) {
+            target_obs->remove_observer(&active_notifier_);
+            active_notifier_.owning_input = nullptr;
+        }
     }
 
     // Clear target state
@@ -116,7 +139,7 @@ bool REFLink::modified(engine_time_t current_time) const {
 }
 
 bool REFLink::valid() const {
-    TSView tv = target_view(MIN_ST);  // Time doesn't matter for validity
+    TSView tv = target_view(MIN_DT);  // Time doesn't matter for validity
     return tv.valid();
 }
 
@@ -133,16 +156,29 @@ const TSMeta* REFLink::dereferenced_meta() const noexcept {
 }
 
 void REFLink::notify(engine_time_t et) {
-    // Called when REF source changes
-    // Need to rebind to the new target
-    rebind_target(et);
+    // Time-accounting: always propagate up
+    if (last_notify_time_ != et) {
+        last_notify_time_ = et;
+        if (owner_time_ptr_) *owner_time_ptr_ = et;
+        if (parent_link_) parent_link_->notify(et);
+    }
+
+    // REF-specific: if REF source changed, rebind target
+    if (ref_source_bound_) {
+        rebind_target(et);
+    }
 }
 
 void REFLink::rebind_target(engine_time_t current_time) {
-    // Unsubscribe from old target
+    // Unsubscribe from old target (both chains)
     if (target_.is_linked && target_.observer_data) {
         auto* target_obs = static_cast<ObserverList*>(target_.observer_data);
+        // Unsubscribe time-accounting
         target_obs->remove_observer(this);
+        // Unsubscribe node-scheduling if active
+        if (active_notifier_.owning_input != nullptr) {
+            target_obs->remove_observer(&active_notifier_);
+        }
     }
 
     // Clear old target
@@ -189,10 +225,14 @@ void REFLink::rebind_target(engine_time_t current_time) {
         target_.ops = vd.ops;
         target_.meta = vd.meta;
 
-        // Subscribe to new target
+        // Subscribe to new target - time-accounting chain (this REFLink)
         if (target_.observer_data) {
             auto* target_obs = static_cast<ObserverList*>(target_.observer_data);
             target_obs->add_observer(this);
+            // Re-subscribe node-scheduling if active
+            if (active_notifier_.owning_input != nullptr) {
+                target_obs->add_observer(&active_notifier_);
+            }
         }
     }
     // NON_PEERED refs represent composite types - not handled by single REFLink
@@ -203,9 +243,9 @@ engine_time_t REFLink::last_rebind_time() const noexcept {
     // Use the REF source's last_modified_time instead of storing separately
     // This saves storage and keeps the semantics identical
     if (!ref_source_bound_ || !ref_source_view_data_.valid()) {
-        return MIN_ST;
+        return MIN_DT;
     }
-    TSView ref_view(ref_source_view_data_, MIN_ST);
+    TSView ref_view(ref_source_view_data_, MIN_DT);
     return ref_view.last_modified_time();
 }
 

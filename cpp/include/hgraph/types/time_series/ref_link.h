@@ -4,12 +4,16 @@
  * @file ref_link.h
  * @brief REFLink - Link that dereferences a REF source.
  *
- * REFLink is used when an alternative needs to dereference a REF (REF → TS conversion).
+ * REFLink is used when an alternative needs to dereference a REF (REF -> TS conversion).
  * It manages two subscriptions:
  * 1. To the REF source (for rebind notifications)
  * 2. To the current dereferenced target (for value notifications)
  *
- * @see design/04_LINKS_AND_BINDING.md §REFLink
+ * REFLink also participates in the dual notification chain:
+ * - Time-accounting: stamps modification times up through parent hierarchy
+ * - Node-scheduling: schedules owning node via ActiveNotifier
+ *
+ * @see design/04_LINKS_AND_BINDING.md
  */
 
 #include <hgraph/types/time_series/link_target.h>
@@ -40,21 +44,9 @@ struct TSMeta;
  * wasn't modified at current time, the view reports modified=true because
  * the data source changed.
  *
- * Usage:
- * @code
- * REFLink ref_link;
- *
- * // Bind to a REF source
- * ref_link.bind_to_ref(ref_source_view);
- *
- * // Access the dereferenced target
- * TSView target_view = ref_link.target_view(current_time);
- *
- * // Check modification (includes sampled flag)
- * if (ref_link.modified(current_time)) {
- *     // Either REF changed OR target changed
- * }
- * @endcode
+ * REFLink also participates in the dual notification chain:
+ * - Time-accounting (REFLink::notify): stamps owner_time_ptr and propagates up
+ * - Node-scheduling (active_notifier_): subscribed when set_active is called
  */
 class REFLink : public Notifiable {
 public:
@@ -99,7 +91,8 @@ public:
     /**
      * @brief Unbind from everything.
      *
-     * Unsubscribes from REF source and target.
+     * Unsubscribes from REF source and target (both time-accounting
+     * and node-scheduling chains).
      */
     void unbind();
 
@@ -169,11 +162,28 @@ public:
     /**
      * @brief Called when REF source changes.
      *
-     * Rebinds to the new target pointed to by the TSReference.
+     * Performs time-accounting (stamp + propagate) and rebinds to new target.
      *
      * @param et The time at which the modification occurred
      */
     void notify(engine_time_t et) override;
+
+    // ========== Time-Accounting Chain Access ==========
+
+    /**
+     * @brief Set the owner time pointer for time-accounting.
+     */
+    void set_owner_time_ptr(engine_time_t* ptr) { owner_time_ptr_ = ptr; }
+
+    /**
+     * @brief Set the parent link for upward time propagation.
+     */
+    void set_parent_link(LinkTarget* parent) { parent_link_ = parent; }
+
+    /**
+     * @brief Get the embedded ActiveNotifier for node-scheduling subscription.
+     */
+    LinkTarget::ActiveNotifier& active_notifier() { return active_notifier_; }
 
 private:
     /**
@@ -188,6 +198,14 @@ private:
     LinkTarget target_;                     ///< Current dereferenced target
     ViewData ref_source_view_data_;         ///< ViewData for the REF source
     bool ref_source_bound_{false};          ///< Whether bound to a REF source
+
+    // Time-accounting chain (structural, owned by this REFLink)
+    engine_time_t* owner_time_ptr_{nullptr};   ///< Ptr to this level's time slot in INPUT's TSValue
+    LinkTarget* parent_link_{nullptr};          ///< Parent level's LinkTarget (nullptr at root)
+    engine_time_t last_notify_time_{MIN_DT};   ///< Dedup guard
+
+    // Node-scheduling wrapper
+    LinkTarget::ActiveNotifier active_notifier_;  ///< Embedded notifier for set_active
 };
 
 /**
@@ -198,7 +216,7 @@ private:
  *
  * REFLink is stored inline in the link schema and provides:
  * - Simple link functionality (like LinkTarget) when not bound to a REF
- * - Full REF→TS dereferencing when bound to a REF source
+ * - Full REF->TS dereferencing when bound to a REF source
  */
 struct REFLinkOps {
     static void construct(void* dst, const value::TypeMeta*) {

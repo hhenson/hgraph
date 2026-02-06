@@ -146,8 +146,7 @@ class PythonTimeSeriesBundleInput(PythonBoundTimeSeriesInput, TimeSeriesBundleIn
             return super().value
         else:
             if s := self.__schema__.scalar_type():
-                v = {k: ts.value for k, ts in self.items() if ts.valid or getattr(s, k, None) is None}
-                return s(**v)
+                return s(**{k: ts.value for k, ts in self.items() if ts.valid or getattr(s, k, None) is None})
             else:
                 return {k: ts.value for k, ts in self.items() if ts.valid}
 

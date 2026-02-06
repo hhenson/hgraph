@@ -39,7 +39,7 @@ struct BundleDeltaNav {
      * Used for lazy delta clearing: if current_time > last_cleared_time,
      * the delta should be cleared before accessing.
      */
-    engine_time_t last_cleared_time{MIN_ST};
+    engine_time_t last_cleared_time{MIN_DT};
 
     /**
      * @brief Child delta pointers for each bundle field.
@@ -85,7 +85,7 @@ struct ListDeltaNav {
      * Used for lazy delta clearing: if current_time > last_cleared_time,
      * the delta should be cleared before accessing.
      */
-    engine_time_t last_cleared_time{MIN_ST};
+    engine_time_t last_cleared_time{MIN_DT};
 
     /**
      * @brief Child delta pointers for each list element.

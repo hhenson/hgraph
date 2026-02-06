@@ -265,14 +265,14 @@ TEST_CASE("TSViewIterator - default construction", "[time_series][view_range][ts
 
 TEST_CASE("TSViewIterator - index accessor", "[time_series][view_range][ts_view]") {
     ViewData vd;
-    TSViewIterator it(&vd, 5, 10, MIN_ST);
+    TSViewIterator it(&vd, 5, 10, MIN_DT);
 
     CHECK(it.index() == 5);
 }
 
 TEST_CASE("TSViewIterator - increment", "[time_series][view_range][ts_view]") {
     ViewData vd;
-    TSViewIterator it(&vd, 0, 3, MIN_ST);
+    TSViewIterator it(&vd, 0, 3, MIN_DT);
 
     CHECK(it.index() == 0);
     ++it;
@@ -283,9 +283,9 @@ TEST_CASE("TSViewIterator - increment", "[time_series][view_range][ts_view]") {
 
 TEST_CASE("TSViewIterator - equality comparison", "[time_series][view_range][ts_view]") {
     ViewData vd;
-    TSViewIterator it1(&vd, 5, 10, MIN_ST);
-    TSViewIterator it2(&vd, 5, 10, MIN_ST);
-    TSViewIterator it3(&vd, 6, 10, MIN_ST);
+    TSViewIterator it1(&vd, 5, 10, MIN_DT);
+    TSViewIterator it2(&vd, 5, 10, MIN_DT);
+    TSViewIterator it3(&vd, 6, 10, MIN_DT);
 
     CHECK(it1 == it2);
     CHECK(it1 != it3);
@@ -312,14 +312,14 @@ TEST_CASE("TSFieldIterator - default construction", "[time_series][view_range][t
 
 TEST_CASE("TSFieldIterator - index accessor", "[time_series][view_range][ts_field]") {
     ViewData vd;
-    TSFieldIterator it(&vd, nullptr, 3, 10, MIN_ST);
+    TSFieldIterator it(&vd, nullptr, 3, 10, MIN_DT);
 
     CHECK(it.index() == 3);
 }
 
 TEST_CASE("TSFieldIterator - name accessor with null meta", "[time_series][view_range][ts_field]") {
     ViewData vd;
-    TSFieldIterator it(&vd, nullptr, 0, 1, MIN_ST);
+    TSFieldIterator it(&vd, nullptr, 0, 1, MIN_DT);
 
     // With null meta, name() should return empty string
     CHECK(std::string(it.name()) == "");
@@ -400,7 +400,7 @@ TEST_CASE("TSDictIterator - default construction", "[time_series][view_range][ts
 
 TEST_CASE("TSDictIterator - index accessor", "[time_series][view_range][ts_dict]") {
     ViewData vd;
-    TSDictIterator it(&vd, nullptr, 7, 10, MIN_ST);
+    TSDictIterator it(&vd, nullptr, 7, 10, MIN_DT);
 
     CHECK(it.index() == 7);
 }
@@ -424,7 +424,7 @@ TEST_CASE("TSDictSlotRange - with valid slots", "[time_series][view_range][ts_di
     slots.insert(10);
 
     ViewData vd;
-    TSDictSlotRange range(vd, nullptr, &slots, MIN_ST);
+    TSDictSlotRange range(vd, nullptr, &slots, MIN_DT);
 
     CHECK_FALSE(range.empty());
     CHECK(range.size() == 3);
@@ -435,7 +435,7 @@ TEST_CASE("TSDictSlotIterator - slot accessor", "[time_series][view_range][ts_di
     slots.insert(42);
 
     ViewData vd;
-    TSDictSlotIterator it(&vd, nullptr, slots.begin(), slots.end(), MIN_ST);
+    TSDictSlotIterator it(&vd, nullptr, slots.begin(), slots.end(), MIN_DT);
 
     CHECK(it.slot() == 42);
 }

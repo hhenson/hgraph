@@ -10,7 +10,7 @@
  *
  * Key design principles:
  * - Implements SlotObserver for automatic synchronization
- * - MIN_ST indicates "not valid" (never been set)
+ * - MIN_DT indicates "not valid" (never been set)
  * - Modified check uses >= comparison (modified if time >= current_time)
  * - Provides direct data() access for zero-copy Arrow/numpy integration
  */
@@ -30,11 +30,11 @@ namespace hgraph {
  * Each slot has an associated timestamp indicating when it was last modified.
  *
  * SlotObserver protocol:
- * - on_capacity: Resizes storage, new slots initialized to MIN_ST
- * - on_insert: Initializes slot timestamp to MIN_ST (invalid until set)
+ * - on_capacity: Resizes storage, new slots initialized to MIN_DT
+ * - on_insert: Initializes slot timestamp to MIN_DT (invalid until set)
  * - on_erase: Preserves timestamp (may be queried for delta purposes)
  * - on_update: No-op (timestamp set explicitly via set())
- * - on_clear: Resets all timestamps to MIN_ST
+ * - on_clear: Resets all timestamps to MIN_DT
  */
 class TimeArray : public value::SlotObserver {
 public:
@@ -54,26 +54,26 @@ public:
      * @brief Called when KeySet capacity changes.
      *
      * Resizes the timestamp storage to match the new capacity.
-     * New slots are initialized to MIN_ST (invalid).
+     * New slots are initialized to MIN_DT (invalid).
      *
      * @param old_cap Previous capacity
      * @param new_cap New capacity
      */
     void on_capacity(size_t old_cap, size_t new_cap) override {
         (void)old_cap;  // Unused
-        times_.resize(new_cap, MIN_ST);
+        times_.resize(new_cap, MIN_DT);
     }
 
     /**
      * @brief Called after a new key is inserted at a slot.
      *
-     * Initializes the slot's timestamp to MIN_ST (invalid until explicitly set).
+     * Initializes the slot's timestamp to MIN_DT (invalid until explicitly set).
      *
      * @param slot The slot index where insertion occurred
      */
     void on_insert(size_t slot) override {
         if (slot < times_.size()) {
-            times_[slot] = MIN_ST;
+            times_[slot] = MIN_DT;
         }
         ++size_;
     }
@@ -105,10 +105,10 @@ public:
     /**
      * @brief Called when all keys are cleared.
      *
-     * Resets all timestamps to MIN_ST (invalid).
+     * Resets all timestamps to MIN_DT (invalid).
      */
     void on_clear() override {
-        std::fill(times_.begin(), times_.end(), MIN_ST);
+        std::fill(times_.begin(), times_.end(), MIN_DT);
         size_ = 0;
     }
 
@@ -150,13 +150,13 @@ public:
     /**
      * @brief Check if a slot has ever been set (is valid).
      *
-     * A slot is valid if its timestamp is not MIN_ST.
+     * A slot is valid if its timestamp is not MIN_DT.
      *
      * @param slot The slot index
      * @return true if the slot has been set at least once
      */
     [[nodiscard]] bool valid(size_t slot) const {
-        return times_[slot] != MIN_ST;
+        return times_[slot] != MIN_DT;
     }
 
     // ========== Raw Access ==========

@@ -219,7 +219,7 @@ public:
      * @brief Check if the list has ever been set.
      */
     [[nodiscard]] bool valid() const {
-        return last_modified_time() != MIN_ST;
+        return last_modified_time() != MIN_DT;
     }
 
 private:
@@ -239,7 +239,7 @@ private:
     }
 
     ViewData view_data_;
-    engine_time_t current_time_{MIN_ST};
+    engine_time_t current_time_{MIN_DT};
 };
 
 } // namespace hgraph

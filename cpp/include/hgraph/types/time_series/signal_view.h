@@ -325,7 +325,7 @@ public:
 private:
     ViewData view_data_;                                  ///< View data (to dereferenced source or local)
     const TSMeta* source_meta_{nullptr};                  ///< Dereferenced source schema
-    engine_time_t current_time_{MIN_ST};                  ///< Current engine time
+    engine_time_t current_time_{MIN_DT};                  ///< Current engine time
     std::vector<std::unique_ptr<SignalView>> children_;   ///< Child signals (unique_ptr for stable references to Python)
     bool active_{false};                                  ///< Active (subscribed) state
 

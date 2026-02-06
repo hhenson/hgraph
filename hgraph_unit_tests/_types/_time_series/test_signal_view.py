@@ -568,7 +568,6 @@ class TestSignalViewConformance:
 
         signal = signal_view_class()
 
-        # Should return MIN_ST (epoch + 1 microsecond in C++ implementation)
+        # Should return MIN_DT (epoch) for uninitialized signal
         lmt = signal.last_modified_time()
-        # MIN_ST is datetime(1970, 1, 1, 0, 0, 0, 1) in hgraph C++
-        assert lmt == datetime(1970, 1, 1, 0, 0, 0, 1)
+        assert lmt == datetime(1970, 1, 1, 0, 0, 0, 0)

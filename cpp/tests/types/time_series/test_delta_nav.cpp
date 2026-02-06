@@ -30,7 +30,7 @@ bool contains(const SlotSet& s, size_t val) {
 
 TEST_CASE("BundleDeltaNav - default construction", "[time_series][phase2][delta_nav]") {
     BundleDeltaNav nav;
-    CHECK(nav.last_cleared_time == MIN_ST);
+    CHECK(nav.last_cleared_time == MIN_DT);
     CHECK(nav.children.empty());
 }
 
@@ -114,17 +114,17 @@ TEST_CASE("BundleDeltaNav - clear preserves children capacity", "[time_series][p
 
 TEST_CASE("BundleDeltaNav - clear does not reset last_cleared_time", "[time_series][phase2][delta_nav]") {
     BundleDeltaNav nav;
-    nav.last_cleared_time = MIN_ST + std::chrono::microseconds(1000);
+    nav.last_cleared_time = MIN_DT + std::chrono::microseconds(1000);
 
     nav.clear();
 
     // last_cleared_time is managed by the caller, not clear()
-    CHECK(nav.last_cleared_time == MIN_ST + std::chrono::microseconds(1000));
+    CHECK(nav.last_cleared_time == MIN_DT + std::chrono::microseconds(1000));
 }
 
 TEST_CASE("BundleDeltaNav - last_cleared_time can be set", "[time_series][phase2][delta_nav]") {
     BundleDeltaNav nav;
-    const auto t = MIN_ST + std::chrono::microseconds(5000);
+    const auto t = MIN_DT + std::chrono::microseconds(5000);
     nav.last_cleared_time = t;
 
     CHECK(nav.last_cleared_time == t);
@@ -136,7 +136,7 @@ TEST_CASE("BundleDeltaNav - last_cleared_time can be set", "[time_series][phase2
 
 TEST_CASE("ListDeltaNav - default construction", "[time_series][phase2][delta_nav]") {
     ListDeltaNav nav;
-    CHECK(nav.last_cleared_time == MIN_ST);
+    CHECK(nav.last_cleared_time == MIN_DT);
     CHECK(nav.children.empty());
 }
 
@@ -221,7 +221,7 @@ TEST_CASE("ListDeltaNav - clear preserves children capacity", "[time_series][pha
 
 TEST_CASE("ListDeltaNav - last_cleared_time can be set", "[time_series][phase2][delta_nav]") {
     ListDeltaNav nav;
-    const auto t = MIN_ST + std::chrono::microseconds(12345);
+    const auto t = MIN_DT + std::chrono::microseconds(12345);
     nav.last_cleared_time = t;
 
     CHECK(nav.last_cleared_time == t);

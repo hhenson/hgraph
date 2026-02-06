@@ -267,7 +267,7 @@ static void register_ts_value(nb::module_& m) {
 
         .def("valid", &TSValue::valid,
             "Check if the value has ever been set.\n\n"
-            "A value is valid if last_modified_time != MIN_ST.")
+            "A value is valid if last_modified_time != MIN_DT.")
 
         .def("has_delta", &TSValue::has_delta,
             "Check if this time-series type has delta tracking.")
@@ -376,7 +376,7 @@ static void register_ts_view(nb::module_& m) {
 
         .def("invalidate", &TSView::invalidate,
             "Invalidate this time-series.\n\n"
-            "Resets the modification time to MIN_ST.")
+            "Resets the modification time to MIN_DT.")
 
         // Kind-specific views
         .def("as_bundle", &TSView::as_bundle,

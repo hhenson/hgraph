@@ -20,7 +20,7 @@ namespace {
 class MockObserver : public Notifiable {
 public:
     int notify_count = 0;
-    engine_time_t last_time = MIN_ST;
+    engine_time_t last_time = MIN_DT;
 
     void notify(engine_time_t t) override {
         ++notify_count;
@@ -149,7 +149,7 @@ TEST_CASE("ObserverArray - at returns modifiable ObserverList", "[time_series][p
     MockObserver obs;
     oa.at(0).add_observer(&obs);
 
-    const auto t = MIN_ST + std::chrono::microseconds(1000);
+    const auto t = MIN_DT + std::chrono::microseconds(1000);
     oa.at(0).notify_modified(t);
 
     CHECK(obs.notify_count == 1);
@@ -179,7 +179,7 @@ TEST_CASE("ObserverArray - slots are independent", "[time_series][phase1][observ
     oa.at(1).add_observer(&obs2);
 
     // Notify only slot 0
-    oa.at(0).notify_modified(MIN_ST);
+    oa.at(0).notify_modified(MIN_DT);
 
     CHECK(obs1.notify_count == 1);
     CHECK(obs2.notify_count == 0);
