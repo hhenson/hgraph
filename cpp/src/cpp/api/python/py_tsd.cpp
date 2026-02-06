@@ -91,6 +91,7 @@ namespace hgraph
 
     nb::object PyTimeSeriesDictOutput::values() const {
         auto dict_view = view().as_dict();
+
         nb::list result;
         for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
             TSView ts_view = *it;
@@ -101,6 +102,7 @@ namespace hgraph
 
     nb::object PyTimeSeriesDictOutput::items() const {
         auto dict_view = view().as_dict();
+
         nb::list result;
         for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
             TSView ts_view = *it;
@@ -121,6 +123,7 @@ namespace hgraph
 
     nb::object PyTimeSeriesDictOutput::modified_values() const {
         auto dict_view = view().as_dict();
+
         nb::list result;
         for (auto it = dict_view.modified_items().begin(); it != dict_view.modified_items().end(); ++it) {
             TSView ts_view = *it;
@@ -131,6 +134,7 @@ namespace hgraph
 
     nb::object PyTimeSeriesDictOutput::modified_items() const {
         auto dict_view = view().as_dict();
+
         nb::list result;
         for (auto it = dict_view.modified_items().begin(); it != dict_view.modified_items().end(); ++it) {
             TSView ts_view = *it;
@@ -162,6 +166,7 @@ namespace hgraph
 
     nb::object PyTimeSeriesDictOutput::valid_values() const {
         auto dict_view = view().as_dict();
+
         nb::list result;
         for (auto it = dict_view.valid_items().begin(); it != dict_view.valid_items().end(); ++it) {
             TSView ts_view = *it;
@@ -172,6 +177,7 @@ namespace hgraph
 
     nb::object PyTimeSeriesDictOutput::valid_items() const {
         auto dict_view = view().as_dict();
+
         nb::list result;
         for (auto it = dict_view.valid_items().begin(); it != dict_view.valid_items().end(); ++it) {
             TSView ts_view = *it;
@@ -192,6 +198,7 @@ namespace hgraph
 
     nb::object PyTimeSeriesDictOutput::added_values() const {
         auto dict_view = view().as_dict();
+
         nb::list result;
         for (auto it = dict_view.added_items().begin(); it != dict_view.added_items().end(); ++it) {
             TSView ts_view = *it;
@@ -202,6 +209,7 @@ namespace hgraph
 
     nb::object PyTimeSeriesDictOutput::added_items() const {
         auto dict_view = view().as_dict();
+
         nb::list result;
         for (auto it = dict_view.added_items().begin(); it != dict_view.added_items().end(); ++it) {
             TSView ts_view = *it;
@@ -233,6 +241,7 @@ namespace hgraph
 
     nb::object PyTimeSeriesDictOutput::removed_values() const {
         auto dict_view = view().as_dict();
+
         nb::list result;
         for (auto it = dict_view.removed_items().begin(); it != dict_view.removed_items().end(); ++it) {
             TSView ts_view = *it;
@@ -243,6 +252,7 @@ namespace hgraph
 
     nb::object PyTimeSeriesDictOutput::removed_items() const {
         auto dict_view = view().as_dict();
+
         nb::list result;
         for (auto it = dict_view.removed_items().begin(); it != dict_view.removed_items().end(); ++it) {
             TSView ts_view = *it;

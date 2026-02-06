@@ -193,7 +193,7 @@ public:
      * @return true if element was removed
      */
     [[nodiscard]] bool was_removed(const value::View& elem) const {
-        return delta()->was_key_removed(elem.data(), meta()->value_type);
+        return delta()->was_key_removed(elem.data(), element_type());
     }
 
     // ========== Element Iteration ==========
@@ -216,7 +216,7 @@ public:
             return SlotElementRange{};
         }
         auto* storage = static_cast<const value::SetStorage*>(view_data_.value_data);
-        return SlotElementRange(storage, meta()->value_type, &delta()->added());
+        return SlotElementRange(storage, element_type(), &delta()->added());
     }
 
     /**
@@ -239,7 +239,7 @@ public:
             return SlotElementRange{};
         }
         auto* storage = static_cast<const value::SetStorage*>(view_data_.value_data);
-        return SlotElementRange(storage, meta()->value_type, &delta()->removed());
+        return SlotElementRange(storage, element_type(), &delta()->removed());
     }
 
     // ========== Container-Level Access ==========
@@ -310,6 +310,14 @@ public:
     }
 
 private:
+    /**
+     * @brief Get the element TypeMeta (internal).
+     * meta()->value_type is the Set TypeMeta; element_type is the per-element TypeMeta.
+     */
+    [[nodiscard]] const value::TypeMeta* element_type() const {
+        return meta()->value_type->element_type;
+    }
+
     /**
      * @brief Get the value view (internal).
      */

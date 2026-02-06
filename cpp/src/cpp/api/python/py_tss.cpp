@@ -6,8 +6,9 @@ namespace hgraph
 {
 
     // Helper to convert Python element to value::Value using TSMeta
+    // meta->value_type is the Set TypeMeta; element_type is the per-element TypeMeta
     static value::Value<> elem_from_python(const nb::object &elem, const TSMeta* meta) {
-        const auto *elem_schema = meta->value_type;
+        const auto *elem_schema = meta->value_type->element_type;
         value::Value<> elem_val(elem_schema);
         elem_schema->ops->from_python(elem_val.data(), elem, elem_schema);
         return elem_val;
@@ -15,7 +16,8 @@ namespace hgraph
 
     // Helper to convert value::View element to Python
     static nb::object elem_to_python(const value::View& elem, const TSMeta* meta) {
-        return meta->value_type->ops->to_python(elem.data(), meta->value_type);
+        const auto *elem_schema = meta->value_type->element_type;
+        return elem_schema->ops->to_python(elem.data(), elem_schema);
     }
 
     // ===== PyTimeSeriesSetOutput Implementation =====

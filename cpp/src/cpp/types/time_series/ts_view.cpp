@@ -39,7 +39,7 @@ bool TSView::modified() const {
     if (!view_data_.valid() || !view_data_.ops) {
         return false;
     }
-    return view_data_.ops->modified(view_data_, current_time_);
+    return view_data_.ops->modified(view_data_, current_time());
 }
 
 bool TSView::valid() const {
@@ -96,14 +96,14 @@ void TSView::set_value(const value::View& src) {
     if (!view_data_.valid() || !view_data_.ops) {
         throw std::runtime_error("set_value on invalid TSView");
     }
-    view_data_.ops->set_value(view_data_, src, current_time_);
+    view_data_.ops->set_value(view_data_, src, current_time());
 }
 
 void TSView::apply_delta(const value::View& delta) {
     if (!view_data_.valid() || !view_data_.ops) {
         throw std::runtime_error("apply_delta on invalid TSView");
     }
-    view_data_.ops->apply_delta(view_data_, delta, current_time_);
+    view_data_.ops->apply_delta(view_data_, delta, current_time());
 }
 
 void TSView::invalidate() {
@@ -135,7 +135,7 @@ void TSView::from_python(const nb::object& src) {
     if (!view_data_.valid() || !view_data_.ops) {
         throw std::runtime_error("from_python on invalid TSView");
     }
-    view_data_.ops->from_python(view_data_, src, current_time_);
+    view_data_.ops->from_python(view_data_, src, current_time());
 }
 
 // ============================================================================
@@ -146,14 +146,14 @@ TSView TSView::operator[](size_t index) const {
     if (!view_data_.valid() || !view_data_.ops) {
         return TSView{};
     }
-    return view_data_.ops->child_at(view_data_, index, current_time_);
+    return view_data_.ops->child_at(view_data_, index, current_time());
 }
 
 TSView TSView::field(const std::string& name) const {
     if (!view_data_.valid() || !view_data_.ops) {
         return TSView{};
     }
-    return view_data_.ops->child_by_name(view_data_, name, current_time_);
+    return view_data_.ops->child_by_name(view_data_, name, current_time());
 }
 
 size_t TSView::size() const {
@@ -210,7 +210,7 @@ TSBView TSView::as_bundle() const {
     if (view_data_.meta->kind != TSKind::TSB) {
         throw std::runtime_error("as_bundle called on non-TSB type");
     }
-    return TSBView(view_data_, current_time_);
+    return TSBView(view_data_, current_time());
 }
 
 TSLView TSView::as_list() const {
@@ -220,7 +220,7 @@ TSLView TSView::as_list() const {
     if (view_data_.meta->kind != TSKind::TSL) {
         throw std::runtime_error("as_list called on non-TSL type");
     }
-    return TSLView(view_data_, current_time_);
+    return TSLView(view_data_, current_time());
 }
 
 TSSView TSView::as_set() const {
@@ -230,7 +230,7 @@ TSSView TSView::as_set() const {
     if (view_data_.meta->kind != TSKind::TSS) {
         throw std::runtime_error("as_set called on non-TSS type");
     }
-    return TSSView(view_data_, current_time_);
+    return TSSView(view_data_, current_time());
 }
 
 TSDView TSView::as_dict() const {
@@ -240,7 +240,7 @@ TSDView TSView::as_dict() const {
     if (view_data_.meta->kind != TSKind::TSD) {
         throw std::runtime_error("as_dict called on non-TSD type");
     }
-    return TSDView(view_data_, current_time_);
+    return TSDView(view_data_, current_time());
 }
 
 TSWView TSView::as_window() const {
@@ -250,7 +250,7 @@ TSWView TSView::as_window() const {
     if (view_data_.meta->kind != TSKind::TSW) {
         throw std::runtime_error("as_window called on non-TSW type");
     }
-    return TSWView(view_data_, current_time_);
+    return TSWView(view_data_, current_time());
 }
 
 // ============================================================================
@@ -458,6 +458,12 @@ ViewData TSValue::make_view_data() {
 }
 
 TSView TSValue::ts_view(engine_time_t current_time) {
+    // Trigger lazy delta clearing before creating the view.
+    // This ensures the delta is fresh for the current tick.
+    if (delta_value_.valid() && current_time > last_delta_clear_time_) {
+        clear_delta_value();
+        last_delta_clear_time_ = current_time;
+    }
     return TSView(*this, current_time);
 }
 

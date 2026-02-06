@@ -15,7 +15,6 @@
 
 #include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/fq_path.h>
-#include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/notifiable.h>
 
 namespace hgraph {

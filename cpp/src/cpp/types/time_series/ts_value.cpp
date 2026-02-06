@@ -39,6 +39,7 @@ static void init_ts_value_common(
         case TSKind::TSW:
         case TSKind::SIGNAL:
             // Scalar-like: use value_type directly
+            // For TSS, value_type is the Set TypeMeta (set in TSTypeRegistry::tss)
             value_schema = meta->value_type;
             break;
         case TSKind::TSD:

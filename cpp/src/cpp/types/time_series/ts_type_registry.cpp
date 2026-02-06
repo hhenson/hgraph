@@ -73,10 +73,19 @@ const TSMeta* TSTypeRegistry::tss(const value::TypeMeta* element_type) {
         return it->second;
     }
 
+    // Build the set value schema from element type
+    // This is needed for TSValue to allocate SetStorage and for ts_ops::make_value_view
+    const value::TypeMeta* value_schema = nullptr;
+    if (element_type) {
+        value_schema = value::TypeRegistry::instance()
+            .set(element_type)
+            .build();
+    }
+
     // Create new schema
     auto* meta = create_schema();
     meta->kind = TSKind::TSS;
-    meta->value_type = element_type;
+    meta->value_type = value_schema;  // Store set value schema for ts_ops (like TSD stores map schema)
 
     // Cache and return
     tss_cache_[element_type] = meta;

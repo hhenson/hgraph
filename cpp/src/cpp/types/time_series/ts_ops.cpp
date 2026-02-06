@@ -15,6 +15,7 @@
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/time_series/set_delta.h>
+#include <hgraph/types/time_series/map_delta.h>
 #include <hgraph/types/value/map_storage.h>
 #include <hgraph/types/value/set_storage.h>
 #include <hgraph/types/node.h>
@@ -152,6 +153,22 @@ inline void store_link_target(REFLink& rl, const ViewData& target) {
     lt.meta = target.meta;
 }
 
+// Helper: Check if this view is linked via REFLink and get the REFLink
+// Only call when uses_link_target is false
+inline const REFLink* get_active_link(const ViewData& vd) {
+    if (vd.uses_link_target) return nullptr;  // Wrong type
+    auto* rl = get_ref_link(vd.link_data);
+    return (rl && rl->target().valid()) ? rl : nullptr;
+}
+
+// Helper: Check if this view is linked via LinkTarget and get the LinkTarget
+// Only call when uses_link_target is true
+inline const LinkTarget* get_active_link_target(const ViewData& vd) {
+    if (!vd.uses_link_target) return nullptr;  // Wrong type
+    auto* lt = get_link_target(vd.link_data);
+    return (lt && lt->valid()) ? lt : nullptr;
+}
+
 } // anonymous namespace
 
 // ============================================================================
@@ -164,22 +181,6 @@ namespace scalar_ops {
 // - time is directly engine_time_t*
 // - observer is directly ObserverList*
 // - link is REFLink (TSOutput) or LinkTarget (TSInput)
-
-// Helper: Check if this scalar is linked via REFLink and get the REFLink
-// Only call when uses_link_target is false
-inline const REFLink* get_active_link(const ViewData& vd) {
-    if (vd.uses_link_target) return nullptr;  // Wrong type
-    auto* rl = get_ref_link(vd.link_data);
-    return (rl && rl->target().valid()) ? rl : nullptr;
-}
-
-// Helper: Check if this scalar is linked via LinkTarget and get the LinkTarget
-// Only call when uses_link_target is true
-inline const LinkTarget* get_active_link_target(const ViewData& vd) {
-    if (!vd.uses_link_target) return nullptr;  // Wrong type
-    auto* lt = get_link_target(vd.link_data);
-    return (lt && lt->valid()) ? lt : nullptr;
-}
 
 engine_time_t last_modified_time(const ViewData& vd) {
     // If linked via LinkTarget (TSInput), delegate to target
@@ -465,18 +466,21 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     // Manage subscription for scalar input if bound
     if (vd.link_data) {
         void* observer_data = nullptr;
+        const LinkTarget* bound_lt = nullptr;
 
         if (vd.uses_link_target) {
             // TSInput: Get observer from LinkTarget
             auto* lt = get_link_target(vd.link_data);
             if (lt && lt->is_linked) {
                 observer_data = lt->observer_data;
+                bound_lt = lt;
             }
         } else {
             // TSOutput: Get observer from REFLink's target
             auto* rl = get_ref_link(vd.link_data);
             if (rl && rl->target().is_linked) {
                 observer_data = rl->target().observer_data;
+                bound_lt = &rl->target();
             }
         }
 
@@ -484,6 +488,23 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
             auto* observers = static_cast<ObserverList*>(observer_data);
             if (active) {
                 observers->add_observer(input);
+
+                // Initial notification: match Python make_active() behavior.
+                // After subscribing, if the output is already valid AND modified,
+                // fire notify to schedule the owning node for evaluation.
+                if (input && bound_lt && bound_lt->ops) {
+                    ViewData output_vd = make_view_data_from_link_target(*bound_lt, vd.path);
+                    if (bound_lt->ops->valid(output_vd)) {
+                        auto* node = input->owning_node();
+                        if (node && node->cached_evaluation_time_ptr()) {
+                            engine_time_t eval_time = *node->cached_evaluation_time_ptr();
+                            if (bound_lt->ops->modified(output_vd, eval_time)) {
+                                engine_time_t lmt = bound_lt->ops->last_modified_time(output_vd);
+                                input->notify(lmt);
+                            }
+                        }
+                    }
+                }
             } else {
                 observers->remove_observer(input);
             }
@@ -588,7 +609,37 @@ engine_time_t last_modified_time(const ViewData& vd) {
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
-    return last_modified_time(vd) >= current_time;
+    // Check bundle-level time first
+    if (last_modified_time(vd) >= current_time) {
+        return true;
+    }
+
+    // For input bundles with links, check if any linked field was modified
+    if (vd.link_data && vd.meta) {
+        auto link_schema = get_bundle_link_schema(vd);
+        if (!link_schema) return false;
+
+        value::View link_view(vd.link_data, link_schema);
+        auto link_tuple = link_view.as_tuple();
+
+        for (size_t i = 0; i < vd.meta->field_count; ++i) {
+            const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+            if (!field_meta) continue;
+
+            if (field_meta->is_scalar_ts()) {
+                if (vd.uses_link_target) {
+                    auto* lt = static_cast<const LinkTarget*>(link_tuple.at(i + 1).data());
+                    if (lt && lt->is_linked && lt->ops) {
+                        ViewData field_vd = make_view_data_from_link_target(*lt, vd.path.child(i));
+                        if (field_vd.ops->modified(field_vd, current_time)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    return false;
 }
 
 bool valid(const ViewData& vd) {
@@ -786,7 +837,8 @@ nb::object to_python(const ViewData& vd) {
             }
 
             if (has_links) {
-                // Build dict from linked field values
+                // Build dict from linked field values, only including valid fields
+                // Matching Python: {k: ts.value for k, ts in items() if ts.valid}
                 nb::dict result;
                 for (size_t i = 0; i < vd.meta->field_count; ++i) {
                     const TSBFieldInfo& field_info = vd.meta->fields[i];
@@ -798,28 +850,32 @@ nb::object to_python(const ViewData& vd) {
                         if (vd.uses_link_target) {
                             auto* lt = static_cast<const LinkTarget*>(field_link.data());
                             if (lt && lt->is_linked && lt->ops) {
-                                // Follow link to get value from target
+                                // Check if linked target is valid before including
                                 ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(i));
-                                nb::object field_val = target_vd.ops->to_python(target_vd);
-                                result[field_name] = field_val;
-                            } else {
-                                result[field_name] = nb::none();
+                                if (target_vd.ops->valid(target_vd)) {
+                                    nb::object field_val = target_vd.ops->to_python(target_vd);
+                                    if (!field_val.is_none()) {
+                                        result[field_name] = field_val;
+                                    }
+                                }
                             }
+                            // Skip unlinked/invalid fields (don't add None)
                         } else {
                             auto* rl = static_cast<const REFLink*>(field_link.data());
                             if (rl && rl->target().is_linked && rl->target().ops) {
-                                // Follow link to get value from target
                                 ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(i));
-                                nb::object field_val = target_vd.ops->to_python(target_vd);
-                                result[field_name] = field_val;
-                            } else {
-                                result[field_name] = nb::none();
+                                if (target_vd.ops->valid(target_vd)) {
+                                    nb::object field_val = target_vd.ops->to_python(target_vd);
+                                    if (!field_val.is_none()) {
+                                        result[field_name] = field_val;
+                                    }
+                                }
                             }
+                            // Skip unlinked/invalid fields
                         }
                     } else {
                         // Composite field - get from local storage for now
                         // TODO: handle linked composite fields
-                        result[field_name] = nb::none();
                     }
                 }
                 return result;
@@ -828,13 +884,155 @@ nb::object to_python(const ViewData& vd) {
     }
 
     // No links or not an input bundle - use local value storage
+    // Build dict with only valid fields (matching Python: {k: ts.value for k, ts in items() if ts.valid})
+    if (vd.meta && vd.meta->field_count > 0 && vd.time_data) {
+        auto time_view = make_time_view(vd);
+        auto time_tuple = time_view.as_tuple();
+        auto value_view = make_value_view(vd);
+        auto value_tuple = value_view.as_tuple();
+
+        nb::dict result;
+        for (size_t i = 0; i < vd.meta->field_count; ++i) {
+            const TSBFieldInfo& field_info = vd.meta->fields[i];
+            const TSMeta* field_meta = field_info.ts_type;
+            const char* field_name = field_info.name;
+
+            // Check if this field is valid (its time has been set)
+            value::View field_time = time_tuple.at(i + 1);  // +1 for bundle-level time
+            bool field_valid = false;
+            if (field_time) {
+                engine_time_t ft;
+                if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
+                    ft = field_time.as_tuple().at(0).as<engine_time_t>();
+                } else {
+                    ft = *static_cast<const engine_time_t*>(field_time.data());
+                }
+                field_valid = (ft != MIN_ST);
+            }
+
+            if (field_valid) {
+                value::View field_value = value_tuple.at(i);
+                if (field_value.valid()) {
+                    result[field_name] = field_value.to_python();
+                }
+            }
+        }
+        return result;
+    }
+
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
     return v.to_python();
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    // For TSB, delta equals value (no delta tracking)
+    // For TSB, delta_value returns only modified AND valid fields
+    // Matching Python: {k: ts.delta_value for k, ts in items() if ts.modified and ts.valid}
+    if (!valid(vd)) return nb::none();
+
+    // For input bundles with links, follow links and check per-field modified+valid
+    if (vd.link_data && vd.meta) {
+        auto* link_schema = get_bundle_link_schema(vd);
+        bool has_links = link_schema && any_field_linked(vd);
+        if (has_links) {
+            value::View link_view(vd.link_data, link_schema);
+            auto link_tuple = link_view.as_tuple();
+
+            // First pass: determine current engine time (max last_modified_time across fields)
+            engine_time_t current_time = MIN_ST;
+            for (size_t i = 0; i < vd.meta->field_count; ++i) {
+                const TSMeta* field_meta = vd.meta->fields[i].ts_type;
+                if (!field_meta || !field_meta->is_scalar_ts()) continue;
+
+                if (vd.uses_link_target) {
+                    auto* lt = static_cast<const LinkTarget*>(link_tuple.at(i + 1).data());
+                    if (lt && lt->is_linked && lt->ops) {
+                        ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(i));
+                        engine_time_t ft = target_vd.ops->last_modified_time(target_vd);
+                        if (ft > current_time) current_time = ft;
+                    }
+                }
+            }
+
+            // Second pass: collect modified+valid fields
+            nb::dict result;
+            for (size_t i = 0; i < vd.meta->field_count; ++i) {
+                const TSBFieldInfo& field_info = vd.meta->fields[i];
+                const TSMeta* field_meta = field_info.ts_type;
+                const char* field_name = field_info.name;
+
+                if (field_meta && field_meta->is_scalar_ts()) {
+                    if (vd.uses_link_target) {
+                        auto* lt = static_cast<const LinkTarget*>(link_tuple.at(i + 1).data());
+                        if (lt && lt->is_linked && lt->ops) {
+                            ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(i));
+                            if (target_vd.ops->valid(target_vd) &&
+                                target_vd.ops->modified(target_vd, current_time)) {
+                                nb::object field_val = target_vd.ops->delta_to_python(target_vd);
+                                if (!field_val.is_none()) {
+                                    result[field_name] = field_val;
+                                }
+                            }
+                        }
+                    } else {
+                        auto* rl = static_cast<const REFLink*>(link_tuple.at(i + 1).data());
+                        if (rl && rl->target().is_linked && rl->target().ops) {
+                            ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(i));
+                            if (target_vd.ops->valid(target_vd) &&
+                                target_vd.ops->modified(target_vd, current_time)) {
+                                nb::object field_val = target_vd.ops->delta_to_python(target_vd);
+                                if (!field_val.is_none()) {
+                                    result[field_name] = field_val;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            return result;
+        }
+    }
+
+    // Output bundles (no links) - use local time storage to check per-field modified+valid
+    if (vd.meta && vd.meta->field_count > 0 && vd.time_data) {
+        auto time_view = make_time_view(vd);
+        auto time_tuple = time_view.as_tuple();
+        auto value_view = make_value_view(vd);
+        auto value_tuple = value_view.as_tuple();
+
+        // Bundle-level time is the current engine time (set during from_python)
+        engine_time_t bundle_time = time_tuple.at(0).as<engine_time_t>();
+
+        nb::dict result;
+        for (size_t i = 0; i < vd.meta->field_count; ++i) {
+            const TSBFieldInfo& field_info = vd.meta->fields[i];
+            const TSMeta* field_meta = field_info.ts_type;
+            const char* field_name = field_info.name;
+
+            // Check if this field is valid and modified
+            value::View field_time = time_tuple.at(i + 1);
+            if (!field_time) continue;
+
+            engine_time_t ft;
+            if (field_meta && (field_meta->is_collection() || field_meta->kind == TSKind::TSB)) {
+                ft = field_time.as_tuple().at(0).as<engine_time_t>();
+            } else {
+                ft = *static_cast<const engine_time_t*>(field_time.data());
+            }
+
+            bool field_valid = (ft != MIN_ST);
+            bool field_modified = (ft >= bundle_time);
+
+            if (field_valid && field_modified) {
+                value::View field_value = value_tuple.at(i);
+                if (field_value.valid()) {
+                    result[field_name] = field_value.to_python();
+                }
+            }
+        }
+        return result;
+    }
+
     return to_python(vd);
 }
 
@@ -843,17 +1041,51 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         throw std::runtime_error("from_python on invalid ViewData");
     }
 
+    // Determine which fields are present in src (dict keys or object attributes).
+    // Only these fields should have their time stamped and observers notified,
+    // matching Python behavior where only dict keys trigger per-field updates.
+    std::vector<bool> field_modified;
+    if (vd.meta && vd.meta->field_count > 0) {
+        field_modified.resize(vd.meta->field_count, false);
+
+        if (nb::isinstance<nb::dict>(src)) {
+            nb::dict d = nb::cast<nb::dict>(src);
+            for (size_t i = 0; i < vd.meta->field_count; ++i) {
+                const char* name = vd.meta->fields[i].name;
+                if (name && d.contains(name)) {
+                    nb::object val = d[name];
+                    if (!val.is_none()) {
+                        field_modified[i] = true;
+                    }
+                }
+            }
+        } else {
+            // CompoundScalar or other object: check attributes
+            for (size_t i = 0; i < vd.meta->field_count; ++i) {
+                const char* name = vd.meta->fields[i].name;
+                if (name && nb::hasattr(src, name)) {
+                    nb::object val = nb::getattr(src, name);
+                    if (!val.is_none()) {
+                        field_modified[i] = true;
+                    }
+                }
+            }
+        }
+    }
+
     auto dst = make_value_view(vd);
     dst.from_python(src);
 
+    bool any_modified = false;
     auto time_view = make_time_view(vd);
-    time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
 
-    // Also update field-level times (important for valid() checks on linked fields)
-    // This matches Python behavior where setting tsb.value sets each field individually
+    // Only update field-level times for fields actually present in src
     if (vd.meta) {
         auto time_tuple = time_view.as_tuple();
         for (size_t i = 0; i < vd.meta->field_count; ++i) {
+            if (!field_modified[i]) continue;
+            any_modified = true;
+
             value::View field_time = time_tuple.at(i + 1);  // +1 for bundle-level time
             if (field_time) {
                 const TSMeta* field_meta = vd.meta->fields[i].ts_type;
@@ -868,16 +1100,23 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         }
     }
 
-    // Notify bundle-level observers
-    if (vd.observer_data) {
+    // Only stamp bundle-level time if any field was actually modified
+    if (any_modified) {
+        time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
+    }
+
+    // Notify bundle-level observers if any field was modified
+    if (any_modified && vd.observer_data) {
         auto observer_view = make_observer_view(vd);
         auto* observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
         observers->notify_modified(current_time);
 
-        // Also notify field-level observers (for subscribers bound to individual fields)
+        // Only notify field-level observers for fields that were actually modified
         if (vd.meta) {
             auto observer_tuple = observer_view.as_tuple();
             for (size_t i = 0; i < vd.meta->field_count; ++i) {
+                if (!field_modified[i]) continue;
+
                 value::View field_obs = observer_tuple.at(i + 1);  // +1 for bundle-level observer
                 if (field_obs) {
                     const TSMeta* field_meta = vd.meta->fields[i].ts_type;
@@ -907,26 +1146,16 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
 
     const TSMeta* field_meta = vd.meta->fields[index].ts_type;
 
-    // Check if this scalar field is linked (composite fields have nested link storage)
-    if (field_meta && field_meta->is_scalar_ts()) {
-        if (vd.uses_link_target) {
-            // TSInput: Check LinkTarget
-            auto* lt = get_scalar_field_link_target(vd, index);
-            if (lt && lt->valid()) {
-                // Field is linked - return TSView pointing to target
-                ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(index));
-                return TSView(target_vd, current_time);
-            }
-        } else {
-            // TSOutput: Check REFLink
-            auto* rl = get_scalar_field_ref_link(vd, index);
-            if (rl && rl->target().valid()) {
-                // Field is linked - return TSView pointing to target
-                // Set sampled flag if REF was rebound at current_time OR if parent was already sampled
-                bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
-                ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index), is_sampled);
-                return TSView(target_vd, current_time);
-            }
+    // For TSOutput: follow REFLink early (REFLink navigation is different from scalar ops)
+    // For TSInput: do NOT follow LinkTarget early - scalar_ops handle it lazily
+    //             (preserves link_data so is_bound() works correctly)
+    if (field_meta && field_meta->is_scalar_ts() && !vd.uses_link_target) {
+        // TSOutput: Check REFLink
+        auto* rl = get_scalar_field_ref_link(vd, index);
+        if (rl && rl->target().valid()) {
+            bool is_sampled = vd.sampled || is_ref_sampled(*rl, current_time);
+            ViewData target_vd = make_view_data_from_link(*rl, vd.path.child(index), is_sampled);
+            return TSView(target_vd, current_time);
         }
     }
 
@@ -1420,9 +1649,38 @@ nb::object to_python(const ViewData& vd) {
     }
     // Check time-series validity first (has value been set?)
     if (!valid(vd)) return nb::none();
-    auto v = make_value_view(vd);
-    if (!v.valid()) return nb::none();
-    return v.to_python();
+
+    // Build tuple with None for invalid elements, matching Python:
+    // tuple(ts.value if ts.valid else None for ts in self._ts_values)
+    if (!vd.meta || !vd.meta->element_ts) {
+        auto v = make_value_view(vd);
+        if (!v.valid()) return nb::none();
+        return v.to_python();
+    }
+
+    size_t count = 0;
+    if (vd.meta->fixed_size > 0) {
+        count = static_cast<size_t>(vd.meta->fixed_size);
+    } else if (vd.value_data) {
+        auto value_view = make_value_view(vd);
+        if (value_view.valid()) {
+            count = value_view.as_list().size();
+        }
+    }
+
+    nb::tuple result = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(count)));
+    for (size_t i = 0; i < count; ++i) {
+        TSView child = child_at(vd, i, MIN_ST);
+        nb::object elem;
+        if (child.view_data().valid() && child.view_data().ops &&
+            child.view_data().ops->valid(child.view_data())) {
+            elem = child.view_data().ops->to_python(child.view_data());
+        } else {
+            elem = nb::none();
+        }
+        PyTuple_SET_ITEM(result.ptr(), static_cast<Py_ssize_t>(i), elem.release().ptr());
+    }
+    return result;
 }
 
 nb::object delta_to_python(const ViewData& vd) {
@@ -1452,33 +1710,44 @@ nb::object delta_to_python(const ViewData& vd) {
         return nb::none();
     }
 
-    // Get container time - used as reference but may be MIN_DT for per-element bound inputs
+    // Get container time and find max element time.
+    // For inputs with per-element binding, container_time may be stale (from the input's
+    // local storage rather than the output's). Use max of container_time and all element
+    // times to determine the current tick threshold.
     engine_time_t container_time = last_modified_time(vd);
+    engine_time_t max_elem_time = MIN_DT;
 
-    // Build dict of modified elements
-    // For per-element binding, container_time may be MIN_DT, so we check each element's validity
+    // First pass: collect element views and find the max time
+    struct ElemInfo { TSView child; engine_time_t time; };
+    std::vector<ElemInfo> elems;
+    elems.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        TSView child = child_at(vd, i, MIN_ST);
+        engine_time_t elem_time = MIN_DT;
+        if (child.view_data().valid() && child.view_data().ops) {
+            elem_time = child.view_data().ops->last_modified_time(child.view_data());
+            if (elem_time > max_elem_time) {
+                max_elem_time = elem_time;
+            }
+        }
+        elems.push_back({std::move(child), elem_time});
+    }
+
+    // Use max of container_time and max_elem_time as the current tick threshold.
+    // MIN_DT (epoch) means "never modified" — if no element was ever modified, return None.
+    engine_time_t threshold = std::max(container_time, max_elem_time);
+    if (threshold == MIN_DT) {
+        return nb::none();
+    }
+
+    // Second pass: build dict of modified elements (time >= threshold)
     nb::dict result;
     for (size_t i = 0; i < count; ++i) {
-        // Use MIN_ST as current_time to get element regardless of sampling
-        TSView child = child_at(vd, i, MIN_ST);
-        if (child.view_data().valid() && child.view_data().ops) {
-            engine_time_t elem_time = child.view_data().ops->last_modified_time(child.view_data());
-            // Include element if:
-            // 1. Container time is valid AND element was modified at or after container time, OR
-            // 2. Container time is MIN_DT (per-element binding) AND element has been modified (time > MIN_DT)
-            bool include_element = false;
-            if (container_time != MIN_DT) {
-                include_element = (elem_time >= container_time);
-            } else {
-                // Per-element binding case - include any element that has been modified
-                include_element = (elem_time > MIN_DT);
-            }
-
-            if (include_element) {
-                nb::object elem_delta = child.view_data().ops->delta_to_python(child.view_data());
-                if (!elem_delta.is_none()) {
-                    result[nb::int_(i)] = elem_delta;
-                }
+        auto& info = elems[i];
+        if (info.child.view_data().valid() && info.child.view_data().ops && info.time >= threshold) {
+            nb::object elem_delta = info.child.view_data().ops->delta_to_python(info.child.view_data());
+            if (!elem_delta.is_none()) {
+                result[nb::int_(i)] = elem_delta;
             }
         }
     }
@@ -1956,35 +2225,49 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 
     // Manage subscription based on link type
     if (vd.link_data) {
-        // Fixed-size TSL uses per-element binding (fixed_list[REFLink])
-        if (vd.meta->fixed_size > 0) {
-            auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
-            if (link_schema) {
-                value::View link_view(vd.link_data, link_schema);
-                auto link_list = link_view.as_list();
+        void* observer_data = nullptr;
 
-                for (size_t i = 0; i < link_list.size() && i < static_cast<size_t>(vd.meta->fixed_size); ++i) {
-                    auto* rl = static_cast<REFLink*>(link_list.at(i).data());
-                    if (rl && rl->target().is_linked && rl->target().observer_data) {
-                        auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
-                        if (active) {
-                            observers->add_observer(input);
-                        } else {
-                            observers->remove_observer(input);
+        if (vd.uses_link_target) {
+            // TSInput: Get observer from LinkTarget (bound output's observer)
+            auto* lt = get_link_target(vd.link_data);
+            if (lt && lt->is_linked) {
+                observer_data = lt->observer_data;
+            }
+        } else {
+            // TSOutput: Fixed-size TSL uses per-element binding (fixed_list[REFLink])
+            if (vd.meta->fixed_size > 0) {
+                auto* link_schema = TSMetaSchemaCache::instance().get_link_schema(vd.meta);
+                if (link_schema) {
+                    value::View link_view(vd.link_data, link_schema);
+                    auto link_list = link_view.as_list();
+
+                    for (size_t i = 0; i < link_list.size() && i < static_cast<size_t>(vd.meta->fixed_size); ++i) {
+                        auto* rl = static_cast<REFLink*>(link_list.at(i).data());
+                        if (rl && rl->target().is_linked && rl->target().observer_data) {
+                            auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+                            if (active) {
+                                observers->add_observer(input);
+                            } else {
+                                observers->remove_observer(input);
+                            }
                         }
                     }
                 }
-            }
-        } else {
-            // Dynamic TSL uses collection-level binding (single REFLink)
-            auto* rl = get_ref_link(vd.link_data);
-            if (rl && rl->target().is_linked && rl->target().observer_data) {
-                auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
-                if (active) {
-                    observers->add_observer(input);
-                } else {
-                    observers->remove_observer(input);
+            } else {
+                // Dynamic TSL uses collection-level binding (single REFLink)
+                auto* rl = get_ref_link(vd.link_data);
+                if (rl && rl->target().is_linked) {
+                    observer_data = rl->target().observer_data;
                 }
+            }
+        }
+
+        if (observer_data) {
+            auto* observers = static_cast<ObserverList*>(observer_data);
+            if (active) {
+                observers->add_observer(input);
+            } else {
+                observers->remove_observer(input);
             }
         }
     }
@@ -2004,37 +2287,92 @@ namespace set_ops {
 // - observer is ObserverList
 // - delta is SetDelta
 
+// Helper: Check if this TSS is linked via REFLink (TSOutput)
+inline const REFLink* get_active_link(const ViewData& vd) {
+    if (vd.uses_link_target) return nullptr;
+    auto* rl = get_ref_link(vd.link_data);
+    return (rl && rl->target().valid()) ? rl : nullptr;
+}
+
+// Helper: Check if this TSS is linked via LinkTarget (TSInput)
+inline const LinkTarget* get_active_link_target(const ViewData& vd) {
+    if (!vd.uses_link_target) return nullptr;
+    auto* lt = get_link_target(vd.link_data);
+    return (lt && lt->valid()) ? lt : nullptr;
+}
+
 engine_time_t last_modified_time(const ViewData& vd) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
+    }
     if (!vd.time_data) return MIN_ST;
     return *static_cast<engine_time_t*>(vd.time_data);
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->modified(make_view_data_from_link_target(*lt, vd.path), current_time);
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->modified(make_view_data_from_link(*rl, vd.path), current_time);
+    }
     return last_modified_time(vd) >= current_time;
 }
 
 bool valid(const ViewData& vd) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->valid(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->valid(make_view_data_from_link(*rl, vd.path));
+    }
     return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->all_valid(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
+    }
     return valid(vd);
 }
 
 bool sampled(const ViewData& vd) {
-    // Return the sampled flag from ViewData
     return vd.sampled;
 }
 
 value::View value(const ViewData& vd) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->value(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path));
+    }
     return make_value_view(vd);
 }
 
 value::View delta_value(const ViewData& vd) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->delta_value(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path));
+    }
     return make_delta_view(vd);
 }
 
 bool has_delta(const ViewData& vd) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->has_delta(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path));
+    }
     return vd.delta_data != nullptr;
 }
 
@@ -2186,18 +2524,58 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
 }
 
 void bind(ViewData& vd, const ViewData& target) {
-    // TSS doesn't support binding (set elements are values, not time-series)
-    throw std::runtime_error("bind not supported for TSS types");
+    // TSS binding is identical to scalar - store target in link storage
+    if (!vd.link_data) {
+        throw std::runtime_error("bind on set without link data");
+    }
+
+    if (vd.uses_link_target) {
+        auto* lt = get_link_target(vd.link_data);
+        if (!lt) {
+            throw std::runtime_error("bind on TSS input with invalid link data");
+        }
+        store_to_link_target(*lt, target);
+    } else {
+        auto* rl = get_ref_link(vd.link_data);
+        if (!rl) {
+            throw std::runtime_error("bind on TSS with invalid link data");
+        }
+
+        if (target.meta && target.meta->kind == TSKind::REF) {
+            TSView target_view(target, MIN_ST);
+            rl->bind_to_ref(target_view, MIN_ST);
+        } else {
+            store_link_target(*rl, target);
+        }
+    }
 }
 
 void unbind(ViewData& vd) {
-    // TSS doesn't support unbinding
-    throw std::runtime_error("unbind not supported for TSS types");
+    if (!vd.link_data) return;
+
+    if (vd.uses_link_target) {
+        auto* lt = get_link_target(vd.link_data);
+        if (lt) {
+            lt->clear();
+        }
+    } else {
+        auto* rl = get_ref_link(vd.link_data);
+        if (rl) {
+            rl->unbind();
+        }
+    }
 }
 
 bool is_bound(const ViewData& vd) {
-    // TSS is never bound
-    return false;
+    if (!vd.link_data) return false;
+
+    if (vd.uses_link_target) {
+        auto* lt = get_link_target(vd.link_data);
+        return lt && lt->is_linked;
+    } else {
+        auto* rl = get_ref_link(vd.link_data);
+        return rl && rl->target().is_linked;
+    }
 }
 
 // ========== Set-Specific Mutation Operations ==========
@@ -2281,7 +2659,33 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     // TSS active schema is just a bool (set elements are values, not time-series)
     *static_cast<bool*>(active_view.data()) = active;
 
-    // TSS doesn't support binding, so no subscription management needed
+    // Manage subscription for bound TSS
+    if (vd.link_data) {
+        void* observer_data = nullptr;
+
+        if (vd.uses_link_target) {
+            // TSInput: Get observer from LinkTarget (bound output's observer)
+            auto* lt = get_link_target(vd.link_data);
+            if (lt && lt->is_linked) {
+                observer_data = lt->observer_data;
+            }
+        } else {
+            // TSOutput: Get observer from REFLink's target
+            auto* rl = get_ref_link(vd.link_data);
+            if (rl && rl->target().is_linked) {
+                observer_data = rl->target().observer_data;
+            }
+        }
+
+        if (observer_data) {
+            auto* observers = static_cast<ObserverList*>(observer_data);
+            if (active) {
+                observers->add_observer(input);
+            } else {
+                observers->remove_observer(input);
+            }
+        }
+    }
 }
 
 } // namespace set_ops
@@ -2295,6 +2699,10 @@ namespace dict_ops {
 // Forward declarations for functions used by all_valid
 TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time);
 size_t child_count(const ViewData& vd);
+
+// Forward declarations for functions used by from_python
+bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_time);
+TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time);
 
 // For TSD types:
 // - value is map type
@@ -2320,7 +2728,11 @@ inline const LinkTarget* get_active_link_target(const ViewData& vd) {
 }
 
 engine_time_t last_modified_time(const ViewData& vd) {
-    // If linked, delegate to target
+    // If linked via LinkTarget (TSInput), delegate to target
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
+    }
+    // If linked via REFLink (TSOutput), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
     }
@@ -2330,7 +2742,11 @@ engine_time_t last_modified_time(const ViewData& vd) {
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
-    // If linked, delegate to target
+    // If linked via LinkTarget (TSInput), delegate to target
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->modified(make_view_data_from_link_target(*lt, vd.path), current_time);
+    }
+    // If linked via REFLink (TSOutput), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->modified(make_view_data_from_link(*rl, vd.path), current_time);
     }
@@ -2338,7 +2754,11 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 }
 
 bool valid(const ViewData& vd) {
-    // If linked, delegate to target
+    // If linked via LinkTarget (TSInput), delegate to target
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->valid(make_view_data_from_link_target(*lt, vd.path));
+    }
+    // If linked via REFLink (TSOutput), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->valid(make_view_data_from_link(*rl, vd.path));
     }
@@ -2346,7 +2766,11 @@ bool valid(const ViewData& vd) {
 }
 
 bool all_valid(const ViewData& vd) {
-    // If linked, delegate to target
+    // If linked via LinkTarget (TSInput), delegate to target
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->all_valid(make_view_data_from_link_target(*lt, vd.path));
+    }
+    // If linked via REFLink (TSOutput), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
     }
@@ -2545,7 +2969,11 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
-    // If linked, delegate to target
+    // If linked via LinkTarget (TSInput), delegate to target
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
+    }
+    // If linked via REFLink (TSOutput), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
     }
@@ -2557,15 +2985,79 @@ nb::object to_python(const ViewData& vd) {
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    // If linked, delegate to target
+    // If linked via LinkTarget (TSInput), delegate to target
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
+    }
+    // If linked via REFLink (TSOutput), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
     }
     // Check time-series validity first (has value been set?)
     if (!valid(vd)) return nb::none();
-    auto d = make_delta_view(vd);
-    if (!d.valid()) return nb::none();
-    return d.to_python();
+
+    // TSD delta_value: frozendict of modified+valid elements' delta_values
+    // Python: frozendict(chain(((k, v.delta_value) for k,v in items if v.modified and v.valid),
+    //                          ((k, REMOVE) for k in removed_keys())))
+    if (!vd.value_data || !vd.time_data || !vd.meta || !vd.meta->element_ts) {
+        return nb::none();
+    }
+
+    auto* storage = static_cast<value::MapStorage*>(vd.value_data);
+    auto time_view = make_time_view(vd);
+    auto time_list = time_view.as_tuple().at(1).as_list();
+    engine_time_t container_time = time_view.as_tuple().at(0).as<engine_time_t>();
+
+    const auto* key_tm = storage->key_type();
+    const auto* val_tm = storage->value_type();
+    const TSMeta* elem_meta = vd.meta->element_ts;
+
+    nb::dict result;
+
+    // Iterate all elements and include modified+valid ones
+    // An element is modified if elem_time >= container_time
+    // (container_time is set to current_time when any element is added/modified)
+    auto& key_set = storage->key_set();
+    auto* index_set = key_set.index_set();
+    if (index_set) {
+        for (auto slot : *index_set) {
+            if (slot < time_list.size()) {
+                engine_time_t elem_time = time_list.at(slot).as<engine_time_t>();
+                if (elem_time >= container_time) {
+                    const void* key_data = key_set.key_at_slot(slot);
+                    void* val_data = storage->value_at_slot(slot);
+
+                    value::View key_view(key_data, key_tm);
+                    value::View val_view(val_data, val_tm);
+
+                    result[key_view.to_python()] = val_view.to_python();
+                }
+            }
+        }
+    }
+
+    // Include REMOVE markers for removed keys (from MapDelta)
+    if (vd.delta_data) {
+        auto* map_delta = static_cast<MapDelta*>(vd.delta_data);
+        const auto& removed_slots = map_delta->removed();
+        if (!removed_slots.empty()) {
+            // Import REMOVE sentinel
+            nb::module_ tsd_mod = nb::module_::import_("hgraph._types._tsd_type");
+            nb::object remove_sentinel = tsd_mod.attr("REMOVE");
+
+            for (auto slot : removed_slots) {
+                // Key data remains accessible at the slot during the current tick
+                const void* key_data = key_set.key_at_slot(slot);
+                if (key_data) {
+                    value::View key_view(key_data, key_tm);
+                    result[key_view.to_python()] = remove_sentinel;
+                }
+            }
+        }
+    }
+
+    nb::module_ frozendict_mod = nb::module_::import_("frozendict");
+    return frozendict_mod.attr("frozendict")(result);
 }
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
@@ -2578,20 +3070,105 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         }
     }
 
-    if (!vd.value_data || !vd.time_data) {
-        throw std::runtime_error("from_python on invalid ViewData");
+    if (src.is_none()) return;
+
+    if (!vd.value_data || !vd.time_data || !vd.meta) {
+        throw std::runtime_error("dict from_python on invalid ViewData");
     }
 
-    auto dst = make_value_view(vd);
-    dst.from_python(src);
+    // Clear delta if this is a new tick (lazy clearing)
+    // The delta may contain stale data from the previous tick which would
+    // cause incorrect add/remove cancellation in SetDelta::on_erase
+    if (vd.delta_data) {
+        auto time_view = make_time_view(vd);
+        engine_time_t container_time = time_view.as_tuple().at(0).as<engine_time_t>();
+        if (current_time > container_time) {
+            // New tick - clear the delta
+            auto* map_delta = static_cast<MapDelta*>(vd.delta_data);
+            map_delta->clear();
+        }
+    }
 
-    auto time_view = make_time_view(vd);
-    time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
+    // Get key and element value TypeMetas from the TSD meta
+    const auto* key_tm = vd.meta->key_type;
+    const auto* elem_ts = vd.meta->element_ts;
+    if (!key_tm || !elem_ts || !elem_ts->value_type) {
+        throw std::runtime_error("dict from_python: missing key_type or element value_type in meta");
+    }
+    const auto* val_tm = elem_ts->value_type;
 
-    if (vd.observer_data) {
-        auto observer_view = make_observer_view(vd);
-        auto* observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
-        observers->notify_modified(current_time);
+    // Python: "if not self.valid and not v: self.key_set.mark_modified()"
+    // Even empty dicts must mark the TSD as modified when it hasn't been set yet.
+    auto py_len = nb::len(src);
+    if (py_len == 0) {
+        auto time_view = make_time_view(vd);
+        engine_time_t container_time = time_view.as_tuple().at(0).as<engine_time_t>();
+        // Not valid: container_time < MIN_ST (default-init is 0/epoch, MIN_ST is 1)
+        if (container_time < MIN_ST) {
+            // First tick with empty dict - stamp container time to mark as modified
+            time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
+            // Notify observers
+            auto obs_view = make_observer_view(vd);
+            auto* obs_list = static_cast<ObserverList*>(obs_view.as_tuple().at(0).data());
+            if (obs_list) {
+                obs_list->notify_modified(current_time);
+            }
+        }
+        return;
+    }
+
+    // Iterate Python dict and use dict_set/dict_remove for each entry
+    // This matches Python's value setter which calls get_or_create(k).value = v_
+    auto items = src.attr("items")();
+    for (auto item : items) {
+        auto kv = nb::cast<nb::tuple>(item);
+        nb::object py_key = kv[0];
+        nb::object py_val = kv[1];
+
+        // Skip None values (matches Python behavior)
+        if (py_val.is_none()) continue;
+
+        // Check for REMOVE/REMOVE_IF_EXISTS sentinel
+        // Use hasattr("name") + class name check for robustness
+        bool is_sentinel = false;
+        std::string sentinel_name_str;
+        if (nb::hasattr(py_val, "name")) {
+            nb::object cls_name = py_val.type().attr("__name__");
+            std::string_view cls_sv(nb::cast<const char*>(cls_name));
+            if (cls_sv == "Sentinel") {
+                is_sentinel = true;
+                nb::object sname = py_val.attr("name");
+                sentinel_name_str = nb::cast<std::string>(sname);
+            }
+        }
+        if (is_sentinel) {
+            std::string_view name_sv(sentinel_name_str);
+
+            // Convert Python key to Value
+            value::Value<> key_val(key_tm);
+            key_val.view().from_python(py_key);
+
+            if (name_sv == "REMOVE_IF_EXISTS") {
+                // Only remove if key exists - don't throw on missing
+                auto* storage = static_cast<value::MapStorage*>(vd.value_data);
+                if (storage->contains(key_val.view().data())) {
+                    dict_remove(vd, key_val.view(), current_time);
+                }
+            } else {
+                // REMOVE - remove the key
+                dict_remove(vd, key_val.view(), current_time);
+            }
+            continue;
+        }
+
+        // Normal value - convert key and value, then use dict_set
+        value::Value<> key_val(key_tm);
+        key_val.view().from_python(py_key);
+
+        value::Value<> elem_val(val_tm);
+        elem_val.view().from_python(py_val);
+
+        dict_set(vd, key_val.view(), elem_val.view(), current_time);
     }
 }
 
@@ -2977,6 +3554,8 @@ TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, 
         if (value_type && value_type->ops && value_type->ops->copy_assign) {
             value_type->ops->copy_assign(val_ptr, value.data(), value_type);
         }
+        // Notify MapDelta of the update (so modified_keys/modified_values work)
+        storage->key_set().observer_dispatcher().notify_update(slot);
     }
 
     // Update element timestamp
@@ -3048,9 +3627,24 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 
     // Manage subscription for collection-level link
     if (vd.link_data) {
-        auto* rl = get_ref_link(vd.link_data);
-        if (rl && rl->target().is_linked && rl->target().observer_data) {
-            auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+        void* observer_data = nullptr;
+
+        if (vd.uses_link_target) {
+            // TSInput: Get observer from LinkTarget (bound output's observer)
+            auto* lt = get_link_target(vd.link_data);
+            if (lt && lt->is_linked) {
+                observer_data = lt->observer_data;
+            }
+        } else {
+            // TSOutput: Get observer from REFLink's target
+            auto* rl = get_ref_link(vd.link_data);
+            if (rl && rl->target().is_linked) {
+                observer_data = rl->target().observer_data;
+            }
+        }
+
+        if (observer_data) {
+            auto* observers = static_cast<ObserverList*>(observer_data);
             if (active) {
                 observers->add_observer(input);
             } else {
@@ -3089,7 +3683,18 @@ struct FixedWindowData {
 // time_data layout: [engine_time_t last_modified, size_t user_size, size_t min_size, bool has_removed, vector<times>...]
 // For now, we'll work with the existing storage structure directly
 
+// Fixed window TSValue storage is a plain scalar (meta->value_type),
+// NOT a CyclicBuffer. The ring buffer semantics are handled at a higher level.
+// These functions mirror the scalar_ops implementations with link delegation.
+
 engine_time_t last_modified_time(const ViewData& vd) {
+    // If linked via LinkTarget (TSInput), delegate to target
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
+    }
     if (!vd.time_data) return MIN_ST;
     return *static_cast<engine_time_t*>(vd.time_data);
 }
@@ -3103,19 +3708,11 @@ bool valid(const ViewData& vd) {
 }
 
 bool all_valid(const ViewData& vd) {
-    if (!valid(vd)) return false;
-    if (!vd.value_data || !vd.meta) return false;
-
-    auto* storage = static_cast<const value::CyclicBufferStorage*>(vd.value_data);
-    // For fixed windows, size params are in window.tick
-    size_t min_size = vd.meta->window.tick.min_period;
-    size_t user_size = vd.meta->window.tick.period;
-    size_t current_len = std::min(storage->size, user_size);
-    return current_len >= min_size;
+    // TSW storage is plain scalar. all_valid just means valid for now.
+    return valid(vd);
 }
 
 bool sampled(const ViewData& vd) {
-    // Return the sampled flag from ViewData
     return vd.sampled;
 }
 
@@ -3124,7 +3721,6 @@ value::View value(const ViewData& vd) {
 }
 
 value::View delta_value(const ViewData& vd) {
-    // TSW doesn't have standard delta tracking
     return value::View{};
 }
 
@@ -3133,38 +3729,81 @@ bool has_delta(const ViewData& vd) {
 }
 
 void set_value(ViewData& vd, const value::View& src, engine_time_t current_time) {
-    throw std::runtime_error("set_value not supported for fixed window - use apply_delta");
+    if (!vd.value_data || !vd.time_data) {
+        throw std::runtime_error("set_value on invalid fixed window ViewData");
+    }
+    auto dst = make_value_view(vd);
+    dst.copy_from(src);
+    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+    if (vd.observer_data) {
+        auto* observers = static_cast<ObserverList*>(vd.observer_data);
+        observers->notify_modified(current_time);
+    }
 }
 
 void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_time) {
-    // Would push to the cyclic buffer
-    throw std::runtime_error("apply_delta for fixed window not yet implemented in view mode");
+    set_value(vd, delta, current_time);
 }
 
 void invalidate(ViewData& vd) {
     if (vd.time_data) {
         *static_cast<engine_time_t*>(vd.time_data) = MIN_ST;
     }
-    if (vd.value_data) {
-        auto* storage = static_cast<value::CyclicBufferStorage*>(vd.value_data);
-        storage->size = 0;
-        storage->head = 0;
-    }
 }
 
 nb::object to_python(const ViewData& vd) {
-    if (!all_valid(vd)) return nb::none();
+    // If linked via LinkTarget (TSInput), delegate to target
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
+    }
+    // If linked via REFLink (TSOutput), delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
+    }
+
+    if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
     return v.to_python();
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    return nb::none();
+    // If linked via LinkTarget (TSInput), delegate to target
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
+    }
+    // If linked via REFLink (TSOutput), delegate to target
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
+    }
+
+    if (!valid(vd)) return nb::none();
+    auto v = make_value_view(vd);
+    if (!v.valid()) return nb::none();
+    return v.to_python();
 }
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
-    throw std::runtime_error("from_python not supported for fixed window - use apply_delta");
+    // TSW from_python: set the scalar value and mark modified.
+    // The ring buffer semantics are managed by the Python wrapper (apply_result).
+    // TSValue storage for TSW is a plain scalar (meta->value_type), not a CyclicBuffer.
+    if (src.is_none()) return;
+    if (!vd.value_data || !vd.time_data) {
+        throw std::runtime_error("from_python on invalid fixed window ViewData");
+    }
+
+    // Set value from Python (scalar element)
+    auto dst = make_value_view(vd);
+    dst.from_python(src);
+
+    // Update last_modified_time
+    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+
+    // Notify observers
+    if (vd.observer_data) {
+        auto* observers = static_cast<ObserverList*>(vd.observer_data);
+        observers->notify_modified(current_time);
+    }
 }
 
 TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
@@ -3196,59 +3835,88 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
 }
 
 void bind(ViewData& vd, const ViewData& target) {
-    throw std::runtime_error("bind not supported for fixed window types");
+    // TSW binding is identical to scalar TS binding - store target in link storage.
+    if (!vd.link_data) {
+        throw std::runtime_error("bind on fixed window without link data");
+    }
+
+    if (vd.uses_link_target) {
+        // TSInput: Store directly in LinkTarget
+        auto* lt = get_link_target(vd.link_data);
+        if (!lt) {
+            throw std::runtime_error("bind on TSW input with invalid link data");
+        }
+        store_to_link_target(*lt, target);
+    } else {
+        // TSOutput: Use REFLink with possible REF dereferencing
+        auto* rl = get_ref_link(vd.link_data);
+        if (!rl) {
+            throw std::runtime_error("bind on fixed window with invalid link data");
+        }
+
+        if (target.meta && target.meta->kind == TSKind::REF) {
+            TSView target_view(target, MIN_ST);
+            rl->bind_to_ref(target_view, MIN_ST);
+        } else {
+            store_link_target(*rl, target);
+        }
+    }
 }
 
 void unbind(ViewData& vd) {
-    throw std::runtime_error("unbind not supported for fixed window types");
+    if (!vd.link_data) return;
+
+    if (vd.uses_link_target) {
+        auto* lt = get_link_target(vd.link_data);
+        if (lt) {
+            lt->clear();
+        }
+    } else {
+        auto* rl = get_ref_link(vd.link_data);
+        if (rl) {
+            rl->unbind();
+        }
+    }
 }
 
 bool is_bound(const ViewData& vd) {
-    return false;
+    if (!vd.link_data) return false;
+
+    if (vd.uses_link_target) {
+        auto* lt = get_link_target(vd.link_data);
+        return lt && lt->is_linked;
+    } else {
+        auto* rl = get_ref_link(vd.link_data);
+        return rl && rl->target().is_linked;
+    }
 }
 
 // Window-specific operations
+// Note: TSW storage is currently plain scalar, not CyclicBuffer.
+// These stubs return safe defaults; full ring-buffer tracking is at the Python wrapper level.
 
 const engine_time_t* window_value_times(const ViewData& vd) {
-    if (!vd.delta_data) return nullptr;  // times stored in delta_data for windows
-    auto* times = static_cast<const std::vector<engine_time_t>*>(vd.delta_data);
-    return times->data();
+    return nullptr;
 }
 
 size_t window_value_times_count(const ViewData& vd) {
-    if (!vd.value_data || !vd.meta) return 0;
-    auto* storage = static_cast<const value::CyclicBufferStorage*>(vd.value_data);
-    return std::min(storage->size, vd.meta->window.tick.period);
+    return 0;
 }
 
 engine_time_t window_first_modified_time(const ViewData& vd) {
-    if (!vd.value_data || !vd.delta_data) return MIN_ST;
-    auto* storage = static_cast<const value::CyclicBufferStorage*>(vd.value_data);
-    if (storage->size == 0) return MIN_ST;
-    auto* times = static_cast<const std::vector<engine_time_t>*>(vd.delta_data);
-    return (*times)[storage->head];
+    return last_modified_time(vd);
 }
 
 bool window_has_removed_value(const ViewData& vd) {
-    if (!vd.link_data) return false;  // has_removed flag stored in link_data for windows
-    return *static_cast<const bool*>(vd.link_data);
+    return false;
 }
 
 value::View window_removed_value(const ViewData& vd) {
-    if (!window_has_removed_value(vd)) return value::View{};
-    if (!vd.value_data || !vd.meta) return value::View{};
-
-    auto* storage = static_cast<const value::CyclicBufferStorage*>(vd.value_data);
-    size_t capacity = vd.meta->window.tick.period + 1;
-    // Removed value is at (head - 1 + capacity) % capacity
-    size_t removed_pos = (storage->head + capacity - 1) % capacity;
-    size_t elem_size = vd.meta->value_type->element_type->size;
-    void* elem_ptr = static_cast<char*>(storage->data) + removed_pos * elem_size;
-    return value::View(elem_ptr, vd.meta->value_type->element_type);
+    return value::View{};
 }
 
 size_t window_removed_value_count(const ViewData& vd) {
-    return window_has_removed_value(vd) ? 1 : 0;
+    return 0;
 }
 
 size_t window_size(const ViewData& vd) {
@@ -3260,22 +3928,33 @@ size_t window_min_size(const ViewData& vd) {
 }
 
 size_t window_length(const ViewData& vd) {
-    if (!vd.value_data || !vd.meta) return 0;
-    auto* storage = static_cast<const value::CyclicBufferStorage*>(vd.value_data);
-    return std::min(storage->size, vd.meta->window.tick.period);
+    // With scalar storage, length is 0 or 1 depending on validity
+    return valid(vd) ? 1 : 0;
 }
 
 void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
     if (!active_view) return;
 
-    // TSW active schema is just a bool
     *static_cast<bool*>(active_view.data()) = active;
 
-    // Manage subscription for window input if bound
+    // Manage subscription - mirror scalar_ops::set_active
     if (vd.link_data) {
-        auto* rl = get_ref_link(vd.link_data);
-        if (rl && rl->target().is_linked && rl->target().observer_data) {
-            auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+        void* observer_data = nullptr;
+
+        if (vd.uses_link_target) {
+            auto* lt = get_link_target(vd.link_data);
+            if (lt && lt->is_linked) {
+                observer_data = lt->observer_data;
+            }
+        } else {
+            auto* rl = get_ref_link(vd.link_data);
+            if (rl && rl->target().is_linked) {
+                observer_data = rl->target().observer_data;
+            }
+        }
+
+        if (observer_data) {
+            auto* observers = static_cast<ObserverList*>(observer_data);
             if (active) {
                 observers->add_observer(input);
             } else {
@@ -3299,7 +3978,16 @@ namespace time_window_ops {
 // delta_data: std::deque<engine_time_t>* (timestamps)
 // link_data: std::vector<void*>* (removed values)
 
+// Time window TSValue storage is a plain scalar (meta->value_type),
+// NOT a deque. Same approach as fixed_window_ops.
+
 engine_time_t last_modified_time(const ViewData& vd) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
+    }
     if (!vd.time_data) return MIN_ST;
     return *static_cast<engine_time_t*>(vd.time_data);
 }
@@ -3313,18 +4001,10 @@ bool valid(const ViewData& vd) {
 }
 
 bool all_valid(const ViewData& vd) {
-    if (!valid(vd)) return false;
-    if (!vd.delta_data || !vd.meta) return false;
-
-    auto* times = static_cast<const std::deque<engine_time_t>*>(vd.delta_data);
-    if (times->empty()) return false;
-
-    engine_time_delta_t span = times->back() - times->front();
-    return span >= vd.meta->window.duration.min_time_range;
+    return valid(vd);
 }
 
 bool sampled(const ViewData& vd) {
-    // Return the sampled flag from ViewData
     return vd.sampled;
 }
 
@@ -3341,11 +4021,20 @@ bool has_delta(const ViewData& vd) {
 }
 
 void set_value(ViewData& vd, const value::View& src, engine_time_t current_time) {
-    throw std::runtime_error("set_value not supported for time window - use apply_delta");
+    if (!vd.value_data || !vd.time_data) {
+        throw std::runtime_error("set_value on invalid time window ViewData");
+    }
+    auto dst = make_value_view(vd);
+    dst.copy_from(src);
+    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+    if (vd.observer_data) {
+        auto* observers = static_cast<ObserverList*>(vd.observer_data);
+        observers->notify_modified(current_time);
+    }
 }
 
 void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_time) {
-    throw std::runtime_error("apply_delta for time window not yet implemented in view mode");
+    set_value(vd, delta, current_time);
 }
 
 void invalidate(ViewData& vd) {
@@ -3355,18 +4044,43 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
-    if (!all_valid(vd)) return nb::none();
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
+    }
+    if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
     return v.to_python();
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    return nb::none();
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
+    }
+    if (!valid(vd)) return nb::none();
+    auto v = make_value_view(vd);
+    if (!v.valid()) return nb::none();
+    return v.to_python();
 }
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
-    throw std::runtime_error("from_python not supported for time window - use apply_delta");
+    if (src.is_none()) return;
+    if (!vd.value_data || !vd.time_data) {
+        throw std::runtime_error("from_python on invalid time window ViewData");
+    }
+    auto dst = make_value_view(vd);
+    dst.from_python(src);
+    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+    if (vd.observer_data) {
+        auto* observers = static_cast<ObserverList*>(vd.observer_data);
+        observers->notify_modified(current_time);
+    }
 }
 
 TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
@@ -3397,60 +4111,89 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
 }
 
 void bind(ViewData& vd, const ViewData& target) {
-    throw std::runtime_error("bind not supported for time window types");
+    // TSW binding is identical to scalar TS binding - store target in link storage.
+    if (!vd.link_data) {
+        throw std::runtime_error("bind on time window without link data");
+    }
+
+    if (vd.uses_link_target) {
+        // TSInput: Store directly in LinkTarget
+        auto* lt = get_link_target(vd.link_data);
+        if (!lt) {
+            throw std::runtime_error("bind on TSW input with invalid link data");
+        }
+        store_to_link_target(*lt, target);
+    } else {
+        // TSOutput: Use REFLink with possible REF dereferencing
+        auto* rl = get_ref_link(vd.link_data);
+        if (!rl) {
+            throw std::runtime_error("bind on time window with invalid link data");
+        }
+
+        if (target.meta && target.meta->kind == TSKind::REF) {
+            TSView target_view(target, MIN_ST);
+            rl->bind_to_ref(target_view, MIN_ST);
+        } else {
+            store_link_target(*rl, target);
+        }
+    }
 }
 
 void unbind(ViewData& vd) {
-    throw std::runtime_error("unbind not supported for time window types");
+    if (!vd.link_data) return;
+
+    if (vd.uses_link_target) {
+        auto* lt = get_link_target(vd.link_data);
+        if (lt) {
+            lt->clear();
+        }
+    } else {
+        auto* rl = get_ref_link(vd.link_data);
+        if (rl) {
+            rl->unbind();
+        }
+    }
 }
 
 bool is_bound(const ViewData& vd) {
-    return false;
+    if (!vd.link_data) return false;
+
+    if (vd.uses_link_target) {
+        auto* lt = get_link_target(vd.link_data);
+        return lt && lt->is_linked;
+    } else {
+        auto* rl = get_ref_link(vd.link_data);
+        return rl && rl->target().is_linked;
+    }
 }
 
-// Window-specific operations
+// Window-specific operations - safe stubs for scalar storage
 
 const engine_time_t* window_value_times(const ViewData& vd) {
-    if (!vd.delta_data) return nullptr;
-    auto* times = static_cast<const std::deque<engine_time_t>*>(vd.delta_data);
-    // deque doesn't guarantee contiguous storage, but for typical use this works
-    // In practice, we'd need a wrapper that copies to a vector
-    return times->empty() ? nullptr : &(*times)[0];
+    return nullptr;
 }
 
 size_t window_value_times_count(const ViewData& vd) {
-    if (!vd.delta_data) return 0;
-    auto* times = static_cast<const std::deque<engine_time_t>*>(vd.delta_data);
-    return times->size();
+    return 0;
 }
 
 engine_time_t window_first_modified_time(const ViewData& vd) {
-    if (!vd.delta_data) return MIN_ST;
-    auto* times = static_cast<const std::deque<engine_time_t>*>(vd.delta_data);
-    return times->empty() ? MIN_ST : times->front();
+    return last_modified_time(vd);
 }
 
 bool window_has_removed_value(const ViewData& vd) {
-    if (!vd.link_data) return false;
-    auto* removed = static_cast<const std::vector<void*>*>(vd.link_data);
-    return !removed->empty();
+    return false;
 }
 
 value::View window_removed_value(const ViewData& vd) {
-    if (!window_has_removed_value(vd)) return value::View{};
-    // For time windows, removed_value returns array of removed values
-    // This would need a special view type for multiple elements
-    return value::View{};  // Placeholder - to_python handles this differently
+    return value::View{};
 }
 
 size_t window_removed_value_count(const ViewData& vd) {
-    if (!vd.link_data) return 0;
-    auto* removed = static_cast<const std::vector<void*>*>(vd.link_data);
-    return removed->size();
+    return 0;
 }
 
 size_t window_size(const ViewData& vd) {
-    // For time windows, size is duration in microseconds
     return vd.meta ? static_cast<size_t>(vd.meta->window.duration.time_range.count()) : 0;
 }
 
@@ -3459,22 +4202,31 @@ size_t window_min_size(const ViewData& vd) {
 }
 
 size_t window_length(const ViewData& vd) {
-    if (!vd.delta_data) return 0;
-    auto* times = static_cast<const std::deque<engine_time_t>*>(vd.delta_data);
-    return times->size();
+    return valid(vd) ? 1 : 0;
 }
 
 void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
     if (!active_view) return;
 
-    // TSW active schema is just a bool
     *static_cast<bool*>(active_view.data()) = active;
 
-    // Manage subscription for window input if bound
     if (vd.link_data) {
-        auto* rl = get_ref_link(vd.link_data);
-        if (rl && rl->target().is_linked && rl->target().observer_data) {
-            auto* observers = static_cast<ObserverList*>(rl->target().observer_data);
+        void* observer_data = nullptr;
+
+        if (vd.uses_link_target) {
+            auto* lt = get_link_target(vd.link_data);
+            if (lt && lt->is_linked) {
+                observer_data = lt->observer_data;
+            }
+        } else {
+            auto* rl = get_ref_link(vd.link_data);
+            if (rl && rl->target().is_linked) {
+                observer_data = rl->target().observer_data;
+            }
+        }
+
+        if (observer_data) {
+            auto* observers = static_cast<ObserverList*>(observer_data);
             if (active) {
                 observers->add_observer(input);
             } else {

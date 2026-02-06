@@ -273,7 +273,7 @@ static void register_ts_value(nb::module_& m) {
             "Check if this time-series type has delta tracking.")
 
         // TSView access
-        .def("ts_view", &TSValue::ts_view,
+        .def("ts_view", static_cast<TSView (TSValue::*)(engine_time_t)>(&TSValue::ts_view),
             "current_time"_a,
             "Get a TSView for coordinated access.");
 }
