@@ -97,13 +97,17 @@ def lag_tick_start(period: int, _state: STATE[LagState]):
 
 @compute_node(overloads=lag)
 def lag_timedelta(
-    ts: TIME_SERIES_TYPE, period: timedelta, _scheduler: SCHEDULER = None, _state: STATE[LagState] = None
+    ts: TIME_SERIES_TYPE,
+    period: timedelta,
+    on_wall_clock: bool = False,
+    _scheduler: SCHEDULER = None,
+    _state: STATE[LagState] = None,
 ) -> TIME_SERIES_TYPE:
     # Uses the scheduler to keep track of when to deliver the values recorded in the buffer.
     buffer: deque[SCALAR] = _state.buffer
     if ts.modified:
         buffer.append(ts.delta_value)
-        _scheduler.schedule(ts.last_modified_time + period)
+        _scheduler.schedule(ts.last_modified_time + period, on_wall_clock=on_wall_clock)
 
     if _scheduler.is_scheduled_now:
         return buffer.popleft()

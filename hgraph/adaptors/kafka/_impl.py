@@ -126,7 +126,7 @@ def _kafka_message_publisher(msg: TS[bytes], topic: str, _state: STATE = None, _
     if msg.modified:
         _state.producer.send(topic, msg.value)
         _scheduler.schedule(
-            timedelta(milliseconds=100), tag="flush_timer"
+            timedelta(milliseconds=100), tag="flush_timer", on_wall_clock=True,
         )  # This will re-schedule the flush timer if already set.
 
     if _scheduler.is_scheduled_now:
