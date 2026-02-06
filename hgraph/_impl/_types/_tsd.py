@@ -365,7 +365,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         key_set: "TimeSeriesSetInput" = self.key_set
         key_set.un_bind_output(unbind_refs=unbind_refs)
         if self._ts_values:
-            self._removed_items = {k: (v, v.valid) for k, v in self._ts_values.items()}
+            self._removed_items |= {k: (v, v.valid) for k, v in self._ts_values.items()}
             self._ts_values = {}
             self._ts_values_to_keys = {}
             self.owning_graph.evaluation_engine_api.add_after_evaluation_notification(self._clear_key_changes)
@@ -384,6 +384,7 @@ class PythonTimeSeriesDictInput(PythonBoundTimeSeriesInput, TimeSeriesDictInput[
         self.output.remove_key_observer(self)
         if self.has_peer:
             super().do_un_bind_output(unbind_refs=unbind_refs)
+            self._has_peer = False
         else:
             self._output = None
 

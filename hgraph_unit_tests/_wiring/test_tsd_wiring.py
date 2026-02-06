@@ -1,5 +1,6 @@
 from hgraph import (
     SIGNAL,
+    TIME_SERIES_TYPE,
     compute_node,
     TS,
     TSD,
@@ -14,6 +15,9 @@ from hgraph import (
     if_,
     Removed,
     pass_through,
+    valid,
+    filter_,
+    if_true,
 )
 from hgraph.test import eval_node
 
@@ -188,3 +192,18 @@ def test_signal_in_branch():
         return map_(lambda x: s(x), ts)
     
     assert eval_node(g, [None, {"a": 1}, {"a": 2}, {}]) == [None, {"a": True}, {"a": True}, None]
+
+
+def test_removal_and_unbind_in_the_same_cycle():
+    @graph
+    def main(tsd: TSD[str, TSD[int, TS[int]]], g: TS[bool]) -> TIME_SERIES_TYPE:
+        tsd1 = if_(g, tsd).true
+        return filter_(True, tsd1)
+
+    assert eval_node(main, 
+                    tsd=[{"a": {1: 1}, "b": {2: 2}}, None, {"a": {1: 2}, "b": REMOVE}, None, {"a": {1: 3}, "b": {3: 3}}], 
+                    g=[True, None, False, None, True], # this turns tsd1 if_ off hence unbinding the TSD from filter_ in the switch in the same tick as 'b' is removed 
+                    ) == [
+                        {"a": {1: 1}, "b": {2: 2}}, None, {"a": REMOVE, "b": REMOVE}, None, {"a": {1: 3}, "b": {3: 3}}
+                    ]
+
