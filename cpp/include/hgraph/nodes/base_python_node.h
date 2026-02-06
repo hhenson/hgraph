@@ -49,11 +49,19 @@ namespace hgraph {
 
         void dispose() override;
 
+        /// Collect TSView pointers from a wrapped Python time-series object
+        /// so they can be updated with the current tick time before each eval.
+        void _cache_view_pointers(const nb::object& wrapped);
+
+        /// Update all cached TSView times to the current evaluation time.
+        void _update_cached_view_times();
+
         nb::callable _eval_fn;
         nb::callable _start_fn;
         nb::callable _stop_fn;
 
         nb::kwargs _kwargs;
+        std::vector<TSView*> _cached_views;  ///< Pointers into kwarg wrappers for fast time update
     };
 } // namespace hgraph
 

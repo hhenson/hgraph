@@ -119,10 +119,23 @@ public:
 
     /**
      * @brief Get the current engine time.
-     * @return The time captured at construction
+     * @return The time captured at construction (or last set via set_current_time)
      */
     [[nodiscard]] engine_time_t current_time() const noexcept {
         return current_time_;
+    }
+
+    /**
+     * @brief Update the current engine time.
+     *
+     * Used to refresh cached TSViews (e.g. kwarg inputs in BasePythonNode)
+     * so that modified() checks use the correct tick time without
+     * reconstructing the entire view.
+     *
+     * @param t The new engine time
+     */
+    void set_current_time(engine_time_t t) noexcept {
+        current_time_ = t;
     }
 
     // ========== Time-Series Semantics ==========

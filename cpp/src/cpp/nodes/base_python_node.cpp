@@ -23,20 +23,73 @@ namespace hgraph
                input_meta, output_meta, error_output_meta, recordable_state_meta),
           _eval_fn{std::move(eval_fn)}, _start_fn{std::move(start_fn)}, _stop_fn{std::move(stop_fn)} {}
 
+    void BasePythonNode::_cache_view_pointers(const nb::object& wrapped) {
+        if (wrapped.is_none()) return;
+
+        // All time-series wrappers inherit from PyTimeSeriesType, which holds the base TSView
+        if (nb::isinstance<PyTimeSeriesType>(wrapped)) {
+            auto& py_ts = nb::cast<PyTimeSeriesType&>(wrapped);
+            _cached_views.push_back(&py_ts.view());
+        }
+        // Input wrappers also have an internal TSInputView with its own TSView
+        if (nb::isinstance<PyTimeSeriesInput>(wrapped)) {
+            auto& py_input = nb::cast<PyTimeSeriesInput&>(wrapped);
+            _cached_views.push_back(&py_input.input_view().ts_view());
+        }
+        // Output wrappers also have an internal TSOutputView with its own TSView
+        else if (nb::isinstance<PyTimeSeriesOutput>(wrapped)) {
+            auto& py_output = nb::cast<PyTimeSeriesOutput&>(wrapped);
+            _cached_views.push_back(&py_output.output_view().ts_view());
+        }
+    }
+
+    void BasePythonNode::_update_cached_view_times() {
+        engine_time_t current = graph()->evaluation_time();
+        for (auto* view : _cached_views) {
+            view->set_current_time(current);
+        }
+    }
+
     void BasePythonNode::_initialise_kwargs() {
         // Assuming Injector and related types are properly defined, and scalars is a map-like container
         _kwargs = {};
+        _cached_views.clear();
 
         bool  has_injectables{signature().injectables != 0};
         auto *injectable_map = has_injectables ? &(*signature().injectable_inputs) : nullptr;
         auto g = graph();
+        auto &signature_args = signature().args;
+
+        // Pre-compute the number of TSView pointers we'll cache (2 per wrapped TS object)
+        size_t ts_wrapper_count = 0;
+        if (injectable_map) {
+            for (const auto& [key, inj] : *injectable_map) {
+                if (std::ranges::find(signature_args, key) == std::ranges::end(signature_args)) continue;
+                if ((inj & InjectableTypesEnum::OUTPUT) != InjectableTypesEnum::NONE ||
+                    (inj & InjectableTypesEnum::RECORDABLE_STATE) != InjectableTypesEnum::NONE) {
+                    ts_wrapper_count++;
+                }
+            }
+        }
+        if (has_input() && ts_input()->meta()) {
+            const TSMeta* meta = ts_input()->meta();
+            if (meta->kind == TSKind::TSB) {
+                for (size_t i = 0; i < meta->field_count; ++i) {
+                    if (std::ranges::find(signature_args, std::string(meta->fields[i].name)) != std::ranges::end(signature_args)) {
+                        ts_wrapper_count++;
+                    }
+                }
+            } else if (signature().time_series_inputs.has_value()) {
+                ts_wrapper_count++;
+            }
+        }
+        _cached_views.reserve(ts_wrapper_count * 2);
 
         nb::object node_wrapper{};
         auto       get_node_wrapper = [&]() -> nb::object {
             if (!node_wrapper) { node_wrapper = wrap_node(shared_from_this()); }
             return node_wrapper;
         };
-        auto &signature_args = signature().args;
         for (const auto &[key_, value] : scalars()) {
             std::string key{nb::cast<std::string>(key_)};
             // Only include scalars that are in signature.args (same as Python implementation)
@@ -91,6 +144,7 @@ namespace hgraph
                         wrapped_value = value(get_node_wrapper());
                     }
 
+                    _cache_view_pointers(wrapped_value);
                     _kwargs[key_] = wrapped_value;
                     continue;
                 }
@@ -132,6 +186,7 @@ namespace hgraph
                                 std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap TSInputView for '") +
                                 key + "'.");
                         }
+                        _cache_view_pointers(wrapped);
                         _kwargs[key.c_str()] = wrapped;
                     }
                 }
@@ -149,6 +204,7 @@ namespace hgraph
                                     std::string("BasePythonNode::_initialise_kwarg_inputs: Failed to wrap TSInputView for '") +
                                     key + "'.");
                             }
+                            _cache_view_pointers(wrapped);
                             _kwargs[key.c_str()] = wrapped;
                             break;  // Only one scalar input expected for non-TSB
                         }
@@ -252,6 +308,7 @@ namespace hgraph
     };
 
     void BasePythonNode::do_eval() {
+        _update_cached_view_times();
         ContextManager context_manager(*this);
         try {
             auto out{_eval_fn(**_kwargs)};
@@ -317,5 +374,8 @@ namespace hgraph
         Node::start();
     }
 
-    void BasePythonNode::dispose() { _kwargs.clear(); }
+    void BasePythonNode::dispose() {
+        _cached_views.clear();
+        _kwargs.clear();
+    }
 }  // namespace hgraph
