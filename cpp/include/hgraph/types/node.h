@@ -223,7 +223,7 @@ namespace hgraph
 
         void set_graph(graph_ptr value);
 
-        auto start_inputs() const { return _start_inputs; }
+        const std::vector<nb::object>& start_inputs() const { return _start_inputs; }
 
         NodeScheduler::s_ptr &scheduler();
 
@@ -288,7 +288,7 @@ namespace hgraph
         friend struct Graph;
         friend struct NodeScheduler;
 
-        void add_start_input(const time_series_reference_input_s_ptr &input);
+        void add_start_input(nb::object input);
 
         bool has_input() const;
 
@@ -320,7 +320,7 @@ namespace hgraph
         NodeScheduler::s_ptr            _scheduler;         // owned
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.
-        std::vector<time_series_reference_input_s_ptr> _start_inputs;  // owned
+        std::vector<nb::object> _start_inputs;  // Python-wrapped start inputs
 
         // Performance optimization: Cache evaluation time pointer from graph
         // Set once when graph is assigned to node, never changes

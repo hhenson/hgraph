@@ -1,7 +1,6 @@
 #include <hgraph/runtime/observers/inspection_observer.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/nodes/nested_node.h>

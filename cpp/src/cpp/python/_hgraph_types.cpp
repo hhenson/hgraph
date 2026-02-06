@@ -19,12 +19,10 @@
 #include <hgraph/api/python/py_tsw.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tss.h>
 
 #include <hgraph/types/scalar_types.h>
 #include <hgraph/types/schema_type.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/tsb.h>
 
 void export_types(nb::module_ &m) {
     using namespace hgraph;
@@ -76,7 +74,8 @@ void export_types(nb::module_ &m) {
     PyMeshNestedNode::register_with_nanobind(m);
     PyGraph::register_with_nanobind(m);
 
-    TimeSeriesSchema::register_with_nanobind(m);
+    // TimeSeriesSchema is defined purely in Python (inherits from AbstractSchema).
+    // No C++ registration needed.
 
     register_special_nodes_with_nanobind(m);
 }

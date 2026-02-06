@@ -6,15 +6,14 @@
 #include <hgraph/runtime/record_replay.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/util/lifecycle.h>
 #include <format>
 
 namespace hgraph {
     // Helper functions for checking time-series validity and extracting values
-    // These need to handle TimeSeriesReference specially
+    // These need to handle TSReference specially
 
     static bool _get_ts_valid(TSInputView view) {
         if (!view.valid()) {
@@ -23,13 +22,13 @@ namespace hgraph {
 
         auto value = view.to_python();
 
-        // Check if it's a TimeSeriesReference using nanobind's isinstance
-        // In Python: TimeSeriesReference.is_instance(value)
+        // Check if it's a TSReference (new value-stack reference type)
         try {
-            auto ref = nb::cast<TimeSeriesReference>(value);
-            return ref.is_bound() && ref.output()->valid();
+            auto ref = nb::cast<TSReference>(value);
+            // A TSReference is valid for component purposes if it's not empty
+            return !ref.is_empty();
         } catch (const nb::cast_error &) {
-            // Not a TimeSeriesReference, that's fine
+            // Not a TSReference, that's fine
             return true;
         }
     }
@@ -37,16 +36,14 @@ namespace hgraph {
     static nb::object _get_ts_value(TSInputView view) {
         auto value = view.to_python();
 
-        // Check if it's a TimeSeriesReference
+        // Check if it's a TSReference
         try {
-            auto ref = nb::cast<TimeSeriesReference>(value);
-            // Must have output and it must be valid
-            if (ref.is_bound()) {
-                return ref.output()->py_value();
-            }
+            auto ref = nb::cast<TSReference>(value);
+            // TSReference is a value-stack path descriptor, not a live reference.
+            // Return the Python value as-is; the caller handles resolution.
             return value;
         } catch (const nb::cast_error &) {
-            // Not a TimeSeriesReference, return value as-is
+            // Not a TSReference, return value as-is
             return value;
         }
     }

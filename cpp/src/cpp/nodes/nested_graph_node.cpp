@@ -5,10 +5,7 @@
 #include <hgraph/runtime/record_replay.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/time_series/ts_input_view.h>
-#include <hgraph/types/ref.h>
 #include <utility>
 
 namespace hgraph {

@@ -1,7 +1,6 @@
 #include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/time_series/ts_reference_ops.h>
 #include <hgraph/types/time_series/ts_view.h>
-#include <hgraph/types/ref.h>  // For TimeSeriesReference (legacy)
 
 #include <nanobind/nanobind.h>
 
@@ -423,14 +422,6 @@ void ScalarOps<TSReference>::from_python(void* dst, const nb::object& src, const
     if (nb::isinstance<TSReference>(src)) {
         ref = nb::cast<TSReference>(src);
         return;
-    }
-
-    // Legacy TimeSeriesReference is NOT supported - fail explicitly
-    if (nb::isinstance<TimeSeriesReference>(src)) {
-        throw std::runtime_error(
-            "Legacy TimeSeriesReference is not supported in C++ runtime. "
-            "Ensure all REF types use the new TSReference type."
-        );
     }
 
     // Check if it's a dict (from our to_python for PEERED)

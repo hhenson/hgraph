@@ -1,7 +1,6 @@
-#include <hgraph/types/time_series_type.h>
-
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/types/feature_extension.h>
+#include <hgraph/types/time_series/ts_output.h>
 
 namespace hgraph {
     FeatureOutputRequestTracker::FeatureOutputRequestTracker(time_series_output_s_ptr output_) : output(

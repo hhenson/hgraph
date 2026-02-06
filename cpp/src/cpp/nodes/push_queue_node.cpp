@@ -5,10 +5,8 @@
 #include <hgraph/types/constants.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
-#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_output_view.h>
-#include <hgraph/types/tsd.h>
 
 namespace hgraph {
     void PushQueueNode::do_eval() {

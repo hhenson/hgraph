@@ -6,7 +6,6 @@
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output.h>

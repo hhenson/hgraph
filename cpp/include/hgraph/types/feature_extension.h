@@ -82,7 +82,7 @@ namespace std {
     struct hash<hgraph::FeatureOutputRequestTracker> {
         size_t operator()(const hgraph::FeatureOutputRequestTracker& tracker) const {
             // Hash based on the output pointer address
-            return std::hash<hgraph::TimeSeriesOutput*>{}(tracker.output.get());
+            return std::hash<hgraph::TSOutput*>{}(tracker.output.get());
         }
     };
 } // namespace std
@@ -201,7 +201,7 @@ namespace hgraph {
      * - Call update with View keys when values change
      */
     struct FeatureOutputExtensionValue {
-        using feature_fn = std::function<void(const TimeSeriesOutput &, TimeSeriesOutput &, const value::View &)>;
+        using feature_fn = std::function<void(const TSOutput &, TSOutput &, const value::View &)>;
         using outputs_map_type = std::unordered_map<value::PlainValue, FeatureOutputRequestTracker,
                                                      PlainValueHash, PlainValueEqual>;
 

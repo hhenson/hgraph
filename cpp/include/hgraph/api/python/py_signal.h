@@ -5,14 +5,7 @@ namespace hgraph
 {
     struct PyTimeSeriesSignalInput : PyTimeSeriesInput
     {
-        using api_ptr = ApiPtr<TimeSeriesType>;
-
-        // Legacy constructors - uses ApiPtr
-        explicit PyTimeSeriesSignalInput(api_ptr impl);
-        explicit PyTimeSeriesSignalInput(TimeSeriesType *ts, control_block_ptr control_block);
-        explicit PyTimeSeriesSignalInput(TimeSeriesType *ts);
-
-        // New view-based constructor
+        // View-based constructor
         explicit PyTimeSeriesSignalInput(TSInputView view);
 
         // Move constructor
@@ -27,7 +20,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesSignalInput(const PyTimeSeriesSignalInput&) = delete;
         PyTimeSeriesSignalInput& operator=(const PyTimeSeriesSignalInput&) = delete;
     };

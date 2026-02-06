@@ -1,21 +1,12 @@
 #pragma once
 
-#include "hgraph/types/tsw.h"
 #include <hgraph/api/python/py_time_series.h>
 
 namespace hgraph
 {
-    /**
-     * @brief Non-templated Python wrapper for TimeSeriesFixedWindowOutput.
-     */
     struct PyTimeSeriesFixedWindowOutput : PyTimeSeriesOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesFixedWindowOutput>;
-
-        // Legacy constructor - uses ApiPtr
-        explicit PyTimeSeriesFixedWindowOutput(api_ptr impl);
-
-        // New view-based constructor
+        // View-based constructor
         explicit PyTimeSeriesFixedWindowOutput(TSOutputView view);
 
         // Move constructor
@@ -30,7 +21,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesFixedWindowOutput(const PyTimeSeriesFixedWindowOutput&) = delete;
         PyTimeSeriesFixedWindowOutput& operator=(const PyTimeSeriesFixedWindowOutput&) = delete;
 
@@ -41,22 +32,11 @@ namespace hgraph
         [[nodiscard]] nb::bool_ has_removed_value() const;
         [[nodiscard]] nb::object removed_value() const;
         [[nodiscard]] nb::int_ len() const;
-
-    private:
-        [[nodiscard]] TimeSeriesFixedWindowOutput* impl() const;
     };
 
-    /**
-     * @brief Non-templated Python wrapper for TimeSeriesTimeWindowOutput.
-     */
     struct PyTimeSeriesTimeWindowOutput : PyTimeSeriesOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesTimeWindowOutput>;
-
-        // Legacy constructor - uses ApiPtr
-        explicit PyTimeSeriesTimeWindowOutput(api_ptr impl);
-
-        // New view-based constructor
+        // View-based constructor
         explicit PyTimeSeriesTimeWindowOutput(TSOutputView view);
 
         // Move constructor
@@ -71,7 +51,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesTimeWindowOutput(const PyTimeSeriesTimeWindowOutput&) = delete;
         PyTimeSeriesTimeWindowOutput& operator=(const PyTimeSeriesTimeWindowOutput&) = delete;
 
@@ -82,22 +62,11 @@ namespace hgraph
         [[nodiscard]] nb::bool_ has_removed_value() const;
         [[nodiscard]] nb::object removed_value() const;
         [[nodiscard]] nb::int_ len() const;
-
-    private:
-        [[nodiscard]] TimeSeriesTimeWindowOutput* impl() const;
     };
 
-    /**
-     * @brief Non-templated Python wrapper for TimeSeriesWindowInput.
-     */
     struct PyTimeSeriesWindowInput : PyTimeSeriesInput
     {
-        using api_ptr = ApiPtr<TimeSeriesWindowInput>;
-
-        // Legacy constructor - uses ApiPtr
-        explicit PyTimeSeriesWindowInput(api_ptr impl);
-
-        // New view-based constructor
+        // View-based constructor
         explicit PyTimeSeriesWindowInput(TSInputView view);
 
         // Move constructor
@@ -112,7 +81,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesWindowInput(const PyTimeSeriesWindowInput&) = delete;
         PyTimeSeriesWindowInput& operator=(const PyTimeSeriesWindowInput&) = delete;
 
@@ -121,11 +90,7 @@ namespace hgraph
         [[nodiscard]] nb::bool_ has_removed_value() const;
         [[nodiscard]] nb::object removed_value() const;
         [[nodiscard]] nb::int_ len() const;
-
-    private:
-        [[nodiscard]] TimeSeriesWindowInput* impl() const;
     };
 
-    // Registration
     void tsw_register_with_nanobind(nb::module_ & m);
 }  // namespace hgraph

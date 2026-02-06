@@ -1,10 +1,7 @@
 #pragma once
 
-#include <hgraph/api/python/api_ptr.h>
-#include <hgraph/hgraph_base.h>
-#include <hgraph/types/ref.h>
 #include <hgraph/api/python/py_time_series.h>
-
+#include <hgraph/hgraph_base.h>
 
 namespace hgraph
 {
@@ -13,12 +10,7 @@ namespace hgraph
 
     struct PyTimeSeriesReferenceOutput : PyTimeSeriesOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesReferenceOutput>;
-
-        // Legacy constructor - uses ApiPtr
-        explicit PyTimeSeriesReferenceOutput(api_ptr impl);
-
-        // New view-based constructor
+        // View-based constructor
         explicit PyTimeSeriesReferenceOutput(TSOutputView view);
 
         // Move constructor
@@ -33,7 +25,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesReferenceOutput(const PyTimeSeriesReferenceOutput&) = delete;
         PyTimeSeriesReferenceOutput& operator=(const PyTimeSeriesReferenceOutput&) = delete;
 
@@ -42,22 +34,14 @@ namespace hgraph
 
         static void register_with_nanobind(nb::module_ &m);
 
-    protected:
-        // Allow derived classes to use either constructor type
+      protected:
+        // Allow derived classes to use base constructor
         using PyTimeSeriesOutput::PyTimeSeriesOutput;
-
-    private:
-        [[nodiscard]] TimeSeriesReferenceOutput *impl() const;
     };
 
     struct PyTimeSeriesReferenceInput : PyTimeSeriesInput
     {
-        using api_ptr = ApiPtr<TimeSeriesReferenceInput>;
-
-        // Legacy constructor - uses ApiPtr
-        explicit PyTimeSeriesReferenceInput(api_ptr impl);
-
-        // New view-based constructor
+        // View-based constructor
         explicit PyTimeSeriesReferenceInput(TSInputView view);
 
         // Move constructor
@@ -72,7 +56,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesReferenceInput(const PyTimeSeriesReferenceInput&) = delete;
         PyTimeSeriesReferenceInput& operator=(const PyTimeSeriesReferenceInput&) = delete;
 
@@ -81,123 +65,82 @@ namespace hgraph
 
         static void register_with_nanobind(nb::module_ &m);
 
-    protected:
-        // Allow derived classes to use either constructor type
+      protected:
+        // Allow derived classes to use base constructor
         using PyTimeSeriesInput::PyTimeSeriesInput;
-
-    private:
-        [[nodiscard]] TimeSeriesReferenceInput *impl() const;
     };
 
-    // ============================================================
-    // Specialized Reference Input Classes
-    // ============================================================
-
+    // Specialized Reference Input Classes - kept as empty subclasses for nanobind registration
     struct PyTimeSeriesValueReferenceInput : PyTimeSeriesReferenceInput
     {
-        using api_ptr = ApiPtr<TimeSeriesValueReferenceInput>;
-        explicit PyTimeSeriesValueReferenceInput(api_ptr impl);
-
+        using PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesListReferenceInput : PyTimeSeriesReferenceInput
     {
-        using api_ptr = ApiPtr<TimeSeriesListReferenceInput>;
-        explicit PyTimeSeriesListReferenceInput(api_ptr impl);
-
-        size_t size() const;
-
+        using PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesBundleReferenceInput : PyTimeSeriesReferenceInput
     {
-        using api_ptr = ApiPtr<TimeSeriesBundleReferenceInput>;
-        explicit PyTimeSeriesBundleReferenceInput(api_ptr impl);
-
-        [[nodiscard]] nb::int_ size() const;
-
+        using PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesDictReferenceInput : PyTimeSeriesReferenceInput
     {
-        using api_ptr = ApiPtr<TimeSeriesDictReferenceInput>;
-        explicit PyTimeSeriesDictReferenceInput(api_ptr impl);
-
+        using PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesSetReferenceInput : PyTimeSeriesReferenceInput
     {
-        using api_ptr = ApiPtr<TimeSeriesSetReferenceInput>;
-        explicit PyTimeSeriesSetReferenceInput(api_ptr impl);
-
+        using PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesWindowReferenceInput : PyTimeSeriesReferenceInput
     {
-        using api_ptr = ApiPtr<TimeSeriesWindowReferenceInput>;
-        explicit PyTimeSeriesWindowReferenceInput(api_ptr impl);
-
+        using PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
-    // ============================================================
-    // Specialized Reference Output Classes
-    // ============================================================
-
+    // Specialized Reference Output Classes - kept as empty subclasses for nanobind registration
     struct PyTimeSeriesValueReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesValueReferenceOutput>;
-        explicit PyTimeSeriesValueReferenceOutput(api_ptr impl);
-
+        using PyTimeSeriesReferenceOutput::PyTimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesListReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesListReferenceOutput>;
-        explicit PyTimeSeriesListReferenceOutput(api_ptr impl);
-
-        [[nodiscard]] nb::int_ size() const;
-
+        using PyTimeSeriesReferenceOutput::PyTimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesBundleReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesBundleReferenceOutput>;
-        explicit PyTimeSeriesBundleReferenceOutput(api_ptr impl);
-
-        [[nodiscard]] nb::int_ size() const;
-
+        using PyTimeSeriesReferenceOutput::PyTimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesDictReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesDictReferenceOutput>;
-        explicit PyTimeSeriesDictReferenceOutput(api_ptr impl);
-
+        using PyTimeSeriesReferenceOutput::PyTimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesSetReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesSetReferenceOutput>;
-        explicit PyTimeSeriesSetReferenceOutput(api_ptr impl);
-
+        using PyTimeSeriesReferenceOutput::PyTimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
     };
 
     struct PyTimeSeriesWindowReferenceOutput : PyTimeSeriesReferenceOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesWindowReferenceOutput>;
-        explicit PyTimeSeriesWindowReferenceOutput(api_ptr impl);
-
+        using PyTimeSeriesReferenceOutput::PyTimeSeriesReferenceOutput;
         static void register_with_nanobind(nb::module_ &m);
     };
 

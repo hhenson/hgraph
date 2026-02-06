@@ -1,19 +1,14 @@
-#include "hgraph/types/tsd.h"
 #include <hgraph/builders/builder.h>
 #include <hgraph/builders/graph_builder.h>
 #include <fmt/format.h>
 #include <hgraph/builders/node_builder.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
-#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/ts_signal.h>
-#include <hgraph/types/tsb.h>
 
 #include <string_view>
 

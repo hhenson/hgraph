@@ -4,7 +4,7 @@
 #include <deque>
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/nested_node.h>
-#include <hgraph/types/tsd.h>
+#include <hgraph/types/feature_extension.h>
 
 namespace hgraph {
     void register_reduce_node_with_nanobind(nb::module_ & m);
@@ -37,9 +37,9 @@ namespace hgraph {
 
         std::unordered_map<int, graph_s_ptr> &nested_graphs();
 
-        TimeSeriesDictInputImpl::ptr ts();
+        void* ts();  // stubbed: was TimeSeriesDictInputImpl::ptr
 
-        time_series_reference_input_ptr zero();
+        void* zero();  // stubbed: was time_series_reference_input_ptr
 
         // Expose attributes to allow us to more easily inspect the state in Python
         // Can make debugging easier.
@@ -72,7 +72,7 @@ namespace hgraph {
         void do_eval() override {
         };
 
-        TimeSeriesOutput::s_ptr last_output();
+        void* last_output();  // stubbed: was TimeSeriesOutput::s_ptr
 
         // Uses View for key iteration from TSD
         void add_nodes_from_views(const std::vector<value::View> &keys);
@@ -108,7 +108,7 @@ namespace hgraph {
         // The python code uses the fact that you can randomly add properties to a python object and tracks
         // if an input is bound to a key or not using _bound_to_key.
         // C++ does not do that, so we can track if the ts is bound to a key using a set.
-        std::unordered_set<TimeSeriesInput *> bound_to_key_flags_;
+        std::unordered_set<void *> bound_to_key_flags_;  // stubbed: was TimeSeriesInput*
     };
 } // namespace hgraph
 

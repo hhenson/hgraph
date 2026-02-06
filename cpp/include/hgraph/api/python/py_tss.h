@@ -1,24 +1,12 @@
 #pragma once
 
 #include <hgraph/api/python/py_time_series.h>
-#include <hgraph/api/python/wrapper_factory.h>
-#include <hgraph/types/tss.h>
 
 namespace hgraph
 {
-    /**
-     * @brief Python wrapper for TimeSeriesSetOutput.
-     *
-     * Non-templated wrapper that uses Python interop methods for all operations.
-     */
     struct PyTimeSeriesSetOutput: PyTimeSeriesOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesSetOutput>;
-
-        // Legacy constructor - uses ApiPtr
-        explicit PyTimeSeriesSetOutput(api_ptr impl) : PyTimeSeriesOutput(std::move(impl)) {}
-
-        // New view-based constructor
+        // View-based constructor
         explicit PyTimeSeriesSetOutput(TSOutputView view) : PyTimeSeriesOutput(std::move(view)) {}
 
         // Move constructor
@@ -33,7 +21,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesSetOutput(const PyTimeSeriesSetOutput&) = delete;
         PyTimeSeriesSetOutput& operator=(const PyTimeSeriesSetOutput&) = delete;
 
@@ -53,24 +41,11 @@ namespace hgraph
         [[nodiscard]] nb::object is_empty_output() const;
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
-
-    protected:
-        [[nodiscard]] TimeSeriesSetOutput *impl() const { return static_cast_impl<TimeSeriesSetOutput>(); }
     };
 
-    /**
-     * @brief Python wrapper for TimeSeriesSetInput.
-     *
-     * Non-templated wrapper that uses Python interop methods for all operations.
-     */
     struct PyTimeSeriesSetInput: PyTimeSeriesInput
     {
-        using api_ptr = ApiPtr<TimeSeriesSetInput>;
-
-        // Legacy constructor - uses ApiPtr
-        explicit PyTimeSeriesSetInput(api_ptr impl) : PyTimeSeriesInput(std::move(impl)) {}
-
-        // New view-based constructor
+        // View-based constructor
         explicit PyTimeSeriesSetInput(TSInputView view) : PyTimeSeriesInput(std::move(view)) {}
 
         // Move constructor
@@ -85,7 +60,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesSetInput(const PyTimeSeriesSetInput&) = delete;
         PyTimeSeriesSetInput& operator=(const PyTimeSeriesSetInput&) = delete;
 
@@ -100,9 +75,6 @@ namespace hgraph
         [[nodiscard]] nb::bool_ was_removed(const nb::object &item) const;
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
-
-    protected:
-        [[nodiscard]] TimeSeriesSetInput *impl() const { return static_cast_impl<TimeSeriesSetInput>(); }
     };
 
     void tss_register_with_nanobind(nb::module_ &m);

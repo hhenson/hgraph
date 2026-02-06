@@ -70,7 +70,7 @@ namespace hgraph
 
         void eval() override;
 
-        TimeSeriesDictOutputImpl &tsd_output() override;
+        void* tsd_output() override;  // stubbed: was TimeSeriesDictOutputImpl&
 
         void create_new_graph(const value::View &key, int rank = -1);
 

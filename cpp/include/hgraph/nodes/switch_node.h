@@ -1,7 +1,6 @@
 #ifndef SWITCH_NODE_H
 #define SWITCH_NODE_H
 
-#include "hgraph/types/ts.h"
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/feature_extension.h>
@@ -83,7 +82,7 @@ namespace hgraph {
         graph_builders_map_ptr _nested_graph_builders;
         input_node_ids_map_ptr _input_node_ids;
         output_node_ids_map_ptr _output_node_ids;
-        TimeSeriesValueInput *_key_ts{nullptr};
+        void *_key_ts{nullptr};  // stubbed: was TimeSeriesValueInput*
 
         bool _reload_on_ticked;
         graph_s_ptr _active_graph{};

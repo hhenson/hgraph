@@ -1,5 +1,4 @@
 #include <hgraph/nodes/last_value_pull_node.h>
-#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/graph.h>
@@ -68,8 +67,8 @@ namespace hgraph {
         }
     }
 
-    void LastValuePullNode::copy_from_input(const TimeSeriesInput &input) {
-        auto delta = input.py_delta_value();
+    void LastValuePullNode::copy_from_input(const TSInputView &input) {
+        auto delta = input.delta_value().to_python();
 
         if (_delta_value.has_value()) {
             _delta_value = _delta_combine_fn(_delta_value.value(), delta);
@@ -81,8 +80,8 @@ namespace hgraph {
         notify_next_cycle();
     }
 
-    void LastValuePullNode::copy_from_output(const TimeSeriesOutput &output) {
-        auto delta = output.py_delta_value();
+    void LastValuePullNode::copy_from_output(const TSOutputView &output) {
+        auto delta = output.delta_value().to_python();
 
         if (_delta_value.has_value()) {
             _delta_value = _delta_combine_fn(_delta_value.value(), delta);

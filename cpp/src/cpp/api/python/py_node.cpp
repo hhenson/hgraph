@@ -5,8 +5,6 @@
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
-#include <hgraph/types/tsb.h>
 
 #include <hgraph/api/python/py_graph.h>
 #include <hgraph/api/python/py_node.h>

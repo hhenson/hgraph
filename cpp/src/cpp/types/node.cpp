@@ -5,11 +5,8 @@
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
-#include <hgraph/types/time_series_type.h>
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output_view.h>
-#include <hgraph/types/tsb.h>
 #include <ranges>
 #include <sstream>
 #include <iostream>
@@ -697,7 +694,7 @@ namespace hgraph
 
     void Node::unset_scheduler() { _scheduler.reset(); }
 
-    void Node::add_start_input(const time_series_reference_input_s_ptr& input) { _start_inputs.push_back(input); }
+    void Node::add_start_input(nb::object input) { _start_inputs.push_back(std::move(input)); }
 
     bool Node::has_input() const { return ts_input_.has_value(); }
 
@@ -781,7 +778,7 @@ namespace hgraph
     void Node::_initialise_inputs() {
         if (signature().time_series_inputs.has_value()) {
             for (auto &start_input : _start_inputs) {
-                start_input->start();
+                start_input.attr("start")();
             }
 
             if (ts_input_) {

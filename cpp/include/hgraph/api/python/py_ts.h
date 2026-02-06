@@ -6,12 +6,7 @@ namespace hgraph
 {
     struct PyTimeSeriesValueOutput : PyTimeSeriesOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesType>;
-
-        // Legacy constructor - uses ApiPtr
-        explicit PyTimeSeriesValueOutput(api_ptr impl);
-
-        // New view-based constructor
+        // View-based constructor
         explicit PyTimeSeriesValueOutput(TSOutputView view);
 
         // Move constructor
@@ -26,19 +21,14 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesValueOutput(const PyTimeSeriesValueOutput&) = delete;
         PyTimeSeriesValueOutput& operator=(const PyTimeSeriesValueOutput&) = delete;
     };
 
     struct PyTimeSeriesValueInput : PyTimeSeriesInput
     {
-        using api_ptr = ApiPtr<TimeSeriesType>;
-
-        // Legacy constructor - uses ApiPtr
-        explicit PyTimeSeriesValueInput(api_ptr impl);
-
-        // New view-based constructor
+        // View-based constructor
         explicit PyTimeSeriesValueInput(TSInputView view);
 
         // Move constructor
@@ -53,7 +43,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesValueInput(const PyTimeSeriesValueInput&) = delete;
         PyTimeSeriesValueInput& operator=(const PyTimeSeriesValueInput&) = delete;
     };
