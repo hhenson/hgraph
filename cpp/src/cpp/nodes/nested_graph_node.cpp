@@ -5,7 +5,12 @@
 #include <hgraph/runtime/record_replay.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/view_data.h>
 #include <utility>
 
 namespace hgraph {
@@ -28,34 +33,40 @@ namespace hgraph {
     }
 
     void NestedGraphNode::write_inputs() {
-        // TODO: Convert to TSInput-based approach for cross-graph input wiring
-        // For each mapped inner node:
-        // 1. Get this node's TSInputView for the arg field
-        // 2. Get the inner node and its TSInput
-        // 3. Bind inner node's input to the same source as this node's input field
-        // This requires understanding how to share bindings across graphs
+        // Cross-graph input wiring: bind inner stub node's TSInput to
+        // the same upstream source as our input field (resolved ViewData)
         if (!m_input_node_ids_.empty() && ts_input()) {
             auto input_view = ts_input()->view(graph()->evaluation_time());
             for (const auto &[arg, node_ndx]: m_input_node_ids_) {
-                auto node = m_active_graph_->nodes()[node_ndx];
-                node->notify();
-
-                // TODO: Need to implement cross-graph input binding
-                // The inner node should read from the same source as our input field
+                auto inner_node = m_active_graph_->nodes()[node_ndx];
+                inner_node->notify();
                 auto field_view = input_view.field(arg);
-                (void)field_view; // Suppress unused warning
+
+                if (inner_node->ts_input()) {
+                    auto inner_input_view = inner_node->ts_input()->view(graph()->evaluation_time());
+                    inner_input_view.ts_view().bind(field_view.ts_view());
+                }
             }
         }
     }
 
     void NestedGraphNode::wire_outputs() {
-        // TODO: Convert to TSOutput-based approach for cross-graph output wiring
-        // The inner graph's output node should write to this node's TSOutput
+        // Cross-graph output wiring: forward inner sink node's TSOutput
+        // to write into this node's TSOutput storage
         if (m_output_node_id_ >= 0 && ts_output()) {
-            auto node = m_active_graph_->nodes()[m_output_node_id_];
-            // TODO: Need to implement cross-graph output binding
-            // Inner node's output data should be written to this node's TSOutput
-            (void)node; // Suppress unused warning
+            auto inner_node = m_active_graph_->nodes()[m_output_node_id_];
+            if (inner_node->ts_output()) {
+                ViewData outer_data = ts_output()->native_value().make_view_data();
+                LinkTarget& ft = inner_node->ts_output()->forwarded_target();
+                ft.is_linked = true;
+                ft.value_data = outer_data.value_data;
+                ft.time_data = outer_data.time_data;
+                ft.observer_data = outer_data.observer_data;
+                ft.delta_data = outer_data.delta_data;
+                ft.link_data = outer_data.link_data;
+                ft.ops = outer_data.ops;
+                ft.meta = outer_data.meta;
+            }
         }
     }
 

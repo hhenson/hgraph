@@ -162,6 +162,19 @@ TSOutput::TSOutput(const TSMeta* ts_meta, node_ptr owner, size_t port_index)
 }
 
 TSOutputView TSOutput::view(engine_time_t current_time) {
+    if (is_forwarded()) {
+        // Cross-graph forwarding: all 7 fields from outer's storage
+        ViewData vd;
+        vd.value_data = forwarded_target_->value_data;
+        vd.time_data = forwarded_target_->time_data;
+        vd.observer_data = forwarded_target_->observer_data;
+        vd.delta_data = forwarded_target_->delta_data;
+        vd.link_data = forwarded_target_->link_data;
+        vd.ops = forwarded_target_->ops;
+        vd.meta = forwarded_target_->meta;
+        vd.path = root_path();
+        return TSOutputView(TSView(vd, current_time), this);
+    }
     TSView ts_view = native_value_.ts_view(current_time);
     // Set the path on the view
     ts_view.view_data().path = root_path();

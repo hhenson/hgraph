@@ -535,9 +535,79 @@ enum class PortType {
 };
 ```
 
+## Cross-Graph Wiring
+
+Nested graph nodes (NestedGraphNode, ComponentNode, TryExceptNode) contain inner graphs whose boundary nodes must be wired to the outer component's TSInput/TSOutput. TSInput and TSOutput objects are fixed once created, so all wiring happens through links and forwarding.
+
+### Input Wiring: Inner Stub Reads Outer's Input Data
+
+The inner graph's stub source node has its own TSInput with an unpopulated LinkTarget. The outer component's TSInput has per-field LinkTargets already populated during normal graph wiring (pointing to the upstream output's data).
+
+When we navigate the outer input view to a field, the returned view's ViewData contains **resolved** pointers (LinkTarget indirection already followed). We bind the inner node's TSInput to these resolved pointers:
+
+```cpp
+auto outer_field = outer_input_view.field("a");
+auto inner_input_view = inner_node->ts_input()->view(time);
+inner_input_view.ts_view().bind(outer_field.ts_view());
+```
+
+This calls `ts_ops::bind` which:
+1. Copies the resolved upstream data pointers into the inner's LinkTarget via `store_to_link_target`
+2. Sets `owner_time_ptr` to the inner's own time slot (time-accounting chain)
+3. Subscribes inner's LinkTarget to upstream's observer list
+
+After this, the inner stub node reads upstream data via its LinkTarget and gets time-accounting via `LinkTarget::notify()`. Node-scheduling is set up later via `set_active(true)` during `_initialise_inputs()` at inner graph start.
+
+**Ordering**: `bind` during `wire_graph()` (in `initialise()`), before inner graph `start()`.
+
+### Output Wiring: Inner Sink Writes to Outer's Output Data
+
+The inner sink node's TSOutput needs to redirect all writes to the outer component's TSOutput storage. This is achieved through a `forwarded_target_` LinkTarget on TSOutput.
+
+**Why inner→outer direction?** During outer graph wiring (before `initialise()`), downstream TSInput LinkTargets are populated with raw pointers to the outer TSOutput's storage. These pointers are fixed. An outer→inner link would require downstream reads to follow an additional indirection they don't support. So the forwarding redirects inner **writes** to outer's storage.
+
+```cpp
+class TSOutput {
+    LinkTarget forwarded_target_;  // Populated during cross-graph wiring
+    // ...
+    TSOutputView view(engine_time_t current_time) {
+        if (forwarded_target_.is_linked) {
+            // All 7 fields from outer's storage
+            ViewData vd = make_view_data_from(forwarded_target_);
+            return TSOutputView(TSView(vd, current_time), this);
+        }
+        // Normal path: use own native_value_
+        return TSOutputView(native_value_.ts_view(current_time), this);
+    }
+};
+```
+
+`store_to_link_target` copies all 7 target-data fields including `ops` and `meta`, so every operation through the forwarded view uses the outer's ts_ops vtable, outer's time storage, and outer's observer list. Mutations land directly in outer storage and notify downstream nodes.
+
+During `wire_graph()`:
+```cpp
+ViewData outer_data = ts_output()->native_value().make_view_data();
+store_to_link_target(inner_node->ts_output()->forwarded_target(), outer_data);
+```
+
+### TryExceptNode Special Case
+
+TryExceptNode's output is a bundle with "out" and "exception" fields. The inner graph's sink maps to the "out" sub-field:
+
+```cpp
+auto out_field_view = ts_output()->view(time).field("out");
+store_to_link_target(inner->ts_output()->forwarded_target(), out_field_view.view_data());
+```
+
+### Graph Lifecycle Ordering
+
+1. **Outer graph wiring** (before `initialise()`): Downstream TSInput LinkTargets populated with pointers to outer TSOutput storage
+2. **`initialise()`**: Creates inner graph, calls `wire_graph()`
+3. **`wire_graph()`**: Binds inner inputs + sets up output forwarding
+4. **`start()`**: Calls `_initialise_inputs()` on inner nodes, which calls `set_active(true)` to subscribe for node-scheduling
+
 ## Open Questions
 
-- TODO: How to handle output aliasing?
 - TODO: Error propagation through the graph?
 - TODO: Lazy binding for dynamic graphs?
 

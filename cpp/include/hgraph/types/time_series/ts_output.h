@@ -17,6 +17,7 @@
 #include <hgraph/types/time_series/short_path.h>
 #include <hgraph/types/time_series/fq_path.h>
 #include <hgraph/types/time_series/ref_link.h>
+#include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/value/slot_observer.h>
 #include <hgraph/hgraph_forward_declarations.h>
 
@@ -239,6 +240,27 @@ public:
      */
     [[nodiscard]] bool valid() const noexcept { return native_value_.meta() != nullptr; }
 
+    // ========== Cross-Graph Wiring ==========
+
+    /**
+     * @brief Get mutable reference to the forwarded target (creates on first access).
+     *
+     * Used during cross-graph wiring to redirect this output's view()
+     * to write into another TSOutput's storage (e.g., inner sink node
+     * writes to outer component's output).
+     */
+    [[nodiscard]] LinkTarget& forwarded_target() noexcept {
+        if (!forwarded_target_) {
+            forwarded_target_ = std::make_unique<LinkTarget>();
+        }
+        return *forwarded_target_;
+    }
+
+    /**
+     * @brief Check if this output is forwarded to another output's storage.
+     */
+    [[nodiscard]] bool is_forwarded() const noexcept { return forwarded_target_ && forwarded_target_->is_linked; }
+
 private:
     // ========== Alternative Management ==========
 
@@ -292,6 +314,7 @@ private:
     TSValue native_value_;                                          ///< Native representation
     std::unordered_map<const TSMeta*, TSValue> alternatives_;       ///< Cast/peer representations
     std::vector<std::unique_ptr<AlternativeStructuralObserver>> structural_observers_; ///< Structural sync observers
+    std::unique_ptr<LinkTarget> forwarded_target_;                   ///< Cross-graph forwarding target (inner sink → outer output)
     node_ptr owning_node_{nullptr};                                 ///< For graph context
     size_t port_index_{0};                                          ///< Port index on node
 

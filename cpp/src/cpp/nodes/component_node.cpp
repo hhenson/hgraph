@@ -6,8 +6,13 @@
 #include <hgraph/runtime/record_replay.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/view_data.h>
 #include <hgraph/util/lifecycle.h>
 #include <format>
 
@@ -178,33 +183,36 @@ namespace hgraph {
         // Initialize the graph
         initialise_component(*m_active_graph_);
 
-        // Wire inputs - using TSInput views
-        // TODO: Cross-graph input wiring needs architectural review for TSInput system
-        // The nested graph's stub source nodes need to read from the same source as
-        // the component's inputs. In the new system, this requires binding the inner
-        // graph's input nodes' TSInputViews to the component's TSInput source outputs.
+        // Wire inputs: bind inner stub node's TSInput to outer field's resolved data
         if (ts_input()) {
             auto input_view = ts_input()->view(graph()->evaluation_time());
             for (const auto &[arg, node_ndx]: m_input_node_ids_) {
-                auto node = m_active_graph_->nodes()[node_ndx];
-                node->notify();
-
-                // Get the input view for this field
+                auto inner_node = m_active_graph_->nodes()[node_ndx];
+                inner_node->notify();
                 auto field_view = input_view.field(arg);
 
-                // TODO: Need to implement cross-graph binding
-                // The stub source node needs to mirror data from field_view's source
-                // This requires the inner node to have a mechanism to receive data
-                // from an external source
+                if (inner_node->ts_input()) {
+                    auto inner_input_view = inner_node->ts_input()->view(graph()->evaluation_time());
+                    inner_input_view.ts_view().bind(field_view.ts_view());
+                }
             }
         }
 
-        // Wire outputs - using TSOutput views
-        // TODO: Cross-graph output wiring needs architectural review for TSOutput system
+        // Wire outputs: forward inner sink node's TSOutput to outer's storage
         if (m_output_node_id_ >= 0 && ts_output()) {
-            auto node = m_active_graph_->nodes()[m_output_node_id_];
-            // TODO: Need to implement cross-graph output binding
-            // The inner graph's output node should write to this component's TSOutput
+            auto inner_node = m_active_graph_->nodes()[m_output_node_id_];
+            if (inner_node->ts_output()) {
+                ViewData outer_data = ts_output()->native_value().make_view_data();
+                LinkTarget& ft = inner_node->ts_output()->forwarded_target();
+                ft.is_linked = true;
+                ft.value_data = outer_data.value_data;
+                ft.time_data = outer_data.time_data;
+                ft.observer_data = outer_data.observer_data;
+                ft.delta_data = outer_data.delta_data;
+                ft.link_data = outer_data.link_data;
+                ft.ops = outer_data.ops;
+                ft.meta = outer_data.meta;
+            }
         }
 
         // Start if already started

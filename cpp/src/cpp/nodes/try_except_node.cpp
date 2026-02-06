@@ -4,19 +4,33 @@
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/view_data.h>
 #include <hgraph/util/lifecycle.h>
 
 namespace hgraph {
     void TryExceptNode::wire_outputs() {
-        // TODO: Convert to TSOutput-based approach
-        // For TryExceptNode, the output is a bundle with "out" and "exception" fields
-        // The inner node's output should be bound to the "out" field
+        // TryExceptNode: inner output maps to the "out" sub-field of outer bundle
         if (m_output_node_id_ >= 0 && ts_output()) {
-            auto node = m_active_graph_->nodes()[m_output_node_id_];
-            // TODO: Need to implement cross-graph output binding
-            // The inner node's output should write to our TSOutput's "out" field
-            (void)node; // Suppress unused warning
+            auto inner_node = m_active_graph_->nodes()[m_output_node_id_];
+            if (inner_node->ts_output()) {
+                // Navigate to outer output's "out" field
+                auto outer_view = ts_output()->view(MIN_DT);
+                auto out_field_view = outer_view.field("out");
+                ViewData out_field_data = out_field_view.ts_view().view_data();
+
+                LinkTarget& ft = inner_node->ts_output()->forwarded_target();
+                ft.is_linked = true;
+                ft.value_data = out_field_data.value_data;
+                ft.time_data = out_field_data.time_data;
+                ft.observer_data = out_field_data.observer_data;
+                ft.delta_data = out_field_data.delta_data;
+                ft.link_data = out_field_data.link_data;
+                ft.ops = out_field_data.ops;
+                ft.meta = out_field_data.meta;
+            }
         }
     }
 

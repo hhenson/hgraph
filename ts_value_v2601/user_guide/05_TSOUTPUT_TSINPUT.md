@@ -1328,6 +1328,53 @@ Both native values and alternatives must maintain [memory stability](04_LINKS_AN
 
 ---
 
+---
+
+## Cross-Graph Wiring
+
+Nested graph nodes (NestedGraphNode, ComponentNode, TryExceptNode) contain inner graphs whose boundary stub nodes must be connected to the outer component's inputs and outputs. Since TSInput and TSOutput objects are immutable once created, all wiring uses the link/forwarding mechanism.
+
+### Input Wiring
+
+Inner stub source nodes receive data from the outer component's input fields. During `wire_graph()`, the outer input's field view (which contains resolved upstream pointers) is bound to the inner node's TSInput:
+
+```cpp
+auto outer_field = outer_input_view.field("arg_name");
+auto inner_input = inner_node->ts_input()->view(time);
+inner_input.ts_view().bind(outer_field.ts_view());
+```
+
+This populates the inner's LinkTarget with the upstream output's data pointers and establishes time-accounting subscription. Node-scheduling is set up later during `start()` → `_initialise_inputs()` → `set_active(true)`.
+
+### Output Wiring
+
+Inner sink nodes write to the outer component's output storage. TSOutput has a `forwarded_target_` LinkTarget that, when populated, redirects `view()` to return ViewData pointing to the outer's storage:
+
+```cpp
+// During wire_graph():
+ViewData outer_data = ts_output()->native_value().make_view_data();
+// Populate inner sink's forwarded_target_ with outer's 7-field data
+LinkTarget& ft = inner_node->ts_output()->forwarded_target();
+// ... copy all fields from outer_data into ft ...
+```
+
+After forwarding is set up, `inner_sink->ts_output()->view(time).from_python(value)` writes directly to the outer's storage, stamps outer's timestamps, and notifies outer's observers (which includes downstream nodes).
+
+### TryExceptNode Special Case
+
+TryExceptNode's output is a bundle with "out" and "exception" fields. The inner sink's output forwards to the "out" sub-field of the outer output. The "exception" field is written directly by TryExceptNode's `do_eval()` catch block.
+
+### Lifecycle Ordering
+
+| Phase | What Happens |
+|-------|-------------|
+| Outer graph wiring | Downstream TSInput LinkTargets → outer TSOutput storage |
+| `initialise()` | Creates inner graph, calls `wire_graph()` |
+| `wire_graph()` | Binds inner inputs, sets up output forwarding |
+| `start()` | `_initialise_inputs()` → `set_active(true)` for node-scheduling |
+
+---
+
 ## Next
 
 - [Access Patterns](06_ACCESS_PATTERNS.md) - Reading and writing through views
