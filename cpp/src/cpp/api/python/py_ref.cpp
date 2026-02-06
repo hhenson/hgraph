@@ -17,7 +17,7 @@ namespace hgraph
         // Note: PortType enum is registered in py_ts_input_output.cpp
 
         // TSReference class
-        nb::class_<TSReference>(m, "TSReference")
+        nb::class_<TSReference>(m, "TimeSeriesReference")
             .def(nb::init<>())  // Default constructor (EMPTY)
             .def(nb::init<const TSReference&>())  // Copy constructor
             .def_static("empty", &TSReference::empty, "Create an empty reference")
