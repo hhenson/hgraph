@@ -193,9 +193,9 @@ export async function setupInspectorTable(){
                                 new URLSearchParams({q: search}).toString(),
                                 {cache: "no-store"});
                         } else {
-                            const names = await fetchData("name", 0, "name", -1);
-                            for (let i = get_selected_row() === null ? 0: get_selected_row(); i < names.metadata[0].length; i++){
-                                if (names.metadata[0][i].includes(search)){
+                            const names = (await fetchData("name", 0, "name", -1)).name;
+                            for (let i = get_selected_row() === null ? 0: get_selected_row(); i < names.length; i++){
+                                if (names[i].includes(search)){
                                     table.scrollToCell(0, i - 1, names.num_columns, i + 1)
                                     break;
                                 }
@@ -245,18 +245,18 @@ export async function setupInspectorTable(){
                             table.focus();
                             SEARCH_TERM = null;
                         } else if (event.key === "ArrowDown") {
-                            const names = await fetchData("name", 0, "name", -1).name;
-                            for (let i = get_selected_row() === null ? 0: get_selected_row() + 1; i < names.metadata[0].length; i++){
-                                if (names.includes(search)){
+                            const names = (await fetchData("name", 0, "name", -1)).name;
+                            for (let i = get_selected_row() === null ? 0: get_selected_row() + 1; i < names.length; i++){
+                                if (names[i].includes(search)){
                                     table.scrollToCell(0, i - 1, 1, i + 1)
                                     set_selected_row(i);
                                     break;
                                 }
                             }
                         } else if (event.key === "ArrowUp") {
-                            const names = await fetchData("name", 0, "name", -1).name;
+                            const names = (await fetchData("name", 0, "name", -1)).name;
                             for (let i = get_selected_row() === null ? table._nrows : get_selected_row() - 1; i >= 0; i--){
-                                if (names.includes(search)){
+                                if (names[i].includes(search)){
                                     table.scrollToCell(0, i - 1, 1, i + 1)
                                     set_selected_row(i);
                                     break;

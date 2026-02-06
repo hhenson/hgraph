@@ -414,7 +414,7 @@ class NodeSchedulerImpl(SCHEDULER):
         until = self._node.graph.evaluation_clock.evaluation_time
         while self._scheduled_events and (ev := self._scheduled_events[0])[0] <= until:
             if ev[1]:
-                self._tags.pop(ev[1])
+                self._tags.pop(ev[1], None)
             self._scheduled_events.pop(0)
         if self._scheduled_events:
             self._node.graph.schedule_node(self._node.node_ndx, self._scheduled_events[0][0])
