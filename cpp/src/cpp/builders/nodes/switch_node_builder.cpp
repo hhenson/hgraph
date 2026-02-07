@@ -7,19 +7,20 @@
 
 namespace hgraph {
 
+    static nb::object default_class_;
+
     // Helper to check if a Python object is the DEFAULT class or an instance of it
     static bool is_default_marker(const nb::handle &obj) {
-        static nb::object default_class;
-        if (!default_class.is_valid()) {
+        if (!default_class_.is_valid()) {
             try {
                 auto scalar_types = nb::module_::import_("hgraph._types._scalar_types");
-                default_class = scalar_types.attr("Default");
+                default_class_ = scalar_types.attr("Default");
             } catch (...) {
                 return false;
             }
         }
         // Check if it's the class itself or an instance of the class
-        return obj.is(default_class) || nb::isinstance(obj, default_class);
+        return obj.is(default_class_) || nb::isinstance(obj, default_class_);
     }
 
     SwitchNodeBuilder::SwitchNodeBuilder(
@@ -147,5 +148,8 @@ namespace hgraph {
                     default_output_node_id);
             })
             .def_prop_ro("reload_on_ticked", [](const SwitchNodeBuilder& self) { return self._reload_on_ticked; });
+    }
+    void clear_switch_node_builder_cache() {
+        default_class_ = nb::object();
     }
 } // namespace hgraph

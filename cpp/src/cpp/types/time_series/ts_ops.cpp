@@ -229,7 +229,10 @@ struct REFBindingHelper : public Notifiable {
         : owner(lt), ref_source(ref_src) {}
 
     ~REFBindingHelper() override {
-        unsubscribe_all();
+        // Do NOT call unsubscribe_all() here.
+        // During graph teardown, the target ObserverList may already be freed,
+        // causing use-after-free (SIGSEGV). Unsubscription is done explicitly
+        // before deletion in the normal unbind path (scalar_ops::unbind).
     }
 
     void subscribe_to_ref_source() {
@@ -687,8 +690,11 @@ void unbind(ViewData& vd) {
         if (!lt) return;
 
         if (lt->ref_binding_) {
-            // REF binding: cleanup_ref_binding handles all unsubscription
-            // (both REF source and resolved target observers)
+            // REF binding: explicitly unsubscribe before deleting the helper,
+            // since the destructor intentionally skips unsubscription (to avoid
+            // use-after-free during graph teardown).
+            auto* helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+            helper->unsubscribe_all();
             lt->cleanup_ref_binding();
             lt->clear();
         } else if (lt->is_linked) {
@@ -5960,8 +5966,16 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
     return get_ts_ops(meta->kind);
 }
 
+// Forward declarations for cache clearing from other translation units
+void clear_constants_cache();
+void clear_global_state_cache();
+void clear_switch_node_builder_cache();
+
 void clear_thread_local_caches() {
     set_ops::clear_caches();
+    clear_constants_cache();
+    clear_global_state_cache();
+    clear_switch_node_builder_cache();
 }
 
 } // namespace hgraph

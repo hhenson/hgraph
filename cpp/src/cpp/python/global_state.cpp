@@ -4,13 +4,14 @@
 namespace nb = nanobind;
 
 namespace hgraph {
+    static nb::object global_state_class_;
+
     nb::object GlobalState::get_global_state_class() {
         // Import the GlobalState class from hgraph._runtime._global_state
-        static nb::object global_state_class = []() {
-            nb::object module = nb::module_::import_("hgraph._runtime._global_state");
-            return module.attr("GlobalState");
-        }();
-        return global_state_class;
+        if (!global_state_class_.is_valid()) {
+            global_state_class_ = nb::module_::import_("hgraph._runtime._global_state").attr("GlobalState");
+        }
+        return global_state_class_;
     }
 
     nb::object GlobalState::instance() {
@@ -65,5 +66,8 @@ namespace hgraph {
         } catch (const nb::python_error &e) {
             return false;
         }
+    }
+    void clear_global_state_cache() {
+        global_state_class_ = nb::object();
     }
 } // namespace hgraph

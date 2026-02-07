@@ -349,8 +349,8 @@ public:
      */
     template<typename T>
     [[nodiscard]] const T& as() const {
-        assert(valid() && "as<T>() on invalid view");
-        assert(is_scalar_type<T>() && "as<T>() type mismatch");
+        if (!valid()) throw std::runtime_error("as<T>() on invalid view");
+        if (!is_scalar_type<T>()) throw std::runtime_error("as<T>() type mismatch");
         return *static_cast<const T*>(_data);
     }
 
@@ -362,8 +362,8 @@ public:
      */
     template<typename T>
     [[nodiscard]] T& as() {
-        assert(valid() && "as<T>() on invalid view");
-        assert(is_scalar_type<T>() && "as<T>() type mismatch");
+        if (!valid()) throw std::runtime_error("as<T>() on invalid view");
+        if (!is_scalar_type<T>()) throw std::runtime_error("as<T>() type mismatch");
         return *static_cast<T*>(_data);
     }
 
@@ -565,7 +565,7 @@ public:
      * @throws std::runtime_error if the type is not hashable
      */
     [[nodiscard]] size_t hash() const {
-        assert(valid() && "hash() on invalid view");
+        if (!valid()) throw std::runtime_error("hash() on invalid view");
         if (!_schema->ops->hash) {
             throw std::runtime_error("Type is not hashable");
         }
@@ -577,7 +577,7 @@ public:
      * @return String representation of the value
      */
     [[nodiscard]] std::string to_string() const {
-        assert(valid() && "to_string() on invalid view");
+        if (!valid()) throw std::runtime_error("to_string() on invalid view");
         return _schema->ops->to_string(_data, _schema);
     }
 
@@ -588,7 +588,7 @@ public:
      * @return The Python object representation
      */
     [[nodiscard]] nb::object to_python() const {
-        assert(valid() && "to_python() on invalid view");
+        if (!valid()) throw std::runtime_error("to_python() on invalid view");
         return _schema->ops->to_python(_data, _schema);
     }
 
@@ -726,7 +726,7 @@ public:
      * @param src The Python object
      */
     void from_python(const nb::object& src) {
-        assert(valid() && "from_python() on invalid view");
+        if (!valid()) throw std::runtime_error("from_python() on invalid view");
         _schema->ops->from_python(_data, src, _schema);
     }
 
