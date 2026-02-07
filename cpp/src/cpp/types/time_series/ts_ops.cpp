@@ -1000,11 +1000,13 @@ bool valid(const ViewData& vd) {
 }
 
 bool all_valid(const ViewData& vd) {
+    if (!vd.meta) return false;
+
+    // Empty bundle: all_valid is vacuously true (matches Python's all([]) == True)
+    if (vd.meta->field_count == 0) return true;
+
     // First check if this bundle itself is valid (any field has ticked)
     if (!valid(vd)) return false;
-
-    // Check all fields recursively using child_at which handles links properly
-    if (!vd.meta) return false;
 
     // Use MIN_DT (smallest valid time) as the current_time parameter for child_at
     // This ensures we get the proper child view regardless of when we're checking

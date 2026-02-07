@@ -249,17 +249,15 @@ const TSMeta* TSTypeRegistry::tsb(
 
     // Build the bundle value schema from fields
     // This is needed for ts_ops::make_value_view to work correctly
-    const value::TypeMeta* value_schema = nullptr;
-    if (field_count > 0) {
-        auto builder = value::TypeRegistry::instance().bundle(name);
-        for (size_t i = 0; i < field_count; ++i) {
-            const auto& f = fields[i];
-            if (f.second && f.second->value_type) {
-                builder.field(f.first.c_str(), f.second->value_type);
-            }
+    // Always build, even for empty bundles, so value_type is never null
+    auto builder = value::TypeRegistry::instance().bundle(name);
+    for (size_t i = 0; i < field_count; ++i) {
+        const auto& f = fields[i];
+        if (f.second && f.second->value_type) {
+            builder.field(f.first.c_str(), f.second->value_type);
         }
-        value_schema = builder.build();
     }
+    const value::TypeMeta* value_schema = builder.build();
 
     // Create new schema
     auto* meta = create_schema();
