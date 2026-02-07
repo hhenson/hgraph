@@ -2,6 +2,8 @@
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/time_series/ts_reference_ops.h>
+#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/node.h>
 
 #include <utility>
@@ -191,6 +193,50 @@ namespace hgraph
     PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput(TSInputView view)
         : PyTimeSeriesInput(std::move(view)) {}
 
+    nb::object PyTimeSeriesReferenceInput::ref_value() const {
+        // Match Python PythonTimeSeriesReferenceInput.value semantics:
+        // For non-peered binding (TS→REF): return BoundTimeSeriesReference(output_wrapper)
+        // For peered binding (REF→REF): return the output's TSReference value via to_python
+        //
+        // In the C++ value-stack, a non-peered REF input has a LinkTarget pointing to
+        // the target's TS data (with non-REF ops/meta). We detect non-peered binding by
+        // checking if the LinkTarget's target meta kind differs from REF.
+
+        const auto& iv = input_view();
+        const auto& vd = iv.ts_view().view_data();
+
+        if (vd.uses_link_target && vd.link_data) {
+            auto* lt = static_cast<const LinkTarget*>(vd.link_data);
+            if (lt->is_linked && lt->meta && lt->meta->kind != TSKind::REF) {
+                // Non-peered binding: the target is a non-REF output (e.g., TS[float]).
+                // Construct a TSOutputView from the LinkTarget's data and wrap it,
+                // then create BoundTimeSeriesReference via Python.
+                ViewData target_vd;
+                target_vd.path = lt->target_path;
+                target_vd.value_data = lt->value_data;
+                target_vd.time_data = lt->time_data;
+                target_vd.observer_data = lt->observer_data;
+                target_vd.delta_data = lt->delta_data;
+                target_vd.link_data = lt->link_data;
+                target_vd.ops = lt->ops;
+                target_vd.meta = lt->meta;
+
+                TSView target_view(target_vd, iv.ts_view().current_time());
+                TSOutputView target_output_view(std::move(target_view), nullptr);
+                nb::object output_wrapper = wrap_output_view(std::move(target_output_view));
+
+                // Create BoundTimeSeriesReference via Python TimeSeriesReference.make(output)
+                auto ref_module = nb::module_::import_("hgraph._types._ref_type");
+                auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
+                return make_fn(output_wrapper);
+            }
+        }
+
+        // Default: use the generic to_python which follows LinkTarget
+        // This handles peered binding (REF→REF) and unbound cases
+        return PyTimeSeriesType::value();
+    }
+
     nb::str PyTimeSeriesReferenceInput::to_string() const {
         return nb::str("TimeSeriesReferenceInput[view]");
     }
@@ -199,6 +245,8 @@ namespace hgraph
 
     void PyTimeSeriesReferenceInput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesReferenceInput, PyTimeSeriesInput>(m, "TimeSeriesReferenceInput")
+            .def_prop_ro("value", &PyTimeSeriesReferenceInput::ref_value)
+            .def_prop_ro("delta_value", &PyTimeSeriesReferenceInput::ref_value)
             .def("__str__", &PyTimeSeriesReferenceInput::to_string)
             .def("__repr__", &PyTimeSeriesReferenceInput::to_repr);
     }

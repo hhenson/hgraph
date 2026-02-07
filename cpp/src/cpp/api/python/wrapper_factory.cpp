@@ -171,7 +171,16 @@ namespace
             throw std::runtime_error("wrap_input_view: TSInputView has no TSMeta");
         }
 
-        switch (meta->kind) {
+        return wrap_input_view(std::move(view), meta);
+    }
+
+    nb::object wrap_input_view(TSInputView view, const TSMeta* effective_meta) {
+        if (!view) { return nb::none(); }
+        if (!effective_meta) {
+            return wrap_input_view(std::move(view));
+        }
+
+        switch (effective_meta->kind) {
             case TSKind::TSValue:
                 return nb::cast(PyTimeSeriesValueInput(std::move(view)));
 
@@ -198,7 +207,7 @@ namespace
 
             default:
                 throw std::runtime_error(
-                    fmt::format("wrap_input_view: Unknown TSKind {}", static_cast<int>(meta->kind))
+                    fmt::format("wrap_input_view: Unknown TSKind {}", static_cast<int>(effective_meta->kind))
                 );
         }
     }

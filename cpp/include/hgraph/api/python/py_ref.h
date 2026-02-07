@@ -60,6 +60,11 @@ namespace hgraph
         PyTimeSeriesReferenceInput(const PyTimeSeriesReferenceInput&) = delete;
         PyTimeSeriesReferenceInput& operator=(const PyTimeSeriesReferenceInput&) = delete;
 
+        // Override value to return TimeSeriesReference (matching Python semantics)
+        // For non-peered binding (TS→REF): returns BoundTimeSeriesReference wrapping the target output
+        // For peered binding (REF→REF): returns the output's TSReference value
+        [[nodiscard]] nb::object ref_value() const;
+
         [[nodiscard]] nb::str to_string() const;
         [[nodiscard]] nb::str to_repr() const;
 

@@ -1,6 +1,7 @@
 #include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/time_series/ts_reference_ops.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/api/python/py_time_series.h>
 
 #include <nanobind/nanobind.h>
 
@@ -461,39 +462,21 @@ void ScalarOps<TSReference>::from_python(void* dst, const nb::object& src, const
 
         // Check has_output (BoundTimeSeriesReference)
         if (nb::cast<bool>(src.attr("has_output"))) {
-            // This is a BoundTimeSeriesReference - we need to extract the output's path
-            // Get the output property
+            // This is a BoundTimeSeriesReference - extract the output's ShortPath
             nb::object output_obj = src.attr("output");
 
-            // Try to get the short_path if the output has a TSOutputView
-            // This requires the output to have a short_path() method (C++ wrapper)
-            if (nb::hasattr(output_obj, "_short_path_for_ref")) {
-                // The output wrapper provides a helper method that returns the ShortPath
-                // as a tuple: (node_ptr, port_type, indices)
-                try {
-                    nb::tuple path_tuple = nb::cast<nb::tuple>(output_obj.attr("_short_path_for_ref")());
-                    // path_tuple is (node, port_type, indices)
-                    // For now, we can't easily reconstruct the ShortPath without the Node pointer
-                    // Fall back to storing as FQReference
-                    int node_id = 0;  // We don't have a reliable way to get node_id here
-                    PortType port_type = PortType::OUTPUT;
-
-                    std::vector<size_t> indices;
-                    nb::list indices_list = nb::cast<nb::list>(path_tuple[2]);
-                    for (size_t i = 0; i < nb::len(indices_list); ++i) {
-                        indices.push_back(nb::cast<size_t>(indices_list[i]));
-                    }
-
-                    FQReference fq = FQReference::peered(node_id, port_type, std::move(indices));
-                    ref = TSReference::from_fq(fq, nullptr);
+            // Check if the output is a C++ PyTimeSeriesOutput wrapper
+            if (nb::isinstance<PyTimeSeriesOutput>(output_obj)) {
+                auto& py_output = nb::cast<PyTimeSeriesOutput&>(output_obj);
+                // Get the ShortPath from the output view's ViewData
+                const ShortPath& path = py_output.output_view().ts_view().view_data().path;
+                if (path.valid()) {
+                    ref = TSReference::peered(path);
                     return;
-                } catch (...) {
-                    // Fall through to empty reference
                 }
             }
 
             // Couldn't extract path - create empty reference
-            // TODO: Improve this to properly extract path from Python outputs
             ref = TSReference::empty();
             return;
         }

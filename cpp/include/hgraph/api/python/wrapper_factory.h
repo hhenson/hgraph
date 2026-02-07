@@ -59,6 +59,14 @@ namespace hgraph
      */
     nb::object wrap_input_view(TSInputView view);
 
+    /**
+     * Wrap a TSInputView using an explicit effective_meta for wrapper dispatch.
+     * Used for cross-graph wiring where the input's own meta (e.g., REF) differs
+     * from the bound target's meta (e.g., TSValue). Falls back to the standard
+     * overload if effective_meta is null.
+     */
+    nb::object wrap_input_view(TSInputView view, const TSMeta* effective_meta);
+
     // ---------------------------------------------------------------------
     // List-based helpers for time series wrapping (view-based)
     // ---------------------------------------------------------------------

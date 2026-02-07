@@ -389,6 +389,7 @@ TSView ShortPath::resolve(engine_time_t current_time) const {
     }
 
     TSView view;
+    size_t first_nav_index = 0;  // Index into indices_ where child navigation starts
 
     if (port_type_ == PortType::INPUT) {
         TSInput* input = node_->ts_input();
@@ -397,16 +398,38 @@ TSView ShortPath::resolve(engine_time_t current_time) const {
         }
         view = input->value().ts_view(current_time);
     } else {
-        TSOutput* output = node_->ts_output();
+        // For outputs, the first index selects which TSOutput port:
+        // 0 = ts_output_, 1 = ts_error_output_, 2 = ts_recordable_state_
+        // Remaining indices navigate within that output's native value.
+        size_t port_idx = 0;
+        if (!indices_.empty()) {
+            port_idx = indices_[0];
+            first_nav_index = 1;
+        }
+
+        TSOutput* output = nullptr;
+        switch (port_idx) {
+            case 0:
+                output = node_->ts_output();
+                break;
+            case 1:
+                output = node_->ts_error_output();
+                break;
+            case 2:
+                output = node_->ts_recordable_state();
+                break;
+            default:
+                throw std::runtime_error("ShortPath::resolve() failed: invalid output port index " + std::to_string(port_idx));
+        }
         if (!output) {
-            throw std::runtime_error("ShortPath::resolve() failed: node has no TSOutput");
+            throw std::runtime_error("ShortPath::resolve() failed: node has no TSOutput at port " + std::to_string(port_idx));
         }
         view = output->native_value().ts_view(current_time);
     }
 
-    // Navigate through indices
-    for (size_t idx : indices_) {
-        view = view[idx];
+    // Navigate through remaining indices (child navigation within the output)
+    for (size_t i = first_nav_index; i < indices_.size(); ++i) {
+        view = view[indices_[i]];
     }
 
     // Set the path on the resolved view

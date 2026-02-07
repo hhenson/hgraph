@@ -15,6 +15,7 @@
  * - Efficient resolution without virtual dispatch overhead
  */
 
+#include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/short_path.h>
 #include <hgraph/types/time_series/ts_meta.h>
 
@@ -244,5 +245,36 @@ struct ViewData {
      */
     [[nodiscard]] ViewData child_by_name(const std::string& name) const;
 };
+
+/**
+ * @brief Resolve ViewData through its LinkTarget to get the upstream output's data.
+ *
+ * For cross-graph wiring, an outer input's ViewData has uses_link_target=true and its
+ * link_data points to a LinkTarget that holds the upstream output's data pointers.
+ * This function follows one level of indirection to return a ViewData that points
+ * directly to the upstream output's storage, skipping the input's local (empty) storage.
+ *
+ * For non-input ViewData (uses_link_target=false), this is a no-op.
+ */
+inline ViewData resolve_through_link(const ViewData& vd) {
+    if (vd.uses_link_target && vd.link_data) {
+        auto* lt = static_cast<LinkTarget*>(vd.link_data);
+        if (lt->is_linked && lt->value_data) {
+            ViewData resolved;
+            resolved.path = vd.path;
+            resolved.value_data = lt->value_data;
+            resolved.time_data = lt->time_data;
+            resolved.observer_data = lt->observer_data;
+            resolved.delta_data = lt->delta_data;
+            resolved.link_data = lt->link_data;
+            resolved.ops = lt->ops;
+            resolved.meta = lt->meta;
+            resolved.uses_link_target = false;
+            resolved.sampled = false;
+            return resolved;
+        }
+    }
+    return vd;
+}
 
 } // namespace hgraph

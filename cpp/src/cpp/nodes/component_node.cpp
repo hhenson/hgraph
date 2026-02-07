@@ -183,7 +183,14 @@ namespace hgraph {
         // Initialize the graph
         initialise_component(*m_active_graph_);
 
-        // Wire inputs: bind inner stub node's TSInput to outer field's resolved data
+        // Wire inputs: For each input stub, resolve the outer field's upstream data and
+        // re-bind downstream nodes to read from it directly. This emulates Python's
+        // copy_with + BoundTimeSeriesReference.bind_input: downstream nodes are rebound
+        // to the upstream output, bypassing the stub's REF output entirely.
+        //
+        // The inner graph was already wired by make_instance(), so downstream nodes'
+        // LinkTargets currently point to the stub's native REF output storage. We use
+        // the edge list to find downstream connections and re-bind them.
         if (ts_input()) {
             auto input_view = ts_input()->view(graph()->evaluation_time());
             for (const auto &[arg, node_ndx]: m_input_node_ids_) {
@@ -191,9 +198,50 @@ namespace hgraph {
                 inner_node->notify();
                 auto field_view = input_view.field(arg);
 
+                // Resolve outer field's ViewData through its LinkTarget to get upstream output data.
+                ViewData resolved = resolve_through_link(field_view.ts_view().view_data());
+                TSView resolved_target(resolved, graph()->evaluation_time());
+
+                // Bind the stub's input field to the resolved upstream data.
                 if (inner_node->ts_input()) {
                     auto inner_input_view = inner_node->ts_input()->view(graph()->evaluation_time());
-                    inner_input_view.ts_view().bind(field_view.ts_view());
+                    const TSMeta* inner_meta = inner_node->ts_input()->meta();
+                    if (inner_meta && inner_meta->kind == TSKind::TSB) {
+                        for (size_t fi = 0; fi < inner_meta->field_count; ++fi) {
+                            auto inner_field_view = inner_input_view[fi];
+                            inner_field_view.ts_view().bind(resolved_target);
+                        }
+                    } else {
+                        inner_input_view.ts_view().bind(resolved_target);
+                    }
+                }
+
+                // Re-bind downstream nodes: find edges from this stub and re-bind
+                // destination inputs to the upstream data directly.
+                for (const auto& edge : m_nested_graph_builder_->edges) {
+                    if (edge.src_node != node_ndx) continue;
+
+                    auto dst_node = m_active_graph_->nodes()[edge.dst_node];
+                    if (!dst_node->has_input()) continue;
+
+                    // Navigate to the destination input field using the edge's input_path
+                    TSInputView dst_input_view = dst_node->ts_input()->view(graph()->evaluation_time());
+                    for (auto idx : edge.input_path) {
+                        if (idx >= 0) {
+                            dst_input_view = dst_input_view[static_cast<size_t>(idx)];
+                        }
+                    }
+
+                    // Navigate to the source field within the resolved data using the edge's output_path
+                    TSView src_view(resolved, graph()->evaluation_time());
+                    for (auto idx : edge.output_path) {
+                        if (idx >= 0) {
+                            src_view = src_view[static_cast<size_t>(idx)];
+                        }
+                    }
+
+                    // Re-bind the destination input to the upstream data
+                    dst_input_view.ts_view().bind(src_view);
                 }
             }
         }

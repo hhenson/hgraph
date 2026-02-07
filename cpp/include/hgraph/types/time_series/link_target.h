@@ -19,6 +19,7 @@
  */
 
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/short_path.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/value/type_meta.h>
 #include <hgraph/util/date_time.h>
@@ -80,6 +81,15 @@ struct LinkTarget : public Notifiable {
      * @brief Whether this LinkTarget is active (bound).
      */
     bool is_linked{false};
+
+    /**
+     * @brief Graph-aware path to the bound target.
+     *
+     * Copied from the target ViewData during store_to_link_target.
+     * Used by REF input wrappers to reconstruct a proper TSOutputView
+     * (with valid ShortPath) when creating BoundTimeSeriesReference.
+     */
+    ShortPath target_path;
 
     /**
      * @brief Pointer to the target's value data.
@@ -162,6 +172,7 @@ struct LinkTarget : public Notifiable {
      */
     void clear() noexcept {
         is_linked = false;
+        target_path = ShortPath{};
         value_data = nullptr;
         time_data = nullptr;
         observer_data = nullptr;
@@ -217,6 +228,7 @@ struct LinkTargetOps {
         const auto* s = static_cast<const LinkTarget*>(src);
         // Only copy target-data fields, NOT structural fields
         d->is_linked = s->is_linked;
+        d->target_path = s->target_path;
         d->value_data = s->value_data;
         d->time_data = s->time_data;
         d->observer_data = s->observer_data;
@@ -231,6 +243,7 @@ struct LinkTargetOps {
         auto* s = static_cast<LinkTarget*>(src);
         // Only move target-data fields, NOT structural fields
         d->is_linked = s->is_linked;
+        d->target_path = std::move(s->target_path);
         d->value_data = s->value_data;
         d->time_data = s->time_data;
         d->observer_data = s->observer_data;

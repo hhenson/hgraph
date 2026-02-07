@@ -11,7 +11,6 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/util/date_time.h>
-#include <iostream>
 
 namespace hgraph
 {
@@ -180,6 +179,7 @@ namespace hgraph
                     if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
                         // Get TSInputView for this field and wrap it for Python using the correct wrapper
                         TSInputView field_view = ts_input()->view(graph()->evaluation_time())[i];
+
                         nb::object wrapped = wrap_input_view(field_view);
                         if (wrapped.is_none()) {
                             throw std::runtime_error(
@@ -198,6 +198,7 @@ namespace hgraph
                         if (std::ranges::find(signature_args, key) != std::ranges::end(signature_args)) {
                             // Wrap the entire TSInputView
                             TSInputView input_view = ts_input()->view(graph()->evaluation_time());
+
                             nb::object wrapped = wrap_input_view(input_view);
                             if (wrapped.is_none()) {
                                 throw std::runtime_error(

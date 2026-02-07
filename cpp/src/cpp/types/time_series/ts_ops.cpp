@@ -11,6 +11,7 @@
 #include <hgraph/types/time_series/ts_value.h>
 #include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
@@ -20,6 +21,7 @@
 #include <hgraph/types/value/set_storage.h>
 #include <hgraph/types/node.h>
 
+#include <optional>
 #include <stdexcept>
 
 namespace hgraph {
@@ -120,6 +122,7 @@ inline ViewData make_view_data_from_link_target(const LinkTarget& lt, const Shor
 // Store ViewData into a LinkTarget (for TSInput simple binding)
 inline void store_to_link_target(LinkTarget& lt, const ViewData& target) {
     lt.is_linked = true;
+    lt.target_path = target.path;
     lt.value_data = target.value_data;
     lt.time_data = target.time_data;
     lt.observer_data = target.observer_data;
@@ -169,6 +172,34 @@ inline const LinkTarget* get_active_link_target(const ViewData& vd) {
     return (lt && lt->valid()) ? lt : nullptr;
 }
 
+// Helper: Resolve a LinkTarget that points to REF data.
+// When a non-REF TSInput is bound to a REF output, the LinkTarget stores the
+// REF output's data. This helper reads the TSReference value from the REF data,
+// resolves the ShortPath, and returns a ViewData pointing to the actual target.
+// Returns nullopt if the REF can't be resolved.
+inline std::optional<ViewData> resolve_ref_link_target(const LinkTarget& lt, engine_time_t current_time) {
+    if (!lt.meta || lt.meta->kind != TSKind::REF) return std::nullopt;
+    if (!lt.value_data) return std::nullopt;
+
+    // Read the TSReference value from the REF output's value data
+    auto value_meta = lt.meta->value_type;
+    if (!value_meta) return std::nullopt;
+
+    value::View v(lt.value_data, value_meta);
+    if (!v.valid()) return std::nullopt;
+
+    const auto* ts_ref = static_cast<const TSReference*>(v.data());
+    if (!ts_ref || ts_ref->is_empty() || !ts_ref->is_peered()) return std::nullopt;
+
+    try {
+        TSView resolved = ts_ref->resolve(current_time);
+        if (!resolved) return std::nullopt;
+        return resolved.view_data();
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 } // anonymous namespace
 
 // ============================================================================
@@ -185,6 +216,14 @@ namespace scalar_ops {
 engine_time_t last_modified_time(const ViewData& vd) {
     // If linked via LinkTarget (TSInput), delegate to target
     if (auto* lt = get_active_link_target(vd)) {
+        // If the target is a REF and the reader is not REF, resolve through the reference
+        if (lt->meta && lt->meta->kind == TSKind::REF &&
+            (!vd.meta || vd.meta->kind != TSKind::REF)) {
+            if (auto resolved = resolve_ref_link_target(*lt, MIN_DT)) {
+                return resolved->ops->last_modified_time(*resolved);
+            }
+            return MIN_DT;
+        }
         return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
     }
     // If linked via REFLink (TSOutput), delegate to target
@@ -198,6 +237,14 @@ engine_time_t last_modified_time(const ViewData& vd) {
 bool modified(const ViewData& vd, engine_time_t current_time) {
     // If linked via LinkTarget (TSInput), delegate to target
     if (auto* lt = get_active_link_target(vd)) {
+        // If the target is a REF and the reader is not REF, resolve through the reference
+        if (lt->meta && lt->meta->kind == TSKind::REF &&
+            (!vd.meta || vd.meta->kind != TSKind::REF)) {
+            if (auto resolved = resolve_ref_link_target(*lt, current_time)) {
+                return resolved->ops->modified(*resolved, current_time);
+            }
+            return false;
+        }
         return lt->ops->modified(make_view_data_from_link_target(*lt, vd.path), current_time);
     }
     // If linked via REFLink (TSOutput), delegate to target
@@ -210,6 +257,14 @@ bool modified(const ViewData& vd, engine_time_t current_time) {
 bool valid(const ViewData& vd) {
     // If linked via LinkTarget (TSInput), delegate to target
     if (auto* lt = get_active_link_target(vd)) {
+        // If the target is a REF and the reader is not REF, resolve through the reference
+        if (lt->meta && lt->meta->kind == TSKind::REF &&
+            (!vd.meta || vd.meta->kind != TSKind::REF)) {
+            if (auto resolved = resolve_ref_link_target(*lt, MIN_DT)) {
+                return resolved->ops->valid(*resolved);
+            }
+            return false;
+        }
         return lt->ops->valid(make_view_data_from_link_target(*lt, vd.path));
     }
     // If linked via REFLink (TSOutput), delegate to target
@@ -309,6 +364,15 @@ void invalidate(ViewData& vd) {
 nb::object to_python(const ViewData& vd) {
     // If linked via LinkTarget (TSInput), delegate to target
     if (auto* lt = get_active_link_target(vd)) {
+        // If the target is a REF and the reader is not REF, resolve through the reference
+        // to get the actual value (matching Python's transparent REF dereferencing)
+        if (lt->meta && lt->meta->kind == TSKind::REF &&
+            (!vd.meta || vd.meta->kind != TSKind::REF)) {
+            if (auto resolved = resolve_ref_link_target(*lt, MIN_DT)) {
+                return resolved->ops->to_python(*resolved);
+            }
+            return nb::none();
+        }
         return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
     }
     // If linked via REFLink (TSOutput), delegate to target
@@ -326,6 +390,14 @@ nb::object to_python(const ViewData& vd) {
 nb::object delta_to_python(const ViewData& vd) {
     // If linked via LinkTarget (TSInput), delegate to target
     if (auto* lt = get_active_link_target(vd)) {
+        // If the target is a REF and the reader is not REF, resolve through the reference
+        if (lt->meta && lt->meta->kind == TSKind::REF &&
+            (!vd.meta || vd.meta->kind != TSKind::REF)) {
+            if (auto resolved = resolve_ref_link_target(*lt, MIN_DT)) {
+                return resolved->ops->delta_to_python(*resolved);
+            }
+            return nb::none();
+        }
         return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
     }
     // If linked via REFLink (TSOutput), delegate to target
