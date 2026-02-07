@@ -6,6 +6,7 @@
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/link_target.h>
 
 namespace hgraph
 {
@@ -212,18 +213,29 @@ namespace hgraph
     }
 
     nb::bool_ PyTimeSeriesInput::has_peer() const {
-        if (!input_view().is_bound()) {
-            return nb::bool_(false);
+        // Dispatch through ts_ops to check peered state in the link structure
+        const auto& vd = input_view().ts_view().view_data();
+        if (vd.ops && vd.ops->is_peered) {
+            return nb::bool_(vd.ops->is_peered(vd));
         }
-        const TSMeta* bound_meta = input_view().ts_meta();
-        if (!bound_meta) {
-            return nb::bool_(false);
-        }
-        return nb::bool_(bound_meta->kind != TSKind::REF);
+        return nb::bool_(false);
     }
 
     nb::object PyTimeSeriesInput::output() const {
+        // First try the view's stored bound_output (set during bind on same view)
         TSOutput* bound = input_view().bound_output();
+
+        // If not available (transient view), recover from link structure
+        if (!bound) {
+            const auto& vd = input_view().ts_view().view_data();
+            if (vd.uses_link_target && vd.link_data) {
+                auto* lt = static_cast<const LinkTarget*>(vd.link_data);
+                if (lt->is_linked && lt->target_path.node()) {
+                    bound = lt->target_path.node()->ts_output();
+                }
+            }
+        }
+
         if (!bound) {
             return nb::none();
         }
@@ -241,8 +253,12 @@ namespace hgraph
         if (nb::isinstance<PyTimeSeriesOutput>(output_)) {
             auto& py_output = nb::cast<PyTimeSeriesOutput&>(output_);
             TSOutputView& out_view = py_output.output_view();
+            // TSInputView::bind() delegates to ts_ops::bind which sets peered on LinkTarget
             input_view_.bind(out_view);
-            return nb::bool_(true);
+            // Return peered state from link structure
+            const auto& vd = input_view().ts_view().view_data();
+            bool peered = vd.ops && vd.ops->is_peered && vd.ops->is_peered(vd);
+            return nb::bool_(peered);
         }
         throw std::runtime_error("bind_output requires a PyTimeSeriesOutput with view");
     }
@@ -257,6 +273,16 @@ namespace hgraph
             return nb::none();
         }
         TSOutput* bound = input_view().bound_output();
+        // If not available, recover from link structure
+        if (!bound) {
+            const auto& vd = input_view().ts_view().view_data();
+            if (vd.uses_link_target && vd.link_data) {
+                auto* lt = static_cast<const LinkTarget*>(vd.link_data);
+                if (lt->is_linked && lt->target_path.node()) {
+                    bound = lt->target_path.node()->ts_output();
+                }
+            }
+        }
         if (!bound) {
             return nb::none();
         }

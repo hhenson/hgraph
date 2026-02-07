@@ -29,7 +29,10 @@ TSInputView TSInput::view(engine_time_t current_time) {
     // Mark that this view uses LinkTarget (not REFLink) for link storage
     ts_view.view_data().uses_link_target = true;
     // Pass the active view for hierarchical active state tracking
-    return TSInputView(std::move(ts_view), this, active_.view());
+    TSInputView iv(std::move(ts_view), this, active_.view());
+    // Carry the persistent bound output to the new view
+    iv.set_bound_output(bound_output_);
+    return iv;
 }
 
 TSInputView TSInput::view(engine_time_t current_time, const TSMeta* schema) {
@@ -166,7 +169,15 @@ void TSInputView::bind(TSOutputView& output) {
     // 2. Track the bound output for subscription management
     bound_output_ = output.output();
 
-    // 3. Subscribe for notifications if active
+    // 3. Also store on the persistent TSInput for views created later
+    if (input_) {
+        input_->set_bound_output(bound_output_);
+    }
+
+    // 4. Peered tracking is handled by ts_ops::bind in the link structure
+    //    (LinkTarget.peered flag set by list_ops/bundle_ops/dict_ops bind)
+
+    // 5. Subscribe for notifications if active
     if (input_ && input_->active()) {
         output.subscribe(input_);
     }
@@ -183,7 +194,12 @@ void TSInputView::unbind() {
     // 2. Clear the bound output reference
     bound_output_ = nullptr;
 
-    // 3. Remove link
+    // 3. Clear persistent reference on TSInput
+    if (input_) {
+        input_->set_bound_output(nullptr);
+    }
+
+    // 4. Remove link
     ts_view_.unbind();
 }
 

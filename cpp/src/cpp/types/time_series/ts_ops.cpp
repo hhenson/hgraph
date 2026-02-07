@@ -728,6 +728,11 @@ bool is_bound(const ViewData& vd) {
     }
 }
 
+bool is_peered(const ViewData& vd) {
+    // Scalar types are always peered when bound (there is no element-level distinction)
+    return is_bound(vd);
+}
+
 void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
     if (!active_view) return;
 
@@ -1559,6 +1564,8 @@ void bind(ViewData& vd, const ViewData& target) {
     value::TupleView time_tuple;
     if (vd.uses_link_target) {
         container_lt = static_cast<LinkTarget*>(link_tuple.at(0).data());
+        // Mark as peered (binding happened at bundle level)
+        if (container_lt) container_lt->peered = true;
         if (vd.time_data) {
             auto time_schema = TSMetaSchemaCache::instance().get_time_schema(vd.meta);
             if (time_schema) {
@@ -1708,6 +1715,17 @@ void unbind(ViewData& vd) {
 bool is_bound(const ViewData& vd) {
     // TSB is considered bound if any field is bound
     return any_field_linked(vd);
+}
+
+bool is_peered(const ViewData& vd) {
+    // TSB is peered if the container-level LinkTarget has peered=true
+    if (!vd.link_data || !vd.uses_link_target || !vd.meta) return false;
+    auto link_schema = get_bundle_link_schema(vd);
+    if (!link_schema) return false;
+    value::View link_view(vd.link_data, link_schema);
+    auto link_tuple = link_view.as_tuple();
+    auto* container_lt = static_cast<const LinkTarget*>(link_tuple.at(0).data());
+    return container_lt && container_lt->peered;
 }
 
 void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
@@ -2465,6 +2483,8 @@ void bind(ViewData& vd, const ViewData& target) {
                 auto* lt = static_cast<LinkTarget*>(link_list.at(i).data());
                 if (lt) {
                     store_to_link_target(*lt, target_elem.view_data());
+                    // Mark peered: binding happened at the list level
+                    lt->peered = true;
 
                     // Set time-accounting chain
                     if (vd.time_data) {
@@ -2501,6 +2521,8 @@ void bind(ViewData& vd, const ViewData& target) {
             throw std::runtime_error("bind on list with invalid link data");
         }
         store_to_link_target(*lt, target);
+        // Mark peered: binding happened at the list level
+        lt->peered = true;
 
         // Set time-accounting chain
         if (vd.time_data) {
@@ -2622,6 +2644,28 @@ bool is_bound(const ViewData& vd) {
         auto* rl = get_ref_link(vd.link_data);
         return rl && rl->target().is_linked;
     }
+}
+
+bool is_peered(const ViewData& vd) {
+    if (!vd.link_data || !vd.uses_link_target) return false;
+
+    // Fixed-size TSL: check first element's peered flag
+    if (vd.meta && vd.meta->fixed_size > 0) {
+        auto* link_schema = get_list_link_schema(vd);
+        if (link_schema) {
+            value::View link_view(vd.link_data, link_schema);
+            auto link_list = link_view.as_list();
+            if (link_list.size() > 0) {
+                auto* lt = static_cast<const LinkTarget*>(link_list.at(0).data());
+                return lt && lt->peered;
+            }
+        }
+        return false;
+    }
+
+    // Dynamic TSL: check collection-level LinkTarget's peered flag
+    auto* lt = get_link_target(vd.link_data);
+    return lt && lt->peered;
 }
 
 void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
@@ -3298,6 +3342,11 @@ bool is_bound(const ViewData& vd) {
         auto* rl = get_ref_link(vd.link_data);
         return rl && rl->target().is_linked;
     }
+}
+
+bool is_peered(const ViewData& vd) {
+    // TSS is a scalar-like type, always peered when bound
+    return is_bound(vd);
 }
 
 // ========== Set-Specific Mutation Operations ==========
@@ -4126,6 +4175,8 @@ void bind(ViewData& vd, const ViewData& target) {
             throw std::runtime_error("bind on dict with invalid link data");
         }
         store_to_link_target(*lt, target);
+        // Mark peered: binding happened at the dict level
+        lt->peered = true;
 
         // Set time-accounting chain
         if (vd.time_data) {
@@ -4185,6 +4236,13 @@ bool is_bound(const ViewData& vd) {
         auto* rl = get_ref_link(vd.link_data);
         return rl && rl->target().is_linked;
     }
+}
+
+bool is_peered(const ViewData& vd) {
+    // TSD: check collection-level LinkTarget's peered flag
+    if (!vd.link_data || !vd.uses_link_target) return false;
+    auto* lt = get_link_target(vd.link_data);
+    return lt && lt->peered;
 }
 
 // ========== Dict-Specific Mutation Operations ==========
@@ -4874,6 +4932,11 @@ bool is_bound(const ViewData& vd) {
     }
 }
 
+bool is_peered(const ViewData& vd) {
+    // TSW is a scalar-like type, always peered when bound
+    return is_bound(vd);
+}
+
 // Window-specific operations using CyclicBufferStorage
 
 const engine_time_t* window_value_times(const ViewData& vd) {
@@ -5478,6 +5541,11 @@ bool is_bound(const ViewData& vd) {
     }
 }
 
+bool is_peered(const ViewData& vd) {
+    // TSW (time-based) is a scalar-like type, always peered when bound
+    return is_bound(vd);
+}
+
 // ========== Window-specific operations using QueueStorage ==========
 
 // Thread-local cache for value_times (QueueStorage isn't contiguous)
@@ -5672,6 +5740,7 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     .bind = ns::bind, \
     .unbind = ns::unbind, \
     .is_bound = ns::is_bound, \
+    .is_peered = ns::is_peered, \
     .set_active = ns::set_active, \
     .window_value_times = nullptr, \
     .window_value_times_count = nullptr, \
@@ -5716,6 +5785,7 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     .bind = ns::bind, \
     .unbind = ns::unbind, \
     .is_bound = ns::is_bound, \
+    .is_peered = ns::is_peered, \
     .set_active = ns::set_active, \
     .window_value_times = ns::window_value_times, \
     .window_value_times_count = ns::window_value_times_count, \
@@ -5760,6 +5830,7 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     .bind = ns::bind, \
     .unbind = ns::unbind, \
     .is_bound = ns::is_bound, \
+    .is_peered = ns::is_peered, \
     .set_active = ns::set_active, \
     .window_value_times = nullptr, \
     .window_value_times_count = nullptr, \
@@ -5804,6 +5875,7 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     .bind = ns::bind, \
     .unbind = ns::unbind, \
     .is_bound = ns::is_bound, \
+    .is_peered = ns::is_peered, \
     .set_active = ns::set_active, \
     .window_value_times = nullptr, \
     .window_value_times_count = nullptr, \

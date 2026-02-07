@@ -221,6 +221,18 @@ struct ts_ops {
      */
     bool (*is_bound)(const ViewData& vd);
 
+    /**
+     * @brief Check if this position has a peer (peered binding).
+     *
+     * For scalars: returns is_bound (scalars are always peered when bound).
+     * For collections/bundles: returns true only if the binding happened
+     * at the collection level (not individual element bindings from from_ts).
+     *
+     * @param vd The ViewData to check
+     * @return true if peered binding
+     */
+    bool (*is_peered)(const ViewData& vd);
+
     // ========== Input Active State Management ==========
 
     /**

@@ -215,11 +215,24 @@ public:
      */
     [[nodiscard]] bool valid() const noexcept { return meta_ != nullptr; }
 
+    // ========== Bound Output Tracking ==========
+
+    /**
+     * @brief Set the bound output (called during binding phase).
+     */
+    void set_bound_output(TSOutput* output) noexcept { bound_output_ = output; }
+
+    /**
+     * @brief Get the bound output.
+     */
+    [[nodiscard]] TSOutput* bound_output() const noexcept { return bound_output_; }
+
 private:
     TSValue value_;                     ///< Contains Links at leaves pointing to outputs
     value::Value<> active_;             ///< Hierarchical active state (mirrors schema structure)
     const TSMeta* meta_{nullptr};       ///< Schema
     node_ptr owning_node_{nullptr};     ///< For scheduling
+    TSOutput* bound_output_{nullptr};   ///< Persistent bound output reference
 };
 
 } // namespace hgraph

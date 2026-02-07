@@ -129,6 +129,17 @@ struct LinkTarget : public Notifiable {
     // ========== Structural fields (NOT copied by store_to_link_target) ==========
 
     /**
+     * @brief Whether binding was initiated at the collection/bundle level (peered).
+     *
+     * Set to true by collection/bundle bind functions (list_ops::bind, bundle_ops::bind, etc.)
+     * when the entire collection is bound at once. Stays false when individual elements
+     * are bound directly (non-peered / from_ts binding).
+     *
+     * For scalars, peered is not meaningful - scalars are always peered when bound.
+     */
+    bool peered{false};
+
+    /**
      * @brief Pointer to this level's time slot in the INPUT's TSValue::time_.
      * Set at bind time. Used by notify() to stamp modification time.
      */
@@ -209,6 +220,7 @@ struct LinkTarget : public Notifiable {
         link_data = nullptr;
         ops = nullptr;
         meta = nullptr;
+        peered = false;
         owner_time_ptr = nullptr;
         parent_link = nullptr;
         last_notify_time = MIN_DT;

@@ -335,6 +335,7 @@ private:
      * the delta should be cleared before accessing.
      */
     engine_time_t last_delta_clear_time_{MIN_DT};
+
 };
 
 } // namespace hgraph
