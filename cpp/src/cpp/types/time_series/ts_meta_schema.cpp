@@ -11,6 +11,7 @@
 #include <hgraph/types/time_series/ts_reference_ops.h>
 #include <hgraph/types/time_series/ref_link.h>
 #include <hgraph/types/value/composite_ops.h>
+#include <hgraph/types/value/type_registry.h>
 
 namespace hgraph {
 
@@ -296,11 +297,27 @@ const value::TypeMeta* TSMetaSchemaCache::generate_time_schema_impl(const TSMeta
     switch (ts_meta->kind) {
         case TSKind::TSValue:
         case TSKind::TSS:
-        case TSKind::TSW:
         case TSKind::REF:
         case TSKind::SIGNAL:
             // Atomic time-series types: just engine_time_t
             return engine_time_meta_;
+
+        case TSKind::TSW: {
+            // TSW: tuple[engine_time_t, CyclicBuffer[engine_time_t]] for fixed windows
+            // First element: container last_modified_time
+            // Second element: per-element timestamps (parallel to the value CyclicBuffer)
+            if (!ts_meta->is_duration_based && ts_meta->window.tick.period > 0) {
+                auto& registry = value::TypeRegistry::instance();
+                const value::TypeMeta* time_buffer = registry.cyclic_buffer(
+                    engine_time_meta_, ts_meta->window.tick.period).build();
+                return registry.tuple()
+                    .element(engine_time_meta_)
+                    .element(time_buffer)
+                    .build();
+            }
+            // Duration-based: just engine_time_t for now
+            return engine_time_meta_;
+        }
 
         case TSKind::TSD: {
             // TSD[K,V] -> tuple[engine_time_t, var_list[time_schema(V)]]
@@ -455,11 +472,24 @@ const value::TypeMeta* TSMetaSchemaCache::generate_delta_value_schema_impl(const
 
     switch (ts_meta->kind) {
         case TSKind::TSValue:
-        case TSKind::TSW:
         case TSKind::REF:
         case TSKind::SIGNAL:
             // No delta tracking for these types
             return nullptr;
+
+        case TSKind::TSW: {
+            // TSW needs delta for removed value tracking
+            // For fixed windows: tuple[element_value, bool has_removed]
+            if (!ts_meta->is_duration_based && ts_meta->window.tick.period > 0) {
+                auto& registry = value::TypeRegistry::instance();
+                return registry.tuple()
+                    .element(ts_meta->value_type)    // removed element value
+                    .element(bool_meta_)              // has_removed flag
+                    .build();
+            }
+            // Duration-based: no delta for now
+            return nullptr;
+        }
 
         case TSKind::TSS:
             // TSS -> SetDelta

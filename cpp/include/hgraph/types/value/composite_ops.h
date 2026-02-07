@@ -1070,7 +1070,11 @@ struct SetOps {
                 result.add(elem_type->ops->to_python(*it, elem_type));
             }
         }
-        return result;
+        // Return frozenset — immutable representation matching SetStorage's read-only nature.
+        // TSS wrappers (PyTimeSeriesSetOutput/Input::value()) return mutable set separately.
+        // This ensures TS[frozenset[int]].value returns frozenset, which TSS from_python
+        // recognizes as Case 2 (replacement diff).
+        return nb::frozenset(result);
     }
 
     static void from_python(void* dst, const nb::object& src, const TypeMeta* schema) {

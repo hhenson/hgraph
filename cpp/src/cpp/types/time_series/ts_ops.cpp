@@ -19,10 +19,12 @@
 #include <hgraph/types/time_series/map_delta.h>
 #include <hgraph/types/value/map_storage.h>
 #include <hgraph/types/value/set_storage.h>
+#include <hgraph/types/value/cyclic_buffer_ops.h>
 #include <hgraph/types/node.h>
 
 #include <optional>
 #include <stdexcept>
+#include <unordered_map>
 
 namespace hgraph {
 
@@ -2927,6 +2929,13 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
+    // Follow links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
+    }
     // Check time-series validity first (has value been set?)
     if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
@@ -2934,27 +2943,246 @@ nb::object to_python(const ViewData& vd) {
     return v.to_python();
 }
 
+// Cache for Python-level delta built during from_python.
+// Keyed by delta_data pointer to support multiple concurrent TSS outputs.
+// from_python populates this; delta_to_python reads it.
+// This avoids the problem of reading destructed slot data from SetDelta.
+static thread_local std::unordered_map<void*, nb::object> cached_py_deltas_;
+
 nb::object delta_to_python(const ViewData& vd) {
-    // Check time-series validity first (has value been set?)
+    // Follow links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
+    }
+    // Check time-series validity first
     if (!valid(vd)) return nb::none();
-    auto d = make_delta_view(vd);
-    if (!d.valid()) return nb::none();
-    return d.to_python();
+
+    // Return the cached Python delta built by from_python
+    if (vd.delta_data) {
+        auto it = cached_py_deltas_.find(vd.delta_data);
+        if (it != cached_py_deltas_.end()) {
+            return it->second;
+        }
+    }
+
+    // Fallback: delta was not set by from_python (e.g., direct add/remove calls)
+    // Build from SetDelta added slots only (removed slots may have destructed keys)
+    auto* set_delta = vd.delta_data ? static_cast<SetDelta*>(vd.delta_data) : nullptr;
+    if (!set_delta || set_delta->empty()) return nb::none();
+
+    auto* set_storage = static_cast<value::SetStorage*>(vd.value_data);
+    if (!set_storage) return nb::none();
+    const auto* elem_type = set_storage->element_type();
+    if (!elem_type || !elem_type->ops) return nb::none();
+
+    // Only safe to read added slots (they are alive); removed slots may be destructed
+    nb::set py_added;
+    for (size_t slot : set_delta->added()) {
+        if (set_storage->key_set().is_alive(slot)) {
+            const void* elem = set_storage->key_set().key_at_slot(slot);
+            py_added.add(elem_type->ops->to_python(elem, elem_type));
+        }
+    }
+
+    nb::module_ tss_mod = nb::module_::import_("hgraph._impl._types._tss");
+    return tss_mod.attr("PythonSetDelta")(nb::frozenset(py_added), nb::frozenset(nb::set()));
 }
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+    if (src.is_none()) {
+        invalidate(vd);
+        return;
+    }
     if (!vd.value_data || !vd.time_data) {
         throw std::runtime_error("from_python on invalid ViewData");
     }
 
-    auto dst = make_value_view(vd);
-    dst.from_python(src);
+    auto* set_storage = static_cast<value::SetStorage*>(vd.value_data);
+    auto* set_delta = vd.delta_data ? static_cast<SetDelta*>(vd.delta_data) : nullptr;
+    const auto* elem_type = set_storage->element_type();
+    if (!elem_type || !elem_type->ops) {
+        throw std::runtime_error("TSS from_python: missing element type");
+    }
 
-    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+    // Check if output was already modified this tick (by direct add/remove calls)
+    bool already_modified_this_tick = (*static_cast<engine_time_t*>(vd.time_data) == current_time);
 
-    if (vd.observer_data) {
-        auto* observers = static_cast<ObserverList*>(vd.observer_data);
-        observers->notify_modified(current_time);
+    // If source is an empty SetDelta and output was already modified this tick,
+    // skip entirely to preserve the delta from direct add/remove calls.
+    // This matches Python: apply_result with empty SetDelta on already-modified output is a no-op.
+    if (already_modified_this_tick && nb::hasattr(src, "added") && nb::hasattr(src, "removed")) {
+        auto src_added = src.attr("added");
+        auto src_removed = src.attr("removed");
+        if (nb::len(nb::borrow(src_added)) == 0 && nb::len(nb::borrow(src_removed)) == 0) {
+            return;  // No-op: empty SetDelta on already-modified output
+        }
+    }
+
+    // Clear previous tick's delta and cached Python delta
+    if (set_delta) {
+        set_delta->clear();
+        cached_py_deltas_.erase(vd.delta_data);
+    }
+
+    // Track Python-level added/removed for delta_to_python
+    nb::set py_added, py_removed;
+
+    // Temp storage for element conversion
+    std::vector<std::byte> temp(elem_type->size);
+    bool any_change = false;
+
+    // Case 1: SetDelta (has .added and .removed attributes)
+    if (nb::hasattr(src, "added") && nb::hasattr(src, "removed")) {
+        auto src_removed = src.attr("removed");
+        auto src_added = src.attr("added");
+
+        // Process removals first (only remove if present)
+        for (auto item : src_removed) {
+            nb::object obj = nb::cast<nb::object>(item);
+            elem_type->ops->construct(temp.data(), elem_type);
+            elem_type->ops->from_python(temp.data(), obj, elem_type);
+            if (set_storage->contains(temp.data())) {
+                set_storage->remove(temp.data());
+                py_removed.add(obj);
+                any_change = true;
+            }
+            elem_type->ops->destruct(temp.data(), elem_type);
+        }
+
+        // Process additions (only add if not present)
+        for (auto item : src_added) {
+            nb::object obj = nb::cast<nb::object>(item);
+            elem_type->ops->construct(temp.data(), elem_type);
+            elem_type->ops->from_python(temp.data(), obj, elem_type);
+            if (!set_storage->contains(temp.data())) {
+                set_storage->add(temp.data());
+                py_added.add(obj);
+                any_change = true;
+            }
+            elem_type->ops->destruct(temp.data(), elem_type);
+        }
+    }
+    // Case 2: frozenset — compute diff against current set
+    else if (nb::isinstance<nb::frozenset>(src)) {
+        auto new_set = nb::cast<nb::frozenset>(src);
+
+        // Collect current elements to check for removals (capture Python repr BEFORE erase)
+        struct RemovalEntry {
+            std::vector<std::byte> data;
+            nb::object py_obj;
+        };
+        std::vector<RemovalEntry> to_remove;
+        for (auto it = set_storage->begin(); it != set_storage->end(); ++it) {
+            const void* elem = *it;
+            nb::object py_elem = elem_type->ops->to_python(elem, elem_type);
+            if (!new_set.contains(py_elem)) {
+                RemovalEntry entry;
+                entry.data.resize(elem_type->size);
+                elem_type->ops->construct(entry.data.data(), elem_type);
+                elem_type->ops->copy_assign(entry.data.data(), elem, elem_type);
+                entry.py_obj = std::move(py_elem);
+                to_remove.push_back(std::move(entry));
+            }
+        }
+        for (auto& r : to_remove) {
+            set_storage->remove(r.data.data());
+            elem_type->ops->destruct(r.data.data(), elem_type);
+            py_removed.add(r.py_obj);
+            any_change = true;
+        }
+
+        // Add elements in new_set not already in current
+        for (auto item : new_set) {
+            nb::object obj = nb::cast<nb::object>(item);
+            elem_type->ops->construct(temp.data(), elem_type);
+            elem_type->ops->from_python(temp.data(), obj, elem_type);
+            if (set_storage->add(temp.data())) {
+                py_added.add(obj);
+                any_change = true;
+            }
+            elem_type->ops->destruct(temp.data(), elem_type);
+        }
+    }
+    // Case 3: set/list/tuple/dict — check for Removed markers; if none, treat as incremental adds
+    else if (nb::isinstance<nb::set>(src) || nb::isinstance<nb::list>(src) || nb::isinstance<nb::tuple>(src) || nb::isinstance<nb::dict>(src)) {
+        nb::module_ tss_mod = nb::module_::import_("hgraph._impl._types._tss");
+        nb::object RemovedType = tss_mod.attr("Removed");
+
+        // First pass: check if any Removed markers exist
+        bool has_removed_markers = false;
+        for (auto item : src) {
+            if (nb::isinstance(nb::cast<nb::object>(item), RemovedType)) {
+                has_removed_markers = true;
+                break;
+            }
+        }
+
+        if (has_removed_markers) {
+            // Process as mix of adds and removes (per Python _tss.py:119-130)
+            for (auto item : src) {
+                nb::object obj = nb::cast<nb::object>(item);
+                if (nb::isinstance(obj, RemovedType)) {
+                    nb::object inner = obj.attr("item");
+                    elem_type->ops->construct(temp.data(), elem_type);
+                    elem_type->ops->from_python(temp.data(), inner, elem_type);
+                    if (set_storage->contains(temp.data())) {
+                        set_storage->remove(temp.data());
+                        py_removed.add(inner);
+                        any_change = true;
+                    }
+                    elem_type->ops->destruct(temp.data(), elem_type);
+                } else {
+                    elem_type->ops->construct(temp.data(), elem_type);
+                    elem_type->ops->from_python(temp.data(), obj, elem_type);
+                    if (!set_storage->contains(temp.data())) {
+                        set_storage->add(temp.data());
+                        py_added.add(obj);
+                        any_change = true;
+                    }
+                    elem_type->ops->destruct(temp.data(), elem_type);
+                }
+            }
+        } else {
+            // No Removed markers — just add new elements (per Python _tss.py:121,129)
+            // Python: _added = {r for r in v if r not in self._value}; _value.update(_added)
+            for (auto item : src) {
+                nb::object obj = nb::cast<nb::object>(item);
+                elem_type->ops->construct(temp.data(), elem_type);
+                elem_type->ops->from_python(temp.data(), obj, elem_type);
+                if (!set_storage->contains(temp.data())) {
+                    set_storage->add(temp.data());
+                    py_added.add(obj);
+                    any_change = true;
+                }
+                elem_type->ops->destruct(temp.data(), elem_type);
+            }
+        }
+    }
+    else {
+        throw std::runtime_error("TSS from_python: unsupported type");
+    }
+
+    // Match Python _post_modify(): mark modified if any change OR if not yet valid
+    bool was_valid = *static_cast<engine_time_t*>(vd.time_data) != MIN_DT;
+    bool should_mark = any_change || !was_valid;
+
+    // Cache the Python delta for delta_to_python
+    // Always cache when should_mark (even empty delta, matching Python _post_modify behavior)
+    if (vd.delta_data && should_mark) {
+        nb::module_ tss_mod = nb::module_::import_("hgraph._impl._types._tss");
+        cached_py_deltas_[vd.delta_data] = tss_mod.attr("PythonSetDelta")(
+            nb::frozenset(py_added), nb::frozenset(py_removed));
+    }
+
+    if (should_mark) {
+        *static_cast<engine_time_t*>(vd.time_data) = current_time;
+        if (vd.observer_data) {
+            auto* observers = static_cast<ObserverList*>(vd.observer_data);
+            observers->notify_modified(current_time);
+        }
     }
 }
 
@@ -2973,6 +3201,12 @@ TSView child_by_key(const ViewData& vd, const value::View& key, engine_time_t cu
 }
 
 size_t child_count(const ViewData& vd) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->child_count(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->child_count(make_view_data_from_link(*rl, vd.path));
+    }
     auto value_view = make_value_view(vd);
     if (!value_view.valid()) return 0;
     return value_view.as_set().size();
@@ -3070,17 +3304,52 @@ bool set_add(ViewData& vd, const value::View& elem, engine_time_t current_time) 
         throw std::runtime_error("set_add on invalid ViewData");
     }
 
-    // Get the SetStorage
     auto* storage = static_cast<value::SetStorage*>(vd.value_data);
+    const auto* elem_type = storage->element_type();
 
-    // Add the element (SetDelta is notified via SlotObserver if registered)
+    // Clear stale cached delta at start of new tick
+    if (vd.delta_data) {
+        auto* set_delta = static_cast<SetDelta*>(vd.delta_data);
+        if (set_delta->empty()) {
+            cached_py_deltas_.erase(vd.delta_data);
+        }
+    }
+
+    // Capture Python representation BEFORE mutation (for delta tracking)
+    nb::object py_elem = elem_type->ops->to_python(elem.data(), elem_type);
+
     bool added = storage->add(elem.data());
 
     if (added) {
-        // Update timestamp
-        *static_cast<engine_time_t*>(vd.time_data) = current_time;
+        // Update cached Python delta
+        if (vd.delta_data) {
+            auto it = cached_py_deltas_.find(vd.delta_data);
+            if (it != cached_py_deltas_.end()) {
+                // Update existing delta — build mutable sets from frozenset/set attrs
+                nb::object added_attr = nb::borrow(it->second.attr("added"));
+                nb::object removed_attr = nb::borrow(it->second.attr("removed"));
+                nb::set existing_added = nb::steal<nb::set>(PySet_New(added_attr.ptr()));
+                nb::set existing_removed = nb::steal<nb::set>(PySet_New(removed_attr.ptr()));
+                // If element was in removed (being re-added), cancel the removal
+                if (existing_removed.contains(py_elem)) {
+                    existing_removed.discard(py_elem);
+                } else {
+                    existing_added.add(py_elem);
+                }
+                nb::module_ tss_mod = nb::module_::import_("hgraph._impl._types._tss");
+                it->second = tss_mod.attr("PythonSetDelta")(
+                    nb::frozenset(existing_added), nb::frozenset(existing_removed));
+            } else {
+                // Create new delta
+                nb::set py_added;
+                py_added.add(py_elem);
+                nb::module_ tss_mod = nb::module_::import_("hgraph._impl._types._tss");
+                cached_py_deltas_[vd.delta_data] = tss_mod.attr("PythonSetDelta")(
+                    nb::frozenset(py_added), nb::frozenset(nb::set()));
+            }
+        }
 
-        // Notify observers
+        *static_cast<engine_time_t*>(vd.time_data) = current_time;
         if (vd.observer_data) {
             auto* observers = static_cast<ObserverList*>(vd.observer_data);
             observers->notify_modified(current_time);
@@ -3095,17 +3364,51 @@ bool set_remove(ViewData& vd, const value::View& elem, engine_time_t current_tim
         throw std::runtime_error("set_remove on invalid ViewData");
     }
 
-    // Get the SetStorage
     auto* storage = static_cast<value::SetStorage*>(vd.value_data);
+    const auto* elem_type = storage->element_type();
 
-    // Remove the element (SetDelta is notified via SlotObserver if registered)
+    // Clear stale cached delta at start of new tick
+    if (vd.delta_data) {
+        auto* set_delta = static_cast<SetDelta*>(vd.delta_data);
+        if (set_delta->empty()) {
+            cached_py_deltas_.erase(vd.delta_data);
+        }
+    }
+
+    // Capture Python representation BEFORE removal (key will be destructed)
+    nb::object py_elem = elem_type->ops->to_python(elem.data(), elem_type);
+
     bool removed = storage->remove(elem.data());
 
     if (removed) {
-        // Update timestamp
-        *static_cast<engine_time_t*>(vd.time_data) = current_time;
+        // Update cached Python delta
+        if (vd.delta_data) {
+            auto it = cached_py_deltas_.find(vd.delta_data);
+            if (it != cached_py_deltas_.end()) {
+                // Build mutable sets from frozenset/set attrs
+                nb::object added_attr = nb::borrow(it->second.attr("added"));
+                nb::object removed_attr = nb::borrow(it->second.attr("removed"));
+                nb::set existing_added = nb::steal<nb::set>(PySet_New(added_attr.ptr()));
+                nb::set existing_removed = nb::steal<nb::set>(PySet_New(removed_attr.ptr()));
+                // If element was in added (added then removed same tick), cancel
+                if (existing_added.contains(py_elem)) {
+                    existing_added.discard(py_elem);
+                } else {
+                    existing_removed.add(py_elem);
+                }
+                nb::module_ tss_mod = nb::module_::import_("hgraph._impl._types._tss");
+                it->second = tss_mod.attr("PythonSetDelta")(
+                    nb::frozenset(existing_added), nb::frozenset(existing_removed));
+            } else {
+                nb::set py_removed;
+                py_removed.add(py_elem);
+                nb::module_ tss_mod = nb::module_::import_("hgraph._impl._types._tss");
+                cached_py_deltas_[vd.delta_data] = tss_mod.attr("PythonSetDelta")(
+                    nb::frozenset(nb::set()), nb::frozenset(py_removed));
+            }
+        }
 
-        // Notify observers
+        *static_cast<engine_time_t*>(vd.time_data) = current_time;
         if (vd.observer_data) {
             auto* observers = static_cast<ObserverList*>(vd.observer_data);
             observers->notify_modified(current_time);
@@ -4176,33 +4479,50 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 
 namespace fixed_window_ops {
 
-// Fixed windows use CyclicBufferStorage for values
-// Time data points to a structure with:
-// - engine_time_t (container last_modified_time)
-// - std::vector<engine_time_t> (parallel array of timestamps)
+// Fixed windows use CyclicBufferStorage for values.
+// Layout:
+//   value_data -> CyclicBufferStorage (ring buffer of elements, capacity = period)
+//   time_data  -> tuple[engine_time_t, CyclicBuffer[engine_time_t]]
+//                 (container last_modified + parallel per-element timestamps)
+//   delta_data -> tuple[element_value, bool has_removed]
+//                 (removed value + flag, cleared each tick by TSValue::clear_delta_value)
+//   observer_data -> ObserverList (container-level observers)
 
-// Storage structure for fixed window (matches TimeSeriesFixedWindowOutput layout)
-struct FixedWindowData {
-    value::CyclicBufferStorage* value_storage;   // From value_data
-    std::vector<engine_time_t>* times;           // From time_data
-    size_t capacity;                             // user_size + 1
-    size_t user_size;                            // user-specified size
-    size_t min_size;                             // minimum for all_valid
-    bool* has_removed;                           // flag pointer
-    engine_time_t* last_modified;                // container modification time
-};
+// Helpers to access the time tuple fields
+static engine_time_t& container_time(const ViewData& vd) {
+    // time_data is a tuple; first element is engine_time_t (container modified time)
+    auto time_view = make_time_view(vd);
+    return time_view.as_tuple().at(0).as<engine_time_t>();
+}
 
-// Helper to get storage pointers from ViewData
-// For fixed windows, the value_data holds CyclicBufferStorage
-// time_data layout: [engine_time_t last_modified, size_t user_size, size_t min_size, bool has_removed, vector<times>...]
-// For now, we'll work with the existing storage structure directly
+static value::CyclicBufferStorage* time_buffer(const ViewData& vd) {
+    // Second element of the time tuple is CyclicBuffer[engine_time_t]
+    auto time_view = make_time_view(vd);
+    return static_cast<value::CyclicBufferStorage*>(time_view.as_tuple().at(1).data());
+}
 
-// Fixed window TSValue storage is a plain scalar (meta->value_type),
-// NOT a CyclicBuffer. The ring buffer semantics are handled at a higher level.
-// These functions mirror the scalar_ops implementations with link delegation.
+// Helper to get the CyclicBufferStorage value schema for push_back operations
+static const value::TypeMeta* value_buffer_schema(const ViewData& vd) {
+    // The value was constructed with cyclic_buffer(meta->value_type, period)
+    // We need the full schema (with element_type set) for CyclicBufferOps
+    auto& cache = TSMetaSchemaCache::instance();
+    // We can get it by looking up what schema was used to construct the Value
+    // But we don't store it directly. We need to reconstruct it.
+    // For cyclic_buffer, the schema has: element_type = meta->value_type, fixed_size = capacity
+    // Use TypeRegistry to get/create it (cached)
+    return value::TypeRegistry::instance()
+        .cyclic_buffer(vd.meta->value_type, vd.meta->window.tick.period)
+        .build();
+}
+
+static const value::TypeMeta* time_buffer_schema(const ViewData& vd) {
+    auto& et_meta = TSMetaSchemaCache::instance();
+    return value::TypeRegistry::instance()
+        .cyclic_buffer(et_meta.engine_time_meta(), vd.meta->window.tick.period)
+        .build();
+}
 
 engine_time_t last_modified_time(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
     if (auto* lt = get_active_link_target(vd)) {
         return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
     }
@@ -4210,7 +4530,7 @@ engine_time_t last_modified_time(const ViewData& vd) {
         return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
     }
     if (!vd.time_data) return MIN_DT;
-    return *static_cast<engine_time_t*>(vd.time_data);
+    return container_time(vd);
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
@@ -4222,8 +4542,19 @@ bool valid(const ViewData& vd) {
 }
 
 bool all_valid(const ViewData& vd) {
-    // TSW storage is plain scalar. all_valid just means valid for now.
-    return valid(vd);
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->all_valid(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
+    }
+    // Python: self.valid and self._length >= self._min_size
+    if (!valid(vd)) return false;
+    auto* buf = static_cast<value::CyclicBufferStorage*>(vd.value_data);
+    if (!buf) return false;
+    size_t min_sz = vd.meta ? vd.meta->window.tick.min_period : 0;
+    return buf->size >= min_sz;
 }
 
 bool sampled(const ViewData& vd) {
@@ -4231,24 +4562,51 @@ bool sampled(const ViewData& vd) {
 }
 
 value::View value(const ViewData& vd) {
-    return make_value_view(vd);
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->value(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path));
+    }
+    // Return the raw CyclicBufferStorage pointer with the cyclic_buffer schema
+    if (!vd.value_data || !vd.meta) return value::View{};
+    return value::View(vd.value_data, value_buffer_schema(vd));
 }
 
 value::View delta_value(const ViewData& vd) {
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->delta_value(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path));
+    }
+    // delta_value is the most recently added element (if added this tick)
+    // In delta_data: tuple[removed_element, has_removed_bool]
+    // We don't store the newest value in delta — it's accessed from the ring buffer
     return value::View{};
 }
 
 bool has_delta(const ViewData& vd) {
-    return false;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->has_delta(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path));
+    }
+    return vd.delta_data != nullptr;
 }
 
 void set_value(ViewData& vd, const value::View& src, engine_time_t current_time) {
     if (!vd.value_data || !vd.time_data) {
         throw std::runtime_error("set_value on invalid fixed window ViewData");
     }
-    auto dst = make_value_view(vd);
-    dst.copy_from(src);
-    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+    // Copy entire CyclicBuffer
+    auto dst_schema = value_buffer_schema(vd);
+    value::CyclicBufferOps::copy_assign(vd.value_data, src.data(), dst_schema);
+    container_time(vd) = current_time;
     if (vd.observer_data) {
         auto* observers = static_cast<ObserverList*>(vd.observer_data);
         observers->notify_modified(current_time);
@@ -4261,57 +4619,150 @@ void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_t
 
 void invalidate(ViewData& vd) {
     if (vd.time_data) {
-        *static_cast<engine_time_t*>(vd.time_data) = MIN_DT;
+        container_time(vd) = MIN_DT;
+    }
+    // Clear the value buffer
+    if (vd.value_data) {
+        auto* buf = static_cast<value::CyclicBufferStorage*>(vd.value_data);
+        buf->size = 0;
+        buf->head = 0;
+    }
+    // Clear the time buffer
+    auto* tbuf = time_buffer(vd);
+    if (tbuf) {
+        tbuf->size = 0;
+        tbuf->head = 0;
     }
 }
 
 nb::object to_python(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
     if (auto* lt = get_active_link_target(vd)) {
         return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
     }
-    // If linked via REFLink (TSOutput), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
     }
 
     if (!valid(vd)) return nb::none();
-    auto v = make_value_view(vd);
-    if (!v.valid()) return nb::none();
-    return v.to_python();
+    auto* buf = static_cast<value::CyclicBufferStorage*>(vd.value_data);
+    if (!buf || buf->size == 0) return nb::none();
+
+    // Python: if length < min_size return None
+    size_t min_sz = vd.meta ? vd.meta->window.tick.min_period : 0;
+    if (buf->size < min_sz) return nb::none();
+
+    // Build numpy array in logical order (oldest first)
+    // Import numpy and create array
+    auto np = nb::module_::import_("numpy");
+    auto buf_schema = value_buffer_schema(vd);
+    const auto* elem_type = vd.meta->value_type;
+
+    // Build Python list in logical order, then convert to numpy
+    nb::list elements;
+    for (size_t i = 0; i < buf->size; ++i) {
+        const void* elem = value::CyclicBufferOps::get_element_ptr_const(vd.value_data, i, buf_schema);
+        if (elem_type && elem_type->ops && elem_type->ops->to_python) {
+            elements.append(elem_type->ops->to_python(elem, elem_type));
+        } else {
+            elements.append(nb::none());
+        }
+    }
+    return np.attr("array")(elements);
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
     if (auto* lt = get_active_link_target(vd)) {
         return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
     }
-    // If linked via REFLink (TSOutput), delegate to target
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
     }
 
     if (!valid(vd)) return nb::none();
-    auto v = make_value_view(vd);
-    if (!v.valid()) return nb::none();
-    return v.to_python();
+    auto* buf = static_cast<value::CyclicBufferStorage*>(vd.value_data);
+    if (!buf || buf->size == 0) return nb::none();
+
+    // delta_value = most recently added element, if added this tick
+    // Check if the most recent element's timestamp matches current_time
+    auto* tbuf = time_buffer(vd);
+    if (!tbuf || tbuf->size == 0) return nb::none();
+
+    // Get the newest timestamp (last logical element)
+    auto tschema = time_buffer_schema(vd);
+    const auto* newest_time_ptr = static_cast<const engine_time_t*>(
+        value::CyclicBufferOps::get_element_ptr_const(tbuf, tbuf->size - 1, tschema));
+    if (!newest_time_ptr || *newest_time_ptr != container_time(vd)) return nb::none();
+
+    // Return the newest value
+    auto buf_schema = value_buffer_schema(vd);
+    const auto* elem_type = vd.meta->value_type;
+    const void* newest = value::CyclicBufferOps::get_element_ptr_const(vd.value_data, buf->size - 1, buf_schema);
+    if (elem_type && elem_type->ops && elem_type->ops->to_python) {
+        return elem_type->ops->to_python(newest, elem_type);
+    }
+    return nb::none();
 }
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
-    // TSW from_python: set the scalar value and mark modified.
-    // The ring buffer semantics are managed by the Python wrapper (apply_result).
-    // TSValue storage for TSW is a plain scalar (meta->value_type), not a CyclicBuffer.
+    // TSW from_python: append a single scalar element to the ring buffer.
+    // This matches Python's apply_result() behavior.
     if (src.is_none()) return;
     if (!vd.value_data || !vd.time_data) {
         throw std::runtime_error("from_python on invalid fixed window ViewData");
     }
 
-    // Set value from Python (scalar element)
-    auto dst = make_value_view(vd);
-    dst.from_python(src);
+    auto* buf = static_cast<value::CyclicBufferStorage*>(vd.value_data);
+    auto buf_schema = value_buffer_schema(vd);
+    const auto* elem_type = vd.meta->value_type;
 
-    // Update last_modified_time
-    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+    // If buffer is full, capture the evicted value in delta_data before overwriting
+    if (buf->size == buf->capacity && vd.delta_data) {
+        auto delta_view = make_delta_view(vd);
+        auto tuple_v = delta_view.as_tuple();
+
+        // Copy the oldest element (at head) to the removed value slot
+        const void* oldest = value::CyclicBufferOps::get_element_ptr_const(vd.value_data, 0, buf_schema);
+        auto removed_slot = tuple_v.at(0);  // removed value
+        if (removed_slot && elem_type && elem_type->ops && elem_type->ops->copy_assign) {
+            elem_type->ops->copy_assign(removed_slot.data(), oldest, elem_type);
+        }
+        // Set has_removed flag
+        auto has_removed_v = tuple_v.at(1);
+        if (has_removed_v) {
+            *static_cast<bool*>(has_removed_v.data()) = true;
+        }
+    }
+
+    // Convert Python scalar to temp storage, then push_back
+    // Allocate temp on stack for small elements
+    size_t elem_size = elem_type ? elem_type->size : 0;
+    std::vector<std::byte> temp(elem_size);
+    if (elem_type && elem_type->ops) {
+        if (elem_type->ops->construct) {
+            elem_type->ops->construct(temp.data(), elem_type);
+        }
+        if (elem_type->ops->from_python) {
+            elem_type->ops->from_python(temp.data(), src, elem_type);
+        }
+    }
+
+    // Push to value ring buffer
+    value::CyclicBufferOps::push_back(vd.value_data, temp.data(), buf_schema);
+
+    // Push timestamp to time ring buffer
+    auto* tbuf = time_buffer(vd);
+    if (tbuf) {
+        auto tschema = time_buffer_schema(vd);
+        value::CyclicBufferOps::push_back(tbuf, &current_time, tschema);
+    }
+
+    // Destruct temp
+    if (elem_type && elem_type->ops && elem_type->ops->destruct) {
+        elem_type->ops->destruct(temp.data(), elem_type);
+    }
+
+    // Update container modified time
+    container_time(vd) = current_time;
 
     // Notify observers
     if (vd.observer_data) {
@@ -4321,7 +4772,6 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
 }
 
 TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
-    // Windows don't have navigable children
     return TSView{};
 }
 
@@ -4349,31 +4799,28 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
 }
 
 void bind(ViewData& vd, const ViewData& target) {
-    // TSW binding is identical to scalar TS binding - store target in link storage.
     if (!vd.link_data) {
         throw std::runtime_error("bind on fixed window without link data");
     }
 
     if (vd.uses_link_target) {
-        // TSInput: Store directly in LinkTarget
         auto* lt = get_link_target(vd.link_data);
         if (!lt) {
             throw std::runtime_error("bind on TSW input with invalid link data");
         }
         store_to_link_target(*lt, target);
 
-        // Set time-accounting chain
+        // For TSW input, the owner_time_ptr should point to the container time
+        // (first element of the time tuple)
         if (vd.time_data) {
-            lt->owner_time_ptr = static_cast<engine_time_t*>(vd.time_data);
+            lt->owner_time_ptr = &container_time(vd);
         }
 
-        // Subscribe for time-accounting
         if (lt->observer_data) {
             auto* obs = static_cast<ObserverList*>(lt->observer_data);
             obs->add_observer(lt);
         }
     } else {
-        // TSOutput: Use REFLink with possible REF dereferencing
         auto* rl = get_ref_link(vd.link_data);
         if (!rl) {
             throw std::runtime_error("bind on fixed window with invalid link data");
@@ -4424,32 +4871,96 @@ bool is_bound(const ViewData& vd) {
     }
 }
 
-// Window-specific operations
-// Note: TSW storage is currently plain scalar, not CyclicBuffer.
-// These stubs return safe defaults; full ring-buffer tracking is at the Python wrapper level.
+// Window-specific operations using CyclicBufferStorage
 
 const engine_time_t* window_value_times(const ViewData& vd) {
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_value_times(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_value_times(make_view_data_from_link(*rl, vd.path));
+    }
+    // Return pointer to the time buffer's raw data.
+    // Note: The times are in a ring buffer, so they may not be contiguous in order.
+    // For the Python wrapper, we'll convert in value_times() method.
+    // For now, return nullptr — the wrapper uses value_times_count and iterates.
     return nullptr;
 }
 
 size_t window_value_times_count(const ViewData& vd) {
-    return 0;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_value_times_count(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_value_times_count(make_view_data_from_link(*rl, vd.path));
+    }
+    auto* buf = static_cast<value::CyclicBufferStorage*>(vd.value_data);
+    return buf ? buf->size : 0;
 }
 
 engine_time_t window_first_modified_time(const ViewData& vd) {
-    return last_modified_time(vd);
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_first_modified_time(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_first_modified_time(make_view_data_from_link(*rl, vd.path));
+    }
+    // Oldest timestamp in the time buffer (logical index 0)
+    auto* tbuf = time_buffer(vd);
+    if (!tbuf || tbuf->size == 0) return MIN_DT;
+    auto tschema = time_buffer_schema(vd);
+    const auto* first_time = static_cast<const engine_time_t*>(
+        value::CyclicBufferOps::get_element_ptr_const(tbuf, 0, tschema));
+    return first_time ? *first_time : MIN_DT;
 }
 
 bool window_has_removed_value(const ViewData& vd) {
-    return false;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_has_removed_value(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_has_removed_value(make_view_data_from_link(*rl, vd.path));
+    }
+    if (!vd.delta_data) return false;
+    auto delta_view = make_delta_view(vd);
+    auto has_removed_v = delta_view.as_tuple().at(1);
+    return has_removed_v && *static_cast<const bool*>(has_removed_v.data());
 }
 
 value::View window_removed_value(const ViewData& vd) {
-    return value::View{};
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_removed_value(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_removed_value(make_view_data_from_link(*rl, vd.path));
+    }
+    // Check has_removed inline (don't call window_has_removed_value which would re-delegate)
+    if (!vd.delta_data) return value::View{};
+    auto delta_view = make_delta_view(vd);
+    auto has_removed_v = delta_view.as_tuple().at(1);
+    if (!has_removed_v || !*static_cast<const bool*>(has_removed_v.data())) return value::View{};
+    auto removed_v = delta_view.as_tuple().at(0);
+    return removed_v;
 }
 
 size_t window_removed_value_count(const ViewData& vd) {
-    return 0;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_removed_value_count(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_removed_value_count(make_view_data_from_link(*rl, vd.path));
+    }
+    // Check has_removed inline (don't call window_has_removed_value which would re-delegate)
+    if (!vd.delta_data) return 0;
+    auto delta_view = make_delta_view(vd);
+    auto has_removed_v = delta_view.as_tuple().at(1);
+    return (has_removed_v && *static_cast<const bool*>(has_removed_v.data())) ? 1 : 0;
 }
 
 size_t window_size(const ViewData& vd) {
@@ -4461,8 +4972,15 @@ size_t window_min_size(const ViewData& vd) {
 }
 
 size_t window_length(const ViewData& vd) {
-    // With scalar storage, length is 0 or 1 depending on validity
-    return valid(vd) ? 1 : 0;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_length(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_length(make_view_data_from_link(*rl, vd.path));
+    }
+    auto* buf = static_cast<value::CyclicBufferStorage*>(vd.value_data);
+    return buf ? buf->size : 0;
 }
 
 void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
@@ -4470,7 +4988,6 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 
     *static_cast<bool*>(active_view.data()) = active;
 
-    // Manage node-scheduling subscription
     if (vd.link_data) {
         if (vd.uses_link_target) {
             auto* lt = get_link_target(vd.link_data);

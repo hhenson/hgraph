@@ -10,6 +10,7 @@
 #include <hgraph/types/time_series/delta_nav.h>
 #include <hgraph/types/value/set_storage.h>
 #include <hgraph/types/value/map_storage.h>
+#include <hgraph/types/value/type_registry.h>
 
 namespace hgraph {
 
@@ -36,11 +37,21 @@ static void init_ts_value_common(
     switch (meta->kind) {
         case TSKind::TSValue:
         case TSKind::TSS:
-        case TSKind::TSW:
         case TSKind::SIGNAL:
             // Scalar-like: use value_type directly
             // For TSS, value_type is the Set TypeMeta (set in TSTypeRegistry::tss)
             value_schema = meta->value_type;
+            break;
+        case TSKind::TSW:
+            // TSW: use CyclicBuffer of elements for fixed windows
+            if (!meta->is_duration_based && meta->window.tick.period > 0) {
+                value_schema = value::TypeRegistry::instance()
+                    .cyclic_buffer(meta->value_type, meta->window.tick.period)
+                    .build();
+            } else {
+                // Duration-based or unknown: use value_type directly for now
+                value_schema = meta->value_type;
+            }
             break;
         case TSKind::TSD:
             // TSD[K,V]: need to construct map type
@@ -248,10 +259,16 @@ engine_time_t TSValue::last_modified_time() const {
     switch (meta_->kind) {
         case TSKind::TSValue:
         case TSKind::TSS:
-        case TSKind::TSW:
         case TSKind::REF:
         case TSKind::SIGNAL:
             // Atomic: time_ is directly engine_time_t
+            return time_v.as<engine_time_t>();
+
+        case TSKind::TSW:
+            // TSW: fixed windows use tuple[engine_time_t, CyclicBuffer], others use plain
+            if (!meta_->is_duration_based && meta_->window.tick.period > 0) {
+                return time_v.as_tuple().at(0).as<engine_time_t>();
+            }
             return time_v.as<engine_time_t>();
 
         case TSKind::TSD:
@@ -290,6 +307,16 @@ void TSValue::clear_delta_value() {
     auto delta_v = delta_value_.view();
 
     switch (meta_->kind) {
+        case TSKind::TSW: {
+            // TSW delta: tuple[removed_value, has_removed_bool]
+            // Clear by setting has_removed to false
+            auto tuple_v = delta_v.as_tuple();
+            auto has_removed_v = tuple_v.at(1);
+            if (has_removed_v) {
+                *static_cast<bool*>(has_removed_v.data()) = false;
+            }
+            break;
+        }
         case TSKind::TSS: {
             // SetDelta - use direct pointer cast (custom TypeOps)
             auto* set_delta = static_cast<SetDelta*>(delta_v.data());

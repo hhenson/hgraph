@@ -1,6 +1,8 @@
 #include <hgraph/api/python/py_tss.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series/ts_set_view.h>
+#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/view_data.h>
 
 namespace hgraph
 {
@@ -38,45 +40,50 @@ namespace hgraph
 
     nb::object PyTimeSeriesSetOutput::value() const {
         auto set_view = view().as_set();
-        nb::list result;
+        nb::set result;
         for (auto elem : set_view.values()) {
-            result.append(elem_to_python(elem, set_view.meta()));
+            result.add(elem_to_python(elem, set_view.meta()));
         }
         return result;
     }
 
     nb::object PyTimeSeriesSetOutput::values() const {
-        return value();
+        auto set_view = view().as_set();
+        nb::set result;
+        for (auto elem : set_view.values()) {
+            result.add(elem_to_python(elem, set_view.meta()));
+        }
+        return result;
     }
 
     nb::object PyTimeSeriesSetOutput::added() const {
-        auto set_view = view().as_set();
-        nb::list result;
-        for (auto elem : set_view.added()) {
-            result.append(elem_to_python(elem, set_view.meta()));
-        }
-        return result;
+        auto delta = view().delta_to_python();
+        if (delta.is_none()) return nb::frozenset(nb::set());
+        auto added = delta.attr("added");
+        if (nb::isinstance<nb::frozenset>(added)) return added;
+        return nb::frozenset(nb::cast<nb::set>(added));
     }
 
     nb::object PyTimeSeriesSetOutput::removed() const {
-        auto set_view = view().as_set();
-        nb::list result;
-        for (auto elem : set_view.removed()) {
-            result.append(elem_to_python(elem, set_view.meta()));
-        }
-        return result;
+        auto delta = view().delta_to_python();
+        if (delta.is_none()) return nb::frozenset(nb::set());
+        auto removed = delta.attr("removed");
+        if (nb::isinstance<nb::frozenset>(removed)) return removed;
+        return nb::frozenset(nb::cast<nb::set>(removed));
     }
 
     nb::bool_ PyTimeSeriesSetOutput::was_added(const nb::object &item) const {
-        auto set_view = view().as_set();
-        auto elem_val = elem_from_python(item, set_view.meta());
-        return nb::bool_(set_view.was_added(elem_val.const_view()));
+        auto delta = view().delta_to_python();
+        if (delta.is_none()) return nb::bool_(false);
+        nb::object added = nb::borrow(delta.attr("added"));
+        return nb::bool_(PySequence_Contains(added.ptr(), item.ptr()) == 1);
     }
 
     nb::bool_ PyTimeSeriesSetOutput::was_removed(const nb::object &item) const {
-        auto set_view = view().as_set();
-        auto elem_val = elem_from_python(item, set_view.meta());
-        return nb::bool_(set_view.was_removed(elem_val.const_view()));
+        auto delta = view().delta_to_python();
+        if (delta.is_none()) return nb::bool_(false);
+        nb::object removed = nb::borrow(delta.attr("removed"));
+        return nb::bool_(PySequence_Contains(removed.ptr(), item.ptr()) == 1);
     }
 
     void PyTimeSeriesSetOutput::add(const nb::object &key) const {
@@ -114,61 +121,130 @@ namespace hgraph
 
     // ===== PyTimeSeriesSetInput Implementation =====
 
+    // Helper: get resolved ViewData that follows the link target to the bound output.
+    // ts_ops functions handle link delegation, but TSSView reads ViewData directly.
+    // This helper uses ts_ops::value() to get the resolved value::View, then
+    // uses its data pointer to identify the correct SetStorage.
+    static ViewData resolve_input_view_data(const PyTimeSeriesSetInput& input) {
+        auto ts = input.input_view().ts_view();
+        const auto& vd = ts.view_data();
+
+        // Use ts_ops::value() which follows links to get the resolved data
+        auto resolved_value = vd.ops->value(vd);
+        auto resolved_delta = vd.ops->delta_value(vd);
+
+        // If value data differs, the link was followed
+        if (resolved_value.data() != vd.value_data || !vd.value_data) {
+            ViewData resolved;
+            resolved.value_data = const_cast<void*>(resolved_value.data());
+            resolved.delta_data = const_cast<void*>(resolved_delta.data());
+            // For time_data, use the link target directly since ts_ops::value doesn't expose it
+            if (vd.uses_link_target && vd.link_data) {
+                auto* lt = static_cast<const LinkTarget*>(vd.link_data);
+                if (lt && lt->valid()) {
+                    resolved.time_data = lt->time_data;
+                    resolved.observer_data = lt->observer_data;
+                    resolved.link_data = lt->link_data;
+                    resolved.meta = lt->meta ? lt->meta : vd.meta;
+                    resolved.ops = lt->ops ? lt->ops : vd.ops;
+                } else {
+                    resolved.time_data = vd.time_data;
+                    resolved.observer_data = vd.observer_data;
+                    resolved.link_data = nullptr;
+                    resolved.meta = vd.meta;
+                    resolved.ops = vd.ops;
+                }
+            } else {
+                resolved.time_data = vd.time_data;
+                resolved.observer_data = vd.observer_data;
+                resolved.link_data = nullptr;
+                resolved.meta = vd.meta;
+                resolved.ops = vd.ops;
+            }
+            resolved.path = vd.path;
+            resolved.uses_link_target = false;
+            resolved.sampled = vd.sampled;
+            return resolved;
+        }
+        return vd;
+    }
+
     bool PyTimeSeriesSetInput::contains(const nb::object &item) const {
-        auto set_view = input_view().ts_view().as_set();
+        auto resolved_vd = resolve_input_view_data(*this);
+        auto set_view = TSSView(resolved_vd, input_view().current_time());
         auto elem_val = elem_from_python(item, set_view.meta());
         return set_view.contains(elem_val.const_view());
     }
 
     size_t PyTimeSeriesSetInput::size() const {
-        return input_view().ts_view().as_set().size();
+        auto resolved_vd = resolve_input_view_data(*this);
+        return TSSView(resolved_vd, input_view().current_time()).size();
     }
 
     nb::bool_ PyTimeSeriesSetInput::empty() const {
-        return nb::bool_(input_view().ts_view().as_set().size() == 0);
+        auto resolved_vd = resolve_input_view_data(*this);
+        return nb::bool_(TSSView(resolved_vd, input_view().current_time()).size() == 0);
     }
 
     nb::object PyTimeSeriesSetInput::value() const {
-        auto set_view = input_view().ts_view().as_set();
-        nb::list result;
-        for (auto elem : set_view.values()) {
-            result.append(elem_to_python(elem, set_view.meta()));
+        // Use ts_ops dispatch which follows links
+        auto ts = input_view().ts_view();
+        auto py_val = ts.to_python();
+        if (py_val.is_none()) return nb::set();
+        // SetOps::to_python returns frozenset; TSS.value should be mutable set
+        if (nb::isinstance<nb::frozenset>(py_val)) {
+            return nb::set(py_val);
         }
-        return result;
+        return py_val;
     }
 
     nb::object PyTimeSeriesSetInput::values() const {
-        return value();
+        auto ts = input_view().ts_view();
+        auto py_val = ts.to_python();
+        if (py_val.is_none()) return nb::frozenset(nb::set());
+        // Return as frozenset
+        if (nb::isinstance<nb::set>(py_val)) {
+            return nb::frozenset(nb::cast<nb::set>(py_val));
+        }
+        return py_val;
+    }
+
+    // Helper: get the PythonSetDelta from the resolved output via delta_to_python
+    static nb::object get_input_delta(const PyTimeSeriesSetInput& input) {
+        auto ts = input.input_view().ts_view();
+        return ts.delta_to_python();
     }
 
     nb::object PyTimeSeriesSetInput::added() const {
-        auto set_view = input_view().ts_view().as_set();
-        nb::list result;
-        for (auto elem : set_view.added()) {
-            result.append(elem_to_python(elem, set_view.meta()));
-        }
-        return result;
+        auto delta = get_input_delta(*this);
+        if (delta.is_none()) return nb::frozenset(nb::set());
+        auto added = delta.attr("added");
+        // PythonSetDelta.added returns frozenset or set depending on emptiness
+        if (nb::isinstance<nb::frozenset>(added)) return added;
+        return nb::frozenset(nb::cast<nb::set>(added));
     }
 
     nb::object PyTimeSeriesSetInput::removed() const {
-        auto set_view = input_view().ts_view().as_set();
-        nb::list result;
-        for (auto elem : set_view.removed()) {
-            result.append(elem_to_python(elem, set_view.meta()));
-        }
-        return result;
+        auto delta = get_input_delta(*this);
+        if (delta.is_none()) return nb::frozenset(nb::set());
+        auto removed = delta.attr("removed");
+        if (nb::isinstance<nb::frozenset>(removed)) return removed;
+        return nb::frozenset(nb::cast<nb::set>(removed));
     }
 
     nb::bool_ PyTimeSeriesSetInput::was_added(const nb::object &item) const {
-        auto set_view = input_view().ts_view().as_set();
-        auto elem_val = elem_from_python(item, set_view.meta());
-        return nb::bool_(set_view.was_added(elem_val.const_view()));
+        auto delta = get_input_delta(*this);
+        if (delta.is_none()) return nb::bool_(false);
+        nb::object added = nb::borrow(delta.attr("added"));
+        // Use Python 'in' operator
+        return nb::bool_(PySequence_Contains(added.ptr(), item.ptr()) == 1);
     }
 
     nb::bool_ PyTimeSeriesSetInput::was_removed(const nb::object &item) const {
-        auto set_view = input_view().ts_view().as_set();
-        auto elem_val = elem_from_python(item, set_view.meta());
-        return nb::bool_(set_view.was_removed(elem_val.const_view()));
+        auto delta = get_input_delta(*this);
+        if (delta.is_none()) return nb::bool_(false);
+        nb::object removed = nb::borrow(delta.attr("removed"));
+        return nb::bool_(PySequence_Contains(removed.ptr(), item.ptr()) == 1);
     }
 
     nb::str PyTimeSeriesSetInput::py_str() const {
