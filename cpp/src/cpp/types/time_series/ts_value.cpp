@@ -11,6 +11,7 @@
 #include <hgraph/types/value/set_storage.h>
 #include <hgraph/types/value/map_storage.h>
 #include <hgraph/types/value/type_registry.h>
+#include <hgraph/types/value/queue_ops.h>
 
 namespace hgraph {
 
@@ -49,8 +50,10 @@ static void init_ts_value_common(
                     .cyclic_buffer(meta->value_type, meta->window.tick.period)
                     .build();
             } else {
-                // Duration-based or unknown: use value_type directly for now
-                value_schema = meta->value_type;
+                // Duration-based: use unbounded Queue of elements
+                value_schema = value::TypeRegistry::instance()
+                    .queue(meta->value_type)
+                    .build();
             }
             break;
         case TSKind::TSD:
@@ -265,11 +268,10 @@ engine_time_t TSValue::last_modified_time() const {
             return time_v.as<engine_time_t>();
 
         case TSKind::TSW:
-            // TSW: fixed windows use tuple[engine_time_t, CyclicBuffer], others use plain
-            if (!meta_->is_duration_based && meta_->window.tick.period > 0) {
-                return time_v.as_tuple().at(0).as<engine_time_t>();
-            }
-            return time_v.as<engine_time_t>();
+            // TSW: both fixed and duration use tuple time schema
+            // Fixed: tuple[engine_time_t, CyclicBuffer]
+            // Duration: tuple[engine_time_t, Queue, engine_time_t, bool]
+            return time_v.as_tuple().at(0).as<engine_time_t>();
 
         case TSKind::TSD:
         case TSKind::TSL:
@@ -308,12 +310,29 @@ void TSValue::clear_delta_value() {
 
     switch (meta_->kind) {
         case TSKind::TSW: {
-            // TSW delta: tuple[removed_value, has_removed_bool]
-            // Clear by setting has_removed to false
+            // TSW delta layout depends on window type:
+            // Fixed: tuple[removed_value, bool has_removed]
+            // Duration: tuple[bool has_removed, Queue[removed_values]]
             auto tuple_v = delta_v.as_tuple();
-            auto has_removed_v = tuple_v.at(1);
-            if (has_removed_v) {
-                *static_cast<bool*>(has_removed_v.data()) = false;
+            if (!meta_->is_duration_based) {
+                // Fixed: clear has_removed flag (index 1)
+                auto has_removed_v = tuple_v.at(1);
+                if (has_removed_v) {
+                    *static_cast<bool*>(has_removed_v.data()) = false;
+                }
+            } else {
+                // Duration: clear has_removed flag (index 0) and clear queue (index 1)
+                auto has_removed_v = tuple_v.at(0);
+                if (has_removed_v) {
+                    *static_cast<bool*>(has_removed_v.data()) = false;
+                }
+                auto queue_v = tuple_v.at(1);
+                if (queue_v) {
+                    // Use QueueOps::clear to properly free slots and destruct elements
+                    auto& registry = value::TypeRegistry::instance();
+                    const value::TypeMeta* rq_schema = registry.queue(meta_->value_type).build();
+                    value::QueueOps::clear(queue_v.data(), rq_schema);
+                }
             }
             break;
         }

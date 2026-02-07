@@ -315,8 +315,18 @@ const value::TypeMeta* TSMetaSchemaCache::generate_time_schema_impl(const TSMeta
                     .element(time_buffer)
                     .build();
             }
-            // Duration-based: just engine_time_t for now
-            return engine_time_meta_;
+            // Duration-based: tuple[engine_time_t container, Queue[engine_time_t] timestamps,
+            //                       engine_time_t start_time, bool ready]
+            {
+                auto& registry = value::TypeRegistry::instance();
+                const value::TypeMeta* time_queue = registry.queue(engine_time_meta_).build();
+                return registry.tuple()
+                    .element(engine_time_meta_)    // container last_modified
+                    .element(time_queue)            // per-element timestamps
+                    .element(engine_time_meta_)    // start_time (set on first write)
+                    .element(bool_meta_)            // ready flag
+                    .build();
+            }
         }
 
         case TSKind::TSD: {
@@ -487,8 +497,15 @@ const value::TypeMeta* TSMetaSchemaCache::generate_delta_value_schema_impl(const
                     .element(bool_meta_)              // has_removed flag
                     .build();
             }
-            // Duration-based: no delta for now
-            return nullptr;
+            // Duration-based: tuple[bool has_removed, Queue[element_value] removed_values]
+            {
+                auto& registry = value::TypeRegistry::instance();
+                const value::TypeMeta* removed_queue = registry.queue(ts_meta->value_type).build();
+                return registry.tuple()
+                    .element(bool_meta_)            // has_removed flag
+                    .element(removed_queue)          // removed values queue
+                    .build();
+            }
         }
 
         case TSKind::TSS:

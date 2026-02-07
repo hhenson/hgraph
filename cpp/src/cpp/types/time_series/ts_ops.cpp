@@ -20,6 +20,7 @@
 #include <hgraph/types/value/map_storage.h>
 #include <hgraph/types/value/set_storage.h>
 #include <hgraph/types/value/cyclic_buffer_ops.h>
+#include <hgraph/types/value/queue_ops.h>
 #include <hgraph/types/node.h>
 
 #include <optional>
@@ -5027,14 +5028,118 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 
 namespace time_window_ops {
 
-// Time windows use deques for values and times
-// value_data: std::deque<void*>
-// time_data: engine_time_t (last_modified) followed by time window state
-// delta_data: std::deque<engine_time_t>* (timestamps)
-// link_data: std::vector<void*>* (removed values)
+// Duration-based windows use QueueStorage for values and timestamps.
+// Layout:
+//   value_data  -> QueueStorage (unbounded queue of elements)
+//   time_data   -> tuple[engine_time_t container_time,
+//                        Queue[engine_time_t] timestamps,
+//                        engine_time_t start_time,
+//                        bool ready]
+//   delta_data  -> tuple[bool has_removed,
+//                        Queue[element_type] removed_values]
+//   observer_data -> ObserverList (container-level observers)
 
-// Time window TSValue storage is a plain scalar (meta->value_type),
-// NOT a deque. Same approach as fixed_window_ops.
+// ========== Helpers to access time tuple fields ==========
+
+static engine_time_t& container_time(const ViewData& vd) {
+    auto time_view = make_time_view(vd);
+    return time_view.as_tuple().at(0).as<engine_time_t>();
+}
+
+static value::QueueStorage* time_queue(const ViewData& vd) {
+    auto time_view = make_time_view(vd);
+    return static_cast<value::QueueStorage*>(time_view.as_tuple().at(1).data());
+}
+
+static engine_time_t& start_time_ref(const ViewData& vd) {
+    auto time_view = make_time_view(vd);
+    return time_view.as_tuple().at(2).as<engine_time_t>();
+}
+
+static bool& ready_flag(const ViewData& vd) {
+    auto time_view = make_time_view(vd);
+    return time_view.as_tuple().at(3).as<bool>();
+}
+
+// ========== Schema helpers (cached via TypeRegistry) ==========
+
+static const value::TypeMeta* time_queue_schema(const ViewData& vd) {
+    return value::TypeRegistry::instance()
+        .queue(TSMetaSchemaCache::instance().engine_time_meta())
+        .build();
+}
+
+static const value::TypeMeta* value_queue_schema(const ViewData& vd) {
+    return value::TypeRegistry::instance()
+        .queue(vd.meta->value_type)
+        .build();
+}
+
+static const value::TypeMeta* removed_queue_schema(const ViewData& vd) {
+    return value::TypeRegistry::instance()
+        .queue(vd.meta->value_type)
+        .build();
+}
+
+// ========== Delta helpers ==========
+
+static bool& delta_has_removed(const ViewData& vd) {
+    auto delta_view = make_delta_view(vd);
+    return delta_view.as_tuple().at(0).as<bool>();
+}
+
+static value::QueueStorage* delta_removed_queue(const ViewData& vd) {
+    auto delta_view = make_delta_view(vd);
+    return static_cast<value::QueueStorage*>(delta_view.as_tuple().at(1).data());
+}
+
+// ========== Roll logic ==========
+// Evicts elements whose timestamp < current_time - window_duration.
+// Evicted values are stored in the delta removed queue.
+
+static void roll(const ViewData& vd, engine_time_t current_time) {
+    auto* val_q = static_cast<value::QueueStorage*>(vd.value_data);
+    auto* time_q = time_queue(vd);
+    if (!val_q || !time_q || time_q->size() == 0) return;
+
+    engine_time_t cutoff = current_time - vd.meta->window.duration.time_range;
+
+    auto tq_schema = time_queue_schema(vd);
+    auto vq_schema = value_queue_schema(vd);
+
+    bool any_removed = false;
+    value::QueueStorage* removed_q = nullptr;
+    const value::TypeMeta* rq_schema = nullptr;
+
+    if (vd.delta_data) {
+        removed_q = delta_removed_queue(vd);
+        rq_schema = removed_queue_schema(vd);
+    }
+
+    // Pop elements from front while oldest timestamp < cutoff
+    while (time_q->size() > 0) {
+        const auto* oldest_time = static_cast<const engine_time_t*>(
+            value::QueueOps::get_element_ptr_const(time_q, 0, tq_schema));
+        if (!oldest_time || *oldest_time >= cutoff) break;
+
+        // Capture removed value in delta queue
+        if (removed_q && rq_schema) {
+            const void* oldest_val = value::QueueOps::get_element_ptr_const(val_q, 0, vq_schema);
+            value::QueueOps::push_back(removed_q, oldest_val, rq_schema);
+            any_removed = true;
+        }
+
+        // Pop from both queues
+        value::QueueOps::pop_front(val_q, vq_schema);
+        value::QueueOps::pop_front(time_q, tq_schema);
+    }
+
+    if (any_removed && vd.delta_data) {
+        delta_has_removed(vd) = true;
+    }
+}
+
+// ========== Core ts_ops functions ==========
 
 engine_time_t last_modified_time(const ViewData& vd) {
     if (auto* lt = get_active_link_target(vd)) {
@@ -5044,7 +5149,7 @@ engine_time_t last_modified_time(const ViewData& vd) {
         return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
     }
     if (!vd.time_data) return MIN_DT;
-    return *static_cast<engine_time_t*>(vd.time_data);
+    return container_time(vd);
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
@@ -5056,7 +5161,16 @@ bool valid(const ViewData& vd) {
 }
 
 bool all_valid(const ViewData& vd) {
-    return valid(vd);
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->all_valid(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
+    }
+    // Python: self.ready (eval_time - start_time >= min_size)
+    if (!valid(vd)) return false;
+    return ready_flag(vd);
 }
 
 bool sampled(const ViewData& vd) {
@@ -5064,24 +5178,46 @@ bool sampled(const ViewData& vd) {
 }
 
 value::View value(const ViewData& vd) {
-    return make_value_view(vd);
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->value(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path));
+    }
+    if (!vd.value_data || !vd.meta) return value::View{};
+    return value::View(vd.value_data, value_queue_schema(vd));
 }
 
 value::View delta_value(const ViewData& vd) {
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->delta_value(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path));
+    }
     return value::View{};
 }
 
 bool has_delta(const ViewData& vd) {
-    return false;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->has_delta(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path));
+    }
+    return vd.delta_data != nullptr;
 }
 
 void set_value(ViewData& vd, const value::View& src, engine_time_t current_time) {
     if (!vd.value_data || !vd.time_data) {
         throw std::runtime_error("set_value on invalid time window ViewData");
     }
-    auto dst = make_value_view(vd);
-    dst.copy_from(src);
-    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+    auto vq_schema = value_queue_schema(vd);
+    value::QueueOps::copy_assign(vd.value_data, src.data(), vq_schema);
+    container_time(vd) = current_time;
     if (vd.observer_data) {
         auto* observers = static_cast<ObserverList*>(vd.observer_data);
         observers->notify_modified(current_time);
@@ -5094,44 +5230,147 @@ void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_t
 
 void invalidate(ViewData& vd) {
     if (vd.time_data) {
-        *static_cast<engine_time_t*>(vd.time_data) = MIN_DT;
+        container_time(vd) = MIN_DT;
+    }
+    // Clear the value queue
+    if (vd.value_data) {
+        auto* val_q = static_cast<value::QueueStorage*>(vd.value_data);
+        auto vq_schema = value_queue_schema(vd);
+        value::QueueOps::clear(val_q, vq_schema);
+    }
+    // Clear the time queue
+    auto* time_q = time_queue(vd);
+    if (time_q) {
+        auto tq_schema = time_queue_schema(vd);
+        value::QueueOps::clear(time_q, tq_schema);
     }
 }
 
 nb::object to_python(const ViewData& vd) {
+    // Delegate through links for inputs
     if (auto* lt = get_active_link_target(vd)) {
         return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
     }
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
     }
+
     if (!valid(vd)) return nb::none();
-    auto v = make_value_view(vd);
-    if (!v.valid()) return nb::none();
-    return v.to_python();
+
+    // Python: if not ready, return None
+    if (!ready_flag(vd)) return nb::none();
+
+    auto* val_q = static_cast<value::QueueStorage*>(vd.value_data);
+    if (!val_q || val_q->size() == 0) return nb::none();
+
+    // Build numpy array in logical order (oldest first)
+    auto np = nb::module_::import_("numpy");
+    auto vq_schema = value_queue_schema(vd);
+    const auto* elem_type = vd.meta->value_type;
+
+    nb::list elements;
+    for (size_t i = 0; i < val_q->size(); ++i) {
+        const void* elem = value::QueueOps::get_element_ptr_const(val_q, i, vq_schema);
+        if (elem_type && elem_type->ops && elem_type->ops->to_python) {
+            elements.append(elem_type->ops->to_python(elem, elem_type));
+        } else {
+            elements.append(nb::none());
+        }
+    }
+    return np.attr("array")(elements);
 }
 
 nb::object delta_to_python(const ViewData& vd) {
+    // Delegate through links for inputs
     if (auto* lt = get_active_link_target(vd)) {
         return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
     }
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
     }
+
     if (!valid(vd)) return nb::none();
-    auto v = make_value_view(vd);
-    if (!v.valid()) return nb::none();
-    return v.to_python();
+
+    // Python: if not ready, return None
+    if (!ready_flag(vd)) return nb::none();
+
+    auto* val_q = static_cast<value::QueueStorage*>(vd.value_data);
+    auto* time_q = time_queue(vd);
+    if (!val_q || val_q->size() == 0 || !time_q || time_q->size() == 0) return nb::none();
+
+    // Python: if times[-1] == evaluation_time, return value[-1]; else None
+    auto tq_schema = time_queue_schema(vd);
+    const auto* newest_time = static_cast<const engine_time_t*>(
+        value::QueueOps::get_element_ptr_const(time_q, time_q->size() - 1, tq_schema));
+    if (!newest_time || *newest_time != container_time(vd)) return nb::none();
+
+    // Return the newest value
+    auto vq_schema = value_queue_schema(vd);
+    const auto* elem_type = vd.meta->value_type;
+    const void* newest = value::QueueOps::get_element_ptr_const(val_q, val_q->size() - 1, vq_schema);
+    if (elem_type && elem_type->ops && elem_type->ops->to_python) {
+        return elem_type->ops->to_python(newest, elem_type);
+    }
+    return nb::none();
 }
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
+    // Matches Python PythonTimeSeriesTimeWindowOutput.apply_result()
     if (src.is_none()) return;
     if (!vd.value_data || !vd.time_data) {
         throw std::runtime_error("from_python on invalid time window ViewData");
     }
-    auto dst = make_value_view(vd);
-    dst.from_python(src);
-    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+
+    auto* val_q = static_cast<value::QueueStorage*>(vd.value_data);
+    auto vq_schema = value_queue_schema(vd);
+    const auto* elem_type = vd.meta->value_type;
+
+    // On first write, set start_time
+    auto& st = start_time_ref(vd);
+    if (st == MIN_DT) {
+        st = current_time;
+    }
+
+    // Update ready flag (monotonic — once true, stays true)
+    auto& ready = ready_flag(vd);
+    if (!ready) {
+        ready = (current_time - st) >= vd.meta->window.duration.min_time_range;
+    }
+
+    // Convert Python scalar to temp storage
+    size_t elem_size = elem_type ? elem_type->size : 0;
+    std::vector<std::byte> temp(elem_size);
+    if (elem_type && elem_type->ops) {
+        if (elem_type->ops->construct) {
+            elem_type->ops->construct(temp.data(), elem_type);
+        }
+        if (elem_type->ops->from_python) {
+            elem_type->ops->from_python(temp.data(), src, elem_type);
+        }
+    }
+
+    // Append to value queue
+    value::QueueOps::push_back(val_q, temp.data(), vq_schema);
+
+    // Append timestamp to time queue
+    auto* time_q = time_queue(vd);
+    if (time_q) {
+        auto tq_schema = time_queue_schema(vd);
+        value::QueueOps::push_back(time_q, &current_time, tq_schema);
+    }
+
+    // Destruct temp
+    if (elem_type && elem_type->ops && elem_type->ops->destruct) {
+        elem_type->ops->destruct(temp.data(), elem_type);
+    }
+
+    // Run roll logic to evict old elements
+    roll(vd, current_time);
+
+    // Update container modified time
+    container_time(vd) = current_time;
+
+    // Notify observers
     if (vd.observer_data) {
         auto* observers = static_cast<ObserverList*>(vd.observer_data);
         observers->notify_modified(current_time);
@@ -5166,31 +5405,27 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
 }
 
 void bind(ViewData& vd, const ViewData& target) {
-    // TSW binding is identical to scalar TS binding - store target in link storage.
     if (!vd.link_data) {
         throw std::runtime_error("bind on time window without link data");
     }
 
     if (vd.uses_link_target) {
-        // TSInput: Store directly in LinkTarget
         auto* lt = get_link_target(vd.link_data);
         if (!lt) {
             throw std::runtime_error("bind on TSW input with invalid link data");
         }
         store_to_link_target(*lt, target);
 
-        // Set time-accounting chain
+        // For TSW input, the owner_time_ptr points to the container time
         if (vd.time_data) {
-            lt->owner_time_ptr = static_cast<engine_time_t*>(vd.time_data);
+            lt->owner_time_ptr = &container_time(vd);
         }
 
-        // Subscribe for time-accounting
         if (lt->observer_data) {
             auto* obs = static_cast<ObserverList*>(lt->observer_data);
             obs->add_observer(lt);
         }
     } else {
-        // TSOutput: Use REFLink with possible REF dereferencing
         auto* rl = get_ref_link(vd.link_data);
         if (!rl) {
             throw std::runtime_error("bind on time window with invalid link data");
@@ -5241,30 +5476,107 @@ bool is_bound(const ViewData& vd) {
     }
 }
 
-// Window-specific operations - safe stubs for scalar storage
+// ========== Window-specific operations using QueueStorage ==========
+
+// Thread-local cache for value_times (QueueStorage isn't contiguous)
+static thread_local std::vector<engine_time_t> cached_value_times_;
 
 const engine_time_t* window_value_times(const ViewData& vd) {
-    return nullptr;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_value_times(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_value_times(make_view_data_from_link(*rl, vd.path));
+    }
+
+    auto* time_q = time_queue(vd);
+    if (!time_q || time_q->size() == 0) return nullptr;
+
+    // Build contiguous array from queue slots
+    auto tq_schema = time_queue_schema(vd);
+    cached_value_times_.clear();
+    cached_value_times_.reserve(time_q->size());
+    for (size_t i = 0; i < time_q->size(); ++i) {
+        const auto* t = static_cast<const engine_time_t*>(
+            value::QueueOps::get_element_ptr_const(time_q, i, tq_schema));
+        cached_value_times_.push_back(*t);
+    }
+    return cached_value_times_.data();
 }
 
 size_t window_value_times_count(const ViewData& vd) {
-    return 0;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_value_times_count(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_value_times_count(make_view_data_from_link(*rl, vd.path));
+    }
+
+    auto* time_q = time_queue(vd);
+    return time_q ? time_q->size() : 0;
 }
 
 engine_time_t window_first_modified_time(const ViewData& vd) {
-    return last_modified_time(vd);
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_first_modified_time(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_first_modified_time(make_view_data_from_link(*rl, vd.path));
+    }
+
+    // Oldest timestamp in the time queue (logical index 0)
+    auto* time_q = time_queue(vd);
+    if (!time_q || time_q->size() == 0) return MIN_DT;
+    auto tq_schema = time_queue_schema(vd);
+    const auto* first_time = static_cast<const engine_time_t*>(
+        value::QueueOps::get_element_ptr_const(time_q, 0, tq_schema));
+    return first_time ? *first_time : MIN_DT;
 }
 
 bool window_has_removed_value(const ViewData& vd) {
-    return false;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_has_removed_value(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_has_removed_value(make_view_data_from_link(*rl, vd.path));
+    }
+    if (!vd.delta_data) return false;
+    return delta_has_removed(vd);
 }
 
 value::View window_removed_value(const ViewData& vd) {
-    return value::View{};
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_removed_value(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_removed_value(make_view_data_from_link(*rl, vd.path));
+    }
+    // Check has_removed inline (don't call window_has_removed_value which would re-delegate)
+    if (!vd.delta_data) return value::View{};
+    if (!delta_has_removed(vd)) return value::View{};
+    // Return a view of the removed values QueueStorage
+    auto* removed_q = delta_removed_queue(vd);
+    if (!removed_q || removed_q->size() == 0) return value::View{};
+    return value::View(removed_q, removed_queue_schema(vd));
 }
 
 size_t window_removed_value_count(const ViewData& vd) {
-    return 0;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_removed_value_count(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_removed_value_count(make_view_data_from_link(*rl, vd.path));
+    }
+    // Check has_removed inline
+    if (!vd.delta_data || !delta_has_removed(vd)) return 0;
+    auto* removed_q = delta_removed_queue(vd);
+    return removed_q ? removed_q->size() : 0;
 }
 
 size_t window_size(const ViewData& vd) {
@@ -5276,7 +5588,15 @@ size_t window_min_size(const ViewData& vd) {
 }
 
 size_t window_length(const ViewData& vd) {
-    return valid(vd) ? 1 : 0;
+    // Delegate through links for inputs
+    if (auto* lt = get_active_link_target(vd)) {
+        return lt->ops->window_length(make_view_data_from_link_target(*lt, vd.path));
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return rl->target().ops->window_length(make_view_data_from_link(*rl, vd.path));
+    }
+    auto* val_q = static_cast<value::QueueStorage*>(vd.value_data);
+    return val_q ? val_q->size() : 0;
 }
 
 void set_active(ViewData& vd, value::View active_view, bool active, TSInput* input) {
@@ -5301,6 +5621,8 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                         lt->active_notifier.owning_input = nullptr;
                     }
                 }
+            } else if (lt && lt->ref_binding_) {
+                lt->active_notifier.owning_input = active ? input : nullptr;
             }
         } else {
             auto* rl = get_ref_link(vd.link_data);

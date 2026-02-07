@@ -1,5 +1,6 @@
 #include <hgraph/api/python/py_tsw.h>
 #include <hgraph/types/time_series/ts_window_view.h>
+#include <hgraph/types/value/queue_ops.h>
 
 namespace hgraph
 {
@@ -82,17 +83,19 @@ namespace hgraph
     nb::object PyTimeSeriesTimeWindowOutput::removed_value() const {
         auto wv = output_view().ts_view().as_window();
         if (!wv.has_removed_value()) return nb::none();
-        // For time windows, access the removed value pointers directly
-        const auto* removed_ptrs = wv.removed_value_ptrs();
-        if (!removed_ptrs || removed_ptrs->empty()) return nb::none();
-        // Convert to Python list
-        nb::list result;
+        // Duration window: removed values are in a QueueStorage in delta_data
+        value::View rv = wv.removed_value();
+        if (!rv.valid()) return nb::none();
+        // rv is a View of QueueStorage — iterate to build Python tuple
+        auto* queue = static_cast<const value::QueueStorage*>(rv.data());
+        if (!queue || queue->size() == 0) return nb::none();
+        const auto* rq_schema = rv.schema();
         const auto* elem_type = wv.meta()->value_type;
-        for (void* ptr : *removed_ptrs) {
-            if (ptr) {
-                value::View elem_view(ptr, elem_type);
-                result.append(elem_view.to_python());
-            }
+        nb::tuple result = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(queue->size())));
+        for (size_t i = 0; i < queue->size(); ++i) {
+            const void* elem = value::QueueOps::get_element_ptr_const(queue, i, rq_schema);
+            nb::object py_elem = elem_type->ops->to_python(elem, elem_type);
+            PyTuple_SET_ITEM(result.ptr(), static_cast<Py_ssize_t>(i), py_elem.release().ptr());
         }
         return result;
     }
@@ -128,17 +131,18 @@ namespace hgraph
         if (!wv.has_removed_value()) return nb::none();
         // Check if it's a time window (multiple removed values) or fixed (single)
         if (wv.is_duration_based()) {
-            // Time window - access the removed value pointers directly
-            const auto* removed_ptrs = wv.removed_value_ptrs();
-            if (!removed_ptrs || removed_ptrs->empty()) return nb::none();
-            // Convert to Python list
-            nb::list result;
+            // Duration window: removed values are in a QueueStorage in delta_data
+            value::View rv = wv.removed_value();
+            if (!rv.valid()) return nb::none();
+            auto* queue = static_cast<const value::QueueStorage*>(rv.data());
+            if (!queue || queue->size() == 0) return nb::none();
+            const auto* rq_schema = rv.schema();
             const auto* elem_type = wv.meta()->value_type;
-            for (void* ptr : *removed_ptrs) {
-                if (ptr) {
-                    value::View elem_view(ptr, elem_type);
-                    result.append(elem_view.to_python());
-                }
+            nb::tuple result = nb::steal<nb::tuple>(PyTuple_New(static_cast<Py_ssize_t>(queue->size())));
+            for (size_t i = 0; i < queue->size(); ++i) {
+                const void* elem = value::QueueOps::get_element_ptr_const(queue, i, rq_schema);
+                nb::object py_elem = elem_type->ops->to_python(elem, elem_type);
+                PyTuple_SET_ITEM(result.ptr(), static_cast<Py_ssize_t>(i), py_elem.release().ptr());
             }
             return result;
         }
