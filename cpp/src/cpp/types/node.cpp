@@ -822,9 +822,18 @@ namespace hgraph
                     }
                 }
             } else {
-                // Check all non-context inputs by default
+                // Check all time-series inputs by default
+                // Python: all(self.input[k].valid for k in time_series_inputs.keys())
                 auto input_view = ts_input_->view(current_time);
-                if (!input_view.valid()) {
+                if (signature().time_series_inputs.has_value()) {
+                    for (const auto& [key, _] : *signature().time_series_inputs) {
+                        auto field_view = input_view.field(key);
+                        if (!field_view.valid()) {
+                            should_eval = false;
+                            break;
+                        }
+                    }
+                } else if (!input_view.valid()) {
                     should_eval = false;
                 }
             }
