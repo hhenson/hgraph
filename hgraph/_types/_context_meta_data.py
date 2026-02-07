@@ -103,6 +103,11 @@ class HgCONTEXTTypeMetaData(HgTimeSeriesTypeMetaData):
             return HgCONTEXTTypeMetaData(value_tp)
 
     @property
+    def cpp_type(self):
+        """Get the C++ TSMeta for CONTEXT type by delegating to the unwrapped ts_type."""
+        return self.ts_type.cpp_type
+
+    @property
     def has_references(self) -> bool:
         return False
 
