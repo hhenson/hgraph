@@ -9,7 +9,7 @@
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <ranges>
 #include <sstream>
-#include <iostream>
+
 
 namespace hgraph
 {
@@ -628,11 +628,10 @@ namespace hgraph
         }
     }
 
+    Node::~Node() = default;
+
     void Node::notify(engine_time_t modified_time) {
         if (is_started() || is_starting()) {
-            // When a node is starting, it might be notified with a historical time (from inputs that ticked in the past).
-            // We should schedule for MAX(modified_time, current_evaluation_time) to avoid scheduling in the past.
-            // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
             auto eval_time     = *_cached_evaluation_time_ptr;
             auto schedule_time = std::max(modified_time, eval_time);
             graph()->schedule_node(node_ndx(), schedule_time);

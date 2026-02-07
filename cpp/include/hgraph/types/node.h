@@ -199,6 +199,8 @@ namespace hgraph
              const TSMeta* input_meta, const TSMeta* output_meta,
              const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
 
+        ~Node() override;
+
         virtual void eval();
 
         void notify(engine_time_t modified_time) override;

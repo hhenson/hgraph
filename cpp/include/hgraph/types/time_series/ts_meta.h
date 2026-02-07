@@ -159,11 +159,11 @@ struct TSMeta {
 
     /**
      * @brief Check if this is a scalar-like time-series.
-     * @return true if TS, TSW, or SIGNAL
+     * @return true if TS, TSW, SIGNAL, or REF
      */
     [[nodiscard]] bool is_scalar_ts() const noexcept {
         return kind == TSKind::TSValue || kind == TSKind::TSW ||
-               kind == TSKind::SIGNAL;
+               kind == TSKind::SIGNAL || kind == TSKind::REF;
     }
 };
 

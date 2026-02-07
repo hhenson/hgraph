@@ -1,7 +1,9 @@
 #include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/time_series/ts_reference_ops.h>
 #include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/api/python/py_time_series.h>
+#include <hgraph/api/python/wrapper_factory.h>
 
 #include <nanobind/nanobind.h>
 
@@ -370,29 +372,22 @@ nb::object ScalarOps<TSReference>::to_python(const void* obj, const TypeMeta*) {
         }
 
         case TSReference::Kind::PEERED: {
-            // For PEERED, we need to resolve the path to an actual output
-            // This is complex because we need runtime context
-            // For now, we return a placeholder that can be reconstructed
-            // TODO: Proper resolution requires current_time and graph context
-
-            // Create FQReference for transfer
-            FQReference fq = ref.to_fq();
-
-            // Return as a dict that Python can interpret
-            nb::dict result;
-            result["kind"] = "PEERED";
-            result["node_id"] = fq.node_id;
-            result["port_type"] = fq.port_type == PortType::INPUT ? "INPUT" : "OUTPUT";
-
-            nb::list indices_list;
-            for (size_t idx : fq.indices) {
-                indices_list.append(idx);
+            // Resolve the ShortPath to get the target ViewData, then create a proper
+            // BoundTimeSeriesReference via Python. This avoids the broken to_fq()
+            // which hardcodes node_id=0.
+            try {
+                TSView resolved = ref.resolve(MIN_DT);
+                if (resolved) {
+                    TSOutputView output_view(std::move(resolved), nullptr);
+                    nb::object output_wrapper = wrap_output_view(std::move(output_view));
+                    auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
+                    return make_fn(output_wrapper);
+                }
+            } catch (...) {
+                // Resolution failed - return empty
             }
-            result["indices"] = indices_list;
-
-            // For now, wrap in a marker class or just return the dict
-            // The Python side will need to handle this appropriately
-            return result;
+            auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
+            return make_fn();
         }
 
         case TSReference::Kind::NON_PEERED: {

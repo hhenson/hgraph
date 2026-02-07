@@ -150,6 +150,23 @@ struct LinkTarget : public Notifiable {
      */
     ActiveNotifier active_notifier;
 
+    // ========== REF Binding Support ==========
+
+    /**
+     * @brief Opaque pointer to REF binding helper (heap-allocated when needed).
+     *
+     * When a non-REF TSInput binds to a REF output, this helper manages the
+     * dual subscription: REF source observer (for rebind) + resolved target
+     * observer (for value changes). Type-erased to avoid circular includes
+     * with ViewData.
+     */
+    void* ref_binding_{nullptr};
+
+    /**
+     * @brief Type-erased deleter for ref_binding_.
+     */
+    void (*ref_binding_deleter_)(void*){nullptr};
+
     // ========== Construction ==========
 
     /**
@@ -157,8 +174,8 @@ struct LinkTarget : public Notifiable {
      */
     LinkTarget() noexcept = default;
 
-    // Virtual destructor from Notifiable base
-    ~LinkTarget() override = default;
+    // Destructor cleans up REF binding helper
+    ~LinkTarget() override;
 
     /**
      * @brief Check if this link target is active.
@@ -168,9 +185,21 @@ struct LinkTarget : public Notifiable {
     }
 
     /**
+     * @brief Cleanup REF binding helper (unsubscribes and frees).
+     */
+    void cleanup_ref_binding() noexcept {
+        if (ref_binding_ && ref_binding_deleter_) {
+            ref_binding_deleter_(ref_binding_);
+            ref_binding_ = nullptr;
+            ref_binding_deleter_ = nullptr;
+        }
+    }
+
+    /**
      * @brief Clear all fields (unbind).
      */
     void clear() noexcept {
+        cleanup_ref_binding();
         is_linked = false;
         target_path = ShortPath{};
         value_data = nullptr;
@@ -220,7 +249,10 @@ struct LinkTargetOps {
     }
 
     static void destruct(void* obj, const value::TypeMeta*) {
-        static_cast<LinkTarget*>(obj)->~LinkTarget();
+        auto* lt = static_cast<LinkTarget*>(obj);
+        // Debug trace for ref_binding destruction via TypeOps
+        // if (lt->ref_binding_) { ... } // traced in ~LinkTarget instead
+        lt->~LinkTarget();
     }
 
     static void copy_assign(void* dst, const void* src, const value::TypeMeta*) {

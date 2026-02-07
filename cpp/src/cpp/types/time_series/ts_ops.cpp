@@ -200,6 +200,153 @@ inline std::optional<ViewData> resolve_ref_link_target(const LinkTarget& lt, eng
     }
 }
 
+// ============================================================================
+// REFBindingHelper: Manages dual subscription when TSInput binds to REF output.
+//
+// When a non-REF TSInput (e.g., TS[float]) binds to a REF output (e.g., REF[TS[float]]),
+// we need two subscriptions:
+// 1. To the REF source's observer list → for rebind notifications when the reference changes
+// 2. To the resolved target's observer list → for value change notifications
+//
+// REFBindingHelper handles subscription (1) and manages the lifecycle of subscription (2)
+// by resolving the TSReference and binding the LinkTarget to the actual underlying target.
+//
+// This matches the Python PythonBoundTimeSeriesInput.bind_output() pattern:
+//   output.value.bind_input(self)  → binds to resolved target
+//   output.observe_reference(self) → subscribes for rebind notifications
+// ============================================================================
+
+struct REFBindingHelper : public Notifiable {
+    LinkTarget* owner;
+    ViewData ref_source;          // REF output's ViewData (for reading TSReference)
+    void* resolved_obs{nullptr};  // Current resolved target's observer_data
+    bool subscribed_to_ref{false};
+
+    explicit REFBindingHelper(LinkTarget* lt, const ViewData& ref_src)
+        : owner(lt), ref_source(ref_src) {}
+
+    ~REFBindingHelper() override {
+        unsubscribe_all();
+    }
+
+    void subscribe_to_ref_source() {
+        if (!subscribed_to_ref && ref_source.observer_data) {
+            auto* obs = static_cast<ObserverList*>(ref_source.observer_data);
+            obs->add_observer(this);
+            subscribed_to_ref = true;
+        }
+    }
+
+    void unsubscribe_from_ref_source() {
+        if (subscribed_to_ref && ref_source.observer_data) {
+            auto* obs = static_cast<ObserverList*>(ref_source.observer_data);
+            obs->remove_observer(this);
+            subscribed_to_ref = false;
+        }
+    }
+
+    void unsubscribe_from_resolved() {
+        if (resolved_obs && owner->is_linked) {
+            auto* obs = static_cast<ObserverList*>(resolved_obs);
+            obs->remove_observer(owner);  // time-accounting chain
+            if (owner->active_notifier.owning_input != nullptr) {
+                obs->remove_observer(&owner->active_notifier);  // node-scheduling chain
+            }
+        }
+        resolved_obs = nullptr;
+    }
+
+    void unsubscribe_all() {
+        unsubscribe_from_resolved();
+        unsubscribe_from_ref_source();
+    }
+
+    // Resolve the current TSReference and rebind the LinkTarget to the resolved target.
+    void rebind(engine_time_t current_time) {
+        // Unsubscribe from old resolved target
+        unsubscribe_from_resolved();
+
+        // Clear old target data in LinkTarget (preserve structural fields)
+        owner->is_linked = false;
+        owner->target_path = ShortPath{};
+        owner->value_data = nullptr;
+        owner->time_data = nullptr;
+        owner->observer_data = nullptr;
+        owner->delta_data = nullptr;
+        owner->link_data = nullptr;
+        owner->ops = nullptr;
+        owner->meta = nullptr;
+
+        // Read TSReference from REF source
+        if (!ref_source.value_data || !ref_source.meta) {
+            return;
+        }
+        auto value_meta = ref_source.meta->value_type;
+        if (!value_meta) {
+            return;
+        }
+
+        value::View v(ref_source.value_data, value_meta);
+        if (!v.valid()) {
+            return;
+        }
+
+        const auto* ts_ref = static_cast<const TSReference*>(v.data());
+        if (!ts_ref || ts_ref->is_empty() || !ts_ref->is_peered()) {
+            return;
+        }
+
+        TSView resolved;
+        try {
+            resolved = ts_ref->resolve(current_time);
+        } catch (...) {
+            return;
+        }
+        if (!resolved) return;
+
+        // Store resolved target in LinkTarget
+        const ViewData& rvd = resolved.view_data();
+        owner->is_linked = true;
+        owner->target_path = rvd.path;
+        owner->value_data = rvd.value_data;
+        owner->time_data = rvd.time_data;
+        owner->observer_data = rvd.observer_data;
+        owner->delta_data = rvd.delta_data;
+        owner->link_data = rvd.link_data;
+        owner->ops = rvd.ops;
+        owner->meta = rvd.meta;
+        resolved_obs = rvd.observer_data;
+
+        // Subscribe LinkTarget to resolved target (time-accounting chain)
+        if (resolved_obs) {
+            auto* obs = static_cast<ObserverList*>(resolved_obs);
+            obs->add_observer(owner);
+            // Resubscribe ActiveNotifier if input is active
+            if (owner->active_notifier.owning_input != nullptr) {
+                obs->add_observer(&owner->active_notifier);
+            }
+        }
+    }
+
+    // Called when REF source changes - rebind to new target and schedule node
+    void notify(engine_time_t et) override {
+        // REF source changed - rebind to new resolved target
+        rebind(et);
+
+        // Time-accounting: propagate through LinkTarget chain
+        owner->notify(et);
+
+        // Schedule owning node if active (the data source changed)
+        if (owner->active_notifier.owning_input) {
+            owner->active_notifier.notify(et);
+        }
+    }
+};
+
+void delete_ref_binding_helper(void* ptr) {
+    delete static_cast<REFBindingHelper*>(ptr);
+}
+
 } // anonymous namespace
 
 // ============================================================================
@@ -474,13 +621,33 @@ void bind(ViewData& vd, const ViewData& target) {
         if (!lt) {
             throw std::runtime_error("bind on TSInput with invalid link data");
         }
-        store_to_link_target(*lt, target);
 
         // Set time-accounting chain
         if (vd.time_data) {
             lt->owner_time_ptr = static_cast<engine_time_t*>(vd.time_data);
         }
         // parent_link is set by caller for nested scalars (or nullptr for root)
+
+        // Check if target is a REF type - need special handling
+        if (target.meta && target.meta->kind == TSKind::REF) {
+            // REF-aware binding: resolve through REF, store resolved target in LinkTarget,
+            // and subscribe to both REF source (for rebind) and resolved target (for value changes).
+            // This matches Python's observe_reference + bind_input pattern.
+            auto* helper = new REFBindingHelper(lt, target);
+            lt->ref_binding_ = helper;
+            lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+
+            // Subscribe helper to REF source observer list (for rebind notifications)
+            helper->subscribe_to_ref_source();
+
+            // Initial resolve and bind to current target (may fail if REF not yet set)
+            helper->rebind(MIN_DT);
+
+            return;
+        }
+
+        // Non-REF target: store directly and subscribe
+        store_to_link_target(*lt, target);
 
         // Subscribe for time-accounting (always, regardless of active state)
         if (lt->observer_data) {
@@ -514,7 +681,15 @@ void unbind(ViewData& vd) {
     if (vd.uses_link_target) {
         // TSInput: Unsubscribe both chains then clear LinkTarget
         auto* lt = get_link_target(vd.link_data);
-        if (lt && lt->is_linked) {
+        if (!lt) return;
+
+        if (lt->ref_binding_) {
+            // REF binding: cleanup_ref_binding handles all unsubscription
+            // (both REF source and resolved target observers)
+            lt->cleanup_ref_binding();
+            lt->clear();
+        } else if (lt->is_linked) {
+            // Non-REF binding: original unsubscription logic
             if (lt->observer_data) {
                 auto* obs = static_cast<ObserverList*>(lt->observer_data);
                 // Unsubscribe time-accounting
@@ -569,6 +744,12 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                 observer_data = lt->observer_data;
                 bound_lt = lt;
                 mutable_lt = lt;
+            } else if (lt && lt->ref_binding_) {
+                // REF binding exists but hasn't resolved yet.
+                // We still need to set owning_input so that when
+                // REFBindingHelper::rebind() resolves the target later,
+                // it can subscribe the ActiveNotifier.
+                mutable_lt = lt;
             }
         } else {
             // TSOutput: Get observer from REFLink's target
@@ -579,46 +760,52 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
             }
         }
 
-        if (observer_data) {
-            auto* observers = static_cast<ObserverList*>(observer_data);
-            if (active) {
-                // Subscribe ActiveNotifier for node-scheduling (TSInput path)
-                if (mutable_lt) {
-                    if (mutable_lt->active_notifier.owning_input == nullptr) {
-                        mutable_lt->active_notifier.owning_input = input;
-                        observers->add_observer(&mutable_lt->active_notifier);
-                    }
-                } else {
-                    // TSOutput path: subscribe input directly (no LinkTarget)
-                    observers->add_observer(input);
+        if (active) {
+            if (mutable_lt) {
+                // Set owning_input even if not yet linked (for REF binding that resolves later)
+                if (mutable_lt->active_notifier.owning_input == nullptr) {
+                    mutable_lt->active_notifier.owning_input = input;
                 }
+                // Subscribe to observer list if available (linked to target)
+                if (observer_data) {
+                    auto* observers = static_cast<ObserverList*>(observer_data);
+                    observers->add_observer(&mutable_lt->active_notifier);
+                }
+            } else if (observer_data) {
+                // TSOutput path: subscribe input directly (no LinkTarget)
+                auto* observers = static_cast<ObserverList*>(observer_data);
+                observers->add_observer(input);
+            }
 
-                // Initial notification: match Python make_active() behavior.
-                // After subscribing, if the output is already valid AND modified,
-                // fire notify to schedule the owning node for evaluation.
-                if (input && bound_lt && bound_lt->ops) {
-                    ViewData output_vd = make_view_data_from_link_target(*bound_lt, vd.path);
-                    if (bound_lt->ops->valid(output_vd)) {
-                        auto* node = input->owning_node();
-                        if (node && node->cached_evaluation_time_ptr()) {
-                            engine_time_t eval_time = *node->cached_evaluation_time_ptr();
-                            if (bound_lt->ops->modified(output_vd, eval_time)) {
-                                engine_time_t lmt = bound_lt->ops->last_modified_time(output_vd);
-                                input->notify(lmt);
-                            }
+            // Initial notification: match Python make_active() behavior.
+            // After subscribing, if the output is already valid AND modified,
+            // fire notify to schedule the owning node for evaluation.
+            if (input && bound_lt && bound_lt->ops) {
+                ViewData output_vd = make_view_data_from_link_target(*bound_lt, vd.path);
+                if (bound_lt->ops->valid(output_vd)) {
+                    auto* node = input->owning_node();
+                    if (node && node->cached_evaluation_time_ptr()) {
+                        engine_time_t eval_time = *node->cached_evaluation_time_ptr();
+                        if (bound_lt->ops->modified(output_vd, eval_time)) {
+                            engine_time_t lmt = bound_lt->ops->last_modified_time(output_vd);
+                            input->notify(lmt);
                         }
                     }
                 }
-            } else {
-                // Unsubscribe ActiveNotifier (TSInput path)
-                if (mutable_lt) {
-                    if (mutable_lt->active_notifier.owning_input != nullptr) {
+            }
+        } else {
+            // Unsubscribe ActiveNotifier (TSInput path)
+            if (mutable_lt) {
+                if (mutable_lt->active_notifier.owning_input != nullptr) {
+                    if (observer_data) {
+                        auto* observers = static_cast<ObserverList*>(observer_data);
                         observers->remove_observer(&mutable_lt->active_notifier);
-                        mutable_lt->active_notifier.owning_input = nullptr;
                     }
-                } else {
-                    observers->remove_observer(input);
+                    mutable_lt->active_notifier.owning_input = nullptr;
                 }
+            } else if (observer_data) {
+                auto* observers = static_cast<ObserverList*>(observer_data);
+                observers->remove_observer(input);
             }
         }
     }
@@ -1574,6 +1761,17 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                             observers->remove_observer(&lt->active_notifier);
                             lt->active_notifier.owning_input = nullptr;
                         }
+                    }
+                } else if (lt && lt->ref_binding_) {
+                    // REF binding exists but hasn't resolved yet.
+                    // Set owning_input so that when REFBindingHelper::rebind()
+                    // resolves the target later, it can subscribe the ActiveNotifier.
+                    if (active) {
+                        if (lt->active_notifier.owning_input == nullptr) {
+                            lt->active_notifier.owning_input = input;
+                        }
+                    } else {
+                        lt->active_notifier.owning_input = nullptr;
                     }
                 }
             } else {
