@@ -1464,6 +1464,19 @@ class HgTypeOfTypeMetaData(HgTypeMetaData):
         if isinstance(value, type):
             return HgTypeOfTypeMetaData(HgTypeMetaData.parse_type(value))
 
+    @property
+    def cpp_type(self):
+        if not self.is_resolved:
+            return None
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            return _hgraph.value.get_scalar_type_meta(object)
+        except (ImportError, AttributeError):
+            return None
+
     def __eq__(self, o: object) -> bool:
         return type(o) is HgTypeOfTypeMetaData and self.value_tp == o.value_tp
 

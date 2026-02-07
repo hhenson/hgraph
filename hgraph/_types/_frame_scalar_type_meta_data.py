@@ -90,6 +90,19 @@ try:
         def __hash__(self) -> int:
             return hash(tuple) ^ hash(self.schema)
 
+        @property
+        def cpp_type(self):
+            if not self.is_resolved:
+                return None
+            from hgraph._feature_switch import is_feature_enabled
+            if not is_feature_enabled("use_cpp"):
+                return None
+            try:
+                import hgraph._hgraph as _hgraph
+                return _hgraph.value.get_scalar_type_meta(object)
+            except (ImportError, AttributeError):
+                return None
+
     HgScalarTypeMetaData.register_parser(HgDataFrameScalarTypeMetaData)
 
     class _SeriesTypeclass(_SpecialGenericAlias, _root=True): ...
@@ -157,6 +170,19 @@ try:
 
         def __hash__(self) -> int:
             return hash(tuple) ^ hash(self.value_tp)
+
+        @property
+        def cpp_type(self):
+            if not self.is_resolved:
+                return None
+            from hgraph._feature_switch import is_feature_enabled
+            if not is_feature_enabled("use_cpp"):
+                return None
+            try:
+                import hgraph._hgraph as _hgraph
+                return _hgraph.value.get_scalar_type_meta(object)
+            except (ImportError, AttributeError):
+                return None
 
     HgScalarTypeMetaData.register_parser(HgSeriesScalarTypeMetaData)
 
