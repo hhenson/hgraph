@@ -327,6 +327,12 @@ namespace hgraph
     }
 
     void BasePythonNode::do_start() {
+        // Refresh cached view times to graph's current evaluation_time before calling start_fn.
+        // Without this, output TSViews have stale current_time from _initialise_kwargs(),
+        // which causes from_python() during start (e.g. modified_impl_start's apply_result(False))
+        // to use the wrong timestamp.
+        _update_cached_view_times();
+
         if (_start_fn.is_valid() && !_start_fn.is_none()) {
             // Get the callable signature parameters using inspect.signature
             // This matches Python's approach: signature(self.start_fn).parameters.keys()

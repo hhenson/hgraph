@@ -708,7 +708,11 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
 
     @property
     def cpp_type(self):
-        """Get the C++ TypeMeta for this dynamic tuple type (tuple[T, ...])."""
+        """Get the C++ TypeMeta for this dynamic tuple type (tuple[T, ...]).
+
+        Uses opaque nb::object storage to preserve Python semantics (e.g. None elements).
+        Typed C++ dynamic list storage cannot represent None in typed slots.
+        """
         if not self.is_resolved:
             raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
         from hgraph._feature_switch import is_feature_enabled
@@ -716,10 +720,7 @@ class HgTupleCollectionScalarType(HgTupleScalarType):
             return None
         try:
             import hgraph._hgraph as _hgraph
-            element_cpp = self.element_type.cpp_type
-            if element_cpp is None:
-                return None
-            return _hgraph.value.get_dynamic_list_type_meta(element_cpp)
+            return _hgraph.value.get_scalar_type_meta(object)
         except (ImportError, AttributeError):
             return None
 
