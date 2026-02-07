@@ -85,7 +85,9 @@ namespace hgraph
     void GraphExecutor::run(const engine_time_t &start_time, const engine_time_t &end_time) {
         auto now = std::chrono::system_clock::now();
         auto graph{_graph_builder->make_instance({})};
-        auto release_graph = scope_exit([this, graph = graph] { _graph_builder->release_instance(graph); });
+        auto release_graph = scope_exit([this, graph = graph] {
+            try { _graph_builder->release_instance(graph); } catch (...) {}
+        });
         fmt::print("{} [CPP] Running graph [{}] start time: {} end time: {}\n", fmt::format("{:%Y-%m-%d %H:%M:%S}", now),
                    (graph ? *graph->label() : std::string{"unknown"}), start_time, end_time);
 

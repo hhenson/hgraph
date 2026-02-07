@@ -285,6 +285,11 @@ namespace hgraph
 
     void Graph::dispose() {
         // Since we initialise nodes from within the graph, we need to dispose them here.
-        for (auto &node : _nodes) { node->dispose(); }
+        // Each node's dispose is wrapped in try-catch to prevent double-exception
+        // during stack unwinding (e.g. when dispose is called from scope_exit after
+        // an exception was already thrown).
+        for (auto &node : _nodes) {
+            try { node->dispose(); } catch (...) {}
+        }
     }
 }  // namespace hgraph

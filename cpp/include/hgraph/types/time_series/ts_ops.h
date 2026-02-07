@@ -413,6 +413,14 @@ struct ts_ops {
 };
 
 /**
+ * @brief Clear thread-local caches that hold nb::object references.
+ *
+ * Must be called before Python interpreter shutdown to avoid
+ * SIGSEGV from destroying nb::object after the GC has freed them.
+ */
+void clear_thread_local_caches();
+
+/**
  * @brief Get the ts_ops for a specific TSKind.
  *
  * @param kind The time-series kind

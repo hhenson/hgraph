@@ -3533,6 +3533,10 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     }
 }
 
+void clear_caches() {
+    cached_py_deltas_.clear();
+}
+
 } // namespace set_ops
 
 // ============================================================================
@@ -5954,6 +5958,10 @@ const ts_ops* get_ts_ops(const TSMeta* meta) {
 
     // For all other kinds, delegate to the kind-based version
     return get_ts_ops(meta->kind);
+}
+
+void clear_thread_local_caches() {
+    set_ops::clear_caches();
 }
 
 } // namespace hgraph

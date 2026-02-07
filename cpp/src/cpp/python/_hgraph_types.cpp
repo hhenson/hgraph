@@ -22,6 +22,7 @@
 
 #include <hgraph/types/scalar_types.h>
 #include <hgraph/types/schema_type.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/traits.h>
 
 void export_types(nb::module_ &m) {
@@ -78,4 +79,7 @@ void export_types(nb::module_ &m) {
     // No C++ registration needed.
 
     register_special_nodes_with_nanobind(m);
+
+    // Expose cache-clearing function for atexit cleanup
+    m.def("_clear_thread_local_caches", &hgraph::clear_thread_local_caches);
 }

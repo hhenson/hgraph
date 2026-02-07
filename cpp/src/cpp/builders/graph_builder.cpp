@@ -140,8 +140,10 @@ namespace hgraph
 
     void GraphBuilder::release_instance(graph_s_ptr item) const {
         auto &nodes = item->nodes();
-        for (size_t i = 0, l = nodes.size(); i < l; ++i) { node_builders[i]->release_instance(nodes[i]); }
-        dispose_component(*item);
+        for (size_t i = 0, l = nodes.size(); i < l; ++i) {
+            try { node_builders[i]->release_instance(nodes[i]); } catch (...) {}
+        }
+        try { dispose_component(*item); } catch (...) {}
     }
 
     size_t GraphBuilder::memory_size() const {

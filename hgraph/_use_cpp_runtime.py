@@ -20,8 +20,13 @@ if is_feature_enabled("use_cpp"):
           "\n<<<<<<<<<<<<<<<<<<<")
     try:
         from datetime import date, datetime, timedelta
+        import atexit
         import hgraph._hgraph as _hgraph
         import hgraph
+
+        # Clear thread-local nb::object caches before interpreter shutdown
+        # to prevent SIGSEGV from destroying Python objects after GC cleanup.
+        atexit.register(_hgraph._clear_thread_local_caches)
 
         # Replace Python date/time constants with C++ versions
         hgraph.MIN_DT = _hgraph.MIN_DT
