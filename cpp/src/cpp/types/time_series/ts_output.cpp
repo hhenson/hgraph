@@ -8,10 +8,30 @@
 #include <hgraph/types/time_series/ts_dict_view.h>
 #include <hgraph/types/time_series/ts_list_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/value/map_storage.h>
 #include <hgraph/types/value/key_set.h>
 
 namespace hgraph {
+
+// ============================================================================
+// AlternativeTimePropagator - copies native container time to alternative
+// ============================================================================
+
+/// Subscribes to the native TSD's ObserverList. When the native container
+/// fires notify_modified, this copies the native container time to the
+/// alternative's container time so that modified/valid checks work correctly.
+struct AlternativeTimePropagator : Notifiable {
+    engine_time_t* native_container_time{nullptr};
+    engine_time_t* alt_container_time{nullptr};
+
+    void notify(engine_time_t et) override {
+        if (et == MIN_DT) return;
+        if (native_container_time && alt_container_time) {
+            *alt_container_time = *native_container_time;
+        }
+    }
+};
 
 // ============================================================================
 // AlternativeStructuralObserver Implementation
@@ -117,9 +137,10 @@ void AlternativeStructuralObserver::on_erase(size_t slot) {
     alt_view.as_dict().remove(key_view);
 }
 
+
 void AlternativeStructuralObserver::on_update(size_t /*slot*/) {
-    // Value updates don't require structural changes
-    // The link already points to the native, so updates are visible through it
+    // Value updates are handled by AlternativeTimePropagator (subscribes to native ObserverList).
+    // No structural changes needed here.
 }
 
 void AlternativeStructuralObserver::on_clear() {
@@ -359,6 +380,39 @@ void TSOutput::establish_links_recursive(
 
         // Store the observer to keep it alive
         structural_observers_.push_back(std::move(observer));
+
+        // Subscribe a time propagator: when native container is modified,
+        // copy its container time to the alternative so modified/valid work.
+        {
+            auto& cache = TSMetaSchemaCache::instance();
+            auto* native_time_schema = cache.get_time_schema(native_meta);
+            auto* alt_time_schema = cache.get_time_schema(target_meta);
+            auto* native_obs_schema = cache.get_observer_schema(native_meta);
+
+            if (native_time_schema && alt_time_schema && native_obs_schema) {
+                const auto& native_vd = native_view.view_data();
+                const auto& alt_vd = alt_view.view_data();
+
+                if (native_vd.time_data && alt_vd.time_data && native_vd.observer_data) {
+                    value::View native_time(native_vd.time_data, native_time_schema);
+                    value::View alt_time(alt_vd.time_data, alt_time_schema);
+                    value::View native_obs(native_vd.observer_data, native_obs_schema);
+
+                    auto propagator = std::make_unique<AlternativeTimePropagator>();
+                    propagator->native_container_time = &native_time.as_tuple().at(0).as<engine_time_t>();
+                    propagator->alt_container_time = &alt_time.as_tuple().at(0).as<engine_time_t>();
+
+                    // Subscribe to native container's ObserverList
+                    auto* native_container_obs = static_cast<ObserverList*>(
+                        native_obs.as_tuple().at(0).data());
+                    if (native_container_obs) {
+                        native_container_obs->add_observer(propagator.get());
+                    }
+
+                    time_propagators_.push_back(std::move(propagator));
+                }
+            }
+        }
 
         // Process existing elements
         if (target_meta->kind == TSKind::TSD) {

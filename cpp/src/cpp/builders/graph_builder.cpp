@@ -8,6 +8,7 @@
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/time_series/ts_dict_view.h>
 #include <hgraph/types/traits.h>
 
 #include <string_view>
@@ -127,8 +128,16 @@ namespace hgraph
             for (auto idx : edge.output_path) {
                 if (idx >= 0) {
                     output_view = output_view[static_cast<size_t>(idx)];
+                } else if (idx == KEY_SET) {
+                    // Navigate from TSD output to its embedded key_set TSS
+                    auto dict_view = output_view.ts_view().as_dict();
+                    TSSView tss_view = dict_view.key_set();
+                    output_view = TSOutputView(
+                        TSView(tss_view.view_data(), bind_time),
+                        output_view.output()
+                    );
                 }
-                // Skip negative indices (like KEY_SET) for now
+                // Skip other negative indices (ERROR_PATH, STATE_PATH) for now
             }
 
             // 3. Bind the input view to the output view

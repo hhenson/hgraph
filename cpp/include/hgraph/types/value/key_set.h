@@ -442,7 +442,13 @@ public:
 
     [[nodiscard]] const IndexSet* index_set() const { return index_set_.get(); }
 
-private:
+    /**
+     * @brief Ensure the KeySet has capacity for at least min_slots.
+     *
+     * This is exposed publicly so that callers can pre-allocate capacity
+     * before insertion, allowing parallel structures (like VarLists for
+     * time/observer data in TSD) to be resized before observers fire.
+     */
     void ensure_capacity(size_t min_slots) {
         if (!key_type_) return;
 
@@ -487,6 +493,7 @@ private:
         }
     }
 
+private:
     std::vector<std::byte> keys_;          // Contiguous key storage
     sul::dynamic_bitset<> alive_;          // Bit i = 1 if slot i is alive
     std::vector<size_t> free_list_;        // Available slots for reuse

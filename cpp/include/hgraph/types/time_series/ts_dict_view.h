@@ -235,6 +235,8 @@ public:
      * @return Set of added slot indices
      */
     [[nodiscard]] const SlotSet& added_slots() const {
+        static const SlotSet empty;
+        if (!modified() || !delta()) return empty;
         return delta()->added();
     }
 
@@ -244,6 +246,8 @@ public:
      * @return Set of removed slot indices
      */
     [[nodiscard]] const SlotSet& removed_slots() const {
+        static const SlotSet empty;
+        if (!modified() || !delta()) return empty;
         return delta()->removed();
     }
 
@@ -253,6 +257,8 @@ public:
      * @return Set of updated slot indices
      */
     [[nodiscard]] const SlotSet& updated_slots() const {
+        static const SlotSet empty;
+        if (!modified() || !delta()) return empty;
         return delta()->updated();
     }
 
@@ -262,6 +268,8 @@ public:
      * @return Set of modified slot indices (union of added and updated)
      */
     [[nodiscard]] const SlotSet& modified_slots() const {
+        static const SlotSet empty;
+        if (!modified() || !delta()) return empty;
         return delta()->modified();
     }
 
@@ -284,6 +292,7 @@ public:
         }
 
         // O(1) lookup using set
+        if (!modified() || !delta()) return false;
         return delta()->was_slot_added(slot);
     }
 
@@ -295,7 +304,7 @@ public:
      * @return SlotKeyRange yielding value::View for each added key
      */
     [[nodiscard]] SlotKeyRange added_keys() const {
-        if (!view_data_.valid() || !delta()) {
+        if (!view_data_.valid() || !delta() || !modified()) {
             return SlotKeyRange{};
         }
         auto* storage = static_cast<const value::MapStorage*>(view_data_.value_data);
@@ -308,7 +317,7 @@ public:
      * @return SlotKeyRange yielding value::View for each modified key
      */
     [[nodiscard]] SlotKeyRange modified_keys() const {
-        if (!view_data_.valid() || !delta()) {
+        if (!view_data_.valid() || !delta() || !modified()) {
             return SlotKeyRange{};
         }
         auto* storage = static_cast<const value::MapStorage*>(view_data_.value_data);
@@ -321,7 +330,7 @@ public:
      * @return SlotKeyRange yielding value::View for each updated key
      */
     [[nodiscard]] SlotKeyRange updated_keys() const {
-        if (!view_data_.valid() || !delta()) {
+        if (!view_data_.valid() || !delta() || !modified()) {
             return SlotKeyRange{};
         }
         auto* storage = static_cast<const value::MapStorage*>(view_data_.value_data);
@@ -337,7 +346,7 @@ public:
      * @return SlotKeyRange yielding value::View for each removed key
      */
     [[nodiscard]] SlotKeyRange removed_keys() const {
-        if (!view_data_.valid() || !delta()) {
+        if (!view_data_.valid() || !delta() || !modified()) {
             return SlotKeyRange{};
         }
         auto* storage = static_cast<const value::MapStorage*>(view_data_.value_data);
@@ -355,6 +364,7 @@ public:
      * @return true if key was removed
      */
     [[nodiscard]] bool was_removed(const value::View& key) const {
+        if (!modified() || !delta()) return false;
         return delta()->was_key_removed(key.data(), meta()->key_type);
     }
 
@@ -392,7 +402,7 @@ public:
      * @return TSDictSlotRange for added items
      */
     [[nodiscard]] TSDictSlotRange added_items() const {
-        if (!view_data_.valid() || !delta()) {
+        if (!view_data_.valid() || !delta() || !modified()) {
             return TSDictSlotRange{};
         }
         return TSDictSlotRange(view_data_, meta(), &delta()->added(), current_time_);
@@ -406,7 +416,7 @@ public:
      * @return TSDictSlotRange for modified items
      */
     [[nodiscard]] TSDictSlotRange modified_items() const {
-        if (!view_data_.valid() || !delta()) {
+        if (!view_data_.valid() || !delta() || !modified()) {
             return TSDictSlotRange{};
         }
         return TSDictSlotRange(view_data_, meta(), &delta()->modified(), current_time_);
@@ -421,7 +431,7 @@ public:
      * @return TSDictSlotRange for updated items
      */
     [[nodiscard]] TSDictSlotRange updated_items() const {
-        if (!view_data_.valid() || !delta()) {
+        if (!view_data_.valid() || !delta() || !modified()) {
             return TSDictSlotRange{};
         }
         return TSDictSlotRange(view_data_, meta(), &delta()->updated(), current_time_);
@@ -436,7 +446,7 @@ public:
      * @return TSDictSlotRange for removed items
      */
     [[nodiscard]] TSDictSlotRange removed_items() const {
-        if (!view_data_.valid() || !delta()) {
+        if (!view_data_.valid() || !delta() || !modified()) {
             return TSDictSlotRange{};
         }
         return TSDictSlotRange(view_data_, meta(), &delta()->removed(), current_time_);

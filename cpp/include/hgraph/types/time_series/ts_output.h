@@ -314,6 +314,7 @@ private:
     TSValue native_value_;                                          ///< Native representation
     std::unordered_map<const TSMeta*, TSValue> alternatives_;       ///< Cast/peer representations
     std::vector<std::unique_ptr<AlternativeStructuralObserver>> structural_observers_; ///< Structural sync observers
+    std::vector<std::unique_ptr<Notifiable>> time_propagators_;    ///< Propagate native container time to alternatives
     std::unique_ptr<LinkTarget> forwarded_target_;                   ///< Cross-graph forwarding target (inner sink → outer output)
     node_ptr owning_node_{nullptr};                                 ///< For graph context
     size_t port_index_{0};                                          ///< Port index on node

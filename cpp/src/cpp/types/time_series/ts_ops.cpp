@@ -3094,7 +3094,8 @@ nb::object delta_to_python(const ViewData& vd) {
     const auto* elem_type = set_storage->element_type();
     if (!elem_type || !elem_type->ops) return nb::none();
 
-    // Only safe to read added slots (they are alive); removed slots may be destructed
+    // Added slots are alive; removed slots remain accessible during current tick
+    // (removed slots go to free list only in the next engine cycle)
     nb::set py_added;
     for (size_t slot : set_delta->added()) {
         if (set_storage->key_set().is_alive(slot)) {
@@ -3103,8 +3104,16 @@ nb::object delta_to_python(const ViewData& vd) {
         }
     }
 
+    nb::set py_removed;
+    for (size_t slot : set_delta->removed()) {
+        const void* elem = set_storage->key_set().key_at_slot(slot);
+        if (elem) {
+            py_removed.add(elem_type->ops->to_python(elem, elem_type));
+        }
+    }
+
     nb::module_ tss_mod = nb::module_::import_("hgraph._impl._types._tss");
-    return tss_mod.attr("PythonSetDelta")(nb::frozenset(py_added), nb::frozenset(nb::set()));
+    return tss_mod.attr("PythonSetDelta")(nb::frozenset(py_added), nb::frozenset(py_removed));
 }
 
 void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time) {
@@ -3621,6 +3630,7 @@ size_t child_count(const ViewData& vd);
 // Forward declarations for functions used by from_python
 bool dict_remove(ViewData& vd, const value::View& key, engine_time_t current_time);
 TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, engine_time_t current_time);
+TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_time);
 
 // For TSD types:
 // - value is map type
@@ -3628,6 +3638,56 @@ TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, 
 // - observer is tuple[ObserverList, var_list[element_observers]]
 // - delta is MapDelta
 // - link is LinkTarget (TSInput) or REFLink (TSOutput) for collection-level binding
+
+// DictChildNotifier: Propagates child element modifications to the parent TSD container.
+// When a TSD element's value is set directly (e.g. via get_or_create() + ts.value = x),
+// the element's ObserverList fires notify_modified() which reaches this notifier.
+// It then updates the container time and notifies the container's observers.
+struct DictChildNotifier : Notifiable {
+    engine_time_t* container_time_ptr = nullptr;
+    ObserverList* container_observers = nullptr;
+
+    void notify(engine_time_t et) override {
+        // Skip during setup (MIN_DT) and prevent re-entrant notification
+        if (et == MIN_DT || notifying_) return;
+        notifying_ = true;
+        if (container_time_ptr && *container_time_ptr < et) {
+            *container_time_ptr = et;
+        }
+        if (container_observers) {
+            container_observers->notify_modified(et);
+        }
+        notifying_ = false;
+    }
+    bool notifying_ = false;
+};
+
+// Registry for DictChildNotifiers, keyed by container observer_data pointer (unique per TSD).
+// Each TSD gets one notifier; all its elements share it.
+static thread_local std::unordered_map<void*, std::unique_ptr<DictChildNotifier>> dict_child_notifiers_;
+
+// Get or create the DictChildNotifier for a TSD.
+inline DictChildNotifier* get_or_create_child_notifier(const ViewData& vd) {
+    void* key = vd.observer_data;
+    if (!key) return nullptr;
+
+    auto it = dict_child_notifiers_.find(key);
+    if (it != dict_child_notifiers_.end()) {
+        return it->second.get();
+    }
+
+    auto time_view = make_time_view(vd);
+    auto observer_view = make_observer_view(vd);
+    if (!time_view.valid() || !observer_view.valid()) return nullptr;
+
+    auto notifier = std::make_unique<DictChildNotifier>();
+    notifier->container_time_ptr = &time_view.as_tuple().at(0).as<engine_time_t>();
+    notifier->container_observers = static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
+
+    auto* raw = notifier.get();
+    dict_child_notifiers_[key] = std::move(notifier);
+    return raw;
+}
 
 // Helper: Check if this TSD is linked and get the REFLink (TSOutput)
 // Only valid when uses_link_target is false
@@ -3897,9 +3957,65 @@ nb::object to_python(const ViewData& vd) {
     }
     // Check time-series validity first (has value been set?)
     if (!valid(vd)) return nb::none();
-    auto v = make_value_view(vd);
-    if (!v.valid()) return nb::none();
-    return v.to_python();
+
+    // Python: frozendict({k: v.value for k, v in self.items() if v.valid})
+    // Iterate elements, skip invalid, convert values to Python
+    if (!vd.value_data || !vd.time_data || !vd.meta || !vd.meta->element_ts) {
+        return nb::none();
+    }
+
+    auto* storage = static_cast<value::MapStorage*>(vd.value_data);
+    auto time_view = make_time_view(vd);
+    auto time_list = time_view.as_tuple().at(1).as_list();
+
+    const auto* key_tm = storage->key_type();
+    const auto* val_tm = storage->value_type();
+    const TSMeta* elem_ts = vd.meta->element_ts;
+    bool elem_is_ref = (elem_ts && elem_ts->kind == TSKind::REF);
+
+    nb::dict result;
+
+    auto& key_set = storage->key_set();
+    auto* index_set = key_set.index_set();
+    if (index_set) {
+        for (auto slot : *index_set) {
+            if (slot < time_list.size()) {
+                if (elem_is_ref) {
+                    // Element is REF-wrapped (TSD output alternative).
+                    // The alternative's element time is not synced with the native's,
+                    // so resolve the TSReference and check the native's validity.
+                    auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
+                    if (ref && !ref->is_empty()) {
+                        TSView target = ref->resolve(MIN_DT);
+                        if (target && target.view_data().ops && target.view_data().ops->valid(target.view_data())) {
+                            const void* key_data = key_set.key_at_slot(slot);
+                            value::View key_view(key_data, key_tm);
+                            nb::object py_val = target.view_data().ops->to_python(target.view_data());
+                            if (!py_val.is_none()) {
+                                result[key_view.to_python()] = py_val;
+                            }
+                        }
+                    }
+                } else {
+                    engine_time_t elem_time = time_list.at(slot).as<engine_time_t>();
+                    if (elem_time != MIN_DT) {
+                        const void* key_data = key_set.key_at_slot(slot);
+                        value::View key_view(key_data, key_tm);
+
+                        if (val_tm && val_tm->ops) {
+                            // Non-ref scalar — use value directly from MapStorage
+                            void* val_data = storage->value_at_slot(slot);
+                            value::View val_view(val_data, val_tm);
+                            result[key_view.to_python()] = val_view.to_python();
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    nb::module_ frozendict_mod = nb::module_::import_("frozendict");
+    return frozendict_mod.attr("frozendict")(result);
 }
 
 nb::object delta_to_python(const ViewData& vd) {
@@ -3928,27 +4044,80 @@ nb::object delta_to_python(const ViewData& vd) {
 
     const auto* key_tm = storage->key_type();
     const auto* val_tm = storage->value_type();
-    const TSMeta* elem_meta = vd.meta->element_ts;
 
     nb::dict result;
 
-    // Iterate all elements and include modified+valid ones
-    // An element is modified if elem_time >= container_time
-    // (container_time is set to current_time when any element is added/modified)
+    // Iterate modified elements for delta output.
+    // Use MapDelta when it has entries (populated by dict_set/dict_remove via SlotObserver).
+    // Fall back to time-based check when delta is empty/unavailable (elements modified
+    // through other paths like element-level set_value).
     auto& key_set = storage->key_set();
-    auto* index_set = key_set.index_set();
-    if (index_set) {
-        for (auto slot : *index_set) {
+    const TSMeta* elem_ts = vd.meta->element_ts;
+    bool elem_is_ref = (elem_ts && elem_ts->kind == TSKind::REF);
+
+    MapDelta* map_delta_ptr = vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr;
+    bool use_delta = map_delta_ptr && !map_delta_ptr->modified().empty();
+
+    if (use_delta) {
+        // Use delta's modified slots (added + updated) — populated by from_python / dict_set
+        for (auto slot : map_delta_ptr->modified()) {
             if (slot < time_list.size()) {
-                engine_time_t elem_time = time_list.at(slot).as<engine_time_t>();
-                if (elem_time >= container_time) {
+                if (elem_is_ref) {
+                    auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
+                    if (ref && !ref->is_empty()) {
+                        TSView target = ref->resolve(container_time);
+                        if (target && target.view_data().ops) {
+                            const void* key_data = key_set.key_at_slot(slot);
+                            value::View key_view(key_data, key_tm);
+                            nb::object py_val = target.view_data().ops->to_python(target.view_data());
+                            if (!py_val.is_none()) {
+                                result[key_view.to_python()] = py_val;
+                            }
+                        }
+                    }
+                } else {
                     const void* key_data = key_set.key_at_slot(slot);
-                    void* val_data = storage->value_at_slot(slot);
-
                     value::View key_view(key_data, key_tm);
-                    value::View val_view(val_data, val_tm);
-
-                    result[key_view.to_python()] = val_view.to_python();
+                    if (val_tm && val_tm->ops) {
+                        void* val_data = storage->value_at_slot(slot);
+                        value::View val_view(val_data, val_tm);
+                        result[key_view.to_python()] = val_view.to_python();
+                    }
+                }
+            }
+        }
+    } else {
+        // Delta not available or empty — fall back to time-based modification check
+        auto* index_set = key_set.index_set();
+        if (index_set) {
+            for (auto slot : *index_set) {
+                if (slot < time_list.size()) {
+                    engine_time_t elem_time = time_list.at(slot).as<engine_time_t>();
+                    if (elem_is_ref) {
+                        auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
+                        if (ref && !ref->is_empty()) {
+                            TSView target = ref->resolve(container_time);
+                            if (target && target.view_data().ops) {
+                                engine_time_t target_time = target.view_data().ops->last_modified_time(target.view_data());
+                                if (target_time >= container_time) {
+                                    const void* key_data = key_set.key_at_slot(slot);
+                                    value::View key_view(key_data, key_tm);
+                                    nb::object py_val = target.view_data().ops->to_python(target.view_data());
+                                    if (!py_val.is_none()) {
+                                        result[key_view.to_python()] = py_val;
+                                    }
+                                }
+                            }
+                        }
+                    } else if (elem_time >= container_time) {
+                        const void* key_data = key_set.key_at_slot(slot);
+                        value::View key_view(key_data, key_tm);
+                        if (val_tm && val_tm->ops) {
+                            void* val_data = storage->value_at_slot(slot);
+                            value::View val_view(val_data, val_tm);
+                            result[key_view.to_python()] = val_view.to_python();
+                        }
+                    }
                 }
             }
         }
@@ -4007,12 +4176,13 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         }
     }
 
-    // Get key and element value TypeMetas from the TSD meta
+    // Get key and element TypeMetas from the TSD meta
     const auto* key_tm = vd.meta->key_type;
     const auto* elem_ts = vd.meta->element_ts;
-    if (!key_tm || !elem_ts || !elem_ts->value_type) {
-        throw std::runtime_error("dict from_python: missing key_type or element value_type in meta");
+    if (!key_tm || !elem_ts) {
+        throw std::runtime_error("dict from_python: missing key_type or element_ts in meta");
     }
+    // value_type may be nullptr for composite element types (TSB, TSD, TSL inside TSD)
     const auto* val_tm = elem_ts->value_type;
 
     // Python: "if not self.valid and not v: self.key_set.mark_modified()"
@@ -4021,8 +4191,8 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
     if (py_len == 0) {
         auto time_view = make_time_view(vd);
         engine_time_t container_time = time_view.as_tuple().at(0).as<engine_time_t>();
-        // Not valid: container_time < MIN_DT (default-init is 0/epoch, MIN_DT is 1)
-        if (container_time < MIN_DT) {
+        // Not valid: container_time == MIN_DT means never been modified (MIN_DT = epoch = 0)
+        if (container_time == MIN_DT) {
             // First tick with empty dict - stamp container time to mark as modified
             time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
             // Notify observers
@@ -4035,9 +4205,15 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         return;
     }
 
-    // Iterate Python dict and use dict_set/dict_remove for each entry
-    // This matches Python's value setter which calls get_or_create(k).value = v_
+    // Two-pass approach: SET entries first, REMOVE entries second.
+    // This prevents slot reuse from overwriting removed key data in MapDelta,
+    // which would cause delta_to_python to report wrong keys for removed entries.
     auto items = src.attr("items")();
+
+    // Collect remove entries for second pass
+    std::vector<std::pair<nb::object, std::string>> remove_entries;
+
+    // First pass: process SET entries
     for (auto item : items) {
         auto kv = nb::cast<nb::tuple>(item);
         nb::object py_key = kv[0];
@@ -4047,7 +4223,6 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         if (py_val.is_none()) continue;
 
         // Check for REMOVE/REMOVE_IF_EXISTS sentinel
-        // Use hasattr("name") + class name check for robustness
         bool is_sentinel = false;
         std::string sentinel_name_str;
         if (nb::hasattr(py_val, "name")) {
@@ -4060,22 +4235,8 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
             }
         }
         if (is_sentinel) {
-            std::string_view name_sv(sentinel_name_str);
-
-            // Convert Python key to Value
-            value::Value<> key_val(key_tm);
-            key_val.view().from_python(py_key);
-
-            if (name_sv == "REMOVE_IF_EXISTS") {
-                // Only remove if key exists - don't throw on missing
-                auto* storage = static_cast<value::MapStorage*>(vd.value_data);
-                if (storage->contains(key_val.view().data())) {
-                    dict_remove(vd, key_val.view(), current_time);
-                }
-            } else {
-                // REMOVE - remove the key
-                dict_remove(vd, key_val.view(), current_time);
-            }
+            // Defer to second pass
+            remove_entries.emplace_back(std::move(py_key), std::move(sentinel_name_str));
             continue;
         }
 
@@ -4083,10 +4244,33 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         value::Value<> key_val(key_tm);
         key_val.view().from_python(py_key);
 
-        value::Value<> elem_val(val_tm);
-        elem_val.view().from_python(py_val);
+        if (val_tm) {
+            // Scalar element: use value-level conversion + dict_set
+            value::Value<> elem_val(val_tm);
+            elem_val.view().from_python(py_val);
+            dict_set(vd, key_val.view(), elem_val.view(), current_time);
+        } else {
+            // Composite element (TSB, TSD, TSL): create slot, then use TS-level from_python
+            TSView elem_view = dict_create(vd, key_val.view(), current_time);
+            ViewData elem_vd = elem_view.view_data();
+            get_ts_ops(elem_ts)->from_python(elem_vd, py_val, current_time);
+        }
+    }
 
-        dict_set(vd, key_val.view(), elem_val.view(), current_time);
+    // Second pass: process REMOVE entries
+    for (auto& [py_key, sentinel_name] : remove_entries) {
+        std::string_view name_sv(sentinel_name);
+        value::Value<> key_val(key_tm);
+        key_val.view().from_python(py_key);
+
+        if (name_sv == "REMOVE_IF_EXISTS") {
+            auto* storage = static_cast<value::MapStorage*>(vd.value_data);
+            if (storage->contains(key_val.view().data())) {
+                dict_remove(vd, key_val.view(), current_time);
+            }
+        } else {
+            dict_remove(vd, key_val.view(), current_time);
+        }
     }
 }
 
@@ -4390,6 +4574,20 @@ TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_t
     auto time_list = time_view.as_tuple().at(1).as_list();
     auto observer_list = observer_view.as_tuple().at(1).as_list();
 
+    // Pre-resize time/observer VarLists to match KeySet capacity BEFORE
+    // calling set_item. This is critical because set_item triggers
+    // AlternativeStructuralObserver::on_insert which navigates to the
+    // newly-created element via child_at/child_by_key, which accesses
+    // the time/observer VarLists.
+    storage->key_set().ensure_capacity(storage->key_set().size() + 1);
+    size_t cap = storage->key_set().capacity();
+    if (time_list.size() < cap) {
+        time_list.resize(cap);
+    }
+    if (observer_list.size() < cap) {
+        observer_list.resize(cap);
+    }
+
     // Create default value for the key (this will be set on the slot)
     const value::TypeMeta* value_type = storage->value_type();
     value::Value<> default_value(value_type);
@@ -4404,19 +4602,20 @@ TSView dict_create(ViewData& vd, const value::View& key, engine_time_t current_t
         throw std::runtime_error("dict_create: failed to insert key");
     }
 
-    // Ensure var_lists can accommodate the slot
-    // var_lists are dynamic (var_list type), so we can resize them
-    if (slot >= time_list.size()) {
-        time_list.resize(slot + 1);
-    }
-    if (slot >= observer_list.size()) {
-        observer_list.resize(slot + 1);
-    }
-
     // Initialize the time at this slot to MIN_DT (unset)
     time_list.at(slot).as<engine_time_t>() = MIN_DT;
 
     // The observer at this slot is already default-constructed by resize
+
+    // Add child→container propagation notifier to the element's ObserverList.
+    // This ensures that direct element writes (via get_or_create + ts.value = x)
+    // propagate modified state up to the container.
+    if (auto* notifier = get_or_create_child_notifier(vd)) {
+        auto* elem_obs = static_cast<ObserverList*>(observer_list.at(slot).data());
+        if (elem_obs) {
+            elem_obs->add_observer(notifier);
+        }
+    }
 
     // Update container timestamp
     time_view.as_tuple().at(0).as<engine_time_t>() = current_time;
@@ -4469,7 +4668,22 @@ TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, 
     bool is_new = (slot == static_cast<size_t>(-1));
 
     if (is_new) {
-        // Insert new key with the provided value
+        // Pre-resize time/observer VarLists to match KeySet capacity BEFORE
+        // calling set_item. This is critical because set_item triggers
+        // AlternativeStructuralObserver::on_insert which navigates to the
+        // newly-created element via child_at/child_by_key, which accesses
+        // the time/observer VarLists. Without pre-resizing, the VarLists
+        // would still be too small for the new slot.
+        storage->key_set().ensure_capacity(storage->key_set().size() + 1);
+        size_t cap = storage->key_set().capacity();
+        if (time_list.size() < cap) {
+            time_list.resize(cap);
+        }
+        if (observer_list.size() < cap) {
+            observer_list.resize(cap);
+        }
+
+        // Now insert — observers can safely access any slot < capacity
         storage->set_item(key.data(), value.data());
 
         // Get the allocated slot
@@ -4478,12 +4692,12 @@ TSView dict_set(ViewData& vd, const value::View& key, const value::View& value, 
             throw std::runtime_error("dict_set: failed to insert key");
         }
 
-        // Ensure var_lists can accommodate the slot
-        if (slot >= time_list.size()) {
-            time_list.resize(slot + 1);
-        }
-        if (slot >= observer_list.size()) {
-            observer_list.resize(slot + 1);
+        // Add child→container propagation notifier to the new element's ObserverList
+        if (auto* notifier = get_or_create_child_notifier(vd)) {
+            auto* elem_obs = static_cast<ObserverList*>(observer_list.at(slot).data());
+            if (elem_obs) {
+                elem_obs->add_observer(notifier);
+            }
         }
     } else {
         // Key exists - just update the value
