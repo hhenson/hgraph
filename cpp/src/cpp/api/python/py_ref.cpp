@@ -1,10 +1,13 @@
 #include <hgraph/api/python/py_ref.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/time_series/ts_view.h>
 #include <hgraph/types/time_series/ts_reference_ops.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/constants.h>
 
 #include <utility>
 
@@ -23,10 +26,10 @@ namespace hgraph
             .def(nb::init<>())  // Default constructor (EMPTY)
             .def(nb::init<const TSReference&>())  // Copy constructor
             .def_static("empty", &TSReference::empty, "Create an empty reference")
-            .def("is_empty", &TSReference::is_empty)
-            .def("is_peered", &TSReference::is_peered)
-            .def("is_non_peered", &TSReference::is_non_peered)
-            .def("has_output", &TSReference::has_output)
+            .def_prop_ro("is_empty", &TSReference::is_empty)
+            .def_prop_ro("is_peered", &TSReference::is_peered)
+            .def_prop_ro("is_non_peered", &TSReference::is_non_peered)
+            .def_prop_ro("has_output", &TSReference::has_output)
             .def_prop_ro("kind", &TSReference::kind)
             .def("size", &TSReference::size)
             .def("__str__", &TSReference::to_string)
@@ -101,6 +104,20 @@ namespace hgraph
                 },
                 "ts"_a = nb::none(), "from_items"_a = nb::none(),
                 "Create a TSReference from a time-series input/output or from items")
+            // .output property: resolves PEERED reference to a TimeSeriesOutput wrapper
+            .def_prop_ro("output", [](const TSReference& self) -> nb::object {
+                if (!self.is_peered()) {
+                    return nb::none();
+                }
+                try {
+                    TSView resolved = self.resolve(self.resolve_time());
+                    if (resolved) {
+                        TSOutputView output_view(std::move(resolved), nullptr);
+                        return wrap_output_view(std::move(output_view));
+                    }
+                } catch (...) {}
+                return nb::none();
+            })
             // ABC-compatible properties to match Python TimeSeriesReference
             .def_prop_ro("is_valid", [](const TSReference& self) {
                 return !self.is_empty();
@@ -137,11 +154,11 @@ namespace hgraph
             .def_static("non_peered", &FQReference::non_peered,
                 "items"_a,
                 "Create a non-peered FQReference")
-            .def("is_empty", &FQReference::is_empty)
-            .def("is_peered", &FQReference::is_peered)
-            .def("is_non_peered", &FQReference::is_non_peered)
-            .def("has_output", &FQReference::has_output)
-            .def("is_valid", &FQReference::is_valid)
+            .def_prop_ro("is_empty", &FQReference::is_empty)
+            .def_prop_ro("is_peered", &FQReference::is_peered)
+            .def_prop_ro("is_non_peered", &FQReference::is_non_peered)
+            .def_prop_ro("has_output", &FQReference::has_output)
+            .def_prop_ro("is_valid", &FQReference::is_valid)
             .def_prop_ro("kind", [](const FQReference& self) { return self.kind; })
             .def_prop_ro("node_id", [](const FQReference& self) { return self.node_id; })
             .def_prop_ro("port_type", [](const FQReference& self) { return self.port_type; })
@@ -232,9 +249,14 @@ namespace hgraph
             }
         }
 
-        // Default: use the generic to_python which follows LinkTarget
-        // This handles peered binding (REF→REF) and unbound cases
-        return PyTimeSeriesType::value();
+        // Peered (REF→REF) or unbound: read TSReference directly from value data
+        auto val = iv.ts_view().value();
+        if (val.valid()) {
+            TSReference ref = val.as<TSReference>();
+            ref.set_resolve_time(iv.ts_view().current_time());
+            return nb::cast(std::move(ref));
+        }
+        return nb::cast(TSReference::empty());
     }
 
     nb::str PyTimeSeriesReferenceInput::to_string() const {

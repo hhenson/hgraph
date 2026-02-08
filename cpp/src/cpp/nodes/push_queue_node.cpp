@@ -18,12 +18,6 @@ namespace hgraph {
     }
 
     bool PushQueueNode::apply_message(nb::object message) {
-        // TODO: Convert to TSOutput-based approach
-        // This method needs significant rework for TSOutput:
-        // - For batch mode: accumulate messages, handle TSD special case
-        // - For non-batch: check can_apply_result and apply
-        // The _is_tsd flag and TSD-specific handling needs TSMeta-based detection
-        // and TSOutputView navigation
         if (!ts_output()) {
             return false;
         }
@@ -32,7 +26,6 @@ namespace hgraph {
 
         // Non-batch simple case: just apply the message
         if (!_batch) {
-            // TODO: Need can_apply_result equivalent for TSOutputView
             output_view.from_python(std::move(message));
             ++_messages_dequeued;
             return true;

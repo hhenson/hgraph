@@ -178,6 +178,20 @@ public:
     [[nodiscard]] bool has_output() const noexcept { return is_peered(); }
 
     /**
+     * @brief Get the engine time when this reference was extracted from TSValue.
+     *
+     * Used by the .output property to resolve the ShortPath at the correct time.
+     * This is metadata about the extraction context and does NOT participate in
+     * equality, copy, or hash operations.
+     */
+    [[nodiscard]] engine_time_t resolve_time() const noexcept { return resolve_time_; }
+
+    /**
+     * @brief Set the engine time for resolution context.
+     */
+    void set_resolve_time(engine_time_t t) noexcept { resolve_time_ = t; }
+
+    /**
      * @brief Check if the reference is valid.
      *
      * - EMPTY: Always returns false
@@ -297,6 +311,7 @@ public:
 
 private:
     Kind kind_{Kind::EMPTY};
+    engine_time_t resolve_time_{};  // Engine time when this ref was extracted from TSValue
 
     // Tagged union storage
     // We use a union to avoid allocating for the common EMPTY case
