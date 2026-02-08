@@ -92,15 +92,21 @@ namespace hgraph {
         auto tsd = ts();
         auto &key_set = tsd->key_set();
 
-        // Process removals first, then additions
+        // Process removals first, then additions (matches Python: remove then add to reduce
+        // the possibility of growing the tree just to tear it down again)
         auto removed_keys = key_set.collect_removed();
         remove_nodes_from_views(removed_keys);
 
-        // Check for stale REF values: when the upstream REF becomes empty,
-        // the accessor doesn't explicitly remove keys (only modified_items are processed).
-        // We need to detect keys bound to empty/invalid REF values and remove them.
-        bool accessor_input_empty = false;
-        if (tsd->has_output() && tsd->output()) {
+        // When the upstream REF chain becomes empty (e.g. if_ switches to False),
+        // the cascading un_bind_output may not perfectly report all key removals
+        // through the key_set. Detect this by checking if the accessor's input is
+        // empty/unbound, and if so remove all bound keys.
+        // NOTE: We do NOT check individual key ref values - empty refs on individual
+        // keys are valid (e.g. when reduce lambda uses default() to handle them).
+        bool all_keys_stale = false;
+        if (!tsd->has_output()) {
+            all_keys_stale = true;
+        } else if (tsd->output()) {
             auto tsd_output = tsd->output();
             if (tsd_output->has_owning_node()) {
                 auto accessor_node = tsd_output->owning_node();
@@ -108,17 +114,15 @@ namespace hgraph {
                 if (accessor_input) {
                     for (size_t i = 0; i < accessor_input->size(); ++i) {
                         auto input_item = (*accessor_input)[i];
-                        // Check if accessor input is a REF with empty value
                         if (auto ref_input = dynamic_cast<TimeSeriesReferenceInput*>(input_item.get())) {
                             if (ref_input->value().is_empty()) {
-                                accessor_input_empty = true;
+                                all_keys_stale = true;
                                 break;
                             }
                         }
-                        // Check if accessor input is a TSD with no output binding
                         if (auto tsd_input = dynamic_cast<TimeSeriesDictInput*>(input_item.get())) {
                             if (!tsd_input->has_output()) {
-                                accessor_input_empty = true;
+                                all_keys_stale = true;
                                 break;
                             }
                         }
@@ -129,32 +133,18 @@ namespace hgraph {
 
         if (!bound_node_indexes_.empty()) {
             std::vector<value::ConstValueView> stale_keys;
-
-            // If the TSD has no output OR accessor's input is empty/unbound, all keys are stale
-            if (!tsd->has_output() || accessor_input_empty) {
-                for (const auto& [key, ndx] : bound_node_indexes_) {
+            if (all_keys_stale) {
+                for (const auto &[key, ndx] : bound_node_indexes_) {
                     stale_keys.push_back(key.const_view());
                 }
             } else {
-                // Check individual keys for stale REF values
-                for (const auto& [key, ndx] : bound_node_indexes_) {
-                    if (tsd->contains(key.const_view())) {
-                        auto ts_ptr = (*tsd)[key.const_view()];
-                        if (auto ref_input = dynamic_cast<TimeSeriesReferenceInput*>(ts_ptr.get())) {
-                            auto ref_value = ref_input->value();
-                            bool has_out = ref_value.has_output();
-                            bool out_valid = has_out && ref_value.output()->valid();
-                            if (ref_value.is_empty() || (has_out && !out_valid)) {
-                                stale_keys.push_back(key.const_view());
-                            }
-                        }
-                    } else {
-                        // Key in bound_node_indexes_ but not in TSD - was removed elsewhere
+                // Also catch keys individually missing from the TSD
+                for (const auto &[key, ndx] : bound_node_indexes_) {
+                    if (!tsd->contains(key.const_view())) {
                         stale_keys.push_back(key.const_view());
                     }
                 }
             }
-
             if (!stale_keys.empty()) {
                 remove_nodes_from_views(stale_keys);
             }
@@ -178,16 +168,16 @@ namespace hgraph {
         }
 
         // Propagate output if changed
-        auto l = dynamic_cast<TimeSeriesReferenceOutput *>(last_output().get());
+        auto l_output = last_output();
+        auto l = dynamic_cast<TimeSeriesReferenceOutput *>(l_output.get());
         auto o = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
 
-        // Since l is the last output and o is the main output, they are different TimeSeriesReferenceOutput objects
-        // We need to compare their values (both are TimeSeriesReference values)
         bool values_equal = o->valid() && l->valid() && o->has_value() && l->has_value() && (o->value() == l->value());
-        // Python reference (reference/hgraph/src/hgraph/_impl/_runtime/_reduce_node.py lines 109-112):
-        // if (not o.valid and l.valid) or (l.valid and o.value != l.value): o.value = l.value
-        // Do not propagate solely on l->modified(); only propagate when pointer changes or initial assignment.
-        if ((l->valid() && !o->valid()) || (l->valid() && !values_equal)) { o->set_value(l->value()); }
+
+        // Python: if (not o.valid and l.valid) or (l.valid and o.value != l.value): o.value = l.value
+        if ((l->valid() && !o->valid()) || (l->valid() && !values_equal)) {
+            o->set_value(l->value());
+        }
     }
 
     TimeSeriesOutput::s_ptr ReduceNode::last_output() {
