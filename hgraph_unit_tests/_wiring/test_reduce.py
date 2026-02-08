@@ -263,3 +263,25 @@ def test_reduce_preexisting_items():
         ],
         __trace__=True
     ) == [None, 15, 21]
+    
+    
+def test_reduce_unset_refs():
+    class RB(TimeSeriesSchema):
+        a: TS[int]
+        b: TS[bool]
+
+    @graph
+    def g(items: TSD[int, TSB[RB]], use: TS[bool]) -> TS[int]:
+        a = map_(lambda i, use: if_(use, i).true, items, use)
+        b = a.a.reduce(lambda x, y: default(x, 0) + default(y, 0), 0)
+        return b
+
+    res = eval_node(g,
+                    [
+                        {0: {'a': 1, 'b': True}, 1: {'a': 1, 'b': True}, 2: {'a': 1, 'b': True}},
+                        None
+                    ],
+                    [False, False, True],
+                    __trace__=False)
+
+    assert res == [0, None, 3]
