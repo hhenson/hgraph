@@ -1,6 +1,11 @@
 #include <hgraph/api/python/py_tsd.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series/ts_dict_view.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
 #include <hgraph/types/constants.h>
 #include <hgraph/util/date_time.h>
 
@@ -313,11 +318,82 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::get_ref(const nb::object &key, const nb::object &requester) {
-        throw std::runtime_error("not implemented: PyTimeSeriesDictOutput::get_ref");
+        // Find the owning TSOutput — either from the output_view directly,
+        // or by navigating from the view's ShortPath to the owning node
+        TSOutput* ts_output = output_view().output();
+        if (!ts_output) {
+            // Navigate from the view's path to find the root TSOutput
+            const ShortPath& path = view().short_path();
+            if (path.valid() && path.node()) {
+                ts_output = path.node()->ts_output();
+            }
+            if (!ts_output) {
+                throw std::runtime_error("get_ref: cannot find owning TSOutput");
+            }
+        }
+
+        // Build alternative schema: TSD[K, REF[elem_ts]]
+        const TSMeta* tsd_meta = output_view().ts_meta();
+        auto& registry = TSTypeRegistry::instance();
+        const TSMeta* ref_elem_meta = registry.ref(tsd_meta->element_ts);
+        const TSMeta* ref_tsd_meta = registry.tsd(tsd_meta->key_type, ref_elem_meta);
+
+        // Get evaluation time from the owning node's graph (not from the view,
+        // which may have stale current_time from construction)
+        auto time = ts_output->owning_node()->graph()->evaluation_time();
+
+        // Get or create the alternative TSD[K, REF[elem_ts]]
+        TSOutputView alt_view = ts_output->view(time, ref_tsd_meta);
+
+        // Navigate to element at key
+        auto key_val = key_from_python(key);
+        TSDView alt_dict = alt_view.ts_view().as_dict();
+
+        // Create element in alternative if it doesn't exist yet
+        if (!alt_dict.contains(key_val.const_view())) {
+            alt_dict.create(key_val.const_view());
+        }
+
+        // Always update the TSReference (matches Python behavior where
+        // FeatureOutputExtension.create_or_increment calls value_getter every time).
+        // Build TSReference: peered if key exists in native, empty if not.
+        TSView alt_elem = alt_dict.at(key_val.const_view());
+        TSReference ref;
+        TSDView native_dict = this->view().as_dict();
+        if (native_dict.contains(key_val.const_view())) {
+            TSView native_elem = native_dict.at(key_val.const_view());
+            if (native_elem) {
+                ref = TSReference::peered(native_elem.short_path());
+            }
+        }
+
+        if (alt_elem) {
+            value::View alt_value = alt_elem.value();
+            if (alt_value) {
+                auto* ref_ptr = static_cast<TSReference*>(alt_value.data());
+                if (ref_ptr) {
+                    *ref_ptr = std::move(ref);
+                }
+            }
+            // Mark element as modified at current time so consumer sees the change
+            auto* elem_time = static_cast<engine_time_t*>(alt_elem.view_data().time_data);
+            if (elem_time) {
+                *elem_time = time;
+            }
+        }
+
+        TSView elem_view = alt_elem;
+
+        if (!elem_view) {
+            throw std::runtime_error("get_ref: key not found in alternative TSD");
+        }
+
+        // Wrap as REF output
+        return wrap_output_view(TSOutputView(elem_view, nullptr));
     }
 
     void PyTimeSeriesDictOutput::release_ref(const nb::object &key, const nb::object &requester) {
-        throw std::runtime_error("not implemented: PyTimeSeriesDictOutput::release_ref");
+        // No-op: alternative TSD manages element lifecycle automatically
     }
 
     // ===== PyTimeSeriesDictInput Implementation =====

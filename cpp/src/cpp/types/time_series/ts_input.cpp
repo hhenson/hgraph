@@ -206,21 +206,54 @@ void TSInputView::unbind() {
 void TSInputView::make_active() {
     if (!input_) return;
 
-    // Set active on the owning input
-    input_->set_active(true);
+    // Set active flag for THIS specific position only (not the root bundle).
+    // Python semantics: each input has its own _active flag; make_active only
+    // affects the specific input, not siblings in the same bundle.
+    if (active_view_) {
+        const TSMeta* meta = ts_meta();
+        if (meta && (meta->is_collection() || meta->kind == TSKind::TSB)) {
+            // Composite: tuple[bool, ...] — set root bool
+            value::TupleView tv = active_view_.as_tuple();
+            value::View root = tv[0];
+            if (root) *static_cast<bool*>(root.data()) = true;
+        } else {
+            // Scalar: just bool
+            *static_cast<bool*>(active_view_.data()) = true;
+        }
+    }
 
     // If we're bound, subscribe to the output
     if (is_bound() && bound_output_) {
         TSOutputView output_view = bound_output_->view(ts_view_.current_time());
         output_view.subscribe(input_);
+
+        // Initial notification: if the output is already valid AND modified,
+        // fire notify to schedule the owning node (matches Python make_active behavior).
+        auto& ovd = output_view.ts_view().view_data();
+        if (ovd.ops && ovd.ops->valid(ovd)) {
+            engine_time_t eval_time = ts_view_.current_time();
+            if (ovd.ops->modified(ovd, eval_time)) {
+                engine_time_t lmt = ovd.ops->last_modified_time(ovd);
+                input_->notify(lmt);
+            }
+        }
     }
 }
 
 void TSInputView::make_passive() {
     if (!input_) return;
 
-    // Set passive on the owning input
-    input_->set_active(false);
+    // Clear active flag for THIS specific position only (not the root bundle).
+    if (active_view_) {
+        const TSMeta* meta = ts_meta();
+        if (meta && (meta->is_collection() || meta->kind == TSKind::TSB)) {
+            value::TupleView tv = active_view_.as_tuple();
+            value::View root = tv[0];
+            if (root) *static_cast<bool*>(root.data()) = false;
+        } else {
+            *static_cast<bool*>(active_view_.data()) = false;
+        }
+    }
 
     // If we're bound, unsubscribe from the output
     if (is_bound() && bound_output_) {

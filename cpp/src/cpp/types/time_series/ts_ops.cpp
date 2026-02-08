@@ -224,9 +224,10 @@ struct REFBindingHelper : public Notifiable {
     ViewData ref_source;          // REF output's ViewData (for reading TSReference)
     void* resolved_obs{nullptr};  // Current resolved target's observer_data
     bool subscribed_to_ref{false};
+    bool is_ref_to_ref_{false};   // True when REF input binds to REF output
 
-    explicit REFBindingHelper(LinkTarget* lt, const ViewData& ref_src)
-        : owner(lt), ref_source(ref_src) {}
+    explicit REFBindingHelper(LinkTarget* lt, const ViewData& ref_src, bool ref_to_ref = false)
+        : owner(lt), ref_source(ref_src), is_ref_to_ref_(ref_to_ref) {}
 
     ~REFBindingHelper() override {
         // Do NOT call unsubscribe_all() here.
@@ -272,16 +273,20 @@ struct REFBindingHelper : public Notifiable {
         // Unsubscribe from old resolved target
         unsubscribe_from_resolved();
 
-        // Clear old target data in LinkTarget (preserve structural fields)
-        owner->is_linked = false;
-        owner->target_path = ShortPath{};
-        owner->value_data = nullptr;
-        owner->time_data = nullptr;
-        owner->observer_data = nullptr;
-        owner->delta_data = nullptr;
-        owner->link_data = nullptr;
-        owner->ops = nullptr;
-        owner->meta = nullptr;
+        if (!is_ref_to_ref_) {
+            // TS→REF mode: clear old target data in LinkTarget (preserve structural fields)
+            owner->is_linked = false;
+            owner->target_path = ShortPath{};
+            owner->value_data = nullptr;
+            owner->time_data = nullptr;
+            owner->observer_data = nullptr;
+            owner->delta_data = nullptr;
+            owner->link_data = nullptr;
+            owner->ops = nullptr;
+            owner->meta = nullptr;
+        }
+        // REF→REF mode: LinkTarget already stores REF source data from bind();
+        // we only manage subscriptions here, don't touch LinkTarget data.
 
         // Read TSReference from REF source
         if (!ref_source.value_data || !ref_source.meta) {
@@ -298,32 +303,51 @@ struct REFBindingHelper : public Notifiable {
         }
 
         const auto* ts_ref = static_cast<const TSReference*>(v.data());
-        if (!ts_ref || ts_ref->is_empty() || !ts_ref->is_peered()) {
+        if (!ts_ref) {
+            return;
+        }
+        if (ts_ref->is_empty() || !ts_ref->is_peered()) {
+            if (!is_ref_to_ref_) {
+                // TS→REF: Empty or non-peered ref: store REF source data in LinkTarget
+                owner->is_linked = true;
+                owner->target_path = ref_source.path;
+                owner->value_data = ref_source.value_data;
+                owner->time_data = ref_source.time_data;
+                owner->observer_data = nullptr;
+                owner->delta_data = ref_source.delta_data;
+                owner->link_data = nullptr;
+                owner->ops = ref_source.ops;
+                owner->meta = ref_source.meta;
+            }
+            // REF→REF: LinkTarget already has REF source data, nothing to do
             return;
         }
 
         TSView resolved;
         try {
             resolved = ts_ref->resolve(current_time);
-        } catch (...) {
+        } catch (const std::exception&) {
             return;
         }
         if (!resolved) return;
 
-        // Store resolved target in LinkTarget
-        const ViewData& rvd = resolved.view_data();
-        owner->is_linked = true;
-        owner->target_path = rvd.path;
-        owner->value_data = rvd.value_data;
-        owner->time_data = rvd.time_data;
-        owner->observer_data = rvd.observer_data;
-        owner->delta_data = rvd.delta_data;
-        owner->link_data = rvd.link_data;
-        owner->ops = rvd.ops;
-        owner->meta = rvd.meta;
-        resolved_obs = rvd.observer_data;
+        if (!is_ref_to_ref_) {
+            // TS→REF mode: Store resolved target in LinkTarget
+            const ViewData& rvd = resolved.view_data();
+            owner->is_linked = true;
+            owner->target_path = rvd.path;
+            owner->value_data = rvd.value_data;
+            owner->time_data = rvd.time_data;
+            owner->observer_data = rvd.observer_data;
+            owner->delta_data = rvd.delta_data;
+            owner->link_data = rvd.link_data;
+            owner->ops = rvd.ops;
+            owner->meta = rvd.meta;
+        }
+        // REF→REF mode: LinkTarget keeps REF source data; only subscribe to resolved target
 
-        // Subscribe LinkTarget to resolved target (time-accounting chain)
+        // Subscribe to resolved target for notifications (both modes)
+        resolved_obs = resolved.view_data().observer_data;
         if (resolved_obs) {
             auto* obs = static_cast<ObserverList*>(resolved_obs);
             obs->add_observer(owner);
@@ -636,12 +660,51 @@ void bind(ViewData& vd, const ViewData& target) {
 
         // Check if target is a REF type - need special handling
         if (target.meta && target.meta->kind == TSKind::REF) {
+            // Clean up existing REF binding if any (prevents leak/double subscription
+            // when bind_output is called multiple times without unbind)
+            if (lt->ref_binding_) {
+                auto* old_helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+                old_helper->unsubscribe_all();
+                if (lt->ref_binding_deleter_) {
+                    lt->ref_binding_deleter_(lt->ref_binding_);
+                }
+                lt->ref_binding_ = nullptr;
+                lt->ref_binding_deleter_ = nullptr;
+                // Clear stale LinkTarget data from old binding
+                lt->is_linked = false;
+                lt->value_data = nullptr;
+                lt->time_data = nullptr;
+                lt->observer_data = nullptr;
+                lt->delta_data = nullptr;
+                lt->link_data = nullptr;
+                lt->ops = nullptr;
+                lt->meta = nullptr;
+            }
+
+            // Detect REF→REF binding (input is also REF type)
+            bool is_ref_to_ref = (vd.meta && vd.meta->kind == TSKind::REF);
+
             // REF-aware binding: resolve through REF, store resolved target in LinkTarget,
             // and subscribe to both REF source (for rebind) and resolved target (for value changes).
             // This matches Python's observe_reference + bind_input pattern.
-            auto* helper = new REFBindingHelper(lt, target);
+            auto* helper = new REFBindingHelper(lt, target, is_ref_to_ref);
             lt->ref_binding_ = helper;
             lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+
+            if (is_ref_to_ref) {
+                // REF→REF: Store REF source data in LinkTarget so that
+                // ref_value() can read the TSReference, and modified()/valid()
+                // check the REF output's state (not the resolved target's).
+                lt->is_linked = true;
+                lt->target_path = target.path;
+                lt->value_data = target.value_data;
+                lt->time_data = target.time_data;
+                lt->observer_data = nullptr;  // REFBindingHelper manages subscriptions
+                lt->delta_data = target.delta_data;
+                lt->link_data = nullptr;  // Prevent chaining through REF source's own links
+                lt->ops = target.ops;
+                lt->meta = target.meta;  // meta->kind == REF (preserves REF identity)
+            }
 
             // Subscribe helper to REF source observer list (for rebind notifications)
             helper->subscribe_to_ref_source();
@@ -4042,30 +4105,22 @@ TSView child_at(const ViewData& vd, size_t slot, engine_time_t current_time) {
 
     if (!vd.meta || !vd.meta->element_ts) return TSView{};
 
-    auto value_view = make_value_view(vd);
     auto time_view = make_time_view(vd);
     auto observer_view = make_observer_view(vd);
 
-    auto value_map = value_view.as_map();
-    if (slot >= value_map.size()) return TSView{};
-
-    // Access the MapStorage directly to get value by slot
-    // The slot here is the logical index in iteration order, need to convert to storage slot
+    // 'slot' is a STORAGE SLOT index (same convention as child_by_key and ShortPath).
+    // child_by_key stores storage slots in the path, and ShortPath::resolve() navigates
+    // via child_at, so this must use storage-slot semantics for consistency.
     auto* storage = static_cast<value::MapStorage*>(vd.value_data);
-    auto* index_set = storage->key_set().index_set();
-    if (!index_set || slot >= index_set->size()) return TSView{};
-
-    auto it = index_set->begin();
-    std::advance(it, slot);
-    size_t storage_slot = *it;
+    if (!storage->key_set().is_alive(slot)) return TSView{};
 
     const TSMeta* elem_meta = vd.meta->element_ts;
 
     ViewData elem_vd;
     elem_vd.path = vd.path.child(slot);
-    elem_vd.value_data = storage->value_at_slot(storage_slot);
-    elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(storage_slot).data();
-    elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(storage_slot).data();
+    elem_vd.value_data = storage->value_at_slot(slot);
+    elem_vd.time_data = time_view.as_tuple().at(1).as_list().at(slot).data();
+    elem_vd.observer_data = observer_view.as_tuple().at(1).as_list().at(slot).data();
     elem_vd.delta_data = nullptr;
     elem_vd.sampled = vd.sampled;  // Propagate sampled flag from parent
     elem_vd.uses_link_target = vd.uses_link_target;  // Propagate link type flag

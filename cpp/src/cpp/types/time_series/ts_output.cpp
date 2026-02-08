@@ -64,12 +64,21 @@ void AlternativeStructuralObserver::on_insert(size_t slot) {
     // Get native and alternative views at setup time
     engine_time_t setup_time = MIN_DT;
     TSView native_view = output_->native_value().ts_view(setup_time);
+    // Set valid path so Case 3 (TS→REF) can create resolvable TSReferences
+    native_view.view_data().path = output_->root_path();
     TSView alt_view = alt_->ts_view(setup_time);
 
-    // Get the element views at this slot
-    // For TSD, we navigate by slot index
-    TSView native_elem = native_view[slot];
-    TSView alt_elem = alt_view[slot];
+    // Extract key from native MapStorage at the given storage slot
+    const ViewData& native_vd = native_view.view_data();
+    auto* native_storage = static_cast<value::MapStorage*>(native_vd.value_data);
+    const void* key_data = native_storage->key_at_slot(slot);
+    value::View key_view(key_data, native_meta_->key_type);
+
+    // Get native element by key
+    TSView native_elem = native_view.as_dict().at(key_view);
+
+    // Create corresponding element in alternative
+    TSView alt_elem = alt_view.as_dict().create(key_view);
 
     if (!native_elem || !alt_elem) return;
 
@@ -91,19 +100,21 @@ void AlternativeStructuralObserver::on_erase(size_t slot) {
     // An element was removed from the native at this slot
     // Clean up the corresponding element in the alternative
 
-    if (!alt_) return;
+    if (!output_ || !alt_) return;
 
-    // Get alternative view and invalidate/clean up the element at this slot
-    // The actual cleanup depends on how the alternative stores elements
-    // For now, we mark it as unbound
-
+    // Get native and alternative views at setup time
     engine_time_t setup_time = MIN_DT;
+    TSView native_view = output_->native_value().ts_view(setup_time);
     TSView alt_view = alt_->ts_view(setup_time);
-    TSView alt_elem = alt_view[slot];
 
-    if (alt_elem) {
-        alt_elem.unbind();
-    }
+    // Extract key from native MapStorage (key data still valid during erase callback)
+    const ViewData& native_vd = native_view.view_data();
+    auto* native_storage = static_cast<value::MapStorage*>(native_vd.value_data);
+    const void* key_data = native_storage->key_at_slot(slot);
+    value::View key_view(key_data, native_meta_->key_type);
+
+    // Remove from alternative by key
+    alt_view.as_dict().remove(key_view);
 }
 
 void AlternativeStructuralObserver::on_update(size_t /*slot*/) {
@@ -211,6 +222,8 @@ TSValue& TSOutput::get_or_create_alternative(const TSMeta* schema) {
     engine_time_t setup_time = MIN_DT;
     TSView alt_view = alt.ts_view(setup_time);
     TSView native_view = native_value_.ts_view(setup_time);
+    // Set valid path on native view so Case 3 (TS→REF) can create resolvable TSReferences
+    native_view.view_data().path = root_path();
 
     establish_links_recursive(alt, alt_view, native_view, schema, native_value_.meta());
 
@@ -353,12 +366,13 @@ void TSOutput::establish_links_recursive(
             TSDView native_dict = native_view.as_dict();
             TSDView alt_dict = alt_view.as_dict();
 
-            for (auto it = native_dict.items().begin(); it != native_dict.items().end(); ++it) {
+            auto native_items = native_dict.items();
+            for (auto it = native_items.begin(); it != native_items.end(); ++it) {
                 value::View key_view = it.key();
                 TSView native_elem_view = *it;
 
-                // Get the corresponding element in alternative
-                TSView alt_elem_view = alt_dict.at(key_view);
+                // Create the corresponding element in alternative (alternative starts empty)
+                TSView alt_elem_view = alt_dict.create(key_view);
 
                 // Establish links for this element
                 establish_links_recursive(
