@@ -175,32 +175,61 @@ inline const LinkTarget* get_active_link_target(const ViewData& vd) {
     return (lt && lt->valid()) ? lt : nullptr;
 }
 
+// Helper: Resolve ViewData that points to REF data.
+// Reads the TSReference value from the REF ViewData, resolves the ShortPath,
+// and returns a ViewData pointing to the actual target.
+// Returns nullopt if the REF can't be resolved.
+inline std::optional<ViewData> resolve_ref_link_target_from_vd(const ViewData& vd, engine_time_t current_time) {
+    if (!vd.meta || vd.meta->kind != TSKind::REF) {
+        return std::nullopt;
+    }
+    if (!vd.value_data) {
+        return std::nullopt;
+    }
+
+    auto value_meta = vd.meta->value_type;
+    if (!value_meta) {
+        return std::nullopt;
+    }
+
+    value::View v(vd.value_data, value_meta);
+    if (!v.valid()) {
+        return std::nullopt;
+    }
+
+    const auto* ts_ref = static_cast<const TSReference*>(v.data());
+    if (!ts_ref || ts_ref->is_empty() || !ts_ref->is_peered()) {
+        return std::nullopt;
+    }
+
+    try {
+        TSView resolved = ts_ref->resolve(current_time);
+        if (!resolved) {
+            return std::nullopt;
+        }
+        return resolved.view_data();
+    } catch (...) {
+        return std::nullopt;
+    }
+}
+
 // Helper: Resolve a LinkTarget that points to REF data.
 // When a non-REF TSInput is bound to a REF output, the LinkTarget stores the
 // REF output's data. This helper reads the TSReference value from the REF data,
 // resolves the ShortPath, and returns a ViewData pointing to the actual target.
 // Returns nullopt if the REF can't be resolved.
 inline std::optional<ViewData> resolve_ref_link_target(const LinkTarget& lt, engine_time_t current_time) {
-    if (!lt.meta || lt.meta->kind != TSKind::REF) return std::nullopt;
-    if (!lt.value_data) return std::nullopt;
-
-    // Read the TSReference value from the REF output's value data
-    auto value_meta = lt.meta->value_type;
-    if (!value_meta) return std::nullopt;
-
-    value::View v(lt.value_data, value_meta);
-    if (!v.valid()) return std::nullopt;
-
-    const auto* ts_ref = static_cast<const TSReference*>(v.data());
-    if (!ts_ref || ts_ref->is_empty() || !ts_ref->is_peered()) return std::nullopt;
-
-    try {
-        TSView resolved = ts_ref->resolve(current_time);
-        if (!resolved) return std::nullopt;
-        return resolved.view_data();
-    } catch (...) {
-        return std::nullopt;
-    }
+    // Build a ViewData from the LinkTarget fields and delegate
+    ViewData vd{};
+    vd.value_data = lt.value_data;
+    vd.time_data = lt.time_data;
+    vd.observer_data = lt.observer_data;
+    vd.delta_data = lt.delta_data;
+    vd.link_data = nullptr;
+    vd.ops = lt.ops;
+    vd.meta = lt.meta;
+    vd.path = lt.target_path;
+    return resolve_ref_link_target_from_vd(vd, current_time);
 }
 
 // ============================================================================
@@ -331,23 +360,34 @@ struct REFBindingHelper : public Notifiable {
         }
         if (!resolved) return;
 
+        // If the resolved target is itself a REF, dereference through it to get
+        // the actual TS data. This happens in switch/map scenarios where the
+        // ShortPath resolves to a stub's REF output rather than the underlying data.
+        ViewData final_vd = resolved.view_data();
+        if (final_vd.meta && final_vd.meta->kind == TSKind::REF) {
+            auto inner = resolve_ref_link_target_from_vd(final_vd, current_time);
+            if (inner) {
+                final_vd = *inner;
+            }
+        }
+
         if (!is_ref_to_ref_) {
             // TS→REF mode: Store resolved target in LinkTarget
-            const ViewData& rvd = resolved.view_data();
             owner->is_linked = true;
-            owner->target_path = rvd.path;
-            owner->value_data = rvd.value_data;
-            owner->time_data = rvd.time_data;
-            owner->observer_data = rvd.observer_data;
-            owner->delta_data = rvd.delta_data;
-            owner->link_data = rvd.link_data;
-            owner->ops = rvd.ops;
-            owner->meta = rvd.meta;
+            owner->target_path = final_vd.path;
+            owner->value_data = final_vd.value_data;
+            owner->time_data = final_vd.time_data;
+            owner->observer_data = final_vd.observer_data;
+            owner->delta_data = final_vd.delta_data;
+            owner->link_data = final_vd.link_data;
+            owner->ops = final_vd.ops;
+            owner->meta = final_vd.meta;
         }
         // REF→REF mode: LinkTarget keeps REF source data; only subscribe to resolved target
 
         // Subscribe to resolved target for notifications (both modes)
-        resolved_obs = resolved.view_data().observer_data;
+        // Use final_vd (which may have been dereferenced through REF layers)
+        resolved_obs = final_vd.observer_data;
         if (resolved_obs) {
             auto* obs = static_cast<ObserverList*>(resolved_obs);
             obs->add_observer(owner);
@@ -442,7 +482,9 @@ bool valid(const ViewData& vd) {
             }
             return false;
         }
-        return lt->ops->valid(make_view_data_from_link_target(*lt, vd.path));
+        auto target_vd = make_view_data_from_link_target(*lt, vd.path);
+        bool r = lt->ops->valid(target_vd);
+        return r;
     }
     // If linked via REFLink (TSOutput), delegate to target
     if (auto* rl = get_active_link(vd)) {

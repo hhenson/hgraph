@@ -416,7 +416,8 @@ void ScalarOps<TSReference>::from_python(void* dst, const nb::object& src, const
 
     // Check if it's a C++ TSReference directly
     if (nb::isinstance<TSReference>(src)) {
-        ref = nb::cast<TSReference>(src);
+        auto& src_ref = nb::cast<TSReference&>(src);
+        ref = src_ref;
         return;
     }
 
