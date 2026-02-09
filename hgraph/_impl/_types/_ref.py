@@ -106,7 +106,7 @@ class BoundTimeSeriesReference(TimeSeriesReference):
         return False
 
     def __eq__(self, __value):
-        return type(__value) is BoundTimeSeriesReference and self.output == __value.output
+        return type(__value) is BoundTimeSeriesReference and self.output is __value.output
 
     def __str__(self):
         return (
