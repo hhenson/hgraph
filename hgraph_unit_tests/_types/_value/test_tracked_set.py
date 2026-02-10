@@ -1,7 +1,6 @@
 """Tests for TrackedSetStorage and SetDeltaValue."""
 
 import pytest
-from hgraph._hgraph import value
 
 # Import from _hgraph module
 try:
@@ -11,6 +10,7 @@ try:
         TrackedSetView,
         SetDeltaValue,
         PlainValue,
+        value,
     )
 except ImportError:
     pytest.skip("TrackedSet types not available in bindings", allow_module_level=True)

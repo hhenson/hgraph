@@ -285,8 +285,16 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
         return self.output.__len__() if self.output is not None else 0
 
     @property
+    def valid(self):
+        return self._sample_time > MIN_DT or (self.bound and self.output.valid)
+
+    @property
     def modified(self) -> bool:
         return (self._output is not None and self._output.modified) or self._sampled
+
+    @property
+    def value(self) -> Set[SCALAR]:
+        return self.output.value if self.bound else frozenset()
 
     @property
     def delta_value(self):
@@ -303,16 +311,21 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
             return self.values() - (
                 (self._prev_output.values() | self._prev_output.removed()) - self._prev_output.added()
             )
-        elif self.output is not None:
+        elif self.bound:
             return self.values() if self._sampled else self.output.added()
         else:
             return set()
 
     def was_added(self, item: SCALAR) -> bool:
         if self._prev_output is not None:
-            self.output.was_added(item) and item not in self._prev_output.values()
+            if self.bound:
+                return self.output.was_added(item) and item not in self._prev_output.values()
+            else:
+                return False
         elif self._sampled:
             return item in self.output.value()
+        elif not self.bound:
+            return False
         else:
             self.output.was_added(item)
 
@@ -323,7 +336,7 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
             ) - self.values()
         elif self._sampled:
             return set()
-        elif self.output is not None:
+        elif self.bound:
             return self.output.removed()
         else:
             return set()
@@ -332,6 +345,8 @@ class PythonTimeSeriesSetInput(PythonBoundTimeSeriesInput, TimeSeriesSetInput[SC
         if self._prev_output is not None:
             return item in self._prev_output.values() and item not in self.values()
         elif self._sampled:
+            return False
+        elif not self.bound:
             return False
         else:
             return self.output.was_removed(item)

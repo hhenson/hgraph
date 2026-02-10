@@ -368,7 +368,7 @@ def graph(
         def a_plus_b_plus_c(a: TS[float], b: TS[float]) -> TS[float]:
             return a+b+c
 
-    Or visa-versa. The trade-off is, typically, fewer compute nodes can be faster to evaluate, but ``graph`` s are far
+    Or vice-versa. The trade-off is, typically, fewer compute nodes can be faster to evaluate, but ``graph``s are far
     better at re-use of existing components. The preference should always be to use graph logic before constructing
     node functions.
 

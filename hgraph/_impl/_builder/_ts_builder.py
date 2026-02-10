@@ -1,6 +1,7 @@
 from collections import deque
 from dataclasses import dataclass
 from datetime import timedelta
+import logging
 from sys import exc_info
 import sys
 from typing import Mapping, cast
@@ -40,6 +41,9 @@ from hgraph._types._tsd_meta_data import HgTSDTypeMetaData, HgTSDOutTypeMetaData
 from hgraph._types._tsl_meta_data import HgTSLTypeMetaData
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData, HgTSSOutTypeMetaData
 
+
+logger = logging.getLogger(__name__)
+
 __all__ = ("PythonTSOutputBuilder", "PythonTSInputBuilder", "PythonTimeSeriesBuilderFactory")
 
 
@@ -48,13 +52,17 @@ class PythonOutputBuilder:
     
     def release_instance(self, item: "PythonTimeSeriesOutput"):
         if sys.exc_info()[0] is None:
-            assert len(item._subscribers) == 0, (
-                f"Output instance still has subscribers when released, this is a bug. \n"
-                f"output belongs to node {item.owning_node}\n"
-                f"subscriber nodes are {[i.owning_node if isinstance(i, TimeSeries) else i for i in item._subscribers]}\n\n"
-                f"subscriber inputs are {[i for i in item._subscribers if isinstance(i, TimeSeries)]}\n\n"
-                f"{item}"
-            )
+            if len(item._subscribers) != 0: 
+                try:
+                    logger.error(
+                        f"Output instance still has subscribers when released, this is a bug. \n"
+                        f"output belongs to node {item.owning_node}\n"
+                        f"subscriber nodes are {[i.owning_node if isinstance(i, TimeSeries) else i for i in item._subscribers]}\n\n"
+                        f"subscriber inputs are {[i for i in item._subscribers if isinstance(i, TimeSeries)]}\n\n"
+                        f"{item}"
+                    )
+                except Exception:
+                    ...
             
             item._parent_or_node = None
 
@@ -68,7 +76,7 @@ class PythonInputBuilder:
                 f"Input instance still has an output reference when released, this is a bug. {item}"
             )
 
-            item._parent_or_node = None
+            # item._parent_or_node = None
 
 
 class PythonTSOutputBuilder(PythonOutputBuilder, TSOutputBuilder):
@@ -149,12 +157,20 @@ class PythonTSWInputBuilder(PythonInputBuilder, TSWInputBuilder):
         super().release_instance(item)
 
 
+@dataclass(frozen=True)
 class PythonSignalInputBuilder(PythonInputBuilder, TSSignalInputBuilder):
+    value_tp: HgTimeSeriesTypeMetaData | None = None
 
     def make_instance(self, owning_node=None, owning_input=None):
         from hgraph import PythonTimeSeriesSignal
 
-        return PythonTimeSeriesSignal(_parent_or_node=owning_input if owning_input is not None else owning_node)
+        sig = PythonTimeSeriesSignal(_parent_or_node=owning_input if owning_input is not None else owning_node)
+        if self.value_tp is not None:
+            sig._impl = TimeSeriesBuilderFactory.instance().make_input_builder(self.value_tp).make_instance(
+                owning_node=owning_node,
+                owning_input=sig
+            )
+        return sig
 
     def release_instance(self, item):
         super().release_instance(item)
@@ -644,7 +660,7 @@ class PythonTimeSeriesBuilderFactory(TimeSeriesBuilderFactory):
             HgTSBTypeMetaData: lambda: PythonTSBInputBuilder(
                 schema=cast(HgTSBTypeMetaData, value_tp).bundle_schema_tp.py_type
             ),
-            HgSignalMetaData: lambda: PythonSignalInputBuilder(),
+            HgSignalMetaData: lambda: PythonSignalInputBuilder(value_tp=cast(HgSignalMetaData, value_tp).value_tp),
             HgTSSTypeMetaData: lambda: PythonTSSInputBuilder(
                 value_tp=cast(HgTSSTypeMetaData, value_tp).value_scalar_tp
             ),

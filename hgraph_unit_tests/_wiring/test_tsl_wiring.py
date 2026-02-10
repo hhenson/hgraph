@@ -1,4 +1,5 @@
-from hgraph import TS, graph, TSL, Size, SCALAR, compute_node, SIZE, getitem_, const
+from datetime import timedelta
+from hgraph import REF, TS, combine, generator, graph, TSL, Size, SCALAR, compute_node, SIZE, getitem_, const, TimeSeriesReference
 from hgraph.nodes import flatten_tsl_values
 from hgraph.test import eval_node
 
@@ -73,3 +74,20 @@ def test_tsl_compatible_types():
 
 def test_tsl_get_item():
     assert eval_node(getitem_, [(1, 2), (2, 3), (4, 5)], 0, resolution_dict={"ts": TSL[TS[int], Size[2]]}) == [1, 2, 4]
+
+
+def test_tsl_ref_flipping():
+    @generator
+    def null_ref() -> REF[TSL[TS[int], Size[2]]]:
+        yield timedelta(), TimeSeriesReference.make()
+    
+    @graph
+    def g(tsb1: TSL[TS[int], Size[2]], tsb2: TSL[TS[int], Size[2]], i: TS[int]) -> TSL[TS[int], Size[2]]:
+        return combine[TSL](tsb1, tsb2, null_ref())[i]
+    
+    assert eval_node(g, [(1, 1)], [(2, 2)], [0, 2, 1, 2]) == [
+        {0: 1, 1: 1},
+        None,
+        {0: 2, 1: 2},
+        None,
+    ]

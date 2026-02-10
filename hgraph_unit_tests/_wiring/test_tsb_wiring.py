@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+from datetime import timedelta
 from typing import Generic
 
 import pytest
@@ -7,9 +8,12 @@ from frozendict import frozendict
 from hgraph import (
     TSB,
     TSB_OUT,
+    TSL,
     TimeSeriesSchema,
     TS,
+    combine,
     compute_node,
+    generator,
     graph,
     IncorrectTypeBinding,
     ParseError,
@@ -21,6 +25,8 @@ from hgraph import (
     SIGNAL,
     TS_SCHEMA,
     REF,
+    nothing,
+    TimeSeriesReference,
 )
 from hgraph.arrow import eval_, if_then, c, assert_
 
@@ -263,3 +269,20 @@ def test_tsb_output_access():
         return f(tsb).p2
 
     assert eval_node(g, [1, 1, 2], ["a", "b", "c"]) == ["a", None, "c"]
+    
+
+def test_tsb_ref_flipping():
+    @generator
+    def null_ref(tpe: type[TSB[MyTsb]]) -> REF[TSB[MyTsb]]:
+        yield timedelta(), TimeSeriesReference.make()
+    
+    @graph
+    def g(tsb1: TSB[MyTsb], tsb2: TSB[MyTsb], i: TS[int]) -> TSB[MyTsb]:
+        return combine[TSL](tsb1, tsb2, null_ref(TSB[MyTsb]))[i]
+    
+    assert eval_node(g, [{"p1": 1}, {"p2": "a"}], [{"p1": 2}, {"p2": "b"}], [0, 2, 1, 2]) == [
+        {"p1": 1},
+        None,
+        {"p1": 2, "p2": "b"},
+        None,
+    ]

@@ -6,9 +6,9 @@ from typing import Generic
 from hgraph._impl._types._input import PythonBoundTimeSeriesInput
 from hgraph._impl._types._output import PythonTimeSeriesOutput
 from hgraph._runtime._constants import MIN_ST
-from hgraph._types._ref_type import TimeSeriesReference, TimeSeriesReferenceOutput, TimeSeriesReferenceInput
+from hgraph._types._ref_type import TimeSeriesReference, TimeSeriesReferenceInput, TimeSeriesReferenceOutput
 from hgraph._types._scalar_types import SCALAR
-from hgraph._types._time_series_types import TimeSeriesInput, TIME_SERIES_TYPE, TimeSeriesOutput, TimeSeriesIterable
+from hgraph._types._time_series_types import TIME_SERIES_TYPE, TimeSeriesInput, TimeSeriesIterable, TimeSeriesOutput
 
 __all__ = (
     "python_time_series_reference_builder",
@@ -85,6 +85,7 @@ class BoundTimeSeriesReference(TimeSeriesReference):
         reactivate = False
         if input_.bound and not input_.has_peer:
             reactivate = input_.active
+            if reactivate: input_.make_passive()
             input_.un_bind_output()
 
         input_.bind_output(self.output)
@@ -130,6 +131,7 @@ class UnBoundTimeSeriesReference(TimeSeriesReference):
         reactivate = False
         if input_.bound and input_.has_peer:
             reactivate = input_.active
+            if reactivate: input_.make_passive()
             input_.un_bind_output()
 
         for item, r in zip(input_, self.items):

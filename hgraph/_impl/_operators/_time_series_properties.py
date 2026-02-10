@@ -24,27 +24,23 @@ __all__ = tuple()
 
 
 @compute_node(valid=("ts",), active=("ts",), overloads=valid)
-def valid_impl(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None) -> TS[bool]:
+def valid_impl(ts: REF[TIME_SERIES_TYPE], ts_value: TIME_SERIES_TYPE = None, _output: TS_OUT[bool] = None) -> TS[bool]:
     if ts.modified:
         if ts_value.bound:
             ts_value.make_passive()
             ts_value.un_bind_output()
 
-    if ts.value.is_empty:
-        return False
-
-    if not ts_value.bound:
         ts.value.bind_input(ts_value)
         if ts_value.valid:
-            return True
+            return True if _output.value is not True else None
 
         ts_value.make_active()
 
     if ts_value.valid:
         ts_value.make_passive()
-        return True
+        return True if _output.value is not True else None
 
-    return False
+    return False if _output.value is not False else None
 
 
 @compute_node(overloads=modified)

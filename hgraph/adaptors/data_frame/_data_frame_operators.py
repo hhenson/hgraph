@@ -3,7 +3,8 @@ from typing import TypeVar
 import polars as pl
 import operator as operators
 
-from hgraph import DEFAULT, OUT, SCALAR, Type, operator, add_, and_, div_, eq_, filter_, floordiv_, ge_, gt_, le_, lt_, mul_, or_, sub_
+from hgraph import DEFAULT, OUT, SCALAR, Type, operator, add_, and_, div_, eq_, filter_, floordiv_, ge_, gt_, le_, lt_, \
+    mul_, or_, sub_, TSD_OUT, REMOVE
 from hgraph._types import (
     TS,
     Frame,
@@ -115,8 +116,14 @@ def filter_exp_seq(ts: TS[Frame[COMPOUND_SCALAR]], predicate: tuple[pl.Expr, ...
 
 
 @compute_node(resolvers={KEYABLE_SCALAR: lambda m, by: m[COMPOUND_SCALAR].py_type.__meta_data_schema__[by]})
-def group_by(ts: TS[Frame[COMPOUND_SCALAR]], by: str) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
-    return {k: v for (k,), v in ts.value.group_by(by)}
+def group_by(
+    ts: TS[Frame[COMPOUND_SCALAR]], by: str, _output: TSD_OUT[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]] = None
+) -> TSD[KEYABLE_SCALAR, TS[Frame[COMPOUND_SCALAR]]]:
+    out = {k: v for (k,), v in ts.value.group_by(by)}
+    for k in _output.valid_keys():
+        if k not in out:
+            out[k] = REMOVE
+    return out
 
 
 @operator
