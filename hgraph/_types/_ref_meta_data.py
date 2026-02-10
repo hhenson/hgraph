@@ -103,17 +103,10 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
         """Get the C++ TSMeta for this REF[TS] type."""
         if not self.is_resolved:
             return None
-        from hgraph._feature_switch import is_feature_enabled
-        if not is_feature_enabled("use_cpp"):
+        referenced_cpp = self.value_tp.cpp_type
+        if referenced_cpp is None:
             return None
-        try:
-            import hgraph._hgraph as _hgraph
-            referenced_cpp = self.value_tp.cpp_type
-            if referenced_cpp is None:
-                return None
-            return _hgraph.TSTypeRegistry.instance().ref(referenced_cpp)
-        except (ImportError, AttributeError):
-            return None
+        return self._make_cpp_type(lambda h: h.TSTypeRegistry.instance().ref(referenced_cpp))
 
 
 class HgREFOutTypeMetaData(HgREFTypeMetaData):

@@ -19,7 +19,7 @@ from hgraph.adaptors.tornado.websocket_server_adaptor import (
 try:
     # the adaptors are optional so if the dependencies are not installed, skip  the tests
     import tornado
-    import requests
+   # import requests
 
     from datetime import timedelta
     from threading import Thread

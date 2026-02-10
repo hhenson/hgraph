@@ -175,6 +175,55 @@ inline const LinkTarget* get_active_link_target(const ViewData& vd) {
     return (lt && lt->valid()) ? lt : nullptr;
 }
 
+// ============================================================================
+// Link Delegation Helpers
+// ============================================================================
+// These helpers extract the common "check link, delegate to target" pattern
+// that repeats across all namespace implementations.
+
+// Simple delegation: returns the target ViewData if linked, or nullopt if local.
+// Used by all namespaces except scalar_ops (which needs REF resolution).
+inline std::optional<ViewData> resolve_delegation_target(const ViewData& vd) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return make_view_data_from_link_target(*lt, vd.path);
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return make_view_data_from_link(*rl, vd.path);
+    }
+    return std::nullopt;
+}
+
+// 3-state result for scalar_ops delegation with REF resolution.
+// When a non-REF TSInput is bound to a REF output, we must resolve through the reference.
+enum class DelegateResult { DELEGATED, NO_LINK, REF_UNRESOLVED };
+
+struct DelegateTarget {
+    DelegateResult result;
+    ViewData target;  // valid only when result == DELEGATED
+};
+
+// Forward declaration: defined below after resolve_ref_link_target_from_vd
+inline std::optional<ViewData> resolve_ref_link_target(const LinkTarget& lt, engine_time_t current_time);
+
+// REF-resolving delegation: handles the case where a non-REF reader is bound to a REF output.
+// Returns DELEGATED with resolved target, REF_UNRESOLVED if REF couldn't be resolved, or NO_LINK.
+inline DelegateTarget resolve_delegation_target_with_ref(const ViewData& vd, engine_time_t time) {
+    if (auto* lt = get_active_link_target(vd)) {
+        if (lt->meta && lt->meta->kind == TSKind::REF &&
+            (!vd.meta || vd.meta->kind != TSKind::REF)) {
+            if (auto resolved = resolve_ref_link_target(*lt, time)) {
+                return {DelegateResult::DELEGATED, *resolved};
+            }
+            return {DelegateResult::REF_UNRESOLVED, {}};
+        }
+        return {DelegateResult::DELEGATED, make_view_data_from_link_target(*lt, vd.path)};
+    }
+    if (auto* rl = get_active_link(vd)) {
+        return {DelegateResult::DELEGATED, make_view_data_from_link(*rl, vd.path)};
+    }
+    return {DelegateResult::NO_LINK, {}};
+}
+
 // Helper: Resolve ViewData that points to REF data.
 // Reads the TSReference value from the REF ViewData, resolves the ShortPath,
 // and returns a ViewData pointing to the actual target.
@@ -449,78 +498,31 @@ namespace scalar_ops {
 // - link is REFLink (TSOutput) or LinkTarget (TSInput)
 
 engine_time_t last_modified_time(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        // If the target is a REF and the reader is not REF, resolve through the reference
-        if (lt->meta && lt->meta->kind == TSKind::REF &&
-            (!vd.meta || vd.meta->kind != TSKind::REF)) {
-            if (auto resolved = resolve_ref_link_target(*lt, MIN_DT)) {
-                return resolved->ops->last_modified_time(*resolved);
-            }
-            return MIN_DT;
-        }
-        return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
-    }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
-    }
+    auto [result, target] = resolve_delegation_target_with_ref(vd, MIN_DT);
+    if (result == DelegateResult::DELEGATED) return target.ops->last_modified_time(target);
+    if (result == DelegateResult::REF_UNRESOLVED) return MIN_DT;
     if (!vd.time_data) return MIN_DT;
     return *static_cast<engine_time_t*>(vd.time_data);
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        // If the target is a REF and the reader is not REF, resolve through the reference
-        if (lt->meta && lt->meta->kind == TSKind::REF &&
-            (!vd.meta || vd.meta->kind != TSKind::REF)) {
-            if (auto resolved = resolve_ref_link_target(*lt, current_time)) {
-                return resolved->ops->modified(*resolved, current_time);
-            }
-            return false;
-        }
-        return lt->ops->modified(make_view_data_from_link_target(*lt, vd.path), current_time);
-    }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->modified(make_view_data_from_link(*rl, vd.path), current_time);
-    }
+    auto [result, target] = resolve_delegation_target_with_ref(vd, current_time);
+    if (result == DelegateResult::DELEGATED) return target.ops->modified(target, current_time);
+    if (result == DelegateResult::REF_UNRESOLVED) return false;
     return last_modified_time(vd) >= current_time;
 }
 
 bool valid(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        // If the target is a REF and the reader is not REF, resolve through the reference
-        if (lt->meta && lt->meta->kind == TSKind::REF &&
-            (!vd.meta || vd.meta->kind != TSKind::REF)) {
-            if (auto resolved = resolve_ref_link_target(*lt, MIN_DT)) {
-                return resolved->ops->valid(*resolved);
-            }
-            return false;
-        }
-        auto target_vd = make_view_data_from_link_target(*lt, vd.path);
-        bool r = lt->ops->valid(target_vd);
-        return r;
-    }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->valid(make_view_data_from_link(*rl, vd.path));
-    }
+    auto [result, target] = resolve_delegation_target_with_ref(vd, MIN_DT);
+    if (result == DelegateResult::DELEGATED) return target.ops->valid(target);
+    if (result == DelegateResult::REF_UNRESOLVED) return false;
     return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->all_valid(make_view_data_from_link_target(*lt, vd.path));
+    if (auto target = resolve_delegation_target(vd)) {
+        return target->ops->all_valid(*target);
     }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
-    }
-    // Scalar has no children
     return valid(vd);
 }
 
@@ -531,40 +533,23 @@ bool sampled(const ViewData& vd) {
 }
 
 value::View value(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->value(make_view_data_from_link_target(*lt, vd.path));
-    }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path));
+    if (auto target = resolve_delegation_target(vd)) {
+        return target->ops->value(*target);
     }
     return make_value_view(vd);
 }
 
 value::View delta_value(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->delta_value(make_view_data_from_link_target(*lt, vd.path));
+    if (auto target = resolve_delegation_target(vd)) {
+        return target->ops->delta_value(*target);
     }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path));
-    }
-    // For scalar types, delta_value == value (the "event" is the value itself)
     return make_value_view(vd);
 }
 
 bool has_delta(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->has_delta(make_view_data_from_link_target(*lt, vd.path));
+    if (auto target = resolve_delegation_target(vd)) {
+        return target->ops->has_delta(*target);
     }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path));
-    }
-    // Scalar types always have a delta when they have a value
     return valid(vd);
 }
 
@@ -599,25 +584,9 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        // If the target is a REF and the reader is not REF, resolve through the reference
-        // to get the actual value (matching Python's transparent REF dereferencing)
-        if (lt->meta && lt->meta->kind == TSKind::REF &&
-            (!vd.meta || vd.meta->kind != TSKind::REF)) {
-            if (auto resolved = resolve_ref_link_target(*lt, MIN_DT)) {
-                return resolved->ops->to_python(*resolved);
-            }
-            return nb::none();
-        }
-        return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
-    }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
-    }
-
-    // Check time-series validity first (has value been set?)
+    auto [result, target] = resolve_delegation_target_with_ref(vd, MIN_DT);
+    if (result == DelegateResult::DELEGATED) return target.ops->to_python(target);
+    if (result == DelegateResult::REF_UNRESOLVED) return nb::none();
     if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
@@ -625,24 +594,9 @@ nb::object to_python(const ViewData& vd) {
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        // If the target is a REF and the reader is not REF, resolve through the reference
-        if (lt->meta && lt->meta->kind == TSKind::REF &&
-            (!vd.meta || vd.meta->kind != TSKind::REF)) {
-            if (auto resolved = resolve_ref_link_target(*lt, MIN_DT)) {
-                return resolved->ops->delta_to_python(*resolved);
-            }
-            return nb::none();
-        }
-        return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
-    }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
-    }
-    // For scalar types, delta_value == value (the "event" is the value itself)
-    // Check time-series validity first (has value been set?)
+    auto [result, target] = resolve_delegation_target_with_ref(vd, MIN_DT);
+    if (result == DelegateResult::DELEGATED) return target.ops->delta_to_python(target);
+    if (result == DelegateResult::REF_UNRESOLVED) return nb::none();
     if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
@@ -2372,11 +2326,20 @@ inline const LinkTarget* get_active_link_target(const ViewData& vd) {
     return (lt && lt->valid()) ? lt : nullptr;
 }
 
-engine_time_t last_modified_time(const ViewData& vd) {
-    // If linked, delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
+// List-specific delegation: uses the list_ops link helpers which skip
+// collection-level delegation for fixed-size TSL (per-element binding).
+inline std::optional<ViewData> resolve_delegation_target(const ViewData& vd) {
+    if (auto* lt = get_active_link_target(vd)) {
+        return make_view_data_from_link_target(*lt, vd.path);
     }
+    if (auto* rl = get_active_link(vd)) {
+        return make_view_data_from_link(*rl, vd.path);
+    }
+    return std::nullopt;
+}
+
+engine_time_t last_modified_time(const ViewData& vd) {
+    if (auto target = resolve_delegation_target(vd)) return target->ops->last_modified_time(*target);
     auto time_view = make_time_view(vd);
     if (!time_view.valid()) return MIN_DT;
     return time_view.as_tuple().at(0).as<engine_time_t>();
@@ -2565,10 +2528,7 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
-    // If linked, delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->to_python(*target);
     // Check time-series validity first (has value been set?)
     if (!valid(vd)) return nb::none();
 
@@ -2606,10 +2566,7 @@ nb::object to_python(const ViewData& vd) {
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    // If linked (collection-level), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->delta_to_python(*target);
 
     // For non-linked TSL, return {index: element.delta_value for modified elements}
     // This matches Python: {k: ts.delta_value for k, ts in self.modified_items()}
@@ -3388,58 +3345,24 @@ namespace set_ops {
 // - observer is ObserverList
 // - delta is SetDelta
 
-// Helper: Check if this TSS is linked via REFLink (TSOutput)
-inline const REFLink* get_active_link(const ViewData& vd) {
-    if (vd.uses_link_target) return nullptr;
-    auto* rl = get_ref_link(vd.link_data);
-    return (rl && rl->target().valid()) ? rl : nullptr;
-}
-
-// Helper: Check if this TSS is linked via LinkTarget (TSInput)
-inline const LinkTarget* get_active_link_target(const ViewData& vd) {
-    if (!vd.uses_link_target) return nullptr;
-    auto* lt = get_link_target(vd.link_data);
-    return (lt && lt->valid()) ? lt : nullptr;
-}
-
 engine_time_t last_modified_time(const ViewData& vd) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->last_modified_time(*target);
     if (!vd.time_data) return MIN_DT;
     return *static_cast<engine_time_t*>(vd.time_data);
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->modified(make_view_data_from_link_target(*lt, vd.path), current_time);
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->modified(make_view_data_from_link(*rl, vd.path), current_time);
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->modified(*target, current_time);
     return last_modified_time(vd) >= current_time;
 }
 
 bool valid(const ViewData& vd) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->valid(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->valid(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->valid(*target);
     return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->all_valid(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->all_valid(*target);
     return valid(vd);
 }
 
@@ -3448,32 +3371,17 @@ bool sampled(const ViewData& vd) {
 }
 
 value::View value(const ViewData& vd) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->value(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->value(*target);
     return make_value_view(vd);
 }
 
 value::View delta_value(const ViewData& vd) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->delta_value(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->delta_value(*target);
     return make_delta_view(vd);
 }
 
 bool has_delta(const ViewData& vd) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->has_delta(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->has_delta(*target);
     return vd.delta_data != nullptr;
 }
 
@@ -3562,14 +3470,7 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
-    // Follow links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
-    }
-    // Check time-series validity first (has value been set?)
+    if (auto target = resolve_delegation_target(vd)) return target->ops->to_python(*target);
     if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
     if (!v.valid()) return nb::none();
@@ -4252,69 +4153,28 @@ inline DictChildNotifier* get_or_create_child_notifier(const ViewData& vd) {
     return raw;
 }
 
-// Helper: Check if this TSD is linked and get the REFLink (TSOutput)
-// Only valid when uses_link_target is false
-inline const REFLink* get_active_link(const ViewData& vd) {
-    if (vd.uses_link_target) return nullptr;  // Wrong type
-    auto* rl = get_ref_link(vd.link_data);
-    return (rl && rl->target().valid()) ? rl : nullptr;
-}
-
-// Helper: Check if this TSD is linked and get the LinkTarget (TSInput)
-// Only valid when uses_link_target is true
-inline const LinkTarget* get_active_link_target(const ViewData& vd) {
-    if (!vd.uses_link_target) return nullptr;  // Wrong type
-    auto* lt = get_link_target(vd.link_data);
-    return (lt && lt->valid()) ? lt : nullptr;
-}
+// Note: dict_ops uses get_active_link() and get_active_link_target() from the
+// enclosing anonymous namespace — they are identical for TSD types.
 
 engine_time_t last_modified_time(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
-    }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->last_modified_time(*target);
     auto time_view = make_time_view(vd);
     if (!time_view.valid()) return MIN_DT;
     return time_view.as_tuple().at(0).as<engine_time_t>();
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->modified(make_view_data_from_link_target(*lt, vd.path), current_time);
-    }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->modified(make_view_data_from_link(*rl, vd.path), current_time);
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->modified(*target, current_time);
     return last_modified_time(vd) >= current_time;
 }
 
 bool valid(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->valid(make_view_data_from_link_target(*lt, vd.path));
-    }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->valid(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->valid(*target);
     return last_modified_time(vd) != MIN_DT;
 }
 
 bool all_valid(const ViewData& vd) {
-    // If linked via LinkTarget (TSInput), delegate to target
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->all_valid(make_view_data_from_link_target(*lt, vd.path));
-    }
-    // If linked via REFLink (TSOutput), delegate to target
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->all_valid(*target);
 
     // First check if this dict itself is valid
     if (!valid(vd)) return false;
@@ -5479,12 +5339,7 @@ static const value::TypeMeta* time_buffer_schema(const ViewData& vd) {
 }
 
 engine_time_t last_modified_time(const ViewData& vd) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->last_modified_time(*target);
     if (!vd.time_data) return MIN_DT;
     return container_time(vd);
 }
@@ -5498,13 +5353,7 @@ bool valid(const ViewData& vd) {
 }
 
 bool all_valid(const ViewData& vd) {
-    // Delegate through links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->all_valid(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->all_valid(*target);
     // Python: self.valid and self._length >= self._min_size
     if (!valid(vd)) return false;
     auto* buf = static_cast<value::CyclicBufferStorage*>(vd.value_data);
@@ -5518,26 +5367,14 @@ bool sampled(const ViewData& vd) {
 }
 
 value::View value(const ViewData& vd) {
-    // Delegate through links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->value(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->value(*target);
     // Return the raw CyclicBufferStorage pointer with the cyclic_buffer schema
     if (!vd.value_data || !vd.meta) return value::View{};
     return value::View(vd.value_data, value_buffer_schema(vd));
 }
 
 value::View delta_value(const ViewData& vd) {
-    // Delegate through links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->delta_value(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->delta_value(*target);
     // delta_value is the most recently added element (if added this tick)
     // In delta_data: tuple[removed_element, has_removed_bool]
     // We don't store the newest value in delta — it's accessed from the ring buffer
@@ -5545,13 +5382,7 @@ value::View delta_value(const ViewData& vd) {
 }
 
 bool has_delta(const ViewData& vd) {
-    // Delegate through links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->has_delta(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->has_delta(*target);
     return vd.delta_data != nullptr;
 }
 
@@ -5592,12 +5423,7 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->to_python(*target);
 
     if (!valid(vd)) return nb::none();
     auto* buf = static_cast<value::CyclicBufferStorage*>(vd.value_data);
@@ -5627,12 +5453,7 @@ nb::object to_python(const ViewData& vd) {
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->delta_to_python(*target);
 
     if (!valid(vd)) return nb::none();
     auto* buf = static_cast<value::CyclicBufferStorage*>(vd.value_data);
@@ -6102,12 +5923,7 @@ static void roll(const ViewData& vd, engine_time_t current_time) {
 // ========== Core ts_ops functions ==========
 
 engine_time_t last_modified_time(const ViewData& vd) {
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->last_modified_time(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->last_modified_time(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->last_modified_time(*target);
     if (!vd.time_data) return MIN_DT;
     return container_time(vd);
 }
@@ -6121,13 +5937,7 @@ bool valid(const ViewData& vd) {
 }
 
 bool all_valid(const ViewData& vd) {
-    // Delegate through links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->all_valid(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->all_valid(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->all_valid(*target);
     // Python: self.ready (eval_time - start_time >= min_size)
     if (!valid(vd)) return false;
     return ready_flag(vd);
@@ -6138,36 +5948,18 @@ bool sampled(const ViewData& vd) {
 }
 
 value::View value(const ViewData& vd) {
-    // Delegate through links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->value(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->value(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->value(*target);
     if (!vd.value_data || !vd.meta) return value::View{};
     return value::View(vd.value_data, value_queue_schema(vd));
 }
 
 value::View delta_value(const ViewData& vd) {
-    // Delegate through links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->delta_value(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_value(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->delta_value(*target);
     return value::View{};
 }
 
 bool has_delta(const ViewData& vd) {
-    // Delegate through links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->has_delta(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->has_delta(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->has_delta(*target);
     return vd.delta_data != nullptr;
 }
 
@@ -6207,13 +5999,7 @@ void invalidate(ViewData& vd) {
 }
 
 nb::object to_python(const ViewData& vd) {
-    // Delegate through links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->to_python(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->to_python(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->to_python(*target);
 
     if (!valid(vd)) return nb::none();
 
@@ -6241,13 +6027,7 @@ nb::object to_python(const ViewData& vd) {
 }
 
 nb::object delta_to_python(const ViewData& vd) {
-    // Delegate through links for inputs
-    if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
-    }
-    if (auto* rl = get_active_link(vd)) {
-        return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
-    }
+    if (auto target = resolve_delegation_target(vd)) return target->ops->delta_to_python(*target);
 
     if (!valid(vd)) return nb::none();
 
@@ -6609,34 +6389,10 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 // Static ts_ops Tables
 // ============================================================================
 
-// Macro for non-window types (window ops are nullptr)
-#define MAKE_TS_OPS(ns) ts_ops { \
-    .ts_meta = [](const ViewData& vd) { return vd.meta; }, \
-    .last_modified_time = ns::last_modified_time, \
-    .modified = ns::modified, \
-    .valid = ns::valid, \
-    .all_valid = ns::all_valid, \
-    .sampled = ns::sampled, \
-    .value = ns::value, \
-    .delta_value = ns::delta_value, \
-    .has_delta = ns::has_delta, \
-    .set_value = ns::set_value, \
-    .apply_delta = ns::apply_delta, \
-    .invalidate = ns::invalidate, \
-    .to_python = ns::to_python, \
-    .delta_to_python = ns::delta_to_python, \
-    .from_python = ns::from_python, \
-    .child_at = ns::child_at, \
-    .child_by_name = ns::child_by_name, \
-    .child_by_key = ns::child_by_key, \
-    .child_count = ns::child_count, \
-    .observer = ns::observer, \
-    .notify_observers = ns::notify_observers, \
-    .bind = ns::bind, \
-    .unbind = ns::unbind, \
-    .is_bound = ns::is_bound, \
-    .is_peered = ns::is_peered, \
-    .set_active = ns::set_active, \
+// Optional operation group macros for specialized TSKind slots.
+// Each group is either NO_* (all nullptr) or TS_* (wired to namespace functions).
+
+#define TS_NO_WINDOW_OPS \
     .window_value_times = nullptr, \
     .window_value_times_count = nullptr, \
     .window_first_modified_time = nullptr, \
@@ -6645,43 +6401,9 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     .window_removed_value_count = nullptr, \
     .window_size = nullptr, \
     .window_min_size = nullptr, \
-    .window_length = nullptr, \
-    .set_add = nullptr, \
-    .set_remove = nullptr, \
-    .set_clear = nullptr, \
-    .dict_remove = nullptr, \
-    .dict_create = nullptr, \
-    .dict_set = nullptr, \
-}
+    .window_length = nullptr
 
-// Macro for window types (includes window ops)
-#define MAKE_WINDOW_TS_OPS(ns) ts_ops { \
-    .ts_meta = [](const ViewData& vd) { return vd.meta; }, \
-    .last_modified_time = ns::last_modified_time, \
-    .modified = ns::modified, \
-    .valid = ns::valid, \
-    .all_valid = ns::all_valid, \
-    .sampled = ns::sampled, \
-    .value = ns::value, \
-    .delta_value = ns::delta_value, \
-    .has_delta = ns::has_delta, \
-    .set_value = ns::set_value, \
-    .apply_delta = ns::apply_delta, \
-    .invalidate = ns::invalidate, \
-    .to_python = ns::to_python, \
-    .delta_to_python = ns::delta_to_python, \
-    .from_python = ns::from_python, \
-    .child_at = ns::child_at, \
-    .child_by_name = ns::child_by_name, \
-    .child_by_key = ns::child_by_key, \
-    .child_count = ns::child_count, \
-    .observer = ns::observer, \
-    .notify_observers = ns::notify_observers, \
-    .bind = ns::bind, \
-    .unbind = ns::unbind, \
-    .is_bound = ns::is_bound, \
-    .is_peered = ns::is_peered, \
-    .set_active = ns::set_active, \
+#define TS_WINDOW_OPS(ns) \
     .window_value_times = ns::window_value_times, \
     .window_value_times_count = ns::window_value_times_count, \
     .window_first_modified_time = ns::window_first_modified_time, \
@@ -6690,62 +6412,30 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     .window_removed_value_count = ns::window_removed_value_count, \
     .window_size = ns::window_size, \
     .window_min_size = ns::window_min_size, \
-    .window_length = ns::window_length, \
+    .window_length = ns::window_length
+
+#define TS_NO_SET_OPS \
     .set_add = nullptr, \
     .set_remove = nullptr, \
-    .set_clear = nullptr, \
-    .dict_remove = nullptr, \
-    .dict_create = nullptr, \
-    .dict_set = nullptr, \
-}
+    .set_clear = nullptr
 
-// Macro for set types (includes set mutation ops)
-#define MAKE_SET_TS_OPS(ns) ts_ops { \
-    .ts_meta = [](const ViewData& vd) { return vd.meta; }, \
-    .last_modified_time = ns::last_modified_time, \
-    .modified = ns::modified, \
-    .valid = ns::valid, \
-    .all_valid = ns::all_valid, \
-    .sampled = ns::sampled, \
-    .value = ns::value, \
-    .delta_value = ns::delta_value, \
-    .has_delta = ns::has_delta, \
-    .set_value = ns::set_value, \
-    .apply_delta = ns::apply_delta, \
-    .invalidate = ns::invalidate, \
-    .to_python = ns::to_python, \
-    .delta_to_python = ns::delta_to_python, \
-    .from_python = ns::from_python, \
-    .child_at = ns::child_at, \
-    .child_by_name = ns::child_by_name, \
-    .child_by_key = ns::child_by_key, \
-    .child_count = ns::child_count, \
-    .observer = ns::observer, \
-    .notify_observers = ns::notify_observers, \
-    .bind = ns::bind, \
-    .unbind = ns::unbind, \
-    .is_bound = ns::is_bound, \
-    .is_peered = ns::is_peered, \
-    .set_active = ns::set_active, \
-    .window_value_times = nullptr, \
-    .window_value_times_count = nullptr, \
-    .window_first_modified_time = nullptr, \
-    .window_has_removed_value = nullptr, \
-    .window_removed_value = nullptr, \
-    .window_removed_value_count = nullptr, \
-    .window_size = nullptr, \
-    .window_min_size = nullptr, \
-    .window_length = nullptr, \
+#define TS_SET_OPS(ns) \
     .set_add = ns::set_add, \
     .set_remove = ns::set_remove, \
-    .set_clear = ns::set_clear, \
+    .set_clear = ns::set_clear
+
+#define TS_NO_DICT_OPS \
     .dict_remove = nullptr, \
     .dict_create = nullptr, \
-    .dict_set = nullptr, \
-}
+    .dict_set = nullptr
 
-// Macro for dict types (includes dict mutation ops)
-#define MAKE_DICT_TS_OPS(ns) ts_ops { \
+#define TS_DICT_OPS(ns) \
+    .dict_remove = ns::dict_remove, \
+    .dict_create = ns::dict_create, \
+    .dict_set = ns::dict_set
+
+// Single unified macro: common fields from ns, optional groups passed as parameters
+#define MAKE_TS_OPS(ns, WINDOW, SET, DICT) ts_ops { \
     .ts_meta = [](const ViewData& vd) { return vd.meta; }, \
     .last_modified_time = ns::last_modified_time, \
     .modified = ns::modified, \
@@ -6772,35 +6462,26 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
     .is_bound = ns::is_bound, \
     .is_peered = ns::is_peered, \
     .set_active = ns::set_active, \
-    .window_value_times = nullptr, \
-    .window_value_times_count = nullptr, \
-    .window_first_modified_time = nullptr, \
-    .window_has_removed_value = nullptr, \
-    .window_removed_value = nullptr, \
-    .window_removed_value_count = nullptr, \
-    .window_size = nullptr, \
-    .window_min_size = nullptr, \
-    .window_length = nullptr, \
-    .set_add = nullptr, \
-    .set_remove = nullptr, \
-    .set_clear = nullptr, \
-    .dict_remove = ns::dict_remove, \
-    .dict_create = ns::dict_create, \
-    .dict_set = ns::dict_set, \
+    WINDOW, \
+    SET, \
+    DICT \
 }
 
-static const ts_ops scalar_ts_ops = MAKE_TS_OPS(scalar_ops);
-static const ts_ops bundle_ts_ops = MAKE_TS_OPS(bundle_ops);
-static const ts_ops list_ts_ops = MAKE_TS_OPS(list_ops);
-static const ts_ops set_ts_ops = MAKE_SET_TS_OPS(set_ops);
-static const ts_ops dict_ts_ops = MAKE_DICT_TS_OPS(dict_ops);
-static const ts_ops fixed_window_ts_ops = MAKE_WINDOW_TS_OPS(fixed_window_ops);
-static const ts_ops time_window_ts_ops = MAKE_WINDOW_TS_OPS(time_window_ops);
+static const ts_ops scalar_ts_ops       = MAKE_TS_OPS(scalar_ops,       TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_NO_DICT_OPS);
+static const ts_ops bundle_ts_ops       = MAKE_TS_OPS(bundle_ops,       TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_NO_DICT_OPS);
+static const ts_ops list_ts_ops         = MAKE_TS_OPS(list_ops,         TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_NO_DICT_OPS);
+static const ts_ops set_ts_ops          = MAKE_TS_OPS(set_ops,          TS_NO_WINDOW_OPS, TS_SET_OPS(set_ops),    TS_NO_DICT_OPS);
+static const ts_ops dict_ts_ops         = MAKE_TS_OPS(dict_ops,         TS_NO_WINDOW_OPS, TS_NO_SET_OPS,          TS_DICT_OPS(dict_ops));
+static const ts_ops fixed_window_ts_ops = MAKE_TS_OPS(fixed_window_ops, TS_WINDOW_OPS(fixed_window_ops), TS_NO_SET_OPS, TS_NO_DICT_OPS);
+static const ts_ops time_window_ts_ops  = MAKE_TS_OPS(time_window_ops,  TS_WINDOW_OPS(time_window_ops),  TS_NO_SET_OPS, TS_NO_DICT_OPS);
 
 #undef MAKE_TS_OPS
-#undef MAKE_SET_TS_OPS
-#undef MAKE_DICT_TS_OPS
-#undef MAKE_WINDOW_TS_OPS
+#undef TS_NO_WINDOW_OPS
+#undef TS_WINDOW_OPS
+#undef TS_NO_SET_OPS
+#undef TS_SET_OPS
+#undef TS_NO_DICT_OPS
+#undef TS_DICT_OPS
 
 // ============================================================================
 // get_ts_ops Implementation

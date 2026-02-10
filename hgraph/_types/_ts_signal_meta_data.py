@@ -83,11 +83,4 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
     @property
     def cpp_type(self):
         """Get the C++ TSMeta for SIGNAL type."""
-        from hgraph._feature_switch import is_feature_enabled
-        if not is_feature_enabled("use_cpp"):
-            return None
-        try:
-            import hgraph._hgraph as _hgraph
-            return _hgraph.TSTypeRegistry.instance().signal()
-        except (ImportError, AttributeError):
-            return None
+        return self._make_cpp_type(lambda h: h.TSTypeRegistry.instance().signal())

@@ -94,14 +94,7 @@ try:
         def cpp_type(self):
             if not self.is_resolved:
                 return None
-            from hgraph._feature_switch import is_feature_enabled
-            if not is_feature_enabled("use_cpp"):
-                return None
-            try:
-                import hgraph._hgraph as _hgraph
-                return _hgraph.value.get_scalar_type_meta(object)
-            except (ImportError, AttributeError):
-                return None
+            return self._make_cpp_type(lambda h: h.value.get_scalar_type_meta(object))
 
     HgScalarTypeMetaData.register_parser(HgDataFrameScalarTypeMetaData)
 
@@ -175,14 +168,7 @@ try:
         def cpp_type(self):
             if not self.is_resolved:
                 return None
-            from hgraph._feature_switch import is_feature_enabled
-            if not is_feature_enabled("use_cpp"):
-                return None
-            try:
-                import hgraph._hgraph as _hgraph
-                return _hgraph.value.get_scalar_type_meta(object)
-            except (ImportError, AttributeError):
-                return None
+            return self._make_cpp_type(lambda h: h.value.get_scalar_type_meta(object))
 
     HgScalarTypeMetaData.register_parser(HgSeriesScalarTypeMetaData)
 

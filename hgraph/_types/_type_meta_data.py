@@ -216,6 +216,23 @@ class HgTypeMetaData:
         if self != wired_type:
             self.do_build_resolution_dict(resolution_dict, wired_type.dereference() if wired_type else None)
 
+    def _make_cpp_type(self, builder):
+        """Execute builder(_hgraph) guarded by feature flag and import safety.
+
+        Subclasses use this in their cpp_type property to avoid repeating
+        the feature-check + try/import/except boilerplate. The builder
+        receives the _hgraph module and should return a TSMeta or TypeMeta,
+        or None if child types are unavailable.
+        """
+        from hgraph._feature_switch import is_feature_enabled
+        if not is_feature_enabled("use_cpp"):
+            return None
+        try:
+            import hgraph._hgraph as _hgraph
+            return builder(_hgraph)
+        except (ImportError, AttributeError):
+            return None
+
     def do_build_resolution_dict(self, resolution_dict, wired_type: "HgTypeMetaData"):
         """
         Implementation method for ``build_resolution_dict`` - to be overridden by the derived classes.

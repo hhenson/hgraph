@@ -9,7 +9,7 @@ from hgraph.adaptors.tornado.http_client_adaptor import http_client_adaptor_impl
 try:
     # the adaptors are optional so if the dependencies are not installed, skip  the tests
     import tornado
-    import requests
+   # import requests
 
     from datetime import timedelta
     from threading import Thread

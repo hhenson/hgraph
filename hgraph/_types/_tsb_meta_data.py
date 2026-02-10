@@ -187,25 +187,16 @@ class HgTimeSeriesSchemaTypeMetaData(HgTimeSeriesTypeMetaData):
         """Get the C++ TSMeta for this schema type (treated as anonymous TSB)."""
         if not self.is_resolved:
             return None
-        from hgraph._feature_switch import is_feature_enabled
-        if not is_feature_enabled("use_cpp"):
-            return None
-        try:
-            import hgraph._hgraph as _hgraph
-            # Build the fields list with (name, ts_meta) pairs
-            fields = []
-            for name, ts_type_meta in self.meta_data_schema.items():
-                ts_cpp = ts_type_meta.cpp_type
-                if ts_cpp is None:
-                    return None
-                fields.append((name, ts_cpp))
-            # Get the Python scalar type (CompoundScalar) if available
-            python_type = self.py_type.scalar_type()
-            return _hgraph.TSTypeRegistry.instance().tsb(
-                fields, self.py_type.__name__, python_type
-            )
-        except (ImportError, AttributeError):
-            return None
+        fields = []
+        for name, ts_type_meta in self.meta_data_schema.items():
+            ts_cpp = ts_type_meta.cpp_type
+            if ts_cpp is None:
+                return None
+            fields.append((name, ts_cpp))
+        python_type = self.py_type.scalar_type()
+        return self._make_cpp_type(
+            lambda h: h.TSTypeRegistry.instance().tsb(fields, self.py_type.__name__, python_type)
+        )
 
 
 class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
@@ -313,22 +304,14 @@ class HgTSBTypeMetaData(HgTimeSeriesTypeMetaData):
         """Get the C++ TSMeta for this TSB[Schema] type."""
         if not self.is_resolved:
             return None
-        from hgraph._feature_switch import is_feature_enabled
-        if not is_feature_enabled("use_cpp"):
-            return None
-        try:
-            import hgraph._hgraph as _hgraph
-            # Build the fields list with (name, ts_meta) pairs
-            fields = []
-            for name, ts_type_meta in self.bundle_schema_tp.meta_data_schema.items():
-                ts_cpp = ts_type_meta.cpp_type
-                if ts_cpp is None:
-                    return None
-                fields.append((name, ts_cpp))
-            # Get the Python scalar type (CompoundScalar) if available
-            python_type = self.bundle_schema_tp.py_type.scalar_type()
-            return _hgraph.TSTypeRegistry.instance().tsb(
-                fields, self.bundle_schema_tp.py_type.__name__, python_type
-            )
-        except (ImportError, AttributeError):
-            return None
+        fields = []
+        for name, ts_type_meta in self.bundle_schema_tp.meta_data_schema.items():
+            ts_cpp = ts_type_meta.cpp_type
+            if ts_cpp is None:
+                return None
+            fields.append((name, ts_cpp))
+        schema_py_type = self.bundle_schema_tp.py_type
+        python_type = schema_py_type.scalar_type()
+        return self._make_cpp_type(
+            lambda h: h.TSTypeRegistry.instance().tsb(fields, schema_py_type.__name__, python_type)
+        )
