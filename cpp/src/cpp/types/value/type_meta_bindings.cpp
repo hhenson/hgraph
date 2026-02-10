@@ -514,9 +514,9 @@ static const TypeMeta* get_tuple_type_meta(
         return it->second;
     }
 
-    // Build new type using TupleTypeBuilder
+    // Build new type using TupleBuilder
     auto& registry = TypeRegistry::instance();
-    TupleTypeBuilder builder = registry.tuple();
+    TupleBuilder builder = registry.tuple();
 
     for (const auto* elem : element_types) {
         builder.element(elem);
@@ -557,7 +557,7 @@ static const TypeMeta* get_bundle_type_meta(
 
     // Build new type
     auto& registry = TypeRegistry::instance();
-    BundleTypeBuilder builder = type_name.has_value()
+    BundleBuilder builder = type_name.has_value()
         ? registry.bundle(type_name.value())
         : registry.bundle();
 
@@ -603,7 +603,7 @@ static const TypeMeta* get_compound_scalar_type_meta(
         return it->second;
     }
 
-    // Build new type manually (similar to BundleTypeBuilder but with CompoundScalarOps)
+    // Build new type manually (similar to BundleBuilder but with CompoundScalarOps)
     auto& registry = TypeRegistry::instance();
     const size_t count = fields.size();
 
@@ -675,7 +675,7 @@ static const TypeMeta* get_compound_scalar_type_meta(
 
 void register_type_meta_bindings(nb::module_& m) {
     // Register nb::object as a scalar type
-    TypeRegistry::instance().register_scalar<nb::object>();
+    TypeRegistry::instance().register_type<nb::object>();
 
     // get_scalar_type_meta(py_type) - Maps Python type to TypeMeta*
     m.def("get_scalar_type_meta", &get_scalar_type_meta,

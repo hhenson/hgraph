@@ -498,6 +498,48 @@ const TypeMeta& pair_schema = TupleBuilder()
     .build();
 ```
 
+### CyclicBuffer
+
+Fixed-size circular buffer that re-centers on read. When full, the oldest element is overwritten.
+
+**Static Definition:**
+```cpp
+using PriceBuffer = CyclicBuffer<double, 100>;
+using TickBuffer = CyclicBuffer<int64_t, 50>;
+```
+
+**Builder:**
+```cpp
+const TypeMeta& buffer_schema = CyclicBufferBuilder()
+    .set_element_type(TypeMeta::get("float"))
+    .set_capacity(100)
+    .build();
+```
+
+### Queue
+
+FIFO data structure with optional maximum capacity. When max capacity is reached, insertion behavior depends on the implementation (typically blocks or drops oldest).
+
+**Static Definition:**
+```cpp
+using EventQueue = Queue<nb::object>;
+using BoundedQueue = Queue<int64_t>;  // max_capacity set at runtime
+```
+
+**Builder:**
+```cpp
+// Unbounded queue
+const TypeMeta& queue_schema = QueueBuilder()
+    .set_element_type(TypeMeta::get("int"))
+    .build();
+
+// Bounded queue
+const TypeMeta& bounded_queue = QueueBuilder()
+    .set_element_type(TypeMeta::get("int"))
+    .max_capacity(1000)
+    .build();
+```
+
 ---
 
 ## Time-Series Types
@@ -968,6 +1010,8 @@ struct type_ops {
         list_ops list;
         set_ops set;
         map_ops map;
+        cyclic_buffer_ops cyclic_buffer;
+        queue_ops queue;
     } specific;
 };
 ```
@@ -1056,6 +1100,27 @@ struct map_ops {
     // Iteration
     ViewRange (*keys)(const void* ptr);
     ViewPairRange (*items)(const void* ptr);  // key -> value
+};
+
+struct cyclic_buffer_ops {
+    View (*at)(void* ptr, size_t idx);
+    void (*push)(void* ptr, View elem);
+    void (*clear)(void* ptr);
+    size_t (*size)(const void* ptr);
+    size_t (*capacity)(const void* ptr);
+    // Iteration
+    ViewRange (*values)(const void* ptr);
+};
+
+struct queue_ops {
+    View (*front)(const void* ptr);
+    void (*push)(void* ptr, View elem);
+    View (*pop)(void* ptr);
+    void (*clear)(void* ptr);
+    size_t (*size)(const void* ptr);
+    size_t (*max_capacity)(const void* ptr);
+    // Iteration
+    ViewRange (*values)(const void* ptr);
 };
 ```
 
@@ -1459,6 +1524,8 @@ classDiagram
         +list: list_ops
         +set: set_ops
         +map: map_ops
+        +cyclic_buffer: cyclic_buffer_ops
+        +queue: queue_ops
     }
 
     class ViewRange {
@@ -1511,6 +1578,25 @@ classDiagram
         +items(ptr: void*) ViewPairRange
     }
 
+    class cyclic_buffer_ops {
+        +at(ptr: void*, idx: size_t) View
+        +push(ptr: void*, elem: View) void
+        +clear(ptr: void*) void
+        +size(ptr: void*) size_t
+        +capacity(ptr: void*) size_t
+        +values(ptr: void*) ViewRange
+    }
+
+    class queue_ops {
+        +front(ptr: void*) View
+        +push(ptr: void*, elem: View) void
+        +pop(ptr: void*) View
+        +clear(ptr: void*) void
+        +size(ptr: void*) size_t
+        +max_capacity(ptr: void*) size_t
+        +values(ptr: void*) ViewRange
+    }
+
     class TypeKind {
         <<enumeration>>
         Atomic
@@ -1519,6 +1605,8 @@ classDiagram
         List
         Set
         Map
+        CyclicBuffer
+        Queue
     }
 
     TypeMeta <|-- BundleMeta
@@ -1536,12 +1624,16 @@ classDiagram
     kind_ops_union --> list_ops : variant
     kind_ops_union --> set_ops : variant
     kind_ops_union --> map_ops : variant
+    kind_ops_union --> cyclic_buffer_ops : variant
+    kind_ops_union --> queue_ops : variant
     bundle_ops --> ViewPairRange : returns
     list_ops --> ViewRange : returns
     list_ops --> ViewPairRange : returns
     set_ops --> ViewRange : returns
     map_ops --> ViewRange : returns
     map_ops --> ViewPairRange : returns
+    cyclic_buffer_ops --> ViewRange : returns
+    queue_ops --> ViewRange : returns
 ```
 
 ### Class Diagram - Value Builders
@@ -1584,11 +1676,29 @@ classDiagram
         +build() const TypeMeta&
     }
 
+    class CyclicBufferBuilder {
+        -TypeMeta* element_type_
+        -size_t capacity_
+        +set_element_type(type: TypeMeta&) CyclicBufferBuilder&
+        +set_capacity(capacity: size_t) CyclicBufferBuilder&
+        +build() const TypeMeta&
+    }
+
+    class QueueBuilder {
+        -TypeMeta* element_type_
+        -size_t max_capacity_
+        +set_element_type(type: TypeMeta&) QueueBuilder&
+        +max_capacity(max: size_t) QueueBuilder&
+        +build() const TypeMeta&
+    }
+
     BundleBuilder --> BundleMeta : creates
     TupleBuilder --> TupleMeta : creates
     ListBuilder --> ListMeta : creates
     SetBuilder --> SetMeta : creates
     MapBuilder --> MapMeta : creates
+    CyclicBufferBuilder --> TypeMeta : creates
+    QueueBuilder --> TypeMeta : creates
 ```
 
 ### Class Diagram - Time-Series Schema
@@ -1800,6 +1910,8 @@ List<T>
 List<T, Size>
 Set<T>
 Map<K, V>
+CyclicBuffer<T, Capacity>
+Queue<T>
 
 // Time-series types
 TS<T>

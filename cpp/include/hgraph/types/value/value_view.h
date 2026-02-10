@@ -117,7 +117,7 @@ public:
      * @return true if the type kind is Scalar
      */
     [[nodiscard]] bool is_scalar() const noexcept {
-        return valid() && _schema->kind == TypeKind::Scalar;
+        return valid() && _schema->kind == TypeKind::Atomic;
     }
 
     /**

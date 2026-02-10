@@ -26,15 +26,14 @@ using namespace nanobind::literals;
 
 static void register_type_kind(nb::module_& m) {
     nb::enum_<TypeKind>(m, "TypeKind", "Categories of types in the Value system")
-        .value("Scalar", TypeKind::Scalar, "Atomic values: int, double, bool, string, datetime, etc.")
+        .value("Atomic", TypeKind::Atomic, "Atomic values: int, double, bool, string, datetime, etc.")
         .value("Tuple", TypeKind::Tuple, "Indexed heterogeneous collection (unnamed, positional access only)")
         .value("Bundle", TypeKind::Bundle, "Named field collection (struct-like, index + name access)")
         .value("List", TypeKind::List, "Indexed homogeneous collection (dynamic size)")
         .value("Set", TypeKind::Set, "Unordered unique elements")
         .value("Map", TypeKind::Map, "Key-value pairs")
         .value("CyclicBuffer", TypeKind::CyclicBuffer, "Fixed-size circular buffer (re-centers on read)")
-        .value("Queue", TypeKind::Queue, "FIFO queue with optional max capacity")
-        .value("Ref", TypeKind::Ref, "Reference to another time-series");
+        .value("Queue", TypeKind::Queue, "FIFO queue with optional max capacity");
 }
 
 // ============================================================================
@@ -69,6 +68,13 @@ static void register_type_meta(nb::module_& m) {
         .def_ro("kind", &TypeMeta::kind, "Type category")
         .def_ro("field_count", &TypeMeta::field_count, "Number of fields (Bundle/Tuple)")
         .def_ro("fixed_size", &TypeMeta::fixed_size, "Fixed size (0 = dynamic)")
+        // Name-based lookup
+        .def_prop_ro("name", [](const TypeMeta& self) -> nb::object {
+            return self.name ? nb::str(self.name) : nb::none();
+        }, "Human-readable type name (or None)")
+        .def_static("get", [](const std::string& name) {
+            return TypeMeta::get(name);
+        }, nb::rv_policy::reference, "Look up a TypeMeta by name")
         .def("is_fixed_size", &TypeMeta::is_fixed_size, "Check if this is a fixed-size collection")
         .def("is_hashable", &TypeMeta::is_hashable, "Check if this type is hashable")
         .def("is_comparable", &TypeMeta::is_comparable, "Check if this type is comparable")
@@ -132,38 +138,59 @@ static void register_scalar_type_meta_functions(nb::module_& m) {
 // ============================================================================
 
 static void register_type_builders(nb::module_& m) {
-    // TupleTypeBuilder
-    nb::class_<TupleTypeBuilder>(m, "TupleTypeBuilder",
+    // TupleBuilder
+    nb::class_<TupleBuilder>(m, "TupleBuilder",
         "Builder for tuple types (heterogeneous, index-only access)")
-        .def("element", &TupleTypeBuilder::element, "type"_a, nb::rv_policy::reference,
-            "Add an element type to the tuple (returns self for chaining)")
-        .def("build", &TupleTypeBuilder::build, nb::rv_policy::reference,
+        .def(nb::init<>())
+        .def("add_element", &TupleBuilder::add_element, "type"_a, nb::rv_policy::reference,
+            "Add an element type to the tuple")
+        .def("element", &TupleBuilder::element, "type"_a, nb::rv_policy::reference,
+            "Add an element type (legacy name)")
+        .def("build", &TupleBuilder::build, nb::rv_policy::reference,
             "Build and register the tuple type");
 
-    // BundleTypeBuilder
-    nb::class_<BundleTypeBuilder>(m, "BundleTypeBuilder",
+    // BundleBuilder
+    nb::class_<BundleBuilder>(m, "BundleBuilder",
         "Builder for bundle types (struct-like, index + name access)")
-        .def("field", &BundleTypeBuilder::field, "name"_a, "type"_a, nb::rv_policy::reference,
-            "Add a field to the bundle (returns self for chaining)")
-        .def("build", &BundleTypeBuilder::build, nb::rv_policy::reference,
+        .def(nb::init<>())
+        .def("set_name", &BundleBuilder::set_name, "name"_a, nb::rv_policy::reference,
+            "Set the bundle name")
+        .def("add_field", &BundleBuilder::add_field, "name"_a, "type"_a, nb::rv_policy::reference,
+            "Add a field to the bundle")
+        .def("field", &BundleBuilder::field, "name"_a, "type"_a, nb::rv_policy::reference,
+            "Add a field (legacy name)")
+        .def("build", &BundleBuilder::build, nb::rv_policy::reference,
             "Build and register the bundle type");
 
-    // ListTypeBuilder
-    nb::class_<ListTypeBuilder>(m, "ListTypeBuilder",
+    // ListBuilder
+    nb::class_<ListBuilder>(m, "ListBuilder",
         "Builder for list types (homogeneous indexed collections)")
-        .def("build", &ListTypeBuilder::build, nb::rv_policy::reference,
+        .def(nb::init<>())
+        .def("set_element_type", &ListBuilder::set_element_type, "type"_a, nb::rv_policy::reference,
+            "Set the element type")
+        .def("set_size", &ListBuilder::set_size, "size"_a, nb::rv_policy::reference,
+            "Set the fixed size (0 = dynamic)")
+        .def("build", &ListBuilder::build, nb::rv_policy::reference,
             "Build and register the list type");
 
-    // SetTypeBuilder
-    nb::class_<SetTypeBuilder>(m, "SetTypeBuilder",
+    // SetBuilder
+    nb::class_<SetBuilder>(m, "SetBuilder",
         "Builder for set types (unique elements)")
-        .def("build", &SetTypeBuilder::build, nb::rv_policy::reference,
+        .def(nb::init<>())
+        .def("set_element_type", &SetBuilder::set_element_type, "type"_a, nb::rv_policy::reference,
+            "Set the element type")
+        .def("build", &SetBuilder::build, nb::rv_policy::reference,
             "Build and register the set type");
 
-    // MapTypeBuilder
-    nb::class_<MapTypeBuilder>(m, "MapTypeBuilder",
+    // MapBuilder
+    nb::class_<MapBuilder>(m, "MapBuilder",
         "Builder for map types (key-value pairs)")
-        .def("build", &MapTypeBuilder::build, nb::rv_policy::reference,
+        .def(nb::init<>())
+        .def("set_key_type", &MapBuilder::set_key_type, "type"_a, nb::rv_policy::reference,
+            "Set the key type")
+        .def("set_value_type", &MapBuilder::set_value_type, "type"_a, nb::rv_policy::reference,
+            "Set the value type")
+        .def("build", &MapBuilder::build, nb::rv_policy::reference,
             "Build and register the map type");
 }
 
@@ -195,9 +222,9 @@ static void register_type_registry(nb::module_& m) {
         // Composite type builders (Design Doc API)
         .def("tuple", &TypeRegistry::tuple,
             "Create a tuple type builder (heterogeneous, unnamed)")
-        .def("bundle", static_cast<BundleTypeBuilder (TypeRegistry::*)()>(&TypeRegistry::bundle),
+        .def("bundle", static_cast<BundleBuilder (TypeRegistry::*)()>(&TypeRegistry::bundle),
             "Create an anonymous bundle type builder")
-        .def("bundle", static_cast<BundleTypeBuilder (TypeRegistry::*)(const std::string&)>(&TypeRegistry::bundle),
+        .def("bundle", static_cast<BundleBuilder (TypeRegistry::*)(const std::string&)>(&TypeRegistry::bundle),
             "name"_a, "Create a named bundle type builder")
         .def("list", &TypeRegistry::list, "element_type"_a,
             "Create a dynamic list type builder")
@@ -213,17 +240,25 @@ static void register_type_registry(nb::module_& m) {
             "Create a queue type builder");
 
     // CyclicBuffer type builder
-    nb::class_<CyclicBufferTypeBuilder>(m, "CyclicBufferTypeBuilder",
+    nb::class_<CyclicBufferBuilder>(m, "CyclicBufferBuilder",
         "Builder for cyclic buffer types")
-        .def("build", &CyclicBufferTypeBuilder::build, nb::rv_policy::reference,
+        .def(nb::init<>())
+        .def("set_element_type", &CyclicBufferBuilder::set_element_type, "type"_a,
+            nb::rv_policy::reference, "Set the element type")
+        .def("set_capacity", &CyclicBufferBuilder::set_capacity, "capacity"_a,
+            nb::rv_policy::reference, "Set the buffer capacity")
+        .def("build", &CyclicBufferBuilder::build, nb::rv_policy::reference,
             "Build and register the cyclic buffer type");
 
     // Queue type builder
-    nb::class_<QueueTypeBuilder>(m, "QueueTypeBuilder",
+    nb::class_<QueueBuilder>(m, "QueueBuilder",
         "Builder for queue types")
-        .def("max_capacity", &QueueTypeBuilder::max_capacity, "max"_a,
-            "Set the maximum capacity (0 = unbounded)")
-        .def("build", &QueueTypeBuilder::build, nb::rv_policy::reference,
+        .def(nb::init<>())
+        .def("set_element_type", &QueueBuilder::set_element_type, "type"_a,
+            nb::rv_policy::reference, "Set the element type")
+        .def("max_capacity", &QueueBuilder::max_capacity, "max"_a,
+            nb::rv_policy::reference, "Set the maximum capacity (0 = unbounded)")
+        .def("build", &QueueBuilder::build, nb::rv_policy::reference,
             "Build and register the queue type");
 }
 
@@ -670,7 +705,7 @@ static void register_bundle_views(nb::module_& m) {
 // Helper function to check if element type is buffer compatible
 static bool is_list_buffer_compatible(const ConstListView& list) {
     const TypeMeta* elem = list.element_type();
-    if (!elem || elem->kind != TypeKind::Scalar) return false;
+    if (!elem || elem->kind != TypeKind::Atomic) return false;
 
     // Use the BufferCompatible flag from TypeMeta
     return elem->is_buffer_compatible();
@@ -739,13 +774,13 @@ static void register_list_views(nb::module_& m) {
         .def("is_buffer_compatible", [](const ListView& self) {
             // Check if element type supports buffer protocol
             const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Scalar) return false;
+            if (!elem || elem->kind != TypeKind::Atomic) return false;
             return elem->is_buffer_compatible();
         }, "Check if this list supports the buffer protocol (numpy compatibility)")
         // Zero-copy numpy conversion for mutable list view
         .def("to_numpy", [](ListView& self) -> nb::object {
             const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Scalar || !elem->is_buffer_compatible()) {
+            if (!elem || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) {
                 throw std::runtime_error("List element type not buffer compatible for numpy");
             }
 
@@ -1118,7 +1153,7 @@ static void register_map_views(nb::module_& m) {
 // Helper function to check if element type is buffer compatible
 static bool is_cyclic_buffer_compatible(const ConstCyclicBufferView& buf) {
     const TypeMeta* elem = buf.element_type();
-    if (!elem || elem->kind != TypeKind::Scalar) return false;
+    if (!elem || elem->kind != TypeKind::Atomic) return false;
     return elem->is_buffer_compatible();
 }
 
@@ -1186,12 +1221,12 @@ static void register_cyclic_buffer_views(nb::module_& m) {
         .def("clear", &CyclicBufferView::clear, "Clear all elements")
         .def("is_buffer_compatible", [](const CyclicBufferView& self) {
             const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Scalar) return false;
+            if (!elem || elem->kind != TypeKind::Atomic) return false;
             return elem->is_buffer_compatible();
         }, "Check if this buffer supports numpy conversion")
         .def("to_numpy", [](const CyclicBufferView& self) -> nb::object {
             const TypeMeta* elem = self.element_type();
-            if (!elem || elem->kind != TypeKind::Scalar || !elem->is_buffer_compatible()) {
+            if (!elem || elem->kind != TypeKind::Atomic || !elem->is_buffer_compatible()) {
                 throw std::runtime_error("CyclicBuffer element type not buffer compatible for numpy");
             }
 
