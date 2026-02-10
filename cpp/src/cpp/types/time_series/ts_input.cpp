@@ -108,12 +108,23 @@ void TSInput::set_active(const std::string& field, bool active) {
         value::View field_link_view = link_tuple[field_index + 1];
         if (field_link_view) {
             auto* lt = static_cast<LinkTarget*>(field_link_view.data());
-            if (lt && lt->is_linked && lt->observer_data) {
-                auto* observers = static_cast<ObserverList*>(lt->observer_data);
+            if (lt) {
                 if (active) {
-                    observers->add_observer(this);
+                    // Set owning_input so REFBindingHelper can schedule via active_notifier.
+                    // This is critical for REF→REF bindings where lt->observer_data is nullptr
+                    // (REFBindingHelper manages subscriptions) — without this, the
+                    // REFBindingHelper cannot schedule the owning node when the REF changes.
+                    lt->active_notifier.owning_input = this;
+                    if (lt->is_linked && lt->observer_data) {
+                        auto* observers = static_cast<ObserverList*>(lt->observer_data);
+                        observers->add_observer(this);
+                    }
                 } else {
-                    observers->remove_observer(this);
+                    if (lt->is_linked && lt->observer_data) {
+                        auto* observers = static_cast<ObserverList*>(lt->observer_data);
+                        observers->remove_observer(this);
+                    }
+                    lt->active_notifier.owning_input = nullptr;
                 }
             }
         }
@@ -210,8 +221,7 @@ void TSInputView::make_active() {
     // Python semantics: each input has its own _active flag; make_active only
     // affects the specific input, not siblings in the same bundle.
     if (active_view_) {
-        const TSMeta* meta = ts_meta();
-        if (meta && (meta->is_collection() || meta->kind == TSKind::TSB)) {
+        if (active_view_.is_tuple()) {
             // Composite: tuple[bool, ...] — set root bool
             value::TupleView tv = active_view_.as_tuple();
             value::View root = tv[0];
@@ -245,8 +255,7 @@ void TSInputView::make_passive() {
 
     // Clear active flag for THIS specific position only (not the root bundle).
     if (active_view_) {
-        const TSMeta* meta = ts_meta();
-        if (meta && (meta->is_collection() || meta->kind == TSKind::TSB)) {
+        if (active_view_.is_tuple()) {
             value::TupleView tv = active_view_.as_tuple();
             value::View root = tv[0];
             if (root) *static_cast<bool*>(root.data()) = false;
@@ -272,9 +281,11 @@ bool TSInputView::active() const {
     const TSMeta* meta = ts_meta();
     if (!meta) return false;
 
-    // For composite types, the first element is the active bool at this level
-    // For scalar types, it's just a bool directly
-    if (meta->is_collection() || meta->kind == TSKind::TSB) {
+    // The active schema depends on the TSKind:
+    // - TSB, TSD, TSL: tuple[bool, ...] (hierarchical active state)
+    // - TS, TSS, TSW, REF, SIGNAL: just bool (flat active state)
+    // Check the actual view's schema rather than assuming from meta->is_collection()
+    if (active_view_.is_tuple()) {
         // Composite: tuple[bool, ...]
         value::TupleView tv = active_view_.as_tuple();
         value::View root = tv[0];

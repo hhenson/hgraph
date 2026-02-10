@@ -95,6 +95,7 @@ namespace hgraph {
         int _default_output_node_id{-1};
         std::string _recordable_id;
         bool _graph_reset{false};
+        int _active_output_node_id{-1};  // Cached output stub index for explicit scheduling
     };
 
 } // namespace hgraph

@@ -9,9 +9,15 @@
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_view.h>
 #include <hgraph/types/time_series/ts_dict_view.h>
+#include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/time_series/short_path.h>
+#include <hgraph/types/time_series/view_data.h>
+#include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/traits.h>
+#include <hgraph/types/value/value_view.h>
 
 #include <string_view>
+#include <unordered_map>
 
 namespace hgraph
 {
@@ -81,18 +87,30 @@ namespace hgraph
         // Use a placeholder time for view creation during binding
         // This is fine because binding doesn't depend on current_time value
         engine_time_t bind_time = MIN_ST;
+
+        // Deferred REF-into-composite edges: when an input path navigates into a REF type
+        // (e.g., REF[TSB[AB]] with sub-field indices), we can't navigate children since REF
+        // is scalar. Instead, we collect these edges and construct NON_PEERED TSReferences.
+        struct DeferredRefEdge {
+            size_t remaining_index;          // Field index within the REF's element_ts
+            int64_t src_node_idx;            // Source node index
+            int64_t dst_node_idx;            // Destination node index (for subscription)
+            std::vector<int64_t> output_path; // Source output path
+        };
+        // Group deferred edges by the REF input's value_data pointer (uniquely identifies the REF)
+        std::unordered_map<void*, std::vector<DeferredRefEdge>> deferred_ref_edges;
+        std::unordered_map<void*, ViewData> ref_input_viewdatas;
+
         for (const auto &edge : edges) {
             auto src_node = nodes[edge.src_node].get();
             auto dst_node = nodes[edge.dst_node].get();
 
+
             // Determine the source output
             TSOutput* src_output = nullptr;
             if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
-                // Error output - need to handle this specially
-                // For now, skip - error outputs may need different handling
                 continue;  // TODO: Handle error output binding
             } else if (edge.output_path.size() == 1 && edge.output_path[0] == STATE_PATH) {
-                // Recordable state output - need to handle this specially
                 continue;  // TODO: Handle recordable state binding
             } else {
                 src_output = src_node->ts_output();
@@ -102,7 +120,6 @@ namespace hgraph
                 throw std::runtime_error("Source node does not have TSOutput");
             }
 
-            // The input path must have at least one element (the field index in the input bundle)
             if (edge.input_path.empty()) {
                 throw std::runtime_error("Cannot bind input with empty path");
             }
@@ -111,25 +128,46 @@ namespace hgraph
                 throw std::runtime_error("Node does not have TSInput for binding");
             }
 
-            // View-based binding approach:
-            // 1. Get input view and navigate to the target field
+            // 1. Navigate input path, detecting REF-into-composite edges
             TSInputView input_view = dst_node->ts_input()->view(bind_time);
+            bool deferred = false;
 
-            for (auto idx : edge.input_path) {
+            for (size_t pi = 0; pi < edge.input_path.size() && !deferred; ++pi) {
+                auto idx = edge.input_path[pi];
                 if (idx >= 0) {
                     input_view = input_view[static_cast<size_t>(idx)];
+
+                    // After navigation, check if we landed on a REF with more path elements
+                    auto& curr_vd = input_view.ts_view().view_data();
+                    if (curr_vd.meta && curr_vd.meta->kind == TSKind::REF &&
+                        pi + 1 < edge.input_path.size()) {
+                        // The next index would navigate INTO the REF, which isn't supported
+                        // for scalar REF types. Defer this edge for NON_PEERED construction.
+                        int64_t next_idx = edge.input_path[pi + 1];
+                        if (next_idx >= 0) {
+                            deferred_ref_edges[curr_vd.value_data].push_back({
+                                static_cast<size_t>(next_idx),
+                                edge.src_node,
+                                edge.dst_node,
+                                edge.output_path
+                            });
+                            ref_input_viewdatas.try_emplace(curr_vd.value_data, curr_vd);
+                        }
+                        deferred = true;
+                    }
                 }
-                // Skip negative indices (like KEY_SET) for now
+            }
+            if (deferred) {
+                continue;
             }
 
-            // 2. Get output view and navigate to the source field
+            // 2. Navigate output path
             TSOutputView output_view = src_output->view(bind_time);
 
             for (auto idx : edge.output_path) {
                 if (idx >= 0) {
                     output_view = output_view[static_cast<size_t>(idx)];
                 } else if (idx == KEY_SET) {
-                    // Navigate from TSD output to its embedded key_set TSS
                     auto dict_view = output_view.ts_view().as_dict();
                     TSSView tss_view = dict_view.key_set();
                     output_view = TSOutputView(
@@ -137,11 +175,87 @@ namespace hgraph
                         output_view.output()
                     );
                 }
-                // Skip other negative indices (ERROR_PATH, STATE_PATH) for now
             }
 
             // 3. Bind the input view to the output view
             input_view.bind(output_view);
+        }
+
+        // Phase 2: Process deferred REF-into-composite edges.
+        // For each REF input with deferred sub-edges, construct a NON_PEERED TSReference
+        // with PEERED items pointing to the source outputs.
+        for (auto& [vd_ptr, deferred_edges] : deferred_ref_edges) {
+            auto& ref_vd = ref_input_viewdatas.at(vd_ptr);
+
+            // Determine field count from REF's element_ts
+            const TSMeta* element_ts = ref_vd.meta ? ref_vd.meta->element_ts : nullptr;
+            size_t field_count = 0;
+            if (element_ts) {
+                if (element_ts->kind == TSKind::TSB) {
+                    field_count = element_ts->field_count;
+                } else if (element_ts->kind == TSKind::TSL) {
+                    field_count = element_ts->fixed_size;
+                }
+            }
+            if (field_count == 0) {
+                // Can't determine structure - use max index + 1
+                for (auto& de : deferred_edges) {
+                    field_count = std::max(field_count, de.remaining_index + 1);
+                }
+            }
+
+            // Create PEERED TSReference items from source outputs
+            std::vector<TSReference> items(field_count);
+            for (auto& de : deferred_edges) {
+                // Build ShortPath indices from the output_path
+                std::vector<size_t> indices;
+                for (auto idx : de.output_path) {
+                    if (idx >= 0) indices.push_back(static_cast<size_t>(idx));
+                }
+
+                ShortPath sp(nodes[de.src_node_idx].get(), PortType::OUTPUT, std::move(indices));
+
+                if (de.remaining_index < field_count) {
+                    items[de.remaining_index] = TSReference::peered(std::move(sp));
+                }
+            }
+
+            // Create and store NON_PEERED reference in the REF input's value storage
+            auto ref = TSReference::non_peered(std::move(items));
+            if (ref_vd.value_data && ref_vd.meta && ref_vd.meta->value_type) {
+                value::View v(ref_vd.value_data, ref_vd.meta->value_type);
+                auto* ref_ptr = static_cast<TSReference*>(v.data());
+                *ref_ptr = std::move(ref);
+            }
+
+            // Set modification time so the REF input appears valid
+            if (ref_vd.time_data) {
+                *static_cast<engine_time_t*>(ref_vd.time_data) = bind_time;
+            }
+
+            // Subscribe the dst node's TSInput to each unique source output's observer list.
+            // Deferred edges create NON_PEERED references but skip the normal bind path, so
+            // no subscription exists to notify the dst node when source outputs change.
+            // Without this, nodes like switch won't be scheduled when reduce output REFs change.
+            for (size_t dei = 0; dei < deferred_edges.size(); ++dei) {
+                auto& de = deferred_edges[dei];
+                // Check if we already subscribed to this source
+                bool already = false;
+                for (size_t j = 0; j < dei; ++j) {
+                    if (deferred_edges[j].src_node_idx == de.src_node_idx) { already = true; break; }
+                }
+                if (already) continue;
+
+                auto* dst_node = nodes[de.dst_node_idx].get();
+                auto* src_output = nodes[de.src_node_idx]->ts_output();
+                if (dst_node && dst_node->ts_input() && src_output) {
+                    ViewData src_vd = src_output->native_value().make_view_data();
+                    if (src_vd.observer_data) {
+                        auto* obs = static_cast<ObserverList*>(src_vd.observer_data);
+                        obs->add_observer(dst_node->ts_input());
+                    }
+                }
+            }
         }
 
         return nodes;

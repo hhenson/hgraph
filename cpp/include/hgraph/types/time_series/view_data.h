@@ -264,7 +264,11 @@ inline ViewData resolve_through_link(const ViewData& vd) {
             resolved.path = vd.path;
             resolved.value_data = lt->value_data;
             resolved.time_data = lt->time_data;
-            resolved.observer_data = lt->observer_data;
+            // For REF→REF bindings, lt->observer_data is nullptr (REFBindingHelper manages
+            // subscriptions). Fall back to the input's own observer list so that downstream
+            // bindings (e.g., inner stubs in switch/reduce) can subscribe to it and get
+            // notified when the REF changes.
+            resolved.observer_data = lt->observer_data ? lt->observer_data : vd.observer_data;
             resolved.delta_data = lt->delta_data;
             resolved.link_data = lt->link_data;
             resolved.ops = lt->ops;

@@ -9,14 +9,15 @@
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/time_series/ts_set_view.h>
+#include <hgraph/types/time_series/set_delta.h>
 #include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/view_data.h>
+#include <hgraph/types/value/value.h>
 #include <hgraph/util/lifecycle.h>
 #include <stdexcept>
-#include <cstdio>
-
-// Debug flag - set to true to enable tracing
-static constexpr bool SWITCH_DEBUG = false;
 
 namespace hgraph {
 
@@ -46,11 +47,9 @@ namespace hgraph {
 
     void SwitchNode::initialise() {
         // SwitchNode creates graphs lazily in eval() when the key arrives.
-        // No-op: nothing to do at initialise time.
     }
 
     void SwitchNode::do_start() {
-        // Set up recordable_id if the graph has the trait
         if (has_recordable_id_trait(graph()->traits())) {
             auto record_id = signature().record_replay_id;
             _recordable_id = get_fq_recordable_id(
@@ -61,16 +60,10 @@ namespace hgraph {
     void SwitchNode::eval() {
         mark_evaluated();
 
-        if constexpr (SWITCH_DEBUG) {
-            fprintf(stderr, "[SWITCH] eval()\n");
-        }
-
-        // 1. Read the key input
         auto input_view = ts_input()->view(graph()->evaluation_time());
         auto key_field = input_view.field("key");
 
         if (key_field.modified()) {
-            // Read key value as Python object, then convert to PlainValue
             nb::object py_key = key_field.to_python();
             value::PlainValue new_key(_key_type);
             _key_type->ops->from_python(new_key.view().data(), py_key, _key_type);
@@ -107,11 +100,9 @@ namespace hgraph {
                     _count++;
                     _active_graph_builder = builder;
 
-                    // Build graph ID: node_id + (-_count)
                     auto graph_id = node_id();
                     graph_id.push_back(-_count);
 
-                    // Convert key to string for label
                     std::string key_label = _key_type->ops->to_string(
                         _active_key->const_view().data(), _key_type);
 
@@ -138,51 +129,85 @@ namespace hgraph {
                 nec->reset_next_scheduled_evaluation_time();
             }
 
-            if constexpr (SWITCH_DEBUG) {
-                auto& sched = _active_graph->schedule();
-                auto inner_now = *_active_graph->cached_evaluation_time_ptr();
-                fprintf(stderr, "[SWITCH] about to evaluate_graph, nodes=%zu\n", _active_graph->nodes().size());
-                for (size_t ni = 0; ni < _active_graph->nodes().size(); ++ni) {
-                    auto n = _active_graph->nodes()[ni];
-                    bool scheduled = (sched[ni] == inner_now);
-                    fprintf(stderr, "[SWITCH]   inner node %zu: has_output=%d, output_forwarded=%d, has_input=%d, scheduled=%d\n",
-                            ni,
-                            n->ts_output() != nullptr ? 1 : 0,
-                            (n->ts_output() && n->ts_output()->is_forwarded()) ? 1 : 0,
-                            n->has_input() ? 1 : 0,
-                            scheduled ? 1 : 0);
-                }
-                if (ts_output()) {
-                    fprintf(stderr, "[SWITCH] outer output before eval: forwarded=%d, valid=%d\n",
-                            ts_output()->is_forwarded() ? 1 : 0,
-                            ts_output()->native_value().meta() != nullptr ? 1 : 0);
+            // On graph reset: force-schedule inner stub nodes so they pick up REF values
+            // from the outer graph. Skip the output sink node to avoid writing stale values.
+            if (_graph_reset) {
+                auto eval_time = *_active_graph->cached_evaluation_time_ptr();
+                for (size_t i = 0; i < _active_graph->nodes().size(); ++i) {
+                    if (static_cast<int>(i) == _active_output_node_id) continue;
+                    _active_graph->schedule_node(static_cast<int64_t>(i), eval_time, true);
                 }
             }
 
             _active_graph->evaluate_graph();
 
-            if constexpr (SWITCH_DEBUG) {
-                if (ts_output()) {
-                    auto out_view = ts_output()->view(graph()->evaluation_time());
-                    fprintf(stderr, "[SWITCH] outer output after eval: modified=%d, valid=%d\n",
-                            out_view.modified() ? 1 : 0, out_view.valid() ? 1 : 0);
-                    if (out_view.valid()) {
-                        try {
-                            nb::object py_val = out_view.to_python();
-                            nb::str py_str(py_val);
-                            fprintf(stderr, "[SWITCH] outer output value: %s\n", py_str.c_str());
-                        } catch (...) {
-                            fprintf(stderr, "[SWITCH] outer output value: <error reading>\n");
+            // If graph was just reset and output exists but wasn't modified by the new graph,
+            // clear old output values and generate proper deltas so downstream consumers
+            // (e.g., map_ nodes) see the removals.
+            //
+            // The switch output is typically REF[TSS]. Downstream consumers are bound via
+            // REFBindingHelper which resolves the REF to the underlying TSS. At this point
+            // the output stub hasn't evaluated (we skipped it), so the REF still points to
+            // the OLD graph's TSS. We resolve through the REF and clear the old TSS elements,
+            // generating removal deltas that propagate through existing subscriptions.
+            if (_graph_reset && ts_output()) {
+                auto time = graph()->evaluation_time();
+                auto out_view = ts_output()->view(time);
+                if (!out_view.modified()) {
+                    auto& vd = out_view.ts_view().view_data();
+                    bool handled = false;
+
+                    if (vd.meta && vd.meta->kind == TSKind::REF && vd.value_data) {
+                        auto* ref = static_cast<const TSReference*>(vd.value_data);
+                        if (ref->is_peered()) {
+                            try {
+                                TSView resolved = ref->resolve(time);
+                                auto resolved_vd = resolved.view_data();
+
+                                if (resolved_vd.meta && resolved_vd.meta->kind == TSKind::TSS
+                                    && resolved_vd.ops && resolved_vd.ops->set_remove) {
+                                    // Clear stale delta from previous tick so removals
+                                    // don't cancel with old additions
+                                    if (resolved_vd.delta_data) {
+                                        auto* sd = static_cast<SetDelta*>(resolved_vd.delta_data);
+                                        sd->clear();
+                                    }
+
+                                    TSSView tss(resolved_vd, time);
+                                    std::vector<value::PlainValue> to_remove;
+                                    for (auto v : tss.values()) {
+                                        to_remove.emplace_back(v);
+                                    }
+                                    for (auto& v : to_remove) {
+                                        resolved_vd.ops->set_remove(resolved_vd, v.const_view(), time);
+                                    }
+                                    handled = true;
+                                }
+                            } catch (...) {
+                                // Resolution failed — fall through to generic invalidation
+                            }
+                        }
+                    } else if (vd.meta && vd.meta->kind == TSKind::TSS && vd.ops && vd.ops->set_remove) {
+                        // Direct TSS output: remove elements individually
+                        ts_output()->native_value().delta_value_view(time);
+                        TSSView tss(vd, time);
+                        std::vector<value::PlainValue> to_remove;
+                        for (auto v : tss.values()) {
+                            to_remove.emplace_back(v);
+                        }
+                        for (auto& v : to_remove) {
+                            vd.ops->set_remove(const_cast<ViewData&>(vd), v.const_view(), time);
+                        }
+                        handled = true;
+                    }
+
+                    if (!handled) {
+                        out_view.invalidate();
+                        if (vd.observer_data) {
+                            auto* observers = static_cast<ObserverList*>(vd.observer_data);
+                            observers->notify_modified(time);
                         }
                     }
-                }
-            }
-
-            // If graph was just reset and output exists but wasn't modified, invalidate it
-            if (_graph_reset && ts_output()) {
-                auto out_view = ts_output()->view(graph()->evaluation_time());
-                if (!out_view.modified()) {
-                    out_view.invalidate();
                 }
             }
 
@@ -196,11 +221,9 @@ namespace hgraph {
     }
 
     void SwitchNode::wire_graph(graph_s_ptr &graph_) {
-        // Determine which key to use for map lookups (actual key or default)
         bool use_keyed = _nested_graph_builders &&
                          _nested_graph_builders->find(_active_key->const_view()) != _nested_graph_builders->end();
 
-        // Set recordable_id on graph traits if available
         if (!_recordable_id.empty()) {
             std::string key_str = _key_type->ops->to_string(
                 _active_key->const_view().data(), _key_type);
@@ -208,7 +231,6 @@ namespace hgraph {
             set_parent_recordable_id(*graph_, recordable_id);
         }
 
-        // Get the appropriate input_node_ids and output_node_id
         const std::unordered_map<std::string, int>* input_ids = nullptr;
         int output_id = -1;
 
@@ -228,11 +250,6 @@ namespace hgraph {
             output_id = _default_output_node_id;
         }
 
-        // Get the appropriate graph builder for edge lookup
-        const graph_builder_s_ptr& builder = use_keyed
-            ? _nested_graph_builders->find(_active_key->const_view())->second
-            : _default_graph_builder;
-
         // Wire inputs
         if (input_ids && ts_input()) {
             auto outer_input_view = ts_input()->view(this->graph()->evaluation_time());
@@ -241,8 +258,7 @@ namespace hgraph {
                 inner_node->notify();
 
                 if (arg == "key") {
-                    // The key stub is a PythonNode with KeyStubEvalFn as eval_fn.
-                    // Set eval_fn.key = active_key value as Python object.
+                    // Set KeyStubEvalFn.key via Python interop
                     nb::object py_key = _key_type->ops->to_python(
                         _active_key->const_view().data(), _key_type);
                     auto* py_node = dynamic_cast<PythonNode*>(inner_node.get());
@@ -251,18 +267,10 @@ namespace hgraph {
                         eval_fn_obj.attr("key") = py_key;
                     }
                 } else {
-                    // Regular input: bind the stub's REF input to the outer input's upstream source.
-                    // Python equivalent: inner_input.clone_binding(ts) where inner_input is REF-typed
-                    // and ts is the outer (non-REF) input.
-                    // We resolve the outer field through its link to get the upstream output data,
-                    // then bind the stub's input to it. The downstream edges (stub→computation)
-                    // are already set up by the graph builder and should NOT be re-bound.
+                    // Resolve outer field through its LinkTarget to get upstream output data,
+                    // then bind the inner stub's REF input to it.
                     auto field_view = outer_input_view.field(arg);
 
-                    // Resolve outer field's ViewData through its LinkTarget to get upstream output data.
-                    // IMPORTANT: Use the LinkTarget's target_path as the resolved path, not the
-                    // original input's path. This ensures TSReference::make() captures a ShortPath
-                    // pointing to the upstream output (not back to the switch node's input).
                     ViewData resolved = resolve_through_link(field_view.ts_view().view_data());
                     {
                         auto& vd = field_view.ts_view().view_data();
@@ -275,7 +283,6 @@ namespace hgraph {
                     }
                     TSView resolved_target(resolved, this->graph()->evaluation_time());
 
-                    // Bind the stub's input (which is REF-typed) to the resolved outer data
                     if (inner_node->ts_input()) {
                         auto inner_input_view = inner_node->ts_input()->view(this->graph()->evaluation_time());
                         const TSMeta* inner_meta = inner_node->ts_input()->meta();
@@ -292,15 +299,12 @@ namespace hgraph {
             }
         }
 
+        _active_output_node_id = output_id;
+
         // Wire output: forward inner sink node's TSOutput to outer's storage
         if (output_id >= 0 && ts_output()) {
             auto inner_node = graph_->nodes()[output_id];
-            if constexpr (SWITCH_DEBUG) {
-                fprintf(stderr, "[SWITCH] wire_graph: output_id=%d, inner_node has output=%d\n",
-                        output_id, inner_node->ts_output() != nullptr ? 1 : 0);
-            }
             if (inner_node->ts_output()) {
-                // Mark that we have output forwarding set up (using shared_ptr with no-op deleter as flag)
                 _old_output = std::shared_ptr<TSOutput>(inner_node->ts_output(), [](TSOutput*){});
 
                 ViewData outer_data = ts_output()->native_value().make_view_data();
@@ -313,17 +317,11 @@ namespace hgraph {
                 ft.link_data = outer_data.link_data;
                 ft.ops = outer_data.ops;
                 ft.meta = outer_data.meta;
-
-                if constexpr (SWITCH_DEBUG) {
-                    fprintf(stderr, "[SWITCH] wire_graph: forwarded target set up. outer_data: value=%p, time=%p, obs=%p\n",
-                            outer_data.value_data, outer_data.time_data, outer_data.observer_data);
-                }
             }
         }
     }
 
     void SwitchNode::unwire_graph(graph_s_ptr &graph_) {
-        // Restore the inner sink node's output by clearing the forwarded target
         if (_old_output) {
             bool use_keyed = _nested_graph_builders &&
                              _nested_graph_builders->find(_active_key->const_view()) != _nested_graph_builders->end();

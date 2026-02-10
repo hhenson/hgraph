@@ -252,11 +252,13 @@ struct REFBindingHelper : public Notifiable {
     LinkTarget* owner;
     ViewData ref_source;          // REF output's ViewData (for reading TSReference)
     void* resolved_obs{nullptr};  // Current resolved target's observer_data
+    void* input_observer_data{nullptr}; // TSInput's own observer list (for notifying downstream consumers)
     bool subscribed_to_ref{false};
     bool is_ref_to_ref_{false};   // True when REF input binds to REF output
 
-    explicit REFBindingHelper(LinkTarget* lt, const ViewData& ref_src, bool ref_to_ref = false)
-        : owner(lt), ref_source(ref_src), is_ref_to_ref_(ref_to_ref) {}
+    explicit REFBindingHelper(LinkTarget* lt, const ViewData& ref_src, bool ref_to_ref = false,
+                              void* input_obs = nullptr)
+        : owner(lt), ref_source(ref_src), input_observer_data(input_obs), is_ref_to_ref_(ref_to_ref) {}
 
     ~REFBindingHelper() override {
         // Do NOT call unsubscribe_all() here.
@@ -270,6 +272,7 @@ struct REFBindingHelper : public Notifiable {
             auto* obs = static_cast<ObserverList*>(ref_source.observer_data);
             obs->add_observer(this);
             subscribed_to_ref = true;
+        } else {
         }
     }
 
@@ -376,7 +379,12 @@ struct REFBindingHelper : public Notifiable {
             owner->is_linked = true;
             owner->target_path = final_vd.path;
             owner->value_data = final_vd.value_data;
-            owner->time_data = final_vd.time_data;
+            // Use owner_time_ptr instead of the resolved target's time_data.
+            // This is the C++ equivalent of Python's _sampled mechanism:
+            // after rebinding, the input appears as modified (owner_time_ptr
+            // was stamped to current_time by notify()), and last_modified_time
+            // reflects the rebinding time rather than the target's original time.
+            owner->time_data = owner->owner_time_ptr;
             owner->observer_data = final_vd.observer_data;
             owner->delta_data = final_vd.delta_data;
             owner->link_data = final_vd.link_data;
@@ -405,6 +413,16 @@ struct REFBindingHelper : public Notifiable {
 
         // Time-accounting: propagate through LinkTarget chain
         owner->notify(et);
+
+        // Notify the input's own observer list so downstream consumers (e.g., inner stubs
+        // of nested graph nodes that bound to this input field) see the REF change.
+        // This is needed because the REF change updates the LinkTarget's data (or
+        // resolved target) but the TSInput's own observer list is separate and not
+        // automatically notified.
+        if (input_observer_data) {
+            auto* obs = static_cast<ObserverList*>(input_observer_data);
+            obs->notify_modified(et);
+        }
 
         // Schedule owning node if active (the data source changed)
         if (owner->active_notifier.owning_input) {
@@ -729,7 +747,7 @@ void bind(ViewData& vd, const ViewData& target) {
             // REF-aware binding: resolve through REF, store resolved target in LinkTarget,
             // and subscribe to both REF source (for rebind) and resolved target (for value changes).
             // This matches Python's observe_reference + bind_input pattern.
-            auto* helper = new REFBindingHelper(lt, target, is_ref_to_ref);
+            auto* helper = new REFBindingHelper(lt, target, is_ref_to_ref, vd.observer_data);
             lt->ref_binding_ = helper;
             lt->ref_binding_deleter_ = &delete_ref_binding_helper;
 
@@ -1652,6 +1670,312 @@ void notify_observers(ViewData& vd, engine_time_t current_time) {
     }
 }
 
+// ============================================================================
+// BundleREFBindingHelper: Manages binding when a TSB input binds to a REF output.
+//
+// When a TSB input (e.g., TSB[AB]) binds to a REF output (e.g., REF[TSB[AB]]),
+// we can't navigate the REF's children at bind time. Instead, we:
+// 1. Subscribe to the REF source's observer list for change notifications
+// 2. On notify, resolve the TSReference to get the underlying TSB
+// 3. Bind each field's LinkTarget to the resolved target's fields
+// ============================================================================
+
+struct BundleREFBindingHelper : public Notifiable {
+    LinkTarget* container_lt;
+    ViewData input_vd;           // TSB input's ViewData (for reconstructing link/time tuples)
+    ViewData ref_source;         // REF output's ViewData
+    bool subscribed_to_ref{false};
+
+    // Track per-field observer subscriptions for cleanup
+    struct FieldSub {
+        LinkTarget* lt;
+        void* observer_data;
+    };
+    std::vector<FieldSub> field_subs;
+
+    explicit BundleREFBindingHelper(LinkTarget* ct, const ViewData& ivd, const ViewData& ref_src)
+        : container_lt(ct), input_vd(ivd), ref_source(ref_src) {}
+
+    ~BundleREFBindingHelper() override {
+        // Don't unsubscribe here — done explicitly before delete to avoid use-after-free
+    }
+
+    void subscribe_to_ref_source() {
+        if (!subscribed_to_ref && ref_source.observer_data) {
+            auto* obs = static_cast<ObserverList*>(ref_source.observer_data);
+            obs->add_observer(this);
+            subscribed_to_ref = true;
+        }
+    }
+
+    void unsubscribe_from_ref_source() {
+        if (subscribed_to_ref && ref_source.observer_data) {
+            auto* obs = static_cast<ObserverList*>(ref_source.observer_data);
+            obs->remove_observer(this);
+            subscribed_to_ref = false;
+        }
+    }
+
+    void unsubscribe_fields() {
+        for (auto& fs : field_subs) {
+            if (fs.observer_data && fs.lt) {
+                auto* obs = static_cast<ObserverList*>(fs.observer_data);
+                obs->remove_observer(fs.lt);
+                if (fs.lt->active_notifier.owning_input != nullptr) {
+                    obs->remove_observer(&fs.lt->active_notifier);
+                }
+            }
+        }
+        field_subs.clear();
+    }
+
+    void unsubscribe_all() {
+        unsubscribe_fields();
+        unsubscribe_from_ref_source();
+    }
+
+    void clear_field_link_targets() {
+        auto link_schema = get_bundle_link_schema(input_vd);
+        if (!link_schema) return;
+
+        value::View link_view(input_vd.link_data, link_schema);
+        auto link_tuple = link_view.as_tuple();
+
+        for (size_t i = 0; i < input_vd.meta->field_count; ++i) {
+            const TSMeta* field_meta = input_vd.meta->fields[i].ts_type;
+            if (field_meta && field_meta->is_scalar_ts()) {
+                auto* lt = static_cast<LinkTarget*>(link_tuple.at(i + 1).data());
+                if (lt) {
+                    lt->is_linked = false;
+                    lt->value_data = nullptr;
+                    lt->time_data = nullptr;
+                    lt->observer_data = nullptr;
+                    lt->delta_data = nullptr;
+                    lt->link_data = nullptr;
+                    lt->ops = nullptr;
+                    lt->meta = nullptr;
+                }
+            }
+        }
+    }
+
+    void rebind(engine_time_t current_time) {
+        // 1. Unsubscribe and clear old field bindings
+        unsubscribe_fields();
+        clear_field_link_targets();
+
+        // 2. Read TSReference from REF source
+        if (!ref_source.value_data || !ref_source.meta) return;
+        auto value_meta = ref_source.meta->value_type;
+        if (!value_meta) return;
+
+        value::View v(ref_source.value_data, value_meta);
+        if (!v.valid()) return;
+
+        const auto* ts_ref = static_cast<const TSReference*>(v.data());
+        if (!ts_ref || ts_ref->is_empty()) return;
+
+        if (ts_ref->is_peered()) {
+            // PEERED reference: resolve to get the underlying TSB target
+            TSView resolved;
+            try {
+                resolved = ts_ref->resolve(current_time);
+            } catch (...) {
+                return;
+            }
+            if (!resolved) return;
+
+            // Dereference if resolved target is itself REF
+            ViewData resolved_vd = resolved.view_data();
+            if (resolved_vd.meta && resolved_vd.meta->kind == TSKind::REF) {
+                auto inner = resolve_ref_link_target_from_vd(resolved_vd, current_time);
+                if (inner) resolved_vd = *inner;
+            }
+
+            // Bind each field to the resolved target's fields
+            bind_fields(resolved_vd, current_time);
+        } else {
+            // NON_PEERED reference: resolve each item individually.
+            // Items are PEERED TSReferences pointing to individual fields.
+            bind_non_peered_items(*ts_ref, current_time);
+        }
+    }
+
+    void bind_non_peered_items(const TSReference& ref, engine_time_t current_time) {
+        auto link_schema = get_bundle_link_schema(input_vd);
+        if (!link_schema) return;
+
+        value::View link_view(input_vd.link_data, link_schema);
+        auto link_tuple = link_view.as_tuple();
+
+        auto* time_schema = TSMetaSchemaCache::instance().get_time_schema(input_vd.meta);
+        value::TupleView time_tuple;
+        if (time_schema && input_vd.time_data) {
+            value::View time_view(input_vd.time_data, time_schema);
+            time_tuple = time_view.as_tuple();
+        }
+
+        TSInput* owning_input = container_lt->active_notifier.owning_input;
+
+        size_t item_count = ref.size();
+        for (size_t i = 0; i < input_vd.meta->field_count && i < item_count; ++i) {
+            const TSMeta* field_meta = input_vd.meta->fields[i].ts_type;
+            const auto& item = ref[i];
+
+            if (item.is_empty() || !item.is_peered()) continue;
+
+            // Resolve this item's ShortPath to get the actual field target
+            TSView resolved;
+            try {
+                resolved = item.resolve(current_time);
+            } catch (...) {
+                continue;
+            }
+            if (!resolved) continue;
+
+            // Dereference if resolved target is itself REF
+            ViewData field_target_vd = resolved.view_data();
+            if (field_target_vd.meta && field_target_vd.meta->kind == TSKind::REF) {
+                auto inner = resolve_ref_link_target_from_vd(field_target_vd, current_time);
+                if (inner) field_target_vd = *inner;
+            }
+
+            if (field_meta && field_meta->is_scalar_ts()) {
+                auto* lt = static_cast<LinkTarget*>(link_tuple.at(i + 1).data());
+                if (lt) {
+                    store_to_link_target(*lt, field_target_vd);
+                    if (time_tuple) {
+                        lt->owner_time_ptr = static_cast<engine_time_t*>(time_tuple.at(i + 1).data());
+                    }
+                    lt->parent_link = container_lt;
+
+                    if (lt->observer_data) {
+                        auto* obs = static_cast<ObserverList*>(lt->observer_data);
+                        obs->add_observer(lt);
+                        field_subs.push_back({lt, lt->observer_data});
+
+                        if (owning_input && lt->active_notifier.owning_input == nullptr) {
+                            lt->active_notifier.owning_input = owning_input;
+                        }
+                        if (lt->active_notifier.owning_input != nullptr) {
+                            obs->add_observer(&lt->active_notifier);
+                        }
+                    }
+                }
+            } else {
+                // Composite field item: recursively bind
+                ViewData field_vd;
+                field_vd.link_data = link_tuple.at(i + 1).data();
+                field_vd.meta = field_meta;
+                field_vd.uses_link_target = input_vd.uses_link_target;
+                field_vd.ops = get_ts_ops(field_meta);
+                if (time_tuple) {
+                    field_vd.time_data = time_tuple.at(i + 1).data();
+                }
+                if (field_vd.ops && field_vd.ops->bind) {
+                    field_vd.ops->bind(field_vd, field_target_vd);
+                }
+            }
+        }
+    }
+
+    void bind_fields(const ViewData& resolved_vd, engine_time_t current_time) {
+        auto link_schema = get_bundle_link_schema(input_vd);
+        if (!link_schema) return;
+
+        value::View link_view(input_vd.link_data, link_schema);
+        auto link_tuple = link_view.as_tuple();
+
+        auto* time_schema = TSMetaSchemaCache::instance().get_time_schema(input_vd.meta);
+        value::TupleView time_tuple;
+        if (time_schema && input_vd.time_data) {
+            value::View time_view(input_vd.time_data, time_schema);
+            time_tuple = time_view.as_tuple();
+        }
+
+        // Get the owning input for active_notifier setup (stored on container_lt)
+        TSInput* owning_input = container_lt->active_notifier.owning_input;
+
+        for (size_t i = 0; i < input_vd.meta->field_count; ++i) {
+            const TSMeta* field_meta = input_vd.meta->fields[i].ts_type;
+
+            // Navigate to resolved target's field
+            if (!resolved_vd.ops) continue;
+            TSView target_field = resolved_vd.ops->child_at(resolved_vd, i, current_time);
+            if (!target_field) continue;
+
+            if (field_meta && field_meta->is_scalar_ts()) {
+                auto* lt = static_cast<LinkTarget*>(link_tuple.at(i + 1).data());
+                if (lt) {
+                    store_to_link_target(*lt, target_field.view_data());
+                    if (time_tuple) {
+                        lt->owner_time_ptr = static_cast<engine_time_t*>(time_tuple.at(i + 1).data());
+                    }
+                    lt->parent_link = container_lt;
+
+                    // Subscribe for time-accounting
+                    if (lt->observer_data) {
+                        auto* obs = static_cast<ObserverList*>(lt->observer_data);
+                        obs->add_observer(lt);
+                        field_subs.push_back({lt, lt->observer_data});
+
+                        // Also subscribe ActiveNotifier if input is active
+                        if (owning_input && lt->active_notifier.owning_input == nullptr) {
+                            lt->active_notifier.owning_input = owning_input;
+                        }
+                        if (lt->active_notifier.owning_input != nullptr) {
+                            obs->add_observer(&lt->active_notifier);
+                        }
+                    }
+                }
+            } else {
+                // Composite field: recursively bind using nested link storage
+                ViewData field_vd;
+                field_vd.link_data = link_tuple.at(i + 1).data();
+                field_vd.meta = field_meta;
+                field_vd.uses_link_target = input_vd.uses_link_target;
+                field_vd.ops = get_ts_ops(field_meta);
+                if (time_tuple) {
+                    field_vd.time_data = time_tuple.at(i + 1).data();
+                }
+                if (field_vd.ops && field_vd.ops->bind) {
+                    field_vd.ops->bind(field_vd, target_field.view_data());
+                }
+                // Set nested container's parent_link
+                if (container_lt) {
+                    auto nested_link_schema = get_bundle_link_schema(field_vd);
+                    if (nested_link_schema) {
+                        value::View nested_link(field_vd.link_data, nested_link_schema);
+                        auto nested_tuple = nested_link.as_tuple();
+                        auto* nested_container_lt = static_cast<LinkTarget*>(nested_tuple.at(0).data());
+                        if (nested_container_lt) {
+                            nested_container_lt->parent_link = container_lt;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Called when REF source changes - rebind to new target and schedule node
+    void notify(engine_time_t et) override {
+        // REF source changed - rebind field LinkTargets to new resolved target
+        rebind(et);
+
+        // Time-accounting: update container-level time
+        container_lt->notify(et);
+
+        // Schedule owning node if active
+        if (container_lt->active_notifier.owning_input) {
+            container_lt->active_notifier.notify(et);
+        }
+    }
+};
+
+void delete_bundle_ref_binding_helper(void* ptr) {
+    delete static_cast<BundleREFBindingHelper*>(ptr);
+}
+
 void bind(ViewData& vd, const ViewData& target) {
     // TSB: Bind the entire bundle to target
     // This binds all fields to corresponding fields in the target
@@ -1690,6 +2014,31 @@ void bind(ViewData& vd, const ViewData& target) {
         }
         // parent_link set by caller if this bundle is nested
         // Container LT is NOT subscribed to any observer — it receives from children
+    }
+
+    // Check if target is a REF type — need deferred binding via BundleREFBindingHelper
+    if (target.meta && target.meta->kind == TSKind::REF && vd.uses_link_target && container_lt) {
+        // Clean up existing REF binding if any
+        if (container_lt->ref_binding_) {
+            auto* old_helper = static_cast<BundleREFBindingHelper*>(container_lt->ref_binding_);
+            old_helper->unsubscribe_all();
+            if (container_lt->ref_binding_deleter_) {
+                container_lt->ref_binding_deleter_(container_lt->ref_binding_);
+            }
+            container_lt->ref_binding_ = nullptr;
+            container_lt->ref_binding_deleter_ = nullptr;
+        }
+
+        auto* helper = new BundleREFBindingHelper(container_lt, vd, target);
+        container_lt->ref_binding_ = helper;
+        container_lt->ref_binding_deleter_ = &delete_bundle_ref_binding_helper;
+
+        // Subscribe to REF source observer list for rebind notifications
+        helper->subscribe_to_ref_source();
+
+        // Initial resolve and bind (may succeed if REF already has a value)
+        helper->rebind(MIN_DT);
+        return;
     }
 
     // Get target field data for each field
@@ -1774,23 +2123,42 @@ void unbind(ViewData& vd) {
     value::View link_view(vd.link_data, link_schema);
     auto link_tuple = link_view.as_tuple();
 
+    // Clean up container-level BundleREFBindingHelper if present
+    if (vd.uses_link_target) {
+        auto* container_lt = static_cast<LinkTarget*>(link_tuple.at(0).data());
+        if (container_lt && container_lt->ref_binding_) {
+            auto* helper = static_cast<BundleREFBindingHelper*>(container_lt->ref_binding_);
+            helper->unsubscribe_all();
+            container_lt->cleanup_ref_binding();
+        }
+    }
+
     for (size_t i = 0; i < vd.meta->field_count; ++i) {
         const TSMeta* field_meta = vd.meta->fields[i].ts_type;
 
         if (field_meta && field_meta->is_scalar_ts()) {
             if (vd.uses_link_target) {
-                // TSInput: Unsubscribe both chains then clear LinkTarget
+                // TSInput: Unsubscribe both chains then clear LinkTarget.
+                // Delegate to scalar_ops::unbind to properly handle REFBindingHelper cleanup.
                 auto* lt = static_cast<LinkTarget*>(link_tuple.at(i + 1).data());
-                if (lt && lt->is_linked) {
-                    if (lt->observer_data) {
-                        auto* obs = static_cast<ObserverList*>(lt->observer_data);
-                        obs->remove_observer(lt);
-                        if (lt->active_notifier.owning_input != nullptr) {
-                            obs->remove_observer(&lt->active_notifier);
-                            lt->active_notifier.owning_input = nullptr;
+                if (lt) {
+                    if (lt->ref_binding_) {
+                        // REF binding: explicitly unsubscribe before deleting
+                        auto* helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+                        helper->unsubscribe_all();
+                        lt->cleanup_ref_binding();
+                        lt->clear();
+                    } else if (lt->is_linked) {
+                        if (lt->observer_data) {
+                            auto* obs = static_cast<ObserverList*>(lt->observer_data);
+                            obs->remove_observer(lt);
+                            if (lt->active_notifier.owning_input != nullptr) {
+                                obs->remove_observer(&lt->active_notifier);
+                                lt->active_notifier.owning_input = nullptr;
+                            }
                         }
+                        lt->clear();
                     }
-                    lt->clear();
                 }
             } else {
                 // TSOutput: Scalar field uses REFLink - unbind it
@@ -1824,8 +2192,19 @@ void unbind(ViewData& vd) {
 }
 
 bool is_bound(const ViewData& vd) {
-    // TSB is considered bound if any field is bound
-    return any_field_linked(vd);
+    // TSB is bound if any field is linked
+    if (any_field_linked(vd)) return true;
+
+    // Also bound if container has a BundleREFBindingHelper (REF target, fields not yet resolved)
+    if (vd.uses_link_target && vd.link_data && vd.meta) {
+        auto link_schema = get_bundle_link_schema(vd);
+        if (link_schema) {
+            value::View link_view(vd.link_data, link_schema);
+            auto* container_lt = static_cast<const LinkTarget*>(link_view.as_tuple().at(0).data());
+            if (container_lt && container_lt->ref_binding_) return true;
+        }
+    }
+    return false;
 }
 
 bool is_peered(const ViewData& vd) {
@@ -1919,6 +2298,20 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                         observers->remove_observer(input);
                     }
                 }
+            }
+        }
+    }
+
+    // Handle container-level active_notifier for BundleREFBindingHelper
+    // When a TSB is bound to a REF target, the container_lt needs owning_input
+    // so that BundleREFBindingHelper::rebind() can set up per-field active_notifiers
+    if (vd.uses_link_target && link_tuple) {
+        auto* container_lt = static_cast<LinkTarget*>(link_tuple.at(0).data());
+        if (container_lt && container_lt->ref_binding_) {
+            if (active) {
+                container_lt->active_notifier.owning_input = input;
+            } else {
+                container_lt->active_notifier.owning_input = nullptr;
             }
         }
     }
@@ -2593,14 +2986,43 @@ void bind(ViewData& vd, const ViewData& target) {
                 // TSInput: Use LinkTarget
                 auto* lt = static_cast<LinkTarget*>(link_list.at(i).data());
                 if (lt) {
-                    store_to_link_target(*lt, target_elem.view_data());
-                    // Mark peered: binding happened at the list level
-                    lt->peered = true;
-
                     // Set time-accounting chain
                     if (vd.time_data) {
                         lt->owner_time_ptr = static_cast<engine_time_t*>(vd.time_data);
                     }
+
+                    // Check if target element is REF - need REFBindingHelper
+                    const auto& elem_vd = target_elem.view_data();
+                    if (elem_vd.meta && elem_vd.meta->kind == TSKind::REF) {
+                        if (lt->ref_binding_) {
+                            auto* old_helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+                            old_helper->unsubscribe_all();
+                            if (lt->ref_binding_deleter_) {
+                                lt->ref_binding_deleter_(lt->ref_binding_);
+                            }
+                            lt->ref_binding_ = nullptr;
+                            lt->ref_binding_deleter_ = nullptr;
+                            lt->is_linked = false;
+                            lt->value_data = nullptr;
+                            lt->time_data = nullptr;
+                            lt->observer_data = nullptr;
+                            lt->delta_data = nullptr;
+                            lt->link_data = nullptr;
+                            lt->ops = nullptr;
+                            lt->meta = nullptr;
+                        }
+
+                        auto* helper = new REFBindingHelper(lt, elem_vd, false);
+                        lt->ref_binding_ = helper;
+                        lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+                        helper->subscribe_to_ref_source();
+                        helper->rebind(MIN_DT);
+                        continue;
+                    }
+
+                    store_to_link_target(*lt, elem_vd);
+                    // Mark peered: binding happened at the list level
+                    lt->peered = true;
 
                     // Subscribe for time-accounting
                     if (lt->observer_data) {
@@ -2631,14 +3053,43 @@ void bind(ViewData& vd, const ViewData& target) {
         if (!lt) {
             throw std::runtime_error("bind on list with invalid link data");
         }
-        store_to_link_target(*lt, target);
-        // Mark peered: binding happened at the list level
-        lt->peered = true;
 
         // Set time-accounting chain
         if (vd.time_data) {
             lt->owner_time_ptr = static_cast<engine_time_t*>(vd.time_data);
         }
+
+        // Check if target is REF - need REFBindingHelper
+        if (target.meta && target.meta->kind == TSKind::REF) {
+            if (lt->ref_binding_) {
+                auto* old_helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+                old_helper->unsubscribe_all();
+                if (lt->ref_binding_deleter_) {
+                    lt->ref_binding_deleter_(lt->ref_binding_);
+                }
+                lt->ref_binding_ = nullptr;
+                lt->ref_binding_deleter_ = nullptr;
+                lt->is_linked = false;
+                lt->value_data = nullptr;
+                lt->time_data = nullptr;
+                lt->observer_data = nullptr;
+                lt->delta_data = nullptr;
+                lt->link_data = nullptr;
+                lt->ops = nullptr;
+                lt->meta = nullptr;
+            }
+
+            auto* helper = new REFBindingHelper(lt, target, false);
+            lt->ref_binding_ = helper;
+            lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+            helper->subscribe_to_ref_source();
+            helper->rebind(MIN_DT);
+            return;
+        }
+
+        store_to_link_target(*lt, target);
+        // Mark peered: binding happened at the list level
+        lt->peered = true;
 
         // Subscribe for time-accounting
         if (lt->observer_data) {
@@ -2671,7 +3122,14 @@ void unbind(ViewData& vd) {
                 if (vd.uses_link_target) {
                     // TSInput: Unsubscribe both chains then clear
                     auto* lt = static_cast<LinkTarget*>(link_list.at(i).data());
-                    if (lt && lt->is_linked) {
+                    if (!lt) continue;
+
+                    if (lt->ref_binding_) {
+                        auto* helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+                        helper->unsubscribe_all();
+                        lt->cleanup_ref_binding();
+                        lt->clear();
+                    } else if (lt->is_linked) {
                         if (lt->observer_data) {
                             auto* obs = static_cast<ObserverList*>(lt->observer_data);
                             obs->remove_observer(lt);
@@ -2698,7 +3156,14 @@ void unbind(ViewData& vd) {
     if (vd.uses_link_target) {
         // TSInput: Unsubscribe both chains then clear
         auto* lt = get_link_target(vd.link_data);
-        if (lt && lt->is_linked) {
+        if (!lt) return;
+
+        if (lt->ref_binding_) {
+            auto* helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+            helper->unsubscribe_all();
+            lt->cleanup_ref_binding();
+            lt->clear();
+        } else if (lt->is_linked) {
             if (lt->observer_data) {
                 auto* obs = static_cast<ObserverList*>(lt->observer_data);
                 obs->remove_observer(lt);
@@ -2856,6 +3321,16 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                             observers->remove_observer(&lt->active_notifier);
                             lt->active_notifier.owning_input = nullptr;
                         }
+                    }
+                } else if (lt && lt->ref_binding_) {
+                    // REF binding exists but hasn't resolved yet.
+                    // Set owning_input so REFBindingHelper::rebind() can subscribe later.
+                    if (active) {
+                        if (lt->active_notifier.owning_input == nullptr) {
+                            lt->active_notifier.owning_input = input;
+                        }
+                    } else {
+                        lt->active_notifier.owning_input = nullptr;
                     }
                 }
             }
@@ -3401,12 +3876,41 @@ void bind(ViewData& vd, const ViewData& target) {
         if (!lt) {
             throw std::runtime_error("bind on TSS input with invalid link data");
         }
-        store_to_link_target(*lt, target);
 
         // Set time-accounting chain
         if (vd.time_data) {
             lt->owner_time_ptr = static_cast<engine_time_t*>(vd.time_data);
         }
+
+        // Check if target is REF - need REFBindingHelper
+        if (target.meta && target.meta->kind == TSKind::REF) {
+            if (lt->ref_binding_) {
+                auto* old_helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+                old_helper->unsubscribe_all();
+                if (lt->ref_binding_deleter_) {
+                    lt->ref_binding_deleter_(lt->ref_binding_);
+                }
+                lt->ref_binding_ = nullptr;
+                lt->ref_binding_deleter_ = nullptr;
+                lt->is_linked = false;
+                lt->value_data = nullptr;
+                lt->time_data = nullptr;
+                lt->observer_data = nullptr;
+                lt->delta_data = nullptr;
+                lt->link_data = nullptr;
+                lt->ops = nullptr;
+                lt->meta = nullptr;
+            }
+
+            auto* helper = new REFBindingHelper(lt, target, false);
+            lt->ref_binding_ = helper;
+            lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+            helper->subscribe_to_ref_source();
+            helper->rebind(MIN_DT);
+            return;
+        }
+
+        store_to_link_target(*lt, target);
 
         // Subscribe for time-accounting
         if (lt->observer_data) {
@@ -3433,7 +3937,14 @@ void unbind(ViewData& vd) {
 
     if (vd.uses_link_target) {
         auto* lt = get_link_target(vd.link_data);
-        if (lt && lt->is_linked) {
+        if (!lt) return;
+
+        if (lt->ref_binding_) {
+            auto* helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+            helper->unsubscribe_all();
+            lt->cleanup_ref_binding();
+            lt->clear();
+        } else if (lt->is_linked) {
             if (lt->observer_data) {
                 auto* obs = static_cast<ObserverList*>(lt->observer_data);
                 obs->remove_observer(lt);
@@ -3457,7 +3968,7 @@ bool is_bound(const ViewData& vd) {
 
     if (vd.uses_link_target) {
         auto* lt = get_link_target(vd.link_data);
-        return lt && lt->is_linked;
+        return lt && (lt->is_linked || lt->ref_binding_);
     } else {
         auto* rl = get_ref_link(vd.link_data);
         return rl && rl->target().is_linked;
@@ -3636,6 +4147,16 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                         observers->remove_observer(&lt->active_notifier);
                         lt->active_notifier.owning_input = nullptr;
                     }
+                }
+            } else if (lt && lt->ref_binding_) {
+                // REF binding exists but hasn't resolved yet.
+                // Set owning_input so REFBindingHelper::rebind() can subscribe later.
+                if (active) {
+                    if (lt->active_notifier.owning_input == nullptr) {
+                        lt->active_notifier.owning_input = input;
+                    }
+                } else {
+                    lt->active_notifier.owning_input = nullptr;
                 }
             }
         } else {
@@ -4090,18 +4611,22 @@ nb::object delta_to_python(const ViewData& vd) {
     nb::dict result;
 
     // Iterate modified elements for delta output.
-    // Use MapDelta when it has entries (populated by dict_set/dict_remove via SlotObserver).
-    // Fall back to time-based check when delta is empty/unavailable (elements modified
-    // through other paths like element-level set_value).
+    // Two-pass approach:
+    // Pass 1: MapDelta modified slots (catches structurally-added elements, especially
+    //         REF elements whose targets may have been modified in a prior tick).
+    // Pass 2: Time-based scan over ALL live elements (catches elements modified via
+    //         forwarded outputs from nested graphs, which don't update MapDelta).
     auto& key_set = storage->key_set();
     const TSMeta* elem_ts = vd.meta->element_ts;
     bool elem_is_ref = (elem_ts && elem_ts->kind == TSKind::REF);
 
     MapDelta* map_delta_ptr = vd.delta_data ? static_cast<MapDelta*>(vd.delta_data) : nullptr;
-    bool use_delta = map_delta_ptr && !map_delta_ptr->modified().empty();
 
-    if (use_delta) {
-        // Use delta's modified slots (added + updated) — populated by from_python / dict_set
+    // Track slots already emitted to avoid duplicates between passes
+    std::unordered_set<size_t> emitted_slots;
+
+    // Pass 1: MapDelta modified slots
+    if (map_delta_ptr && !map_delta_ptr->modified().empty()) {
         for (auto slot : map_delta_ptr->modified()) {
             if (slot < time_list.size()) {
                 if (elem_is_ref) {
@@ -4114,6 +4639,7 @@ nb::object delta_to_python(const ViewData& vd) {
                             nb::object py_val = target.view_data().ops->to_python(target.view_data());
                             if (!py_val.is_none()) {
                                 result[key_view.to_python()] = py_val;
+                                emitted_slots.insert(slot);
                             }
                         }
                     }
@@ -4124,41 +4650,43 @@ nb::object delta_to_python(const ViewData& vd) {
                         void* val_data = storage->value_at_slot(slot);
                         value::View val_view(val_data, val_tm);
                         result[key_view.to_python()] = val_view.to_python();
+                        emitted_slots.insert(slot);
                     }
                 }
             }
         }
-    } else {
-        // Delta not available or empty — fall back to time-based modification check
-        auto* index_set = key_set.index_set();
-        if (index_set) {
-            for (auto slot : *index_set) {
-                if (slot < time_list.size()) {
-                    engine_time_t elem_time = time_list.at(slot).as<engine_time_t>();
-                    if (elem_is_ref) {
-                        auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
-                        if (ref && !ref->is_empty()) {
-                            TSView target = ref->resolve(container_time);
-                            if (target && target.view_data().ops) {
-                                engine_time_t target_time = target.view_data().ops->last_modified_time(target.view_data());
-                                if (target_time >= container_time) {
-                                    const void* key_data = key_set.key_at_slot(slot);
-                                    value::View key_view(key_data, key_tm);
-                                    nb::object py_val = target.view_data().ops->to_python(target.view_data());
-                                    if (!py_val.is_none()) {
-                                        result[key_view.to_python()] = py_val;
-                                    }
+    }
+
+    // Pass 2: Time-based scan over ALL live elements
+    auto* index_set = key_set.index_set();
+    if (index_set) {
+        for (auto slot : *index_set) {
+            if (emitted_slots.count(slot)) continue;
+            if (slot < time_list.size()) {
+                engine_time_t elem_time = time_list.at(slot).as<engine_time_t>();
+                if (elem_is_ref) {
+                    auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
+                    if (ref && !ref->is_empty()) {
+                        TSView target = ref->resolve(container_time);
+                        if (target && target.view_data().ops) {
+                            engine_time_t target_time = target.view_data().ops->last_modified_time(target.view_data());
+                            if (target_time >= container_time) {
+                                const void* key_data = key_set.key_at_slot(slot);
+                                value::View key_view(key_data, key_tm);
+                                nb::object py_val = target.view_data().ops->to_python(target.view_data());
+                                if (!py_val.is_none()) {
+                                    result[key_view.to_python()] = py_val;
                                 }
                             }
                         }
-                    } else if (elem_time >= container_time) {
-                        const void* key_data = key_set.key_at_slot(slot);
-                        value::View key_view(key_data, key_tm);
-                        if (val_tm && val_tm->ops) {
-                            void* val_data = storage->value_at_slot(slot);
-                            value::View val_view(val_data, val_tm);
-                            result[key_view.to_python()] = val_view.to_python();
-                        }
+                    }
+                } else if (elem_time >= container_time) {
+                    const void* key_data = key_set.key_at_slot(slot);
+                    value::View key_view(key_data, key_tm);
+                    if (val_tm && val_tm->ops) {
+                        void* val_data = storage->value_at_slot(slot);
+                        value::View val_view(val_data, val_tm);
+                        result[key_view.to_python()] = val_view.to_python();
                     }
                 }
             }
@@ -4465,14 +4993,43 @@ void bind(ViewData& vd, const ViewData& target) {
         if (!lt) {
             throw std::runtime_error("bind on dict with invalid link data");
         }
-        store_to_link_target(*lt, target);
-        // Mark peered: binding happened at the dict level
-        lt->peered = true;
 
         // Set time-accounting chain
         if (vd.time_data) {
             lt->owner_time_ptr = static_cast<engine_time_t*>(vd.time_data);
         }
+
+        // Check if target is REF - need REFBindingHelper
+        if (target.meta && target.meta->kind == TSKind::REF) {
+            if (lt->ref_binding_) {
+                auto* old_helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+                old_helper->unsubscribe_all();
+                if (lt->ref_binding_deleter_) {
+                    lt->ref_binding_deleter_(lt->ref_binding_);
+                }
+                lt->ref_binding_ = nullptr;
+                lt->ref_binding_deleter_ = nullptr;
+                lt->is_linked = false;
+                lt->value_data = nullptr;
+                lt->time_data = nullptr;
+                lt->observer_data = nullptr;
+                lt->delta_data = nullptr;
+                lt->link_data = nullptr;
+                lt->ops = nullptr;
+                lt->meta = nullptr;
+            }
+
+            auto* helper = new REFBindingHelper(lt, target, false);
+            lt->ref_binding_ = helper;
+            lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+            helper->subscribe_to_ref_source();
+            helper->rebind(MIN_DT);
+            return;
+        }
+
+        store_to_link_target(*lt, target);
+        // Mark peered: binding happened at the dict level
+        lt->peered = true;
 
         // Subscribe for time-accounting
         if (lt->observer_data) {
@@ -4497,7 +5054,14 @@ void unbind(ViewData& vd) {
     if (vd.uses_link_target) {
         // TSInput: Unsubscribe both chains then clear
         auto* lt = get_link_target(vd.link_data);
-        if (lt && lt->is_linked) {
+        if (!lt) return;
+
+        if (lt->ref_binding_) {
+            auto* helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+            helper->unsubscribe_all();
+            lt->cleanup_ref_binding();
+            lt->clear();
+        } else if (lt->is_linked) {
             if (lt->observer_data) {
                 auto* obs = static_cast<ObserverList*>(lt->observer_data);
                 obs->remove_observer(lt);
@@ -4521,7 +5085,7 @@ bool is_bound(const ViewData& vd) {
     if (vd.uses_link_target) {
         // TSInput: Use LinkTarget
         auto* lt = get_link_target(vd.link_data);
-        return lt && lt->is_linked;
+        return lt && (lt->is_linked || lt->ref_binding_);
     } else {
         // TSOutput: Use REFLink
         auto* rl = get_ref_link(vd.link_data);
@@ -4836,6 +5400,16 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                         observers->remove_observer(&lt->active_notifier);
                         lt->active_notifier.owning_input = nullptr;
                     }
+                }
+            } else if (lt && lt->ref_binding_) {
+                // REF binding exists but hasn't resolved yet.
+                // Set owning_input so REFBindingHelper::rebind() can subscribe later.
+                if (active) {
+                    if (lt->active_notifier.owning_input == nullptr) {
+                        lt->active_notifier.owning_input = input;
+                    }
+                } else {
+                    lt->active_notifier.owning_input = nullptr;
                 }
             }
         } else {

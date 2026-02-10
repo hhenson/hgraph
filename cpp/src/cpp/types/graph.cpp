@@ -4,6 +4,8 @@
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/traits.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
@@ -180,6 +182,24 @@ namespace hgraph
     void Graph::reduce_graph(int64_t start_node) {
         auto end{_nodes.size()};
         if (is_started()) { stop_subgraph(start_node, end); }
+
+        // Unbind inputs of removed nodes AFTER stop but BEFORE dispose.
+        // This unsubscribes REFBindingHelpers from observer lists of surviving nodes,
+        // preventing dangling Notifiable* pointers when these nodes are destroyed.
+        // (Matches Python Node.stop() which calls un_bind_output(unbind_refs=True).)
+        // We only do this in reduce_graph (partial teardown), NOT in full graph stop,
+        // because full stop destroys all nodes together and doesn't leave dangling refs.
+        for (auto i = start_node; i < static_cast<int64_t>(end); ++i) {
+            auto& node = _nodes[i];
+            if (node->ts_input()) {
+                ViewData vd = node->ts_input()->value().make_view_data();
+                vd.uses_link_target = true;
+                if (vd.ops && vd.ops->unbind) {
+                    vd.ops->unbind(vd);
+                }
+            }
+        }
+
         dispose_subgraph(start_node, end);
 
         _nodes.erase(_nodes.begin() + start_node, _nodes.end());

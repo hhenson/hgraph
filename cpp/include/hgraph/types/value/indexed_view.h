@@ -24,6 +24,9 @@
 #include <hgraph/types/value/composite_ops.h>
 #include <hgraph/types/value/cyclic_buffer_ops.h>
 #include <hgraph/types/value/queue_ops.h>
+#ifndef NDEBUG
+#include <execinfo.h>
+#endif
 
 #include <cstddef>
 #include <iterator>
@@ -1430,6 +1433,19 @@ inline std::optional<QueueView> View::try_as_queue() const {
 
 inline TupleView View::as_tuple() const {
     if (!is_tuple()) {
+        #ifndef NDEBUG
+        fprintf(stderr, "[AS_TUPLE] FAIL: data=%p schema=%p schema_kind=%d schema_name=%s\n",
+                _data, (void*)_schema, _schema ? static_cast<int>(_schema->kind) : -1,
+                _schema && _schema->name ? _schema->name : "<null>");
+        // Print stack trace for debugging
+        void* callstack[20];
+        int frames = backtrace(callstack, 20);
+        char** strs = backtrace_symbols(callstack, frames);
+        for (int i = 0; i < frames && i < 8; ++i) {
+            fprintf(stderr, "  [%d] %s\n", i, strs[i]);
+        }
+        free(strs);
+        #endif
         throw std::runtime_error("Not a tuple type");
     }
     TupleView result(_data, _schema);

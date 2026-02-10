@@ -5,8 +5,10 @@
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_input_view.h>
 #include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/time_series/view_data.h>
 #include <ranges>
 #include <sstream>
 
@@ -763,10 +765,6 @@ namespace hgraph
             Node *node;
 
             ~Cleanup() {
-                // TSInput cleanup is handled via unbind when needed
-                if (node->ts_input_) {
-                    // TODO: Add TSInput unbind handling if needed
-                }
                 if (node->has_scheduler()) { node->scheduler()->reset(); }
             }
         } cleanup{this};

@@ -112,6 +112,24 @@ namespace hgraph
                 try {
                     TSView resolved = self.resolve(self.resolve_time());
                     if (resolved) {
+                        // If the resolved target is itself a REF (e.g., TSD element of type REF[TSB]),
+                        // follow the indirection: read the inner TSReference and resolve it
+                        // to get the actual underlying output (e.g., the TSB).
+                        const auto& vd = resolved.view_data();
+                        if (vd.meta && vd.meta->kind == TSKind::REF) {
+                            auto val = resolved.value();
+                            if (val.valid()) {
+                                TSReference inner_ref = val.as<TSReference>();
+                                if (inner_ref.is_peered()) {
+                                    inner_ref.set_resolve_time(self.resolve_time());
+                                    TSView target = inner_ref.resolve(self.resolve_time());
+                                    if (target) {
+                                        TSOutputView target_ov(std::move(target), nullptr);
+                                        return wrap_output_view(std::move(target_ov));
+                                    }
+                                }
+                            }
+                        }
                         TSOutputView output_view(std::move(resolved), nullptr);
                         return wrap_output_view(std::move(output_view));
                     }
@@ -203,57 +221,145 @@ namespace hgraph
     void PyTimeSeriesReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesReferenceOutput, PyTimeSeriesOutput>(m, "TimeSeriesReferenceOutput")
             .def("__str__", &PyTimeSeriesReferenceOutput::to_string)
-            .def("__repr__", &PyTimeSeriesReferenceOutput::to_repr);
+            .def("__repr__", &PyTimeSeriesReferenceOutput::to_repr)
+            .def("__getitem__", [](PyTimeSeriesReferenceOutput& self, nb::object key) -> nb::object {
+                // Resolve through the REF to get the underlying output, then navigate
+                const auto& ov = self.output_view();
+                const auto& vd = ov.ts_view().view_data();
+                if (!vd.meta || vd.meta->kind != TSKind::REF) {
+                    throw nb::index_error("TimeSeriesReferenceOutput: not a REF kind");
+                }
+                auto val = ov.ts_view().value();
+                if (!val.valid()) {
+                    throw nb::index_error("TimeSeriesReferenceOutput: REF has no value");
+                }
+                TSReference inner_ref = val.as<TSReference>();
+                if (!inner_ref.is_peered()) {
+                    throw nb::index_error("TimeSeriesReferenceOutput: REF is not peered");
+                }
+                inner_ref.set_resolve_time(ov.ts_view().current_time());
+                TSView target = inner_ref.resolve(ov.ts_view().current_time());
+                if (!target) {
+                    throw nb::index_error("TimeSeriesReferenceOutput: could not resolve REF target");
+                }
+                // Navigate to child by string name or integer index
+                TSOutputView target_ov(std::move(target), nullptr);
+                if (nb::isinstance<nb::str>(key)) {
+                    std::string name = nb::cast<std::string>(key);
+                    TSOutputView child = target_ov.field(name);
+                    return wrap_output_view(std::move(child));
+                } else if (nb::isinstance<nb::int_>(key)) {
+                    size_t idx = nb::cast<size_t>(key);
+                    TSOutputView child = target_ov[idx];
+                    return wrap_output_view(std::move(child));
+                }
+                throw nb::type_error("TimeSeriesReferenceOutput: key must be str or int");
+            });
     }
 
     // Base REF Input constructor
     PyTimeSeriesReferenceInput::PyTimeSeriesReferenceInput(TSInputView view)
         : PyTimeSeriesInput(std::move(view)) {}
 
+    // Helper: given a REF output's stored TSReference, return the appropriate Python
+    // TimeSeriesReference object. Matches Python's PythonTimeSeriesReferenceOutput.value
+    // which returns NonPeeredTimeSeriesReference(self._tp) for concrete outputs.
+    static nb::object ref_output_value_to_python(const TSReference& stored_ref, engine_time_t time) {
+        if (stored_ref.is_peered()) {
+            // PEERED inner ref → resolve to concrete output → BoundTimeSeriesReference
+            TSReference ref_copy = stored_ref;
+            ref_copy.set_resolve_time(time);
+            TSView target = ref_copy.resolve(time);
+            if (target) {
+                TSOutputView ov(std::move(target), nullptr);
+                nb::object wrapper = wrap_output_view(std::move(ov));
+                auto ref_module = nb::module_::import_("hgraph._types._ref_type");
+                auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
+                return make_fn(wrapper);
+            }
+        }
+        if (stored_ref.is_non_peered()) {
+            // NON_PEERED → return as-is (dereference uses .items path)
+            TSReference ref_copy = stored_ref;
+            ref_copy.set_resolve_time(time);
+            return nb::cast(std::move(ref_copy));
+        }
+        return nb::cast(TSReference::empty());
+    }
+
+    // Helper: wrap a concrete (non-REF) output TSView as BoundTimeSeriesReference
+    static nb::object make_bound_ref(TSView&& target_view) {
+        TSOutputView ov(std::move(target_view), nullptr);
+        nb::object wrapper = wrap_output_view(std::move(ov));
+        auto ref_module = nb::module_::import_("hgraph._types._ref_type");
+        auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
+        return make_fn(wrapper);
+    }
+
     nb::object PyTimeSeriesReferenceInput::ref_value() const {
         // Match Python PythonTimeSeriesReferenceInput.value semantics:
-        // For non-peered binding (TS→REF): return BoundTimeSeriesReference(output_wrapper)
-        // For peered binding (REF→REF): return the output's TSReference value via to_python
+        //   if self._output is not None: return self._output.value
+        //   return self._value
         //
-        // In the C++ value-stack, a non-peered REF input has a LinkTarget pointing to
-        // the target's TS data (with non-REF ops/meta). We detect non-peered binding by
-        // checking if the LinkTarget's target meta kind differs from REF.
+        // Three binding scenarios:
+        // 1. TS→REF (non-peered): LinkTarget points to non-REF output → BoundTimeSeriesReference
+        // 2. REF→REF (peered): LinkTarget points to REF output → read output's stored ref
+        // 3. Unbound/direct: TSReference stored in own value_data → may need resolution
 
         const auto& iv = input_view();
         const auto& vd = iv.ts_view().view_data();
+        const engine_time_t time = iv.ts_view().current_time();
 
         if (vd.uses_link_target && vd.link_data) {
             auto* lt = static_cast<const LinkTarget*>(vd.link_data);
-            if (lt->is_linked && lt->meta && lt->meta->kind != TSKind::REF) {
-                // Non-peered binding: the target is a non-REF output (e.g., TS[float]).
-                // Construct a TSOutputView from the LinkTarget's data and wrap it,
-                // then create BoundTimeSeriesReference via Python.
-                ViewData target_vd;
-                target_vd.path = lt->target_path;
-                target_vd.value_data = lt->value_data;
-                target_vd.time_data = lt->time_data;
-                target_vd.observer_data = lt->observer_data;
-                target_vd.delta_data = lt->delta_data;
-                target_vd.link_data = lt->link_data;
-                target_vd.ops = lt->ops;
-                target_vd.meta = lt->meta;
+            if (lt->is_linked && lt->meta) {
+                if (lt->meta->kind != TSKind::REF) {
+                    // Case 1: Non-peered binding (TS→REF) → BoundTimeSeriesReference
+                    ViewData target_vd;
+                    target_vd.path = lt->target_path;
+                    target_vd.value_data = lt->value_data;
+                    target_vd.time_data = lt->time_data;
+                    target_vd.observer_data = lt->observer_data;
+                    target_vd.delta_data = lt->delta_data;
+                    target_vd.link_data = lt->link_data;
+                    target_vd.ops = lt->ops;
+                    target_vd.meta = lt->meta;
 
-                TSView target_view(target_vd, iv.ts_view().current_time());
-                TSOutputView target_output_view(std::move(target_view), nullptr);
-                nb::object output_wrapper = wrap_output_view(std::move(target_output_view));
-
-                // Create BoundTimeSeriesReference via Python TimeSeriesReference.make(output)
-                auto ref_module = nb::module_::import_("hgraph._types._ref_type");
-                auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
-                return make_fn(output_wrapper);
+                    return make_bound_ref(TSView(target_vd, time));
+                }
+                if (lt->value_data) {
+                    // Case 2: REF→REF (peered) → read the output's stored TSReference
+                    auto* output_ref = static_cast<const TSReference*>(lt->value_data);
+                    return ref_output_value_to_python(*output_ref, time);
+                }
             }
         }
 
-        // Peered (REF→REF) or unbound: read TSReference directly from value data
+        // Case 3: Unbound/direct — TSReference in own value_data
+        // Used by reduce inner stubs where set_ref_input_value writes directly.
         auto val = iv.ts_view().value();
         if (val.valid()) {
             TSReference ref = val.as<TSReference>();
-            ref.set_resolve_time(iv.ts_view().current_time());
+            if (ref.is_peered()) {
+                // Resolve the PEERED ref to its target
+                ref.set_resolve_time(time);
+                TSView resolved = ref.resolve(time);
+                if (resolved && resolved.view_data().meta) {
+                    if (resolved.view_data().meta->kind == TSKind::REF) {
+                        // Target is a REF output → return what IT stores
+                        // (matches Python: self._output.value where _output is REF output)
+                        auto inner_val = resolved.value();
+                        if (inner_val.valid()) {
+                            return ref_output_value_to_python(inner_val.as<TSReference>(), time);
+                        }
+                        return nb::cast(TSReference::empty());
+                    }
+                    // Target is concrete output → BoundTimeSeriesReference
+                    return make_bound_ref(std::move(resolved));
+                }
+            }
+            // NON_PEERED or EMPTY: return as-is
+            ref.set_resolve_time(time);
             return nb::cast(std::move(ref));
         }
         return nb::cast(TSReference::empty());

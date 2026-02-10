@@ -477,9 +477,17 @@ void ScalarOps<TSReference>::from_python(void* dst, const nb::object& src, const
             return;
         }
 
-        // Otherwise it's UnBoundTimeSeriesReference with items
-        // TODO: Handle UnBoundTimeSeriesReference
-        ref = TSReference::empty();
+        // UnBoundTimeSeriesReference with items — recursively convert
+        nb::object items_obj = src.attr("items");
+        nb::list items_list = nb::cast<nb::list>(items_obj);
+        std::vector<TSReference> items;
+        items.reserve(nb::len(items_list));
+        for (size_t i = 0; i < nb::len(items_list); ++i) {
+            TSReference item_ref;
+            from_python(&item_ref, nb::borrow(items_list[i]), nullptr);
+            items.push_back(std::move(item_ref));
+        }
+        ref = TSReference::non_peered(std::move(items));
         return;
     }
 
