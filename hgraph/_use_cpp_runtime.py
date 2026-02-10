@@ -188,12 +188,11 @@ if is_feature_enabled("use_cpp"):
                 def factory(signature, scalars, input_builder, output_builder, error_builder,
                             recordable_state_builder=None, nested_graph=None,
                             input_node_ids=None, output_node_id=None, **_kwargs):
+                    input_node_ids_ = dict(input_node_ids) if input_node_ids is not None else {}
                     if normalize_ids:
-                        input_node_ids_ = dict(input_node_ids) if input_node_ids is not None else {}
                         output_node_id_ = -1 if output_node_id in (None, 0) else int(output_node_id)
                     else:
-                        input_node_ids_ = input_node_ids
-                        output_node_id_ = output_node_id
+                        output_node_id_ = -1 if output_node_id is None else int(output_node_id)
                     return cpp_class(
                         signature, scalars, input_builder, output_builder, error_builder,
                         recordable_state_builder, nested_graph, input_node_ids_, output_node_id_,

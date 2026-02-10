@@ -259,7 +259,8 @@ namespace hgraph
     void tss_register_with_nanobind(nb::module_ &m) {
         // Register non-templated wrapper classes
         auto tss_input = nb::class_<PyTimeSeriesSetInput, PyTimeSeriesInput>(m, "TimeSeriesSetInput");
-        tss_input.def("__contains__", &PyTimeSeriesSetInput::contains)
+        tss_input.def_prop_ro("value", &PyTimeSeriesSetInput::value)
+            .def("__contains__", &PyTimeSeriesSetInput::contains)
             .def("__len__", &PyTimeSeriesSetInput::size)
             .def("empty", &PyTimeSeriesSetInput::empty)
             .def("values", &PyTimeSeriesSetInput::values)
@@ -271,7 +272,8 @@ namespace hgraph
             .def("__repr__", &PyTimeSeriesSetInput::py_repr);
 
         auto tss_output = nb::class_<PyTimeSeriesSetOutput, PyTimeSeriesOutput>(m, "TimeSeriesSetOutput");
-        tss_output.def("__contains__", &PyTimeSeriesSetOutput::contains)
+        tss_output.def_prop_rw("value", &PyTimeSeriesSetOutput::value, &PyTimeSeriesOutput::set_value, nb::arg("value").none())
+            .def("__contains__", &PyTimeSeriesSetOutput::contains)
             .def("__len__", &PyTimeSeriesSetOutput::size)
             .def("empty", &PyTimeSeriesSetOutput::empty)
             .def("values", &PyTimeSeriesSetOutput::values)

@@ -240,6 +240,11 @@ namespace hgraph {
                         }
                     }
 
+                    // Unbind old binding first (cleans up REFBindingHelper if
+                    // the original wiring bound through a REF output)
+                    if (dst_input_view.ts_view().is_bound()) {
+                        dst_input_view.ts_view().unbind();
+                    }
                     // Re-bind the destination input to the upstream data
                     dst_input_view.ts_view().bind(src_view);
                 }

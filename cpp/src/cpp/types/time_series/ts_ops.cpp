@@ -2010,18 +2010,42 @@ void bind(ViewData& vd, const ViewData& target) {
                 // TSInput: Scalar field uses LinkTarget
                 auto* lt = static_cast<LinkTarget*>(link_tuple.at(i + 1).data());
                 if (lt) {
-                    store_to_link_target(*lt, target_field.view_data());
+                    const auto& target_vd = target_field.view_data();
 
-                    // Set time-accounting chain
-                    if (time_tuple) {
-                        lt->owner_time_ptr = static_cast<engine_time_t*>(time_tuple.at(i + 1).data());
-                    }
-                    lt->parent_link = container_lt;
+                    // Check if target field is REF kind but input field is not REF.
+                    // This requires REFBindingHelper for auto-dereference (TS→REF mode).
+                    // Without this, the LinkTarget would store the REF's raw data
+                    // (TimeSeriesReference) instead of the dereferenced value.
+                    if (target_vd.meta && target_vd.meta->kind == TSKind::REF
+                        && field_meta->kind != TSKind::REF) {
+                        // Set parent_link before delegating to scalar bind
+                        lt->parent_link = container_lt;
 
-                    // Subscribe for time-accounting (always, regardless of active state)
-                    if (lt->observer_data) {
-                        auto* obs = static_cast<ObserverList*>(lt->observer_data);
-                        obs->add_observer(lt);
+                        // Construct field ViewData and delegate to scalar bind
+                        // which creates REFBindingHelper for REF targets
+                        ViewData field_vd;
+                        field_vd.link_data = lt;
+                        field_vd.meta = field_meta;
+                        field_vd.uses_link_target = true;
+                        field_vd.ops = get_ts_ops(field_meta);
+                        if (time_tuple) {
+                            field_vd.time_data = time_tuple.at(i + 1).data();
+                        }
+                        field_vd.ops->bind(field_vd, target_vd);
+                    } else {
+                        store_to_link_target(*lt, target_vd);
+
+                        // Set time-accounting chain
+                        if (time_tuple) {
+                            lt->owner_time_ptr = static_cast<engine_time_t*>(time_tuple.at(i + 1).data());
+                        }
+                        lt->parent_link = container_lt;
+
+                        // Subscribe for time-accounting (always, regardless of active state)
+                        if (lt->observer_data) {
+                            auto* obs = static_cast<ObserverList*>(lt->observer_data);
+                            obs->add_observer(lt);
+                        }
                     }
                 }
             } else {
