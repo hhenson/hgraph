@@ -995,6 +995,7 @@ namespace hgraph
             auto instance = value;
             owning_graph()->evaluation_engine_api()->add_after_evaluation_notification(
                 [builder, instance]() { builder->release_instance(instance.get()); });
+            instance->un_bind_output(true);
         }
 
         _removed_items.clear();
