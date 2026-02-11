@@ -134,6 +134,20 @@ else ()
     message(STATUS "Found fmt via Conan/system: ${fmt_DIR}")
 endif ()
 
+# sul::dynamic_bitset - header-only library for dynamic bitsets (used by KeySet)
+find_package(dynamic_bitset CONFIG QUIET)
+if (NOT dynamic_bitset_FOUND)
+    message(STATUS "dynamic_bitset not found via find_package, using FetchContent")
+    include(FetchContent)
+    FetchContent_Declare(
+        dynamic_bitset
+        GIT_REPOSITORY https://github.com/pinam45/dynamic_bitset.git
+        GIT_TAG v1.2.0
+    )
+    FetchContent_MakeAvailable(dynamic_bitset)
+else ()
+    message(STATUS "Found dynamic_bitset via Conan/system: ${dynamic_bitset_DIR}")
+endif ()
 
 # backward-cpp via package or FetchContent (optional)
 if (HGRAPH_WITH_BACKWARD)

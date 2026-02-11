@@ -1771,20 +1771,9 @@ inline void QueueView::pop() {
 // ============================================================================
 
 inline ConstValueView ConstSetView::const_iterator::operator*() const {
-    // Access the SetStorage to get the element at the current iteration position
-    auto* storage = static_cast<const SetStorage*>(_data);
-
-    if (!storage->index_set || _index >= storage->index_set->size()) {
-        throw std::out_of_range("Set iterator out of range");
-    }
-
-    // ankerl::unordered_dense::set supports random access via its vector backend
-    auto it = storage->index_set->begin();
-    std::advance(it, _index);
-    size_t storage_idx = *it;
-
-    // Return a view of the element at this storage index
-    return ConstValueView(storage->get_element_ptr(storage_idx), _schema->element_type);
+    // Delegate to the ops layer's at() which iterates KeySet alive slots
+    const void* elem = _schema->ops().at(_data, _index, _schema);
+    return ConstValueView(elem, _schema->element_type);
 }
 
 // ============================================================================
@@ -1795,18 +1784,16 @@ inline ConstValueView ConstKeySetView::const_iterator::operator*() const {
     // Access the MapStorage to get the key at the current iteration position
     auto* storage = static_cast<const MapStorage*>(_view->data());
 
-    if (!storage->index_set() || _index >= storage->index_set()->size()) {
+    if (_index >= storage->size()) {
         throw std::out_of_range("Key set iterator out of range");
     }
 
-    // Get the storage index at this iteration position
-    auto it = storage->index_set()->begin();
+    // Iterate KeySet alive slots to find the n-th key
+    auto it = storage->key_set().begin();
     std::advance(it, _index);
-    size_t storage_idx = *it;
+    size_t slot = *it;
 
-    // Return a view of the key at this storage index
-    const void* key_ptr = storage->get_key_ptr(storage_idx);
-    return ConstValueView(key_ptr, _view->element_type());
+    return ConstValueView(storage->key_at_slot(slot), _view->element_type());
 }
 
 } // namespace hgraph::value
