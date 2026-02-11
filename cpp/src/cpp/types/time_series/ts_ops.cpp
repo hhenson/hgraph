@@ -2886,11 +2886,13 @@ TSView child_at(const ViewData& vd, size_t index, engine_time_t current_time) {
             if (vd.uses_link_target) {
                 // TSInput: Check LinkTarget
                 auto* lt = static_cast<LinkTarget*>(link_view.as_list().at(index).data());
-                if (lt && lt->valid()) {
-                    // Element is linked - return TSView pointing to target
+                if (lt && lt->valid() && elem_meta->kind != TSKind::REF) {
+                    // Non-REF element: delegate to target (standard peered binding)
                     ViewData target_vd = make_view_data_from_link_target(*lt, vd.path.child(index));
                     return TSView(target_vd, current_time);
                 }
+                // REF elements fall through to Phase 4 which preserves REF meta and
+                // sets link_data to the element's LinkTarget (needed by ref_value()).
             } else {
                 // TSOutput: Check REFLink
                 auto* rl = static_cast<REFLink*>(link_view.as_list().at(index).data());
@@ -3096,9 +3098,26 @@ void bind(ViewData& vd, const ViewData& target) {
                             lt->meta = nullptr;
                         }
 
-                        auto* helper = new REFBindingHelper(lt, elem_vd, false);
+                        bool is_ref_to_ref = (vd.meta->element_ts &&
+                                              vd.meta->element_ts->kind == TSKind::REF);
+                        auto* helper = new REFBindingHelper(lt, elem_vd, is_ref_to_ref);
                         lt->ref_binding_ = helper;
                         lt->ref_binding_deleter_ = &delete_ref_binding_helper;
+
+                        if (is_ref_to_ref) {
+                            // REF→REF: Store REF source data in LinkTarget so that
+                            // ref_value() can read the TSReference (matches scalar bind lines 738-751).
+                            lt->is_linked = true;
+                            lt->target_path = elem_vd.path;
+                            lt->value_data = elem_vd.value_data;
+                            lt->time_data = elem_vd.time_data;
+                            lt->observer_data = nullptr;
+                            lt->delta_data = elem_vd.delta_data;
+                            lt->link_data = nullptr;
+                            lt->ops = elem_vd.ops;
+                            lt->meta = elem_vd.meta;  // Preserves REF identity
+                        }
+
                         helper->subscribe_to_ref_source();
                         helper->rebind(MIN_DT);
                         continue;
