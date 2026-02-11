@@ -2055,11 +2055,11 @@ function lockLayout(workspace) {
             opacity: 0.5 !important;
             cursor: default !important;
         }
-        .lm-DockPanel-handle {
-            pointer-events: none !important;
-            opacity: 0.5 !important;
-            cursor: default !important;
-        }
+        // .lm-DockPanel-handle {
+        //     pointer-events: none !important;
+        //     opacity: 0.5 !important;
+        //     cursor: default !important;
+        // }
         .lm-TabBar-tabCloseIcon {
             display: none !important;
         }
@@ -2067,11 +2067,13 @@ function lockLayout(workspace) {
             pointer-events: none !important;
             user-select: none !important;
         }
-        .lm-TabBar-tab {
+        .lm-TabBar-tab:not(.lm-mod-current) {
             cursor: default !important;
+            pointer-events: auto !important;
         }
         .lm-TabBar-tabLabel {
             cursor: default !important;
+            pointer-events: none !important;
         }
         /* Allow tab switcher dropdown to work */
         .bookmarks-button {
