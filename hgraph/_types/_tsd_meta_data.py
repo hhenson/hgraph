@@ -7,6 +7,7 @@ from hgraph._types._tsd_type import KEY_SET_ID
 from hgraph._types._tss_meta_data import HgTSSTypeMetaData
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
+from hgraph._types._type_meta_data import cpp_type_property
 
 __all__ = (
     "HgTSDTypeMetaData",
@@ -63,6 +64,14 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
 
     def scalar_type(self) -> "HgScalarTypeMetaData":
         return HgDictScalarType(self.key_tp, self.value_tp.scalar_type())
+
+    @cpp_type_property
+    def cpp_type(self, _hgraph):
+        key_cpp = self.key_tp.cpp_type
+        value_cpp = self.value_tp.cpp_type
+        if key_cpp is None or value_cpp is None:
+            return None
+        return _hgraph.TSTypeRegistry.instance().tsd(key_cpp, value_cpp)
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:

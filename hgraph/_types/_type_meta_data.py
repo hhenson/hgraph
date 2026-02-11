@@ -4,12 +4,52 @@ from typing import TypeVar, Type, Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from hgraph._types._ref_meta_data import HgREFTypeMetaData
 
-__all__ = ("ParseError", "HgTypeMetaData", "AUTO_RESOLVE")
+__all__ = ("ParseError", "HgTypeMetaData", "AUTO_RESOLVE", "cpp_type_property")
 
 
 AUTO_RESOLVE = object()  # Used to indicate that a type should be auto-resolved
 
 TYPE = TypeVar("TYPE", bound=type)
+
+
+def cpp_type_property(_fn=None, *, check_resolved=True):
+    """Property decorator for ``cpp_type`` on type metadata classes.
+
+    Wraps a method ``(self, _hgraph) -> TypeMeta|TSMeta|None`` and handles:
+    - ``is_resolved`` guard (skipped when *check_resolved* is False)
+    - ``use_cpp`` feature-flag check
+    - ``import hgraph._hgraph`` with fallback to None
+    - ``(ImportError, AttributeError)`` catch returning None
+
+    Usage::
+
+        @cpp_type_property
+        def cpp_type(self, _hgraph):
+            return _hgraph.value.get_scalar_type_meta(self.py_type)
+
+        @cpp_type_property(check_resolved=False)
+        def cpp_type(self, _hgraph):
+            return _hgraph.TSTypeRegistry.instance().signal()
+    """
+
+    def decorator(fn):
+        @property
+        def wrapper(self):
+            if check_resolved and not self.is_resolved:
+                return None
+            from hgraph._feature_switch import is_feature_enabled
+            if not is_feature_enabled("use_cpp"):
+                return None
+            try:
+                import hgraph._hgraph as _hgraph
+                return fn(self, _hgraph)
+            except (ImportError, AttributeError):
+                return None
+        return wrapper
+
+    if _fn is not None:
+        return decorator(_fn)
+    return decorator
 
 
 class ParseError(RuntimeError):

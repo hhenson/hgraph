@@ -455,8 +455,7 @@ class TestErrorHandling:
         # Verify it's not resolved
         assert not meta.is_resolved
 
-        with pytest.raises(TypeError, match="Cannot get cpp_type for unresolved type"):
-            _ = meta.cpp_type
+        assert meta.cpp_type is None
 
     def test_feature_flag_disabled_returns_none(self):
         """cpp_type should return None when C++ is disabled."""
