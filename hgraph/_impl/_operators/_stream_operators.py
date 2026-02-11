@@ -467,6 +467,7 @@ def batch_default(
     condition: TS[bool],
     ts: TS[SCALAR],
     delay: timedelta,
+    use_wall_clock: bool = False,
     buffer_length: int = sys.maxsize,
     _state: STATE = None,
     _sched: SCHEDULER = None,
@@ -481,7 +482,7 @@ def batch_default(
         return
 
     if not _sched.is_scheduled and not condition.modified:  # only schedule on data ticks
-        _sched.schedule(delay, tag='-')
+        _sched.schedule(delay, tag='-', on_wall_clock=use_wall_clock)
 
     if (_sched.is_scheduled_now or condition.modified) and _state.buffer:
         out = tuple(_state.buffer)

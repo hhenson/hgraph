@@ -372,11 +372,14 @@ class NodeSchedulerImpl(SCHEDULER):
             original_time = self.next_scheduled_time
             self._scheduled_events.remove((self._tags[tag], tag))
 
-        if on_wall_clock and isinstance(clock := self._node.graph.evaluation_clock, RealTimeEvaluationClock):
-            alarm_tag = f"{id(self)}:{tag}"
-            clock.set_alarm(when, alarm_tag, lambda et: self._on_alarm(et, tag))
-            self._alarm_tags[alarm_tag] = when
-            return
+        if on_wall_clock:
+            node = self._node
+            while node.graph.parent_node: node = node.graph.parent_node
+            if isinstance(clock := node.graph.evaluation_clock, RealTimeEvaluationClock):
+                alarm_tag = f"{id(self)}:{tag}"
+                clock.set_alarm(when, alarm_tag, lambda et: self._on_alarm(et, tag))
+                self._alarm_tags[alarm_tag] = when
+                return
 
         if type(when) is timedelta:
             when = self._node.graph.evaluation_clock.evaluation_time + when
@@ -407,8 +410,10 @@ class NodeSchedulerImpl(SCHEDULER):
     def reset(self):
         self._scheduled_events.clear()
         self._tags.clear()
+        node = self._node
+        while node.graph.parent_node: node = node.graph.parent_node
         for alarm in self._alarm_tags:
-            self._node.graph.evaluation_clock.cancel_alarm(alarm)
+            node.graph.evaluation_clock.cancel_alarm(alarm)
 
     def advance(self):
         until = self._node.graph.evaluation_clock.evaluation_time
