@@ -70,7 +70,7 @@ struct ValueKeyHolder {
         holder.schema = view.schema();
         holder.storage = std::make_shared<ValueStorage>();
         holder.storage->construct(view.schema());
-        view.schema()->ops().copy_assign(holder.storage->data(), view.data(), view.schema());
+        view.schema()->ops().copy(holder.storage->data(), view.data(), view.schema());
         return holder;
     }
 

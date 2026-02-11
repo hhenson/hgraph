@@ -104,15 +104,15 @@ namespace hgraph::value {
             new (dst) Tracker{};
         }
 
-        static void destruct(void* obj, const TypeMeta*) {
+        static void destroy(void* obj, const TypeMeta*) {
             static_cast<Tracker*>(obj)->~Tracker();
         }
 
-        static void copy_assign(void* dst, const void* src, const TypeMeta*) {
+        static void copy(void* dst, const void* src, const TypeMeta*) {
             *static_cast<Tracker*>(dst) = *static_cast<const Tracker*>(src);
         }
 
-        static void move_assign(void* dst, void* src, const TypeMeta*) {
+        static void move(void* dst, void* src, const TypeMeta*) {
             *static_cast<Tracker*>(dst) = std::move(*static_cast<Tracker*>(src));
         }
 
@@ -147,32 +147,21 @@ namespace hgraph::value {
             throw std::runtime_error("Cannot construct FeatureOutputRequestTracker from Python");
         }
 
-        static constexpr TypeOps make_ops() {
-            return TypeOps{
-                &construct,
-                &destruct,
-                &copy_assign,
-                &move_assign,
-                &move_construct,
-                &equals,
-                &to_string,
-                &to_python,
-                &from_python,
-                &hash,
-                &less_than,
-                nullptr,  // size
-                nullptr,  // get_at
-                nullptr,  // set_at
-                nullptr,  // get_field
-                nullptr,  // set_field
-                nullptr,  // contains
-                nullptr,  // insert
-                nullptr,  // erase
-                nullptr,  // map_get
-                nullptr,  // map_set
-                nullptr,  // resize
-                nullptr,  // clear
-            };
+        static type_ops make_ops() {
+            type_ops ops{};
+            ops.construct = &construct;
+            ops.destroy = &destroy;
+            ops.copy = &copy;
+            ops.move = &move;
+            ops.move_construct = &move_construct;
+            ops.equals = &equals;
+            ops.hash = &hash;
+            ops.to_string = &to_string;
+            ops.to_python = &to_python;
+            ops.from_python = &from_python;
+            ops.kind = TypeKind::Atomic;
+            ops.specific.atomic = {&less_than};
+            return ops;
         }
     };
 

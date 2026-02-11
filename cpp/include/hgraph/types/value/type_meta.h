@@ -119,7 +119,7 @@ struct atomic_ops_t {
 /// Operations specific to Bundle types (named fields, index + name access)
 struct bundle_ops_t {
     size_t (*size)(const void* obj, const TypeMeta* schema);
-    const void* (*get_at)(const void* obj, size_t index, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
     void (*set_at)(void* obj, size_t index, const void* value, const TypeMeta* schema);
     const void* (*get_field)(const void* obj, const char* name, const TypeMeta* schema);
     void (*set_field)(void* obj, const char* name, const void* value, const TypeMeta* schema);
@@ -128,14 +128,14 @@ struct bundle_ops_t {
 /// Operations specific to Tuple types (positional access only)
 struct tuple_ops_t {
     size_t (*size)(const void* obj, const TypeMeta* schema);
-    const void* (*get_at)(const void* obj, size_t index, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
     void (*set_at)(void* obj, size_t index, const void* value, const TypeMeta* schema);
 };
 
 /// Operations specific to List types (dynamic homogeneous collection)
 struct list_ops_t {
     size_t (*size)(const void* obj, const TypeMeta* schema);
-    const void* (*get_at)(const void* obj, size_t index, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
     void (*set_at)(void* obj, size_t index, const void* value, const TypeMeta* schema);
     void (*resize)(void* obj, size_t new_size, const TypeMeta* schema);
     void (*clear)(void* obj, const TypeMeta* schema);
@@ -144,10 +144,10 @@ struct list_ops_t {
 /// Operations specific to Set types (unique unordered elements)
 struct set_ops_t {
     size_t (*size)(const void* obj, const TypeMeta* schema);
-    const void* (*get_at)(const void* obj, size_t index, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
     bool (*contains)(const void* obj, const void* element, const TypeMeta* schema);
-    void (*insert)(void* obj, const void* element, const TypeMeta* schema);
-    void (*erase)(void* obj, const void* element, const TypeMeta* schema);
+    void (*add)(void* obj, const void* element, const TypeMeta* schema);
+    void (*remove)(void* obj, const void* element, const TypeMeta* schema);
     void (*clear)(void* obj, const TypeMeta* schema);
 };
 
@@ -155,9 +155,9 @@ struct set_ops_t {
 struct map_ops_t {
     size_t (*size)(const void* obj, const TypeMeta* schema);
     bool (*contains)(const void* obj, const void* key, const TypeMeta* schema);
-    const void* (*map_get)(const void* obj, const void* key, const TypeMeta* schema);
-    void (*map_set)(void* obj, const void* key, const void* value, const TypeMeta* schema);
-    void (*erase)(void* obj, const void* key, const TypeMeta* schema);
+    const void* (*at)(const void* obj, const void* key, const TypeMeta* schema);
+    void (*set_item)(void* obj, const void* key, const void* value, const TypeMeta* schema);
+    void (*remove)(void* obj, const void* key, const TypeMeta* schema);
     void (*clear)(void* obj, const TypeMeta* schema);
 };
 
@@ -165,20 +165,22 @@ struct map_ops_t {
 /// Has all queue ops plus ordinal set_at for indexed writes.
 struct cyclic_buffer_ops_t {
     size_t (*size)(const void* obj, const TypeMeta* schema);
-    const void* (*get_at)(const void* obj, size_t index, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
     void (*set_at)(void* obj, size_t index, const void* value, const TypeMeta* schema);
-    void (*push_back)(void* obj, const void* value, const TypeMeta* schema);
-    void (*pop_front)(void* obj, const TypeMeta* schema);
+    void (*push)(void* obj, const void* value, const TypeMeta* schema);
+    void (*pop)(void* obj, const TypeMeta* schema);
     void (*clear)(void* obj, const TypeMeta* schema);
+    size_t (*capacity)(const void* obj, const TypeMeta* schema);
 };
 
 /// Operations specific to Queue types (FIFO with optional max capacity)
 struct queue_ops_t {
     size_t (*size)(const void* obj, const TypeMeta* schema);
-    const void* (*get_at)(const void* obj, size_t index, const TypeMeta* schema);
-    void (*push_back)(void* obj, const void* value, const TypeMeta* schema);
-    void (*pop_front)(void* obj, const TypeMeta* schema);
+    const void* (*at)(const void* obj, size_t index, const TypeMeta* schema);
+    void (*push)(void* obj, const void* value, const TypeMeta* schema);
+    void (*pop)(void* obj, const TypeMeta* schema);
     void (*clear)(void* obj, const TypeMeta* schema);
+    size_t (*max_capacity)(const void* obj, const TypeMeta* schema);
 };
 
 // ============================================================================
@@ -202,9 +204,9 @@ struct type_ops {
     // ========== Common Operations (required for all types) ==========
 
     void (*construct)(void* dst, const TypeMeta* schema);
-    void (*destruct)(void* obj, const TypeMeta* schema);
-    void (*copy_assign)(void* dst, const void* src, const TypeMeta* schema);
-    void (*move_assign)(void* dst, void* src, const TypeMeta* schema);
+    void (*destroy)(void* obj, const TypeMeta* schema);
+    void (*copy)(void* dst, const void* src, const TypeMeta* schema);
+    void (*move)(void* dst, void* src, const TypeMeta* schema);
     void (*move_construct)(void* dst, void* src, const TypeMeta* schema);
     bool (*equals)(const void* a, const void* b, const TypeMeta* schema);
     size_t (*hash)(const void* obj, const TypeMeta* schema);
@@ -247,14 +249,14 @@ struct type_ops {
     [[nodiscard]] bool has_size() const { return kind != TypeKind::Atomic; }
 
     /// Get element at index. Returns nullptr for unsupported kinds.
-    [[nodiscard]] const void* get_at(const void* obj, size_t index, const TypeMeta* schema) const {
+    [[nodiscard]] const void* at(const void* obj, size_t index, const TypeMeta* schema) const {
         switch (kind) {
-            case TypeKind::Bundle:      return specific.bundle.get_at(obj, index, schema);
-            case TypeKind::Tuple:       return specific.tuple.get_at(obj, index, schema);
-            case TypeKind::List:        return specific.list.get_at(obj, index, schema);
-            case TypeKind::Set:         return specific.set.get_at(obj, index, schema);
-            case TypeKind::CyclicBuffer:return specific.cyclic_buffer.get_at(obj, index, schema);
-            case TypeKind::Queue:       return specific.queue.get_at(obj, index, schema);
+            case TypeKind::Bundle:      return specific.bundle.at(obj, index, schema);
+            case TypeKind::Tuple:       return specific.tuple.at(obj, index, schema);
+            case TypeKind::List:        return specific.list.at(obj, index, schema);
+            case TypeKind::Set:         return specific.set.at(obj, index, schema);
+            case TypeKind::CyclicBuffer:return specific.cyclic_buffer.at(obj, index, schema);
+            case TypeKind::Queue:       return specific.queue.at(obj, index, schema);
             default:                    return nullptr;
         }
     }
@@ -270,31 +272,31 @@ struct type_ops {
         }
     }
 
-    /// Push a value to the back. Supported by CyclicBuffer and Queue.
-    void push_back(void* obj, const void* value, const TypeMeta* schema) const {
+    /// Push a value. Supported by CyclicBuffer and Queue.
+    void push(void* obj, const void* value, const TypeMeta* schema) const {
         switch (kind) {
-            case TypeKind::CyclicBuffer:specific.cyclic_buffer.push_back(obj, value, schema); break;
-            case TypeKind::Queue:       specific.queue.push_back(obj, value, schema); break;
+            case TypeKind::CyclicBuffer:specific.cyclic_buffer.push(obj, value, schema); break;
+            case TypeKind::Queue:       specific.queue.push(obj, value, schema); break;
             default: break;
         }
     }
 
-    /// Whether this type supports push_back()
-    [[nodiscard]] bool has_push_back() const {
+    /// Whether this type supports push()
+    [[nodiscard]] bool has_push() const {
         return kind == TypeKind::CyclicBuffer || kind == TypeKind::Queue;
     }
 
     /// Remove the front element. Supported by CyclicBuffer and Queue.
-    void pop_front(void* obj, const TypeMeta* schema) const {
+    void pop(void* obj, const TypeMeta* schema) const {
         switch (kind) {
-            case TypeKind::CyclicBuffer:specific.cyclic_buffer.pop_front(obj, schema); break;
-            case TypeKind::Queue:       specific.queue.pop_front(obj, schema); break;
+            case TypeKind::CyclicBuffer:specific.cyclic_buffer.pop(obj, schema); break;
+            case TypeKind::Queue:       specific.queue.pop(obj, schema); break;
             default: break;
         }
     }
 
-    /// Whether this type supports pop_front()
-    [[nodiscard]] bool has_pop_front() const {
+    /// Whether this type supports pop()
+    [[nodiscard]] bool has_pop() const {
         return kind == TypeKind::CyclicBuffer || kind == TypeKind::Queue;
     }
 
@@ -318,29 +320,29 @@ struct type_ops {
         }
     }
 
-    /// Insert element (Set only). No-op for other kinds.
-    void insert(void* obj, const void* element, const TypeMeta* schema) const {
-        if (kind == TypeKind::Set) specific.set.insert(obj, element, schema);
+    /// Add element (Set only). No-op for other kinds.
+    void add(void* obj, const void* element, const TypeMeta* schema) const {
+        if (kind == TypeKind::Set) specific.set.add(obj, element, schema);
     }
 
-    /// Erase element/key. No-op for unsupported kinds.
-    void erase(void* obj, const void* element, const TypeMeta* schema) const {
+    /// Remove element/key. No-op for unsupported kinds.
+    void remove(void* obj, const void* element, const TypeMeta* schema) const {
         switch (kind) {
-            case TypeKind::Set: specific.set.erase(obj, element, schema); break;
-            case TypeKind::Map: specific.map.erase(obj, element, schema); break;
+            case TypeKind::Set: specific.set.remove(obj, element, schema); break;
+            case TypeKind::Map: specific.map.remove(obj, element, schema); break;
             default: break;
         }
     }
 
     /// Get map value by key (Map only). Returns nullptr for other kinds.
-    [[nodiscard]] const void* map_get(const void* obj, const void* key, const TypeMeta* schema) const {
-        if (kind == TypeKind::Map) return specific.map.map_get(obj, key, schema);
+    [[nodiscard]] const void* map_at(const void* obj, const void* key, const TypeMeta* schema) const {
+        if (kind == TypeKind::Map) return specific.map.at(obj, key, schema);
         return nullptr;
     }
 
     /// Set map value by key (Map only). No-op for other kinds.
-    void map_set(void* obj, const void* key, const void* value, const TypeMeta* schema) const {
-        if (kind == TypeKind::Map) specific.map.map_set(obj, key, value, schema);
+    void set_item(void* obj, const void* key, const void* value, const TypeMeta* schema) const {
+        if (kind == TypeKind::Map) specific.map.set_item(obj, key, value, schema);
     }
 
     /// Resize collection (List only). No-op for other kinds.
@@ -516,15 +518,15 @@ struct ScalarOps {
         new (dst) T{};
     }
 
-    static void destruct(void* obj, const TypeMeta*) {
+    static void destroy(void* obj, const TypeMeta*) {
         static_cast<T*>(obj)->~T();
     }
 
-    static void copy_assign(void* dst, const void* src, const TypeMeta*) {
+    static void copy(void* dst, const void* src, const TypeMeta*) {
         *static_cast<T*>(dst) = *static_cast<const T*>(src);
     }
 
-    static void move_assign(void* dst, void* src, const TypeMeta*) {
+    static void move(void* dst, void* src, const TypeMeta*) {
         *static_cast<T*>(dst) = std::move(*static_cast<T*>(src));
     }
 
@@ -571,9 +573,9 @@ struct ScalarOps {
         type_ops ops{};
         // Common ops
         ops.construct = &construct;
-        ops.destruct = &destruct;
-        ops.copy_assign = &copy_assign;
-        ops.move_assign = &move_assign;
+        ops.destroy = &destroy;
+        ops.copy = &copy;
+        ops.move = &move;
         ops.move_construct = &move_construct;
         ops.equals = &equals;
         ops.hash = &hash;

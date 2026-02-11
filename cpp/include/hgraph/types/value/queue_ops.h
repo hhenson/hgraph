@@ -157,8 +157,8 @@ struct QueueOps {
 
         // Destruct element at slot
         void* elem_ptr = storage->slot_ptr(slot_idx, elem_size);
-        if (elem_type && elem_type->ops().destruct) {
-            elem_type->ops().destruct(elem_ptr, elem_type);
+        if (elem_type && elem_type->ops().destroy) {
+            elem_type->ops().destroy(elem_ptr, elem_type);
         }
 
         // Re-construct for reuse (keeps slot in valid state)
@@ -179,8 +179,8 @@ struct QueueOps {
         // Destruct all allocated slots (active + free)
         for (size_t i = 0; i < storage->slot_count; ++i) {
             void* elem_ptr = storage->slot_ptr(i, elem_size);
-            if (elem_type && elem_type->ops().destruct) {
-                elem_type->ops().destruct(elem_ptr, elem_type);
+            if (elem_type && elem_type->ops().destroy) {
+                elem_type->ops().destroy(elem_ptr, elem_type);
             }
         }
     }
@@ -193,13 +193,13 @@ struct QueueOps {
         // order, data, free_slots start empty - slots allocated on demand
     }
 
-    static void destruct(void* obj, const TypeMeta* schema) {
+    static void destroy(void* obj, const TypeMeta* schema) {
         auto* storage = static_cast<QueueStorage*>(obj);
         destruct_all_slots(storage, schema->element_type);
         storage->~QueueStorage();  // Deque/vector destructors free memory
     }
 
-    static void copy_assign(void* dst, const void* src, const TypeMeta* schema) {
+    static void copy(void* dst, const void* src, const TypeMeta* schema) {
         auto* dst_storage = static_cast<QueueStorage*>(dst);
         auto* src_storage = static_cast<const QueueStorage*>(src);
         const TypeMeta* elem_type = schema->element_type;
@@ -216,8 +216,8 @@ struct QueueOps {
             size_t new_slot = allocate_slot(dst_storage, elem_type);
             void* dst_elem = dst_storage->slot_ptr(new_slot, elem_size);
             const void* src_elem = get_element_ptr_const(src, i, schema);
-            if (elem_type && elem_type->ops().copy_assign) {
-                elem_type->ops().copy_assign(dst_elem, src_elem, elem_type);
+            if (elem_type && elem_type->ops().copy) {
+                elem_type->ops().copy(dst_elem, src_elem, elem_type);
             }
             dst_storage->order.push_back(new_slot);
         }
@@ -225,7 +225,7 @@ struct QueueOps {
         dst_storage->max_capacity = src_storage->max_capacity;
     }
 
-    static void move_assign(void* dst, void* src, const TypeMeta* schema) {
+    static void move(void* dst, void* src, const TypeMeta* schema) {
         auto* dst_storage = static_cast<QueueStorage*>(dst);
         auto* src_storage = static_cast<QueueStorage*>(src);
         const TypeMeta* elem_type = schema->element_type;
@@ -375,7 +375,7 @@ struct QueueOps {
 
     // ========== Indexable Operations ==========
 
-    static const void* get_at(const void* obj, size_t index, const TypeMeta* schema) {
+    static const void* at(const void* obj, size_t index, const TypeMeta* schema) {
         auto* storage = static_cast<const QueueStorage*>(obj);
         if (index >= storage->size()) {
             throw std::out_of_range("Queue index out of range");
@@ -390,8 +390,8 @@ struct QueueOps {
         }
         void* elem_ptr = get_element_ptr(obj, index, schema);
         const TypeMeta* elem_type = schema->element_type;
-        if (elem_type && elem_type->ops().copy_assign) {
-            elem_type->ops().copy_assign(elem_ptr, value, elem_type);
+        if (elem_type && elem_type->ops().copy) {
+            elem_type->ops().copy(elem_ptr, value, elem_type);
         }
     }
 
@@ -403,7 +403,7 @@ struct QueueOps {
      * If unbounded, allocates new slot as needed.
      * If bounded and full, evicts the oldest element (front) first.
      */
-    static void push_back(void* obj, const void* value, const TypeMeta* schema) {
+    static void push(void* obj, const void* value, const TypeMeta* schema) {
         auto* storage = static_cast<QueueStorage*>(obj);
         const TypeMeta* elem_type = schema->element_type;
         size_t elem_size = elem_type ? elem_type->size : 0;
@@ -419,8 +419,8 @@ struct QueueOps {
         // Allocate new slot and copy value
         size_t new_slot = allocate_slot(storage, elem_type);
         void* elem_ptr = storage->slot_ptr(new_slot, elem_size);
-        if (elem_type && elem_type->ops().copy_assign) {
-            elem_type->ops().copy_assign(elem_ptr, value, elem_type);
+        if (elem_type && elem_type->ops().copy) {
+            elem_type->ops().copy(elem_ptr, value, elem_type);
         }
         storage->order.push_back(new_slot);
     }
@@ -430,7 +430,7 @@ struct QueueOps {
      *
      * @throws std::out_of_range if the queue is empty
      */
-    static void pop_front(void* obj, const TypeMeta* schema) {
+    static void pop(void* obj, const TypeMeta* schema) {
         auto* storage = static_cast<QueueStorage*>(obj);
         const TypeMeta* elem_type = schema->element_type;
 
@@ -470,9 +470,9 @@ struct QueueOps {
     static type_ops make_ops() {
         type_ops ops{};
         ops.construct = &construct;
-        ops.destruct = &destruct;
-        ops.copy_assign = &copy_assign;
-        ops.move_assign = &move_assign;
+        ops.destroy = &destroy;
+        ops.copy = &copy;
+        ops.move = &move;
         ops.move_construct = &move_construct;
         ops.equals = &equals;
         ops.hash = &hash;
@@ -480,7 +480,7 @@ struct QueueOps {
         ops.to_python = &to_python;
         ops.from_python = &from_python;
         ops.kind = TypeKind::Queue;
-        ops.specific.queue = {&size, &get_at, &push_back, &pop_front, &clear};
+        ops.specific.queue = {&size, &at, &push, &pop, &clear, &max_capacity};
         return ops;
     }
 };

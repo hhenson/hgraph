@@ -644,7 +644,7 @@ public:
         if (_schema != other.schema()) {
             throw std::runtime_error("copy_from schema mismatch");
         }
-        _schema->ops().copy_assign(_mutable_data, other.data(), _schema);
+        _schema->ops().copy(_mutable_data, other.data(), _schema);
     }
 
     // ========== Python Interop ==========

@@ -91,7 +91,7 @@ public:
         if (index >= size()) {
             throw std::out_of_range("Index out of range");
         }
-        const void* elem_data = _schema->ops().get_at(_data, index, _schema);
+        const void* elem_data = _schema->ops().at(_data, index, _schema);
         // Determine element type
         const TypeMeta* elem_schema = nullptr;
         if (_schema->kind == TypeKind::List || _schema->kind == TypeKind::Set ||
@@ -218,7 +218,7 @@ public:
         if (index >= size()) {
             throw std::out_of_range("Index out of range");
         }
-        const void* elem_data = _schema->ops().get_at(_data, index, _schema);
+        const void* elem_data = _schema->ops().at(_data, index, _schema);
         const TypeMeta* elem_schema = get_element_schema(index);
         return ConstValueView(elem_data, elem_schema);
     }
@@ -232,7 +232,7 @@ public:
             throw std::out_of_range("Index out of range");
         }
         // Use const get_at and cast - we know we have mutable access
-        void* elem_data = const_cast<void*>(_schema->ops().get_at(data(), index, _schema));
+        void* elem_data = const_cast<void*>(_schema->ops().at(data(), index, _schema));
         const TypeMeta* elem_schema = get_element_schema(index);
         return ValueView(elem_data, elem_schema);
     }
@@ -654,7 +654,7 @@ public:
         // Copy-construct the value into temp storage
         if (temp_storage && elem_type) {
             elem_type->ops().construct(temp_storage, elem_type);
-            elem_type->ops().copy_assign(temp_storage, value.data(), elem_type);
+            elem_type->ops().copy(temp_storage, value.data(), elem_type);
         }
 
         // Now resize - this may reallocate and potentially reuse freed memory
@@ -664,8 +664,8 @@ public:
         // Copy from our temp storage to the new element
         if (temp_storage && elem_type) {
             void* elem_ptr = ListOps::get_element_ptr(data(), current_size, _schema);
-            elem_type->ops().copy_assign(elem_ptr, temp_storage, elem_type);
-            elem_type->ops().destruct(temp_storage, elem_type);
+            elem_type->ops().copy(elem_ptr, temp_storage, elem_type);
+            elem_type->ops().destroy(temp_storage, elem_type);
         }
 
         if (using_heap && temp_storage) {
@@ -849,7 +849,7 @@ public:
      * If the buffer is not full, adds at the end.
      * If the buffer is full, overwrites the oldest element.
      */
-    void push_back(const ConstValueView& value);
+    void push(const ConstValueView& value);
 
     /**
      * @brief Clear all elements from the buffer.
@@ -864,7 +864,7 @@ public:
      * @brief Push a typed value.
      */
     template<typename T>
-    void push_back(const T& value);  // Implemented after Value
+    void push(const T& value);  // Implemented after Value
 };
 
 // ============================================================================
@@ -966,12 +966,12 @@ public:
     /**
      * @brief Push a value to the back of the queue.
      */
-    void push_back(const ConstValueView& value);
+    void push(const ConstValueView& value);
 
     /**
      * @brief Remove the front element.
      */
-    void pop_front();
+    void pop();
 
     /**
      * @brief Clear all elements from the queue.
@@ -986,7 +986,7 @@ public:
      * @brief Push a typed value.
      */
     template<typename T>
-    void push_back(const T& value);  // Implemented after Value
+    void push(const T& value);  // Implemented after Value
 };
 
 // ============================================================================
@@ -1136,10 +1136,10 @@ public:
      *
      * @return true if the element was inserted (not already present)
      */
-    bool insert(const ConstValueView& value) {
-        assert(valid() && "insert() on invalid view");
+    bool add(const ConstValueView& value) {
+        assert(valid() && "add() on invalid view");
         if (contains(value)) return false;
-        _schema->ops().insert(data(), value.data(), _schema);
+        _schema->ops().add(data(), value.data(), _schema);
         return true;
     }
 
@@ -1148,10 +1148,10 @@ public:
      *
      * @return true if the element was removed (was present)
      */
-    bool erase(const ConstValueView& value) {
-        assert(valid() && "erase() on invalid view");
+    bool remove(const ConstValueView& value) {
+        assert(valid() && "remove() on invalid view");
         if (!contains(value)) return false;
-        _schema->ops().erase(data(), value.data(), _schema);
+        _schema->ops().remove(data(), value.data(), _schema);
         return true;
     }
 
@@ -1177,10 +1177,10 @@ public:
     [[nodiscard]] bool contains(const T& value) const;
 
     template<typename T>
-    bool insert(const T& value);
+    bool add(const T& value);
 
     template<typename T>
-    bool erase(const T& value);
+    bool remove(const T& value);
 
     // ========== Iteration ==========
 
@@ -1353,7 +1353,7 @@ public:
      */
     [[nodiscard]] ConstValueView at(const ConstValueView& key) const {
         assert(valid() && "at() on invalid view");
-        const void* value_data = _schema->ops().map_get(_data, key.data(), _schema);
+        const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
         if (!value_data) {
             throw std::runtime_error("Key not found");
         }
@@ -1439,7 +1439,7 @@ public:
      */
     [[nodiscard]] ConstValueView at(const ConstValueView& key) const {
         assert(valid() && "at() on invalid view");
-        const void* value_data = _schema->ops().map_get(_data, key.data(), _schema);
+        const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
         if (!value_data) {
             throw std::runtime_error("Key not found");
         }
@@ -1451,7 +1451,7 @@ public:
      */
     [[nodiscard]] ValueView at(const ConstValueView& key) {
         assert(valid() && "at() on invalid view");
-        void* value_data = const_cast<void*>(_schema->ops().map_get(data(), key.data(), _schema));
+        void* value_data = const_cast<void*>(_schema->ops().map_at(data(), key.data(), _schema));
         if (!value_data) {
             throw std::runtime_error("Key not found");
         }
@@ -1485,7 +1485,7 @@ public:
      */
     void set(const ConstValueView& key, const ConstValueView& value) {
         assert(valid() && "set() on invalid view");
-        _schema->ops().map_set(data(), key.data(), value.data(), _schema);
+        _schema->ops().set_item(data(), key.data(), value.data(), _schema);
     }
 
     /**
@@ -1493,7 +1493,7 @@ public:
      *
      * @return true if inserted (key was new)
      */
-    bool insert(const ConstValueView& key, const ConstValueView& value) {
+    bool add(const ConstValueView& key, const ConstValueView& value) {
         if (contains(key)) return false;
         set(key, value);
         return true;
@@ -1504,10 +1504,10 @@ public:
      *
      * @return true if removed (key existed)
      */
-    bool erase(const ConstValueView& key) {
-        assert(valid() && "erase() on invalid view");
+    bool remove(const ConstValueView& key) {
+        assert(valid() && "remove() on invalid view");
         if (!contains(key)) return false;
-        _schema->ops().erase(data(), key.data(), _schema);
+        _schema->ops().remove(data(), key.data(), _schema);
         return true;
     }
 
@@ -1560,10 +1560,10 @@ public:
     void set(const K& key, const V& value);
 
     template<typename K, typename V>
-    bool insert(const K& key, const V& value);
+    bool add(const K& key, const V& value);
 
     template<typename K>
-    bool erase(const K& key);
+    bool remove(const K& key);
 };
 
 // ============================================================================
@@ -1750,20 +1750,20 @@ inline QueueView ValueView::as_queue() {
 // CyclicBufferView Operations Implementation
 // ============================================================================
 
-inline void CyclicBufferView::push_back(const ConstValueView& value) {
-    CyclicBufferOps::push_back(data(), value.data(), _schema);
+inline void CyclicBufferView::push(const ConstValueView& value) {
+    CyclicBufferOps::push(data(), value.data(), _schema);
 }
 
 // ============================================================================
 // QueueView Operations Implementation
 // ============================================================================
 
-inline void QueueView::push_back(const ConstValueView& value) {
-    QueueOps::push_back(data(), value.data(), _schema);
+inline void QueueView::push(const ConstValueView& value) {
+    QueueOps::push(data(), value.data(), _schema);
 }
 
-inline void QueueView::pop_front() {
-    QueueOps::pop_front(data(), _schema);
+inline void QueueView::pop() {
+    QueueOps::pop(data(), _schema);
 }
 
 // ============================================================================

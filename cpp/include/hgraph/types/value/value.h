@@ -110,7 +110,7 @@ public:
         : _schema(view.schema()) {
         if (view.valid()) {
             _storage.construct(_schema);
-            _schema->ops().copy_assign(_storage.data(), view.data(), _schema);
+            _schema->ops().copy(_storage.data(), view.data(), _schema);
         }
     }
 
@@ -620,18 +620,18 @@ bool SetView::contains(const T& value) const {
     return contains(temp.const_view());
 }
 
-// SetView::insert<T>
+// SetView::add<T>
 template<typename T>
-bool SetView::insert(const T& value) {
+bool SetView::add(const T& value) {
     Value<> temp(value);
-    return insert(temp.const_view());
+    return add(temp.const_view());
 }
 
-// SetView::erase<T>
+// SetView::remove<T>
 template<typename T>
-bool SetView::erase(const T& value) {
+bool SetView::remove(const T& value) {
     Value<> temp(value);
-    return erase(temp.const_view());
+    return remove(temp.const_view());
 }
 
 // ConstMapView::at<K>
@@ -677,19 +677,19 @@ void MapView::set(const K& key, const V& value) {
     set(temp_key.const_view(), temp_val.const_view());
 }
 
-// MapView::insert<K, V>
+// MapView::add<K, V>
 template<typename K, typename V>
-bool MapView::insert(const K& key, const V& value) {
+bool MapView::add(const K& key, const V& value) {
     Value<> temp_key(key);
     Value<> temp_val(value);
-    return insert(temp_key.const_view(), temp_val.const_view());
+    return add(temp_key.const_view(), temp_val.const_view());
 }
 
-// MapView::erase<K>
+// MapView::remove<K>
 template<typename K>
-bool MapView::erase(const K& key) {
+bool MapView::remove(const K& key) {
     Value<> temp(key);
-    return erase(temp.const_view());
+    return remove(temp.const_view());
 }
 
 // ============================================================================

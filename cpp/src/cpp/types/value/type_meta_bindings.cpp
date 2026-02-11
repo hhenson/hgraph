@@ -41,15 +41,15 @@ struct ScalarOps<nb::object> {
         new (dst) nb::object{};
     }
 
-    static void destruct(void* obj, const TypeMeta*) {
+    static void destroy(void* obj, const TypeMeta*) {
         static_cast<nb::object*>(obj)->~object();
     }
 
-    static void copy_assign(void* dst, const void* src, const TypeMeta*) {
+    static void copy(void* dst, const void* src, const TypeMeta*) {
         *static_cast<nb::object*>(dst) = *static_cast<const nb::object*>(src);
     }
 
-    static void move_assign(void* dst, void* src, const TypeMeta*) {
+    static void move(void* dst, void* src, const TypeMeta*) {
         *static_cast<nb::object*>(dst) = std::move(*static_cast<nb::object*>(src));
     }
 
@@ -112,9 +112,9 @@ struct ScalarOps<nb::object> {
     static type_ops make_ops() {
         type_ops ops{};
         ops.construct = &construct;
-        ops.destruct = &destruct;
-        ops.copy_assign = &copy_assign;
-        ops.move_assign = &move_assign;
+        ops.destroy = &destroy;
+        ops.copy = &copy;
+        ops.move = &move;
         ops.move_construct = &move_construct;
         ops.equals = &equals;
         ops.hash = &hash;
@@ -223,16 +223,16 @@ struct CompoundScalarOps {
         BundleOps::construct(dst, schema);
     }
 
-    static void destruct(void* obj, const TypeMeta* schema) {
-        BundleOps::destruct(obj, schema);
+    static void destroy(void* obj, const TypeMeta* schema) {
+        BundleOps::destroy(obj, schema);
     }
 
-    static void copy_assign(void* dst, const void* src, const TypeMeta* schema) {
-        BundleOps::copy_assign(dst, src, schema);
+    static void copy(void* dst, const void* src, const TypeMeta* schema) {
+        BundleOps::copy(dst, src, schema);
     }
 
-    static void move_assign(void* dst, void* src, const TypeMeta* schema) {
-        BundleOps::move_assign(dst, src, schema);
+    static void move(void* dst, void* src, const TypeMeta* schema) {
+        BundleOps::move(dst, src, schema);
     }
 
     static void move_construct(void* dst, void* src, const TypeMeta* schema) {
@@ -287,8 +287,8 @@ struct CompoundScalarOps {
 
     // ========== Indexable Operations ==========
 
-    static const void* get_at(const void* obj, size_t index, const TypeMeta* schema) {
-        return BundleOps::get_at(obj, index, schema);
+    static const void* at(const void* obj, size_t index, const TypeMeta* schema) {
+        return BundleOps::at(obj, index, schema);
     }
 
     static void set_at(void* obj, size_t index, const void* value, const TypeMeta* schema) {
@@ -309,9 +309,9 @@ struct CompoundScalarOps {
     static type_ops make_ops() {
         type_ops ops{};
         ops.construct = &construct;
-        ops.destruct = &destruct;
-        ops.copy_assign = &copy_assign;
-        ops.move_assign = &move_assign;
+        ops.destroy = &destroy;
+        ops.copy = &copy;
+        ops.move = &move;
         ops.move_construct = &move_construct;
         ops.equals = &equals;
         ops.hash = &hash;
@@ -319,7 +319,7 @@ struct CompoundScalarOps {
         ops.to_python = &to_python;
         ops.from_python = &from_python;
         ops.kind = TypeKind::Bundle;
-        ops.specific.bundle = {&size, &get_at, &set_at, &get_field, &set_field};
+        ops.specific.bundle = {&size, &at, &set_at, &get_field, &set_field};
         return ops;
     }
 };

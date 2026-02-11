@@ -208,7 +208,7 @@ public:
      */
     void reset() {
         if (_schema) {
-            _schema->ops().destruct(data(), _schema);
+            _schema->ops().destroy(data(), _schema);
 
             if (!_is_inline) {
                 ::operator delete(_storage.heap_ptr, std::align_val_t{_schema->alignment});
@@ -234,12 +234,12 @@ public:
 
         if (_schema == other._schema) {
             // Same schema - just copy the data
-            _schema->ops().copy_assign(data(), other.data(), _schema);
+            _schema->ops().copy(data(), other.data(), _schema);
         } else {
             // Different schema - reset and reconstruct
             reset();
             construct(other._schema);
-            _schema->ops().copy_assign(data(), other.data(), _schema);
+            _schema->ops().copy(data(), other.data(), _schema);
         }
     }
 

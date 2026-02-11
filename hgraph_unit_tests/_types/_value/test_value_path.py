@@ -1094,11 +1094,11 @@ def test_navigate_map_string_key(string_to_int_map_schema):
     # Insert key-value pairs
     key1 = make_string_value("alpha")
     val1 = make_int_value(100)
-    mv.insert(key1.const_view(), val1.const_view())
+    mv.add(key1.const_view(), val1.const_view())
 
     key2 = make_string_value("beta")
     val2 = make_int_value(200)
-    mv.insert(key2.const_view(), val2.const_view())
+    mv.add(key2.const_view(), val2.const_view())
 
     # Navigate using string key
     result = v.navigate('["alpha"]')
@@ -1114,7 +1114,7 @@ def test_navigate_map_string_key_single_quotes(string_to_int_map_schema):
 
     key = make_string_value("mykey")
     val = make_int_value(42)
-    mv.insert(key.const_view(), val.const_view())
+    mv.add(key.const_view(), val.const_view())
 
     result = v.navigate("['mykey']")
 
@@ -1129,11 +1129,11 @@ def test_navigate_map_int_key(int_to_string_map_schema):
 
     key1 = make_int_value(1)
     val1 = make_string_value("one")
-    mv.insert(key1.const_view(), val1.const_view())
+    mv.add(key1.const_view(), val1.const_view())
 
     key2 = make_int_value(2)
     val2 = make_string_value("two")
-    mv.insert(key2.const_view(), val2.const_view())
+    mv.add(key2.const_view(), val2.const_view())
 
     # Navigate using integer key
     result = v.navigate("[2]")
@@ -1155,7 +1155,7 @@ def test_navigate_nested_map_value(nested_map_schema, address_schema):
     addr_bv.set("zip", 12345)
 
     key = make_string_value("home")
-    mv.insert(key.const_view(), addr.const_view())
+    mv.add(key.const_view(), addr.const_view())
 
     # Navigate: map["home"].city
     result = v.navigate('["home"].city')
@@ -1171,7 +1171,7 @@ def test_navigate_map_invalid_key_throws(string_to_int_map_schema):
 
     key = make_string_value("exists")
     val = make_int_value(42)
-    mv.insert(key.const_view(), val.const_view())
+    mv.add(key.const_view(), val.const_view())
 
     with pytest.raises((KeyError, IndexError, RuntimeError)):
         v.navigate('["nonexistent"]')
@@ -1184,7 +1184,7 @@ def test_try_navigate_map_key_success(string_to_int_map_schema):
 
     key = make_string_value("key")
     val = make_int_value(999)
-    mv.insert(key.const_view(), val.const_view())
+    mv.add(key.const_view(), val.const_view())
 
     result = v.try_navigate('["key"]')
 
@@ -1209,7 +1209,7 @@ def test_navigate_mut_map_value(string_to_int_map_schema):
 
     key = make_string_value("count")
     val = make_int_value(0)
-    mv.insert(key.const_view(), val.const_view())
+    mv.add(key.const_view(), val.const_view())
 
     # Modify via navigate_mut
     mut_view = v.navigate_mut('["count"]')
@@ -1264,7 +1264,7 @@ def test_navigate_with_value_key(string_to_int_map_schema):
     # Insert value
     key = make_string_value("target")
     val = make_int_value(999)
-    mv.insert(key.const_view(), val.const_view())
+    mv.add(key.const_view(), val.const_view())
 
     # Build path with value key
     path = [PathElement.key(make_string_value("target").const_view())]
@@ -1289,7 +1289,7 @@ def test_navigate_tuple_key_map(tuple_key_map_schema, tuple_schema):
 
     # Insert value
     val = make_string_value("found")
-    mv.insert(tuple_key.const_view(), val.const_view())
+    mv.add(tuple_key.const_view(), val.const_view())
 
     # Navigate with tuple key
     path = [PathElement.key(tuple_key.const_view())]
@@ -1307,7 +1307,7 @@ def test_navigate_value_key_type_mismatch(string_to_int_map_schema):
 
     key = make_string_value("test")
     val = make_int_value(42)
-    mv.insert(key.const_view(), val.const_view())
+    mv.add(key.const_view(), val.const_view())
 
     # Try to navigate with int key on string-keyed map
     int_key = make_int_value(123)
@@ -1338,7 +1338,7 @@ def test_navigate_mixed_path_with_value_key(type_registry, string_schema, int_sc
 
     map_view = bv["data"].as_map()
     key = make_string_value("home")
-    map_view.insert(key.const_view(), addr.const_view())
+    map_view.add(key.const_view(), addr.const_view())
 
     # Navigate: data[<value key>].city
     path = [

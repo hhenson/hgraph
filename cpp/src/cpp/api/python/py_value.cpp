@@ -889,14 +889,14 @@ static void register_set_views(nb::module_& m) {
             if (index >= self.size()) {
                 throw nb::index_error("set index out of range");
             }
-            const void* elem = self.schema()->ops().get_at(self.data(), index, self.schema());
+            const void* elem = self.schema()->ops().at(self.data(), index, self.schema());
             return ConstValueView(elem, self.schema()->element_type);
         }, "index"_a, "Get element at index")
         // Iteration support using index-based access
         .def("__iter__", [](const ConstSetView& self) {
             nb::list result;
             for (size_t i = 0; i < self.size(); ++i) {
-                const void* elem = self.schema()->ops().get_at(self.data(), i, self.schema());
+                const void* elem = self.schema()->ops().at(self.data(), i, self.schema());
                 result.append(nb::cast(ConstValueView(elem, self.schema()->element_type)));
             }
             return nb::iter(result);
@@ -911,9 +911,9 @@ static void register_set_views(nb::module_& m) {
             &SetView::contains), "value"_a, "Check if an element is in the set")
         .def("__contains__", static_cast<bool (SetView::*)(const ConstValueView&) const>(
             &SetView::contains), "value"_a)
-        .def("insert", static_cast<bool (SetView::*)(const ConstValueView&)>(&SetView::insert),
-            "value"_a, "Insert an element (returns true if inserted)")
-        .def("erase", static_cast<bool (SetView::*)(const ConstValueView&)>(&SetView::erase),
+        .def("add", static_cast<bool (SetView::*)(const ConstValueView&)>(&SetView::add),
+            "value"_a, "Add an element (returns true if added)")
+        .def("remove", static_cast<bool (SetView::*)(const ConstValueView&)>(&SetView::remove),
             "value"_a, "Remove an element (returns true if removed)")
         .def("clear", &SetView::clear, "Clear all elements")
         .def("element_type", &SetView::element_type, nb::rv_policy::reference,
@@ -923,14 +923,14 @@ static void register_set_views(nb::module_& m) {
             if (index >= self.size()) {
                 throw nb::index_error("set index out of range");
             }
-            const void* elem = self.schema()->ops().get_at(self.data(), index, self.schema());
+            const void* elem = self.schema()->ops().at(self.data(), index, self.schema());
             return ConstValueView(elem, self.schema()->element_type);
         }, "index"_a, "Get element at index")
         // Iteration support
         .def("__iter__", [](SetView& self) {
             nb::list result;
             for (size_t i = 0; i < self.size(); ++i) {
-                const void* elem = self.schema()->ops().get_at(self.data(), i, self.schema());
+                const void* elem = self.schema()->ops().at(self.data(), i, self.schema());
                 result.append(nb::cast(ConstValueView(elem, self.schema()->element_type)));
             }
             return nb::iter(result);
@@ -1117,9 +1117,9 @@ static void register_map_views(nb::module_& m) {
             &MapView::contains), "key"_a)
         .def("set", static_cast<void (MapView::*)(const ConstValueView&, const ConstValueView&)>(
             &MapView::set), "key"_a, "value"_a, "Set value for key")
-        .def("insert", static_cast<bool (MapView::*)(const ConstValueView&, const ConstValueView&)>(
-            &MapView::insert), "key"_a, "value"_a, "Insert key-value pair (returns true if inserted)")
-        .def("erase", static_cast<bool (MapView::*)(const ConstValueView&)>(&MapView::erase),
+        .def("add", static_cast<bool (MapView::*)(const ConstValueView&, const ConstValueView&)>(
+            &MapView::add), "key"_a, "value"_a, "Add key-value pair (returns true if added)")
+        .def("remove", static_cast<bool (MapView::*)(const ConstValueView&)>(&MapView::remove),
             "key"_a, "Remove entry by key (returns true if removed)")
         .def("clear", &MapView::clear, "Clear all entries")
         .def("key_type", &MapView::key_type, nb::rv_policy::reference, "Get the key type")
@@ -1215,8 +1215,8 @@ static void register_cyclic_buffer_views(nb::module_& m) {
             "Get the element type")
         .def("capacity", &CyclicBufferView::capacity, "Get the fixed capacity")
         .def("full", &CyclicBufferView::full, "Check if the buffer is full")
-        .def("push_back", static_cast<void (CyclicBufferView::*)(const ConstValueView&)>(
-            &CyclicBufferView::push_back), "value"_a,
+        .def("push", static_cast<void (CyclicBufferView::*)(const ConstValueView&)>(
+            &CyclicBufferView::push), "value"_a,
             "Push a value to the back (evicts oldest if full)")
         .def("clear", &CyclicBufferView::clear, "Clear all elements")
         .def("is_buffer_compatible", [](const CyclicBufferView& self) {
@@ -1289,10 +1289,10 @@ static void register_queue_views(nb::module_& m) {
             "Get the max capacity (0 = unbounded)")
         .def("has_max_capacity", &QueueView::has_max_capacity,
             "Check if the queue has a max capacity")
-        .def("push_back", [](QueueView& self, const ConstValueView& value) {
-            self.push_back(value);
+        .def("push", [](QueueView& self, const ConstValueView& value) {
+            self.push(value);
         }, "value"_a, "Push a value to the back of the queue")
-        .def("pop_front", &QueueView::pop_front,
+        .def("pop", &QueueView::pop,
             "Remove and discard the front element")
         .def("clear", &QueueView::clear, "Clear all elements");
 }
