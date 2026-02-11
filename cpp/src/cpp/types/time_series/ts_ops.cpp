@@ -311,6 +311,12 @@ struct REFBindingHelper : public Notifiable {
     void* input_observer_data{nullptr}; // TSInput's own observer list (for notifying downstream consumers)
     bool subscribed_to_ref{false};
     bool is_ref_to_ref_{false};   // True when REF input binds to REF output
+    bool target_changed_{false};  // True when last rebind changed the target (not same target)
+    ViewData prev_resolved_vd_{};  // Previous resolved target's ViewData (for delta computation)
+    bool has_prev_resolved_{false}; // Whether prev_resolved_vd_ is valid
+    ViewData pending_old_vd_{};    // Old target ViewData cached during rebind, consumed by delta_to_python
+    engine_time_t pending_rebind_time_{MIN_DT}; // Time of pending rebind
+    bool has_pending_delta_{false}; // True when rebind just happened and delta_to_python hasn't consumed it
 
     explicit REFBindingHelper(LinkTarget* lt, const ViewData& ref_src, bool ref_to_ref = false,
                               void* input_obs = nullptr)
@@ -358,43 +364,76 @@ struct REFBindingHelper : public Notifiable {
 
     // Resolve the current TSReference and rebind the LinkTarget to the resolved target.
     void rebind(engine_time_t current_time) {
-        // Unsubscribe from old resolved target
-        unsubscribe_from_resolved();
-
-        if (!is_ref_to_ref_) {
-            // TS→REF mode: clear old target data in LinkTarget (preserve structural fields)
-            owner->is_linked = false;
-            owner->target_path = ShortPath{};
-            owner->value_data = nullptr;
-            owner->time_data = nullptr;
-            owner->observer_data = nullptr;
-            owner->delta_data = nullptr;
-            owner->link_data = nullptr;
-            owner->ops = nullptr;
-            owner->meta = nullptr;
-        }
-        // REF→REF mode: LinkTarget already stores REF source data from bind();
-        // we only manage subscriptions here, don't touch LinkTarget data.
-
-        // Read TSReference from REF source
+        // Read TSReference from REF source FIRST, before any cleanup.
+        // This lets us detect same-target rebinds and skip the expensive unsubscribe/resubscribe.
         if (!ref_source.value_data || !ref_source.meta) {
+            // No valid REF source — clean up and return
+            unsubscribe_from_resolved();
+            if (!is_ref_to_ref_) {
+                owner->is_linked = false;
+                owner->value_data = nullptr;
+                owner->time_data = nullptr;
+                owner->observer_data = nullptr;
+                owner->delta_data = nullptr;
+                owner->link_data = nullptr;
+                owner->ops = nullptr;
+                owner->meta = nullptr;
+            }
+            target_changed_ = true;
             return;
         }
         auto value_meta = ref_source.meta->value_type;
         if (!value_meta) {
+            unsubscribe_from_resolved();
+            if (!is_ref_to_ref_) {
+                owner->is_linked = false;
+                owner->value_data = nullptr;
+                owner->time_data = nullptr;
+                owner->observer_data = nullptr;
+                owner->delta_data = nullptr;
+                owner->link_data = nullptr;
+                owner->ops = nullptr;
+                owner->meta = nullptr;
+            }
+            target_changed_ = true;
             return;
         }
 
         value::View v(ref_source.value_data, value_meta);
         if (!v.valid()) {
+            unsubscribe_from_resolved();
+            if (!is_ref_to_ref_) {
+                owner->is_linked = false;
+                owner->value_data = nullptr;
+                owner->time_data = nullptr;
+                owner->observer_data = nullptr;
+                owner->delta_data = nullptr;
+                owner->link_data = nullptr;
+                owner->ops = nullptr;
+                owner->meta = nullptr;
+            }
+            target_changed_ = true;
             return;
         }
 
         const auto* ts_ref = static_cast<const TSReference*>(v.data());
         if (!ts_ref) {
+            unsubscribe_from_resolved();
+            if (!is_ref_to_ref_) {
+                owner->is_linked = false;
+                owner->value_data = nullptr;
+                owner->time_data = nullptr;
+                owner->observer_data = nullptr;
+                owner->delta_data = nullptr;
+                owner->link_data = nullptr;
+                owner->ops = nullptr;
+                owner->meta = nullptr;
+            }
+            target_changed_ = true;
             return;
         }
         if (ts_ref->is_empty()) {
+            unsubscribe_from_resolved();
             if (!is_ref_to_ref_) {
                 // Store REF source data so valid()/modified() can check
                 owner->is_linked = true;
@@ -407,6 +446,7 @@ struct REFBindingHelper : public Notifiable {
                 owner->ops = ref_source.ops;
                 owner->meta = ref_source.meta;
             }
+            target_changed_ = true;
             return;
         }
 
@@ -427,6 +467,7 @@ struct REFBindingHelper : public Notifiable {
             }
         } else {
             // NON_PEERED: store REF source data
+            unsubscribe_from_resolved();
             if (!is_ref_to_ref_) {
                 owner->is_linked = true;
                 owner->target_path = ref_source.path;
@@ -438,6 +479,7 @@ struct REFBindingHelper : public Notifiable {
                 owner->ops = ref_source.ops;
                 owner->meta = ref_source.meta;
             }
+            target_changed_ = true;
             return;
         }
         if (!resolved) return;
@@ -451,6 +493,35 @@ struct REFBindingHelper : public Notifiable {
             if (inner) {
                 final_vd = *inner;
             }
+        }
+
+        // Check if the resolved target is the same as the current target.
+        // This matches Python's PythonBoundTimeSeriesInput.bind_output():
+        //   if output is self._output: return self.has_peer  (no-op)
+        // When the REF output fires with the same reference, rebinding to the
+        // same target should be a no-op — no time stamp update, no notification.
+        if (!is_ref_to_ref_ && owner->is_linked &&
+            owner->value_data == final_vd.value_data) {
+            // Same target — no need to unsubscribe/resubscribe since we didn't do it yet
+            target_changed_ = false;
+            return;
+        }
+
+        // Target is different — now perform the actual unsubscribe from old target
+        // and capture old target values for delta computation.
+        unsubscribe_from_resolved();
+
+        // Cache the previous resolved target's ViewData for delta computation.
+        // This is the C++ equivalent of Python's PythonTimeSeriesSetInput._prev_output
+        // which stores a reference to the old output object, allowing delta_value to
+        // reconstruct the pre-tick state at read time.
+        // We use prev_resolved_vd_ (saved from the PREVIOUS rebind) which contains
+        // the actual target output's ViewData (with correct time_data, delta_data, etc.)
+        target_changed_ = true;
+        if (!is_ref_to_ref_ && has_prev_resolved_) {
+            pending_old_vd_ = prev_resolved_vd_;
+            pending_rebind_time_ = current_time;
+            has_pending_delta_ = true;
         }
 
         if (!is_ref_to_ref_) {
@@ -483,12 +554,31 @@ struct REFBindingHelper : public Notifiable {
                 obs->add_observer(&owner->active_notifier);
             }
         }
+
+        // Save the resolved target's ViewData for future delta computation.
+        // On the next rebind, this will be the "old" target whose pre-tick
+        // state is needed to compute the full diff delta.
+        // Clear link_data so the cached ViewData reads directly from the
+        // target's data without link following.
+        prev_resolved_vd_ = final_vd;
+        prev_resolved_vd_.link_data = nullptr;
+        has_prev_resolved_ = true;
     }
+
+    // Note: previous target ViewData is stored per-instance in pending_old_vd_
+    // rather than in a thread-local cache to avoid cross-graph stale pointer issues.
 
     // Called when REF source changes - rebind to new target and schedule node
     void notify(engine_time_t et) override {
         // REF source changed - rebind to new resolved target
         rebind(et);
+
+        // If the target didn't actually change (same output reference applied),
+        // skip all notifications. This matches Python's bind_output():
+        //   if output is self._output: return self.has_peer  (no-op)
+        if (!target_changed_) {
+            return;
+        }
 
         // Time-accounting: propagate through LinkTarget chain
         owner->notify(et);
@@ -625,7 +715,9 @@ nb::object to_python(const ViewData& vd) {
 
 nb::object delta_to_python(const ViewData& vd) {
     auto [result, target] = resolve_delegation_target_with_ref(vd, MIN_DT);
-    if (result == DelegateResult::DELEGATED) return target.ops->delta_to_python(target);
+    if (result == DelegateResult::DELEGATED) {
+        return target.ops->delta_to_python(target);
+    }
     if (result == DelegateResult::REF_UNRESOLVED) return nb::none();
     if (!valid(vd)) return nb::none();
     auto v = make_value_view(vd);
@@ -823,6 +915,9 @@ void unbind(ViewData& vd) {
             auto* helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
             helper->unsubscribe_all();
             lt->cleanup_ref_binding();
+            // Reset the input's own time data so valid() returns false after unbind.
+            // owner_time_ptr points to the input's time slot in TSValue::time_.
+            if (lt->owner_time_ptr) *lt->owner_time_ptr = MIN_DT;
             lt->clear();
         } else if (lt->is_linked) {
             // Non-REF binding: original unsubscription logic
@@ -836,6 +931,9 @@ void unbind(ViewData& vd) {
                     lt->active_notifier.owning_input = nullptr;
                 }
             }
+            // Reset the input's own time data so valid() returns false after unbind.
+            // owner_time_ptr points to the input's time slot in TSValue::time_.
+            if (lt->owner_time_ptr) *lt->owner_time_ptr = MIN_DT;
             lt->clear();
         }
     } else {
@@ -2350,6 +2448,21 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                             lt->active_notifier.owning_input = input;
                             observers->add_observer(&lt->active_notifier);
                         }
+                        // Initial notification: if the output is already valid AND modified,
+                        // fire notify to schedule the owning node (matches Python make_active behavior).
+                        if (input && lt->ops) {
+                            ViewData output_vd = make_view_data_from_link_target(*lt, vd.path);
+                            if (lt->ops->valid(output_vd)) {
+                                auto* node = input->owning_node();
+                                if (node && node->cached_evaluation_time_ptr()) {
+                                    engine_time_t eval_time = *node->cached_evaluation_time_ptr();
+                                    if (lt->ops->modified(output_vd, eval_time)) {
+                                        engine_time_t lmt = lt->ops->last_modified_time(output_vd);
+                                        input->notify(lmt);
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         if (lt->active_notifier.owning_input != nullptr) {
                             observers->remove_observer(&lt->active_notifier);
@@ -3695,7 +3808,88 @@ static thread_local std::unordered_map<void*, nb::object> cached_py_deltas_;
 nb::object delta_to_python(const ViewData& vd) {
     // Follow links for inputs
     if (auto* lt = get_active_link_target(vd)) {
-        return lt->ops->delta_to_python(make_view_data_from_link_target(*lt, vd.path));
+        // Check for REF rebind: if the LinkTarget has a REFBindingHelper that just
+        // changed targets, compute full diff delta.
+        // This matches Python's PythonTimeSeriesSetInput._prev_output which stores
+        // a reference to the old output object and at delta_value time computes:
+        //   old_pre_tick = (prev_output.values() | prev_output.removed()) - prev_output.added()
+        //   added = new_values - old_pre_tick
+        //   removed = old_pre_tick - new_values
+        if (lt->ref_binding_) {
+            auto* helper = static_cast<REFBindingHelper*>(lt->ref_binding_);
+            if (helper->has_pending_delta_) {
+                ViewData old_vd = helper->pending_old_vd_;
+                engine_time_t rebind_time = helper->pending_rebind_time_;
+                helper->has_pending_delta_ = false;
+
+                // Read the new target's current values
+                ViewData new_target_vd = make_view_data_from_link_target(*lt, vd.path);
+                nb::object new_values_py = lt->ops->to_python(new_target_vd);
+
+                // Read the old target's current values
+                nb::object old_values_py = old_vd.ops->to_python(old_vd);
+
+                // Check if the old target modified on the CURRENT tick.
+                // If it didn't, its delta is empty (no added, no removed).
+                // This matches Python where output._added/_removed are reset
+                // after each engine cycle and are None if the output didn't tick.
+                bool old_modified = old_vd.ops->modified(old_vd, rebind_time);
+
+                // Reconstruct old pre-tick state:
+                // old_pre_tick = (old_values | old_removed) - old_added
+                // If old target didn't modify this tick, old_added and old_removed
+                // are empty, so old_pre_tick = old_values.
+                nb::set old_pre_tick;
+                if (!old_values_py.is_none()) {
+                    for (auto elem : old_values_py) { old_pre_tick.add(nb::borrow(elem)); }
+                }
+
+                if (old_modified) {
+                    // Old target also ticked — need to back out its delta
+                    nb::object old_delta_py = old_vd.ops->delta_to_python(old_vd);
+                    nb::set old_added_set, old_removed_set;
+                    if (!old_delta_py.is_none()) {
+                        try {
+                            nb::object old_added_attr = old_delta_py.attr("added");
+                            nb::object old_removed_attr = old_delta_py.attr("removed");
+                            for (auto elem : old_added_attr) { old_added_set.add(nb::borrow(elem)); }
+                            for (auto elem : old_removed_attr) { old_removed_set.add(nb::borrow(elem)); }
+                        } catch (...) {}
+                    }
+                    // Adjust: (old_values | old_removed) - old_added
+                    for (auto elem : old_removed_set) { old_pre_tick.add(nb::borrow(elem)); }
+                    nb::set adjusted;
+                    for (auto elem : old_pre_tick) {
+                        if (!old_added_set.contains(nb::borrow(elem))) {
+                            adjusted.add(nb::borrow(elem));
+                        }
+                    }
+                    old_pre_tick = std::move(adjusted);
+                }
+
+                // Build new_set from current new target values
+                nb::set new_set;
+                if (!new_values_py.is_none()) {
+                    for (auto elem : new_values_py) { new_set.add(nb::borrow(elem)); }
+                }
+
+                // Compute added = new_values - old_pre_tick
+                nb::set py_added;
+                for (auto elem : new_set) {
+                    if (!old_pre_tick.contains(nb::borrow(elem))) { py_added.add(nb::borrow(elem)); }
+                }
+                // Compute removed = old_pre_tick - new_values
+                nb::set py_removed;
+                for (auto elem : old_pre_tick) {
+                    if (!new_set.contains(nb::borrow(elem))) { py_removed.add(nb::borrow(elem)); }
+                }
+
+                nb::module_ tss_mod = nb::module_::import_("hgraph._impl._types._tss");
+                return tss_mod.attr("PythonSetDelta")(nb::frozenset(py_added), nb::frozenset(py_removed));
+            }
+        }
+        auto delegated_vd = make_view_data_from_link_target(*lt, vd.path);
+        return lt->ops->delta_to_python(delegated_vd);
     }
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->delta_to_python(make_view_data_from_link(*rl, vd.path));
@@ -3703,7 +3897,7 @@ nb::object delta_to_python(const ViewData& vd) {
     // Check time-series validity first
     if (!valid(vd)) return nb::none();
 
-    // Return the cached Python delta built by from_python
+    // Return the cached Python delta built by from_python or set_add/set_remove
     if (vd.delta_data) {
         auto it = cached_py_deltas_.find(vd.delta_data);
         if (it != cached_py_deltas_.end()) {
@@ -4102,12 +4296,15 @@ bool set_add(ViewData& vd, const value::View& elem, engine_time_t current_time) 
     auto* storage = get_set_storage(vd);
     const auto* elem_type = storage->element_type();
 
-    // Clear stale cached delta at start of new tick
-    if (vd.delta_data) {
+    // Clear stale cached delta + SetDelta at start of new tick.
+    // The output may not have been modified since a previous tick, so both the
+    // C++ SetDelta and the Python cached_py_deltas_ entry can be stale.
+    auto* container_time = get_container_time(vd);
+    bool first_mod_this_tick = container_time && (*container_time != current_time);
+    if (first_mod_this_tick && vd.delta_data) {
         auto* set_delta = static_cast<SetDelta*>(vd.delta_data);
-        if (set_delta->empty()) {
-            cached_py_deltas_.erase(vd.delta_data);
-        }
+        set_delta->clear();
+        cached_py_deltas_.erase(vd.delta_data);
     }
 
     // Capture Python representation BEFORE mutation (for delta tracking)
@@ -4161,12 +4358,14 @@ bool set_remove(ViewData& vd, const value::View& elem, engine_time_t current_tim
     auto* storage = get_set_storage(vd);
     const auto* elem_type = storage->element_type();
 
-    // Clear stale cached delta at start of new tick
-    if (vd.delta_data) {
+    // Clear stale cached delta + SetDelta at start of new tick.
+    // Same logic as set_add: check container_time to detect new tick.
+    auto* container_time = get_container_time(vd);
+    bool first_mod_this_tick = container_time && (*container_time != current_time);
+    if (first_mod_this_tick && vd.delta_data) {
         auto* set_delta = static_cast<SetDelta*>(vd.delta_data);
-        if (set_delta->empty()) {
-            cached_py_deltas_.erase(vd.delta_data);
-        }
+        set_delta->clear();
+        cached_py_deltas_.erase(vd.delta_data);
     }
 
     // Capture Python representation BEFORE removal (key will be destructed)

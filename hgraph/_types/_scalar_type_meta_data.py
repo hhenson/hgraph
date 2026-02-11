@@ -863,6 +863,16 @@ class HgArrayScalarTypeMetaData(HgCollectionType):
     def __hash__(self) -> int:
         return hash(tuple) ^ hash(self.element_type) ^ hash(self.shape_types)
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TypeMeta for this array type.
+
+        Uses opaque nb::object storage since numpy ndarrays are Python-only objects.
+        """
+        if not self.is_resolved:
+            raise TypeError(f"Cannot get cpp_type for unresolved type: {self}")
+        return self._make_cpp_type(lambda h: h.value.get_scalar_type_meta(object))
+
 
 class HgTupleFixedScalarType(HgTupleScalarType):
 

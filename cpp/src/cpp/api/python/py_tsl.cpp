@@ -215,7 +215,7 @@ namespace hgraph
     template <typename T_TS> void _register_tsl_with_nanobind(nb::module_ &m) {
         using PyTS_Type = PyTimeSeriesList<T_TS>;
 
-        nb::class_<PyTS_Type, T_TS>(m, std::is_same_v<T_TS, PyTimeSeriesInput> ? "TimeSeriesListInput" : "TimeSeriesListOutput")
+        auto cls = nb::class_<PyTS_Type, T_TS>(m, std::is_same_v<T_TS, PyTimeSeriesInput> ? "TimeSeriesListInput" : "TimeSeriesListOutput")
             .def("__getitem__", &PyTS_Type::get_item)
             .def("__iter__", &PyTS_Type::iter)
             .def("__len__", &PyTS_Type::len)
@@ -231,6 +231,43 @@ namespace hgraph
             .def("modified_items", &PyTS_Type::modified_items)
             .def("__str__", &PyTS_Type::py_str)
             .def("__repr__", &PyTS_Type::py_repr);
+
+        // Register copy_from_input/output for Output variant only
+        if constexpr (std::is_same_v<T_TS, PyTimeSeriesOutput>) {
+            cls.def("copy_from_input", [](PyTS_Type &self, const PyTimeSeriesInput &input) {
+                // Python logic: for each child, copy from corresponding input child
+                auto self_values = nb::cast<nb::list>(self.values());
+                // Try to get the input as a TSL
+                auto* input_as_tsl = dynamic_cast<const PyTimeSeriesListInput*>(&input);
+                if (!input_as_tsl) {
+                    // Fallback to base class
+                    self.PyTimeSeriesOutput::copy_from_input(input);
+                    return;
+                }
+                auto input_values = nb::cast<nb::list>(input_as_tsl->values());
+                auto n = std::min(nb::len(self_values), nb::len(input_values));
+                for (size_t i = 0; i < n; ++i) {
+                    nb::object self_child = self_values[i];
+                    nb::object input_child = input_values[i];
+                    self_child.attr("copy_from_input")(input_child);
+                }
+            });
+            cls.def("copy_from_output", [](PyTS_Type &self, const PyTimeSeriesOutput &output) {
+                auto self_values = nb::cast<nb::list>(self.values());
+                auto* output_as_tsl = dynamic_cast<const PyTimeSeriesListOutput*>(&output);
+                if (!output_as_tsl) {
+                    self.PyTimeSeriesOutput::copy_from_output(output);
+                    return;
+                }
+                auto output_values = nb::cast<nb::list>(output_as_tsl->values());
+                auto n = std::min(nb::len(self_values), nb::len(output_values));
+                for (size_t i = 0; i < n; ++i) {
+                    nb::object self_child = self_values[i];
+                    nb::object output_child = output_values[i];
+                    self_child.attr("copy_from_output")(output_child);
+                }
+            });
+        }
     }
 
     void tsl_register_with_nanobind(nb::module_ &m) {

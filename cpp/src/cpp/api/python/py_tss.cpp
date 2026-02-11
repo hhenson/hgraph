@@ -181,6 +181,83 @@ namespace hgraph
 
     nb::str PyTimeSeriesSetOutput::py_repr() const { return py_str(); }
 
+    // ===== Collection-specific copy operations =====
+
+    void PyTimeSeriesSetOutput::copy_from_input(const PyTimeSeriesInput &input) {
+        // Python logic: compute added/removed, apply if changed
+        nb::object input_value_obj = input.value();
+        nb::set input_value;
+        if (input_value_obj.is_none()) {
+            // empty input
+        } else if (nb::isinstance<nb::frozenset>(input_value_obj)) {
+            input_value = nb::set(input_value_obj);
+        } else if (nb::isinstance<nb::set>(input_value_obj)) {
+            input_value = nb::cast<nb::set>(input_value_obj);
+        }
+
+        nb::object self_value_obj = this->value();
+        nb::set self_value;
+        if (!self_value_obj.is_none()) {
+            if (nb::isinstance<nb::set>(self_value_obj)) {
+                self_value = nb::cast<nb::set>(self_value_obj);
+            } else if (nb::isinstance<nb::frozenset>(self_value_obj)) {
+                self_value = nb::set(self_value_obj);
+            }
+        }
+
+        // Compute added = input - self
+        // Compute removed = self - input
+        for (auto elem : input_value) {
+            if (!self_value.contains(elem)) {
+                this->add(nb::borrow(elem));
+            }
+        }
+        for (auto elem : self_value) {
+            if (!input_value.contains(elem)) {
+                this->remove(nb::borrow(elem));
+            }
+        }
+    }
+
+    void PyTimeSeriesSetOutput::copy_from_output(const PyTimeSeriesOutput &output) {
+        auto output_as_tss = dynamic_cast<const PyTimeSeriesSetOutput*>(&output);
+        if (!output_as_tss) {
+            PyTimeSeriesOutput::copy_from_output(output);
+            return;
+        }
+
+        nb::object src_value_obj = output_as_tss->value();
+        nb::set src_value;
+        if (!src_value_obj.is_none()) {
+            if (nb::isinstance<nb::set>(src_value_obj)) {
+                src_value = nb::cast<nb::set>(src_value_obj);
+            } else if (nb::isinstance<nb::frozenset>(src_value_obj)) {
+                src_value = nb::set(src_value_obj);
+            }
+        }
+
+        nb::object self_value_obj = this->value();
+        nb::set self_value;
+        if (!self_value_obj.is_none()) {
+            if (nb::isinstance<nb::set>(self_value_obj)) {
+                self_value = nb::cast<nb::set>(self_value_obj);
+            } else if (nb::isinstance<nb::frozenset>(self_value_obj)) {
+                self_value = nb::set(self_value_obj);
+            }
+        }
+
+        for (auto elem : src_value) {
+            if (!self_value.contains(elem)) {
+                this->add(nb::borrow(elem));
+            }
+        }
+        for (auto elem : self_value) {
+            if (!src_value.contains(elem)) {
+                this->remove(nb::borrow(elem));
+            }
+        }
+    }
+
     // ===== PyTimeSeriesSetInput =====
 
     static ViewData resolve_input_view_data(const PyTimeSeriesSetInput& input) {
@@ -304,6 +381,11 @@ namespace hgraph
 
         auto tss_output = nb::class_<PyTimeSeriesSetOutput, PyTimeSeriesOutput>(m, "TimeSeriesSetOutput");
         tss_output
+            .def("copy_from_input", &PyTimeSeriesSetOutput::copy_from_input)
+            .def("copy_from_output", &PyTimeSeriesSetOutput::copy_from_output)
+            .def_prop_rw("value", &PyTimeSeriesSetOutput::value,
+                         [](PyTimeSeriesSetOutput &self, nb::object v) { self.set_value(v); },
+                         nb::arg("value").none())
             .def("__contains__", &PyTimeSeriesSetOutput::contains)
             .def("__len__", &PyTimeSeriesSetOutput::size)
             .def("empty", &PyTimeSeriesSetOutput::empty)

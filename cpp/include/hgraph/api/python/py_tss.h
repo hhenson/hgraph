@@ -23,6 +23,10 @@ namespace hgraph
         PyTimeSeriesSetOutput(const PyTimeSeriesSetOutput&) = delete;
         PyTimeSeriesSetOutput& operator=(const PyTimeSeriesSetOutput&) = delete;
 
+        // Collection-specific copy operations
+        void copy_from_input(const PyTimeSeriesInput &input);
+        void copy_from_output(const PyTimeSeriesOutput &output);
+
         [[nodiscard]] bool contains(const nb::object &item) const;
         [[nodiscard]] size_t size() const;
         [[nodiscard]] nb::bool_ empty() const;

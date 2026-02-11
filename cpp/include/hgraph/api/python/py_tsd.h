@@ -26,6 +26,10 @@ namespace hgraph
         PyTimeSeriesDictOutput(const PyTimeSeriesDictOutput&) = delete;
         PyTimeSeriesDictOutput& operator=(const PyTimeSeriesDictOutput&) = delete;
 
+        // Collection-specific copy operations
+        void copy_from_input(const PyTimeSeriesInput &input);
+        void copy_from_output(const PyTimeSeriesOutput &output);
+
         [[nodiscard]] size_t size() const;
         [[nodiscard]] nb::object get_item(const nb::object &item) const;
         [[nodiscard]] nb::object get(const nb::object &item, const nb::object &default_value) const;

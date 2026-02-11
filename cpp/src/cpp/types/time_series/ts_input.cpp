@@ -110,18 +110,48 @@ void TSInput::set_active(const std::string& field, bool active) {
         if (field_link_view) {
             auto* lt = static_cast<LinkTarget*>(field_link_view.data());
             if (lt) {
+                // Detect TS→REF binding: REF field bound to non-REF target
+                const TSMeta* field_ts = meta_->fields[field_index].ts_type;
+                bool is_ts_to_ref = (field_ts && field_ts->kind == TSKind::REF &&
+                                     lt->is_linked && lt->meta && lt->meta->kind != TSKind::REF);
+
                 if (active) {
                     // Set owning_input so REFBindingHelper can schedule via active_notifier.
                     // This is critical for REF→REF bindings where lt->observer_data is nullptr
                     // (REFBindingHelper manages subscriptions) — without this, the
                     // REFBindingHelper cannot schedule the owning node when the REF changes.
                     lt->active_notifier.owning_input = this;
-                    if (lt->is_linked && lt->observer_data) {
+
+                    if (is_ts_to_ref) {
+                        // TS→REF: The reference is valid from bind time.
+                        // Fire initial notification at MIN_ST so the node evaluates at the first tick.
+                        // Do NOT subscribe to the target's observer list (reference is fixed).
+                        notify(MIN_ST);
+                    } else if (lt->is_linked && lt->observer_data) {
                         auto* observers = static_cast<ObserverList*>(lt->observer_data);
                         observers->add_observer(this);
+                        // Initial notification: if the output is already valid AND modified,
+                        // fire notify to schedule the owning node (matches Python make_active behavior).
+                        if (lt->ops) {
+                            ViewData output_vd;
+                            output_vd.value_data = lt->value_data;
+                            output_vd.time_data = lt->time_data;
+                            output_vd.meta = lt->meta;
+                            output_vd.ops = lt->ops;
+                            if (lt->ops->valid(output_vd)) {
+                                auto* node = owning_node();
+                                if (node && node->cached_evaluation_time_ptr()) {
+                                    engine_time_t eval_time = *node->cached_evaluation_time_ptr();
+                                    if (lt->ops->modified(output_vd, eval_time)) {
+                                        engine_time_t lmt = lt->ops->last_modified_time(output_vd);
+                                        notify(lmt);
+                                    }
+                                }
+                            }
+                        }
                     }
                 } else {
-                    if (lt->is_linked && lt->observer_data) {
+                    if (!is_ts_to_ref && lt->is_linked && lt->observer_data) {
                         auto* observers = static_cast<ObserverList*>(lt->observer_data);
                         observers->remove_observer(this);
                     }
