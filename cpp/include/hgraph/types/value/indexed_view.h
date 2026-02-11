@@ -433,6 +433,57 @@ public:
         }
         return size();
     }
+
+    // ========== Items Iteration ==========
+
+    struct const_field_pair {
+        std::string_view name;
+        ConstValueView value;
+    };
+
+    class const_items_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = const_field_pair;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const const_field_pair*;
+        using reference = const_field_pair;
+
+        const_items_iterator() = default;
+        const_items_iterator(const void* data, const TypeMeta* schema, size_t index)
+            : data_(data), schema_(schema), index_(index) {}
+
+        reference operator*() const {
+            return {
+                std::string_view{schema_->fields[index_].name},
+                ConstValueView(schema_->ops().at(data_, index_, schema_),
+                               schema_->fields[index_].type)
+            };
+        }
+
+        const_items_iterator& operator++() { ++index_; return *this; }
+        const_items_iterator operator++(int) { auto tmp = *this; ++index_; return tmp; }
+        bool operator==(const const_items_iterator& o) const { return index_ == o.index_; }
+        bool operator!=(const const_items_iterator& o) const { return index_ != o.index_; }
+
+    private:
+        const void* data_{nullptr};
+        const TypeMeta* schema_{nullptr};
+        size_t index_{0};
+    };
+
+    struct const_items_range {
+        const_items_iterator begin_, end_;
+        const_items_iterator begin() const { return begin_; }
+        const_items_iterator end() const { return end_; }
+    };
+
+    [[nodiscard]] const_items_range items() const {
+        return {
+            const_items_iterator(_data, _schema, 0),
+            const_items_iterator(_data, _schema, size())
+        };
+    }
 };
 
 // ============================================================================
@@ -537,6 +588,69 @@ public:
         }
         return size();
     }
+
+    // ========== Items Iteration ==========
+
+    struct field_pair {
+        std::string_view name;
+        ValueView value;
+    };
+
+    class items_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = field_pair;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const field_pair*;
+        using reference = field_pair;
+
+        items_iterator() = default;
+        items_iterator(void* data, const TypeMeta* schema, size_t index)
+            : data_(data), schema_(schema), index_(index) {}
+
+        reference operator*() const {
+            return {
+                std::string_view{schema_->fields[index_].name},
+                ValueView(const_cast<void*>(schema_->ops().at(data_, index_, schema_)),
+                          schema_->fields[index_].type)
+            };
+        }
+
+        items_iterator& operator++() { ++index_; return *this; }
+        items_iterator operator++(int) { auto tmp = *this; ++index_; return tmp; }
+        bool operator==(const items_iterator& o) const { return index_ == o.index_; }
+        bool operator!=(const items_iterator& o) const { return index_ != o.index_; }
+
+    private:
+        void* data_{nullptr};
+        const TypeMeta* schema_{nullptr};
+        size_t index_{0};
+    };
+
+    struct items_range {
+        items_iterator begin_, end_;
+        items_iterator begin() const { return begin_; }
+        items_iterator end() const { return end_; }
+    };
+
+    [[nodiscard]] items_range items() {
+        return {
+            items_iterator(data(), _schema, 0),
+            items_iterator(data(), _schema, size())
+        };
+    }
+
+    // Const items iteration (reuse from ConstBundleView)
+    using const_field_pair = ConstBundleView::const_field_pair;
+    using const_items_iterator = ConstBundleView::const_items_iterator;
+    using const_items_range = ConstBundleView::const_items_range;
+
+    [[nodiscard]] const_items_range items() const {
+        return {
+            const_items_iterator(_data, _schema, 0),
+            const_items_iterator(_data, _schema, size())
+        };
+    }
 };
 
 // ============================================================================
@@ -579,6 +693,57 @@ public:
     [[nodiscard]] bool is_fixed() const {
         return _schema->is_fixed_size();
     }
+
+    // ========== Items Iteration ==========
+
+    struct const_indexed_pair {
+        size_t index;
+        ConstValueView value;
+    };
+
+    class const_items_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = const_indexed_pair;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const const_indexed_pair*;
+        using reference = const_indexed_pair;
+
+        const_items_iterator() = default;
+        const_items_iterator(const void* data, const TypeMeta* schema, size_t index)
+            : data_(data), schema_(schema), index_(index) {}
+
+        reference operator*() const {
+            return {
+                index_,
+                ConstValueView(schema_->ops().at(data_, index_, schema_),
+                               schema_->element_type)
+            };
+        }
+
+        const_items_iterator& operator++() { ++index_; return *this; }
+        const_items_iterator operator++(int) { auto tmp = *this; ++index_; return tmp; }
+        bool operator==(const const_items_iterator& o) const { return index_ == o.index_; }
+        bool operator!=(const const_items_iterator& o) const { return index_ != o.index_; }
+
+    private:
+        const void* data_{nullptr};
+        const TypeMeta* schema_{nullptr};
+        size_t index_{0};
+    };
+
+    struct const_items_range {
+        const_items_iterator begin_, end_;
+        const_items_iterator begin() const { return begin_; }
+        const_items_iterator end() const { return end_; }
+    };
+
+    [[nodiscard]] const_items_range items() const {
+        return {
+            const_items_iterator(_data, _schema, 0),
+            const_items_iterator(_data, _schema, size())
+        };
+    }
 };
 
 // ============================================================================
@@ -618,6 +783,69 @@ public:
      */
     [[nodiscard]] bool is_fixed() const {
         return _schema->is_fixed_size();
+    }
+
+    // ========== Items Iteration ==========
+
+    struct indexed_pair {
+        size_t index;
+        ValueView value;
+    };
+
+    class items_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = indexed_pair;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const indexed_pair*;
+        using reference = indexed_pair;
+
+        items_iterator() = default;
+        items_iterator(void* data, const TypeMeta* schema, size_t index)
+            : data_(data), schema_(schema), index_(index) {}
+
+        reference operator*() const {
+            return {
+                index_,
+                ValueView(const_cast<void*>(schema_->ops().at(data_, index_, schema_)),
+                          schema_->element_type)
+            };
+        }
+
+        items_iterator& operator++() { ++index_; return *this; }
+        items_iterator operator++(int) { auto tmp = *this; ++index_; return tmp; }
+        bool operator==(const items_iterator& o) const { return index_ == o.index_; }
+        bool operator!=(const items_iterator& o) const { return index_ != o.index_; }
+
+    private:
+        void* data_{nullptr};
+        const TypeMeta* schema_{nullptr};
+        size_t index_{0};
+    };
+
+    struct items_range {
+        items_iterator begin_, end_;
+        items_iterator begin() const { return begin_; }
+        items_iterator end() const { return end_; }
+    };
+
+    [[nodiscard]] items_range items() {
+        return {
+            items_iterator(data(), _schema, 0),
+            items_iterator(data(), _schema, size())
+        };
+    }
+
+    // Const items iteration (reuse from ConstListView)
+    using const_indexed_pair = ConstListView::const_indexed_pair;
+    using const_items_iterator = ConstListView::const_items_iterator;
+    using const_items_range = ConstListView::const_items_range;
+
+    [[nodiscard]] const_items_range items() const {
+        return {
+            const_items_iterator(_data, _schema, 0),
+            const_items_iterator(_data, _schema, size())
+        };
     }
 
     // ========== Dynamic List Operations ==========
@@ -1400,6 +1628,74 @@ public:
         return ConstKeySetView(*this);
     }
 
+    /**
+     * @brief Get a ConstSetView over the map's keys.
+     *
+     * Returns a ConstSetView wrapping the underlying SetStorage, allowing
+     * full set operations (contains, iteration) on the key set.
+     */
+    [[nodiscard]] ConstSetView key_set() const {
+        auto* storage = static_cast<const MapStorage*>(_data);
+        const TypeMeta* set_schema = TypeRegistry::instance().set(_schema->key_type).build();
+        return ConstSetView(&storage->as_set(), set_schema);
+    }
+
+    // ========== Items Iteration ==========
+
+    struct const_kv_pair {
+        ConstValueView key;
+        ConstValueView value;
+    };
+
+    class const_items_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = const_kv_pair;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const const_kv_pair*;
+        using reference = const_kv_pair;
+
+        const_items_iterator() = default;
+        const_items_iterator(const MapStorage* storage, KeySet::iterator it,
+                             const TypeMeta* key_type, const TypeMeta* val_type)
+            : storage_(storage), it_(it), key_type_(key_type), val_type_(val_type) {}
+
+        reference operator*() const {
+            size_t slot = *it_;
+            return {
+                ConstValueView(storage_->key_at_slot(slot), key_type_),
+                ConstValueView(storage_->value_at_slot(slot), val_type_)
+            };
+        }
+
+        const_items_iterator& operator++() { ++it_; return *this; }
+        const_items_iterator operator++(int) { auto tmp = *this; ++it_; return tmp; }
+        bool operator==(const const_items_iterator& o) const { return it_ == o.it_; }
+        bool operator!=(const const_items_iterator& o) const { return it_ != o.it_; }
+
+    private:
+        const MapStorage* storage_{nullptr};
+        KeySet::iterator it_;
+        const TypeMeta* key_type_{nullptr};
+        const TypeMeta* val_type_{nullptr};
+    };
+
+    struct const_items_range {
+        const_items_iterator begin_, end_;
+        const_items_iterator begin() const { return begin_; }
+        const_items_iterator end() const { return end_; }
+    };
+
+    [[nodiscard]] const_items_range items() const {
+        auto* storage = static_cast<const MapStorage*>(_data);
+        return {
+            const_items_iterator(storage, storage->key_set().begin(),
+                                 _schema->key_type, _schema->element_type),
+            const_items_iterator(storage, storage->key_set().end(),
+                                 _schema->key_type, _schema->element_type)
+        };
+    }
+
     // Templated operations - implemented after Value
     template<typename K>
     [[nodiscard]] ConstValueView at(const K& key) const;
@@ -1544,6 +1840,89 @@ public:
      */
     [[nodiscard]] ConstKeySetView keys() const {
         return ConstKeySetView(ConstValueView(_data, _schema));
+    }
+
+    /**
+     * @brief Get a ConstSetView over the map's keys.
+     *
+     * Returns a ConstSetView wrapping the underlying SetStorage, allowing
+     * full set operations (contains, iteration) on the key set.
+     */
+    [[nodiscard]] ConstSetView key_set() const {
+        auto* storage = static_cast<const MapStorage*>(_data);
+        const TypeMeta* set_schema = TypeRegistry::instance().set(_schema->key_type).build();
+        return ConstSetView(&storage->as_set(), set_schema);
+    }
+
+    // ========== Items Iteration ==========
+
+    struct kv_pair {
+        ConstValueView key;
+        ValueView value;
+    };
+
+    class items_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = kv_pair;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const kv_pair*;
+        using reference = kv_pair;
+
+        items_iterator() = default;
+        items_iterator(MapStorage* storage, KeySet::iterator it,
+                       const TypeMeta* key_type, const TypeMeta* val_type)
+            : storage_(storage), it_(it), key_type_(key_type), val_type_(val_type) {}
+
+        reference operator*() const {
+            size_t slot = *it_;
+            return {
+                ConstValueView(storage_->key_at_slot(slot), key_type_),
+                ValueView(storage_->value_at_slot(slot), val_type_)
+            };
+        }
+
+        items_iterator& operator++() { ++it_; return *this; }
+        items_iterator operator++(int) { auto tmp = *this; ++it_; return tmp; }
+        bool operator==(const items_iterator& o) const { return it_ == o.it_; }
+        bool operator!=(const items_iterator& o) const { return it_ != o.it_; }
+
+    private:
+        MapStorage* storage_{nullptr};
+        KeySet::iterator it_;
+        const TypeMeta* key_type_{nullptr};
+        const TypeMeta* val_type_{nullptr};
+    };
+
+    struct items_range {
+        items_iterator begin_, end_;
+        items_iterator begin() const { return begin_; }
+        items_iterator end() const { return end_; }
+    };
+
+    [[nodiscard]] items_range items() {
+        auto* storage = static_cast<MapStorage*>(data());
+        return {
+            items_iterator(storage, storage->key_set().begin(),
+                           _schema->key_type, _schema->element_type),
+            items_iterator(storage, storage->key_set().end(),
+                           _schema->key_type, _schema->element_type)
+        };
+    }
+
+    // Const items iteration (reuse from ConstMapView)
+    using const_kv_pair = ConstMapView::const_kv_pair;
+    using const_items_iterator = ConstMapView::const_items_iterator;
+    using const_items_range = ConstMapView::const_items_range;
+
+    [[nodiscard]] const_items_range items() const {
+        auto* storage = static_cast<const MapStorage*>(_data);
+        return {
+            const_items_iterator(storage, storage->key_set().begin(),
+                                 _schema->key_type, _schema->element_type),
+            const_items_iterator(storage, storage->key_set().end(),
+                                 _schema->key_type, _schema->element_type)
+        };
     }
 
     // Templated operations - implemented after Value
