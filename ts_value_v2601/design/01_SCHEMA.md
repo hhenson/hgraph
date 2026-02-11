@@ -26,13 +26,13 @@ struct TypeMeta {
     type_ops ops_;                // Polymorphic operations - INLINE, not pointer
 
     // Children (for compounds)
-    // - Compound/Bundle: vector of (name, TypeMeta*) pairs
-    // - List: element TypeMeta*
-    // - Dict: key TypeMeta*, value TypeMeta*
-    // - Set: element TypeMeta*
+    // - Bundle: vector of (name, TypeMeta*) pairs
+    // - List/Set/CyclicBuffer/Queue: element TypeMeta*
+    // - Map: key TypeMeta*, value TypeMeta*
+    // - Tuple: element TypeMeta* array
 
     // Kind (for dispatch)
-    TypeKind kind_;               // Atomic, Bundle, Tuple, List, Set, Map
+    TypeKind kind_;               // Atomic, Bundle, Tuple, List, Set, Map, CyclicBuffer, Queue
 
     // Accessors
     size_t size() const { return size_; }
@@ -63,6 +63,8 @@ The `size_` field represents the **static** memory required:
 | List | sizeof(container_header) - elements allocated separately |
 | Map | sizeof(container_header) - entries allocated separately |
 | Set | sizeof(container_header) - elements allocated separately |
+| CyclicBuffer | sizeof(container_header) - elements in fixed-size ring buffer |
+| Queue | sizeof(container_header) - elements allocated separately |
 
 For containers, the static size covers the container bookkeeping (e.g., size, capacity, pointer to elements). The actual elements are managed dynamically by the container's vtable operations.
 
@@ -100,32 +102,38 @@ struct ViewPairRange {
 
 ```cpp
 // Kind-specific extension ops
+
 struct atomic_ops {
-    // Atomic types have no additional ops beyond common
+    // Ordering for sorted containers and comparison operators
+    bool (*less_than)(const void* a, const void* b);
 };
 
 struct bundle_ops {
-    // Field access
-    View (*field_at_index)(void* ptr, size_t idx);
-    View (*field_at_name)(void* ptr, std::string_view name);
-    size_t (*field_count)(const void* ptr);
-    std::string_view (*field_name)(const void* ptr, size_t idx);
+    // Field access by index
+    size_t (*size)(const void* ptr);
+    View (*at)(void* ptr, size_t idx);
+    void (*set_at)(void* ptr, size_t idx, View value);
+    // Field access by name
+    View (*get_field)(void* ptr, std::string_view name);
+    void (*set_field)(void* ptr, std::string_view name, View value);
     // Iteration (ViewPairRange: field_name -> value)
     ViewPairRange (*items)(const void* ptr);
 };
 
 struct tuple_ops {
     // Element access (positional only, no names)
-    View (*at)(void* ptr, size_t idx);
     size_t (*size)(const void* ptr);
+    View (*at)(void* ptr, size_t idx);
+    void (*set_at)(void* ptr, size_t idx, View value);
     // Iteration (ViewPairRange: index -> value)
     ViewPairRange (*items)(const void* ptr);
 };
 
 struct list_ops {
     // Element access
-    View (*at)(void* ptr, size_t idx);
     size_t (*size)(const void* ptr);
+    View (*at)(void* ptr, size_t idx);
+    void (*set_at)(void* ptr, size_t idx, View value);
 
     // Mutation
     void (*append)(void* ptr, View elem);
@@ -134,6 +142,20 @@ struct list_ops {
     // Iteration
     ViewRange (*values)(const void* ptr);
     ViewPairRange (*items)(const void* ptr);  // index -> value
+};
+
+struct set_ops {
+    // Membership
+    bool (*contains)(const void* ptr, View elem);
+    size_t (*size)(const void* ptr);
+
+    // Mutation
+    void (*add)(void* ptr, View elem);
+    bool (*remove)(void* ptr, View elem);
+    void (*clear)(void* ptr);
+
+    // Iteration
+    ViewRange (*values)(const void* ptr);
 };
 
 struct map_ops {
@@ -152,15 +174,36 @@ struct map_ops {
     ViewPairRange (*items)(const void* ptr);  // key -> value
 };
 
-struct set_ops {
-    // Membership
-    bool (*contains)(const void* ptr, View elem);
+struct cyclic_buffer_ops {
+    // Element access
     size_t (*size)(const void* ptr);
+    View (*at)(void* ptr, size_t idx);
+    void (*set_at)(void* ptr, size_t idx, View value);
 
     // Mutation
-    void (*add)(void* ptr, View elem);
-    bool (*remove)(void* ptr, View elem);
+    void (*push)(void* ptr, View elem);
+    void (*pop)(void* ptr);
     void (*clear)(void* ptr);
+
+    // Capacity
+    size_t (*capacity)(const void* ptr);
+
+    // Iteration
+    ViewRange (*values)(const void* ptr);
+};
+
+struct queue_ops {
+    // Element access
+    size_t (*size)(const void* ptr);
+    View (*at)(void* ptr, size_t idx);
+
+    // Mutation
+    void (*push)(void* ptr, View elem);
+    void (*pop)(void* ptr);
+    void (*clear)(void* ptr);
+
+    // Capacity
+    size_t (*max_capacity)(const void* ptr);
 
     // Iteration
     ViewRange (*values)(const void* ptr);
@@ -174,6 +217,7 @@ struct type_ops {
     void (*destroy)(void* ptr);
     void (*copy)(void* dst, const void* src);
     void (*move)(void* dst, void* src);
+    void (*move_construct)(void* dst, void* src);
 
     // Comparison
     bool (*equals)(const void* a, const void* b);
@@ -197,6 +241,8 @@ struct type_ops {
         list_ops list;
         set_ops set;
         map_ops map;
+        cyclic_buffer_ops cyclic_buffer;
+        queue_ops queue;
     } specific;
 };
 ```
@@ -208,11 +254,13 @@ struct type_ops {
 | Kind | Examples | Notes |
 |------|----------|-------|
 | Atomic | int, float, string, date, datetime | Leaf types (scalars) |
-| Bundle | struct, compound scalar | Named fields |
-| Tuple | (int, float) | Positional fields (unnamed) |
-| List | List[T] | Homogeneous sequence |
+| Bundle | struct, compound scalar | Named fields (index + name access) |
+| Tuple | (int, float) | Positional fields (unnamed, index access only) |
+| List | List[T] | Homogeneous dynamic sequence |
+| Set | Set[T] | Unique unordered elements |
 | Map | Map[K, V] | Key-value mapping |
-| Set | Set[T] | Unique elements |
+| CyclicBuffer | CyclicBuffer[T, N] | Fixed-size circular buffer (TSW storage) |
+| Queue | Queue[T] | FIFO with optional max capacity |
 
 ## Set and Map Storage Architecture
 
