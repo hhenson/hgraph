@@ -87,7 +87,7 @@ public:
                     std::memcpy(&_storage.inline_buffer, &other._storage.inline_buffer, _schema->size);
                 } else {
                     // Move-construct directly into uninitialized storage
-                    _schema->ops->move_construct(data(), other.data(), _schema);
+                    _schema->ops().move_construct(data(), other.data(), _schema);
                 }
             } else {
                 // Transfer heap pointer
@@ -113,7 +113,7 @@ public:
                         std::memcpy(&_storage.inline_buffer, &other._storage.inline_buffer, _schema->size);
                     } else {
                         // Move-construct directly into uninitialized storage (reset() already cleared it)
-                        _schema->ops->move_construct(data(), other.data(), _schema);
+                        _schema->ops().move_construct(data(), other.data(), _schema);
                     }
                 } else {
                     _storage.heap_ptr = other._storage.heap_ptr;
@@ -167,7 +167,7 @@ public:
      */
     void construct(const TypeMeta* schema) {
         assert(!_schema && "Storage must be empty before construct");
-        assert(schema && schema->ops && "Schema and ops must be valid");
+        assert(schema && "Schema must be valid");
 
         _schema = schema;
         _is_inline = fits_inline(schema->size, schema->alignment);
@@ -176,7 +176,7 @@ public:
             _storage.heap_ptr = ::operator new(schema->size, std::align_val_t{schema->alignment});
         }
 
-        schema->ops->construct(data(), schema);
+        schema->ops().construct(data(), schema);
     }
 
     /**
@@ -208,7 +208,7 @@ public:
      */
     void reset() {
         if (_schema) {
-            _schema->ops->destruct(data(), _schema);
+            _schema->ops().destruct(data(), _schema);
 
             if (!_is_inline) {
                 ::operator delete(_storage.heap_ptr, std::align_val_t{_schema->alignment});
@@ -234,12 +234,12 @@ public:
 
         if (_schema == other._schema) {
             // Same schema - just copy the data
-            _schema->ops->copy_assign(data(), other.data(), _schema);
+            _schema->ops().copy_assign(data(), other.data(), _schema);
         } else {
             // Different schema - reset and reconstruct
             reset();
             construct(other._schema);
-            _schema->ops->copy_assign(data(), other.data(), _schema);
+            _schema->ops().copy_assign(data(), other.data(), _schema);
         }
     }
 

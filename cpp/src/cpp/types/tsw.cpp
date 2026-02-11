@@ -32,13 +32,13 @@ namespace hgraph
         if (_length < _size) {
             // No rotation has occurred; use the first _length elements
             for (size_t i = 0; i < _length; ++i) {
-                result.append(_element_type->ops->to_python(_buffer[i].data(), _element_type));
+                result.append(_element_type->ops().to_python(_buffer[i].data(), _element_type));
             }
         } else {
             // Buffer is full with rotation
             for (size_t i = 0; i < _size; ++i) {
                 size_t idx = (_start + i) % _size;
-                result.append(_element_type->ops->to_python(_buffer[idx].data(), _element_type));
+                result.append(_element_type->ops().to_python(_buffer[idx].data(), _element_type));
             }
         }
         return result;
@@ -48,7 +48,7 @@ namespace hgraph
         if (_length == 0) return nb::none();
         size_t pos = (_length < _size) ? (_length - 1) : ((_start + _length - 1) % _size);
         if (_times[pos] == owning_graph()->evaluation_time()) {
-            return _element_type->ops->to_python(_buffer[pos].data(), _element_type);
+            return _element_type->ops().to_python(_buffer[pos].data(), _element_type);
         }
         return nb::none();
     }
@@ -74,7 +74,7 @@ namespace hgraph
                 _length = _size;
             }
             size_t pos = (_start + _length - 1) % _size;
-            _element_type->ops->from_python(_buffer[pos].data(), value, _element_type);
+            _element_type->ops().from_python(_buffer[pos].data(), value, _element_type);
             _times[pos] = owning_graph()->evaluation_time();
             mark_modified();
         } catch (const std::exception &e) {
@@ -147,7 +147,7 @@ namespace hgraph
 
     nb::object TimeSeriesFixedWindowOutput::py_removed_value() const {
         if (!_has_removed_value) return nb::none();
-        return _element_type->ops->to_python(_removed_value.data(), _element_type);
+        return _element_type->ops().to_python(_removed_value.data(), _element_type);
     }
 
     void TimeSeriesFixedWindowOutput::reset_value() {
@@ -275,7 +275,7 @@ namespace hgraph
         // Return the removed values as a list
         nb::list result;
         for (const auto& v : _removed_values) {
-            result.append(_element_type->ops->to_python(v.data(), _element_type));
+            result.append(_element_type->ops().to_python(v.data(), _element_type));
         }
         return result;
     }
@@ -303,7 +303,7 @@ namespace hgraph
         // Convert deque to Python list
         nb::list result;
         for (const auto& v : _buffer) {
-            result.append(_element_type->ops->to_python(v.data(), _element_type));
+            result.append(_element_type->ops().to_python(v.data(), _element_type));
         }
         return result;
     }
@@ -319,7 +319,7 @@ namespace hgraph
         if (_ready && !_times.empty()) {
             auto current_time = owning_graph()->evaluation_time();
             if (_times.back() == current_time) {
-                return _element_type->ops->to_python(_buffer.back().data(), _element_type);
+                return _element_type->ops().to_python(_buffer.back().data(), _element_type);
             }
         }
         return nb::none();
@@ -338,7 +338,7 @@ namespace hgraph
         if (!value.is_valid() || value.is_none()) return;
         try {
             value::PlainValue v(_element_type);
-            _element_type->ops->from_python(v.data(), value, _element_type);
+            _element_type->ops().from_python(v.data(), value, _element_type);
             _buffer.push_back(std::move(v));
             _times.push_back(owning_graph()->evaluation_time());
             mark_modified();

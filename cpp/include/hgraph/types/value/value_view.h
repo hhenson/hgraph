@@ -378,7 +378,7 @@ public:
     [[nodiscard]] bool equals(const ConstValueView& other) const {
         if (!valid() || !other.valid()) return false;
         if (_schema != other._schema) return false;
-        return _schema->ops->equals(_data, other._data, _schema);
+        return _schema->ops().equals(_data, other._data, _schema);
     }
 
     /**
@@ -389,10 +389,10 @@ public:
      */
     [[nodiscard]] size_t hash() const {
         assert(valid() && "hash() on invalid view");
-        if (!_schema->ops->hash) {
+        if (!_schema->ops().hash) {
             throw std::runtime_error("Type is not hashable");
         }
-        return _schema->ops->hash(_data, _schema);
+        return _schema->ops().hash(_data, _schema);
     }
 
     /**
@@ -401,7 +401,7 @@ public:
      */
     [[nodiscard]] std::string to_string() const {
         assert(valid() && "to_string() on invalid view");
-        return _schema->ops->to_string(_data, _schema);
+        return _schema->ops().to_string(_data, _schema);
     }
 
     // ========== Python Interop ==========
@@ -412,7 +412,7 @@ public:
      */
     [[nodiscard]] nb::object to_python() const {
         assert(valid() && "to_python() on invalid view");
-        return _schema->ops->to_python(_data, _schema);
+        return _schema->ops().to_python(_data, _schema);
     }
 
     // ========== Clone ==========
@@ -644,7 +644,7 @@ public:
         if (_schema != other.schema()) {
             throw std::runtime_error("copy_from schema mismatch");
         }
-        _schema->ops->copy_assign(_mutable_data, other.data(), _schema);
+        _schema->ops().copy_assign(_mutable_data, other.data(), _schema);
     }
 
     // ========== Python Interop ==========
@@ -656,7 +656,7 @@ public:
      */
     void from_python(const nb::object& src) {
         assert(valid() && "from_python() on invalid view");
-        _schema->ops->from_python(_mutable_data, src, _schema);
+        _schema->ops().from_python(_mutable_data, src, _schema);
     }
 
     // ========== Root Tracking ==========

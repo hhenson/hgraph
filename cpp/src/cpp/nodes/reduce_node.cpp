@@ -461,7 +461,7 @@ namespace hgraph {
         const auto* key_schema = tsd->key_type_meta();
         for (const auto& [key, ndx] : bound_node_indexes_) {
             // Convert PlainValue key to Python using TypeMeta
-            nb::object py_key = key_schema->ops->to_python(key.data(), key_schema);
+            nb::object py_key = key_schema->ops().to_python(key.data(), key_schema);
             result[py_key] = nb::make_tuple(std::get<0>(ndx), std::get<1>(ndx));
         }
         return result;

@@ -103,7 +103,7 @@ namespace hgraph {
                     }
                     // Convert Python key to PlainValue
                     value::PlainValue key(key_type);
-                    key_type->ops->from_python(key.data(), nb::cast<nb::object>(item.first), key_type);
+                    key_type->ops().from_python(key.data(), nb::cast<nb::object>(item.first), key_type);
                     nested_graph_builders->emplace(std::move(key), nb::cast<graph_builder_s_ptr>(item.second));
                 }
 
@@ -116,7 +116,7 @@ namespace hgraph {
                         continue;
                     }
                     value::PlainValue key(key_type);
-                    key_type->ops->from_python(key.data(), nb::cast<nb::object>(item.first), key_type);
+                    key_type->ops().from_python(key.data(), nb::cast<nb::object>(item.first), key_type);
                     input_node_ids->emplace(std::move(key), nb::cast<std::unordered_map<std::string, int>>(item.second));
                 }
 
@@ -129,7 +129,7 @@ namespace hgraph {
                         continue;
                     }
                     value::PlainValue key(key_type);
-                    key_type->ops->from_python(key.data(), nb::cast<nb::object>(item.first), key_type);
+                    key_type->ops().from_python(key.data(), nb::cast<nb::object>(item.first), key_type);
                     output_node_ids->emplace(std::move(key), nb::cast<int>(item.second));
                 }
 

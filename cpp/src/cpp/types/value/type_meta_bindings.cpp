@@ -109,32 +109,21 @@ struct ScalarOps<nb::object> {
         *static_cast<nb::object*>(dst) = src;
     }
 
-    static constexpr TypeOps make_ops() {
-        return TypeOps{
-            &construct,
-            &destruct,
-            &copy_assign,
-            &move_assign,
-            &move_construct,
-            &equals,
-            &to_string,
-            &to_python,
-            &from_python,
-            &hash,
-            &less_than,
-            nullptr,  // size
-            nullptr,  // get_at
-            nullptr,  // set_at
-            nullptr,  // get_field
-            nullptr,  // set_field
-            nullptr,  // contains
-            nullptr,  // insert
-            nullptr,  // erase
-            nullptr,  // map_get
-            nullptr,  // map_set
-            nullptr,  // resize
-            nullptr,  // clear
-        };
+    static type_ops make_ops() {
+        type_ops ops{};
+        ops.construct = &construct;
+        ops.destruct = &destruct;
+        ops.copy_assign = &copy_assign;
+        ops.move_assign = &move_assign;
+        ops.move_construct = &move_construct;
+        ops.equals = &equals;
+        ops.hash = &hash;
+        ops.to_string = &to_string;
+        ops.to_python = &to_python;
+        ops.from_python = &from_python;
+        ops.kind = TypeKind::Atomic;
+        ops.specific.atomic = {&less_than};
+        return ops;
     }
 };
 
@@ -269,8 +258,8 @@ struct CompoundScalarOps {
             for (size_t i = 0; i < schema->field_count; ++i) {
                 const BundleFieldInfo& field = schema->fields[i];
                 const void* field_ptr = static_cast<const char*>(obj) + field.offset;
-                if (field.type && field.type->ops && field.type->ops->to_python && field.name) {
-                    kwargs[field.name] = field.type->ops->to_python(field_ptr, field.type);
+                if (field.type && field.type->ops().to_python && field.name) {
+                    kwargs[field.name] = field.type->ops().to_python(field_ptr, field.type);
                 }
             }
             // Construct the Python class with **kwargs
@@ -316,34 +305,22 @@ struct CompoundScalarOps {
         BundleOps::set_field(obj, name, value, schema);
     }
 
-    /// Get the operations vtable for CompoundScalar
-    static const TypeOps* ops() {
-        static const TypeOps compound_scalar_ops = {
-            &construct,
-            &destruct,
-            &copy_assign,
-            &move_assign,
-            &move_construct,
-            &equals,
-            &to_string,
-            &to_python,
-            &from_python,
-            &hash,
-            nullptr,   // less_than (bundles not ordered)
-            &size,
-            &get_at,
-            &set_at,
-            &get_field,
-            &set_field,
-            nullptr,   // contains (not a set)
-            nullptr,   // insert (not a set)
-            nullptr,   // erase (not a set)
-            nullptr,   // map_get (not a map)
-            nullptr,   // map_set (not a map)
-            nullptr,   // resize (not resizable)
-            nullptr,   // clear (not clearable)
-        };
-        return &compound_scalar_ops;
+    /// Build the type_ops for CompoundScalar
+    static type_ops make_ops() {
+        type_ops ops{};
+        ops.construct = &construct;
+        ops.destruct = &destruct;
+        ops.copy_assign = &copy_assign;
+        ops.move_assign = &move_assign;
+        ops.move_construct = &move_construct;
+        ops.equals = &equals;
+        ops.hash = &hash;
+        ops.to_string = &to_string;
+        ops.to_python = &to_python;
+        ops.from_python = &from_python;
+        ops.kind = TypeKind::Bundle;
+        ops.specific.bundle = {&size, &get_at, &set_at, &get_field, &set_field};
+        return ops;
     }
 };
 
@@ -649,7 +626,7 @@ static const TypeMeta* get_compound_scalar_type_meta(
     meta->field_count = count;
     meta->size = total_size;
     meta->alignment = max_alignment;
-    meta->ops = CompoundScalarOps::ops();  // Use CompoundScalarOps for to_python reconstruction
+    meta->ops_ = CompoundScalarOps::make_ops();  // Use CompoundScalarOps for to_python reconstruction
     meta->element_type = nullptr;
     meta->key_type = nullptr;
     meta->fields = fields_ptr;

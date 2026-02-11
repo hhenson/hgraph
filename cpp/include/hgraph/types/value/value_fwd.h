@@ -26,8 +26,8 @@ enum class TypeFlags : uint32_t;
 /// Type metadata structure - describes a type's layout and operations
 struct TypeMeta;
 
-/// Type operations vtable - function pointers for type-erased operations
-struct TypeOps;
+/// Type operations — common ops + kind-tagged union of specific ops
+struct type_ops;
 
 /// Bundle field metadata
 struct BundleFieldInfo;

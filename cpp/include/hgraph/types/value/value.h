@@ -110,7 +110,7 @@ public:
         : _schema(view.schema()) {
         if (view.valid()) {
             _storage.construct(_schema);
-            _schema->ops->copy_assign(_storage.data(), view.data(), _schema);
+            _schema->ops().copy_assign(_storage.data(), view.data(), _schema);
         }
     }
 
@@ -475,11 +475,11 @@ public:
             if (this->has_cache()) {
                 return this->get_cache();
             }
-            auto result = _schema->ops->to_python(_storage.data(), _schema);
+            auto result = _schema->ops().to_python(_storage.data(), _schema);
             this->set_cache(result);
             return result;
         } else {
-            return _schema->ops->to_python(_storage.data(), _schema);
+            return _schema->ops().to_python(_storage.data(), _schema);
         }
     }
 
@@ -507,7 +507,7 @@ public:
 
         // Perform type conversion from Python object to native storage
         try {
-            _schema->ops->from_python(_storage.data(), src, _schema);
+            _schema->ops().from_python(_storage.data(), src, _schema);
         } catch (const nb::python_error& e) {
             // Re-throw Python exceptions with preserved traceback
             throw;

@@ -889,14 +889,14 @@ static void register_set_views(nb::module_& m) {
             if (index >= self.size()) {
                 throw nb::index_error("set index out of range");
             }
-            const void* elem = self.schema()->ops->get_at(self.data(), index, self.schema());
+            const void* elem = self.schema()->ops().get_at(self.data(), index, self.schema());
             return ConstValueView(elem, self.schema()->element_type);
         }, "index"_a, "Get element at index")
         // Iteration support using index-based access
         .def("__iter__", [](const ConstSetView& self) {
             nb::list result;
             for (size_t i = 0; i < self.size(); ++i) {
-                const void* elem = self.schema()->ops->get_at(self.data(), i, self.schema());
+                const void* elem = self.schema()->ops().get_at(self.data(), i, self.schema());
                 result.append(nb::cast(ConstValueView(elem, self.schema()->element_type)));
             }
             return nb::iter(result);
@@ -923,14 +923,14 @@ static void register_set_views(nb::module_& m) {
             if (index >= self.size()) {
                 throw nb::index_error("set index out of range");
             }
-            const void* elem = self.schema()->ops->get_at(self.data(), index, self.schema());
+            const void* elem = self.schema()->ops().get_at(self.data(), index, self.schema());
             return ConstValueView(elem, self.schema()->element_type);
         }, "index"_a, "Get element at index")
         // Iteration support
         .def("__iter__", [](SetView& self) {
             nb::list result;
             for (size_t i = 0; i < self.size(); ++i) {
-                const void* elem = self.schema()->ops->get_at(self.data(), i, self.schema());
+                const void* elem = self.schema()->ops().get_at(self.data(), i, self.schema());
                 result.append(nb::cast(ConstValueView(elem, self.schema()->element_type)));
             }
             return nb::iter(result);

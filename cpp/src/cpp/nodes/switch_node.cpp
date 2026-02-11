@@ -78,7 +78,7 @@ namespace hgraph {
 
     bool SwitchNode::keys_equal(const value::ConstValueView& a, const value::ConstValueView& b) const {
         if (!a.valid() || !b.valid()) return false;
-        return _key_type->ops->equals(a.data(), b.data(), _key_type);
+        return _key_type->ops().equals(a.data(), b.data(), _key_type);
     }
 
     void SwitchNode::eval() {
@@ -141,7 +141,7 @@ namespace hgraph {
                 new_node_id.push_back(-_count);
 
                 // Get key string for graph label
-                std::string key_str = _key_type->ops->to_string(_active_key->data(), _key_type);
+                std::string key_str = _key_type->ops().to_string(_active_key->data(), _key_type);
                 _active_graph = _active_graph_builder->make_instance(new_node_id, this, key_str);
 
                 // Set up evaluation engine
@@ -181,7 +181,7 @@ namespace hgraph {
 
         // Set recordable ID if needed
         if (!_recordable_id.empty()) {
-            std::string key_str = _key_type->ops->to_string(_active_key->data(), _key_type);
+            std::string key_str = _key_type->ops().to_string(_active_key->data(), _key_type);
             std::string full_id = fmt::format("{}[{}]", _recordable_id, key_str);
             set_parent_recordable_id(*graph, full_id);
         }
@@ -204,7 +204,7 @@ namespace hgraph {
                 if (arg == "key") {
                     // The key node is a Python stub whose eval function exposes a 'key' attribute.
                     auto &key_node = dynamic_cast<PythonNode &>(*node);
-                    nb::object py_key = _key_type->ops->to_python(_active_key->data(), _key_type);
+                    nb::object py_key = _key_type->ops().to_python(_active_key->data(), _key_type);
                     nb::setattr(key_node.eval_fn(), "key", py_key);
                 } else {
                     // Python expects REF wiring: clone binding from outer REF input to inner REF input 'ts'

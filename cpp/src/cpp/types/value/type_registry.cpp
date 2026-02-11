@@ -158,7 +158,7 @@ const char* TypeRegistry::store_name(std::string name) {
 // Non-template register_type (name + custom ops, no C++ type binding)
 // ============================================================================
 
-const TypeMeta* TypeRegistry::register_type(const std::string& name, const TypeOps* custom_ops) {
+const TypeMeta* TypeRegistry::register_type(const std::string& name, const type_ops& custom_ops) {
     // Check name cache first
     auto it = _name_cache.find(name);
     if (it != _name_cache.end()) {
@@ -171,7 +171,7 @@ const TypeMeta* TypeRegistry::register_type(const std::string& name, const TypeO
     meta->alignment = 1;
     meta->kind = TypeKind::Atomic;
     meta->flags = TypeFlags::None;
-    meta->ops = custom_ops;
+    meta->ops_ = custom_ops;
     meta->element_type = nullptr;
     meta->key_type = nullptr;
     meta->fields = nullptr;
@@ -317,7 +317,7 @@ const TypeMeta* TupleBuilder::build() {
     meta->field_count = count;
     meta->size = total_size;
     meta->alignment = max_alignment;
-    meta->ops = TupleOps::ops();
+    meta->ops_ = TupleOps::make_ops();
     meta->name = nullptr;
     meta->element_type = nullptr;
     meta->key_type = nullptr;
@@ -379,7 +379,7 @@ const TypeMeta* BundleBuilder::build() {
     meta->field_count = count;
     meta->size = total_size;
     meta->alignment = max_alignment;
-    meta->ops = BundleOps::ops();
+    meta->ops_ = BundleOps::make_ops();
     meta->name = nullptr;
     meta->element_type = nullptr;
     meta->key_type = nullptr;
@@ -418,7 +418,7 @@ const TypeMeta* ListBuilder::build() {
         meta->alignment = alignof(DynamicListStorage);
     }
 
-    meta->ops = ListOps::ops();
+    meta->ops_ = ListOps::make_ops();
     meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;
@@ -439,7 +439,7 @@ const TypeMeta* SetBuilder::build() {
     meta->field_count = 0;
     meta->size = sizeof(SetStorage);
     meta->alignment = alignof(SetStorage);
-    meta->ops = SetOps::ops();
+    meta->ops_ = SetOps::make_ops();
     meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;
@@ -460,7 +460,7 @@ const TypeMeta* MapBuilder::build() {
     meta->field_count = 0;
     meta->size = sizeof(MapStorage);
     meta->alignment = alignof(MapStorage);
-    meta->ops = MapOps::ops();
+    meta->ops_ = MapOps::make_ops();
     meta->name = nullptr;
     meta->element_type = _value_type;  // Map uses element_type for values
     meta->key_type = _key_type;
@@ -481,7 +481,7 @@ const TypeMeta* CyclicBufferBuilder::build() {
     meta->field_count = 0;
     meta->size = sizeof(CyclicBufferStorage);
     meta->alignment = alignof(CyclicBufferStorage);
-    meta->ops = CyclicBufferOps::ops();
+    meta->ops_ = CyclicBufferOps::make_ops();
     meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;
@@ -502,7 +502,7 @@ const TypeMeta* QueueBuilder::build() {
     meta->field_count = 0;
     meta->size = sizeof(QueueStorage);
     meta->alignment = alignof(QueueStorage);
-    meta->ops = QueueOps::ops();
+    meta->ops_ = QueueOps::make_ops();
     meta->name = nullptr;
     meta->element_type = _element_type;
     meta->key_type = nullptr;

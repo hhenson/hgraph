@@ -29,7 +29,7 @@ namespace hgraph {
     nb::object MeshNestedEngineEvaluationClock::py_key() const {
         auto* node_ = static_cast<MeshNode*>(node());
         const auto* key_schema = node_->key_type_meta();
-        return key_schema->ops->to_python(_key.data(), key_schema);
+        return key_schema->ops().to_python(_key.data(), key_schema);
     }
 
     void MeshNestedEngineEvaluationClock::update_next_scheduled_evaluation_time(engine_time_t next_time) {
@@ -85,17 +85,17 @@ namespace hgraph {
 
     bool MeshNode::_add_graph_dependency(const nb::object &key, const nb::object &depends_on) {
         value::Value<> key_val(key_type_meta_);
-        key_type_meta_->ops->from_python(key_val.data(), key, key_type_meta_);
+        key_type_meta_->ops().from_python(key_val.data(), key, key_type_meta_);
         value::Value<> depends_on_val(key_type_meta_);
-        key_type_meta_->ops->from_python(depends_on_val.data(), depends_on, key_type_meta_);
+        key_type_meta_->ops().from_python(depends_on_val.data(), depends_on, key_type_meta_);
         return add_graph_dependency(key_val.const_view(), depends_on_val.const_view());
     }
 
     void MeshNode::_remove_graph_dependency(const nb::object &key, const nb::object &depends_on) {
         value::Value<> key_val(key_type_meta_);
-        key_type_meta_->ops->from_python(key_val.data(), key, key_type_meta_);
+        key_type_meta_->ops().from_python(key_val.data(), key, key_type_meta_);
         value::Value<> depends_on_val(key_type_meta_);
-        key_type_meta_->ops->from_python(depends_on_val.data(), depends_on, key_type_meta_);
+        key_type_meta_->ops().from_python(depends_on_val.data(), depends_on, key_type_meta_);
         remove_graph_dependency(key_val.const_view(), depends_on_val.const_view());
     }
 
@@ -268,7 +268,7 @@ namespace hgraph {
 
     void MeshNode::create_new_graph(const value::ConstValueView &key, int rank) {
         // Convert key to string for graph label
-        nb::object py_key = key_type_meta_->ops->to_python(key.data(), key_type_meta_);
+        nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
         std::string key_str = nb::repr(py_key).c_str();
 
         // Create new graph instance - concatenate node_id with negative count
@@ -314,7 +314,7 @@ namespace hgraph {
             std::string node_label = this->signature().label.has_value()
                                          ? this->signature().label.value()
                                          : this->signature().name;
-            nb::object py_key = key_type_meta_->ops->to_python(key.data(), key_type_meta_);
+            nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
             throw std::runtime_error(fmt::format("mesh {}.{} has a dependency cycle {} -> {}",
                                                  this->signature().wiring_path_name,
                                                  node_label, nb::repr(py_key).c_str(), nb::repr(py_key).c_str()));
@@ -455,7 +455,7 @@ namespace hgraph {
                         std::string cycle_str;
                         for (size_t i = 0; i < cycle.size(); ++i) {
                             if (i > 0) cycle_str += " -> ";
-                            nb::object py_v = key_type_meta_->ops->to_python(cycle[i].data(), key_type_meta_);
+                            nb::object py_v = key_type_meta_->ops().to_python(cycle[i].data(), key_type_meta_);
                             cycle_str += nb::repr(py_v).c_str();
                         }
                         std::string node_label =

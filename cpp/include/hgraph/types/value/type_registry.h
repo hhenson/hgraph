@@ -122,7 +122,7 @@ public:
      * @return Pointer to the registered TypeMeta
      */
     template<typename T>
-    const TypeMeta* register_type(const std::string& name, const TypeOps* custom_ops);
+    const TypeMeta* register_type(const std::string& name, const type_ops& custom_ops);
 
     /**
      * @brief Register a type by name only with custom operations (no C++ type binding).
@@ -133,7 +133,7 @@ public:
      * @param custom_ops Custom operations vtable (must outlive the registry)
      * @return Pointer to the registered TypeMeta
      */
-    const TypeMeta* register_type(const std::string& name, const TypeOps* custom_ops);
+    const TypeMeta* register_type(const std::string& name, const type_ops& custom_ops);
 
     /**
      * @brief Get the TypeMeta for a registered scalar type.
@@ -337,9 +337,6 @@ private:
     /// Scalar types indexed by type_index
     std::unordered_map<std::type_index, std::unique_ptr<TypeMeta>> _scalar_types;
 
-    /// Operations storage for scalar types (need stable addresses)
-    std::unordered_map<std::type_index, std::unique_ptr<TypeOps>> _scalar_ops;
-
     /// Named bundles for lookup by name
     std::unordered_map<std::string, const TypeMeta*> _named_bundles;
 
@@ -409,18 +406,13 @@ const TypeMeta* TypeRegistry::register_type() {
         return it->second.get();
     }
 
-    // Create operations vtable
-    auto ops = std::make_unique<TypeOps>(ScalarOps<T>::make_ops());
-    TypeOps* ops_ptr = ops.get();
-    _scalar_ops[idx] = std::move(ops);
-
-    // Create TypeMeta
+    // Create TypeMeta with operations stored by value
     auto meta = std::make_unique<TypeMeta>();
     meta->size = sizeof(T);
     meta->alignment = alignof(T);
     meta->kind = TypeKind::Atomic;
     meta->flags = compute_scalar_flags<T>();
-    meta->ops = ops_ptr;
+    meta->ops_ = ScalarOps<T>::make_ops();
     meta->name = nullptr;
     meta->element_type = nullptr;
     meta->key_type = nullptr;
@@ -464,7 +456,7 @@ const TypeMeta* TypeRegistry::register_type(const std::string& name) {
 }
 
 template<typename T>
-const TypeMeta* TypeRegistry::register_type(const std::string& name, const TypeOps* custom_ops) {
+const TypeMeta* TypeRegistry::register_type(const std::string& name, const type_ops& custom_ops) {
     std::type_index idx(typeid(T));
 
     // Check if already registered
@@ -477,9 +469,7 @@ const TypeMeta* TypeRegistry::register_type(const std::string& name, const TypeO
             meta_ptr->name = stored_name;
             _name_cache[name] = meta_ptr;
         }
-        if (custom_ops) {
-            meta_ptr->ops = custom_ops;
-        }
+        meta_ptr->ops_ = custom_ops;
         return meta_ptr;
     }
 
@@ -489,7 +479,7 @@ const TypeMeta* TypeRegistry::register_type(const std::string& name, const TypeO
     meta->alignment = alignof(T);
     meta->kind = TypeKind::Atomic;
     meta->flags = compute_scalar_flags<T>();
-    meta->ops = custom_ops;
+    meta->ops_ = custom_ops;
     meta->name = nullptr;
     meta->element_type = nullptr;
     meta->key_type = nullptr;

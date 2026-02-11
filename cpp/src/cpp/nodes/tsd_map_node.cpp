@@ -42,7 +42,7 @@ namespace hgraph
     nb::object MapNestedEngineEvaluationClock::py_key() const {
         auto* node_ = static_cast<TsdMapNode*>(node());
         const auto* key_schema = node_->key_type_meta();
-        return key_schema->ops->to_python(_key.data(), key_schema);
+        return key_schema->ops().to_python(_key.data(), key_schema);
     }
 
     TsdMapNode::TsdMapNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
@@ -56,7 +56,7 @@ namespace hgraph
     nb::dict TsdMapNode::py_nested_graphs() const {
         nb::dict result;
         for (const auto &[key, graph] : active_graphs_) {
-            nb::object py_key = key_type_meta_->ops->to_python(key.data(), key_type_meta_);
+            nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
             result[py_key] = nb::cast(graph);
         }
         return result;
@@ -127,7 +127,7 @@ namespace hgraph
                         scheduled_keys_.erase(sched_it);
                     }
                 } else {
-                    nb::object py_key = key_type_meta_->ops->to_python(key.data(), key_type_meta_);
+                    nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
                     throw std::runtime_error(
                         fmt::format("[{}] Key {} does not exist in active graphs", signature().wiring_path_name,
                                     nb::repr(py_key).c_str()));
@@ -140,7 +140,7 @@ namespace hgraph
 
         for (const auto &[k, dt] : scheduled_keys) {
             if (dt < last_evaluation_time()) {
-                nb::object py_key = key_type_meta_->ops->to_python(k.const_view().data(), key_type_meta_);
+                nb::object py_key = key_type_meta_->ops().to_python(k.const_view().data(), key_type_meta_);
                 throw std::runtime_error(
                     fmt::format("Scheduled time is in the past; last evaluation time: {}, scheduled time: {}, evaluation time: {}",
                                 last_evaluation_time(), dt, graph()->evaluation_time()));
@@ -164,7 +164,7 @@ namespace hgraph
 
     void TsdMapNode::create_new_graph(const value::ConstValueView &key) {
         // Convert key to string for graph label
-        nb::object py_key = key_type_meta_->ops->to_python(key.data(), key_type_meta_);
+        nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
         std::string key_str = nb::repr(py_key).c_str();
 
         // Extend parent's node_id with the new instance counter
@@ -229,7 +229,7 @@ namespace hgraph
                 graph->evaluate_graph();
             } catch (const std::exception &e) {
                 auto &error_tsd  = dynamic_cast<TimeSeriesDictOutputImpl &>(*error_output());
-                nb::object py_key = key_type_meta_->ops->to_python(key.data(), key_type_meta_);
+                nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
                 auto  msg        = std::string("key: ") + nb::repr(py_key).c_str();
                 auto  node_error = NodeError::capture_error(e, *this, msg);
                 auto  error_ts   = error_tsd.get_or_create(key);
@@ -293,7 +293,7 @@ namespace hgraph
             if (arg == key_arg_) {
                 auto key_node{dynamic_cast<PythonNode &>(*node)};
                 // This relies on the current stub binding mechanism with a stub python class to hold the key.
-                nb::object py_key = key_type_meta_->ops->to_python(key.data(), key_type_meta_);
+                nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
                 nb::setattr(key_node.eval_fn(), "key", py_key);
             } else {
                 if (multiplexed_args_.find(arg) != multiplexed_args_.end()) {

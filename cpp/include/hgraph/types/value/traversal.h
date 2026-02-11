@@ -174,7 +174,7 @@ inline void deep_visit_impl(
             const auto* schema = set.schema();
             for (size_t i = 0; i < set.size(); ++i) {
                 path.push_back(i);
-                const void* elem_data = schema->ops->get_at(set.data(), i, schema);
+                const void* elem_data = schema->ops().get_at(set.data(), i, schema);
                 if (elem_data) {
                     deep_visit_impl(ConstValueView(elem_data, schema->element_type), path, callback);
                 }

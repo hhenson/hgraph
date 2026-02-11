@@ -62,8 +62,8 @@ public:
      */
     [[nodiscard]] size_t size() const {
         assert(valid() && "size() on invalid view");
-        if (_schema->ops->size) {
-            return _schema->ops->size(_data, _schema);
+        if (_schema->ops().has_size()) {
+            return _schema->ops().size(_data, _schema);
         }
         // For static structures like Bundle/Tuple, use field_count
         return _schema->field_count;
@@ -91,7 +91,7 @@ public:
         if (index >= size()) {
             throw std::out_of_range("Index out of range");
         }
-        const void* elem_data = _schema->ops->get_at(_data, index, _schema);
+        const void* elem_data = _schema->ops().get_at(_data, index, _schema);
         // Determine element type
         const TypeMeta* elem_schema = nullptr;
         if (_schema->kind == TypeKind::List || _schema->kind == TypeKind::Set ||
@@ -194,8 +194,8 @@ public:
      */
     [[nodiscard]] size_t size() const {
         assert(valid() && "size() on invalid view");
-        if (_schema->ops->size) {
-            return _schema->ops->size(_data, _schema);
+        if (_schema->ops().has_size()) {
+            return _schema->ops().size(_data, _schema);
         }
         return _schema->field_count;
     }
@@ -218,7 +218,7 @@ public:
         if (index >= size()) {
             throw std::out_of_range("Index out of range");
         }
-        const void* elem_data = _schema->ops->get_at(_data, index, _schema);
+        const void* elem_data = _schema->ops().get_at(_data, index, _schema);
         const TypeMeta* elem_schema = get_element_schema(index);
         return ConstValueView(elem_data, elem_schema);
     }
@@ -232,7 +232,7 @@ public:
             throw std::out_of_range("Index out of range");
         }
         // Use const get_at and cast - we know we have mutable access
-        void* elem_data = const_cast<void*>(_schema->ops->get_at(data(), index, _schema));
+        void* elem_data = const_cast<void*>(_schema->ops().get_at(data(), index, _schema));
         const TypeMeta* elem_schema = get_element_schema(index);
         return ValueView(elem_data, elem_schema);
     }
@@ -264,7 +264,7 @@ public:
         if (index >= size()) {
             throw std::out_of_range("Index out of range");
         }
-        _schema->ops->set_at(data(), index, value.data(), _schema);
+        _schema->ops().set_at(data(), index, value.data(), _schema);
     }
 
     /**
@@ -631,7 +631,7 @@ public:
         if (is_fixed()) {
             throw std::runtime_error("Cannot push_back on fixed-size list");
         }
-        if (!_schema->ops->resize) {
+        if (!_schema->ops().has_resize()) {
             throw std::runtime_error("List type does not support resize operation");
         }
 
@@ -652,20 +652,20 @@ public:
         }
 
         // Copy-construct the value into temp storage
-        if (temp_storage && elem_type && elem_type->ops) {
-            elem_type->ops->construct(temp_storage, elem_type);
-            elem_type->ops->copy_assign(temp_storage, value.data(), elem_type);
+        if (temp_storage && elem_type) {
+            elem_type->ops().construct(temp_storage, elem_type);
+            elem_type->ops().copy_assign(temp_storage, value.data(), elem_type);
         }
 
         // Now resize - this may reallocate and potentially reuse freed memory
         size_t current_size = size();
-        _schema->ops->resize(data(), current_size + 1, _schema);
+        _schema->ops().resize(data(), current_size + 1, _schema);
 
         // Copy from our temp storage to the new element
-        if (temp_storage && elem_type && elem_type->ops) {
+        if (temp_storage && elem_type) {
             void* elem_ptr = ListOps::get_element_ptr(data(), current_size, _schema);
-            elem_type->ops->copy_assign(elem_ptr, temp_storage, elem_type);
-            elem_type->ops->destruct(temp_storage, elem_type);
+            elem_type->ops().copy_assign(elem_ptr, temp_storage, elem_type);
+            elem_type->ops().destruct(temp_storage, elem_type);
         }
 
         if (using_heap && temp_storage) {
@@ -685,11 +685,11 @@ public:
         if (empty()) {
             throw std::runtime_error("Cannot pop_back on empty list");
         }
-        if (!_schema->ops->resize) {
+        if (!_schema->ops().has_resize()) {
             throw std::runtime_error("List type does not support resize operation");
         }
         // Resize to remove the last element
-        _schema->ops->resize(data(), size() - 1, _schema);
+        _schema->ops().resize(data(), size() - 1, _schema);
     }
 
     /**
@@ -701,8 +701,8 @@ public:
         if (is_fixed()) {
             throw std::runtime_error("Cannot clear fixed-size list");
         }
-        if (_schema->ops->clear) {
-            _schema->ops->clear(data(), _schema);
+        if (_schema->ops().has_clear()) {
+            _schema->ops().clear(data(), _schema);
         }
     }
 
@@ -715,8 +715,8 @@ public:
         if (is_fixed()) {
             throw std::runtime_error("Cannot resize fixed-size list");
         }
-        if (_schema->ops->resize) {
-            _schema->ops->resize(data(), new_size, _schema);
+        if (_schema->ops().has_resize()) {
+            _schema->ops().resize(data(), new_size, _schema);
         }
     }
 
@@ -855,8 +855,8 @@ public:
      * @brief Clear all elements from the buffer.
      */
     void clear() {
-        if (_schema->ops->clear) {
-            _schema->ops->clear(data(), _schema);
+        if (_schema->ops().has_clear()) {
+            _schema->ops().clear(data(), _schema);
         }
     }
 
@@ -977,8 +977,8 @@ public:
      * @brief Clear all elements from the queue.
      */
     void clear() {
-        if (_schema->ops->clear) {
-            _schema->ops->clear(data(), _schema);
+        if (_schema->ops().has_clear()) {
+            _schema->ops().clear(data(), _schema);
         }
     }
 
@@ -1005,7 +1005,7 @@ public:
      */
     [[nodiscard]] size_t size() const {
         assert(valid() && "size() on invalid view");
-        return _schema->ops->size(_data, _schema);
+        return _schema->ops().size(_data, _schema);
     }
 
     /**
@@ -1020,7 +1020,7 @@ public:
      */
     [[nodiscard]] bool contains(const ConstValueView& value) const {
         assert(valid() && "contains() on invalid view");
-        return _schema->ops->contains(_data, value.data(), _schema);
+        return _schema->ops().contains(_data, value.data(), _schema);
     }
 
     /**
@@ -1113,7 +1113,7 @@ public:
      */
     [[nodiscard]] size_t size() const {
         assert(valid() && "size() on invalid view");
-        return _schema->ops->size(_data, _schema);
+        return _schema->ops().size(_data, _schema);
     }
 
     /**
@@ -1128,7 +1128,7 @@ public:
      */
     [[nodiscard]] bool contains(const ConstValueView& value) const {
         assert(valid() && "contains() on invalid view");
-        return _schema->ops->contains(_data, value.data(), _schema);
+        return _schema->ops().contains(_data, value.data(), _schema);
     }
 
     /**
@@ -1139,7 +1139,7 @@ public:
     bool insert(const ConstValueView& value) {
         assert(valid() && "insert() on invalid view");
         if (contains(value)) return false;
-        _schema->ops->insert(data(), value.data(), _schema);
+        _schema->ops().insert(data(), value.data(), _schema);
         return true;
     }
 
@@ -1151,7 +1151,7 @@ public:
     bool erase(const ConstValueView& value) {
         assert(valid() && "erase() on invalid view");
         if (!contains(value)) return false;
-        _schema->ops->erase(data(), value.data(), _schema);
+        _schema->ops().erase(data(), value.data(), _schema);
         return true;
     }
 
@@ -1160,8 +1160,8 @@ public:
      */
     void clear() {
         assert(valid() && "clear() on invalid view");
-        if (_schema->ops->clear) {
-            _schema->ops->clear(data(), _schema);
+        if (_schema->ops().has_clear()) {
+            _schema->ops().clear(data(), _schema);
         }
     }
 
@@ -1231,7 +1231,7 @@ public:
      */
     [[nodiscard]] size_t size() const {
         assert(valid() && "size() on invalid view");
-        return _schema->ops->size(_data, _schema);
+        return _schema->ops().size(_data, _schema);
     }
 
     /**
@@ -1248,7 +1248,7 @@ public:
      */
     [[nodiscard]] bool contains(const ConstValueView& key) const {
         assert(valid() && "contains() on invalid view");
-        return _schema->ops->contains(_data, key.data(), _schema);
+        return _schema->ops().contains(_data, key.data(), _schema);
     }
 
     /**
@@ -1336,7 +1336,7 @@ public:
      */
     [[nodiscard]] size_t size() const {
         assert(valid() && "size() on invalid view");
-        return _schema->ops->size(_data, _schema);
+        return _schema->ops().size(_data, _schema);
     }
 
     /**
@@ -1353,7 +1353,7 @@ public:
      */
     [[nodiscard]] ConstValueView at(const ConstValueView& key) const {
         assert(valid() && "at() on invalid view");
-        const void* value_data = _schema->ops->map_get(_data, key.data(), _schema);
+        const void* value_data = _schema->ops().map_get(_data, key.data(), _schema);
         if (!value_data) {
             throw std::runtime_error("Key not found");
         }
@@ -1372,7 +1372,7 @@ public:
      */
     [[nodiscard]] bool contains(const ConstValueView& key) const {
         assert(valid() && "contains() on invalid view");
-        return _schema->ops->contains(_data, key.data(), _schema);
+        return _schema->ops().contains(_data, key.data(), _schema);
     }
 
     /**
@@ -1424,7 +1424,7 @@ public:
      */
     [[nodiscard]] size_t size() const {
         assert(valid() && "size() on invalid view");
-        return _schema->ops->size(_data, _schema);
+        return _schema->ops().size(_data, _schema);
     }
 
     /**
@@ -1439,7 +1439,7 @@ public:
      */
     [[nodiscard]] ConstValueView at(const ConstValueView& key) const {
         assert(valid() && "at() on invalid view");
-        const void* value_data = _schema->ops->map_get(_data, key.data(), _schema);
+        const void* value_data = _schema->ops().map_get(_data, key.data(), _schema);
         if (!value_data) {
             throw std::runtime_error("Key not found");
         }
@@ -1451,7 +1451,7 @@ public:
      */
     [[nodiscard]] ValueView at(const ConstValueView& key) {
         assert(valid() && "at() on invalid view");
-        void* value_data = const_cast<void*>(_schema->ops->map_get(data(), key.data(), _schema));
+        void* value_data = const_cast<void*>(_schema->ops().map_get(data(), key.data(), _schema));
         if (!value_data) {
             throw std::runtime_error("Key not found");
         }
@@ -1477,7 +1477,7 @@ public:
      */
     [[nodiscard]] bool contains(const ConstValueView& key) const {
         assert(valid() && "contains() on invalid view");
-        return _schema->ops->contains(_data, key.data(), _schema);
+        return _schema->ops().contains(_data, key.data(), _schema);
     }
 
     /**
@@ -1485,7 +1485,7 @@ public:
      */
     void set(const ConstValueView& key, const ConstValueView& value) {
         assert(valid() && "set() on invalid view");
-        _schema->ops->map_set(data(), key.data(), value.data(), _schema);
+        _schema->ops().map_set(data(), key.data(), value.data(), _schema);
     }
 
     /**
@@ -1507,7 +1507,7 @@ public:
     bool erase(const ConstValueView& key) {
         assert(valid() && "erase() on invalid view");
         if (!contains(key)) return false;
-        _schema->ops->erase(data(), key.data(), _schema);
+        _schema->ops().erase(data(), key.data(), _schema);
         return true;
     }
 
@@ -1516,8 +1516,8 @@ public:
      */
     void clear() {
         assert(valid() && "clear() on invalid view");
-        if (_schema->ops->clear) {
-            _schema->ops->clear(data(), _schema);
+        if (_schema->ops().has_clear()) {
+            _schema->ops().clear(data(), _schema);
         }
     }
 

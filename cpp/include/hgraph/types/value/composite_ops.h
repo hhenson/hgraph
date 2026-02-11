@@ -2,7 +2,7 @@
 
 /**
  * @file composite_ops.h
- * @brief TypeOps implementations for composite types (Bundle, Tuple, List, Set, Map).
+ * @brief type_ops implementations for composite types (Bundle, Tuple, List, Set, Map).
  *
  * Each composite type needs its own operations implementation that handles
  * construction, destruction, copying, Python interop, and type-specific
@@ -45,8 +45,8 @@ struct BundleOps {
         for (size_t i = 0; i < schema->field_count; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             void* field_ptr = static_cast<char*>(dst) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->construct) {
-                field.type->ops->construct(field_ptr, field.type);
+            if (field.type && field.type->ops().construct) {
+                field.type->ops().construct(field_ptr, field.type);
             }
         }
     }
@@ -56,8 +56,8 @@ struct BundleOps {
         for (size_t i = 0; i < schema->field_count; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             void* field_ptr = static_cast<char*>(obj) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->destruct) {
-                field.type->ops->destruct(field_ptr, field.type);
+            if (field.type && field.type->ops().destruct) {
+                field.type->ops().destruct(field_ptr, field.type);
             }
         }
     }
@@ -68,8 +68,8 @@ struct BundleOps {
             const BundleFieldInfo& field = schema->fields[i];
             void* dst_field = static_cast<char*>(dst) + field.offset;
             const void* src_field = static_cast<const char*>(src) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->copy_assign) {
-                field.type->ops->copy_assign(dst_field, src_field, field.type);
+            if (field.type && field.type->ops().copy_assign) {
+                field.type->ops().copy_assign(dst_field, src_field, field.type);
             }
         }
     }
@@ -80,8 +80,8 @@ struct BundleOps {
             const BundleFieldInfo& field = schema->fields[i];
             void* dst_field = static_cast<char*>(dst) + field.offset;
             void* src_field = static_cast<char*>(src) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->move_assign) {
-                field.type->ops->move_assign(dst_field, src_field, field.type);
+            if (field.type && field.type->ops().move_assign) {
+                field.type->ops().move_assign(dst_field, src_field, field.type);
             }
         }
     }
@@ -92,8 +92,8 @@ struct BundleOps {
             const BundleFieldInfo& field = schema->fields[i];
             void* dst_field = static_cast<char*>(dst) + field.offset;
             void* src_field = static_cast<char*>(src) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->move_construct) {
-                field.type->ops->move_construct(dst_field, src_field, field.type);
+            if (field.type && field.type->ops().move_construct) {
+                field.type->ops().move_construct(dst_field, src_field, field.type);
             }
         }
     }
@@ -104,8 +104,8 @@ struct BundleOps {
             const BundleFieldInfo& field = schema->fields[i];
             const void* a_field = static_cast<const char*>(a) + field.offset;
             const void* b_field = static_cast<const char*>(b) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->equals) {
-                if (!field.type->ops->equals(a_field, b_field, field.type)) {
+            if (field.type && field.type->ops().equals) {
+                if (!field.type->ops().equals(a_field, b_field, field.type)) {
                     return false;
                 }
             }
@@ -121,8 +121,8 @@ struct BundleOps {
             const void* field_ptr = static_cast<const char*>(obj) + field.offset;
             result += field.name ? field.name : "";
             result += ": ";
-            if (field.type && field.type->ops && field.type->ops->to_string) {
-                result += field.type->ops->to_string(field_ptr, field.type);
+            if (field.type && field.type->ops().to_string) {
+                result += field.type->ops().to_string(field_ptr, field.type);
             } else {
                 result += "<null>";
             }
@@ -139,8 +139,8 @@ struct BundleOps {
         for (size_t i = 0; i < schema->field_count; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             const void* field_ptr = static_cast<const char*>(obj) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->to_python && field.name) {
-                result[field.name] = field.type->ops->to_python(field_ptr, field.type);
+            if (field.type && field.type->ops().to_python && field.name) {
+                result[field.name] = field.type->ops().to_python(field_ptr, field.type);
             }
         }
         return result;
@@ -155,11 +155,11 @@ struct BundleOps {
                 const BundleFieldInfo& field = schema->fields[i];
                 void* field_ptr = static_cast<char*>(dst) + field.offset;
                 if (field.name && d.contains(field.name)) {
-                    if (field.type && field.type->ops && field.type->ops->from_python) {
+                    if (field.type && field.type->ops().from_python) {
                         nb::object val = d[field.name];
                         // Skip None values - can't cast None to non-nullable scalar types
                         if (!val.is_none()) {
-                            field.type->ops->from_python(field_ptr, val, field.type);
+                            field.type->ops().from_python(field_ptr, val, field.type);
                         }
                     }
                 }
@@ -174,11 +174,11 @@ struct BundleOps {
             for (size_t i = 0; i < n; ++i) {
                 const BundleFieldInfo& field = schema->fields[i];
                 void* field_ptr = static_cast<char*>(dst) + field.offset;
-                if (field.type && field.type->ops && field.type->ops->from_python) {
+                if (field.type && field.type->ops().from_python) {
                     nb::object elem = seq[i];
                     // Skip None values - can't cast None to non-nullable scalar types
                     if (!elem.is_none()) {
-                        field.type->ops->from_python(field_ptr, elem, field.type);
+                        field.type->ops().from_python(field_ptr, elem, field.type);
                     }
                 }
             }
@@ -189,11 +189,11 @@ struct BundleOps {
                 const BundleFieldInfo& field = schema->fields[i];
                 void* field_ptr = static_cast<char*>(dst) + field.offset;
                 if (field.name && nb::hasattr(src, field.name)) {
-                    if (field.type && field.type->ops && field.type->ops->from_python) {
+                    if (field.type && field.type->ops().from_python) {
                         nb::object attr = nb::getattr(src, field.name);
                         // Skip None values - can't cast None to non-nullable scalar types
                         if (!attr.is_none()) {
-                            field.type->ops->from_python(field_ptr, attr, field.type);
+                            field.type->ops().from_python(field_ptr, attr, field.type);
                         }
                     }
                 }
@@ -209,8 +209,8 @@ struct BundleOps {
         for (size_t i = 0; i < schema->field_count; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             const void* field_ptr = static_cast<const char*>(obj) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->hash) {
-                size_t field_hash = field.type->ops->hash(field_ptr, field.type);
+            if (field.type && field.type->ops().hash) {
+                size_t field_hash = field.type->ops().hash(field_ptr, field.type);
                 // Combine with XOR and rotation
                 result ^= field_hash + 0x9e3779b9 + (result << 6) + (result >> 2);
             }
@@ -239,8 +239,8 @@ struct BundleOps {
         }
         const BundleFieldInfo& field = schema->fields[index];
         void* field_ptr = static_cast<char*>(obj) + field.offset;
-        if (field.type && field.type->ops && field.type->ops->copy_assign) {
-            field.type->ops->copy_assign(field_ptr, value, field.type);
+        if (field.type && field.type->ops().copy_assign) {
+            field.type->ops().copy_assign(field_ptr, value, field.type);
         }
     }
 
@@ -260,8 +260,8 @@ struct BundleOps {
             if (schema->fields[i].name && std::strcmp(schema->fields[i].name, name) == 0) {
                 const BundleFieldInfo& field = schema->fields[i];
                 void* field_ptr = static_cast<char*>(obj) + field.offset;
-                if (field.type && field.type->ops && field.type->ops->copy_assign) {
-                    field.type->ops->copy_assign(field_ptr, value, field.type);
+                if (field.type && field.type->ops().copy_assign) {
+                    field.type->ops().copy_assign(field_ptr, value, field.type);
                 }
                 return;
             }
@@ -269,34 +269,22 @@ struct BundleOps {
         throw std::out_of_range(std::string("Bundle has no field named '") + name + "'");
     }
 
-    /// Get the operations vtable for bundles
-    static const TypeOps* ops() {
-        static const TypeOps bundle_ops = {
-            &construct,
-            &destruct,
-            &copy_assign,
-            &move_assign,
-            &move_construct,
-            &equals,
-            &to_string,
-            &to_python,
-            &from_python,
-            &hash,
-            nullptr,   // less_than (bundles not ordered)
-            &size,
-            &get_at,
-            &set_at,
-            &get_field,
-            &set_field,
-            nullptr,   // contains (not a set)
-            nullptr,   // insert (not a set)
-            nullptr,   // erase (not a set)
-            nullptr,   // map_get (not a map)
-            nullptr,   // map_set (not a map)
-            nullptr,   // resize (not resizable)
-            nullptr,   // clear (not clearable)
-        };
-        return &bundle_ops;
+    /// Build type_ops for bundles
+    static type_ops make_ops() {
+        type_ops ops{};
+        ops.construct = &construct;
+        ops.destruct = &destruct;
+        ops.copy_assign = &copy_assign;
+        ops.move_assign = &move_assign;
+        ops.move_construct = &move_construct;
+        ops.equals = &equals;
+        ops.hash = &hash;
+        ops.to_string = &to_string;
+        ops.to_python = &to_python;
+        ops.from_python = &from_python;
+        ops.kind = TypeKind::Bundle;
+        ops.specific.bundle = {&size, &get_at, &set_at, &get_field, &set_field};
+        return ops;
     }
 };
 
@@ -317,8 +305,8 @@ struct TupleOps {
         for (size_t i = 0; i < schema->field_count; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             void* field_ptr = static_cast<char*>(dst) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->construct) {
-                field.type->ops->construct(field_ptr, field.type);
+            if (field.type && field.type->ops().construct) {
+                field.type->ops().construct(field_ptr, field.type);
             }
         }
     }
@@ -327,8 +315,8 @@ struct TupleOps {
         for (size_t i = 0; i < schema->field_count; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             void* field_ptr = static_cast<char*>(obj) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->destruct) {
-                field.type->ops->destruct(field_ptr, field.type);
+            if (field.type && field.type->ops().destruct) {
+                field.type->ops().destruct(field_ptr, field.type);
             }
         }
     }
@@ -338,8 +326,8 @@ struct TupleOps {
             const BundleFieldInfo& field = schema->fields[i];
             void* dst_field = static_cast<char*>(dst) + field.offset;
             const void* src_field = static_cast<const char*>(src) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->copy_assign) {
-                field.type->ops->copy_assign(dst_field, src_field, field.type);
+            if (field.type && field.type->ops().copy_assign) {
+                field.type->ops().copy_assign(dst_field, src_field, field.type);
             }
         }
     }
@@ -349,8 +337,8 @@ struct TupleOps {
             const BundleFieldInfo& field = schema->fields[i];
             void* dst_field = static_cast<char*>(dst) + field.offset;
             void* src_field = static_cast<char*>(src) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->move_assign) {
-                field.type->ops->move_assign(dst_field, src_field, field.type);
+            if (field.type && field.type->ops().move_assign) {
+                field.type->ops().move_assign(dst_field, src_field, field.type);
             }
         }
     }
@@ -360,8 +348,8 @@ struct TupleOps {
             const BundleFieldInfo& field = schema->fields[i];
             void* dst_field = static_cast<char*>(dst) + field.offset;
             void* src_field = static_cast<char*>(src) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->move_construct) {
-                field.type->ops->move_construct(dst_field, src_field, field.type);
+            if (field.type && field.type->ops().move_construct) {
+                field.type->ops().move_construct(dst_field, src_field, field.type);
             }
         }
     }
@@ -371,8 +359,8 @@ struct TupleOps {
             const BundleFieldInfo& field = schema->fields[i];
             const void* a_field = static_cast<const char*>(a) + field.offset;
             const void* b_field = static_cast<const char*>(b) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->equals) {
-                if (!field.type->ops->equals(a_field, b_field, field.type)) {
+            if (field.type && field.type->ops().equals) {
+                if (!field.type->ops().equals(a_field, b_field, field.type)) {
                     return false;
                 }
             }
@@ -386,8 +374,8 @@ struct TupleOps {
             if (i > 0) result += ", ";
             const BundleFieldInfo& field = schema->fields[i];
             const void* field_ptr = static_cast<const char*>(obj) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->to_string) {
-                result += field.type->ops->to_string(field_ptr, field.type);
+            if (field.type && field.type->ops().to_string) {
+                result += field.type->ops().to_string(field_ptr, field.type);
             } else {
                 result += "<null>";
             }
@@ -403,8 +391,8 @@ struct TupleOps {
         for (size_t i = 0; i < schema->field_count; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             const void* field_ptr = static_cast<const char*>(obj) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->to_python) {
-                result.append(field.type->ops->to_python(field_ptr, field.type));
+            if (field.type && field.type->ops().to_python) {
+                result.append(field.type->ops().to_python(field_ptr, field.type));
             } else {
                 result.append(nb::none());
             }
@@ -423,11 +411,11 @@ struct TupleOps {
         for (size_t i = 0; i < schema->field_count && i < src_len; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             void* field_ptr = static_cast<char*>(dst) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->from_python) {
+            if (field.type && field.type->ops().from_python) {
                 nb::object elem = seq[i];
                 // Skip None values - can't cast None to non-nullable scalar types
                 if (!elem.is_none()) {
-                    field.type->ops->from_python(field_ptr, elem, field.type);
+                    field.type->ops().from_python(field_ptr, elem, field.type);
                 }
             }
         }
@@ -440,8 +428,8 @@ struct TupleOps {
         for (size_t i = 0; i < schema->field_count; ++i) {
             const BundleFieldInfo& field = schema->fields[i];
             const void* field_ptr = static_cast<const char*>(obj) + field.offset;
-            if (field.type && field.type->ops && field.type->ops->hash) {
-                size_t field_hash = field.type->ops->hash(field_ptr, field.type);
+            if (field.type && field.type->ops().hash) {
+                size_t field_hash = field.type->ops().hash(field_ptr, field.type);
                 result ^= field_hash + 0x9e3779b9 + (result << 6) + (result >> 2);
             }
         }
@@ -469,39 +457,27 @@ struct TupleOps {
         }
         const BundleFieldInfo& field = schema->fields[index];
         void* field_ptr = static_cast<char*>(obj) + field.offset;
-        if (field.type && field.type->ops && field.type->ops->copy_assign) {
-            field.type->ops->copy_assign(field_ptr, value, field.type);
+        if (field.type && field.type->ops().copy_assign) {
+            field.type->ops().copy_assign(field_ptr, value, field.type);
         }
     }
 
-    /// Get the operations vtable for tuples
-    static const TypeOps* ops() {
-        static const TypeOps tuple_ops = {
-            &construct,
-            &destruct,
-            &copy_assign,
-            &move_assign,
-            &move_construct,
-            &equals,
-            &to_string,
-            &to_python,
-            &from_python,
-            &hash,
-            nullptr,   // less_than (tuples not ordered)
-            &size,
-            &get_at,
-            &set_at,
-            nullptr,   // get_field (not a bundle)
-            nullptr,   // set_field (not a bundle)
-            nullptr,   // contains (not a set)
-            nullptr,   // insert (not a set)
-            nullptr,   // erase (not a set)
-            nullptr,   // map_get (not a map)
-            nullptr,   // map_set (not a map)
-            nullptr,   // resize (not resizable)
-            nullptr,   // clear (not clearable)
-        };
-        return &tuple_ops;
+    /// Build type_ops for tuples
+    static type_ops make_ops() {
+        type_ops ops{};
+        ops.construct = &construct;
+        ops.destruct = &destruct;
+        ops.copy_assign = &copy_assign;
+        ops.move_assign = &move_assign;
+        ops.move_construct = &move_construct;
+        ops.equals = &equals;
+        ops.hash = &hash;
+        ops.to_string = &to_string;
+        ops.to_python = &to_python;
+        ops.from_python = &from_python;
+        ops.kind = TypeKind::Tuple;
+        ops.specific.tuple = {&size, &get_at, &set_at};
+        return ops;
     }
 };
 
@@ -589,8 +565,8 @@ struct ListOps {
             const TypeMeta* elem_type = schema->element_type;
             for (size_t i = 0; i < schema->fixed_size; ++i) {
                 void* elem_ptr = get_element_ptr(dst, i, schema);
-                if (elem_type && elem_type->ops && elem_type->ops->construct) {
-                    elem_type->ops->construct(elem_ptr, elem_type);
+                if (elem_type && elem_type->ops().construct) {
+                    elem_type->ops().construct(elem_ptr, elem_type);
                 }
             }
         } else {
@@ -606,8 +582,8 @@ struct ListOps {
             // Fixed list: destruct all elements
             for (size_t i = 0; i < schema->fixed_size; ++i) {
                 void* elem_ptr = get_element_ptr(obj, i, schema);
-                if (elem_type && elem_type->ops && elem_type->ops->destruct) {
-                    elem_type->ops->destruct(elem_ptr, elem_type);
+                if (elem_type && elem_type->ops().destruct) {
+                    elem_type->ops().destruct(elem_ptr, elem_type);
                 }
             }
         } else {
@@ -616,8 +592,8 @@ struct ListOps {
             if (!storage->data.empty() && elem_type) {
                 for (size_t i = 0; i < storage->size; ++i) {
                     void* elem_ptr = static_cast<char*>(storage->data_ptr()) + i * elem_type->size;
-                    if (elem_type->ops && elem_type->ops->destruct) {
-                        elem_type->ops->destruct(elem_ptr, elem_type);
+                    if (elem_type->ops().destruct) {
+                        elem_type->ops().destruct(elem_ptr, elem_type);
                     }
                 }
             }
@@ -633,8 +609,8 @@ struct ListOps {
             for (size_t i = 0; i < schema->fixed_size; ++i) {
                 void* dst_elem = get_element_ptr(dst, i, schema);
                 const void* src_elem = get_element_ptr_const(src, i, schema);
-                if (elem_type && elem_type->ops && elem_type->ops->copy_assign) {
-                    elem_type->ops->copy_assign(dst_elem, src_elem, elem_type);
+                if (elem_type && elem_type->ops().copy_assign) {
+                    elem_type->ops().copy_assign(dst_elem, src_elem, elem_type);
                 }
             }
         } else {
@@ -646,11 +622,11 @@ struct ListOps {
             do_resize(dst, src_storage->size, schema);
 
             // Copy elements
-            if (elem_type && elem_type->ops && elem_type->ops->copy_assign) {
+            if (elem_type && elem_type->ops().copy_assign) {
                 for (size_t i = 0; i < src_storage->size; ++i) {
                     void* dst_elem = static_cast<char*>(dst_storage->data_ptr()) + i * elem_type->size;
                     const void* src_elem = static_cast<const char*>(src_storage->data_ptr()) + i * elem_type->size;
-                    elem_type->ops->copy_assign(dst_elem, src_elem, elem_type);
+                    elem_type->ops().copy_assign(dst_elem, src_elem, elem_type);
                 }
             }
         }
@@ -663,8 +639,8 @@ struct ListOps {
             for (size_t i = 0; i < schema->fixed_size; ++i) {
                 void* dst_elem = get_element_ptr(dst, i, schema);
                 void* src_elem = get_element_ptr(src, i, schema);
-                if (elem_type && elem_type->ops && elem_type->ops->move_assign) {
-                    elem_type->ops->move_assign(dst_elem, src_elem, elem_type);
+                if (elem_type && elem_type->ops().move_assign) {
+                    elem_type->ops().move_assign(dst_elem, src_elem, elem_type);
                 }
             }
         } else {
@@ -691,8 +667,8 @@ struct ListOps {
             for (size_t i = 0; i < schema->fixed_size; ++i) {
                 void* dst_elem = get_element_ptr(dst, i, schema);
                 void* src_elem = get_element_ptr(src, i, schema);
-                if (elem_type && elem_type->ops && elem_type->ops->move_construct) {
-                    elem_type->ops->move_construct(dst_elem, src_elem, elem_type);
+                if (elem_type && elem_type->ops().move_construct) {
+                    elem_type->ops().move_construct(dst_elem, src_elem, elem_type);
                 }
             }
         } else {
@@ -712,8 +688,8 @@ struct ListOps {
         for (size_t i = 0; i < size_a; ++i) {
             const void* elem_a = get_element_ptr_const(a, i, schema);
             const void* elem_b = get_element_ptr_const(b, i, schema);
-            if (elem_type && elem_type->ops && elem_type->ops->equals) {
-                if (!elem_type->ops->equals(elem_a, elem_b, elem_type)) {
+            if (elem_type && elem_type->ops().equals) {
+                if (!elem_type->ops().equals(elem_a, elem_b, elem_type)) {
                     return false;
                 }
             }
@@ -729,8 +705,8 @@ struct ListOps {
         for (size_t i = 0; i < n; ++i) {
             if (i > 0) result += ", ";
             const void* elem_ptr = get_element_ptr_const(obj, i, schema);
-            if (elem_type && elem_type->ops && elem_type->ops->to_string) {
-                result += elem_type->ops->to_string(elem_ptr, elem_type);
+            if (elem_type && elem_type->ops().to_string) {
+                result += elem_type->ops().to_string(elem_ptr, elem_type);
             } else {
                 result += "<null>";
             }
@@ -748,8 +724,8 @@ struct ListOps {
 
         for (size_t i = 0; i < n; ++i) {
             const void* elem_ptr = get_element_ptr_const(obj, i, schema);
-            if (elem_type && elem_type->ops && elem_type->ops->to_python) {
-                result.append(elem_type->ops->to_python(elem_ptr, elem_type));
+            if (elem_type && elem_type->ops().to_python) {
+                result.append(elem_type->ops().to_python(elem_ptr, elem_type));
             } else {
                 result.append(nb::none());
             }
@@ -775,11 +751,11 @@ struct ListOps {
             size_t copy_count = std::min(src_len, schema->fixed_size);
             for (size_t i = 0; i < copy_count; ++i) {
                 void* elem_ptr = get_element_ptr(dst, i, schema);
-                if (elem_type && elem_type->ops && elem_type->ops->from_python) {
+                if (elem_type && elem_type->ops().from_python) {
                     nb::object elem = seq[i];
                     // Skip None values - can't cast None to non-nullable scalar types
                     if (!elem.is_none()) {
-                        elem_type->ops->from_python(elem_ptr, elem, elem_type);
+                        elem_type->ops().from_python(elem_ptr, elem, elem_type);
                     }
                 }
             }
@@ -789,11 +765,11 @@ struct ListOps {
             auto* storage = static_cast<DynamicListStorage*>(dst);
             for (size_t i = 0; i < src_len; ++i) {
                 void* elem_ptr = static_cast<char*>(storage->data_ptr()) + i * elem_type->size;
-                if (elem_type && elem_type->ops && elem_type->ops->from_python) {
+                if (elem_type && elem_type->ops().from_python) {
                     nb::object elem = seq[i];
                     // Skip None values - can't cast None to non-nullable scalar types
                     if (!elem.is_none()) {
-                        elem_type->ops->from_python(elem_ptr, elem, elem_type);
+                        elem_type->ops().from_python(elem_ptr, elem, elem_type);
                     }
                 }
             }
@@ -809,8 +785,8 @@ struct ListOps {
 
         for (size_t i = 0; i < n; ++i) {
             const void* elem_ptr = get_element_ptr_const(obj, i, schema);
-            if (elem_type && elem_type->ops && elem_type->ops->hash) {
-                size_t elem_hash = elem_type->ops->hash(elem_ptr, elem_type);
+            if (elem_type && elem_type->ops().hash) {
+                size_t elem_hash = elem_type->ops().hash(elem_ptr, elem_type);
                 result ^= elem_hash + 0x9e3779b9 + (result << 6) + (result >> 2);
             }
         }
@@ -845,8 +821,8 @@ struct ListOps {
         }
         void* elem_ptr = get_element_ptr(obj, index, schema);
         const TypeMeta* elem_type = schema->element_type;
-        if (elem_type && elem_type->ops && elem_type->ops->copy_assign) {
-            elem_type->ops->copy_assign(elem_ptr, value, elem_type);
+        if (elem_type && elem_type->ops().copy_assign) {
+            elem_type->ops().copy_assign(elem_ptr, value, elem_type);
         }
     }
 
@@ -867,8 +843,8 @@ struct ListOps {
             // Shrinking: destruct excess elements (keep vector capacity)
             for (size_t i = new_size; i < storage->size; ++i) {
                 void* elem_ptr = static_cast<char*>(storage->data_ptr()) + i * elem_size;
-                if (elem_type && elem_type->ops && elem_type->ops->destruct) {
-                    elem_type->ops->destruct(elem_ptr, elem_type);
+                if (elem_type && elem_type->ops().destruct) {
+                    elem_type->ops().destruct(elem_ptr, elem_type);
                 }
             }
             storage->size = new_size;
@@ -892,11 +868,11 @@ struct ListOps {
                         void* old_elem = storage->data.data() + i * elem_size;
                         void* new_elem = new_data.data() + i * elem_size;
 
-                        if (elem_type->ops && elem_type->ops->move_construct) {
-                            elem_type->ops->move_construct(new_elem, old_elem, elem_type);
+                        if (elem_type->ops().move_construct) {
+                            elem_type->ops().move_construct(new_elem, old_elem, elem_type);
                         }
-                        if (elem_type->ops && elem_type->ops->destruct) {
-                            elem_type->ops->destruct(old_elem, elem_type);
+                        if (elem_type->ops().destruct) {
+                            elem_type->ops().destruct(old_elem, elem_type);
                         }
                     }
 
@@ -915,8 +891,8 @@ struct ListOps {
             // Construct new elements
             for (size_t i = storage->size; i < new_size; ++i) {
                 void* elem_ptr = static_cast<char*>(storage->data_ptr()) + i * elem_size;
-                if (elem_type && elem_type->ops && elem_type->ops->construct) {
-                    elem_type->ops->construct(elem_ptr, elem_type);
+                if (elem_type && elem_type->ops().construct) {
+                    elem_type->ops().construct(elem_ptr, elem_type);
                 }
             }
             storage->size = new_size;
@@ -934,34 +910,22 @@ struct ListOps {
         do_resize(obj, 0, schema);
     }
 
-    /// Get the operations vtable for lists
-    static const TypeOps* ops() {
-        static const TypeOps list_ops = {
-            &construct,
-            &destruct,
-            &copy_assign,
-            &move_assign,
-            &move_construct,
-            &equals,
-            &to_string,
-            &to_python,
-            &from_python,
-            &hash,
-            nullptr,   // less_than (lists not ordered)
-            &size,
-            &get_at,
-            &set_at,
-            nullptr,   // get_field (not a bundle)
-            nullptr,   // set_field (not a bundle)
-            nullptr,   // contains (not a set)
-            nullptr,   // insert (not a set)
-            nullptr,   // erase (not a set)
-            nullptr,   // map_get (not a map)
-            nullptr,   // map_set (not a map)
-            &resize,
-            &clear,
-        };
-        return &list_ops;
+    /// Build type_ops for lists
+    static type_ops make_ops() {
+        type_ops ops{};
+        ops.construct = &construct;
+        ops.destruct = &destruct;
+        ops.copy_assign = &copy_assign;
+        ops.move_assign = &move_assign;
+        ops.move_construct = &move_construct;
+        ops.equals = &equals;
+        ops.hash = &hash;
+        ops.to_string = &to_string;
+        ops.to_python = &to_python;
+        ops.from_python = &from_python;
+        ops.kind = TypeKind::List;
+        ops.specific.list = {&size, &get_at, &set_at, &resize, &clear};
+        return ops;
     }
 };
 
@@ -1131,11 +1095,11 @@ struct SetOps {
             void* old_elem = storage->elements.data() + i * elem_size;
             void* new_elem = new_storage.data() + i * elem_size;
 
-            if (elem_type->ops && elem_type->ops->move_construct) {
-                elem_type->ops->move_construct(new_elem, old_elem, elem_type);
+            if (elem_type->ops().move_construct) {
+                elem_type->ops().move_construct(new_elem, old_elem, elem_type);
             }
-            if (elem_type->ops && elem_type->ops->destruct) {
-                elem_type->ops->destruct(old_elem, elem_type);
+            if (elem_type->ops().destruct) {
+                elem_type->ops().destruct(old_elem, elem_type);
             }
         }
 
@@ -1157,10 +1121,10 @@ struct SetOps {
         const TypeMeta* elem_type = schema->element_type;
 
         // Destruct all elements
-        if (elem_type && elem_type->ops && elem_type->ops->destruct && storage->index_set) {
+        if (elem_type && elem_type->ops().destruct && storage->index_set) {
             for (size_t idx : *storage->index_set) {
                 void* elem_ptr = storage->get_element_ptr(idx);
-                elem_type->ops->destruct(elem_ptr, elem_type);
+                elem_type->ops().destruct(elem_ptr, elem_type);
             }
         }
         storage->~SetStorage();
@@ -1230,8 +1194,8 @@ struct SetOps {
                 if (!first) result += ", ";
                 first = false;
                 const void* elem_ptr = storage->get_element_ptr(idx);
-                if (elem_type && elem_type->ops && elem_type->ops->to_string) {
-                    result += elem_type->ops->to_string(elem_ptr, elem_type);
+                if (elem_type && elem_type->ops().to_string) {
+                    result += elem_type->ops().to_string(elem_ptr, elem_type);
                 } else {
                     result += "<null>";
                 }
@@ -1251,8 +1215,8 @@ struct SetOps {
         if (storage->index_set) {
             for (size_t idx : *storage->index_set) {
                 const void* elem_ptr = storage->get_element_ptr(idx);
-                if (elem_type && elem_type->ops && elem_type->ops->to_python) {
-                    result.add(elem_type->ops->to_python(elem_ptr, elem_type));
+                if (elem_type && elem_type->ops().to_python) {
+                    result.add(elem_type->ops().to_python(elem_ptr, elem_type));
                 }
             }
         }
@@ -1277,18 +1241,18 @@ struct SetOps {
             std::vector<char> temp_storage(elem_type->size);
             void* temp_elem = temp_storage.data();
 
-            if (elem_type->ops && elem_type->ops->construct) {
-                elem_type->ops->construct(temp_elem, elem_type);
+            if (elem_type->ops().construct) {
+                elem_type->ops().construct(temp_elem, elem_type);
             }
-            if (elem_type->ops && elem_type->ops->from_python) {
+            if (elem_type->ops().from_python) {
                 nb::object item = nb::borrow<nb::object>(*it);
-                elem_type->ops->from_python(temp_elem, item, elem_type);
+                elem_type->ops().from_python(temp_elem, item, elem_type);
             }
 
             do_insert(dst, temp_elem, schema);
 
-            if (elem_type->ops && elem_type->ops->destruct) {
-                elem_type->ops->destruct(temp_elem, elem_type);
+            if (elem_type->ops().destruct) {
+                elem_type->ops().destruct(temp_elem, elem_type);
             }
 
             ++it;
@@ -1306,8 +1270,8 @@ struct SetOps {
         if (storage->index_set) {
             for (size_t idx : *storage->index_set) {
                 const void* elem_ptr = storage->get_element_ptr(idx);
-                if (elem_type && elem_type->ops && elem_type->ops->hash) {
-                    result ^= elem_type->ops->hash(elem_ptr, elem_type);
+                if (elem_type && elem_type->ops().hash) {
+                    result ^= elem_type->ops().hash(elem_ptr, elem_type);
                 }
             }
         }
@@ -1365,14 +1329,8 @@ struct SetOps {
 
         // Construct and copy new element
         void* new_elem = storage->get_element_ptr(new_idx);
-        if (elem_type->ops) {
-            if (elem_type->ops->construct) {
-                elem_type->ops->construct(new_elem, elem_type);
-            }
-            if (elem_type->ops->copy_assign) {
-                elem_type->ops->copy_assign(new_elem, value, elem_type);
-            }
-        }
+        elem_type->ops().construct(new_elem, elem_type);
+        elem_type->ops().copy_assign(new_elem, value, elem_type);
 
         storage->element_count++;
         storage->index_set->insert(new_idx);
@@ -1411,26 +1369,22 @@ struct SetOps {
             storage->index_set->erase(last_idx);
 
             // Move last element to the erased slot (overwrites the erased element)
-            if (elem_type && elem_type->ops) {
-                if (elem_type->ops->move_assign) {
-                    elem_type->ops->move_assign(slot_to_fill, last_elem, elem_type);
-                } else if (elem_type->ops->copy_assign) {
-                    elem_type->ops->copy_assign(slot_to_fill, last_elem, elem_type);
-                }
+            if (elem_type) {
+                elem_type->ops().move_assign(slot_to_fill, last_elem, elem_type);
             }
 
             // Insert idx for the moved element (now that data is in place)
             storage->index_set->insert(idx);
 
             // Destruct the moved-from slot (last position)
-            if (elem_type && elem_type->ops && elem_type->ops->destruct) {
-                elem_type->ops->destruct(last_elem, elem_type);
+            if (elem_type && elem_type->ops().destruct) {
+                elem_type->ops().destruct(last_elem, elem_type);
             }
         } else {
             // Erasing the last element - just destruct it
             void* elem = storage->get_element_ptr(idx);
-            if (elem_type && elem_type->ops && elem_type->ops->destruct) {
-                elem_type->ops->destruct(elem, elem_type);
+            if (elem_type && elem_type->ops().destruct) {
+                elem_type->ops().destruct(elem, elem_type);
             }
         }
 
@@ -1447,10 +1401,10 @@ struct SetOps {
         const TypeMeta* elem_type = schema->element_type;
 
         // Destruct all elements
-        if (storage->index_set && elem_type && elem_type->ops && elem_type->ops->destruct) {
+        if (storage->index_set && elem_type && elem_type->ops().destruct) {
             for (size_t idx : *storage->index_set) {
                 void* elem = storage->get_element_ptr(idx);
-                elem_type->ops->destruct(elem, elem_type);
+                elem_type->ops().destruct(elem, elem_type);
             }
         }
 
@@ -1466,34 +1420,22 @@ struct SetOps {
         do_clear(obj, schema);
     }
 
-    /// Get the operations vtable for sets
-    static const TypeOps* ops() {
-        static const TypeOps set_ops = {
-            &construct,
-            &destruct,
-            &copy_assign,
-            &move_assign,
-            &move_construct,
-            &equals,
-            &to_string,
-            &to_python,
-            &from_python,
-            &hash,
-            nullptr,   // less_than (sets not ordered)
-            &size,
-            &get_at,
-            nullptr,   // set_at (not used for sets)
-            nullptr,   // get_field (not a bundle)
-            nullptr,   // set_field (not a bundle)
-            &contains,
-            &insert,
-            &erase,
-            nullptr,   // map_get (not a map)
-            nullptr,   // map_set (not a map)
-            nullptr,   // resize (use insert/erase)
-            &clear,
-        };
-        return &set_ops;
+    /// Build type_ops for sets
+    static type_ops make_ops() {
+        type_ops ops{};
+        ops.construct = &construct;
+        ops.destruct = &destruct;
+        ops.copy_assign = &copy_assign;
+        ops.move_assign = &move_assign;
+        ops.move_construct = &move_construct;
+        ops.equals = &equals;
+        ops.hash = &hash;
+        ops.to_string = &to_string;
+        ops.to_python = &to_python;
+        ops.from_python = &from_python;
+        ops.kind = TypeKind::Set;
+        ops.specific.set = {&size, &get_at, &contains, &insert, &erase, &clear};
+        return ops;
     }
 };
 
@@ -1502,16 +1444,16 @@ struct SetOps {
 inline uint64_t SetIndexHash::operator()(size_t idx) const {
     const void* elem = storage->get_element_ptr(idx);
     const TypeMeta* elem_type = storage->element_type;
-    if (elem_type && elem_type->ops && elem_type->ops->hash) {
-        return elem_type->ops->hash(elem, elem_type);
+    if (elem_type && elem_type->ops().hash) {
+        return elem_type->ops().hash(elem, elem_type);
     }
     return 0;
 }
 
 inline uint64_t SetIndexHash::operator()(const void* ptr) const {
     const TypeMeta* elem_type = storage->element_type;
-    if (elem_type && elem_type->ops && elem_type->ops->hash) {
-        return elem_type->ops->hash(ptr, elem_type);
+    if (elem_type && elem_type->ops().hash) {
+        return elem_type->ops().hash(ptr, elem_type);
     }
     return 0;
 }
@@ -1521,8 +1463,8 @@ inline bool SetIndexEqual::operator()(size_t a, size_t b) const {
     const void* elem_a = storage->get_element_ptr(a);
     const void* elem_b = storage->get_element_ptr(b);
     const TypeMeta* elem_type = storage->element_type;
-    if (elem_type && elem_type->ops && elem_type->ops->equals) {
-        return elem_type->ops->equals(elem_a, elem_b, elem_type);
+    if (elem_type && elem_type->ops().equals) {
+        return elem_type->ops().equals(elem_a, elem_b, elem_type);
     }
     return false;
 }
@@ -1530,8 +1472,8 @@ inline bool SetIndexEqual::operator()(size_t a, size_t b) const {
 inline bool SetIndexEqual::operator()(size_t idx, const void* ptr) const {
     const void* elem = storage->get_element_ptr(idx);
     const TypeMeta* elem_type = storage->element_type;
-    if (elem_type && elem_type->ops && elem_type->ops->equals) {
-        return elem_type->ops->equals(elem, ptr, elem_type);
+    if (elem_type && elem_type->ops().equals) {
+        return elem_type->ops().equals(elem, ptr, elem_type);
     }
     return false;
 }
@@ -1654,11 +1596,11 @@ struct MapOps {
             void* old_elem = storage->values.data() + i * val_size;
             void* new_elem = new_storage.data() + i * val_size;
 
-            if (val_type->ops && val_type->ops->move_construct) {
-                val_type->ops->move_construct(new_elem, old_elem, val_type);
+            if (val_type->ops().move_construct) {
+                val_type->ops().move_construct(new_elem, old_elem, val_type);
             }
-            if (val_type->ops && val_type->ops->destruct) {
-                val_type->ops->destruct(old_elem, val_type);
+            if (val_type->ops().destruct) {
+                val_type->ops().destruct(old_elem, val_type);
             }
         }
 
@@ -1686,11 +1628,11 @@ struct MapOps {
             for (size_t idx : *storage->index_set()) {
                 void* key_ptr = storage->get_key_ptr(idx);
                 void* val_ptr = storage->get_value_ptr(idx);
-                if (key_type && key_type->ops && key_type->ops->destruct) {
-                    key_type->ops->destruct(key_ptr, key_type);
+                if (key_type && key_type->ops().destruct) {
+                    key_type->ops().destruct(key_ptr, key_type);
                 }
-                if (val_type && val_type->ops && val_type->ops->destruct) {
-                    val_type->ops->destruct(val_ptr, val_type);
+                if (val_type && val_type->ops().destruct) {
+                    val_type->ops().destruct(val_ptr, val_type);
                 }
             }
         }
@@ -1753,8 +1695,8 @@ struct MapOps {
                 }
 
                 const void* val_b = storage_b->get_value_ptr(*it_b);
-                if (val_type && val_type->ops && val_type->ops->equals) {
-                    if (!val_type->ops->equals(val_a, val_b, val_type)) {
+                if (val_type && val_type->ops().equals) {
+                    if (!val_type->ops().equals(val_a, val_b, val_type)) {
                         return false;
                     }
                 }
@@ -1777,14 +1719,14 @@ struct MapOps {
                 const void* key_ptr = storage->get_key_ptr(idx);
                 const void* val_ptr = storage->get_value_ptr(idx);
 
-                if (key_type && key_type->ops && key_type->ops->to_string) {
-                    result += key_type->ops->to_string(key_ptr, key_type);
+                if (key_type && key_type->ops().to_string) {
+                    result += key_type->ops().to_string(key_ptr, key_type);
                 } else {
                     result += "<key>";
                 }
                 result += ": ";
-                if (val_type && val_type->ops && val_type->ops->to_string) {
-                    result += val_type->ops->to_string(val_ptr, val_type);
+                if (val_type && val_type->ops().to_string) {
+                    result += val_type->ops().to_string(val_ptr, val_type);
                 } else {
                     result += "<value>";
                 }
@@ -1808,13 +1750,13 @@ struct MapOps {
                 const void* val_ptr = storage->get_value_ptr(idx);
 
                 nb::object py_key, py_val;
-                if (key_type && key_type->ops && key_type->ops->to_python) {
-                    py_key = key_type->ops->to_python(key_ptr, key_type);
+                if (key_type && key_type->ops().to_python) {
+                    py_key = key_type->ops().to_python(key_ptr, key_type);
                 } else {
                     py_key = nb::none();
                 }
-                if (val_type && val_type->ops && val_type->ops->to_python) {
-                    py_val = val_type->ops->to_python(val_ptr, val_type);
+                if (val_type && val_type->ops().to_python) {
+                    py_val = val_type->ops().to_python(val_ptr, val_type);
                 } else {
                     py_val = nb::none();
                 }
@@ -1852,32 +1794,32 @@ struct MapOps {
             // Create temp key
             std::vector<char> temp_key_storage(key_type->size);
             void* temp_key = temp_key_storage.data();
-            if (key_type->ops && key_type->ops->construct) {
-                key_type->ops->construct(temp_key, key_type);
+            if (key_type->ops().construct) {
+                key_type->ops().construct(temp_key, key_type);
             }
-            if (key_type->ops && key_type->ops->from_python) {
+            if (key_type->ops().from_python) {
                 nb::object key_obj = nb::borrow<nb::object>(kv[0]);
-                key_type->ops->from_python(temp_key, key_obj, key_type);
+                key_type->ops().from_python(temp_key, key_obj, key_type);
             }
 
             // Create temp value
             std::vector<char> temp_val_storage(val_type->size);
             void* temp_val = temp_val_storage.data();
-            if (val_type->ops && val_type->ops->construct) {
-                val_type->ops->construct(temp_val, val_type);
+            if (val_type->ops().construct) {
+                val_type->ops().construct(temp_val, val_type);
             }
-            if (val_type->ops && val_type->ops->from_python) {
+            if (val_type->ops().from_python) {
                 nb::object val_obj = nb::borrow<nb::object>(kv[1]);
-                val_type->ops->from_python(temp_val, val_obj, val_type);
+                val_type->ops().from_python(temp_val, val_obj, val_type);
             }
 
             do_map_set(dst, temp_key, temp_val, schema);
 
-            if (key_type->ops && key_type->ops->destruct) {
-                key_type->ops->destruct(temp_key, key_type);
+            if (key_type->ops().destruct) {
+                key_type->ops().destruct(temp_key, key_type);
             }
-            if (val_type->ops && val_type->ops->destruct) {
-                val_type->ops->destruct(temp_val, val_type);
+            if (val_type->ops().destruct) {
+                val_type->ops().destruct(temp_val, val_type);
             }
         }
     }
@@ -1896,11 +1838,11 @@ struct MapOps {
                 const void* key_ptr = storage->get_key_ptr(idx);
                 const void* val_ptr = storage->get_value_ptr(idx);
                 size_t pair_hash = 0;
-                if (key_type && key_type->ops && key_type->ops->hash) {
-                    pair_hash ^= key_type->ops->hash(key_ptr, key_type);
+                if (key_type && key_type->ops().hash) {
+                    pair_hash ^= key_type->ops().hash(key_ptr, key_type);
                 }
-                if (val_type && val_type->ops && val_type->ops->hash) {
-                    pair_hash ^= val_type->ops->hash(val_ptr, val_type) << 1;
+                if (val_type && val_type->ops().hash) {
+                    pair_hash ^= val_type->ops().hash(val_ptr, val_type) << 1;
                 }
                 result ^= pair_hash;
             }
@@ -1957,8 +1899,8 @@ struct MapOps {
         if (it != storage->index_set()->end()) {
             // Update existing value
             void* val_ptr = storage->get_value_ptr(*it);
-            if (val_type && val_type->ops && val_type->ops->copy_assign) {
-                val_type->ops->copy_assign(val_ptr, value, val_type);
+            if (val_type && val_type->ops().copy_assign) {
+                val_type->ops().copy_assign(val_ptr, value, val_type);
             }
             return;
         }
@@ -1972,25 +1914,13 @@ struct MapOps {
 
         // Construct and copy new key
         void* new_key = storage->get_key_ptr(new_idx);
-        if (key_type->ops) {
-            if (key_type->ops->construct) {
-                key_type->ops->construct(new_key, key_type);
-            }
-            if (key_type->ops->copy_assign) {
-                key_type->ops->copy_assign(new_key, key, key_type);
-            }
-        }
+        key_type->ops().construct(new_key, key_type);
+        key_type->ops().copy_assign(new_key, key, key_type);
 
         // Construct and copy new value
         void* new_val = storage->get_value_ptr(new_idx);
-        if (val_type->ops) {
-            if (val_type->ops->construct) {
-                val_type->ops->construct(new_val, val_type);
-            }
-            if (val_type->ops->copy_assign) {
-                val_type->ops->copy_assign(new_val, value, val_type);
-            }
-        }
+        val_type->ops().construct(new_val, val_type);
+        val_type->ops().copy_assign(new_val, value, val_type);
 
         storage->keys.element_count++;
         storage->index_set()->insert(new_idx);
@@ -2031,42 +1961,34 @@ struct MapOps {
             storage->index_set()->erase(last_idx);
 
             // Move last key to the erased slot (overwrites the erased key)
-            if (key_type && key_type->ops) {
-                if (key_type->ops->move_assign) {
-                    key_type->ops->move_assign(key_slot, last_key, key_type);
-                } else if (key_type->ops->copy_assign) {
-                    key_type->ops->copy_assign(key_slot, last_key, key_type);
-                }
+            if (key_type) {
+                key_type->ops().move_assign(key_slot, last_key, key_type);
             }
 
             // Move last value to the erased slot (overwrites the erased value)
-            if (val_type && val_type->ops) {
-                if (val_type->ops->move_assign) {
-                    val_type->ops->move_assign(val_slot, last_val, val_type);
-                } else if (val_type->ops->copy_assign) {
-                    val_type->ops->copy_assign(val_slot, last_val, val_type);
-                }
+            if (val_type) {
+                val_type->ops().move_assign(val_slot, last_val, val_type);
             }
 
             // Insert idx for the moved key (now that data is in place)
             storage->index_set()->insert(idx);
 
             // Destruct the moved-from slots (last position)
-            if (key_type && key_type->ops && key_type->ops->destruct) {
-                key_type->ops->destruct(last_key, key_type);
+            if (key_type && key_type->ops().destruct) {
+                key_type->ops().destruct(last_key, key_type);
             }
-            if (val_type && val_type->ops && val_type->ops->destruct) {
-                val_type->ops->destruct(last_val, val_type);
+            if (val_type && val_type->ops().destruct) {
+                val_type->ops().destruct(last_val, val_type);
             }
         } else {
             // Erasing the last entry - just destruct it
             void* key_ptr = storage->get_key_ptr(idx);
             void* val_ptr = storage->get_value_ptr(idx);
-            if (key_type && key_type->ops && key_type->ops->destruct) {
-                key_type->ops->destruct(key_ptr, key_type);
+            if (key_type && key_type->ops().destruct) {
+                key_type->ops().destruct(key_ptr, key_type);
             }
-            if (val_type && val_type->ops && val_type->ops->destruct) {
-                val_type->ops->destruct(val_ptr, val_type);
+            if (val_type && val_type->ops().destruct) {
+                val_type->ops().destruct(val_ptr, val_type);
             }
         }
 
@@ -2088,11 +2010,11 @@ struct MapOps {
             for (size_t idx : *storage->index_set()) {
                 void* key_ptr = storage->get_key_ptr(idx);
                 void* val_ptr = storage->get_value_ptr(idx);
-                if (key_type && key_type->ops && key_type->ops->destruct) {
-                    key_type->ops->destruct(key_ptr, key_type);
+                if (key_type && key_type->ops().destruct) {
+                    key_type->ops().destruct(key_ptr, key_type);
                 }
-                if (val_type && val_type->ops && val_type->ops->destruct) {
-                    val_type->ops->destruct(val_ptr, val_type);
+                if (val_type && val_type->ops().destruct) {
+                    val_type->ops().destruct(val_ptr, val_type);
                 }
             }
             storage->index_set()->clear();
@@ -2108,34 +2030,22 @@ struct MapOps {
         do_clear(obj, schema);
     }
 
-    /// Get the operations vtable for maps
-    static const TypeOps* ops() {
-        static const TypeOps map_ops = {
-            &construct,
-            &destruct,
-            &copy_assign,
-            &move_assign,
-            &move_construct,
-            &equals,
-            &to_string,
-            &to_python,
-            &from_python,
-            &hash,
-            nullptr,   // less_than (maps not ordered)
-            &size,
-            nullptr,   // get_at (not indexed)
-            nullptr,   // set_at (not indexed)
-            nullptr,   // get_field (not a bundle)
-            nullptr,   // set_field (not a bundle)
-            &contains, // contains (for key lookup)
-            nullptr,   // insert (not a set)
-            &erase,    // erase (remove by key)
-            &map_get,
-            &map_set,
-            nullptr,   // resize
-            &clear,
-        };
-        return &map_ops;
+    /// Build type_ops for maps
+    static type_ops make_ops() {
+        type_ops ops{};
+        ops.construct = &construct;
+        ops.destruct = &destruct;
+        ops.copy_assign = &copy_assign;
+        ops.move_assign = &move_assign;
+        ops.move_construct = &move_construct;
+        ops.equals = &equals;
+        ops.hash = &hash;
+        ops.to_string = &to_string;
+        ops.to_python = &to_python;
+        ops.from_python = &from_python;
+        ops.kind = TypeKind::Map;
+        ops.specific.map = {&size, &contains, &map_get, &map_set, &erase, &clear};
+        return ops;
     }
 };
 
