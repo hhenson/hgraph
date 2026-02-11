@@ -7,12 +7,162 @@
 #include <hgraph/types/time_series/map_delta.h>
 #include <hgraph/types/time_series/ts_dict_view.h>
 #include <hgraph/types/time_series/ts_list_view.h>
+#include <hgraph/types/time_series/ts_set_view.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_meta_schema.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/value/map_storage.h>
 #include <hgraph/types/value/key_set.h>
+#include <hgraph/types/value/value.h>
+
+#include <unordered_map>
+#include <unordered_set>
 
 namespace hgraph {
+
+// ============================================================================
+// ContainsTracking - tracks TSS key membership as TSD[K, TS[bool]]
+// ============================================================================
+
+struct ContainsTracking : Notifiable {
+    struct Tracker {
+        std::unordered_set<void*> requesters;
+        value::Value<> key_value;
+    };
+
+    TSOutput* owner_;
+    std::unordered_map<size_t, Tracker> trackers_;
+    std::unordered_set<size_t> pending_removal_;
+    engine_time_t last_cleanup_time_{MIN_DT};
+    ObserverList* registered_obs_{nullptr};
+    std::unique_ptr<TSValue> tsd_;
+    const TSMeta* meta_{nullptr};
+
+    explicit ContainsTracking(TSOutput* owner) : owner_(owner) {}
+
+    ~ContainsTracking() override {
+        if (registered_obs_) {
+            registered_obs_->remove_observer(this);
+        }
+    }
+
+    static const value::TypeMeta* get_element_type(const TSMeta* meta) {
+        if (meta->value_type->kind == value::TypeKind::Tuple) {
+            return meta->value_type->fields[0].type->element_type;
+        }
+        return meta->value_type->element_type;
+    }
+
+    void init(engine_time_t current_time) {
+        if (meta_) return;
+
+        auto output_view = owner_->view(current_time);
+        const auto* tss_meta = output_view.ts_meta();
+
+        const auto* elem_type = get_element_type(tss_meta);
+        auto& registry = TSTypeRegistry::instance();
+        auto& cache = TSMetaSchemaCache::instance();
+
+        meta_ = registry.tsd(elem_type, registry.ts(cache.bool_meta()));
+        tsd_ = std::make_unique<TSValue>(meta_);
+
+        auto observer_schema = cache.get_observer_schema(tss_meta);
+        auto observer_tuple = value::View(
+            output_view.ts_view().view_data().observer_data, observer_schema);
+        registered_obs_ = static_cast<ObserverList*>(
+            observer_tuple.as_tuple().at(0).data());
+        registered_obs_->add_observer(this);
+    }
+
+    void process_pending_removals(engine_time_t current_time) {
+        if (pending_removal_.empty()) return;
+        if (current_time <= last_cleanup_time_) return;
+
+        auto dict_view = tsd_->ts_view(current_time).as_dict();
+        for (auto it = pending_removal_.begin(); it != pending_removal_.end(); ) {
+            auto tracker_it = trackers_.find(*it);
+            if (tracker_it != trackers_.end() && tracker_it->second.requesters.empty()) {
+                dict_view.remove(tracker_it->second.key_value.const_view());
+                trackers_.erase(tracker_it);
+            }
+            it = pending_removal_.erase(it);
+        }
+        last_cleanup_time_ = current_time;
+    }
+
+    TSView get_view(const value::View& key, void* requester, engine_time_t current_time) {
+        init(current_time);
+        process_pending_removals(current_time);
+
+        const auto* tss_meta = owner_->ts_meta();
+        const auto* elem_type = get_element_type(tss_meta);
+        size_t key_hash = elem_type->ops->hash(key.data(), elem_type);
+
+        pending_removal_.erase(key_hash);
+
+        auto dict_view = tsd_->ts_view(current_time).as_dict();
+        auto tracker_it = trackers_.find(key_hash);
+        if (tracker_it == trackers_.end()) {
+            TSView elem_ts = dict_view.create(key);
+
+            auto output_view = owner_->view(current_time);
+            bool present = output_view.ts_view().as_set().contains(key);
+            auto* bool_meta = TSMetaSchemaCache::instance().bool_meta();
+            value::View bool_view(&present, bool_meta);
+            elem_ts.set_value(bool_view);
+
+            Tracker tracker;
+            tracker.key_value = value::Value<>(key);
+            auto [ins_it, _] = trackers_.emplace(key_hash, std::move(tracker));
+            tracker_it = ins_it;
+        }
+
+        tracker_it->second.requesters.insert(requester);
+
+        return dict_view.at(tracker_it->second.key_value.const_view());
+    }
+
+    void release(const value::View& key, void* requester) {
+        if (trackers_.empty()) return;
+
+        const auto* tss_meta = owner_->ts_meta();
+        const auto* elem_type = get_element_type(tss_meta);
+        size_t key_hash = elem_type->ops->hash(key.data(), elem_type);
+
+        auto it = trackers_.find(key_hash);
+        if (it == trackers_.end()) return;
+
+        it->second.requesters.erase(requester);
+        if (it->second.requesters.empty()) {
+            pending_removal_.insert(key_hash);
+        }
+    }
+
+    // Notifiable callback — fired when TSS content changes
+    void notify(engine_time_t time) override {
+        if (trackers_.empty() || !tsd_) return;
+
+        auto output_view = owner_->view(time);
+        auto set_view = output_view.ts_view().as_set();
+        auto dict_view = tsd_->ts_view(time).as_dict();
+        auto* bool_meta = TSMetaSchemaCache::instance().bool_meta();
+
+        for (auto& [hash, tracker] : trackers_) {
+            bool present = set_view.contains(tracker.key_value.const_view());
+            auto elem_view = dict_view.at(tracker.key_value.const_view());
+            if (!elem_view) continue;
+
+            auto val_view = elem_view.value();
+            bool current = val_view.valid() ? val_view.as<bool>() : false;
+
+            if (current != present) {
+                bool new_val = present;
+                value::View new_view(&new_val, bool_meta);
+                elem_view.set_value(new_view);
+            }
+        }
+    }
+};
 
 // ============================================================================
 // AlternativeTimePropagator - copies native container time to alternative
@@ -191,6 +341,53 @@ TSOutput::TSOutput(const TSMeta* ts_meta, node_ptr owner, size_t port_index)
     : native_value_(ts_meta)
     , owning_node_(owner)
     , port_index_(port_index) {
+}
+
+TSOutput::TSOutput(TSOutput&& other) noexcept
+    : native_value_(std::move(other.native_value_))
+    , alternatives_(std::move(other.alternatives_))
+    , structural_observers_(std::move(other.structural_observers_))
+    , time_propagators_(std::move(other.time_propagators_))
+    , forwarded_target_(std::move(other.forwarded_target_))
+    , owning_node_(other.owning_node_)
+    , port_index_(other.port_index_)
+    , contains_tracking_(std::exchange(other.contains_tracking_, nullptr))
+{
+    other.owning_node_ = nullptr;
+    other.port_index_ = 0;
+}
+
+TSOutput& TSOutput::operator=(TSOutput&& other) noexcept {
+    if (this != &other) {
+        delete static_cast<ContainsTracking*>(contains_tracking_);
+        native_value_ = std::move(other.native_value_);
+        alternatives_ = std::move(other.alternatives_);
+        structural_observers_ = std::move(other.structural_observers_);
+        time_propagators_ = std::move(other.time_propagators_);
+        forwarded_target_ = std::move(other.forwarded_target_);
+        owning_node_ = other.owning_node_;
+        port_index_ = other.port_index_;
+        contains_tracking_ = std::exchange(other.contains_tracking_, nullptr);
+        other.owning_node_ = nullptr;
+        other.port_index_ = 0;
+    }
+    return *this;
+}
+
+TSOutput::~TSOutput() {
+    delete static_cast<ContainsTracking*>(contains_tracking_);
+}
+
+TSView TSOutput::get_contains_view(const value::View& key, void* requester, engine_time_t current_time) {
+    if (!contains_tracking_) {
+        contains_tracking_ = new ContainsTracking(this);
+    }
+    return static_cast<ContainsTracking*>(contains_tracking_)->get_view(key, requester, current_time);
+}
+
+void TSOutput::release_contains(const value::View& key, void* requester) {
+    if (!contains_tracking_) return;
+    static_cast<ContainsTracking*>(contains_tracking_)->release(key, requester);
 }
 
 TSOutputView TSOutput::view(engine_time_t current_time) {

@@ -296,11 +296,20 @@ const value::TypeMeta* TSMetaSchemaCache::generate_time_schema_impl(const TSMeta
 
     switch (ts_meta->kind) {
         case TSKind::TSValue:
-        case TSKind::TSS:
         case TSKind::REF:
         case TSKind::SIGNAL:
             // Atomic time-series types: just engine_time_t
             return engine_time_meta_;
+
+        case TSKind::TSS: {
+            // TSS: tuple[engine_time_t, engine_time_t]
+            // Element [0] = set container time, Element [1] = is_empty child time
+            auto& registry = value::TypeRegistry::instance();
+            return registry.tuple()
+                .element(engine_time_meta_)    // [0] set container time
+                .element(engine_time_meta_)    // [1] is_empty time
+                .build();
+        }
 
         case TSKind::TSW: {
             // TSW: tuple[engine_time_t, CyclicBuffer[engine_time_t]] for fixed windows
@@ -403,12 +412,21 @@ const value::TypeMeta* TSMetaSchemaCache::generate_observer_schema_impl(const TS
 
     switch (ts_meta->kind) {
         case TSKind::TSValue:
-        case TSKind::TSS:
         case TSKind::TSW:
         case TSKind::REF:
         case TSKind::SIGNAL:
             // Atomic time-series types: just ObserverList
             return observer_list_meta_;
+
+        case TSKind::TSS: {
+            // TSS: tuple[ObserverList, ObserverList]
+            // Element [0] = set container observers, Element [1] = is_empty child observers
+            auto& registry = value::TypeRegistry::instance();
+            return registry.tuple()
+                .element(observer_list_meta_)    // [0] set container observers
+                .element(observer_list_meta_)    // [1] is_empty observers
+                .build();
+        }
 
         case TSKind::TSD: {
             // TSD[K,V] -> tuple[ObserverList, var_list[observer_schema(V)]]

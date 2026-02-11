@@ -210,18 +210,20 @@ public:
         value::View observer_tuple(view_data_.observer_data, observer_schema);
         void* container_observer_ptr = const_cast<void*>(observer_tuple.as_tuple().at(0).data());
 
-        // Get or create TSMeta for TSS[KeyType]
-        const TSMeta* tss_meta = TSTypeRegistry::instance().tss(meta()->key_type);
+        // Get or create raw TSMeta for TSS[KeyType] (non-tuple format)
+        // We use tss_raw() because key_set's data is borrowed from MapStorage,
+        // not stored in TSS tuple format (tuple(SetStorage, bool)).
+        const TSMeta* tss_meta = TSTypeRegistry::instance().tss_raw(meta()->key_type);
 
-        // Build ViewData for the TSSView
+        // Build ViewData for the TSSView (raw format - no ops since read-only)
         ViewData key_set_vd{
             view_data_.path,              // Same path (key set is part of TSD)
             const_cast<void*>(static_cast<const void*>(set_storage)),  // SetStorage
             container_time_ptr,           // Container time
             container_observer_ptr,       // Container observer
             set_delta,                    // Embedded SetDelta from MapDelta
-            get_ts_ops(TSKind::TSS),      // TSS operations
-            tss_meta                      // TSS[KeyType] metadata
+            nullptr,                      // No ops (read-only view, mutations go through TSD)
+            tss_meta                      // TSS[KeyType] raw metadata
         };
 
         return TSSView(std::move(key_set_vd), current_time_);

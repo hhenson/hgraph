@@ -89,10 +89,26 @@ public:
     /**
      * @brief Create a TSS[T] schema for time-series set.
      *
+     * The value schema is tuple(SetStorage, bool) with the bool tracking is_empty.
+     * Time and observer schemas are also tuples with parallel structure.
+     *
      * @param element_type The TypeMeta for the set element type
      * @return Cached TSMeta pointer
      */
     const TSMeta* tss(const value::TypeMeta* element_type);
+
+    /**
+     * @brief Create a raw TSS[T] schema without the is_empty tuple wrapper.
+     *
+     * This creates a TSMeta with kind=TSS but value_type = raw set schema
+     * (not wrapped in a tuple). Used by TSD key_set() which constructs a
+     * TSSView from pre-existing MapStorage data where the tuple layout
+     * doesn't exist.
+     *
+     * @param element_type The TypeMeta for the set element type
+     * @return Cached TSMeta pointer with raw set value_type
+     */
+    const TSMeta* tss_raw(const value::TypeMeta* element_type);
 
     /**
      * @brief Create a TSD[K, V] schema for time-series dict.
@@ -218,6 +234,9 @@ private:
 
     /// TSS cache: element_type -> TSMeta*
     std::unordered_map<const value::TypeMeta*, const TSMeta*> tss_cache_;
+
+    /// TSS raw cache: element_type -> TSMeta* (non-tuple format for TSD key_set)
+    std::unordered_map<const value::TypeMeta*, const TSMeta*> tss_raw_cache_;
 
     /// TSD cache key: (key_type, value_ts)
     struct TSDKey {

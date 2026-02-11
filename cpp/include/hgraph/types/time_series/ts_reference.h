@@ -70,9 +70,10 @@ public:
      * @brief Reference variant kind.
      */
     enum class Kind : uint8_t {
-        EMPTY = 0,      ///< No reference - unbinds any bound input
-        PEERED = 1,     ///< Direct binding to single output
-        NON_PEERED = 2  ///< Collection of references (not directly peered)
+        EMPTY = 0,        ///< No reference - unbinds any bound input
+        PEERED = 1,       ///< Direct binding to single output
+        NON_PEERED = 2,   ///< Collection of references (not directly peered)
+        PYTHON_BOUND = 3  ///< Python TimeSeriesReference with no ShortPath (feature outputs)
     };
 
     // ========== Construction ==========
@@ -145,6 +146,18 @@ public:
      */
     [[nodiscard]] static TSReference non_peered(std::vector<TSReference> items);
 
+    /**
+     * @brief Create a python-bound reference from a Python TimeSeriesReference.
+     *
+     * Used when a BoundTimeSeriesReference wraps an output that has no
+     * ShortPath (e.g., feature outputs like is_empty_output). The Python
+     * object is stored on the heap and ref-counted.
+     *
+     * @param py_ref The Python TimeSeriesReference object
+     * @return A PYTHON_BOUND reference
+     */
+    [[nodiscard]] static TSReference python_bound(nb::object py_ref);
+
     // ========== Query Methods ==========
 
     /**
@@ -169,13 +182,18 @@ public:
     [[nodiscard]] bool is_non_peered() const noexcept { return kind_ == Kind::NON_PEERED; }
 
     /**
+     * @brief Check if this is a python-bound reference.
+     */
+    [[nodiscard]] bool is_python_bound() const noexcept { return kind_ == Kind::PYTHON_BOUND; }
+
+    /**
      * @brief Check if the reference has an output.
      *
-     * Only PEERED references have a direct output binding.
+     * PEERED and PYTHON_BOUND references have output bindings.
      *
-     * @return true if PEERED, false otherwise
+     * @return true if PEERED or PYTHON_BOUND, false otherwise
      */
-    [[nodiscard]] bool has_output() const noexcept { return is_peered(); }
+    [[nodiscard]] bool has_output() const noexcept { return is_peered() || is_python_bound(); }
 
     /**
      * @brief Get the engine time when this reference was extracted from TSValue.
@@ -230,6 +248,14 @@ public:
      * @throws std::out_of_range if index is out of bounds
      */
     [[nodiscard]] const TSReference& operator[](size_t index) const;
+
+    /**
+     * @brief Get the stored Python object (PYTHON_BOUND only).
+     *
+     * @return Copy of the stored nb::object
+     * @throws std::runtime_error if not PYTHON_BOUND
+     */
+    [[nodiscard]] nb::object python_object() const;
 
     /**
      * @brief Get the number of items (NON_PEERED only).
@@ -320,6 +346,7 @@ private:
         char empty_tag;                     // EMPTY: no data needed
         ShortPath peered_path;              // PEERED: path to output
         std::vector<TSReference> non_peered_items;  // NON_PEERED: collection
+        void* python_ref_ptr;              // PYTHON_BOUND: heap-allocated nb::object*
 
         Storage() noexcept : empty_tag{} {}
         ~Storage() {}  // Destructor handled by TSReference
@@ -420,6 +447,8 @@ struct FQReference {
                     if (!item.is_empty()) return true;
                 }
                 return false;
+            case Kind::PYTHON_BOUND:
+                return false;  // FQReference doesn't support PYTHON_BOUND
         }
         return false;
     }
@@ -437,6 +466,8 @@ struct FQReference {
                        indices == other.indices;
             case Kind::NON_PEERED:
                 return items == other.items;
+            case Kind::PYTHON_BOUND:
+                return false;  // FQReference doesn't support PYTHON_BOUND
         }
         return false;
     }

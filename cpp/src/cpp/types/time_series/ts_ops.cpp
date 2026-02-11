@@ -27,6 +27,13 @@
 #include <stdexcept>
 #include <unordered_map>
 
+// Forward declarations to avoid including py_time_series.h / py_tss.h / py_ref.h
+// (including those headers in this translation unit changes nanobind type resolution
+// behavior and causes regressions in error_handling tests)
+namespace hgraph {
+    std::optional<ViewData> resolve_python_bound_reference(const TSReference* ts_ref, engine_time_t current_time);
+}
+
 namespace hgraph {
 
 // ============================================================================
@@ -387,9 +394,9 @@ struct REFBindingHelper : public Notifiable {
         if (!ts_ref) {
             return;
         }
-        if (ts_ref->is_empty() || !ts_ref->is_peered()) {
+        if (ts_ref->is_empty()) {
             if (!is_ref_to_ref_) {
-                // TS→REF: Empty or non-peered ref: store REF source data in LinkTarget
+                // Store REF source data so valid()/modified() can check
                 owner->is_linked = true;
                 owner->target_path = ref_source.path;
                 owner->value_data = ref_source.value_data;
@@ -400,14 +407,37 @@ struct REFBindingHelper : public Notifiable {
                 owner->ops = ref_source.ops;
                 owner->meta = ref_source.meta;
             }
-            // REF→REF: LinkTarget already has REF source data, nothing to do
             return;
         }
 
         TSView resolved;
-        try {
-            resolved = ts_ref->resolve(current_time);
-        } catch (const std::exception&) {
+
+        if (ts_ref->is_peered()) {
+            try {
+                resolved = ts_ref->resolve(current_time);
+            } catch (const std::exception&) {
+                return;
+            }
+        } else if (ts_ref->is_python_bound()) {
+            // PYTHON_BOUND: extract ViewData from the stored Python object.
+            // Implemented in py_ref.cpp to avoid including py_time_series.h here.
+            auto vd = resolve_python_bound_reference(ts_ref, current_time);
+            if (vd) {
+                resolved = TSView(*vd, current_time);
+            }
+        } else {
+            // NON_PEERED: store REF source data
+            if (!is_ref_to_ref_) {
+                owner->is_linked = true;
+                owner->target_path = ref_source.path;
+                owner->value_data = ref_source.value_data;
+                owner->time_data = ref_source.time_data;
+                owner->observer_data = nullptr;
+                owner->delta_data = ref_source.delta_data;
+                owner->link_data = nullptr;
+                owner->ops = ref_source.ops;
+                owner->meta = ref_source.meta;
+            }
             return;
         }
         if (!resolved) return;
@@ -732,6 +762,26 @@ void bind(ViewData& vd, const ViewData& target) {
         // Non-REF target: store directly and subscribe
         store_to_link_target(*lt, target);
 
+        // For TS→REF binding (REF input binding to non-REF output):
+        // The reference is fixed at bind time - do NOT subscribe to the target's observer list.
+        // Python equivalent: PythonTimeSeriesReferenceInput.do_bind_output sets _output=None
+        // (no subscription) and _value=TimeSeriesReference.make(output) (fixed reference).
+        if (vd.meta && vd.meta->kind == TSKind::REF) {
+            // Mark the REF input's modification time so it ticks at the first evaluation
+            if (vd.time_data) {
+                *static_cast<engine_time_t*>(vd.time_data) = MIN_ST;
+            } else if (lt->owner_time_ptr) {
+                *lt->owner_time_ptr = MIN_ST;
+            }
+            // Point the LinkTarget's time_data to the owner's time, not the target's.
+            // This ensures valid()/modified() checks via delegation see the REF input's
+            // own modification state (set to MIN_ST above), not the target output's.
+            // Without this, the node wouldn't evaluate at the initial tick because
+            // delegation would check the target's time (which may not be modified yet).
+            lt->time_data = lt->owner_time_ptr ? lt->owner_time_ptr : vd.time_data;
+            return;  // Skip subscribing to target's observer list
+        }
+
         // Subscribe for time-accounting (always, regardless of active state)
         if (lt->observer_data) {
             auto* obs = static_cast<ObserverList*>(lt->observer_data);
@@ -827,11 +877,22 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
         void* observer_data = nullptr;
         const LinkTarget* bound_lt = nullptr;
         LinkTarget* mutable_lt = nullptr;
+        bool is_ts_to_ref = false;
 
         if (vd.uses_link_target) {
             // TSInput: Get observer from LinkTarget
             auto* lt = get_link_target(vd.link_data);
-            if (lt && lt->is_linked) {
+
+            // Detect TS→REF binding: REF input bound to non-REF target.
+            // In this case, the reference is fixed and we should NOT subscribe
+            // to the target's observer list (matches Python behavior).
+            is_ts_to_ref = (vd.meta && vd.meta->kind == TSKind::REF &&
+                            lt && lt->is_linked && lt->meta && lt->meta->kind != TSKind::REF);
+
+            if (is_ts_to_ref) {
+                // TS→REF: Only need mutable_lt for owning_input cleanup
+                mutable_lt = lt;
+            } else if (lt && lt->is_linked) {
                 observer_data = lt->observer_data;
                 bound_lt = lt;
                 mutable_lt = lt;
@@ -858,7 +919,8 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                     mutable_lt->active_notifier.owning_input = input;
                 }
                 // Subscribe to observer list if available (linked to target)
-                if (observer_data) {
+                // Skip for TS→REF: the reference doesn't change.
+                if (observer_data && !is_ts_to_ref) {
                     auto* observers = static_cast<ObserverList*>(observer_data);
                     observers->add_observer(&mutable_lt->active_notifier);
                 }
@@ -868,10 +930,16 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                 observers->add_observer(input);
             }
 
-            // Initial notification: match Python make_active() behavior.
-            // After subscribing, if the output is already valid AND modified,
-            // fire notify to schedule the owning node for evaluation.
-            if (input && bound_lt && bound_lt->ops) {
+            if (is_ts_to_ref && input) {
+                // TS→REF: The reference is valid from bind time.
+                // Fire initial notification at MIN_ST so the node evaluates at the first tick.
+                // Python equivalent: PythonTimeSeriesReferenceInput.make_active() always
+                // notifies at evaluation_time when valid (and TS→REF is always valid).
+                input->notify(MIN_ST);
+            } else if (input && bound_lt && bound_lt->ops) {
+                // Initial notification: match Python make_active() behavior.
+                // After subscribing, if the output is already valid AND modified,
+                // fire notify to schedule the owning node for evaluation.
                 ViewData output_vd = make_view_data_from_link_target(*bound_lt, vd.path);
                 if (bound_lt->ops->valid(output_vd)) {
                     auto* node = input->owning_node();
@@ -2041,10 +2109,27 @@ void bind(ViewData& vd, const ViewData& target) {
                         }
                         lt->parent_link = container_lt;
 
-                        // Subscribe for time-accounting (always, regardless of active state)
-                        if (lt->observer_data) {
-                            auto* obs = static_cast<ObserverList*>(lt->observer_data);
-                            obs->add_observer(lt);
+                        // Check for TS→REF binding: REF input field bound to non-REF target.
+                        // The reference is fixed at bind time — do NOT subscribe to the target.
+                        // Python equivalent: do_bind_output sets _output=None (no subscription).
+                        bool is_ts_to_ref = (field_meta->kind == TSKind::REF &&
+                                             target_vd.meta && target_vd.meta->kind != TSKind::REF);
+
+                        if (is_ts_to_ref) {
+                            // Mark the field as valid (MIN_ST) so validity check passes.
+                            if (time_tuple) {
+                                auto* field_time = static_cast<engine_time_t*>(time_tuple.at(i + 1).data());
+                                *field_time = MIN_ST;
+                            }
+                            // Point time_data to owner's time for delegation
+                            lt->time_data = lt->owner_time_ptr;
+                            // Do NOT subscribe — the reference is fixed.
+                        } else {
+                            // Subscribe for time-accounting (always, regardless of active state)
+                            if (lt->observer_data) {
+                                auto* obs = static_cast<ObserverList*>(lt->observer_data);
+                                obs->add_observer(lt);
+                            }
                         }
                     }
                 }
@@ -2240,7 +2325,25 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
             if (vd.uses_link_target) {
                 // TSInput: Use ActiveNotifier for node-scheduling
                 auto* lt = static_cast<LinkTarget*>(link_tuple.at(i + 1).data());
-                if (lt && lt->is_linked && lt->observer_data) {
+
+                // Detect TS→REF binding: REF field bound to non-REF target.
+                // The reference is fixed - do NOT subscribe to the target's observer list.
+                bool field_is_ts_to_ref = (field_ts->kind == TSKind::REF &&
+                                           lt && lt->is_linked && lt->meta &&
+                                           lt->meta->kind != TSKind::REF);
+
+                if (field_is_ts_to_ref) {
+                    // TS→REF: Set owning_input for cleanup but DON'T subscribe
+                    if (active) {
+                        lt->active_notifier.owning_input = input;
+                        // Fire initial notification - the REF is valid from bind time
+                        if (input) {
+                            input->notify(MIN_ST);
+                        }
+                    } else {
+                        lt->active_notifier.owning_input = nullptr;
+                    }
+                } else if (lt && lt->is_linked && lt->observer_data) {
                     auto* observers = static_cast<ObserverList*>(lt->observer_data);
                     if (active) {
                         if (lt->active_notifier.owning_input == nullptr) {
@@ -3363,16 +3466,84 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
 
 namespace set_ops {
 
-// For TSS types:
-// - value is set type
-// - time is engine_time_t
-// - observer is ObserverList
-// - delta is SetDelta
+// For TSS types (with nested is_empty TS[bool]):
+// - value is tuple[SetStorage, bool(is_empty)]
+// - time is tuple[engine_time_t, engine_time_t]
+// - observer is tuple[ObserverList, ObserverList]
+// - delta is SetDelta (unchanged, flat)
+// Element [0] = set container data, Element [1] = is_empty child data
+
+// ========== Tuple Navigation Helpers ==========
+
+// Get the container time (element [0] of the time tuple)
+inline engine_time_t* get_container_time(const ViewData& vd) {
+    auto time_view = make_time_view(vd);
+    if (!time_view.valid()) return nullptr;
+    return &time_view.as_tuple().at(0).as<engine_time_t>();
+}
+
+// Get the container observers (element [0] of the observer tuple)
+inline ObserverList* get_container_observers(const ViewData& vd) {
+    auto observer_view = make_observer_view(vd);
+    if (!observer_view.valid()) return nullptr;
+    return static_cast<ObserverList*>(observer_view.as_tuple().at(0).data());
+}
+
+// Get the SetStorage (element [0] of the value tuple)
+inline value::SetStorage* get_set_storage(const ViewData& vd) {
+    auto value_view = make_value_view(vd);
+    if (!value_view.valid()) return nullptr;
+    return static_cast<value::SetStorage*>(value_view.as_tuple().at(0).data());
+}
+
+// Get the set value::View (element [0] of the value tuple)
+inline value::View get_set_value_view(const ViewData& vd) {
+    auto value_view = make_value_view(vd);
+    if (!value_view.valid()) return value::View{};
+    return value_view.as_tuple().at(0);
+}
+
+// Get the set element TypeMeta from the tuple value schema
+// tuple->fields[0].type is the SetStorage TypeMeta, its element_type is the element
+inline const value::TypeMeta* get_set_element_type(const ViewData& vd) {
+    if (!vd.meta || !vd.meta->value_type || !vd.meta->value_type->fields) return nullptr;
+    const value::TypeMeta* set_type = vd.meta->value_type->fields[0].type;
+    return set_type ? set_type->element_type : nullptr;
+}
+
+// Update the nested is_empty TS[bool] child after set mutations.
+// Compares current emptiness against stored is_empty value and only
+// notifies observers if the value actually changed.
+inline void update_is_empty(const ViewData& vd, engine_time_t current_time) {
+    auto* set_storage = get_set_storage(vd);
+    if (!set_storage) return;
+
+    bool new_is_empty = (set_storage->size() == 0);
+
+    // Navigate to is_empty child data (element [1] in each tuple)
+    auto value_view = make_value_view(vd);
+    bool* is_empty_ptr = static_cast<bool*>(value_view.as_tuple().at(1).data());
+
+    if (*is_empty_ptr != new_is_empty) {
+        *is_empty_ptr = new_is_empty;
+
+        auto time_view = make_time_view(vd);
+        auto* is_empty_time = &time_view.as_tuple().at(1).as<engine_time_t>();
+        *is_empty_time = current_time;
+
+        auto observer_view = make_observer_view(vd);
+        auto* is_empty_obs = static_cast<ObserverList*>(observer_view.as_tuple().at(1).data());
+        is_empty_obs->notify_modified(current_time);
+    }
+}
+
+// ========== Standard ts_ops Functions ==========
 
 engine_time_t last_modified_time(const ViewData& vd) {
     if (auto target = resolve_delegation_target(vd)) return target->ops->last_modified_time(*target);
-    if (!vd.time_data) return MIN_DT;
-    return *static_cast<engine_time_t*>(vd.time_data);
+    auto* t = get_container_time(vd);
+    if (!t) return MIN_DT;
+    return *t;
 }
 
 bool modified(const ViewData& vd, engine_time_t current_time) {
@@ -3396,7 +3567,8 @@ bool sampled(const ViewData& vd) {
 
 value::View value(const ViewData& vd) {
     if (auto target = resolve_delegation_target(vd)) return target->ops->value(*target);
-    return make_value_view(vd);
+    // Return the set portion (element [0] of the value tuple)
+    return get_set_value_view(vd);
 }
 
 value::View delta_value(const ViewData& vd) {
@@ -3414,15 +3586,17 @@ void set_value(ViewData& vd, const value::View& src, engine_time_t current_time)
         throw std::runtime_error("set_value on invalid ViewData");
     }
 
-    auto dst = make_value_view(vd);
+    // Copy to the set portion (element [0] of value tuple)
+    auto dst = get_set_value_view(vd);
     dst.copy_from(src);
 
-    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+    auto* t = get_container_time(vd);
+    if (t) *t = current_time;
 
-    if (vd.observer_data) {
-        auto* observers = static_cast<ObserverList*>(vd.observer_data);
-        observers->notify_modified(current_time);
-    }
+    auto* obs = get_container_observers(vd);
+    if (obs) obs->notify_modified(current_time);
+
+    update_is_empty(vd, current_time);
 }
 
 void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_time) {
@@ -3434,20 +3608,16 @@ void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_t
         return;  // Nothing to apply
     }
 
-    auto dst = make_value_view(vd);
-    if (!dst.valid()) {
+    auto set_v = get_set_value_view(vd);
+    if (!set_v.valid()) {
         throw std::runtime_error("apply_delta: TSS has no valid storage");
     }
 
-    auto set_view = dst.as_set();
+    auto set_view = set_v.as_set();
 
-    // The delta should be a bundle-like structure with 'added' and 'removed' fields
-    // For C++ SetDeltaStorage, it has added/removed collections
-    // For Python, it's typically a dict/object with 'added' and 'removed' attributes
     if (delta.is_bundle()) {
         auto delta_bundle = delta.as_bundle();
 
-        // Process removals first (to avoid removing newly added elements)
         if (delta_bundle.has_field("removed")) {
             auto removed_view = delta_bundle.at("removed");
             if (removed_view.is_set()) {
@@ -3457,7 +3627,6 @@ void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_t
             }
         }
 
-        // Process additions
         if (delta_bundle.has_field("added")) {
             auto added_view = delta_bundle.at("added");
             if (added_view.is_set()) {
@@ -3467,8 +3636,6 @@ void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_t
             }
         }
     } else if (delta.is_set()) {
-        // If delta is just a set, treat it as "set all" (replace operation)
-        // This is a fallback for simple cases
         set_view.clear();
         for (auto elem : delta.as_set()) {
             set_view.add(elem);
@@ -3477,26 +3644,25 @@ void apply_delta(ViewData& vd, const value::View& delta, engine_time_t current_t
         throw std::runtime_error("apply_delta for TSS: delta must be a bundle with 'added'/'removed' fields or a set");
     }
 
-    // Update modification time
-    *static_cast<engine_time_t*>(vd.time_data) = current_time;
+    auto* t = get_container_time(vd);
+    if (t) *t = current_time;
 
-    // Notify observers
-    if (vd.observer_data) {
-        auto* observers = static_cast<ObserverList*>(vd.observer_data);
-        observers->notify_modified(current_time);
-    }
+    auto* obs = get_container_observers(vd);
+    if (obs) obs->notify_modified(current_time);
+
+    update_is_empty(vd, current_time);
 }
 
 void invalidate(ViewData& vd) {
-    if (vd.time_data) {
-        *static_cast<engine_time_t*>(vd.time_data) = MIN_DT;
-    }
+    auto* t = get_container_time(vd);
+    if (t) *t = MIN_DT;
 }
 
 nb::object to_python(const ViewData& vd) {
     if (auto target = resolve_delegation_target(vd)) return target->ops->to_python(*target);
     if (!valid(vd)) return nb::none();
-    auto v = make_value_view(vd);
+    // Convert just the set (element [0]), not the whole tuple
+    auto v = get_set_value_view(vd);
     if (!v.valid()) return nb::none();
     return v.to_python();
 }
@@ -3531,7 +3697,7 @@ nb::object delta_to_python(const ViewData& vd) {
     auto* set_delta = vd.delta_data ? static_cast<SetDelta*>(vd.delta_data) : nullptr;
     if (!set_delta || set_delta->empty()) return nb::none();
 
-    auto* set_storage = static_cast<value::SetStorage*>(vd.value_data);
+    auto* set_storage = get_set_storage(vd);
     if (!set_storage) return nb::none();
     const auto* elem_type = set_storage->element_type();
     if (!elem_type || !elem_type->ops) return nb::none();
@@ -3567,7 +3733,7 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
         throw std::runtime_error("from_python on invalid ViewData");
     }
 
-    auto* set_storage = static_cast<value::SetStorage*>(vd.value_data);
+    auto* set_storage = get_set_storage(vd);
     auto* set_delta = vd.delta_data ? static_cast<SetDelta*>(vd.delta_data) : nullptr;
     const auto* elem_type = set_storage->element_type();
     if (!elem_type || !elem_type->ops) {
@@ -3575,7 +3741,8 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
     }
 
     // Check if output was already modified this tick (by direct add/remove calls)
-    bool already_modified_this_tick = (*static_cast<engine_time_t*>(vd.time_data) == current_time);
+    auto* container_time = get_container_time(vd);
+    bool already_modified_this_tick = container_time && (*container_time == current_time);
 
     // If source is an empty SetDelta and output was already modified this tick,
     // skip entirely to preserve the delta from direct add/remove calls.
@@ -3733,7 +3900,7 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
     }
 
     // Match Python _post_modify(): mark modified if any change OR if not yet valid
-    bool was_valid = *static_cast<engine_time_t*>(vd.time_data) != MIN_DT;
+    bool was_valid = container_time && (*container_time != MIN_DT);
     bool should_mark = any_change || !was_valid;
 
     // Cache the Python delta for delta_to_python
@@ -3745,11 +3912,13 @@ void from_python(ViewData& vd, const nb::object& src, engine_time_t current_time
     }
 
     if (should_mark) {
-        *static_cast<engine_time_t*>(vd.time_data) = current_time;
-        if (vd.observer_data) {
-            auto* observers = static_cast<ObserverList*>(vd.observer_data);
-            observers->notify_modified(current_time);
-        }
+        if (container_time) *container_time = current_time;
+
+        auto* obs = get_container_observers(vd);
+        if (obs) obs->notify_modified(current_time);
+
+        // Update nested is_empty TS[bool] child
+        update_is_empty(vd, current_time);
     }
 }
 
@@ -3774,9 +3943,9 @@ size_t child_count(const ViewData& vd) {
     if (auto* rl = get_active_link(vd)) {
         return rl->target().ops->child_count(make_view_data_from_link(*rl, vd.path));
     }
-    auto value_view = make_value_view(vd);
-    if (!value_view.valid()) return 0;
-    return value_view.as_set().size();
+    auto* storage = get_set_storage(vd);
+    if (!storage) return 0;
+    return storage->size();
 }
 
 value::View observer(const ViewData& vd) {
@@ -3784,10 +3953,8 @@ value::View observer(const ViewData& vd) {
 }
 
 void notify_observers(ViewData& vd, engine_time_t current_time) {
-    if (vd.observer_data) {
-        auto* observers = static_cast<ObserverList*>(vd.observer_data);
-        observers->notify_modified(current_time);
-    }
+    auto* obs = get_container_observers(vd);
+    if (obs) obs->notify_modified(current_time);
 }
 
 void bind(ViewData& vd, const ViewData& target) {
@@ -3802,9 +3969,10 @@ void bind(ViewData& vd, const ViewData& target) {
             throw std::runtime_error("bind on TSS input with invalid link data");
         }
 
-        // Set time-accounting chain
-        if (vd.time_data) {
-            lt->owner_time_ptr = static_cast<engine_time_t*>(vd.time_data);
+        // Set time-accounting chain (use container time = element [0] of time tuple)
+        auto* t = get_container_time(vd);
+        if (t) {
+            lt->owner_time_ptr = t;
         }
 
         // Check if target is REF - need REFBindingHelper
@@ -3912,7 +4080,7 @@ bool set_add(ViewData& vd, const value::View& elem, engine_time_t current_time) 
         throw std::runtime_error("set_add on invalid ViewData");
     }
 
-    auto* storage = static_cast<value::SetStorage*>(vd.value_data);
+    auto* storage = get_set_storage(vd);
     const auto* elem_type = storage->element_type();
 
     // Clear stale cached delta at start of new tick
@@ -3933,12 +4101,10 @@ bool set_add(ViewData& vd, const value::View& elem, engine_time_t current_time) 
         if (vd.delta_data) {
             auto it = cached_py_deltas_.find(vd.delta_data);
             if (it != cached_py_deltas_.end()) {
-                // Update existing delta — build mutable sets from frozenset/set attrs
                 nb::object added_attr = nb::borrow(it->second.attr("added"));
                 nb::object removed_attr = nb::borrow(it->second.attr("removed"));
                 nb::set existing_added = nb::steal<nb::set>(PySet_New(added_attr.ptr()));
                 nb::set existing_removed = nb::steal<nb::set>(PySet_New(removed_attr.ptr()));
-                // If element was in removed (being re-added), cancel the removal
                 if (existing_removed.contains(py_elem)) {
                     existing_removed.discard(py_elem);
                 } else {
@@ -3948,7 +4114,6 @@ bool set_add(ViewData& vd, const value::View& elem, engine_time_t current_time) 
                 it->second = tss_mod.attr("PythonSetDelta")(
                     nb::frozenset(existing_added), nb::frozenset(existing_removed));
             } else {
-                // Create new delta
                 nb::set py_added;
                 py_added.add(py_elem);
                 nb::module_ tss_mod = nb::module_::import_("hgraph._impl._types._tss");
@@ -3957,11 +4122,13 @@ bool set_add(ViewData& vd, const value::View& elem, engine_time_t current_time) 
             }
         }
 
-        *static_cast<engine_time_t*>(vd.time_data) = current_time;
-        if (vd.observer_data) {
-            auto* observers = static_cast<ObserverList*>(vd.observer_data);
-            observers->notify_modified(current_time);
-        }
+        auto* t = get_container_time(vd);
+        if (t) *t = current_time;
+
+        auto* obs = get_container_observers(vd);
+        if (obs) obs->notify_modified(current_time);
+
+        update_is_empty(vd, current_time);
     }
 
     return added;
@@ -3972,7 +4139,7 @@ bool set_remove(ViewData& vd, const value::View& elem, engine_time_t current_tim
         throw std::runtime_error("set_remove on invalid ViewData");
     }
 
-    auto* storage = static_cast<value::SetStorage*>(vd.value_data);
+    auto* storage = get_set_storage(vd);
     const auto* elem_type = storage->element_type();
 
     // Clear stale cached delta at start of new tick
@@ -3993,12 +4160,10 @@ bool set_remove(ViewData& vd, const value::View& elem, engine_time_t current_tim
         if (vd.delta_data) {
             auto it = cached_py_deltas_.find(vd.delta_data);
             if (it != cached_py_deltas_.end()) {
-                // Build mutable sets from frozenset/set attrs
                 nb::object added_attr = nb::borrow(it->second.attr("added"));
                 nb::object removed_attr = nb::borrow(it->second.attr("removed"));
                 nb::set existing_added = nb::steal<nb::set>(PySet_New(added_attr.ptr()));
                 nb::set existing_removed = nb::steal<nb::set>(PySet_New(removed_attr.ptr()));
-                // If element was in added (added then removed same tick), cancel
                 if (existing_added.contains(py_elem)) {
                     existing_added.discard(py_elem);
                 } else {
@@ -4016,11 +4181,13 @@ bool set_remove(ViewData& vd, const value::View& elem, engine_time_t current_tim
             }
         }
 
-        *static_cast<engine_time_t*>(vd.time_data) = current_time;
-        if (vd.observer_data) {
-            auto* observers = static_cast<ObserverList*>(vd.observer_data);
-            observers->notify_modified(current_time);
-        }
+        auto* t = get_container_time(vd);
+        if (t) *t = current_time;
+
+        auto* obs = get_container_observers(vd);
+        if (obs) obs->notify_modified(current_time);
+
+        update_is_empty(vd, current_time);
     }
 
     return removed;
@@ -4031,21 +4198,19 @@ void set_clear(ViewData& vd, engine_time_t current_time) {
         throw std::runtime_error("set_clear on invalid ViewData");
     }
 
-    // Get the SetStorage
-    auto* storage = static_cast<value::SetStorage*>(vd.value_data);
+    auto* storage = get_set_storage(vd);
+    if (!storage) return;
 
     if (!storage->empty()) {
-        // Clear all elements (SetDelta is notified via SlotObserver if registered)
         storage->clear();
 
-        // Update timestamp
-        *static_cast<engine_time_t*>(vd.time_data) = current_time;
+        auto* t = get_container_time(vd);
+        if (t) *t = current_time;
 
-        // Notify observers
-        if (vd.observer_data) {
-            auto* observers = static_cast<ObserverList*>(vd.observer_data);
-            observers->notify_modified(current_time);
-        }
+        auto* obs = get_container_observers(vd);
+        if (obs) obs->notify_modified(current_time);
+
+        update_is_empty(vd, current_time);
     }
 }
 

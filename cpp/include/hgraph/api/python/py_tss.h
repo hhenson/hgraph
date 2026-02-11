@@ -6,22 +6,20 @@ namespace hgraph
 {
     struct PyTimeSeriesSetOutput: PyTimeSeriesOutput
     {
-        // View-based constructor
         explicit PyTimeSeriesSetOutput(TSOutputView view) : PyTimeSeriesOutput(std::move(view)) {}
 
-        // Move constructor
         PyTimeSeriesSetOutput(PyTimeSeriesSetOutput&& other) noexcept
-            : PyTimeSeriesOutput(std::move(other)) {}
+            : PyTimeSeriesOutput(std::move(other)),
+              is_empty_cache_(std::move(other.is_empty_cache_)) {}
 
-        // Move assignment
         PyTimeSeriesSetOutput& operator=(PyTimeSeriesSetOutput&& other) noexcept {
             if (this != &other) {
                 PyTimeSeriesOutput::operator=(std::move(other));
+                is_empty_cache_ = std::move(other.is_empty_cache_);
             }
             return *this;
         }
 
-        // Delete copy
         PyTimeSeriesSetOutput(const PyTimeSeriesSetOutput&) = delete;
         PyTimeSeriesSetOutput& operator=(const PyTimeSeriesSetOutput&) = delete;
 
@@ -36,23 +34,23 @@ namespace hgraph
         [[nodiscard]] nb::bool_ was_removed(const nb::object &item) const;
         void add(const nb::object &key) const;
         void remove(const nb::object &key) const;
-        [[nodiscard]] nb::object get_contains_output(const nb::object &item, const nb::object &requester) const;
-        void release_contains_output(const nb::object &item, const nb::object &requester) const;
         [[nodiscard]] nb::object is_empty_output() const;
+        [[nodiscard]] nb::object get_contains_output(const nb::object& key, const nb::object& requester) const;
+        void release_contains_output(const nb::object& key, const nb::object& requester) const;
         [[nodiscard]] nb::str py_str() const;
         [[nodiscard]] nb::str py_repr() const;
+
+    private:
+        mutable nb::object is_empty_cache_{};
     };
 
     struct PyTimeSeriesSetInput: PyTimeSeriesInput
     {
-        // View-based constructor
         explicit PyTimeSeriesSetInput(TSInputView view) : PyTimeSeriesInput(std::move(view)) {}
 
-        // Move constructor
         PyTimeSeriesSetInput(PyTimeSeriesSetInput&& other) noexcept
             : PyTimeSeriesInput(std::move(other)) {}
 
-        // Move assignment
         PyTimeSeriesSetInput& operator=(PyTimeSeriesSetInput&& other) noexcept {
             if (this != &other) {
                 PyTimeSeriesInput::operator=(std::move(other));
@@ -60,7 +58,6 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy
         PyTimeSeriesSetInput(const PyTimeSeriesSetInput&) = delete;
         PyTimeSeriesSetInput& operator=(const PyTimeSeriesSetInput&) = delete;
 

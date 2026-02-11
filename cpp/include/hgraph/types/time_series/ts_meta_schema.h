@@ -17,13 +17,15 @@
  * Schema Generation Rules:
  *
  * time_schema:
- *   TS[T], TSS, SIGNAL, TSW, REF -> engine_time_t
+ *   TS[T], SIGNAL, TSW, REF -> engine_time_t
+ *   TSS[T]   -> tuple[engine_time_t, engine_time_t]  (container + is_empty child)
  *   TSD[K,V] -> tuple[engine_time_t, var_list[time_schema(V)]]
  *   TSB[...] -> tuple[engine_time_t, fixed_list[time_schema(field_i) for each field]]
  *   TSL[T]   -> tuple[engine_time_t, fixed_list[time_schema(element) x size]]
  *
  * observer_schema:
- *   TS[T], TSS, SIGNAL, TSW, REF -> ObserverList
+ *   TS[T], SIGNAL, TSW, REF -> ObserverList
+ *   TSS[T]   -> tuple[ObserverList, ObserverList]  (container + is_empty child)
  *   TSD[K,V] -> tuple[ObserverList, var_list[observer_schema(V)]]
  *   TSB[...] -> tuple[ObserverList, fixed_list[observer_schema(field_i) for each field]]
  *   TSL[T]   -> tuple[ObserverList, fixed_list[observer_schema(element) x size]]

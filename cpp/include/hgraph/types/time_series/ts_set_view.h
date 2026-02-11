@@ -6,6 +6,14 @@
  *
  * TSSView provides set operations with delta tracking.
  * Access elements via values() to iterate, check membership via contains().
+ *
+ * TSS value layout is tuple(SetStorage, bool) where:
+ *   - Element [0] = the set container (SetStorage)
+ *   - Element [1] = nested is_empty TS[bool] value
+ *
+ * TSSView also supports a "raw" format (used by TSD key_set) where
+ * value_data points to a raw SetStorage (not wrapped in a tuple).
+ * The format is auto-detected from meta()->value_type->kind.
  */
 
 #include <hgraph/types/time_series/observer_list.h>
@@ -13,21 +21,34 @@
 #include <hgraph/types/time_series/slot_set.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/ts_meta_schema.h>
+#include <hgraph/types/time_series/ts_ops.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
 #include <hgraph/types/time_series/ts_view_range.h>
 #include <hgraph/types/time_series/view_data.h>
 #include <hgraph/types/notifiable.h>
 #include <hgraph/types/value/indexed_view.h>
 #include <hgraph/types/value/set_storage.h>
+#include <hgraph/types/value/type_meta.h>
 #include <hgraph/types/value/value_view.h>
 #include <hgraph/util/date_time.h>
 
 namespace hgraph {
+
+// Forward declaration - TSView is defined before this header is included
+// (ts_view.h includes ts_set_view.h after defining TSView)
+class TSView;
 
 /**
  * @brief View for time-series set (TSS) types.
  *
  * TSSView provides set membership queries and delta tracking for
  * elements added/removed this tick.
+ *
+ * Supports two data formats:
+ * - **Tuple format** (from TSTypeRegistry::tss()): value_data is tuple(SetStorage, bool),
+ *   time/observer are also tuples with parallel structure for the is_empty child.
+ * - **Raw format** (from TSTypeRegistry::tss_raw()): value_data is raw SetStorage,
+ *   time/observer are raw scalars. Used by TSD key_set() embedding.
  *
  * Usage:
  * @code
@@ -46,9 +67,8 @@ namespace hgraph {
  * for (auto val : set.added()) { ... }
  * for (auto val : set.removed()) { ... }
  *
- * // Check specific element changes
- * if (set.was_added(elem)) { ... }
- * if (set.was_removed(elem)) { ... }
+ * // Access nested is_empty TS[bool] child (tuple format only)
+ * TSView is_empty = set.is_empty_ts();
  * @endcode
  */
 class TSSView {
@@ -94,14 +114,14 @@ public:
      * @return true if element is present
      */
     [[nodiscard]] bool contains(const value::View& elem) const {
-        return value_view().as_set().contains(elem);
+        return set_value_view().as_set().contains(elem);
     }
 
     /**
      * @brief Get the set size.
      */
     [[nodiscard]] size_t size() const {
-        return value_view().as_set().size();
+        return set_value_view().as_set().size();
     }
 
     // ========== Value Iteration ==========
@@ -119,7 +139,7 @@ public:
      * @return SetView for iteration
      */
     [[nodiscard]] value::SetView values() const {
-        return value_view().as_set();
+        return set_value_view().as_set();
     }
 
     // ========== Delta Access ==========
@@ -169,18 +189,15 @@ public:
      * @return true if element was added
      */
     [[nodiscard]] bool was_added(const value::View& elem) const {
-        // Get the SetStorage
-        auto* storage = static_cast<const value::SetStorage*>(view_data_.value_data);
+        auto* storage = set_storage_ptr();
         if (!storage) return false;
 
         // Find the slot for this element
         size_t slot = storage->key_set().find(elem.data());
         if (slot == static_cast<size_t>(-1)) {
-            // Element not in set, so it wasn't added
             return false;
         }
 
-        // O(1) lookup using set
         return delta()->was_slot_added(slot);
     }
 
@@ -201,36 +218,18 @@ public:
     /**
      * @brief Iterate over elements added this tick.
      *
-     * Returns a range yielding value::View for each element added.
-     *
-     * @code
-     * for (auto elem : set_view.added()) {
-     *     std::cout << elem.as<int64_t>() << " was added\n";
-     * }
-     * @endcode
-     *
      * @return SlotElementRange yielding value::View for each added element
      */
     [[nodiscard]] SlotElementRange added() const {
         if (!view_data_.valid() || !delta()) {
             return SlotElementRange{};
         }
-        auto* storage = static_cast<const value::SetStorage*>(view_data_.value_data);
+        auto* storage = set_storage_ptr();
         return SlotElementRange(storage, element_type(), &delta()->added());
     }
 
     /**
      * @brief Iterate over elements removed this tick.
-     *
-     * Returns a range yielding value::View for each element removed.
-     * The removed elements remain accessible in storage during the current tick
-     * (they are placed on a free list that is only used in the next engine cycle).
-     *
-     * @code
-     * for (auto elem : set_view.removed()) {
-     *     std::cout << elem.as<int64_t>() << " was removed\n";
-     * }
-     * @endcode
      *
      * @return SlotElementRange yielding value::View for each removed element
      */
@@ -238,7 +237,7 @@ public:
         if (!view_data_.valid() || !delta()) {
             return SlotElementRange{};
         }
-        auto* storage = static_cast<const value::SetStorage*>(view_data_.value_data);
+        auto* storage = set_storage_ptr();
         return SlotElementRange(storage, element_type(), &delta()->removed());
     }
 
@@ -248,7 +247,7 @@ public:
      * @brief Get the last modification time.
      */
     [[nodiscard]] engine_time_t last_modified_time() const {
-        return time_view().as<engine_time_t>();
+        return container_time_view().as<engine_time_t>();
     }
 
     /**
@@ -270,8 +269,6 @@ public:
     /**
      * @brief Add an element to the set.
      *
-     * Updates timestamp and notifies observers if element was added.
-     *
      * @param elem The element to add
      * @return true if element was added (not already present)
      */
@@ -285,8 +282,6 @@ public:
     /**
      * @brief Remove an element from the set.
      *
-     * Updates timestamp and notifies observers if element was removed.
-     *
      * @param elem The element to remove
      * @return true if element was removed (was present)
      */
@@ -299,8 +294,6 @@ public:
 
     /**
      * @brief Clear all elements from the set.
-     *
-     * Updates timestamp and notifies observers if set was non-empty.
      */
     void clear() {
         if (!view_data_.ops || !view_data_.ops->set_clear) {
@@ -309,28 +302,114 @@ public:
         view_data_.ops->set_clear(const_cast<ViewData&>(view_data_), current_time_);
     }
 
+    // ========== is_empty Child Access ==========
+
+    /**
+     * @brief Check if this TSSView has the nested is_empty TS[bool] child.
+     *
+     * Only available for tuple-format TSS (created via TSTypeRegistry::tss()).
+     * Not available for raw-format TSS (used by TSD key_set embedding).
+     */
+    [[nodiscard]] bool has_is_empty_child() const noexcept {
+        return meta() && meta()->value_type &&
+               meta()->value_type->kind == value::TypeKind::Tuple;
+    }
+
+    /**
+     * @brief Get a TSView for the nested is_empty TS[bool] child.
+     *
+     * The is_empty child is stored as element [1] in each parallel tuple.
+     * Only available when has_is_empty_child() returns true.
+     *
+     * @return TSView for the is_empty child, or invalid TSView if not available
+     */
+    [[nodiscard]] TSView is_empty_ts() const {
+        if (!has_is_empty_child() || !view_data_.valid()) {
+            return TSView{};
+        }
+
+        auto& cache = TSMetaSchemaCache::instance();
+
+        // Navigate to element [1] in each tuple structure
+        // Value: tuple(SetStorage, bool) -> element [1] = is_empty bool
+        auto value_tuple = value::View(view_data_.value_data, meta()->value_type);
+        void* is_empty_value = const_cast<void*>(value_tuple.as_tuple().at(1).data());
+
+        // Time: tuple(engine_time_t, engine_time_t) -> element [1] = is_empty time
+        auto time_schema = cache.get_time_schema(meta());
+        auto time_tuple = value::View(view_data_.time_data, time_schema);
+        void* is_empty_time = const_cast<void*>(time_tuple.as_tuple().at(1).data());
+
+        // Observer: tuple(ObserverList, ObserverList) -> element [1] = is_empty observer
+        auto observer_schema = cache.get_observer_schema(meta());
+        auto observer_tuple = value::View(view_data_.observer_data, observer_schema);
+        void* is_empty_observer = const_cast<void*>(observer_tuple.as_tuple().at(1).data());
+
+        // Get TSMeta for TS[bool]
+        const TSMeta* ts_bool_meta = TSTypeRegistry::instance().ts(cache.bool_meta());
+
+        ViewData child_vd{
+            view_data_.path,                  // inherit parent path
+            is_empty_value,                   // bool*
+            is_empty_time,                    // engine_time_t*
+            is_empty_observer,                // ObserverList*
+            nullptr,                          // no delta for scalar bool
+            get_ts_ops(TSKind::TSValue),       // scalar TS ops
+            ts_bool_meta                      // TS[bool] metadata
+        };
+
+        return TSView(std::move(child_vd), current_time_);
+    }
+
 private:
     /**
-     * @brief Get the element TypeMeta (internal).
-     * meta()->value_type is the Set TypeMeta; element_type is the per-element TypeMeta.
+     * @brief Get the element TypeMeta.
+     *
+     * Handles both tuple format (field[0] is SetStorage schema)
+     * and raw format (value_type is SetStorage schema directly).
      */
     [[nodiscard]] const value::TypeMeta* element_type() const {
+        if (has_is_empty_child()) {
+            // Tuple format: value_type->fields[0].type is SetStorage schema
+            return meta()->value_type->fields[0].type->element_type;
+        }
+        // Raw format: value_type is SetStorage schema directly
         return meta()->value_type->element_type;
     }
 
     /**
-     * @brief Get the value view (internal).
+     * @brief Get the set value view (element [0] of tuple, or raw set).
      */
-    [[nodiscard]] value::View value_view() const {
+    [[nodiscard]] value::View set_value_view() const {
+        if (has_is_empty_child()) {
+            // Tuple format: navigate to element [0]
+            return value::View(view_data_.value_data, meta()->value_type)
+                .as_tuple().at(0);
+        }
+        // Raw format: value_data IS the set
         return value::View(view_data_.value_data, meta()->value_type);
     }
 
     /**
-     * @brief Get the time view (internal).
+     * @brief Get a const pointer to the SetStorage.
      */
-    [[nodiscard]] value::View time_view() const {
+    [[nodiscard]] const value::SetStorage* set_storage_ptr() const {
+        return static_cast<const value::SetStorage*>(set_value_view().data());
+    }
+
+    /**
+     * @brief Get the container time view (element [0] of time tuple, or raw).
+     */
+    [[nodiscard]] value::View container_time_view() const {
+        if (has_is_empty_child()) {
+            // Tuple format: navigate to element [0] of time tuple
+            auto time_schema = TSMetaSchemaCache::instance().get_time_schema(meta());
+            return value::View(view_data_.time_data, time_schema)
+                .as_tuple().at(0);
+        }
+        // Raw format: time_data is directly engine_time_t
         return value::View(view_data_.time_data,
-            TSMetaSchemaCache::instance().get_time_schema(meta()));
+            TSMetaSchemaCache::instance().engine_time_meta());
     }
 
     /**

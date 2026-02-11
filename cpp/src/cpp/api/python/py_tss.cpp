@@ -1,28 +1,52 @@
 #include <hgraph/api/python/py_tss.h>
 #include <hgraph/api/python/wrapper_factory.h>
 #include <hgraph/types/time_series/ts_set_view.h>
+#include <hgraph/types/time_series/ts_dict_view.h>
+#include <hgraph/types/time_series/ts_type_registry.h>
+#include <hgraph/types/time_series/ts_meta_schema.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/view_data.h>
+#include <hgraph/types/time_series/observer_list.h>
+#include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/value/set_storage.h>
+#include <hgraph/types/value/value.h>
+#include <hgraph/types/notifiable.h>
+#include <hgraph/types/graph.h>
+#include <hgraph/types/node.h>
 
 namespace hgraph
 {
 
-    // Helper to convert Python element to value::Value using TSMeta
-    // meta->value_type is the Set TypeMeta; element_type is the per-element TypeMeta
+    // PyTimeSeriesOutput subclass for wrapping scalar TS[bool] views
+    // (is_empty child, contains tracking elements).
+    struct FeatureBoolOutput : PyTimeSeriesOutput {
+        explicit FeatureBoolOutput(TSOutputView view)
+            : PyTimeSeriesOutput(std::move(view)) {}
+    };
+
+    // ===== Static helpers =====
+
+    static const value::TypeMeta* get_tss_element_schema(const TSMeta* meta) {
+        if (meta->value_type->kind == value::TypeKind::Tuple) {
+            return meta->value_type->fields[0].type->element_type;
+        }
+        return meta->value_type->element_type;
+    }
+
     static value::Value<> elem_from_python(const nb::object &elem, const TSMeta* meta) {
-        const auto *elem_schema = meta->value_type->element_type;
+        const auto *elem_schema = get_tss_element_schema(meta);
         value::Value<> elem_val(elem_schema);
         elem_schema->ops->from_python(elem_val.data(), elem, elem_schema);
         return elem_val;
     }
 
-    // Helper to convert value::View element to Python
     static nb::object elem_to_python(const value::View& elem, const TSMeta* meta) {
-        const auto *elem_schema = meta->value_type->element_type;
+        const auto *elem_schema = get_tss_element_schema(meta);
         return elem_schema->ops->to_python(elem.data(), elem_schema);
     }
 
-    // ===== PyTimeSeriesSetOutput Implementation =====
+    // ===== PyTimeSeriesSetOutput =====
 
     bool PyTimeSeriesSetOutput::contains(const nb::object &item) const {
         auto set_view = view().as_set();
@@ -98,16 +122,54 @@ namespace hgraph
         set_view.remove(elem_val.const_view());
     }
 
-    nb::object PyTimeSeriesSetOutput::get_contains_output(const nb::object &item, const nb::object &requester) const {
-        throw std::runtime_error("not implemented: PyTimeSeriesSetOutput::get_contains_output");
-    }
-
-    void PyTimeSeriesSetOutput::release_contains_output(const nb::object &item, const nb::object &requester) const {
-        throw std::runtime_error("not implemented: PyTimeSeriesSetOutput::release_contains_output");
-    }
-
     nb::object PyTimeSeriesSetOutput::is_empty_output() const {
-        throw std::runtime_error("not implemented: PyTimeSeriesSetOutput::is_empty_output");
+        if (is_empty_cache_.is_valid()) {
+            return is_empty_cache_;
+        }
+
+        auto set_view = view().as_set();
+        if (!set_view.has_is_empty_child()) {
+            return nb::none();
+        }
+
+        TSView is_empty_view = set_view.is_empty_ts();
+        TSOutputView out_view(std::move(is_empty_view), nullptr);
+        auto* py_out = new FeatureBoolOutput(std::move(out_view));
+        is_empty_cache_ = nb::cast(static_cast<PyTimeSeriesOutput*>(py_out), nb::rv_policy::take_ownership);
+        return is_empty_cache_;
+    }
+
+    // Resolve the TSOutput* owning this view.  The wrapper may have been
+    // created with nullptr (e.g. via make_bound_ref for REF resolution).
+    // Fall back to the ShortPath stored in the view data.
+    static TSOutput* resolve_ts_output(const TSOutputView& ov) {
+        auto* out = const_cast<TSOutput*>(ov.output());
+        if (out) return out;
+        auto* node = ov.view_data().path.node();
+        if (node) return node->ts_output();
+        return nullptr;
+    }
+
+    nb::object PyTimeSeriesSetOutput::get_contains_output(const nb::object& key, const nb::object& requester) const {
+        auto set_view = view().as_set();
+        auto key_val = elem_from_python(key, set_view.meta());
+        auto* output = resolve_ts_output(output_view());
+        if (!output) {
+            throw std::runtime_error("get_contains_output: cannot resolve TSOutput");
+        }
+        TSView elem = output->get_contains_view(key_val.const_view(), requester.ptr(), output_view().current_time());
+        TSOutputView out_view(std::move(elem), nullptr);
+        return nb::cast(static_cast<PyTimeSeriesOutput*>(new FeatureBoolOutput(std::move(out_view))),
+                        nb::rv_policy::take_ownership);
+    }
+
+    void PyTimeSeriesSetOutput::release_contains_output(const nb::object& key, const nb::object& requester) const {
+        auto set_view = view().as_set();
+        auto key_val = elem_from_python(key, set_view.meta());
+        auto* output = resolve_ts_output(output_view());
+        if (output) {
+            output->release_contains(key_val.const_view(), requester.ptr());
+        }
     }
 
     nb::str PyTimeSeriesSetOutput::py_str() const {
@@ -119,52 +181,28 @@ namespace hgraph
 
     nb::str PyTimeSeriesSetOutput::py_repr() const { return py_str(); }
 
-    // ===== PyTimeSeriesSetInput Implementation =====
+    // ===== PyTimeSeriesSetInput =====
 
-    // Helper: get resolved ViewData that follows the link target to the bound output.
-    // ts_ops functions handle link delegation, but TSSView reads ViewData directly.
-    // This helper uses ts_ops::value() to get the resolved value::View, then
-    // uses its data pointer to identify the correct SetStorage.
     static ViewData resolve_input_view_data(const PyTimeSeriesSetInput& input) {
         auto ts = input.input_view().ts_view();
         const auto& vd = ts.view_data();
 
-        // Use ts_ops::value() which follows links to get the resolved data
-        auto resolved_value = vd.ops->value(vd);
-        auto resolved_delta = vd.ops->delta_value(vd);
-
-        // If value data differs, the link was followed
-        if (resolved_value.data() != vd.value_data || !vd.value_data) {
-            ViewData resolved;
-            resolved.value_data = const_cast<void*>(resolved_value.data());
-            resolved.delta_data = const_cast<void*>(resolved_delta.data());
-            // For time_data, use the link target directly since ts_ops::value doesn't expose it
-            if (vd.uses_link_target && vd.link_data) {
-                auto* lt = static_cast<const LinkTarget*>(vd.link_data);
-                if (lt && lt->valid()) {
-                    resolved.time_data = lt->time_data;
-                    resolved.observer_data = lt->observer_data;
-                    resolved.link_data = lt->link_data;
-                    resolved.meta = lt->meta ? lt->meta : vd.meta;
-                    resolved.ops = lt->ops ? lt->ops : vd.ops;
-                } else {
-                    resolved.time_data = vd.time_data;
-                    resolved.observer_data = vd.observer_data;
-                    resolved.link_data = nullptr;
-                    resolved.meta = vd.meta;
-                    resolved.ops = vd.ops;
-                }
-            } else {
-                resolved.time_data = vd.time_data;
-                resolved.observer_data = vd.observer_data;
-                resolved.link_data = nullptr;
-                resolved.meta = vd.meta;
-                resolved.ops = vd.ops;
+        if (vd.uses_link_target && vd.link_data) {
+            auto* lt = static_cast<const LinkTarget*>(vd.link_data);
+            if (lt && lt->valid()) {
+                ViewData resolved;
+                resolved.value_data = lt->value_data;
+                resolved.time_data = lt->time_data;
+                resolved.observer_data = lt->observer_data;
+                resolved.delta_data = lt->delta_data;
+                resolved.link_data = lt->link_data;
+                resolved.meta = lt->meta ? lt->meta : vd.meta;
+                resolved.ops = lt->ops ? lt->ops : vd.ops;
+                resolved.path = vd.path;
+                resolved.uses_link_target = false;
+                resolved.sampled = vd.sampled;
+                return resolved;
             }
-            resolved.path = vd.path;
-            resolved.uses_link_target = false;
-            resolved.sampled = vd.sampled;
-            return resolved;
         }
         return vd;
     }
@@ -187,11 +225,9 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesSetInput::value() const {
-        // Use ts_ops dispatch which follows links
         auto ts = input_view().ts_view();
         auto py_val = ts.to_python();
         if (py_val.is_none()) return nb::set();
-        // SetOps::to_python returns frozenset; TSS.value should be mutable set
         if (nb::isinstance<nb::frozenset>(py_val)) {
             return nb::set(py_val);
         }
@@ -202,14 +238,12 @@ namespace hgraph
         auto ts = input_view().ts_view();
         auto py_val = ts.to_python();
         if (py_val.is_none()) return nb::frozenset(nb::set());
-        // Return as frozenset
         if (nb::isinstance<nb::set>(py_val)) {
             return nb::frozenset(nb::cast<nb::set>(py_val));
         }
         return py_val;
     }
 
-    // Helper: get the PythonSetDelta from the resolved output via delta_to_python
     static nb::object get_input_delta(const PyTimeSeriesSetInput& input) {
         auto ts = input.input_view().ts_view();
         return ts.delta_to_python();
@@ -219,7 +253,6 @@ namespace hgraph
         auto delta = get_input_delta(*this);
         if (delta.is_none()) return nb::frozenset(nb::set());
         auto added = delta.attr("added");
-        // PythonSetDelta.added returns frozenset or set depending on emptiness
         if (nb::isinstance<nb::frozenset>(added)) return added;
         return nb::frozenset(nb::cast<nb::set>(added));
     }
@@ -236,7 +269,6 @@ namespace hgraph
         auto delta = get_input_delta(*this);
         if (delta.is_none()) return nb::bool_(false);
         nb::object added = nb::borrow(delta.attr("added"));
-        // Use Python 'in' operator
         return nb::bool_(PySequence_Contains(added.ptr(), item.ptr()) == 1);
     }
 
@@ -257,7 +289,6 @@ namespace hgraph
     nb::str PyTimeSeriesSetInput::py_repr() const { return py_str(); }
 
     void tss_register_with_nanobind(nb::module_ &m) {
-        // Register non-templated wrapper classes
         auto tss_input = nb::class_<PyTimeSeriesSetInput, PyTimeSeriesInput>(m, "TimeSeriesSetInput");
         tss_input.def_prop_ro("value", &PyTimeSeriesSetInput::value)
             .def("__contains__", &PyTimeSeriesSetInput::contains)
@@ -272,7 +303,7 @@ namespace hgraph
             .def("__repr__", &PyTimeSeriesSetInput::py_repr);
 
         auto tss_output = nb::class_<PyTimeSeriesSetOutput, PyTimeSeriesOutput>(m, "TimeSeriesSetOutput");
-        tss_output.def_prop_rw("value", &PyTimeSeriesSetOutput::value, &PyTimeSeriesOutput::set_value, nb::arg("value").none())
+        tss_output
             .def("__contains__", &PyTimeSeriesSetOutput::contains)
             .def("__len__", &PyTimeSeriesSetOutput::size)
             .def("empty", &PyTimeSeriesSetOutput::empty)

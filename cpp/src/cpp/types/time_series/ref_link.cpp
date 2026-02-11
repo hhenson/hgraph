@@ -2,6 +2,7 @@
 #include <hgraph/types/time_series/ts_reference.h>
 #include <hgraph/types/time_series/ts_meta.h>
 #include <hgraph/types/time_series/observer_list.h>
+#include <hgraph/api/python/py_time_series.h>
 
 namespace hgraph {
 
@@ -207,15 +208,7 @@ void REFLink::rebind_target(engine_time_t current_time) {
         return;  // Empty reference
     }
 
-    if (ts_ref->is_peered()) {
-        // Resolve the path to get the target
-        TSView resolved = ts_ref->resolve(current_time);
-        if (!resolved) {
-            return;  // Failed to resolve
-        }
-
-        // Store target information in LinkTarget
-        const ViewData& vd = resolved.view_data();
+    auto bind_to_view_data = [&](const ViewData& vd) {
         target_.is_linked = true;
         target_.value_data = vd.value_data;
         target_.time_data = vd.time_data;
@@ -233,6 +226,33 @@ void REFLink::rebind_target(engine_time_t current_time) {
             if (active_notifier_.owning_input != nullptr) {
                 target_obs->add_observer(&active_notifier_);
             }
+        }
+    };
+
+    if (ts_ref->is_peered()) {
+        // Resolve the path to get the target
+        TSView resolved = ts_ref->resolve(current_time);
+        if (!resolved) {
+            return;  // Failed to resolve
+        }
+        bind_to_view_data(resolved.view_data());
+    } else if (ts_ref->is_python_bound()) {
+        // PYTHON_BOUND: extract the output from the Python TimeSeriesReference
+        // and bind to its ViewData if it's a C++ wrapper
+        try {
+            nb::object py_ref = ts_ref->python_object();
+            if (nb::cast<bool>(py_ref.attr("has_output"))) {
+                nb::object output_obj = py_ref.attr("output");
+                if (nb::isinstance<PyTimeSeriesOutput>(output_obj)) {
+                    auto& py_output = nb::cast<PyTimeSeriesOutput&>(output_obj);
+                    const ViewData& vd = py_output.output_view().ts_view().view_data();
+                    if (vd.value_data) {
+                        bind_to_view_data(vd);
+                    }
+                }
+            }
+        } catch (...) {
+            // Failed to extract - target_ remains invalid
         }
     }
     // NON_PEERED refs represent composite types - not handled by single REFLink

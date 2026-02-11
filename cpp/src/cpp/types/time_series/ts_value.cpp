@@ -261,11 +261,15 @@ engine_time_t TSValue::last_modified_time() const {
 
     switch (meta_->kind) {
         case TSKind::TSValue:
-        case TSKind::TSS:
         case TSKind::REF:
         case TSKind::SIGNAL:
             // Atomic: time_ is directly engine_time_t
             return time_v.as<engine_time_t>();
+
+        case TSKind::TSS:
+            // TSS: time_ is tuple[engine_time_t, engine_time_t]
+            // Container time is first element
+            return time_v.as_tuple().at(0).as<engine_time_t>();
 
         case TSKind::TSW:
             // TSW: both fixed and duration use tuple time schema
@@ -376,10 +380,16 @@ void TSValue::wire_observers() {
         case TSKind::TSS: {
             // TSS: Wire SetDelta to the value's KeySet
             // The delta acts as a SlotObserver to receive on_insert/on_erase notifications
+            // TSS value is tuple[SetStorage, bool(is_empty)]; navigate to element [0]
             if (delta_value_.valid() && value_.valid()) {
                 auto* set_delta = static_cast<SetDelta*>(delta_value_.view().data());
-                auto* set_storage = static_cast<value::SetStorage*>(value_.view().data());
+                auto tuple_v = value_.view().as_tuple();
+                auto* set_storage = static_cast<value::SetStorage*>(tuple_v.at(0).data());
                 set_storage->key_set().add_observer(set_delta);
+
+                // Initialize is_empty to true (empty set starts empty)
+                auto* is_empty_ptr = static_cast<bool*>(tuple_v.at(1).data());
+                *is_empty_ptr = true;
             }
             break;
         }

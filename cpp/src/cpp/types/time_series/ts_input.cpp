@@ -85,9 +85,10 @@ void TSInput::set_active(const std::string& field, bool active) {
 
     if (!field_active) return;
 
-    // The field_active could be a simple bool or a nested tuple depending on the field's type
-    const TSMeta* field_ts = meta_->fields[field_index].ts_type;
-    if (field_ts->is_collection() || field_ts->kind == TSKind::TSB) {
+    // The field_active could be a simple bool or a nested tuple depending on the field's type.
+    // Only TSD, TSL, and TSB have tuple active schemas (with container bool + child states).
+    // TSS and TSW have scalar bool active schemas despite being collections.
+    if (field_active.is_tuple()) {
         // Nested composite: first element is the active bool
         value::TupleView field_tv = field_active.as_tuple();
         value::View field_root = field_tv[0];
@@ -233,18 +234,54 @@ void TSInputView::make_active() {
     }
 
     // If we're bound, subscribe to the output
-    if (is_bound() && bound_output_) {
-        TSOutputView output_view = bound_output_->view(ts_view_.current_time());
-        output_view.subscribe(input_);
+    if (is_bound()) {
+        if (bound_output_) {
+            // Root-level view: use bound_output_ directly
+            TSOutputView output_view = bound_output_->view(ts_view_.current_time());
+            output_view.subscribe(input_);
 
-        // Initial notification: if the output is already valid AND modified,
-        // fire notify to schedule the owning node (matches Python make_active behavior).
-        auto& ovd = output_view.ts_view().view_data();
-        if (ovd.ops && ovd.ops->valid(ovd)) {
-            engine_time_t eval_time = ts_view_.current_time();
-            if (ovd.ops->modified(ovd, eval_time)) {
-                engine_time_t lmt = ovd.ops->last_modified_time(ovd);
-                input_->notify(lmt);
+            // Initial notification: if the output is already valid AND modified,
+            // fire notify to schedule the owning node (matches Python make_active behavior).
+            auto& ovd = output_view.ts_view().view_data();
+            if (ovd.ops && ovd.ops->valid(ovd)) {
+                engine_time_t eval_time = ts_view_.current_time();
+                if (ovd.ops->modified(ovd, eval_time)) {
+                    engine_time_t lmt = ovd.ops->last_modified_time(ovd);
+                    input_->notify(lmt);
+                }
+            }
+        } else {
+            // Field-level view: bound_output_ not propagated from parent.
+            // Use the LinkTarget's active_notifier to subscribe to the output's
+            // observer list (mirrors scalar_ops::set_active).
+            const auto& vd = ts_view_.view_data();
+            if (vd.uses_link_target && vd.link_data) {
+                auto* lt = static_cast<LinkTarget*>(vd.link_data);
+                if (lt && lt->is_linked) {
+                    if (lt->active_notifier.owning_input == nullptr) {
+                        lt->active_notifier.owning_input = input_;
+                    }
+                    if (lt->observer_data) {
+                        auto* observers = static_cast<ObserverList*>(lt->observer_data);
+                        observers->add_observer(&lt->active_notifier);
+                    }
+                    // Initial notification: if the output is already valid AND modified
+                    if (lt->ops && lt->value_data) {
+                        ViewData output_vd;
+                        output_vd.value_data = lt->value_data;
+                        output_vd.time_data = lt->time_data;
+                        output_vd.meta = lt->meta;
+                        output_vd.ops = lt->ops;
+                        output_vd.path = vd.path;
+                        if (lt->ops->valid(output_vd)) {
+                            engine_time_t eval_time = ts_view_.current_time();
+                            if (lt->ops->modified(output_vd, eval_time)) {
+                                engine_time_t lmt = lt->ops->last_modified_time(output_vd);
+                                input_->notify(lmt);
+                            }
+                        }
+                    }
+                }
             }
         }
     }
@@ -265,9 +302,27 @@ void TSInputView::make_passive() {
     }
 
     // If we're bound, unsubscribe from the output
-    if (is_bound() && bound_output_) {
-        TSOutputView output_view = bound_output_->view(ts_view_.current_time());
-        output_view.unsubscribe(input_);
+    if (is_bound()) {
+        if (bound_output_) {
+            // Root-level view: unsubscribe TSInput from output's observer list
+            TSOutputView output_view = bound_output_->view(ts_view_.current_time());
+            output_view.unsubscribe(input_);
+        } else {
+            // Field-level view: bound_output_ not propagated from parent.
+            // Use the LinkTarget's active_notifier to unsubscribe from the
+            // output's observer list (mirrors scalar_ops::set_active(false)).
+            const auto& vd = ts_view_.view_data();
+            if (vd.uses_link_target && vd.link_data) {
+                auto* lt = static_cast<LinkTarget*>(vd.link_data);
+                if (lt && lt->active_notifier.owning_input != nullptr) {
+                    if (lt->observer_data) {
+                        auto* observers = static_cast<ObserverList*>(lt->observer_data);
+                        observers->remove_observer(&lt->active_notifier);
+                    }
+                    lt->active_notifier.owning_input = nullptr;
+                }
+            }
+        }
     }
 }
 

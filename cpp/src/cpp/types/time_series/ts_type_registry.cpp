@@ -73,22 +73,55 @@ const TSMeta* TSTypeRegistry::tss(const value::TypeMeta* element_type) {
         return it->second;
     }
 
-    // Build the set value schema from element type
-    // This is needed for TSValue to allocate SetStorage and for ts_ops::make_value_view
+    // Build the set value schema from element type, then wrap in tuple with is_empty bool.
+    // TSS value layout: tuple[SetStorage, bool(is_empty)]
+    // Element [0] = the set container (SetStorage)
+    // Element [1] = nested is_empty TS[bool] value
     const value::TypeMeta* value_schema = nullptr;
     if (element_type) {
-        value_schema = value::TypeRegistry::instance()
-            .set(element_type)
+        auto& registry = value::TypeRegistry::instance();
+        const value::TypeMeta* set_schema = registry.set(element_type).build();
+        const value::TypeMeta* bool_meta = TSMetaSchemaCache::instance().bool_meta();
+        value_schema = registry.tuple()
+            .element(set_schema)     // [0] SetStorage
+            .element(bool_meta)      // [1] is_empty bool
             .build();
     }
 
     // Create new schema
     auto* meta = create_schema();
     meta->kind = TSKind::TSS;
-    meta->value_type = value_schema;  // Store set value schema for ts_ops (like TSD stores map schema)
+    meta->value_type = value_schema;  // Store tuple value schema
 
     // Cache and return
     tss_cache_[element_type] = meta;
+    return meta;
+}
+
+// ============================================================================
+// TSS[T] Raw - Non-Tuple Time-Series Set (for TSD key_set embedding)
+// ============================================================================
+
+const TSMeta* TSTypeRegistry::tss_raw(const value::TypeMeta* element_type) {
+    // Check cache
+    auto it = tss_raw_cache_.find(element_type);
+    if (it != tss_raw_cache_.end()) {
+        return it->second;
+    }
+
+    // Build the raw set value schema (no tuple wrapping)
+    const value::TypeMeta* value_schema = nullptr;
+    if (element_type) {
+        value_schema = value::TypeRegistry::instance().set(element_type).build();
+    }
+
+    // Create new schema
+    auto* meta = create_schema();
+    meta->kind = TSKind::TSS;
+    meta->value_type = value_schema;  // Raw set schema (not tuple)
+
+    // Cache and return
+    tss_raw_cache_[element_type] = meta;
     return meta;
 }
 

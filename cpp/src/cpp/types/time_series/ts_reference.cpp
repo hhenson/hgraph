@@ -30,6 +30,9 @@ void TSReference::destroy() noexcept {
         case Kind::NON_PEERED:
             storage_.non_peered_items.~vector();
             break;
+        case Kind::PYTHON_BOUND:
+            delete static_cast<nb::object*>(storage_.python_ref_ptr);
+            break;
     }
     kind_ = Kind::EMPTY;
 }
@@ -45,6 +48,11 @@ void TSReference::copy_from(const TSReference& other) {
         case Kind::NON_PEERED:
             new (&storage_.non_peered_items) std::vector<TSReference>(other.storage_.non_peered_items);
             break;
+        case Kind::PYTHON_BOUND: {
+            auto* src = static_cast<nb::object*>(other.storage_.python_ref_ptr);
+            storage_.python_ref_ptr = src ? new nb::object(*src) : nullptr;
+            break;
+        }
     }
 }
 
@@ -58,6 +66,10 @@ void TSReference::move_from(TSReference&& other) noexcept {
             break;
         case Kind::NON_PEERED:
             new (&storage_.non_peered_items) std::vector<TSReference>(std::move(other.storage_.non_peered_items));
+            break;
+        case Kind::PYTHON_BOUND:
+            storage_.python_ref_ptr = other.storage_.python_ref_ptr;
+            other.storage_.python_ref_ptr = nullptr;
             break;
     }
     other.destroy();
@@ -113,6 +125,13 @@ TSReference TSReference::non_peered(std::vector<TSReference> items) {
     return ref;
 }
 
+TSReference TSReference::python_bound(nb::object py_ref) {
+    TSReference ref;
+    ref.kind_ = Kind::PYTHON_BOUND;
+    ref.storage_.python_ref_ptr = new nb::object(std::move(py_ref));
+    return ref;
+}
+
 // ============================================================================
 // TSReference - Query Methods
 // ============================================================================
@@ -141,6 +160,17 @@ bool TSReference::is_valid(engine_time_t current_time) const {
                 }
             }
             return false;
+        case Kind::PYTHON_BOUND: {
+            auto* obj = static_cast<nb::object*>(storage_.python_ref_ptr);
+            if (obj && obj->is_valid()) {
+                try {
+                    return nb::cast<bool>(obj->attr("has_output"));
+                } catch (...) {
+                    return false;
+                }
+            }
+            return false;
+        }
     }
     return false;
 }
@@ -178,6 +208,14 @@ size_t TSReference::size() const noexcept {
         return 0;
     }
     return storage_.non_peered_items.size();
+}
+
+nb::object TSReference::python_object() const {
+    if (kind_ != Kind::PYTHON_BOUND) {
+        throw std::runtime_error("TSReference::python_object() called on non-PYTHON_BOUND reference");
+    }
+    auto* obj = static_cast<nb::object*>(storage_.python_ref_ptr);
+    return obj ? nb::object(*obj) : nb::none();
 }
 
 // ============================================================================
@@ -222,6 +260,10 @@ FQReference TSReference::to_fq() const {
             }
             return FQReference::non_peered(std::move(fq_items));
         }
+
+        case Kind::PYTHON_BOUND:
+            // PYTHON_BOUND references can't be serialized to FQReference
+            return FQReference::empty();
     }
     return FQReference::empty();
 }
@@ -269,6 +311,14 @@ bool TSReference::operator==(const TSReference& other) const {
             return storage_.peered_path == other.storage_.peered_path;
         case Kind::NON_PEERED:
             return storage_.non_peered_items == other.storage_.non_peered_items;
+        case Kind::PYTHON_BOUND: {
+            auto* this_obj = static_cast<nb::object*>(storage_.python_ref_ptr);
+            auto* other_obj = static_cast<nb::object*>(other.storage_.python_ref_ptr);
+            if (this_obj && other_obj) {
+                return this_obj->is(*other_obj);  // Identity comparison
+            }
+            return this_obj == other_obj;  // Both null
+        }
     }
     return false;
 }
@@ -303,6 +353,9 @@ std::string TSReference::to_string() const {
             oss << "]";
             return oss.str();
         }
+
+        case Kind::PYTHON_BOUND:
+            return "REF[<PythonBound>]";
     }
     return "REF[<Unknown>]";
 }
@@ -346,6 +399,9 @@ std::string FQReference::to_string() const {
             oss << "]";
             return oss.str();
         }
+
+        case Kind::PYTHON_BOUND:
+            return "FQRef[<PythonBound>]";
     }
     return "FQRef[<Unknown>]";
 }
@@ -369,6 +425,11 @@ nb::object ScalarOps<TSReference>::to_python(const void* obj, const TypeMeta*) {
             // Return EmptyTimeSeriesReference via TimeSeriesReference.make()
             auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
             return make_fn();  // No arguments = empty reference
+        }
+
+        case TSReference::Kind::PYTHON_BOUND: {
+            // Return the stored Python TimeSeriesReference directly
+            return ref.python_object();
         }
 
         case TSReference::Kind::PEERED: {
@@ -472,8 +533,9 @@ void ScalarOps<TSReference>::from_python(void* dst, const nb::object& src, const
                 }
             }
 
-            // Couldn't extract path - create empty reference
-            ref = TSReference::empty();
+            // Couldn't extract ShortPath - store as PYTHON_BOUND so the reference
+            // is preserved. REFLink will extract ViewData from the output wrapper.
+            ref = TSReference::python_bound(nb::object(src));
             return;
         }
 

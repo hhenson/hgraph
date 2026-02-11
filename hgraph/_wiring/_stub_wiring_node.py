@@ -107,7 +107,6 @@ def _stub(ts: REF[TIME_SERIES_TYPE]) -> REF[TIME_SERIES_TYPE]:
     The stub will either be connected in the graph as an input or an output ranked on the outer-side of the graph.
     """
     from hgraph import TimeSeriesReference
-
     return ts.value if ts.valid else TimeSeriesReference.make()
 
 

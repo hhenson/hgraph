@@ -70,7 +70,12 @@ namespace hgraph
                     if (nb::isinstance<PyTimeSeriesOutput>(ts)) {
                         auto& py_output = nb::cast<PyTimeSeriesOutput&>(ts);
                         const ShortPath& path = py_output.output_view().short_path();
-                        return TSReference::peered(path);
+                        if (path.valid()) {
+                            return TSReference::peered(path);
+                        }
+                        // Path is invalid (e.g., feature output not in graph).
+                        // Store as PYTHON_BOUND so rebind() can extract ViewData.
+                        return TSReference::python_bound(nb::object(ts));
                     }
 
                     // Case 5: ts is a REF input - extract TSReference from its value
@@ -154,7 +159,53 @@ namespace hgraph
             })
             .def("__getitem__", [](const TSReference& self, size_t idx) {
                 return self[idx];
-            });
+            })
+            // bind_input: matches Python TimeSeriesReference.bind_input() behavior
+            // Called by operators like valid_impl: ts.value.bind_input(ts_value)
+            .def("bind_input", [](TSReference& self, nb::object input) {
+                if (self.is_empty()) {
+                    // EmptyTimeSeriesReference.bind_input: just unbind
+                    input.attr("un_bind_output")();
+                } else if (self.is_peered()) {
+                    // BoundTimeSeriesReference.bind_input: rebind to resolved output
+                    bool reactivate = false;
+                    bool is_bound = nb::cast<bool>(input.attr("bound"));
+                    if (is_bound && !nb::cast<bool>(input.attr("has_peer"))) {
+                        reactivate = nb::cast<bool>(input.attr("active"));
+                        if (reactivate) input.attr("make_passive")();
+                        input.attr("un_bind_output")();
+                    }
+                    // Resolve the PEERED reference to its target output
+                    nb::object output = nb::cast(self).attr("output");
+                    if (!output.is_none()) {
+                        input.attr("bind_output")(output);
+                    }
+                    if (reactivate) input.attr("make_active")();
+                } else if (self.is_non_peered()) {
+                    // UnBoundTimeSeriesReference.bind_input: iterate children
+                    bool reactivate = false;
+                    bool is_bound = nb::cast<bool>(input.attr("bound"));
+                    if (is_bound && nb::cast<bool>(input.attr("has_peer"))) {
+                        reactivate = nb::cast<bool>(input.attr("active"));
+                        if (reactivate) input.attr("make_passive")();
+                        input.attr("un_bind_output")();
+                    }
+                    auto items = self.items();
+                    size_t idx = 0;
+                    for (auto child : input) {
+                        if (idx < items.size()) {
+                            auto& ref = items[idx];
+                            if (!ref.is_empty()) {
+                                nb::cast(ref).attr("bind_input")(child);
+                            } else if (nb::cast<bool>(nb::borrow(child).attr("bound"))) {
+                                nb::borrow(child).attr("un_bind_output")();
+                            }
+                        }
+                        idx++;
+                    }
+                    if (reactivate) input.attr("make_active")();
+                }
+            }, "input"_a);
 
         // TSReference::Kind enum
         nb::enum_<TSReference::Kind>(m, "TSReferenceKind")
@@ -427,6 +478,45 @@ namespace hgraph
 
     void PyTimeSeriesWindowReferenceOutput::register_with_nanobind(nb::module_ &m) {
         nb::class_<PyTimeSeriesWindowReferenceOutput, PyTimeSeriesReferenceOutput>(m, "TimeSeriesWindowReferenceOutput");
+    }
+
+    // ============================================================
+    // resolve_python_bound_reference - called from ts_ops.cpp
+    // ============================================================
+    // Extracts ViewData from a PYTHON_BOUND TSReference.
+    // This lives here (not in ts_ops.cpp) because it needs PyTimeSeriesOutput
+    // from py_time_series.h. Including that header in ts_ops.cpp changes
+    // nanobind type resolution and causes regressions.
+    std::optional<ViewData> resolve_python_bound_reference(const TSReference* ts_ref, engine_time_t current_time) {
+        if (!ts_ref || !ts_ref->is_python_bound()) {
+            return std::nullopt;
+        }
+        try {
+            nb::object py_obj = ts_ref->python_object();
+            PyTimeSeriesOutput* py_output_ptr = nullptr;
+
+            if (nb::isinstance<PyTimeSeriesOutput>(py_obj)) {
+                // Case (a): direct PyTimeSeriesOutput
+                py_output_ptr = &nb::cast<PyTimeSeriesOutput&>(py_obj);
+            } else if (nb::hasattr(py_obj, "has_output") &&
+                       nb::cast<bool>(py_obj.attr("has_output"))) {
+                // Case (b): BoundTimeSeriesReference wrapping a PyTimeSeriesOutput
+                nb::object output_obj = py_obj.attr("output");
+                if (nb::isinstance<PyTimeSeriesOutput>(output_obj)) {
+                    py_output_ptr = &nb::cast<PyTimeSeriesOutput&>(output_obj);
+                }
+            }
+
+            if (py_output_ptr) {
+                const ViewData& vd = py_output_ptr->output_view().ts_view().view_data();
+                if (vd.value_data) {
+                    return vd;
+                }
+            }
+        } catch (...) {
+            // Failed to extract ViewData from Python object
+        }
+        return std::nullopt;
     }
 
 }  // namespace hgraph

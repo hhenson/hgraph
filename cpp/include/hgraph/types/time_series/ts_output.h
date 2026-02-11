@@ -148,10 +148,10 @@ public:
     // Non-copyable, movable
     TSOutput(const TSOutput&) = delete;
     TSOutput& operator=(const TSOutput&) = delete;
-    TSOutput(TSOutput&&) noexcept = default;
-    TSOutput& operator=(TSOutput&&) noexcept = default;
+    TSOutput(TSOutput&&) noexcept;
+    TSOutput& operator=(TSOutput&&) noexcept;
 
-    ~TSOutput() = default;
+    ~TSOutput();
 
     // ========== View Access ==========
 
@@ -174,6 +174,32 @@ public:
      * @return TSOutputView for the requested schema
      */
     TSOutputView view(engine_time_t current_time, const TSMeta* schema);
+
+    // ========== Contains Tracking ==========
+
+    /**
+     * @brief Get a TSView for a TS[bool] that tracks whether key is in the TSS.
+     *
+     * Creates a TSD[K, TS[bool]] internally. Each tracked key gets a TS[bool]
+     * element that updates automatically when the TSS content changes.
+     *
+     * @param key The element key to track (as a value::View)
+     * @param requester Opaque pointer identifying the requester (for ref-counting)
+     * @param current_time The current engine time
+     * @return TSView for the TS[bool] element tracking this key
+     */
+    TSView get_contains_view(const value::View& key, void* requester, engine_time_t current_time);
+
+    /**
+     * @brief Release a contains tracking subscription.
+     *
+     * When all requesters for a key have released, the tracking entry is
+     * scheduled for deferred removal.
+     *
+     * @param key The element key to stop tracking
+     * @param requester Opaque pointer identifying the requester
+     */
+    void release_contains(const value::View& key, void* requester);
 
     // ========== Accessors ==========
 
@@ -318,6 +344,7 @@ private:
     std::unique_ptr<LinkTarget> forwarded_target_;                   ///< Cross-graph forwarding target (inner sink → outer output)
     node_ptr owning_node_{nullptr};                                 ///< For graph context
     size_t port_index_{0};                                          ///< Port index on node
+    void* contains_tracking_{nullptr};                              ///< Lazy ContainsTracking (defined in ts_output.cpp)
 
     // Note: REFLinks are stored inline in the alternative TSValue's link storage.
     // The link schema uses REFLink at each position, which can function as either
