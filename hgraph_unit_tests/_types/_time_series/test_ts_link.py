@@ -425,7 +425,7 @@ def test_tsl_link_view_is_link_target(hgraph_module, tsl_ts_int_meta):
 
 
 def test_tsd_link_view_is_link_target(hgraph_module, tsd_str_ts_int_meta):
-    """TSD link_view should contain a REFLink value."""
+    """TSD link_view should contain a tuple[LinkTarget, var_list[LinkTarget]]."""
     TSValue = hgraph_module.TSValue
 
     ts_value = TSValue(tsd_str_ts_int_meta)
@@ -434,7 +434,9 @@ def test_tsd_link_view_is_link_target(hgraph_module, tsd_str_ts_int_meta):
     assert link_view.valid()
     link_val = link_view.to_python()
     assert isinstance(link_val, tuple)
-    assert link_val == (False, False)  # Not bound or linked by default
+    # TSD link schema: tuple[LinkTarget, var_list[LinkTarget]]
+    # LinkTarget to_python returns (is_bound, is_linked)
+    assert link_val == ((False, False), [])  # Collection-level not bound, empty var_list
 
 
 def test_tsl_bind_changes_link_view_value(hgraph_module, tsl_ts_int_meta):

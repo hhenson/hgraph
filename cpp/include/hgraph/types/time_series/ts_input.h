@@ -19,6 +19,7 @@
 #include <hgraph/types/notifiable.h>
 #include <hgraph/hgraph_forward_declarations.h>
 
+#include <memory>
 #include <vector>
 
 namespace hgraph {
@@ -27,6 +28,22 @@ namespace hgraph {
 class TSInputView;
 class TSOutput;
 class TSOutputView;
+class ObserverList;
+
+/// Lightweight Notifiable for non-peered SIGNAL binding.
+/// When a non-peered TSB output binds to a SIGNAL input, each field
+/// output subscribes via a SignalSubscription that updates the SIGNAL's
+/// time_data and schedules the owning node.
+struct SignalSubscription : Notifiable {
+    engine_time_t* signal_time_data{nullptr};
+    ObserverList* output_observers{nullptr};
+    node_ptr owning_node{nullptr};
+    bool subscribed{false};
+
+    void notify(engine_time_t et) override;
+    void subscribe();
+    void unsubscribe();
+};
 
 /**
  * @brief Consumer of time-series values.
@@ -82,7 +99,7 @@ public:
     TSInput(TSInput&&) noexcept = default;
     TSInput& operator=(TSInput&&) noexcept = default;
 
-    ~TSInput() override = default;
+    ~TSInput() override;
 
     // ========== View Access ==========
 
@@ -227,12 +244,26 @@ public:
      */
     [[nodiscard]] TSOutput* bound_output() const noexcept { return bound_output_; }
 
+    // ========== Signal Multi-Bind Support ==========
+
+    /**
+     * @brief Register a signal subscription for non-peered SIGNAL binding.
+     *
+     * When a non-peered TSB output binds to a SIGNAL input, each field's
+     * output needs its own subscription that updates the SIGNAL's time_data.
+     *
+     * @param signal_time_data Pointer to the SIGNAL child's time_data
+     * @param output_observers Pointer to the source output's ObserverList
+     */
+    void add_signal_subscription(engine_time_t* signal_time_data, ObserverList* output_observers);
+
 private:
     TSValue value_;                     ///< Contains Links at leaves pointing to outputs
     value::Value<> active_;             ///< Hierarchical active state (mirrors schema structure)
     const TSMeta* meta_{nullptr};       ///< Schema
     node_ptr owning_node_{nullptr};     ///< For scheduling
     TSOutput* bound_output_{nullptr};   ///< Persistent bound output reference
+    std::vector<std::unique_ptr<SignalSubscription>> signal_subscriptions_;  ///< Non-peered SIGNAL subscriptions
 };
 
 } // namespace hgraph

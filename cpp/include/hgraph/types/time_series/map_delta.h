@@ -21,6 +21,7 @@
 #include <hgraph/types/time_series/slot_set.h>
 #include <hgraph/types/value/key_set.h>
 #include <hgraph/types/value/slot_observer.h>
+#include <hgraph/util/date_time.h>
 
 #include <variant>
 #include <vector>
@@ -363,10 +364,32 @@ public:
         }
     }
 
+    // ========== Key Time Tracking ==========
+
+    /**
+     * @brief Get the last time the key set was modified (key added or removed).
+     *
+     * This is separate from the TSD container time which updates for value changes too.
+     * Used by TSDView::key_set() to provide correct modified() semantics for the key set.
+     */
+    [[nodiscard]] engine_time_t key_time() const { return key_time_; }
+
+    /**
+     * @brief Get a mutable pointer to key_time_ for use as time_data in ViewData.
+     */
+    [[nodiscard]] engine_time_t* key_time_ptr() { return &key_time_; }
+
+    /**
+     * @brief Update the key set modification time.
+     * Called when keys are added or removed.
+     */
+    void set_key_time(engine_time_t t) { key_time_ = t; }
+
 private:
     SetDelta key_delta_;  // Embedded SetDelta for key add/remove (COMPOSITION)
     SlotSet updated_;     // Slots updated this tick (MapDelta-specific)
     std::vector<DeltaVariant> children_;  // Child deltas for nested TS types
+    engine_time_t key_time_{MIN_DT};  // Last time a key was added/removed
 
     // Cached combined modified set (lazily computed)
     mutable SlotSet modified_;

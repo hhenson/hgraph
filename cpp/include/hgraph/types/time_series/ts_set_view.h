@@ -349,7 +349,7 @@ public:
         const TSMeta* ts_bool_meta = TSTypeRegistry::instance().ts(cache.bool_meta());
 
         ViewData child_vd{
-            view_data_.path,                  // inherit parent path
+            ShortPath{},                      // empty path — this is a synthetic child, not a node output
             is_empty_value,                   // bool*
             is_empty_time,                    // engine_time_t*
             is_empty_observer,                // ObserverList*

@@ -571,12 +571,18 @@ const value::TypeMeta* TSMetaSchemaCache::generate_link_schema_impl(const TSMeta
             // Enables REF→TS conversion when used as alternatives
             return ref_link_meta_;
 
-        case TSKind::TSD:
-            // TSD: REFLink for collection-level link
-            // REFLink stores the link target inline and can also handle REF→TS
-            // dereferencing when needed. This provides stable addresses for
-            // the two-phase removal lifecycle.
-            return ref_link_meta_;
+        case TSKind::TSD: {
+            // TSD: tuple[REFLink, var_list[REFLink]]
+            // Element 0 is collection-level REFLink (for binding the whole dict).
+            // Element 1 is a var_list of per-element REFLinks, enabling dynamic
+            // elements to have their own link storage for bind_output().
+            auto& registry = value::TypeRegistry::instance();
+            const value::TypeMeta* var_list_type = registry.list(ref_link_meta_).build();
+            return registry.tuple()
+                .element(ref_link_meta_)       // [0] collection-level REFLink
+                .element(var_list_type)         // [1] per-element var_list[REFLink]
+                .build();
+        }
 
         case TSKind::TSL: {
             // TSL: For fixed-size lists (inputs), use fixed_list[REFLink] for per-element binding
@@ -714,9 +720,18 @@ const value::TypeMeta* TSMetaSchemaCache::generate_input_link_schema_impl(const 
             // Scalar time-series types: LinkTarget for simple binding
             return link_target_meta_;
 
-        case TSKind::TSD:
-            // TSD: LinkTarget for collection-level link
-            return link_target_meta_;
+        case TSKind::TSD: {
+            // TSD: tuple[LinkTarget, var_list[LinkTarget]]
+            // Element 0 is collection-level LinkTarget (for binding the whole dict).
+            // Element 1 is a var_list of per-element LinkTargets, enabling dynamic
+            // elements to have their own link storage for bind_output().
+            auto& registry = value::TypeRegistry::instance();
+            const value::TypeMeta* var_list_type = registry.list(link_target_meta_).build();
+            return registry.tuple()
+                .element(link_target_meta_)    // [0] collection-level LinkTarget
+                .element(var_list_type)         // [1] per-element var_list[LinkTarget]
+                .build();
+        }
 
         case TSKind::TSL: {
             // TSL: For fixed-size lists (inputs), use fixed_list[LinkTarget] for per-element binding

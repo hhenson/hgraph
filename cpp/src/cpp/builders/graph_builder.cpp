@@ -105,7 +105,6 @@ namespace hgraph
             auto src_node = nodes[edge.src_node].get();
             auto dst_node = nodes[edge.dst_node].get();
 
-
             // Determine the source output
             TSOutput* src_output = nullptr;
             if (edge.output_path.size() == 1 && edge.output_path[0] == ERROR_PATH) {
@@ -128,11 +127,12 @@ namespace hgraph
                 throw std::runtime_error("Node does not have TSInput for binding");
             }
 
-            // 1. Navigate input path, detecting REF-into-composite edges
+            // 1. Navigate input path, detecting REF-into-composite and SIGNAL-into-composite edges
             TSInputView input_view = dst_node->ts_input()->view(bind_time);
             bool deferred = false;
+            bool signal_multi_bind = false;
 
-            for (size_t pi = 0; pi < edge.input_path.size() && !deferred; ++pi) {
+            for (size_t pi = 0; pi < edge.input_path.size() && !deferred && !signal_multi_bind; ++pi) {
                 auto idx = edge.input_path[pi];
                 if (idx >= 0) {
                     input_view = input_view[static_cast<size_t>(idx)];
@@ -154,6 +154,16 @@ namespace hgraph
                             ref_input_viewdatas.try_emplace(curr_vd.value_data, curr_vd);
                         }
                         deferred = true;
+                    }
+
+                    // Check if we landed on a SIGNAL with more path elements.
+                    // SIGNAL is scalar (no children), but non-peered composites (TSB, TSL)
+                    // bound to SIGNAL create edges that navigate into SIGNAL children.
+                    // Instead, register a SignalSubscription on the TSInput that updates
+                    // the SIGNAL's time_data when the source output ticks.
+                    if (curr_vd.meta && curr_vd.meta->kind == TSKind::SIGNAL &&
+                        pi + 1 < edge.input_path.size()) {
+                        signal_multi_bind = true;
                     }
                 }
             }
@@ -177,8 +187,34 @@ namespace hgraph
                 }
             }
 
-            // 3. Bind the input view to the output view
-            input_view.bind(output_view);
+            if (signal_multi_bind) {
+                // SIGNAL non-peered binding: register a SignalSubscription that
+                // updates the SIGNAL's time_data and schedules the node.
+                // input_view already navigated to the SIGNAL child.
+                auto& signal_vd = input_view.ts_view().view_data();
+                auto* signal_time = static_cast<engine_time_t*>(signal_vd.time_data);
+
+                // Extract observer list from the source output
+                auto& out_vd = output_view.ts_view().view_data();
+                ObserverList* obs_list = nullptr;
+                if (out_vd.observer_data) {
+                    if (out_vd.meta && (out_vd.meta->kind == TSKind::TSB ||
+                                         out_vd.meta->kind == TSKind::TSL ||
+                                         out_vd.meta->kind == TSKind::TSD)) {
+                        auto obs_view = output_view.ts_view().observer();
+                        obs_list = static_cast<ObserverList*>(obs_view.as_tuple().at(0).data());
+                    } else {
+                        obs_list = static_cast<ObserverList*>(out_vd.observer_data);
+                    }
+                }
+
+                if (signal_time && obs_list) {
+                    dst_node->ts_input()->add_signal_subscription(signal_time, obs_list);
+                }
+            } else {
+                // 3. Standard bind: create LinkTarget and subscribe
+                input_view.bind(output_view);
+            }
         }
 
         // Phase 2: Process deferred REF-into-composite edges.
@@ -233,10 +269,22 @@ namespace hgraph
                 *static_cast<engine_time_t*>(ref_vd.time_data) = bind_time;
             }
 
-            // Subscribe the dst node's TSInput to each unique source output's observer list.
-            // Deferred edges create NON_PEERED references but skip the normal bind path, so
-            // no subscription exists to notify the dst node when source outputs change.
-            // Without this, nodes like switch won't be scheduled when reduce output REFs change.
+            // Set up the LinkTarget so set_active() can detect the TS→REF binding
+            // and fire the initial notification (notify(MIN_ST)).
+            // The deferred path skips scalar_ops::bind(), so the LinkTarget would
+            // otherwise remain uninitialized (is_linked=false, meta=nullptr).
+            // Python equivalent: PythonTimeSeriesReferenceInput.do_bind_output()
+            // appends to start_inputs for initial notification at node start.
+            if (ref_vd.uses_link_target && ref_vd.link_data && element_ts) {
+                auto* lt = static_cast<LinkTarget*>(ref_vd.link_data);
+                lt->is_linked = true;
+                lt->meta = element_ts;  // Inner type (TSB/TSL), not REF — triggers TS→REF detection
+            }
+
+            // Subscribe the dst node's TSInput to each unique source output's observer list,
+            // but ONLY for REF→REF (peered) bindings where the source is a REF output.
+            // For TS→REF (non-peered), the reference is fixed at bind time and the
+            // downstream should NOT be notified when the source value changes.
             for (size_t dei = 0; dei < deferred_edges.size(); ++dei) {
                 auto& de = deferred_edges[dei];
                 // Check if we already subscribed to this source
@@ -250,7 +298,11 @@ namespace hgraph
                 auto* src_output = nodes[de.src_node_idx]->ts_output();
                 if (dst_node && dst_node->ts_input() && src_output) {
                     ViewData src_vd = src_output->native_value().make_view_data();
-                    if (src_vd.observer_data) {
+                    // Only subscribe if source is a REF output (REF→REF peered binding).
+                    // Non-REF sources (TS→REF) are fixed references that should not
+                    // trigger the downstream node on value changes.
+                    if (src_vd.meta && src_vd.meta->kind == TSKind::REF &&
+                        src_vd.observer_data) {
                         auto* obs = static_cast<ObserverList*>(src_vd.observer_data);
                         obs->add_observer(dst_node->ts_input());
                     }

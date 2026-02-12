@@ -82,18 +82,18 @@ namespace hgraph
 
     nb::object PyTimeSeriesSetOutput::added() const {
         auto delta = view().delta_to_python();
-        if (delta.is_none()) return nb::frozenset(nb::set());
+        if (delta.is_none()) return nb::set();
         auto added = delta.attr("added");
-        if (nb::isinstance<nb::frozenset>(added)) return added;
-        return nb::frozenset(nb::cast<nb::set>(added));
+        if (nb::isinstance<nb::set>(added)) return added;
+        return nb::steal(PySet_New(added.ptr()));
     }
 
     nb::object PyTimeSeriesSetOutput::removed() const {
         auto delta = view().delta_to_python();
-        if (delta.is_none()) return nb::frozenset(nb::set());
+        if (delta.is_none()) return nb::set();
         auto removed = delta.attr("removed");
-        if (nb::isinstance<nb::frozenset>(removed)) return removed;
-        return nb::frozenset(nb::cast<nb::set>(removed));
+        if (nb::isinstance<nb::set>(removed)) return removed;
+        return nb::steal(PySet_New(removed.ptr()));
     }
 
     nb::bool_ PyTimeSeriesSetOutput::was_added(const nb::object &item) const {
@@ -323,23 +323,24 @@ namespace hgraph
 
     static nb::object get_input_delta(const PyTimeSeriesSetInput& input) {
         auto ts = input.input_view().ts_view();
+        if (!ts.modified()) return nb::none();
         return ts.delta_to_python();
     }
 
     nb::object PyTimeSeriesSetInput::added() const {
         auto delta = get_input_delta(*this);
-        if (delta.is_none()) return nb::frozenset(nb::set());
+        if (delta.is_none()) return nb::set();
         auto added = delta.attr("added");
-        if (nb::isinstance<nb::frozenset>(added)) return added;
-        return nb::frozenset(nb::cast<nb::set>(added));
+        if (nb::isinstance<nb::set>(added)) return added;
+        return nb::steal(PySet_New(added.ptr()));
     }
 
     nb::object PyTimeSeriesSetInput::removed() const {
         auto delta = get_input_delta(*this);
-        if (delta.is_none()) return nb::frozenset(nb::set());
+        if (delta.is_none()) return nb::set();
         auto removed = delta.attr("removed");
-        if (nb::isinstance<nb::frozenset>(removed)) return removed;
-        return nb::frozenset(nb::cast<nb::set>(removed));
+        if (nb::isinstance<nb::set>(removed)) return removed;
+        return nb::steal(PySet_New(removed.ptr()));
     }
 
     nb::bool_ PyTimeSeriesSetInput::was_added(const nb::object &item) const {

@@ -53,6 +53,15 @@ void TSInput::set_active(bool active) {
 
     // Dispatch through ts_ops table
     vd.ops->set_active(vd, av, active, this);
+
+    // Handle signal multi-bind subscriptions (non-peered TSB → SIGNAL)
+    for (auto& sub : signal_subscriptions_) {
+        if (active) {
+            sub->subscribe();
+        } else {
+            sub->unsubscribe();
+        }
+    }
 }
 
 void TSInput::set_active(const std::string& field, bool active) {
@@ -162,12 +171,47 @@ void TSInput::set_active(const std::string& field, bool active) {
     }
 }
 
+TSInput::~TSInput() {
+    for (auto& sub : signal_subscriptions_) {
+        sub->unsubscribe();
+    }
+}
+
 void TSInput::notify(engine_time_t et) {
-    // Called when a bound output changes
     // Schedule the owning node for execution
     if (owning_node_) {
-        // Delegate to the node's notify method which handles scheduling
         owning_node_->notify(et);
+    }
+}
+
+void TSInput::add_signal_subscription(engine_time_t* signal_time_data, ObserverList* output_observers) {
+    auto sub = std::make_unique<SignalSubscription>();
+    sub->signal_time_data = signal_time_data;
+    sub->output_observers = output_observers;
+    sub->owning_node = owning_node_;
+    signal_subscriptions_.push_back(std::move(sub));
+}
+
+// ============================================================================
+// SignalSubscription Implementation
+// ============================================================================
+
+void SignalSubscription::notify(engine_time_t et) {
+    if (signal_time_data) *signal_time_data = et;
+    if (owning_node) owning_node->notify(et);
+}
+
+void SignalSubscription::subscribe() {
+    if (output_observers && !subscribed) {
+        output_observers->add_observer(this);
+        subscribed = true;
+    }
+}
+
+void SignalSubscription::unsubscribe() {
+    if (output_observers && subscribed) {
+        output_observers->remove_observer(this);
+        subscribed = false;
     }
 }
 
@@ -220,8 +264,18 @@ void TSInputView::bind(TSOutputView& output) {
     //    (LinkTarget.peered flag set by list_ops/bundle_ops/dict_ops bind)
 
     // 5. Subscribe for notifications if active
+    // For TS→REF binding (REF input bound to non-REF output), the reference
+    // is fixed at bind time — do NOT subscribe to the target's observer list.
+    // Python equivalent: PythonTimeSeriesReferenceInput.do_bind_output sets
+    // _output=None, so make_active() skips subscription.
     if (input_ && input_->active()) {
-        output.subscribe(input_);
+        const auto& vd = ts_view_.view_data();
+        const auto& out_vd = output.ts_view().view_data();
+        bool is_ts_to_ref = (vd.meta && vd.meta->kind == TSKind::REF &&
+                             out_vd.meta && out_vd.meta->kind != TSKind::REF);
+        if (!is_ts_to_ref) {
+            output.subscribe(input_);
+        }
     }
 }
 
@@ -264,8 +318,23 @@ void TSInputView::make_active() {
     }
 
     // If we're bound, subscribe to the output
+    // For TS→REF binding (REF input bound to non-REF output), skip subscription:
+    // the reference is fixed at bind time and should NOT tick on underlying changes.
+    // Python equivalent: PythonTimeSeriesReferenceInput._output is None for TS→REF,
+    // so make_active() skips subscription.
     if (is_bound()) {
-        if (bound_output_) {
+        const auto& vd = ts_view_.view_data();
+        bool is_ts_to_ref = false;
+        if (vd.meta && vd.meta->kind == TSKind::REF) {
+            // Check if target (via LinkTarget) is non-REF
+            if (vd.uses_link_target && vd.link_data) {
+                auto* lt = static_cast<LinkTarget*>(vd.link_data);
+                is_ts_to_ref = (lt && lt->is_linked && lt->meta &&
+                                lt->meta->kind != TSKind::REF);
+            }
+        }
+
+        if (bound_output_ && !is_ts_to_ref) {
             // Root-level view: use bound_output_ directly
             TSOutputView output_view = bound_output_->view(ts_view_.current_time());
             output_view.subscribe(input_);
@@ -280,13 +349,13 @@ void TSInputView::make_active() {
                     input_->notify(lmt);
                 }
             }
-        } else {
+        } else if (!bound_output_ && !is_ts_to_ref) {
             // Field-level view: bound_output_ not propagated from parent.
             // Use the LinkTarget's active_notifier to subscribe to the output's
             // observer list (mirrors scalar_ops::set_active).
-            const auto& vd = ts_view_.view_data();
-            if (vd.uses_link_target && vd.link_data) {
-                auto* lt = static_cast<LinkTarget*>(vd.link_data);
+            const auto& vd2 = ts_view_.view_data();
+            if (vd2.uses_link_target && vd2.link_data) {
+                auto* lt = static_cast<LinkTarget*>(vd2.link_data);
                 if (lt && lt->is_linked) {
                     if (lt->active_notifier.owning_input == nullptr) {
                         lt->active_notifier.owning_input = input_;
@@ -315,6 +384,18 @@ void TSInputView::make_active() {
             }
         }
     }
+
+    // REF inputs: fire initial notification if the reference is already valid.
+    // This matches Python's PythonTimeSeriesReferenceInput.make_active() which calls
+    // self.notify(self.last_modified_time) when self.valid is True.
+    // Covers both standard bind (TS→REF) and deferred (Phase 2) paths.
+    // The notify duplicate guard (_notify_time != time) prevents double-firing
+    // if the subscription path already delivered the initial notification.
+    const auto& vd = ts_view_.view_data();
+    if (vd.meta && vd.meta->kind == TSKind::REF && vd.ops && vd.ops->valid(vd)) {
+        engine_time_t lmt = vd.ops->last_modified_time(vd);
+        input_->notify(lmt);
+    }
 }
 
 void TSInputView::make_passive() {
@@ -332,18 +413,29 @@ void TSInputView::make_passive() {
     }
 
     // If we're bound, unsubscribe from the output
+    // For TS→REF binding, we never subscribed, so skip unsubscription.
     if (is_bound()) {
-        if (bound_output_) {
+        const auto& vd = ts_view_.view_data();
+        bool is_ts_to_ref = false;
+        if (vd.meta && vd.meta->kind == TSKind::REF) {
+            if (vd.uses_link_target && vd.link_data) {
+                auto* lt = static_cast<LinkTarget*>(vd.link_data);
+                is_ts_to_ref = (lt && lt->is_linked && lt->meta &&
+                                lt->meta->kind != TSKind::REF);
+            }
+        }
+
+        if (bound_output_ && !is_ts_to_ref) {
             // Root-level view: unsubscribe TSInput from output's observer list
             TSOutputView output_view = bound_output_->view(ts_view_.current_time());
             output_view.unsubscribe(input_);
-        } else {
+        } else if (!bound_output_ && !is_ts_to_ref) {
             // Field-level view: bound_output_ not propagated from parent.
             // Use the LinkTarget's active_notifier to unsubscribe from the
             // output's observer list (mirrors scalar_ops::set_active(false)).
-            const auto& vd = ts_view_.view_data();
-            if (vd.uses_link_target && vd.link_data) {
-                auto* lt = static_cast<LinkTarget*>(vd.link_data);
+            const auto& vd2 = ts_view_.view_data();
+            if (vd2.uses_link_target && vd2.link_data) {
+                auto* lt = static_cast<LinkTarget*>(vd2.link_data);
                 if (lt && lt->active_notifier.owning_input != nullptr) {
                     if (lt->observer_data) {
                         auto* observers = static_cast<ObserverList*>(lt->observer_data);

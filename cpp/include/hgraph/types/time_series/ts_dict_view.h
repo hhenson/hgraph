@@ -197,12 +197,10 @@ public:
         auto* map_delta = static_cast<MapDelta*>(view_data_.delta_data);
         SetDelta* set_delta = map_delta ? &map_delta->key_delta() : nullptr;
 
-        // Get container time and observer from the TSD's time/observer tuples
-        // TSD time structure: tuple[engine_time_t, var_list[...]]
-        // We need the first element (container time)
-        auto time_schema = TSMetaSchemaCache::instance().get_time_schema(meta());
-        value::View time_tuple(view_data_.time_data, time_schema);
-        void* container_time_ptr = const_cast<void*>(time_tuple.as_tuple().at(0).data());
+        // Get the key_time from MapDelta — this is the key set's own modification time,
+        // separate from the TSD container time which updates for value changes too.
+        // In Python, key_set has its own _last_modified_time that only updates on add/remove.
+        void* key_time_ptr = map_delta ? static_cast<void*>(map_delta->key_time_ptr()) : nullptr;
 
         // TSD observer structure: tuple[ObserverList, var_list[...]]
         // We need the first element (container observer)
@@ -215,14 +213,16 @@ public:
         // not stored in TSS tuple format (tuple(SetStorage, bool)).
         const TSMeta* tss_meta = TSTypeRegistry::instance().tss_raw(meta()->key_type);
 
-        // Build ViewData for the TSSView (raw format - no ops since read-only)
+        // Build ViewData for the TSSView (raw format)
+        // Must provide ops so ViewData::valid() returns true — TSSView::added()/removed()
+        // check valid() before returning delta ranges.
         ViewData key_set_vd{
             view_data_.path,              // Same path (key set is part of TSD)
             const_cast<void*>(static_cast<const void*>(set_storage)),  // SetStorage
-            container_time_ptr,           // Container time
+            key_time_ptr,                 // Key set's own modification time (from MapDelta)
             container_observer_ptr,       // Container observer
             set_delta,                    // Embedded SetDelta from MapDelta
-            nullptr,                      // No ops (read-only view, mutations go through TSD)
+            get_ts_ops(TSKind::TSS),      // TSS ops (needed for valid() check in delta access)
             tss_meta                      // TSS[KeyType] raw metadata
         };
 
