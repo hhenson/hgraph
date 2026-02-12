@@ -1,7 +1,7 @@
 """
 Test Value Type System - Views
 
-Tests for ValueView and ConstValueView based on the Value_DESIGN.md Section 6:
+Tests for ValueView and View based on the Value_DESIGN.md Section 6:
 Value and View Classes
 
 These tests verify the C++ implementation once available.
@@ -84,30 +84,30 @@ def list_schema():
 
 
 # =============================================================================
-# Section 6.2: ConstValueView Creation and Validity
+# Section 6.2: View Creation and Validity
 # =============================================================================
 
-def test_const_view_from_value(int_value):
-    """ConstValueView can be created from Value."""
+def test_read_only_view_from_value(int_value):
+    """View can be created from Value."""
     cv = int_value.view()
     assert cv.valid()
 
 
-def test_const_view_validity(int_value):
-    """ConstValueView reports valid() correctly."""
+def test_read_only_view_validity(int_value):
+    """View reports valid() correctly."""
     cv = int_value.view()
     assert cv.valid() is True
 
 
-def test_const_view_schema_access(int_value):
-    """ConstValueView provides access to schema."""
+def test_read_only_view_schema_access(int_value):
+    """View provides access to schema."""
     cv = int_value.view()
     schema = cv.schema  # schema is a property
     assert schema is not None
 
 
 # =============================================================================
-# Section 6.3: ConstValueView Type Queries
+# Section 6.3: View Type Queries
 # =============================================================================
 
 def test_is_scalar_for_int(int_value):
@@ -193,7 +193,7 @@ def test_is_list_for_list_value(list_schema):
 
 
 # =============================================================================
-# ConstValueView Scalar Access
+# View Scalar Access
 # =============================================================================
 
 def test_is_scalar_type_correct(int_value):
@@ -242,7 +242,7 @@ def test_checked_as_scalar_throws(int_value):
 
 
 # =============================================================================
-# ConstValueView Operations
+# View Operations
 # =============================================================================
 
 def test_equals_same_value():
@@ -301,7 +301,7 @@ def test_try_as_list_returns_none_for_scalar(int_value):
 
 
 def test_try_as_bundle_returns_view_for_bundle(bundle_schema):
-    """try_as_bundle() returns ConstBundleView for bundle values."""
+    """try_as_bundle() returns BundleView for bundle values."""
     v = Value(bundle_schema)
 
     v.emplace()
@@ -311,7 +311,7 @@ def test_try_as_bundle_returns_view_for_bundle(bundle_schema):
 
 
 def test_try_as_tuple_returns_view_for_tuple(tuple_schema):
-    """try_as_tuple() returns ConstTupleView for tuple values."""
+    """try_as_tuple() returns TupleView for tuple values."""
     v = Value(tuple_schema)
 
     v.emplace()
@@ -458,7 +458,7 @@ def test_try_as_bundle_mutable(bundle_schema):
 # =============================================================================
 
 def test_value_view_has_const_methods(int_value):
-    """ValueView has all ConstValueView methods."""
+    """ValueView has all View methods."""
     view = int_value.view()
     assert hasattr(view, 'valid')
     assert hasattr(view, 'schema')
@@ -528,8 +528,8 @@ def test_clone_is_independent():
 # Python Interop Through Views
 # =============================================================================
 
-def test_const_view_to_python(int_value):
-    """ConstValueView.to_python() converts to Python object."""
+def test_view_to_python(int_value):
+    """View.to_python() converts to Python object."""
     cv = int_value.view()
     py_obj = cv.to_python()
     assert py_obj == 42

@@ -36,23 +36,23 @@ public:
     // ========== View Accessors ==========
 
     /**
-     * @brief Get const view of current set value.
+     * @brief Get read-only view of current set value.
      */
-    [[nodiscard]] ConstSetView value() const {
+    [[nodiscard]] SetView value() const {
         return _storage->value();
     }
 
     /**
-     * @brief Get const view of added elements.
+     * @brief Get read-only view of added elements.
      */
-    [[nodiscard]] ConstSetView added() const {
+    [[nodiscard]] SetView added() const {
         return _storage->added();
     }
 
     /**
-     * @brief Get const view of removed elements.
+     * @brief Get read-only view of removed elements.
      */
-    [[nodiscard]] ConstSetView removed() const {
+    [[nodiscard]] SetView removed() const {
         return _storage->removed();
     }
 
@@ -64,15 +64,15 @@ public:
 
     // ========== Element Access ==========
 
-    [[nodiscard]] bool contains(const ConstValueView& elem) const {
+    [[nodiscard]] bool contains(const View& elem) const {
         return _storage->contains(elem);
     }
 
-    [[nodiscard]] bool was_added(const ConstValueView& elem) const {
+    [[nodiscard]] bool was_added(const View& elem) const {
         return _storage->was_added(elem);
     }
 
-    [[nodiscard]] bool was_removed(const ConstValueView& elem) const {
+    [[nodiscard]] bool was_removed(const View& elem) const {
         return _storage->was_removed(elem);
     }
 
@@ -85,7 +85,7 @@ public:
 
     // ========== Iteration ==========
 
-    using const_iterator = ConstSetView::const_iterator;
+    using const_iterator = SetView::const_iterator;
 
     [[nodiscard]] const_iterator begin() const { return value().begin(); }
     [[nodiscard]] const_iterator end() const { return value().end(); }
@@ -102,7 +102,7 @@ public:
      * @brief Add an element with delta tracking.
      * @return true if element was newly added
      */
-    bool add(const ConstValueView& elem) {
+    bool add(const View& elem) {
         require_mutable_storage("add");
         return _mutable_storage->add(elem);
     }
@@ -111,7 +111,7 @@ public:
      * @brief Remove an element with delta tracking.
      * @return true if element was removed
      */
-    bool remove(const ConstValueView& elem) {
+    bool remove(const View& elem) {
         require_mutable_storage("remove");
         return _mutable_storage->remove(elem);
     }

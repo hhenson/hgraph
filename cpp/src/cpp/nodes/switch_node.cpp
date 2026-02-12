@@ -76,7 +76,7 @@ namespace hgraph {
         }
     }
 
-    bool SwitchNode::keys_equal(const value::ConstValueView& a, const value::ConstValueView& b) const {
+    bool SwitchNode::keys_equal(const value::View& a, const value::View& b) const {
         if (!a.valid() || !b.valid()) return false;
         return _key_type->ops().equals(a.data(), b.data(), _key_type);
     }

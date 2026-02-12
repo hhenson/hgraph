@@ -61,8 +61,8 @@ struct PolicyStorage;
 // View Forward Declarations
 // ============================================================================
 
-/// Non-owning const view into a Value
-class ConstValueView;
+/// Non-owning read-only view into a Value
+class View;
 
 /// Non-owning mutable view into a Value
 class ValueView;
@@ -91,14 +91,8 @@ class ConstListView;
 /// Mutable view for lists
 class ListView;
 
-/// Const view for sets (unique elements)
-class ConstSetView;
-
 /// Mutable view for sets
 class SetView;
-
-/// Const view for maps (key-value pairs)
-class ConstMapView;
 
 /// Mutable view for maps
 class MapView;

@@ -96,7 +96,7 @@ public:
      */
     template<typename T, typename = std::enable_if_t<
         !std::is_same_v<std::decay_t<T>, Value> &&
-        !std::is_base_of_v<ConstValueView, std::decay_t<T>>>>
+        !std::is_base_of_v<View, std::decay_t<T>>>>
     explicit Value(const T& val)
         : _schema(scalar_type_meta<T>()) {
         _storage.construct<T>(val, _schema);
@@ -109,7 +109,7 @@ public:
      *
      * @param view The view to copy from
      */
-    explicit Value(const ConstValueView& view)
+    explicit Value(const View& view)
         : _schema(view.schema()) {
         if (view.valid()) {
             _storage.construct(_schema);
@@ -177,7 +177,7 @@ public:
      * @param view The view to copy from
      * @return A new Value containing a copy of the data
      */
-    [[nodiscard]] static Value copy(const ConstValueView& view) {
+    [[nodiscard]] static Value copy(const View& view) {
         return Value(view);
     }
 
@@ -237,14 +237,14 @@ public:
     }
 
     /**
-     * @brief Get a const view of the data.
+     * @brief Get a read-only view of the data.
      * @return Const view
      */
-    [[nodiscard]] ConstValueView view() const {
+    [[nodiscard]] View view() const {
         if (!has_value()) {
             throw std::bad_optional_access();
         }
-        return ConstValueView(_storage.data(), _schema);
+        return View(_storage.data(), _schema);
     }
 
     // ========== Specialized View Access ==========
@@ -262,7 +262,7 @@ public:
     /**
      * @brief Get as a tuple view (const).
      */
-    [[nodiscard]] ConstTupleView as_tuple() const {
+    [[nodiscard]] TupleView as_tuple() const {
         return view().as_tuple();
     }
 
@@ -279,7 +279,7 @@ public:
     /**
      * @brief Get as a bundle view (const).
      */
-    [[nodiscard]] ConstBundleView as_bundle() const {
+    [[nodiscard]] BundleView as_bundle() const {
         return view().as_bundle();
     }
 
@@ -296,7 +296,7 @@ public:
     /**
      * @brief Get as a list view (const).
      */
-    [[nodiscard]] ConstListView as_list() const {
+    [[nodiscard]] ListView as_list() const {
         return view().as_list();
     }
 
@@ -313,7 +313,7 @@ public:
     /**
      * @brief Get as a set view (const).
      */
-    [[nodiscard]] ConstSetView as_set() const {
+    [[nodiscard]] SetView as_set() const {
         return view().as_set();
     }
 
@@ -330,7 +330,7 @@ public:
     /**
      * @brief Get as a map view (const).
      */
-    [[nodiscard]] ConstMapView as_map() const {
+    [[nodiscard]] MapView as_map() const {
         return view().as_map();
     }
 
@@ -473,7 +473,7 @@ public:
     /**
      * @brief Check equality with a view.
      */
-    [[nodiscard]] bool equals(const ConstValueView& other) const {
+    [[nodiscard]] bool equals(const View& other) const {
         if (!has_value() || !other.valid()) return false;
         if (_schema != other.schema()) return false;
         return _schema->ops().equals(_storage.data(), other.data(), _schema);
@@ -652,11 +652,11 @@ using TSValue = Value<CombinedPolicy<WithPythonCache, WithModificationTracking>>
 using ValidatedValue = Value<WithValidation>;
 
 // ============================================================================
-// ConstValueView::clone Implementation
+// View::clone Implementation
 // ============================================================================
 
 template<typename Policy>
-Value<Policy> ConstValueView::clone() const {
+Value<Policy> View::clone() const {
     return Value<Policy>(*this);
 }
 
@@ -668,91 +668,70 @@ Value<Policy> ConstValueView::clone() const {
 template<typename T>
 void IndexedView::set(size_t index, const T& value) {
     Value<> temp(value);
-    set(index, ConstValueView(temp.view()));
+    set(index, View(temp.view()));
 }
 
 // BundleView::set<T>
 template<typename T>
 void BundleView::set(std::string_view name, const T& value) {
     Value<> temp(value);
-    set(name, ConstValueView(temp.view()));
+    set(name, View(temp.view()));
 }
 
 // ListView::push_back<T>
 template<typename T>
 void ListView::push_back(const T& value) {
     Value<> temp(value);
-    push_back(ConstValueView(temp.view()));
+    push_back(View(temp.view()));
 }
 
 // ListView::reset<T>
 template<typename T>
 void ListView::reset(const T& sentinel) {
     Value<> temp(sentinel);
-    reset(ConstValueView(temp.view()));
-}
-
-// ConstSetView::contains<T>
-template<typename T>
-bool ConstSetView::contains(const T& value) const {
-    Value<> temp(value);
-    return contains(ConstValueView(temp.view()));
+    reset(View(temp.view()));
 }
 
 // SetView::contains<T>
 template<typename T>
 bool SetView::contains(const T& value) const {
     Value<> temp(value);
-    return contains(ConstValueView(temp.view()));
+    return contains(View(temp.view()));
 }
 
 // SetView::add<T>
 template<typename T>
 bool SetView::add(const T& value) {
     Value<> temp(value);
-    return add(ConstValueView(temp.view()));
+    return add(View(temp.view()));
 }
 
 // SetView::remove<T>
 template<typename T>
 bool SetView::remove(const T& value) {
     Value<> temp(value);
-    return remove(ConstValueView(temp.view()));
-}
-
-// ConstMapView::at<K>
-template<typename K>
-ConstValueView ConstMapView::at(const K& key) const {
-    Value<> temp(key);
-    return at(ConstValueView(temp.view()));
-}
-
-// ConstMapView::contains<K>
-template<typename K>
-bool ConstMapView::contains(const K& key) const {
-    Value<> temp(key);
-    return contains(ConstValueView(temp.view()));
+    return remove(View(temp.view()));
 }
 
 // MapView::at<K> (const)
 template<typename K>
-ConstValueView MapView::at(const K& key) const {
+View MapView::at(const K& key) const {
     Value<> temp(key);
-    return at(ConstValueView(temp.view()));
+    return at(View(temp.view()));
 }
 
 // MapView::at<K> (mutable)
 template<typename K>
 ValueView MapView::at(const K& key) {
     Value<> temp(key);
-    return at(ConstValueView(temp.view()));
+    return at(View(temp.view()));
 }
 
 // MapView::contains<K>
 template<typename K>
 bool MapView::contains(const K& key) const {
     Value<> temp(key);
-    return contains(ConstValueView(temp.view()));
+    return contains(View(temp.view()));
 }
 
 // MapView::set<K, V>
@@ -760,7 +739,7 @@ template<typename K, typename V>
 void MapView::set(const K& key, const V& value) {
     Value<> temp_key(key);
     Value<> temp_val(value);
-    set(ConstValueView(temp_key.view()), ConstValueView(temp_val.view()));
+    set(View(temp_key.view()), View(temp_val.view()));
 }
 
 // MapView::add<K, V>
@@ -768,14 +747,14 @@ template<typename K, typename V>
 bool MapView::add(const K& key, const V& value) {
     Value<> temp_key(key);
     Value<> temp_val(value);
-    return add(ConstValueView(temp_key.view()), ConstValueView(temp_val.view()));
+    return add(View(temp_key.view()), View(temp_val.view()));
 }
 
 // MapView::remove<K>
 template<typename K>
 bool MapView::remove(const K& key) {
     Value<> temp(key);
-    return remove(ConstValueView(temp.view()));
+    return remove(View(temp.view()));
 }
 
 // ============================================================================
@@ -793,22 +772,22 @@ bool operator!=(const Value<P1>& lhs, const Value<P2>& rhs) {
 }
 
 template<typename P>
-bool operator==(const Value<P>& lhs, const ConstValueView& rhs) {
+bool operator==(const Value<P>& lhs, const View& rhs) {
     return lhs.equals(rhs);
 }
 
 template<typename P>
-bool operator==(const ConstValueView& lhs, const Value<P>& rhs) {
+bool operator==(const View& lhs, const Value<P>& rhs) {
     return rhs.equals(lhs);
 }
 
 template<typename P>
-bool operator!=(const Value<P>& lhs, const ConstValueView& rhs) {
+bool operator!=(const Value<P>& lhs, const View& rhs) {
     return !lhs.equals(rhs);
 }
 
 template<typename P>
-bool operator!=(const ConstValueView& lhs, const Value<P>& rhs) {
+bool operator!=(const View& lhs, const Value<P>& rhs) {
     return !rhs.equals(lhs);
 }
 
@@ -828,10 +807,10 @@ struct hash<hgraph::value::Value<Policy>> {
     }
 };
 
-/// Hash specialization for ConstValueView
+/// Hash specialization for View
 template<>
-struct hash<hgraph::value::ConstValueView> {
-    size_t operator()(const hgraph::value::ConstValueView& v) const {
+struct hash<hgraph::value::View> {
+    size_t operator()(const hgraph::value::View& v) const {
         return v.hash();
     }
 };

@@ -19,7 +19,7 @@
  * size_t count = count_leaves(value.view());
  *
  * // Visit all leaves with path
- * deep_visit(value.view(), [](ConstValueView leaf, const TraversalPath& path) {
+ * deep_visit(value.view(), [](View leaf, const TraversalPath& path) {
  *     std::cout << "At path " << path_to_string(path) << ": ";
  *     std::cout << leaf.to_string() << std::endl;
  * });
@@ -111,7 +111,7 @@ inline std::string path_to_string(const TraversalPath& path) {
  *
  * Called for each leaf (scalar) value with the value and its path.
  */
-using DeepVisitCallback = std::function<void(ConstValueView, const TraversalPath&)>;
+using DeepVisitCallback = std::function<void(View, const TraversalPath&)>;
 
 // ============================================================================
 // Deep Visit Implementation
@@ -123,7 +123,7 @@ namespace detail {
  * @brief Recursive helper for deep traversal.
  */
 inline void deep_visit_impl(
-    ConstValueView view,
+    View view,
     TraversalPath& path,
     const DeepVisitCallback& callback
 ) {
@@ -176,7 +176,7 @@ inline void deep_visit_impl(
                 path.push_back(i);
                 const void* elem_data = schema->ops().at(set.data(), i, schema);
                 if (elem_data) {
-                    deep_visit_impl(ConstValueView(elem_data, schema->element_type), path, callback);
+                    deep_visit_impl(View(elem_data, schema->element_type), path, callback);
                 }
                 path.pop_back();
             }
@@ -184,7 +184,7 @@ inline void deep_visit_impl(
         }
 
         case TypeKind::Map: {
-            auto map = view.as_map();
+            const auto map = view.as_map();
             // Iterate through keys using KeySetView iterator
             auto key_set = map.keys();
             size_t i = 0;
@@ -245,7 +245,7 @@ inline void deep_visit_impl(
  * @param view The root value to traverse
  * @param callback Called for each leaf with (leaf_view, path)
  */
-inline void deep_visit(ConstValueView view, const DeepVisitCallback& callback) {
+inline void deep_visit(View view, const DeepVisitCallback& callback) {
     TraversalPath path;
     detail::deep_visit_impl(view, path, callback);
 }
@@ -256,9 +256,9 @@ inline void deep_visit(ConstValueView view, const DeepVisitCallback& callback) {
  * @param view The root value to traverse
  * @return The number of scalar values
  */
-inline size_t count_leaves(ConstValueView view) {
+inline size_t count_leaves(View view) {
     size_t count = 0;
-    deep_visit(view, [&count](ConstValueView, const TraversalPath&) {
+    deep_visit(view, [&count](View, const TraversalPath&) {
         ++count;
     });
     return count;
@@ -270,9 +270,9 @@ inline size_t count_leaves(ConstValueView view) {
  * @param view The root value to traverse
  * @return Vector of paths to each leaf
  */
-inline std::vector<TraversalPath> collect_leaf_paths(ConstValueView view) {
+inline std::vector<TraversalPath> collect_leaf_paths(View view) {
     std::vector<TraversalPath> paths;
-    deep_visit(view, [&paths](ConstValueView, const TraversalPath& path) {
+    deep_visit(view, [&paths](View, const TraversalPath& path) {
         paths.push_back(path);
     });
     return paths;
@@ -284,9 +284,9 @@ inline std::vector<TraversalPath> collect_leaf_paths(ConstValueView view) {
  * @param view The root value to traverse
  * @return Vector of (path, value_view) pairs
  */
-inline std::vector<std::pair<TraversalPath, ConstValueView>> collect_leaves(ConstValueView view) {
-    std::vector<std::pair<TraversalPath, ConstValueView>> leaves;
-    deep_visit(view, [&leaves](ConstValueView leaf, const TraversalPath& path) {
+inline std::vector<std::pair<TraversalPath, View>> collect_leaves(View view) {
+    std::vector<std::pair<TraversalPath, View>> leaves;
+    deep_visit(view, [&leaves](View leaf, const TraversalPath& path) {
         leaves.emplace_back(path, leaf);
     });
     return leaves;
@@ -500,9 +500,9 @@ void transform_string(ValueView view, F&& transform) {
  * @param view The root value to traverse
  * @return The sum of all int64_t and double values (as double)
  */
-inline double sum_numeric(ConstValueView view) {
+inline double sum_numeric(View view) {
     double sum = 0.0;
-    deep_visit(view, [&sum](ConstValueView leaf, const TraversalPath&) {
+    deep_visit(view, [&sum](View leaf, const TraversalPath&) {
         if (leaf.is_scalar_type<int64_t>()) {
             sum += static_cast<double>(leaf.as<int64_t>());
         } else if (leaf.is_scalar_type<double>()) {
@@ -518,9 +518,9 @@ inline double sum_numeric(ConstValueView view) {
  * @param view The root value to traverse
  * @return The maximum value, or nullopt if no numeric leaves
  */
-inline std::optional<double> max_numeric(ConstValueView view) {
+inline std::optional<double> max_numeric(View view) {
     std::optional<double> max_val;
-    deep_visit(view, [&max_val](ConstValueView leaf, const TraversalPath&) {
+    deep_visit(view, [&max_val](View leaf, const TraversalPath&) {
         double val;
         if (leaf.is_scalar_type<int64_t>()) {
             val = static_cast<double>(leaf.as<int64_t>());
@@ -542,9 +542,9 @@ inline std::optional<double> max_numeric(ConstValueView view) {
  * @param view The root value to traverse
  * @return The minimum value, or nullopt if no numeric leaves
  */
-inline std::optional<double> min_numeric(ConstValueView view) {
+inline std::optional<double> min_numeric(View view) {
     std::optional<double> min_val;
-    deep_visit(view, [&min_val](ConstValueView leaf, const TraversalPath&) {
+    deep_visit(view, [&min_val](View leaf, const TraversalPath&) {
         double val;
         if (leaf.is_scalar_type<int64_t>()) {
             val = static_cast<double>(leaf.as<int64_t>());

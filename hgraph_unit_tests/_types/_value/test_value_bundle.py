@@ -218,7 +218,7 @@ def test_bundle_view_set_by_index(simple_bundle_schema):
 
 
 def test_const_bundle_view_at_by_name(simple_bundle_schema):
-    """ConstBundleView.at_name(name) provides read access."""
+    """View.as_bundle() provides read access."""
     v = PlainValue(simple_bundle_schema)
 
     v.emplace()

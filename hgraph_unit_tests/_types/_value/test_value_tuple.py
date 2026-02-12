@@ -248,7 +248,7 @@ def test_tuple_view_at_method(simple_tuple_schema):
 
 # Tuple TypeOps now implemented
 def test_const_tuple_view_read_access(simple_tuple_schema):
-    """ConstTupleView provides read-only access."""
+    """View.as_tuple() provides read-only access."""
     v = PlainValue(simple_tuple_schema)
 
     v.emplace()
@@ -257,7 +257,7 @@ def test_const_tuple_view_read_access(simple_tuple_schema):
     tv.at(1).set_string("hello")
     tv.at(2).set_double(3.14)
 
-    # Get const view
+    # Get read-only view
     ctv = v.view().as_tuple()
 
     assert ctv.at(0).as_int() == 42

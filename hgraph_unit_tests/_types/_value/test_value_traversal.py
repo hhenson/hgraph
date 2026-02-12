@@ -848,14 +848,14 @@ def test_collect_leaf_paths_empty_containers(dynamic_int_list_schema, int_set_sc
 # Section 9.7: Edge Cases and Error Handling
 # =============================================================================
 
-def test_deep_visit_callback_receives_const_view():
-    """Callback receives ConstValueView, not mutable view."""
+def test_deep_visit_callback_receives_view():
+    """Callback receives View, not mutable view."""
     deep_visit, _, _ = get_traversal_functions()
 
     v = make_int_value(42)
 
     def callback(leaf_value, path):
-        # Should be a ConstValueView
+        # Should be a View
         assert hasattr(leaf_value, 'as_int')
         # Should not have mutable methods like set_int
         # (or they should raise if called)

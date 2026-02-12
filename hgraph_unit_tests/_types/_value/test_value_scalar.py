@@ -254,8 +254,8 @@ def test_checked_as_throws_on_mismatch(int_value):
 # Section 3.1: Value Views
 # =============================================================================
 
-def test_const_view_preserves_type_info(double_value):
-    """ConstValueView preserves type information."""
+def test_view_preserves_type_info(double_value):
+    """View preserves type information."""
     cv = double_value.view()
     assert cv.schema is not None
 
@@ -286,12 +286,12 @@ def test_modification_reflects_in_original():
     assert v.as_int() == 100
 
 
-def test_const_view_cannot_modify():
-    """ConstValueView provides read-only access."""
+def test_view_cannot_modify():
+    """View provides read-only access."""
     v = Value(42)
     cv = v.view()
     assert cv.as_int() == 42
-    # Note: ConstValueView doesn't have set methods
+    # Note: View doesn't have set methods
 
 
 # =============================================================================

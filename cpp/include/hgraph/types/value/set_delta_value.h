@@ -51,7 +51,7 @@ struct SetDeltaValue {
     /**
      * @brief Construct from existing set views (copies data).
      */
-    SetDeltaValue(ConstSetView added_view, ConstSetView removed_view,
+    SetDeltaValue(SetView added_view, SetView removed_view,
                   const TypeMeta* element_type)
         : _element_type(element_type) {
         if (_element_type) {
@@ -73,15 +73,6 @@ struct SetDeltaValue {
         }
     }
 
-    /**
-     * @brief Construct from mutable set views (copies data).
-     */
-    SetDeltaValue(SetView added_view, SetView removed_view,
-                  const TypeMeta* element_type)
-        : SetDeltaValue(ConstSetView(added_view.data(), added_view.schema()),
-                        ConstSetView(removed_view.data(), removed_view.schema()),
-                        element_type) {}
-
     // Move-only (PlainValue has unique ownership)
     SetDeltaValue(SetDeltaValue&&) noexcept = default;
     SetDeltaValue& operator=(SetDeltaValue&&) noexcept = default;
@@ -91,16 +82,16 @@ struct SetDeltaValue {
     // ========== View Accessors ==========
 
     /**
-     * @brief Get const view of added elements.
+     * @brief Get view of added elements.
      */
-    [[nodiscard]] ConstSetView added() const {
+    [[nodiscard]] SetView added() const {
         return _added.view().as_set();
     }
 
     /**
-     * @brief Get const view of removed elements.
+     * @brief Get view of removed elements.
      */
-    [[nodiscard]] ConstSetView removed() const {
+    [[nodiscard]] SetView removed() const {
         return _removed.view().as_set();
     }
 

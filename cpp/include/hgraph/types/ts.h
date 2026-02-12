@@ -45,7 +45,7 @@ namespace hgraph {
         void apply_result(const nb::object& value) override;
 
         // Value access via views
-        [[nodiscard]] value::ConstValueView value() const { return _value.view(); }
+        [[nodiscard]] value::View value() const { return _value.view(); }
         [[nodiscard]] value::ValueView value_mut() { return _value.view(); }
 
         // Schema access
@@ -87,7 +87,7 @@ namespace hgraph {
         [[nodiscard]] TimeSeriesValueOutput& value_output();
         [[nodiscard]] const TimeSeriesValueOutput& value_output() const;
 
-        [[nodiscard]] value::ConstValueView value() const;
+        [[nodiscard]] value::View value() const;
         [[nodiscard]] const value::TypeMeta* schema() const;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;

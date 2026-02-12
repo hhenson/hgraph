@@ -270,7 +270,7 @@ namespace hgraph {
         return dynamic_cast<TimeSeriesDictOutputImpl &>(*(*output_bundle)["out"]);
     }
 
-    void MeshNode::create_new_graph(const value::ConstValueView &key, int rank) {
+    void MeshNode::create_new_graph(const value::View &key, int rank) {
         // Convert key to string for graph label
         nb::object py_key = key_type_meta_->ops().to_python(key.data(), key_type_meta_);
         std::string key_str = nb::repr(py_key).c_str();
@@ -298,7 +298,7 @@ namespace hgraph {
         schedule_graph(key, this->last_evaluation_time());
     }
 
-    void MeshNode::schedule_graph(const value::ConstValueView &key, engine_time_t tm) {
+    void MeshNode::schedule_graph(const value::View &key, engine_time_t tm) {
         auto rank_it = active_graphs_rank_.find(key);
         if (rank_it == active_graphs_rank_.end()) { return; }
         int rank = rank_it->second;
@@ -325,7 +325,7 @@ namespace hgraph {
         }
     }
 
-    void MeshNode::remove_graph(const value::ConstValueView &key) {
+    void MeshNode::remove_graph(const value::View &key) {
         // Remove error output if using exception capture
         if (this->signature().capture_exception) {
             auto &error_output_ = dynamic_cast<TimeSeriesDictOutputImpl &>(*this->error_output());
@@ -364,7 +364,7 @@ namespace hgraph {
         }
     }
 
-    bool MeshNode::add_graph_dependency(const value::ConstValueView &key, const value::ConstValueView &depends_on) {
+    bool MeshNode::add_graph_dependency(const value::View &key, const value::View &depends_on) {
         active_graphs_dependencies_[depends_on.clone()].insert(key.clone());
 
         if (this->active_graphs_.find(depends_on) == this->active_graphs_.end()) {
@@ -378,7 +378,7 @@ namespace hgraph {
         }
     }
 
-    void MeshNode::remove_graph_dependency(const value::ConstValueView &key, const value::ConstValueView &depends_on) {
+    void MeshNode::remove_graph_dependency(const value::View &key, const value::View &depends_on) {
         auto deps_it = active_graphs_dependencies_.find(depends_on);
         if (deps_it != active_graphs_dependencies_.end()) {
             if (auto key_it = deps_it->second.find(key); key_it != deps_it->second.end()) {
@@ -396,7 +396,7 @@ namespace hgraph {
         }
     }
 
-    bool MeshNode::request_re_rank(const value::ConstValueView &key, const value::ConstValueView &depends_on) {
+    bool MeshNode::request_re_rank(const value::View &key, const value::View &depends_on) {
         auto key_rank_it = active_graphs_rank_.find(key);
         auto dep_rank_it = active_graphs_rank_.find(depends_on);
         if (key_rank_it == active_graphs_rank_.end() || dep_rank_it == active_graphs_rank_.end()) {
@@ -410,7 +410,7 @@ namespace hgraph {
         return true;
     }
 
-    void MeshNode::re_rank(const value::ConstValueView &key, const value::ConstValueView &depends_on,
+    void MeshNode::re_rank(const value::View &key, const value::View &depends_on,
                            std::vector<value::PlainValue> re_rank_stack) {
         auto key_rank_it = active_graphs_rank_.find(key);
         auto dep_rank_it = active_graphs_rank_.find(depends_on);

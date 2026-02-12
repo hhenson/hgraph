@@ -9,8 +9,8 @@
  * - ConstTupleView / TupleView: Heterogeneous indexed collections
  * - ConstBundleView / BundleView: Struct-like types with named + indexed access
  * - ConstListView / ListView: Homogeneous indexed collections
- * - ConstSetView / SetView: Unique element collections
- * - ConstMapView / MapView: Key-value collections
+ * - SetView: Unique element collections (supports read-only mode)
+ * - MapView: Key-value collections (supports read-only mode)
  *
  * All views provide:
  * - at(index) / operator[](index) for element access
@@ -30,7 +30,7 @@
 
 namespace hgraph::value {
 
-inline void require_typed_view(const ConstValueView& view, const TypeMeta* expected_schema,
+inline void require_typed_view(const View& view, const TypeMeta* expected_schema,
                                const char* name, bool allow_null = false) {
     if (!allow_null && !view.valid()) {
         throw std::runtime_error(std::string(name) + " must be non-null");
@@ -54,15 +54,15 @@ class Value;
  * Provides unified at()/operator[] interface for accessing elements by index.
  * Used as a base for tuples, bundles, and lists.
  */
-class ConstIndexedView : public ConstValueView {
+class ConstIndexedView : public View {
 public:
     // ========== Construction ==========
 
-    using ConstValueView::ConstValueView;
+    using View::View;
 
     /// Construct from base view
-    explicit ConstIndexedView(const ConstValueView& view)
-        : ConstValueView(view) {}
+    explicit ConstIndexedView(const View& view)
+        : View(view) {}
 
     // ========== Size ==========
 
@@ -96,7 +96,7 @@ public:
      * @return Const view of the element
      * @throws std::out_of_range if index >= size()
      */
-    [[nodiscard]] ConstValueView at(size_t index) const {
+    [[nodiscard]] View at(size_t index) const {
         assert(valid() && "at() on invalid view");
         if (index >= size()) {
             throw std::out_of_range("Index out of range");
@@ -110,7 +110,7 @@ public:
         } else if (_schema->kind == TypeKind::Bundle || _schema->kind == TypeKind::Tuple) {
             elem_schema = _schema->fields[index].type;
         }
-        return ConstValueView(elem_data, elem_schema);
+        return View(elem_data, elem_schema);
     }
 
     /**
@@ -121,7 +121,7 @@ public:
      * @param index The element index
      * @return Const view of the element
      */
-    [[nodiscard]] ConstValueView operator[](size_t index) const {
+    [[nodiscard]] View operator[](size_t index) const {
         return at(index);
     }
 
@@ -133,10 +133,10 @@ public:
     class const_iterator {
     public:
         using iterator_category = std::forward_iterator_tag;
-        using value_type = ConstValueView;
+        using value_type = View;
         using difference_type = std::ptrdiff_t;
-        using pointer = const ConstValueView*;
-        using reference = ConstValueView;
+        using pointer = const View*;
+        using reference = View;
 
         const_iterator() = default;
         const_iterator(const ConstIndexedView* view, size_t index)
@@ -192,6 +192,10 @@ public:
 
     using ValueView::ValueView;
 
+    /// Construct a read-only indexed view from a base view
+    explicit IndexedView(const View& view) noexcept
+        : ValueView(view) {}
+
     /// Construct from base view
     explicit IndexedView(const ValueView& view)
         : ValueView(view) {}
@@ -223,14 +227,14 @@ public:
     /**
      * @brief Get element at index (const).
      */
-    [[nodiscard]] ConstValueView at(size_t index) const {
+    [[nodiscard]] View at(size_t index) const {
         assert(valid() && "at() on invalid view");
         if (index >= size()) {
             throw std::out_of_range("Index out of range");
         }
         const void* elem_data = _schema->ops().at(_data, index, _schema);
         const TypeMeta* elem_schema = get_element_schema(index);
-        return ConstValueView(elem_data, elem_schema);
+        return View(elem_data, elem_schema);
     }
 
     /**
@@ -241,16 +245,19 @@ public:
         if (index >= size()) {
             throw std::out_of_range("Index out of range");
         }
-        // Use const get_at and cast - we know we have mutable access
+        // Preserve mutability for nested element views.
         void* elem_data = const_cast<void*>(_schema->ops().at(data(), index, _schema));
         const TypeMeta* elem_schema = get_element_schema(index);
+        if (!is_mutable()) {
+            return ValueView(View(elem_data, elem_schema));
+        }
         return ValueView(elem_data, elem_schema);
     }
 
     /**
      * @brief Get element at index (const, operator[]).
      */
-    [[nodiscard]] ConstValueView operator[](size_t index) const {
+    [[nodiscard]] View operator[](size_t index) const {
         return at(index);
     }
 
@@ -269,7 +276,8 @@ public:
      * @param index The element index
      * @param value The value to set
      */
-    void set(size_t index, const ConstValueView& value) {
+    void set(size_t index, const View& value) {
+        require_mutable("set");
         assert(valid() && "set() on invalid view");
         if (index >= size()) {
             throw std::out_of_range("Index out of range");
@@ -368,7 +376,7 @@ public:
      * @return Const view of the field
      * @throws std::runtime_error if field not found
      */
-    [[nodiscard]] ConstValueView at(std::string_view name) const {
+    [[nodiscard]] View at(std::string_view name) const {
         assert(valid() && "at(name) on invalid view");
         size_t idx = field_index(name);
         if (idx >= size()) {
@@ -380,7 +388,7 @@ public:
     /**
      * @brief Get field by name (operator[]).
      */
-    [[nodiscard]] ConstValueView operator[](std::string_view name) const {
+    [[nodiscard]] View operator[](std::string_view name) const {
         return at(name);
     }
 
@@ -461,7 +469,7 @@ public:
     /**
      * @brief Get field by name (const).
      */
-    [[nodiscard]] ConstValueView at(std::string_view name) const {
+    [[nodiscard]] View at(std::string_view name) const {
         size_t idx = field_index(name);
         if (idx >= size()) {
             throw std::runtime_error("Field not found: " + std::string(name));
@@ -483,7 +491,7 @@ public:
     /**
      * @brief Get field by name (const, operator[]).
      */
-    [[nodiscard]] ConstValueView operator[](std::string_view name) const {
+    [[nodiscard]] View operator[](std::string_view name) const {
         return at(name);
     }
 
@@ -503,7 +511,7 @@ public:
     /**
      * @brief Set field by name from a view.
      */
-    void set(std::string_view name, const ConstValueView& value) {
+    void set(std::string_view name, const View& value) {
         size_t idx = field_index(name);
         if (idx >= size()) {
             throw std::runtime_error("Field not found: " + std::string(name));
@@ -593,6 +601,7 @@ public:
     };
 
     [[nodiscard]] items_range items() {
+        require_mutable("items");
         return {
             items_iterator(data(), _schema, 0),
             items_iterator(data(), _schema, size())
@@ -616,14 +625,14 @@ public:
     /**
      * @brief Get the first element.
      */
-    [[nodiscard]] ConstValueView front() const {
+    [[nodiscard]] View front() const {
         return at(0);
     }
 
     /**
      * @brief Get the last element.
      */
-    [[nodiscard]] ConstValueView back() const {
+    [[nodiscard]] View back() const {
         return at(size() - 1);
     }
 
@@ -739,7 +748,8 @@ public:
      *
      * @throws std::runtime_error if the list is fixed-size or resize not supported
      */
-    void push_back(const ConstValueView& value) {
+    void push_back(const View& value) {
+        require_mutable("push_back");
         if (is_fixed()) {
             throw std::runtime_error("Cannot push_back on fixed-size list");
         }
@@ -791,6 +801,7 @@ public:
      * @throws std::runtime_error if the list is fixed-size, empty, or resize not supported
      */
     void pop_back() {
+        require_mutable("pop_back");
         if (is_fixed()) {
             throw std::runtime_error("Cannot pop_back on fixed-size list");
         }
@@ -810,6 +821,7 @@ public:
      * @throws std::runtime_error if the list is fixed-size
      */
     void clear() {
+        require_mutable("clear");
         if (is_fixed()) {
             throw std::runtime_error("Cannot clear fixed-size list");
         }
@@ -824,6 +836,7 @@ public:
      * @throws std::runtime_error if the list is fixed-size
      */
     void resize(size_t new_size) {
+        require_mutable("resize");
         if (is_fixed()) {
             throw std::runtime_error("Cannot resize fixed-size list");
         }
@@ -837,7 +850,8 @@ public:
      *
      * Works on both fixed and dynamic lists.
      */
-    void reset(const ConstValueView& sentinel) {
+    void reset(const View& sentinel) {
+        require_mutable("reset");
         for (size_t i = 0; i < size(); ++i) {
             set(i, sentinel);
         }
@@ -876,14 +890,14 @@ public:
     /**
      * @brief Get the oldest element.
      */
-    [[nodiscard]] ConstValueView front() const {
+    [[nodiscard]] View front() const {
         return at(0);
     }
 
     /**
      * @brief Get the newest element.
      */
-    [[nodiscard]] ConstValueView back() const {
+    [[nodiscard]] View back() const {
         return at(size() - 1);
     }
 
@@ -961,12 +975,13 @@ public:
      * If the buffer is not full, adds at the end.
      * If the buffer is full, overwrites the oldest element.
      */
-    void push(const ConstValueView& value);
+    void push(const View& value);
 
     /**
      * @brief Clear all elements from the buffer.
      */
     void clear() {
+        require_mutable("clear");
         if (_schema->ops().has_clear()) {
             _schema->ops().clear(data(), _schema);
         }
@@ -996,14 +1011,14 @@ public:
     /**
      * @brief Get the front element (first in queue).
      */
-    [[nodiscard]] ConstValueView front() const {
+    [[nodiscard]] View front() const {
         return at(0);
     }
 
     /**
      * @brief Get the back element (last in queue).
      */
-    [[nodiscard]] ConstValueView back() const {
+    [[nodiscard]] View back() const {
         return at(size() - 1);
     }
 
@@ -1078,7 +1093,7 @@ public:
     /**
      * @brief Push a value to the back of the queue.
      */
-    void push(const ConstValueView& value);
+    void push(const View& value);
 
     /**
      * @brief Remove the front element.
@@ -1089,6 +1104,7 @@ public:
      * @brief Clear all elements from the queue.
      */
     void clear() {
+        require_mutable("clear");
         if (_schema->ops().has_clear()) {
             _schema->ops().clear(data(), _schema);
         }
@@ -1102,15 +1118,25 @@ public:
 };
 
 // ============================================================================
-// ConstSetView - Unique Element Access
+// SetView - Set Operations (Mutable + Read-Only Mode)
 // ============================================================================
 
 /**
- * @brief Const view for set types.
+ * @brief Mutable view for set types.
  */
-class ConstSetView : public ConstValueView {
+class SetView : public ValueView {
 public:
-    using ConstValueView::ConstValueView;
+    using ValueView::ValueView;
+
+    SetView() noexcept = default;
+
+    /**
+     * @brief Construct a read-only SetView from a read-only view.
+     *
+     * Mutation methods will throw on this instance.
+     */
+    explicit SetView(const View& view) noexcept
+        : ValueView(const_cast<void*>(view.data()), view.schema()), _mutable_access(false) {}
 
     /**
      * @brief Get the number of elements.
@@ -1130,17 +1156,50 @@ public:
     /**
      * @brief Check if an element is in the set.
      */
-    [[nodiscard]] bool contains(const ConstValueView& value) const {
+    [[nodiscard]] bool contains(const View& value) const {
         assert(valid() && "contains() on invalid view");
         require_typed_view(value, element_type(), "Set element");
         return _schema->ops().contains(_data, value.data(), _schema);
     }
 
     /**
-     * @brief Check if a typed value is in the set.
+     * @brief Insert an element.
+     *
+     * @return true if the element was inserted (not already present)
      */
-    template<typename T>
-    [[nodiscard]] bool contains(const T& value) const;  // Implemented after Value
+    bool add(const View& value) {
+        assert(valid() && "add() on invalid view");
+        require_mutable("add");
+        require_typed_view(value, element_type(), "Set element");
+        if (contains(value)) return false;
+        _schema->ops().add(data(), value.data(), _schema);
+        return true;
+    }
+
+    /**
+     * @brief Remove an element.
+     *
+     * @return true if the element was removed (was present)
+     */
+    bool remove(const View& value) {
+        assert(valid() && "remove() on invalid view");
+        require_mutable("remove");
+        require_typed_view(value, element_type(), "Set element");
+        if (!contains(value)) return false;
+        _schema->ops().remove(data(), value.data(), _schema);
+        return true;
+    }
+
+    /**
+     * @brief Clear all elements.
+     */
+    void clear() {
+        assert(valid() && "clear() on invalid view");
+        require_mutable("clear");
+        if (_schema->ops().has_clear()) {
+            _schema->ops().clear(data(), _schema);
+        }
+    }
 
     /**
      * @brief Get the element type.
@@ -1162,10 +1221,10 @@ public:
     class const_iterator {
     public:
         using iterator_category = std::forward_iterator_tag;
-        using value_type = ConstValueView;
+        using value_type = View;
         using difference_type = std::ptrdiff_t;
-        using pointer = const ConstValueView*;
-        using reference = ConstValueView;
+        using pointer = const View*;
+        using reference = View;
 
         const_iterator() = default;
         const_iterator(const void* data, const TypeMeta* schema, size_t index, size_t /*size*/)
@@ -1208,85 +1267,6 @@ public:
         size_t sz = size();
         return const_iterator(_data, _schema, sz, sz);
     }
-};
-
-// ============================================================================
-// SetView - Mutable Set Operations
-// ============================================================================
-
-/**
- * @brief Mutable view for set types.
- */
-class SetView : public ValueView {
-public:
-    using ValueView::ValueView;
-
-    /**
-     * @brief Get the number of elements.
-     */
-    [[nodiscard]] size_t size() const {
-        assert(valid() && "size() on invalid view");
-        return _schema->ops().size(_data, _schema);
-    }
-
-    /**
-     * @brief Check if empty.
-     */
-    [[nodiscard]] bool empty() const {
-        return size() == 0;
-    }
-
-    /**
-     * @brief Check if an element is in the set.
-     */
-    [[nodiscard]] bool contains(const ConstValueView& value) const {
-        assert(valid() && "contains() on invalid view");
-        require_typed_view(value, element_type(), "Set element");
-        return _schema->ops().contains(_data, value.data(), _schema);
-    }
-
-    /**
-     * @brief Insert an element.
-     *
-     * @return true if the element was inserted (not already present)
-     */
-    bool add(const ConstValueView& value) {
-        assert(valid() && "add() on invalid view");
-        require_typed_view(value, element_type(), "Set element");
-        if (contains(value)) return false;
-        _schema->ops().add(data(), value.data(), _schema);
-        return true;
-    }
-
-    /**
-     * @brief Remove an element.
-     *
-     * @return true if the element was removed (was present)
-     */
-    bool remove(const ConstValueView& value) {
-        assert(valid() && "remove() on invalid view");
-        require_typed_view(value, element_type(), "Set element");
-        if (!contains(value)) return false;
-        _schema->ops().remove(data(), value.data(), _schema);
-        return true;
-    }
-
-    /**
-     * @brief Clear all elements.
-     */
-    void clear() {
-        assert(valid() && "clear() on invalid view");
-        if (_schema->ops().has_clear()) {
-            _schema->ops().clear(data(), _schema);
-        }
-    }
-
-    /**
-     * @brief Get the element type.
-     */
-    [[nodiscard]] const TypeMeta* element_type() const {
-        return _schema->element_type;
-    }
 
     // Templated operations - implemented after Value
     template<typename T>
@@ -1298,21 +1278,15 @@ public:
     template<typename T>
     bool remove(const T& value);
 
-    // ========== Iteration ==========
-
-    // Reuse ConstSetView's const_iterator for iteration
-    using const_iterator = ConstSetView::const_iterator;
-
-    [[nodiscard]] const_iterator begin() const {
-        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
-        return const_iterator(_data, _schema, 0, size());
+private:
+    void require_mutable(const char* method) const {
+        if (!_mutable_access) {
+            throw std::runtime_error(std::string("SetView::") + method +
+                                     " requires mutable storage");
+        }
     }
 
-    [[nodiscard]] const_iterator end() const {
-        if (!valid()) return const_iterator(nullptr, nullptr, 0, 0);
-        size_t sz = size();
-        return const_iterator(_data, _schema, sz, sz);
-    }
+    bool _mutable_access{true};
 };
 
 // ============================================================================
@@ -1322,20 +1296,20 @@ public:
 /**
  * @brief Read-only set view over map keys.
  *
- * Provides the same interface as ConstSetView for accessing map keys.
+ * Provides the same interface as SetView's read-only operations for accessing map keys.
  * This allows unified set-like access to both actual sets and map key sets.
  *
  * @note This is a read-only view. Map keys cannot be modified through this view.
  */
-class KeySetView : public ConstValueView {
+class KeySetView : public View {
 public:
     // ========== Construction ==========
 
-    using ConstValueView::ConstValueView;
+    using View::View;
 
-    /// Construct from a ConstMapView
-    explicit KeySetView(const ConstValueView& map_view)
-        : ConstValueView(map_view) {
+    /// Construct from a map view
+    explicit KeySetView(const View& map_view)
+        : View(map_view) {
         // Verify this is actually a map
         assert(map_view.is_map() && "KeySetView requires a map type");
     }
@@ -1362,7 +1336,7 @@ public:
     /**
      * @brief Check if a key exists in the map.
      */
-    [[nodiscard]] bool contains(const ConstValueView& key) const {
+    [[nodiscard]] bool contains(const View& key) const {
         assert(valid() && "contains() on invalid view");
         require_typed_view(key, element_type(), "Map key");
         return _schema->ops().contains(_data, key.data(), _schema);
@@ -1393,10 +1367,10 @@ public:
     class const_iterator {
     public:
         using iterator_category = std::forward_iterator_tag;
-        using value_type = ConstValueView;
+        using value_type = View;
         using difference_type = std::ptrdiff_t;
-        using pointer = const ConstValueView*;
-        using reference = ConstValueView;
+        using pointer = const View*;
+        using reference = View;
 
         const_iterator() = default;
         const_iterator(const KeySetView* view, size_t index)
@@ -1438,97 +1412,7 @@ public:
 };
 
 // ============================================================================
-// ConstMapView - Key-Value Access
-// ============================================================================
-
-/**
- * @brief Const view for map types.
- */
-class ConstMapView : public ConstValueView {
-public:
-    using ConstValueView::ConstValueView;
-
-    /**
-     * @brief Get the number of entries.
-     */
-    [[nodiscard]] size_t size() const {
-        assert(valid() && "size() on invalid view");
-        return _schema->ops().size(_data, _schema);
-    }
-
-    /**
-     * @brief Check if empty.
-     */
-    [[nodiscard]] bool empty() const {
-        return size() == 0;
-    }
-
-    /**
-     * @brief Get value by key.
-     *
-     * @throws std::runtime_error if key not found
-     */
-    [[nodiscard]] ConstValueView at(const ConstValueView& key) const {
-        assert(valid() && "at() on invalid view");
-        require_typed_view(key, key_type(), "Map key");
-        const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
-        if (!value_data) {
-            throw std::runtime_error("Key not found");
-        }
-        return ConstValueView(value_data, _schema->element_type);
-    }
-
-    /**
-     * @brief Get value by key (operator[]).
-     */
-    [[nodiscard]] ConstValueView operator[](const ConstValueView& key) const {
-        return at(key);
-    }
-
-    /**
-     * @brief Check if a key exists.
-     */
-    [[nodiscard]] bool contains(const ConstValueView& key) const {
-        assert(valid() && "contains() on invalid view");
-        require_typed_view(key, key_type(), "Map key");
-        return _schema->ops().contains(_data, key.data(), _schema);
-    }
-
-    /**
-     * @brief Get the key type.
-     */
-    [[nodiscard]] const TypeMeta* key_type() const {
-        return _schema->key_type;
-    }
-
-    /**
-     * @brief Get the value type.
-     */
-    [[nodiscard]] const TypeMeta* value_type() const {
-        return _schema->element_type;
-    }
-
-    // ========== Key Set View ==========
-
-    /**
-     * @brief Get a read-only set view over the map's keys.
-     *
-     * @return KeySetView with same interface as ConstSetView
-     */
-    [[nodiscard]] KeySetView keys() const {
-        return KeySetView(*this);
-    }
-
-    // Templated operations - implemented after Value
-    template<typename K>
-    [[nodiscard]] ConstValueView at(const K& key) const;
-
-    template<typename K>
-    [[nodiscard]] bool contains(const K& key) const;
-};
-
-// ============================================================================
-// MapView - Mutable Key-Value Operations
+// MapView - Key-Value Operations (Mutable + Read-Only Mode)
 // ============================================================================
 
 /**
@@ -1537,6 +1421,16 @@ public:
 class MapView : public ValueView {
 public:
     using ValueView::ValueView;
+
+    MapView() noexcept = default;
+
+    /**
+     * @brief Construct a read-only MapView from a read-only view.
+     *
+     * Mutation methods will throw on this instance.
+     */
+    explicit MapView(const View& view) noexcept
+        : ValueView(const_cast<void*>(view.data()), view.schema()), _mutable_access(false) {}
 
     /**
      * @brief Get the number of entries.
@@ -1556,21 +1450,22 @@ public:
     /**
      * @brief Get value by key (const).
      */
-    [[nodiscard]] ConstValueView at(const ConstValueView& key) const {
+    [[nodiscard]] View at(const View& key) const {
         assert(valid() && "at() on invalid view");
         require_typed_view(key, key_type(), "Map key");
         const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
         if (!value_data) {
             throw std::runtime_error("Key not found");
         }
-        return ConstValueView(value_data, _schema->element_type);
+        return View(value_data, _schema->element_type);
     }
 
     /**
      * @brief Get value by key (mutable).
      */
-    [[nodiscard]] ValueView at(const ConstValueView& key) {
+    [[nodiscard]] ValueView at(const View& key) {
         assert(valid() && "at() on invalid view");
+        require_mutable("at");
         require_typed_view(key, key_type(), "Map key");
         void* value_data = const_cast<void*>(_schema->ops().map_at(data(), key.data(), _schema));
         if (!value_data) {
@@ -1582,21 +1477,21 @@ public:
     /**
      * @brief Get value by key (const, operator[]).
      */
-    [[nodiscard]] ConstValueView operator[](const ConstValueView& key) const {
+    [[nodiscard]] View operator[](const View& key) const {
         return at(key);
     }
 
     /**
      * @brief Get value by key (mutable, operator[]).
      */
-    [[nodiscard]] ValueView operator[](const ConstValueView& key) {
+    [[nodiscard]] ValueView operator[](const View& key) {
         return at(key);
     }
 
     /**
      * @brief Check if a key exists.
      */
-    [[nodiscard]] bool contains(const ConstValueView& key) const {
+    [[nodiscard]] bool contains(const View& key) const {
         assert(valid() && "contains() on invalid view");
         require_typed_view(key, key_type(), "Map key");
         return _schema->ops().contains(_data, key.data(), _schema);
@@ -1605,8 +1500,9 @@ public:
     /**
      * @brief Set value for key.
      */
-    void set(const ConstValueView& key, const ConstValueView& value) {
+    void set(const View& key, const View& value) {
         assert(valid() && "set() on invalid view");
+        require_mutable("set");
         require_typed_view(key, key_type(), "Map key");
         require_typed_view(value, value_type(), "Map value");
         _schema->ops().set_item(data(), key.data(), value.data(), _schema);
@@ -1617,7 +1513,8 @@ public:
      *
      * @return true if inserted (key was new)
      */
-    bool add(const ConstValueView& key, const ConstValueView& value) {
+    bool add(const View& key, const View& value) {
+        require_mutable("add");
         require_typed_view(key, key_type(), "Map key");
         require_typed_view(value, value_type(), "Map value");
         if (contains(key)) return false;
@@ -1630,8 +1527,9 @@ public:
      *
      * @return true if removed (key existed)
      */
-    bool remove(const ConstValueView& key) {
+    bool remove(const View& key) {
         assert(valid() && "remove() on invalid view");
+        require_mutable("remove");
         require_typed_view(key, key_type(), "Map key");
         if (!contains(key)) return false;
         _schema->ops().remove(data(), key.data(), _schema);
@@ -1643,6 +1541,7 @@ public:
      */
     void clear() {
         assert(valid() && "clear() on invalid view");
+        require_mutable("clear");
         if (_schema->ops().has_clear()) {
             _schema->ops().clear(data(), _schema);
         }
@@ -1667,10 +1566,10 @@ public:
     /**
      * @brief Get a read-only set view over the map's keys.
      *
-     * @return KeySetView with same interface as ConstSetView
+     * @return KeySetView over map keys
      */
     [[nodiscard]] KeySetView keys() const {
-        return KeySetView(ConstValueView(_data, _schema));
+        return KeySetView(View(_data, _schema));
     }
 
     /**
@@ -1682,13 +1581,13 @@ public:
     [[nodiscard]] SetView key_set() const {
         auto* storage = static_cast<const MapStorage*>(_data);
         const TypeMeta* set_schema = TypeRegistry::instance().set(_schema->key_type).build();
-        return SetView(const_cast<void*>(static_cast<const void*>(&storage->as_set())), set_schema);
+        return SetView(View(static_cast<const void*>(&storage->as_set()), set_schema));
     }
 
     // ========== Items Iteration ==========
 
     struct kv_pair {
-        ConstValueView key;
+        View key;
         ValueView value;
     };
 
@@ -1708,7 +1607,7 @@ public:
         reference operator*() const {
             size_t slot = *it_;
             return {
-                ConstValueView(storage_->key_at_slot(slot), key_type_),
+                View(storage_->key_at_slot(slot), key_type_),
                 ValueView(storage_->value_at_slot(slot), val_type_)
             };
         }
@@ -1732,6 +1631,7 @@ public:
     };
 
     [[nodiscard]] items_range items() {
+        require_mutable("items");
         auto* storage = static_cast<MapStorage*>(data());
         return {
             items_iterator(storage, storage->key_set().begin(),
@@ -1743,7 +1643,7 @@ public:
 
     // Templated operations - implemented after Value
     template<typename K>
-    [[nodiscard]] ConstValueView at(const K& key) const;
+    [[nodiscard]] View at(const K& key) const;
 
     template<typename K>
     [[nodiscard]] ValueView at(const K& key);
@@ -1759,135 +1659,147 @@ public:
 
     template<typename K>
     bool remove(const K& key);
+
+private:
+    void require_mutable(const char* method) const {
+        if (!_mutable_access) {
+            throw std::runtime_error(std::string("MapView::") + method +
+                                     " requires mutable storage");
+        }
+    }
+
+    bool _mutable_access{true};
 };
 
 // ============================================================================
 // View Conversion Implementations
 // ============================================================================
 
-// ConstValueView conversions (safe versions)
+// View conversions (safe versions)
 
-inline std::optional<ConstTupleView> ConstValueView::try_as_tuple() const {
+inline std::optional<TupleView> View::try_as_tuple() const {
     if (!is_tuple()) return std::nullopt;
-    return ConstTupleView(_data, _schema);
+    return TupleView(*this);
 }
 
-inline std::optional<ConstBundleView> ConstValueView::try_as_bundle() const {
+inline std::optional<BundleView> View::try_as_bundle() const {
     if (!is_bundle()) return std::nullopt;
-    return ConstBundleView(_data, _schema);
+    return BundleView(*this);
 }
 
-inline std::optional<ConstListView> ConstValueView::try_as_list() const {
+inline std::optional<ListView> View::try_as_list() const {
     if (!is_list()) return std::nullopt;
-    return ConstListView(_data, _schema);
+    return ListView(*this);
 }
 
-inline std::optional<ConstSetView> ConstValueView::try_as_set() const {
+inline std::optional<SetView> View::try_as_set() const {
     if (!is_set()) return std::nullopt;
-    return ConstSetView(_data, _schema);
+    return SetView(*this);
 }
 
-inline std::optional<ConstMapView> ConstValueView::try_as_map() const {
+inline std::optional<MapView> View::try_as_map() const {
     if (!is_map()) return std::nullopt;
-    return ConstMapView(_data, _schema);
+    return MapView(*this);
 }
 
-inline std::optional<ConstCyclicBufferView> ConstValueView::try_as_cyclic_buffer() const {
+inline std::optional<CyclicBufferView> View::try_as_cyclic_buffer() const {
     if (!is_cyclic_buffer()) return std::nullopt;
-    return ConstCyclicBufferView(_data, _schema);
+    return CyclicBufferView(*this);
 }
 
-inline std::optional<ConstQueueView> ConstValueView::try_as_queue() const {
+inline std::optional<QueueView> View::try_as_queue() const {
     if (!is_queue()) return std::nullopt;
-    return ConstQueueView(_data, _schema);
+    return QueueView(*this);
 }
 
-// ConstValueView conversions (throwing versions)
+// View conversions (throwing versions)
 
-inline ConstTupleView ConstValueView::as_tuple() const {
+inline TupleView View::as_tuple() const {
     if (!is_tuple()) {
         throw std::runtime_error("Not a tuple type");
     }
-    return ConstTupleView(_data, _schema);
+    return TupleView(*this);
 }
 
-inline ConstBundleView ConstValueView::as_bundle() const {
+inline BundleView View::as_bundle() const {
     if (!is_bundle()) {
         throw std::runtime_error("Not a bundle type");
     }
-    return ConstBundleView(_data, _schema);
+    return BundleView(*this);
 }
 
-inline ConstListView ConstValueView::as_list() const {
+inline ListView View::as_list() const {
     if (!is_list()) {
         throw std::runtime_error("Not a list type");
     }
-    return ConstListView(_data, _schema);
+    return ListView(*this);
 }
 
-inline ConstSetView ConstValueView::as_set() const {
+inline SetView View::as_set() const {
     if (!is_set()) {
         throw std::runtime_error("Not a set type");
     }
-    return ConstSetView(_data, _schema);
+    return SetView(*this);
 }
 
-inline ConstMapView ConstValueView::as_map() const {
+inline MapView View::as_map() const {
     if (!is_map()) {
         throw std::runtime_error("Not a map type");
     }
-    return ConstMapView(_data, _schema);
+    return MapView(*this);
 }
 
-inline ConstCyclicBufferView ConstValueView::as_cyclic_buffer() const {
+inline CyclicBufferView View::as_cyclic_buffer() const {
     if (!is_cyclic_buffer()) {
         throw std::runtime_error("Not a cyclic buffer type");
     }
-    return ConstCyclicBufferView(_data, _schema);
+    return CyclicBufferView(*this);
 }
 
-inline ConstQueueView ConstValueView::as_queue() const {
+inline QueueView View::as_queue() const {
     if (!is_queue()) {
         throw std::runtime_error("Not a queue type");
     }
-    return ConstQueueView(_data, _schema);
+    return QueueView(*this);
 }
 
 // ValueView conversions (safe versions)
 
 inline std::optional<TupleView> ValueView::try_as_tuple() {
     if (!is_tuple()) return std::nullopt;
-    return TupleView(_mutable_data, _schema);
+    return is_mutable() ? TupleView(_mutable_data, _schema) : TupleView(View(_data, _schema));
 }
 
 inline std::optional<BundleView> ValueView::try_as_bundle() {
     if (!is_bundle()) return std::nullopt;
-    return BundleView(_mutable_data, _schema);
+    return is_mutable() ? BundleView(_mutable_data, _schema) : BundleView(View(_data, _schema));
 }
 
 inline std::optional<ListView> ValueView::try_as_list() {
     if (!is_list()) return std::nullopt;
-    return ListView(_mutable_data, _schema);
+    return is_mutable() ? ListView(_mutable_data, _schema) : ListView(View(_data, _schema));
 }
 
 inline std::optional<SetView> ValueView::try_as_set() {
     if (!is_set()) return std::nullopt;
-    return SetView(_mutable_data, _schema);
+    return is_mutable() ? SetView(_mutable_data, _schema) : SetView(View(_data, _schema));
 }
 
 inline std::optional<MapView> ValueView::try_as_map() {
     if (!is_map()) return std::nullopt;
-    return MapView(_mutable_data, _schema);
+    return is_mutable() ? MapView(_mutable_data, _schema) : MapView(View(_data, _schema));
 }
 
 inline std::optional<CyclicBufferView> ValueView::try_as_cyclic_buffer() {
     if (!is_cyclic_buffer()) return std::nullopt;
-    return CyclicBufferView(_mutable_data, _schema);
+    return is_mutable()
+        ? CyclicBufferView(_mutable_data, _schema)
+        : CyclicBufferView(View(_data, _schema));
 }
 
 inline std::optional<QueueView> ValueView::try_as_queue() {
     if (!is_queue()) return std::nullopt;
-    return QueueView(_mutable_data, _schema);
+    return is_mutable() ? QueueView(_mutable_data, _schema) : QueueView(View(_data, _schema));
 }
 
 // ValueView conversions (throwing versions)
@@ -1896,56 +1808,59 @@ inline TupleView ValueView::as_tuple() {
     if (!is_tuple()) {
         throw std::runtime_error("Not a tuple type");
     }
-    return TupleView(_mutable_data, _schema);
+    return is_mutable() ? TupleView(_mutable_data, _schema) : TupleView(View(_data, _schema));
 }
 
 inline BundleView ValueView::as_bundle() {
     if (!is_bundle()) {
         throw std::runtime_error("Not a bundle type");
     }
-    return BundleView(_mutable_data, _schema);
+    return is_mutable() ? BundleView(_mutable_data, _schema) : BundleView(View(_data, _schema));
 }
 
 inline ListView ValueView::as_list() {
     if (!is_list()) {
         throw std::runtime_error("Not a list type");
     }
-    return ListView(_mutable_data, _schema);
+    return is_mutable() ? ListView(_mutable_data, _schema) : ListView(View(_data, _schema));
 }
 
 inline SetView ValueView::as_set() {
     if (!is_set()) {
         throw std::runtime_error("Not a set type");
     }
-    return SetView(_mutable_data, _schema);
+    return is_mutable() ? SetView(_mutable_data, _schema) : SetView(View(_data, _schema));
 }
 
 inline MapView ValueView::as_map() {
     if (!is_map()) {
         throw std::runtime_error("Not a map type");
     }
-    return MapView(_mutable_data, _schema);
+    return is_mutable() ? MapView(_mutable_data, _schema) : MapView(View(_data, _schema));
 }
 
 inline CyclicBufferView ValueView::as_cyclic_buffer() {
     if (!is_cyclic_buffer()) {
         throw std::runtime_error("Not a cyclic buffer type");
     }
-    return CyclicBufferView(_mutable_data, _schema);
+    return is_mutable()
+        ? CyclicBufferView(_mutable_data, _schema)
+        : CyclicBufferView(View(_data, _schema));
 }
 
 inline QueueView ValueView::as_queue() {
     if (!is_queue()) {
         throw std::runtime_error("Not a queue type");
     }
-    return QueueView(_mutable_data, _schema);
+    return is_mutable() ? QueueView(_mutable_data, _schema) : QueueView(View(_data, _schema));
 }
 
 // ============================================================================
 // CyclicBufferView Operations Implementation
 // ============================================================================
 
-inline void CyclicBufferView::push(const ConstValueView& value) {
+inline void CyclicBufferView::push(const View& value) {
+    require_mutable("push");
     CyclicBufferOps::push(data(), value.data(), _schema);
 }
 
@@ -1953,29 +1868,31 @@ inline void CyclicBufferView::push(const ConstValueView& value) {
 // QueueView Operations Implementation
 // ============================================================================
 
-inline void QueueView::push(const ConstValueView& value) {
+inline void QueueView::push(const View& value) {
+    require_mutable("push");
     QueueOps::push(data(), value.data(), _schema);
 }
 
 inline void QueueView::pop() {
+    require_mutable("pop");
     QueueOps::pop(data(), _schema);
 }
 
 // ============================================================================
-// ConstSetView Iterator Implementation
+// SetView Iterator Implementation
 // ============================================================================
 
-inline ConstValueView ConstSetView::const_iterator::operator*() const {
+inline View SetView::const_iterator::operator*() const {
     // Delegate to the ops layer's at() which iterates KeySet alive slots
     const void* elem = _schema->ops().at(_data, _index, _schema);
-    return ConstValueView(elem, _schema->element_type);
+    return View(elem, _schema->element_type);
 }
 
 // ============================================================================
 // KeySetView Iterator Implementation
 // ============================================================================
 
-inline ConstValueView KeySetView::const_iterator::operator*() const {
+inline View KeySetView::const_iterator::operator*() const {
     // Access the MapStorage to get the key at the current iteration position
     auto* storage = static_cast<const MapStorage*>(_view->data());
 
@@ -1988,7 +1905,7 @@ inline ConstValueView KeySetView::const_iterator::operator*() const {
     std::advance(it, _index);
     size_t slot = *it;
 
-    return ConstValueView(storage->key_at_slot(slot), _view->element_type());
+    return View(storage->key_at_slot(slot), _view->element_type());
 }
 
 } // namespace hgraph::value

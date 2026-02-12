@@ -39,7 +39,7 @@ namespace hgraph {
      *
      * API:
      * - value_view(), added_view(), removed_view() - Value-based access
-     * - contains(ConstValueView), add(ConstValueView), remove(ConstValueView) - Value operations
+     * - contains(View), add(View), remove(View) - Value operations
      * - py_contains(), py_add(), py_remove() - Python interop
      */
     struct TimeSeriesSetOutput final : TimeSeriesSet<BaseTimeSeriesOutput> {
@@ -67,44 +67,44 @@ namespace hgraph {
         [[nodiscard]] const value::TypeMeta* element_type() const { return _element_type; }
 
         /**
-         * @brief Get const view of current set value.
+         * @brief Get read-only view of current set value.
          */
-        [[nodiscard]] value::ConstSetView value_view() const { return _storage.value(); }
+        [[nodiscard]] value::SetView value_view() const { return _storage.value(); }
 
         /**
-         * @brief Get const view of added elements.
+         * @brief Get read-only view of added elements.
          */
-        [[nodiscard]] value::ConstSetView added_view() const { return _storage.added(); }
+        [[nodiscard]] value::SetView added_view() const { return _storage.added(); }
 
         /**
-         * @brief Get const view of removed elements.
+         * @brief Get read-only view of removed elements.
          */
-        [[nodiscard]] value::ConstSetView removed_view() const { return _storage.removed(); }
+        [[nodiscard]] value::SetView removed_view() const { return _storage.removed(); }
 
         /**
          * @brief Check if element is in set using Value.
          */
-        [[nodiscard]] bool contains(const value::ConstValueView& elem) const { return _storage.contains(elem); }
+        [[nodiscard]] bool contains(const value::View& elem) const { return _storage.contains(elem); }
 
         /**
          * @brief Check if element was added this cycle.
          */
-        [[nodiscard]] bool was_added(const value::ConstValueView& elem) const { return _storage.was_added(elem); }
+        [[nodiscard]] bool was_added(const value::View& elem) const { return _storage.was_added(elem); }
 
         /**
          * @brief Check if element was removed this cycle.
          */
-        [[nodiscard]] bool was_removed(const value::ConstValueView& elem) const { return _storage.was_removed(elem); }
+        [[nodiscard]] bool was_removed(const value::View& elem) const { return _storage.was_removed(elem); }
 
         /**
          * @brief Add element using Value.
          */
-        void add(const value::ConstValueView& elem);
+        void add(const value::View& elem);
 
         /**
          * @brief Remove element using Value.
          */
-        void remove(const value::ConstValueView& elem);
+        void remove(const value::View& elem);
 
         // ========== Python Interop API ==========
 
@@ -210,42 +210,42 @@ namespace hgraph {
         [[nodiscard]] const value::TypeMeta* element_type() const;
 
         /**
-         * @brief Get const view of current set value (delegates to output).
+         * @brief Get read-only view of current set value (delegates to output).
          */
-        [[nodiscard]] value::ConstSetView value_view() const;
+        [[nodiscard]] value::SetView value_view() const;
 
         /**
          * @brief Check if element is in set using Value (delegates to output).
          */
-        [[nodiscard]] bool contains(const value::ConstValueView& elem) const;
+        [[nodiscard]] bool contains(const value::View& elem) const;
 
         /**
          * @brief Check if element was added this cycle.
          */
-        [[nodiscard]] bool was_added(const value::ConstValueView& elem) const;
+        [[nodiscard]] bool was_added(const value::View& elem) const;
 
         /**
          * @brief Check if element was removed this cycle.
          */
-        [[nodiscard]] bool was_removed(const value::ConstValueView& elem) const;
+        [[nodiscard]] bool was_removed(const value::View& elem) const;
 
         /**
          * @brief Collect added elements as views into the storage.
          * Handles _prev_output case for when input is rebinding.
          * Returns elements that are in current set but weren't before.
          *
-         * @return Vector of ConstValueView - views remain valid during current evaluation cycle
+         * @return Vector of View - views remain valid during current evaluation cycle
          */
-        [[nodiscard]] std::vector<value::ConstValueView> collect_added() const;
+        [[nodiscard]] std::vector<value::View> collect_added() const;
 
         /**
          * @brief Collect removed elements as views into the storage.
          * Handles _prev_output case for when input is unbound.
          * Returns elements that were in the set before but are no longer present.
          *
-         * @return Vector of ConstValueView - views remain valid during current evaluation cycle
+         * @return Vector of View - views remain valid during current evaluation cycle
          */
-        [[nodiscard]] std::vector<value::ConstValueView> collect_removed() const;
+        [[nodiscard]] std::vector<value::View> collect_removed() const;
 
         // ========== Python Interop API ==========
 

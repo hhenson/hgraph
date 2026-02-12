@@ -172,7 +172,7 @@ def test_int_list_to_numpy_array(dynamic_int_list_schema):
         elem = make_int_value(val)
         lv.push_back(elem.view())
 
-    # Get const list view for buffer access
+    # Get read-only list view for buffer access
     clv = v.view().as_list()
 
     # Create numpy array from list view using to_numpy()
@@ -195,7 +195,7 @@ def test_double_list_to_numpy_array(dynamic_double_list_schema):
         elem = make_double_value(val)
         lv.push_back(elem.view())
 
-    # Get const list view for buffer access
+    # Get read-only list view for buffer access
     clv = v.view().as_list()
 
     # Create numpy array from list view using to_numpy()
@@ -218,7 +218,7 @@ def test_bool_list_to_numpy_array(dynamic_bool_list_schema):
         elem = make_bool_value(val)
         lv.push_back(elem.view())
 
-    # Get const list view for buffer access
+    # Get read-only list view for buffer access
     clv = v.view().as_list()
 
     # Create numpy array from list view using to_numpy()
@@ -379,7 +379,7 @@ def test_buffer_modifications_visible(dynamic_int_list_schema):
 
     # Get mutable list view for zero-copy numpy conversion
     # Note: ListView.to_numpy() provides zero-copy access, while
-    # ConstListView.to_numpy() creates a copy for safety
+    # ListView.to_numpy() behavior depends on mutability mode
     arr = lv.to_numpy()
 
     # Verify initial values

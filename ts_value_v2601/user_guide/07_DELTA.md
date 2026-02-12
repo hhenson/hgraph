@@ -394,7 +394,7 @@ if (field_delta.valid()) {
 
 This extends the type-erased `View` concept to support an explicit "no value" state. The existing `valid()` method on views (which checks `data != nullptr && schema != nullptr`) serves this purpose - an unmodified field returns a `DeltaView` with null data, making `valid()` return false.
 
-**Note**: This is consistent with the existing `ConstValueView::valid()` API. The view is "invalid" when there's no delta to report, which is distinct from an error condition.
+**Note**: This is consistent with the existing `View::valid()` API. The view is "invalid" when there's no delta to report, which is distinct from an error condition.
 
 ### Extracting Delta for External Use
 

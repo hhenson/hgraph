@@ -683,7 +683,6 @@ classDiagram
         +is_null() bool
         +schema() TypeMeta*
         +view() View
-        +const_view() View
         +data() void*
         +as~T~() T&
         +try_as~T~() T*

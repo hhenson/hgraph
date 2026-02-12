@@ -321,8 +321,8 @@ def test_iteration_logical_order(cyclic_buffer_schema_3):
         elem = make_int_value(i)
         buf_view.push(elem.view())
 
-    const_view = buf.view().as_cyclic_buffer()
-    elements = [elem.as_int() for elem in const_view]
+    view = buf.view().as_cyclic_buffer()
+    elements = [elem.as_int() for elem in view]
     assert elements == [2, 3, 4]
 
 
@@ -425,8 +425,8 @@ def test_to_numpy_int(cyclic_buffer_schema_3):
         elem = make_int_value(i)
         buf_view.push(elem.view())
 
-    const_view = buf.view().as_cyclic_buffer()
-    arr = const_view.to_numpy()
+    view = buf.view().as_cyclic_buffer()
+    arr = view.to_numpy()
 
     assert isinstance(arr, np.ndarray)
     assert arr.dtype == np.int64
@@ -448,8 +448,8 @@ def test_to_numpy_double(double_cyclic_buffer_schema):
         elem.set_double(d)
         buf_view.push(elem.view())
 
-    const_view = buf.view().as_cyclic_buffer()
-    arr = const_view.to_numpy()
+    view = buf.view().as_cyclic_buffer()
+    arr = view.to_numpy()
 
     assert arr.dtype == np.float64
     np.testing.assert_array_equal(arr, [1.5, 2.5, 3.5])
@@ -487,9 +487,9 @@ def test_empty_buffer_to_numpy(cyclic_buffer_schema_3):
     buf = PlainValue(cyclic_buffer_schema_3)
 
     buf.emplace()
-    const_view = buf.view().as_cyclic_buffer()
+    view = buf.view().as_cyclic_buffer()
 
-    arr = const_view.to_numpy()
+    arr = view.to_numpy()
     assert len(arr) == 0
     assert arr.dtype == np.int64
 
