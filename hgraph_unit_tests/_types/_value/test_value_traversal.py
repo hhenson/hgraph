@@ -33,6 +33,8 @@ def make_int_value(val):
     """Create a PlainValue containing an int."""
     int_schema = value.scalar_type_meta_int64()
     v = PlainValue(int_schema)
+
+    v.emplace()
     v.set_int(val)
     return v
 
@@ -41,6 +43,8 @@ def make_double_value(val):
     """Create a PlainValue containing a double."""
     double_schema = value.scalar_type_meta_double()
     v = PlainValue(double_schema)
+
+    v.emplace()
     v.set_double(val)
     return v
 
@@ -49,6 +53,8 @@ def make_string_value(val):
     """Create a PlainValue containing a string."""
     string_schema = value.scalar_type_meta_string()
     v = PlainValue(string_schema)
+
+    v.emplace()
     v.set_string(val)
     return v
 
@@ -57,6 +63,8 @@ def make_bool_value(val):
     """Create a PlainValue containing a bool."""
     bool_schema = value.scalar_type_meta_bool()
     v = PlainValue(bool_schema)
+
+    v.emplace()
     v.set_bool(val)
     return v
 
@@ -289,6 +297,8 @@ def test_deep_visit_list(dynamic_int_list_schema):
     deep_visit, _, _ = get_traversal_functions()
 
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     lv.push_back(make_int_value(10).view())
     lv.push_back(make_int_value(20).view())
@@ -318,6 +328,8 @@ def test_count_leaves_list(dynamic_int_list_schema):
     _, count_leaves, _ = get_traversal_functions()
 
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     lv.push_back(make_int_value(10).view())
     lv.push_back(make_int_value(20).view())
@@ -335,6 +347,8 @@ def test_deep_visit_empty_list(dynamic_int_list_schema):
     deep_visit, count_leaves, _ = get_traversal_functions()
 
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     # List is empty by default
 
     visited = []
@@ -355,6 +369,8 @@ def test_collect_leaf_paths_list(dynamic_int_list_schema):
     _, _, collect_leaf_paths = get_traversal_functions()
 
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     lv.push_back(make_int_value(10).view())
     lv.push_back(make_int_value(20).view())
@@ -377,6 +393,8 @@ def test_deep_visit_bundle(simple_bundle_schema):
     deep_visit, _, _ = get_traversal_functions()
 
     v = PlainValue(simple_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("x").set_int(10)
     bv.at_name_mut("y").set_double(20.5)
@@ -402,6 +420,8 @@ def test_count_leaves_bundle(simple_bundle_schema):
     _, count_leaves, _ = get_traversal_functions()
 
     v = PlainValue(simple_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("x").set_int(10)
     bv.at_name_mut("y").set_double(20.5)
@@ -417,6 +437,8 @@ def test_collect_leaf_paths_bundle(simple_bundle_schema):
     _, _, collect_leaf_paths = get_traversal_functions()
 
     v = PlainValue(simple_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("x").set_int(10)
     bv.at_name_mut("y").set_double(20.5)
@@ -436,6 +458,8 @@ def test_deep_visit_point_bundle(point_schema):
     deep_visit, _, _ = get_traversal_functions()
 
     v = PlainValue(point_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("x").set_int(100)
     bv.at_name_mut("y").set_int(200)
@@ -462,6 +486,8 @@ def test_deep_visit_nested_bundles(nested_bundle_schema):
     deep_visit, _, _ = get_traversal_functions()
 
     v = PlainValue(nested_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("id").set_int(1)
     location = bv["location"].as_bundle()
@@ -487,10 +513,13 @@ def test_deep_visit_list_of_bundles(list_of_bundles_schema):
     deep_visit, count_leaves, _ = get_traversal_functions()
 
     v = PlainValue(list_of_bundles_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     # Create and add first point
     point1 = PlainValue(lv.element_type())
+    point1.emplace()
     p1 = point1.as_bundle()
     p1.at_name_mut("x").set_int(1)
     p1.at_name_mut("y").set_int(2)
@@ -498,6 +527,7 @@ def test_deep_visit_list_of_bundles(list_of_bundles_schema):
 
     # Create and add second point
     point2 = PlainValue(lv.element_type())
+    point2.emplace()
     p2 = point2.as_bundle()
     p2.at_name_mut("x").set_int(3)
     p2.at_name_mut("y").set_int(4)
@@ -527,6 +557,8 @@ def test_deep_visit_bundle_with_list(bundle_with_list_schema):
     deep_visit, count_leaves, _ = get_traversal_functions()
 
     v = PlainValue(bundle_with_list_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("id").set_int(42)
 
@@ -559,6 +591,7 @@ def test_deep_visit_deeply_nested(deeply_nested_schema):
 
     v = PlainValue(deeply_nested_schema)
 
+    v.emplace()
     # Navigate to the nested structure and populate it
     # Structure: container -> items (list) -> [bundle with 'deep' field]
     bv = v.as_bundle()
@@ -570,11 +603,13 @@ def test_deep_visit_deeply_nested(deeply_nested_schema):
 
     # Create and add an element
     elem1 = PlainValue(elem_type)
+    elem1.emplace()
     elem1.as_bundle().at_name_mut("deep").set_int(999)
     items.push_back(elem1.view())
 
     # Create and add another element
     elem2 = PlainValue(elem_type)
+    elem2.emplace()
     elem2.as_bundle().at_name_mut("deep").set_int(888)
     items.push_back(elem2.view())
 
@@ -608,6 +643,8 @@ def test_path_accuracy_nested(nested_bundle_schema):
     _, _, collect_leaf_paths = get_traversal_functions()
 
     v = PlainValue(nested_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("id").set_int(1)
     location = bv["location"].as_bundle()
@@ -636,6 +673,8 @@ def test_deep_visit_set(int_set_schema):
     deep_visit, count_leaves, _ = get_traversal_functions()
 
     v = PlainValue(int_set_schema)
+
+    v.emplace()
     sv = v.as_set()
     sv.add(make_int_value(10).view())
     sv.add(make_int_value(20).view())
@@ -661,6 +700,8 @@ def test_deep_visit_map(string_int_map_schema):
     deep_visit, count_leaves, _ = get_traversal_functions()
 
     v = PlainValue(string_int_map_schema)
+
+    v.emplace()
     mv = v.as_map()
     mv.set(make_string_value("a").view(), make_int_value(1).view())
     mv.set(make_string_value("b").view(), make_int_value(2).view())
@@ -693,6 +734,8 @@ def test_count_leaves_empty_set(int_set_schema):
     _, count_leaves, _ = get_traversal_functions()
 
     v = PlainValue(int_set_schema)
+
+    v.emplace()
     # Set is empty by default
 
     count = count_leaves(v.view())
@@ -704,6 +747,8 @@ def test_count_leaves_empty_map(string_int_map_schema):
     _, count_leaves, _ = get_traversal_functions()
 
     v = PlainValue(string_int_map_schema)
+
+    v.emplace()
     # Map is empty by default
 
     count = count_leaves(v.view())
@@ -730,6 +775,8 @@ def test_collect_leaf_paths_nested(nested_bundle_schema):
     _, _, collect_leaf_paths = get_traversal_functions()
 
     v = PlainValue(nested_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("id").set_int(1)
     location = bv["location"].as_bundle()
@@ -750,16 +797,20 @@ def test_collect_leaf_paths_list_of_bundles(list_of_bundles_schema):
     _, _, collect_leaf_paths = get_traversal_functions()
 
     v = PlainValue(list_of_bundles_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     # Add two points
     point1 = PlainValue(lv.element_type())
+    point1.emplace()
     p1 = point1.as_bundle()
     p1.at_name_mut("x").set_int(1)
     p1.at_name_mut("y").set_int(2)
     lv.push_back(point1.view())
 
     point2 = PlainValue(lv.element_type())
+    point2.emplace()
     p2 = point2.as_bundle()
     p2.at_name_mut("x").set_int(3)
     p2.at_name_mut("y").set_int(4)
@@ -780,9 +831,14 @@ def test_collect_leaf_paths_empty_containers(dynamic_int_list_schema, int_set_sc
     _, _, collect_leaf_paths = get_traversal_functions()
 
     empty_list = PlainValue(dynamic_int_list_schema)
+
+    empty_list.emplace()
     empty_set = PlainValue(int_set_schema)
+
+    empty_set.emplace()
     empty_map = PlainValue(string_int_map_schema)
 
+    empty_map.emplace()
     assert len(collect_leaf_paths(empty_list.view())) == 0
     assert len(collect_leaf_paths(empty_set.view())) == 0
     assert len(collect_leaf_paths(empty_map.view())) == 0
@@ -812,6 +868,8 @@ def test_deep_visit_order_deterministic(simple_bundle_schema):
     deep_visit, _, _ = get_traversal_functions()
 
     v = PlainValue(simple_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("x").set_int(10)
     bv.at_name_mut("y").set_double(20.5)
@@ -838,6 +896,8 @@ def test_count_leaves_matches_visited_count(nested_bundle_schema):
     deep_visit, count_leaves, _ = get_traversal_functions()
 
     v = PlainValue(nested_bundle_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("id").set_int(1)
     location = bv["location"].as_bundle()
@@ -860,6 +920,8 @@ def test_collect_leaf_paths_matches_count(bundle_with_list_schema):
     _, count_leaves, collect_leaf_paths = get_traversal_functions()
 
     v = PlainValue(bundle_with_list_schema)
+
+    v.emplace()
     bv = v.as_bundle()
     bv.at_name_mut("id").set_int(42)
 

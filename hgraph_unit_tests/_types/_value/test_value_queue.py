@@ -63,6 +63,8 @@ def test_queue_max_capacity():
     # Bounded queue
     bounded_schema = registry.queue(int_schema).max_capacity(10).build()
     bounded_v = value.PlainValue(bounded_schema)
+
+    bounded_v.emplace()
     bounded_q = bounded_v.view().as_queue()
     assert bounded_q.max_capacity() == 10
     assert bounded_q.has_max_capacity() == True
@@ -70,6 +72,8 @@ def test_queue_max_capacity():
     # Unbounded queue
     unbounded_schema = registry.queue(int_schema).build()
     unbounded_v = value.PlainValue(unbounded_schema)
+
+    unbounded_v.emplace()
     unbounded_q = unbounded_v.view().as_queue()
     assert unbounded_q.max_capacity() == 0
     assert unbounded_q.has_max_capacity() == False
@@ -84,6 +88,8 @@ def test_queue_initially_empty():
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     assert q.size() == 0
@@ -99,6 +105,8 @@ def test_push_back_single():
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     elem = value.PlainValue(42)
@@ -117,6 +125,8 @@ def test_push_back_multiple():
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     for i in range(5):
@@ -137,6 +147,8 @@ def test_pop_front():
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     # Push 3 elements: 10, 20, 30
@@ -167,6 +179,8 @@ def test_pop_front_empty_raises():
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     with pytest.raises(IndexError):
@@ -182,6 +196,8 @@ def test_fifo_order():
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     # Push 1, 2, 3, 4, 5
@@ -206,6 +222,8 @@ def test_front_and_back():
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     for i in [10, 20, 30, 40]:
@@ -225,6 +243,8 @@ def test_bounded_queue_eviction():
     queue_schema = registry.queue(int_schema).max_capacity(3).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     # Push 1, 2, 3 - queue is now full
@@ -259,6 +279,8 @@ def test_unbounded_queue_grows():
     queue_schema = registry.queue(int_schema).build()  # Unbounded
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     # Push many elements - should grow
@@ -282,6 +304,8 @@ def test_clear():
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     for i in range(5):
@@ -304,6 +328,8 @@ def test_push_after_clear():
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     # Initial push
@@ -330,6 +356,8 @@ def test_iteration():
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     values = [10, 20, 30, 40, 50]
@@ -350,8 +378,11 @@ def test_equal_queues():
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
     v1 = value.PlainValue(queue_schema)
+
+    v1.emplace()
     v2 = value.PlainValue(queue_schema)
 
+    v2.emplace()
     q1 = v1.view().as_queue()
     q2 = v2.view().as_queue()
 
@@ -372,8 +403,11 @@ def test_unequal_queues():
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
     v1 = value.PlainValue(queue_schema)
+
+    v1.emplace()
     v2 = value.PlainValue(queue_schema)
 
+    v2.emplace()
     q1 = v1.view().as_queue()
     q2 = v2.view().as_queue()
 
@@ -397,8 +431,11 @@ def test_hash_consistency():
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
     v1 = value.PlainValue(queue_schema)
+
+    v1.emplace()
     v2 = value.PlainValue(queue_schema)
 
+    v2.emplace()
     q1 = v1.view().as_queue()
     q2 = v2.view().as_queue()
 
@@ -419,6 +456,8 @@ def test_to_python_returns_list():
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     for val in [10, 20, 30]:
@@ -440,6 +479,8 @@ def test_from_python():
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     v.view().from_python([1, 2, 3, 4, 5])
 
     q = v.view().as_queue()
@@ -456,6 +497,8 @@ def test_from_python_truncates_to_max_capacity():
     queue_schema = registry.queue(int_schema).max_capacity(3).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     v.view().from_python([1, 2, 3, 4, 5])  # More than capacity
 
     q = v.view().as_queue()
@@ -473,6 +516,8 @@ def test_element_type():
     queue_schema = registry.queue(int_schema).max_capacity(5).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     assert q.element_type() == int_schema
@@ -487,6 +532,8 @@ def test_is_queue():
     queue_schema = registry.queue(int_schema).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     assert v.view().is_queue() == True
     assert v.view().is_cyclic_buffer() == False
     assert v.view().is_list() == False
@@ -501,6 +548,8 @@ def test_to_string():
     queue_schema = registry.queue(int_schema).max_capacity(10).build()
 
     v = value.PlainValue(queue_schema)
+
+    v.emplace()
     q = v.view().as_queue()
 
     for val in [1, 2, 3]:

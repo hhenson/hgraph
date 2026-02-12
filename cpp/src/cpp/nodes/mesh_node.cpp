@@ -85,16 +85,20 @@ namespace hgraph {
 
     bool MeshNode::_add_graph_dependency(const nb::object &key, const nb::object &depends_on) {
         value::Value<> key_val(key_type_meta_);
+        key_val.emplace();
         key_type_meta_->ops().from_python(key_val.data(), key, key_type_meta_);
         value::Value<> depends_on_val(key_type_meta_);
+        depends_on_val.emplace();
         key_type_meta_->ops().from_python(depends_on_val.data(), depends_on, key_type_meta_);
         return add_graph_dependency(key_val.view(), depends_on_val.view());
     }
 
     void MeshNode::_remove_graph_dependency(const nb::object &key, const nb::object &depends_on) {
         value::Value<> key_val(key_type_meta_);
+        key_val.emplace();
         key_type_meta_->ops().from_python(key_val.data(), key, key_type_meta_);
         value::Value<> depends_on_val(key_type_meta_);
+        depends_on_val.emplace();
         key_type_meta_->ops().from_python(depends_on_val.data(), depends_on, key_type_meta_);
         remove_graph_dependency(key_val.view(), depends_on_val.view());
     }

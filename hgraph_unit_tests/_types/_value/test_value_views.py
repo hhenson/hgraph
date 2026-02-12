@@ -159,6 +159,8 @@ def test_is_tuple_for_scalar(int_value):
 def test_is_bundle_for_bundle_value(bundle_schema):
     """is_bundle() returns True for bundle values."""
     v = Value(bundle_schema)
+
+    v.emplace()
     cv = v.view()
     assert cv.is_bundle() is True
 
@@ -166,6 +168,8 @@ def test_is_bundle_for_bundle_value(bundle_schema):
 def test_is_scalar_for_bundle(bundle_schema):
     """is_scalar() returns False for bundle values."""
     v = Value(bundle_schema)
+
+    v.emplace()
     cv = v.view()
     assert cv.is_scalar() is False
 
@@ -173,6 +177,8 @@ def test_is_scalar_for_bundle(bundle_schema):
 def test_is_tuple_for_tuple_value(tuple_schema):
     """is_tuple() returns True for tuple values."""
     v = Value(tuple_schema)
+
+    v.emplace()
     cv = v.view()
     assert cv.is_tuple() is True
 
@@ -180,6 +186,8 @@ def test_is_tuple_for_tuple_value(tuple_schema):
 def test_is_list_for_list_value(list_schema):
     """is_list() returns True for list values."""
     v = Value(list_schema)
+
+    v.emplace()
     cv = v.view()
     assert cv.is_list() is True
 
@@ -295,6 +303,8 @@ def test_try_as_list_returns_none_for_scalar(int_value):
 def test_try_as_bundle_returns_view_for_bundle(bundle_schema):
     """try_as_bundle() returns ConstBundleView for bundle values."""
     v = Value(bundle_schema)
+
+    v.emplace()
     cv = v.view()
     result = cv.try_as_bundle()
     assert result is not None
@@ -303,6 +313,8 @@ def test_try_as_bundle_returns_view_for_bundle(bundle_schema):
 def test_try_as_tuple_returns_view_for_tuple(tuple_schema):
     """try_as_tuple() returns ConstTupleView for tuple values."""
     v = Value(tuple_schema)
+
+    v.emplace()
     cv = v.view()
     result = cv.try_as_tuple()
     assert result is not None
@@ -329,6 +341,8 @@ def test_as_list_throws_for_scalar(int_value):
 def test_as_bundle_succeeds_for_bundle(bundle_schema):
     """as_bundle() succeeds for bundle values."""
     v = Value(bundle_schema)
+
+    v.emplace()
     cv = v.view()
     bv = cv.as_bundle()
     assert bv is not None
@@ -422,6 +436,8 @@ def test_from_python_string():
 def test_as_bundle_mutable(bundle_schema):
     """as_bundle() returns mutable BundleView."""
     v = Value(bundle_schema)
+
+    v.emplace()
     view = v.view()
     bv = view.as_bundle()
     assert bv is not None
@@ -430,6 +446,8 @@ def test_as_bundle_mutable(bundle_schema):
 def test_try_as_bundle_mutable(bundle_schema):
     """try_as_bundle() returns mutable BundleView."""
     v = Value(bundle_schema)
+
+    v.emplace()
     view = v.view()
     bv = view.try_as_bundle()
     assert bv is not None

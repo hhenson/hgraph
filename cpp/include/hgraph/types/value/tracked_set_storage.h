@@ -43,6 +43,9 @@ struct TrackedSetStorage {
             _value = PlainValue(_set_schema);
             _added = PlainValue(_set_schema);
             _removed = PlainValue(_set_schema);
+            _value.emplace();
+            _added.emplace();
+            _removed.emplace();
         }
     }
 

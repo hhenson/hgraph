@@ -30,6 +30,8 @@ def make_int_value(val):
     """Create a PlainValue containing an int."""
     int_schema = value.scalar_type_meta_int64()
     v = PlainValue(int_schema)
+
+    v.emplace()
     v.set_int(val)
     return v
 
@@ -38,6 +40,8 @@ def make_double_value(val):
     """Create a PlainValue containing a double."""
     double_schema = value.scalar_type_meta_double()
     v = PlainValue(double_schema)
+
+    v.emplace()
     v.set_double(val)
     return v
 
@@ -46,6 +50,8 @@ def make_string_value(val):
     """Create a PlainValue containing a string."""
     string_schema = value.scalar_type_meta_string()
     v = PlainValue(string_schema)
+
+    v.emplace()
     v.set_string(val)
     return v
 
@@ -141,6 +147,8 @@ def test_dynamic_list_schema_not_fixed_size(dynamic_int_list_schema):
 def test_create_dynamic_list_value(dynamic_int_list_schema):
     """Dynamic list value can be created from schema."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     assert v.valid()
 
 
@@ -148,6 +156,8 @@ def test_create_dynamic_list_value(dynamic_int_list_schema):
 def test_dynamic_list_initially_empty(dynamic_int_list_schema):
     """Dynamic list is initially empty."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     assert lv.size() == 0
@@ -158,6 +168,8 @@ def test_dynamic_list_initially_empty(dynamic_int_list_schema):
 def test_list_push_back_native_type(dynamic_int_list_schema):
     """ListView.push_back() with ConstValueView."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     v1 = make_int_value(10)
@@ -176,6 +188,8 @@ def test_list_push_back_native_type(dynamic_int_list_schema):
 def test_list_push_back_with_value(dynamic_int_list_schema):
     """ListView.push_back(ConstValueView) works with explicit wrapping."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     elem = make_int_value(40)
@@ -188,6 +202,8 @@ def test_list_push_back_with_value(dynamic_int_list_schema):
 def test_list_push_back_strings(dynamic_string_list_schema):
     """Dynamic list of strings can be populated."""
     v = PlainValue(dynamic_string_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     s1 = make_string_value("hello")
@@ -203,6 +219,8 @@ def test_list_push_back_strings(dynamic_string_list_schema):
 def test_list_access_by_index(dynamic_int_list_schema):
     """List elements can be accessed by index."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
@@ -216,6 +234,8 @@ def test_list_access_by_index(dynamic_int_list_schema):
 def test_list_at_method(dynamic_int_list_schema):
     """List at() method provides element access."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     elem = make_int_value(10)
     lv.push_back(elem.view())
@@ -226,6 +246,8 @@ def test_list_at_method(dynamic_int_list_schema):
 def test_list_modify_element(dynamic_int_list_schema):
     """List elements can be modified via at().set_int()."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     elem = make_int_value(10)
     lv.push_back(elem.view())
@@ -238,6 +260,8 @@ def test_list_modify_element(dynamic_int_list_schema):
 def test_list_set_element(dynamic_int_list_schema):
     """List set() assigns to specific index."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
@@ -255,6 +279,8 @@ def test_list_set_element(dynamic_int_list_schema):
 def test_list_front_and_back(dynamic_int_list_schema):
     """List front() and back() access first/last elements."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
@@ -270,6 +296,8 @@ def test_list_front_and_back(dynamic_int_list_schema):
 def test_list_pop_back(dynamic_int_list_schema):
     """List pop_back() removes last element."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
@@ -287,6 +315,8 @@ def test_list_pop_back(dynamic_int_list_schema):
 def test_list_clear(dynamic_int_list_schema):
     """List clear() removes all elements."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
@@ -302,6 +332,8 @@ def test_list_clear(dynamic_int_list_schema):
 def test_list_resize_grow(dynamic_int_list_schema):
     """List resize() grows list with default values."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     elem = make_int_value(10)
     lv.push_back(elem.view())
@@ -315,6 +347,8 @@ def test_list_resize_grow(dynamic_int_list_schema):
 def test_list_resize_shrink(dynamic_int_list_schema):
     """List resize() shrinks list."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
@@ -332,6 +366,8 @@ def test_list_resize_shrink(dynamic_int_list_schema):
 def test_list_empty_property(dynamic_int_list_schema):
     """List empty() returns correct value."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     assert lv.empty()
@@ -346,6 +382,8 @@ def test_list_empty_property(dynamic_int_list_schema):
 def test_list_iteration_by_index(dynamic_int_list_schema):
     """List elements can be iterated by index."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
@@ -366,6 +404,8 @@ def test_list_iteration_by_index(dynamic_int_list_schema):
 def test_list_range_based_iteration(dynamic_int_list_schema):
     """List supports range-based iteration."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
@@ -413,6 +453,8 @@ def test_fixed_list_schema_size(fixed_double_list_schema):
 def test_create_fixed_list_value(fixed_double_list_schema):
     """Fixed-size list value can be created."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     assert v.valid()
 
 
@@ -420,6 +462,8 @@ def test_create_fixed_list_value(fixed_double_list_schema):
 def test_fixed_list_initial_size(fixed_double_list_schema):
     """Fixed-size list has size equal to fixed_size."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     assert lv.size() == 10
@@ -429,6 +473,8 @@ def test_fixed_list_initial_size(fixed_double_list_schema):
 def test_fixed_list_is_fixed_query(fixed_double_list_schema):
     """is_fixed_list() returns True for fixed-size list."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     assert v.view().is_fixed_list()
 
 
@@ -436,6 +482,8 @@ def test_fixed_list_is_fixed_query(fixed_double_list_schema):
 def test_fixed_list_access_by_index(fixed_double_list_schema):
     """Fixed-size list elements can be accessed by index."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
 
     v1 = make_double_value(1.0)
@@ -451,6 +499,8 @@ def test_fixed_list_access_by_index(fixed_double_list_schema):
 def test_fixed_list_set_element(fixed_double_list_schema):
     """Fixed-size list set() assigns to specific index."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
 
     v5 = make_double_value(5.0)
@@ -462,6 +512,8 @@ def test_fixed_list_set_element(fixed_double_list_schema):
 def test_fixed_list_reset_with_value(fixed_double_list_schema):
     """Fixed-size list reset() sets all elements to sentinel."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
 
     # Set some values
@@ -481,6 +533,8 @@ def test_fixed_list_reset_with_value(fixed_double_list_schema):
 def test_fixed_list_reset_with_nan(fixed_double_list_schema):
     """Fixed-size list can be reset with NaN sentinel."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
 
     nan_val = make_double_value(float('nan'))
@@ -493,6 +547,8 @@ def test_fixed_list_reset_with_nan(fixed_double_list_schema):
 def test_fixed_list_reset_with_explicit_value(fixed_double_list_schema):
     """Fixed-size list reset(Value) works with explicit wrapping."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
 
     reset_val = make_double_value(-1.0)
@@ -505,6 +561,8 @@ def test_fixed_list_reset_with_explicit_value(fixed_double_list_schema):
 def test_dynamic_list_reset(dynamic_double_list_schema):
     """Dynamic list also supports reset()."""
     v = PlainValue(dynamic_double_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     v1 = make_double_value(1.0)
     v2 = make_double_value(2.0)
@@ -524,6 +582,8 @@ def test_dynamic_list_reset(dynamic_double_list_schema):
 def test_fixed_list_push_back_raises(fixed_double_list_schema):
     """Fixed-size list push_back() throws."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
 
     elem = make_double_value(1.0)
@@ -535,6 +595,8 @@ def test_fixed_list_push_back_raises(fixed_double_list_schema):
 def test_fixed_list_pop_back_raises(fixed_double_list_schema):
     """Fixed-size list pop_back() throws."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
 
     with pytest.raises((RuntimeError, NotImplementedError)):
@@ -545,6 +607,8 @@ def test_fixed_list_pop_back_raises(fixed_double_list_schema):
 def test_fixed_list_resize_raises(fixed_double_list_schema):
     """Fixed-size list resize() throws."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
 
     with pytest.raises((RuntimeError, NotImplementedError)):
@@ -555,6 +619,8 @@ def test_fixed_list_resize_raises(fixed_double_list_schema):
 def test_fixed_list_clear_raises(fixed_double_list_schema):
     """Fixed-size list clear() throws."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
 
     with pytest.raises((RuntimeError, NotImplementedError)):
@@ -579,6 +645,8 @@ def test_fixed_list_is_fixed(fixed_double_list_schema):
 def test_dynamic_list_size_changes(dynamic_int_list_schema):
     """Dynamic list size changes with operations."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     assert lv.size() == 0
@@ -599,6 +667,8 @@ def test_dynamic_list_size_changes(dynamic_int_list_schema):
 def test_fixed_list_size_constant(fixed_int_list_schema):
     """Fixed-size list size remains constant."""
     v = PlainValue(fixed_int_list_schema)
+
+    v.emplace()
     flv = v.as_list()
 
     initial_size = flv.size()
@@ -621,6 +691,8 @@ def test_fixed_list_size_constant(fixed_int_list_schema):
 def test_list_index_out_of_bounds(dynamic_int_list_schema):
     """Accessing index beyond list size raises error."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     elem = make_int_value(10)
     lv.push_back(elem.view())
@@ -632,6 +704,8 @@ def test_list_index_out_of_bounds(dynamic_int_list_schema):
 def test_list_negative_index_raises(dynamic_int_list_schema):
     """Negative index access via at() raises error (at() doesn't support negative indices)."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     elem = make_int_value(10)
     lv.push_back(elem.view())
@@ -644,6 +718,8 @@ def test_list_negative_index_raises(dynamic_int_list_schema):
 def test_list_set_wrong_type_raises(dynamic_int_list_schema):
     """Setting element with wrong type raises error."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     elem = make_int_value(10)
     lv.push_back(elem.view())
@@ -656,6 +732,8 @@ def test_list_set_wrong_type_raises(dynamic_int_list_schema):
 def test_list_push_back_wrong_type_raises(dynamic_int_list_schema):
     """push_back with wrong type raises error."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     wrong = make_string_value("not an int")
@@ -676,6 +754,8 @@ def test_non_list_value_as_list_raises():
 def test_empty_list_front_raises(dynamic_int_list_schema):
     """front() on empty list raises error."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     with pytest.raises((IndexError, RuntimeError)):
@@ -686,6 +766,8 @@ def test_empty_list_front_raises(dynamic_int_list_schema):
 def test_empty_list_back_raises(dynamic_int_list_schema):
     """back() on empty list raises error."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     with pytest.raises((IndexError, RuntimeError)):
@@ -696,6 +778,8 @@ def test_empty_list_back_raises(dynamic_int_list_schema):
 def test_empty_list_pop_back_raises(dynamic_int_list_schema):
     """pop_back() on empty list raises error."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
 
     with pytest.raises((IndexError, RuntimeError)):
@@ -710,6 +794,8 @@ def test_empty_list_pop_back_raises(dynamic_int_list_schema):
 def test_is_list_on_list_value(dynamic_int_list_schema):
     """is_list() returns True for list values."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     assert v.view().is_list()
 
 
@@ -723,6 +809,8 @@ def test_is_list_on_scalar_value():
 def test_is_fixed_list_on_dynamic_list(dynamic_int_list_schema):
     """is_fixed_list() returns False for dynamic lists."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     assert not v.view().is_fixed_list()
 
 
@@ -730,12 +818,16 @@ def test_is_fixed_list_on_dynamic_list(dynamic_int_list_schema):
 def test_is_fixed_list_on_fixed_list(fixed_int_list_schema):
     """is_fixed_list() returns True for fixed-size lists."""
     v = PlainValue(fixed_int_list_schema)
+
+    v.emplace()
     assert v.view().is_fixed_list()
 
 
 def test_try_as_list_on_list_value(dynamic_int_list_schema):
     """try_as_list() returns view for list values."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     result = v.view().try_as_list()
     assert result is not None
 
@@ -754,6 +846,8 @@ def test_try_as_list_on_non_list_value():
 def test_clone_dynamic_list(dynamic_int_list_schema):
     """Dynamic list can be cloned."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     v1 = make_int_value(10)
     v2 = make_int_value(20)
@@ -774,6 +868,8 @@ def test_clone_dynamic_list(dynamic_int_list_schema):
 def test_clone_fixed_list(fixed_double_list_schema):
     """Fixed-size list can be cloned."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
     d1 = make_double_value(1.0)
     d5 = make_double_value(5.0)
@@ -791,6 +887,8 @@ def test_clone_fixed_list(fixed_double_list_schema):
 def test_cloned_list_is_independent(dynamic_int_list_schema):
     """Cloned list is independent of original."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     elem = make_int_value(10)
     lv.push_back(elem.view())
@@ -817,6 +915,8 @@ def test_cloned_list_is_independent(dynamic_int_list_schema):
 def test_list_equals_same_values(dynamic_int_list_schema):
     """Lists with same values are equal."""
     v1 = PlainValue(dynamic_int_list_schema)
+
+    v1.emplace()
     lv1 = v1.as_list()
     e1 = make_int_value(10)
     e2 = make_int_value(20)
@@ -824,6 +924,8 @@ def test_list_equals_same_values(dynamic_int_list_schema):
     lv1.push_back(e2.view())
 
     v2 = PlainValue(dynamic_int_list_schema)
+
+    v2.emplace()
     lv2 = v2.as_list()
     e3 = make_int_value(10)
     e4 = make_int_value(20)
@@ -837,6 +939,8 @@ def test_list_equals_same_values(dynamic_int_list_schema):
 def test_list_not_equals_different_values(dynamic_int_list_schema):
     """Lists with different values are not equal."""
     v1 = PlainValue(dynamic_int_list_schema)
+
+    v1.emplace()
     lv1 = v1.as_list()
     e1 = make_int_value(10)
     e2 = make_int_value(20)
@@ -844,6 +948,8 @@ def test_list_not_equals_different_values(dynamic_int_list_schema):
     lv1.push_back(e2.view())
 
     v2 = PlainValue(dynamic_int_list_schema)
+
+    v2.emplace()
     lv2 = v2.as_list()
     e3 = make_int_value(10)
     e4 = make_int_value(30)  # Different
@@ -857,11 +963,15 @@ def test_list_not_equals_different_values(dynamic_int_list_schema):
 def test_list_not_equals_different_lengths(dynamic_int_list_schema):
     """Lists with different lengths are not equal."""
     v1 = PlainValue(dynamic_int_list_schema)
+
+    v1.emplace()
     lv1 = v1.as_list()
     e1 = make_int_value(10)
     lv1.push_back(e1.view())
 
     v2 = PlainValue(dynamic_int_list_schema)
+
+    v2.emplace()
     lv2 = v2.as_list()
     e2 = make_int_value(10)
     e3 = make_int_value(20)
@@ -878,6 +988,8 @@ def test_list_not_equals_different_lengths(dynamic_int_list_schema):
 def test_list_to_python(dynamic_int_list_schema):
     """List can be converted to Python list."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     e1 = make_int_value(10)
     e2 = make_int_value(20)
@@ -896,6 +1008,7 @@ def test_list_from_python(dynamic_int_list_schema):
     """List can be populated from Python list."""
     v = PlainValue(dynamic_int_list_schema)
 
+    v.emplace()
     py_list = [10, 20, 30]
     v.from_python(py_list)
 
@@ -909,6 +1022,8 @@ def test_list_from_python(dynamic_int_list_schema):
 def test_fixed_list_to_python(fixed_double_list_schema):
     """Fixed-size list can be converted to Python list."""
     v = PlainValue(fixed_double_list_schema)
+
+    v.emplace()
     flv = v.as_list()
     d1 = make_double_value(1.0)
     d2 = make_double_value(2.0)
@@ -924,6 +1039,8 @@ def test_fixed_list_to_python(fixed_double_list_schema):
 def test_list_to_string(dynamic_int_list_schema):
     """List can be converted to string representation."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     e1 = make_int_value(10)
     e2 = make_int_value(20)
@@ -947,6 +1064,8 @@ def test_list_to_string(dynamic_int_list_schema):
 def test_const_list_view_read_only(dynamic_int_list_schema):
     """ConstListView provides read-only access."""
     v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
     lv = v.as_list()
     e1 = make_int_value(10)
     e2 = make_int_value(20)

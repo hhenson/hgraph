@@ -43,6 +43,8 @@ struct SetDeltaValue {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
             _added = PlainValue(_set_schema);
             _removed = PlainValue(_set_schema);
+            _added.emplace();
+            _removed.emplace();
         }
     }
 
@@ -56,6 +58,8 @@ struct SetDeltaValue {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
             _added = PlainValue(_set_schema);
             _removed = PlainValue(_set_schema);
+            _added.emplace();
+            _removed.emplace();
 
             // Copy elements from views
             auto add_set = _added.view().as_set();

@@ -242,8 +242,11 @@ class TestSetDeltaValue:
         """Test SetDeltaValue construction from views."""
         # Create sets for added and removed
         added_set = PlainValue(int_set_schema)
+
+        added_set.emplace()
         removed_set = PlainValue(int_set_schema)
 
+        removed_set.emplace()
         # Add elements
         elem1 = PlainValue(int_element_type)
         elem1.from_python(1)
@@ -268,12 +271,14 @@ class TestSetDeltaValue:
         # Create sets
         added_set = PlainValue(int_set_schema)
 
+        added_set.emplace()
         elem = PlainValue(int_element_type)
         elem.from_python(42)
         added_set.view().as_set().add(elem.view())
 
         removed_set = PlainValue(int_set_schema)
 
+        removed_set.emplace()
         # Create delta
         delta = SetDeltaValue(
             added_set.view().as_set(),

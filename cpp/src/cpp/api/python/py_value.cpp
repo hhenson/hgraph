@@ -1111,6 +1111,7 @@ static void register_map_views(nb::module_& m) {
                 // Create a default-constructed value of the value type
                 const TypeMeta* val_type = self.value_type();
                 PlainValue default_val(val_type);
+                default_val.emplace();
                 self.set(key, ConstValueView(default_val.view()));
             }
             return self.at(key);

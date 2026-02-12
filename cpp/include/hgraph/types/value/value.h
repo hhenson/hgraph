@@ -79,15 +79,12 @@ public:
     /**
      * @brief Construct from a type schema.
      *
-     * Associates the schema with this Value.
-     *
-     * Note: this currently default-constructs the underlying storage.
-     * SV-02 finalization will switch this to typed-null-by-default.
+     * Creates a typed-null Value (schema is preserved, no payload yet).
      *
      * @param schema The type schema
      */
     explicit Value(const TypeMeta* schema)
-        : _storage(ValueStorage::create(schema)), _schema(schema) {}
+        : _schema(schema) {}
 
     /**
      * @brief Construct from a scalar value.
@@ -165,7 +162,13 @@ public:
      * @return A new Value containing a copy of the data
      */
     [[nodiscard]] static Value copy(const Value& other) {
-        return Value(other.view());
+        Value result;
+        result._schema = other._schema;
+        if (other.has_value()) {
+            result._storage.construct(other._schema);
+            other._schema->ops().copy(result._storage.data(), other._storage.data(), other._schema);
+        }
+        return result;
     }
 
     /**
@@ -458,14 +461,22 @@ public:
      * @brief Check equality with another Value.
      */
     [[nodiscard]] bool equals(const Value& other) const {
-        return view().equals(other.view());
+        if (_schema != other._schema) return false;
+        const bool lhs_has = has_value();
+        const bool rhs_has = other.has_value();
+        if (!lhs_has || !rhs_has) {
+            return lhs_has == rhs_has;
+        }
+        return _schema->ops().equals(_storage.data(), other._storage.data(), _schema);
     }
 
     /**
      * @brief Check equality with a view.
      */
     [[nodiscard]] bool equals(const ConstValueView& other) const {
-        return view().equals(other);
+        if (!has_value() || !other.valid()) return false;
+        if (_schema != other.schema()) return false;
+        return _schema->ops().equals(_storage.data(), other.data(), _schema);
     }
 
     /**
@@ -773,12 +784,12 @@ bool MapView::remove(const K& key) {
 
 template<typename P1, typename P2>
 bool operator==(const Value<P1>& lhs, const Value<P2>& rhs) {
-    return lhs.equals(rhs.view());
+    return lhs.equals(rhs);
 }
 
 template<typename P1, typename P2>
 bool operator!=(const Value<P1>& lhs, const Value<P2>& rhs) {
-    return !lhs.equals(rhs.view());
+    return !lhs.equals(rhs);
 }
 
 template<typename P>

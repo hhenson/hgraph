@@ -16,6 +16,7 @@ namespace hgraph
         auto self = impl();
         const auto *key_schema = self->key_type_meta();
         value::Value<> key_val(key_schema);
+        key_val.emplace();
         key_schema->ops().from_python(key_val.data(), key, key_schema);
         return key_val;
     }
@@ -236,6 +237,7 @@ namespace hgraph
         auto self = impl();
         const auto *key_schema = self->key_type_meta();
         value::Value<> key_val(key_schema);
+        key_val.emplace();
         key_schema->ops().from_python(key_val.data(), key, key_schema);
         return key_val;
     }

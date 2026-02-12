@@ -139,6 +139,8 @@ def test_single_element_tuple_schema(single_element_tuple_schema):
 def test_create_tuple_value_from_schema(simple_tuple_schema):
     """Value can be created from tuple schema."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     assert v.valid()
 
 
@@ -146,6 +148,8 @@ def test_create_tuple_value_from_schema(simple_tuple_schema):
 def test_tuple_value_has_correct_schema(simple_tuple_schema):
     """Tuple value reports correct schema."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     assert v.schema == simple_tuple_schema
 
 
@@ -153,6 +157,8 @@ def test_tuple_value_has_correct_schema(simple_tuple_schema):
 def test_get_tuple_view(simple_tuple_schema):
     """Can get TupleView from tuple Value."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     assert tv is not None
 
@@ -161,6 +167,8 @@ def test_get_tuple_view(simple_tuple_schema):
 def test_tuple_view_size(simple_tuple_schema):
     """TupleView reports correct size."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     assert tv.size() == 3
 
@@ -169,6 +177,8 @@ def test_tuple_view_size(simple_tuple_schema):
 def test_tuple_view_set_by_index(simple_tuple_schema):
     """TupleView allows setting elements by index."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
 
     # Set values using typed setters via at()
@@ -185,6 +195,8 @@ def test_tuple_view_set_by_index(simple_tuple_schema):
 def test_tuple_view_set_with_value(simple_tuple_schema):
     """TupleView allows setting elements with PlainValue."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
 
     tv.set(0, PlainValue(100))
@@ -195,6 +207,8 @@ def test_tuple_view_set_with_value(simple_tuple_schema):
 def test_tuple_view_operator_bracket_read(simple_tuple_schema):
     """TupleView operator[] provides read access."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     tv.at(0).set_int(42)
 
@@ -207,6 +221,8 @@ def test_tuple_view_operator_bracket_read(simple_tuple_schema):
 def test_tuple_view_operator_bracket_write(simple_tuple_schema):
     """TupleView operator[] provides write access via at().set_*()."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
 
     # Write via at().set_*()
@@ -221,6 +237,8 @@ def test_tuple_view_operator_bracket_write(simple_tuple_schema):
 def test_tuple_view_at_method(simple_tuple_schema):
     """TupleView at() method provides element access."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     tv.at(0).set_int(42)
 
@@ -232,6 +250,8 @@ def test_tuple_view_at_method(simple_tuple_schema):
 def test_const_tuple_view_read_access(simple_tuple_schema):
     """ConstTupleView provides read-only access."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     tv.at(0).set_int(42)
     tv.at(1).set_string("hello")
@@ -249,6 +269,8 @@ def test_const_tuple_view_read_access(simple_tuple_schema):
 def test_tuple_element_type_access(simple_tuple_schema, int_schema, string_schema, double_schema):
     """TupleView element_type() returns type at position."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     ctv = v.view().as_tuple()
 
     assert ctv.element_type(0) == int_schema
@@ -264,6 +286,8 @@ def test_tuple_element_type_access(simple_tuple_schema, int_schema, string_schem
 def test_tuple_iteration_by_index(simple_tuple_schema):
     """Tuple elements can be iterated by index."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     tv.at(0).set_int(1)
     tv.at(1).set_string("two")
@@ -283,6 +307,8 @@ def test_tuple_iteration_by_index(simple_tuple_schema):
 def test_tuple_range_based_iteration(homogeneous_tuple_schema):
     """Tuple supports range-based iteration."""
     v = PlainValue(homogeneous_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     tv.at(0).set_int(10)
     tv.at(1).set_int(20)
@@ -303,6 +329,8 @@ def test_tuple_range_based_iteration(homogeneous_tuple_schema):
 def test_tuple_index_out_of_bounds(simple_tuple_schema):
     """Accessing index beyond tuple size raises error."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     ctv = v.view().as_tuple()
 
     with pytest.raises((IndexError, RuntimeError)):
@@ -312,6 +340,8 @@ def test_tuple_index_out_of_bounds(simple_tuple_schema):
 def test_tuple_negative_index_raises(simple_tuple_schema):
     """Negative index access via at() raises error (at() doesn't support negative indices)."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     ctv = v.view().as_tuple()
 
     # at() method doesn't support negative indices (TypeError from nanobind)
@@ -322,6 +352,8 @@ def test_tuple_negative_index_raises(simple_tuple_schema):
 def test_tuple_set_wrong_type_raises(simple_tuple_schema):
     """Setting element with wrong type raises error."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
 
     # Index 0 expects int64_t, not string - from_python will fail
@@ -334,6 +366,7 @@ def test_tuple_as_wrong_view_type_raises(simple_tuple_schema):
     """Getting wrong view type raises error."""
     v = PlainValue(simple_tuple_schema)
 
+    v.emplace()
     # Tuple should not be convertible to list view directly
     with pytest.raises((TypeError, RuntimeError)):
         _ = v.as_list()
@@ -357,6 +390,8 @@ def test_non_tuple_value_as_tuple_raises():
 def test_is_tuple_on_tuple_value(simple_tuple_schema):
     """is_tuple() returns True for tuple values."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     assert v.view().is_tuple()
 
 
@@ -370,12 +405,16 @@ def test_is_tuple_on_scalar_value():
 def test_is_bundle_on_tuple_value(simple_tuple_schema):
     """is_bundle() returns False for tuple values."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     assert not v.view().is_bundle()
 
 
 def test_try_as_tuple_on_tuple_value(simple_tuple_schema):
     """try_as_tuple() returns view for tuple values."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     result = v.view().try_as_tuple()
     assert result is not None
 
@@ -395,6 +434,8 @@ def test_try_as_tuple_on_non_tuple_value():
 def test_tuple_has_no_named_access(simple_tuple_schema):
     """Tuple does not support named field access."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
 
     # Tuple should NOT have at(name) method
@@ -411,6 +452,8 @@ def test_tuple_has_no_named_access(simple_tuple_schema):
 def test_tuple_access_by_index_only(simple_tuple_schema):
     """Tuple only supports index-based access."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     tv.at(0).set_int(42)
 
@@ -426,6 +469,8 @@ def test_tuple_access_by_index_only(simple_tuple_schema):
 def test_clone_tuple_value(simple_tuple_schema):
     """Tuple values can be cloned."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     tv.at(0).set_int(42)
     tv.at(1).set_string("hello")
@@ -444,6 +489,8 @@ def test_clone_tuple_value(simple_tuple_schema):
 def test_cloned_tuple_is_independent(simple_tuple_schema):
     """Cloned tuple is independent of original."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     tv.at(0).set_int(42)
 
@@ -466,12 +513,16 @@ def test_cloned_tuple_is_independent(simple_tuple_schema):
 def test_tuple_equals_same_values(simple_tuple_schema):
     """Tuples with same values are equal."""
     v1 = PlainValue(simple_tuple_schema)
+
+    v1.emplace()
     tv1 = v1.as_tuple()
     tv1.at(0).set_int(42)
     tv1.at(1).set_string("hello")
     tv1.at(2).set_double(3.14)
 
     v2 = PlainValue(simple_tuple_schema)
+
+    v2.emplace()
     tv2 = v2.as_tuple()
     tv2.at(0).set_int(42)
     tv2.at(1).set_string("hello")
@@ -484,12 +535,16 @@ def test_tuple_equals_same_values(simple_tuple_schema):
 def test_tuple_not_equals_different_values(simple_tuple_schema):
     """Tuples with different values are not equal."""
     v1 = PlainValue(simple_tuple_schema)
+
+    v1.emplace()
     tv1 = v1.as_tuple()
     tv1.at(0).set_int(42)
     tv1.at(1).set_string("hello")
     tv1.at(2).set_double(3.14)
 
     v2 = PlainValue(simple_tuple_schema)
+
+    v2.emplace()
     tv2 = v2.as_tuple()
     tv2.at(0).set_int(100)  # Different value
     tv2.at(1).set_string("hello")
@@ -506,6 +561,8 @@ def test_tuple_not_equals_different_values(simple_tuple_schema):
 def test_tuple_to_python(simple_tuple_schema):
     """Tuple can be converted to Python object."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     tv.at(0).set_int(42)
     tv.at(1).set_string("hello")
@@ -526,6 +583,7 @@ def test_tuple_from_python(simple_tuple_schema):
     """Tuple can be populated from Python object."""
     v = PlainValue(simple_tuple_schema)
 
+    v.emplace()
     py_tuple = (42, "hello", 3.14)
     v.from_python(py_tuple)
 
@@ -543,6 +601,8 @@ def test_tuple_from_python(simple_tuple_schema):
 def test_tuple_to_string(simple_tuple_schema):
     """Tuple can be converted to string representation."""
     v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
     tv = v.as_tuple()
     tv.at(0).set_int(42)
     tv.at(1).set_string("hello")

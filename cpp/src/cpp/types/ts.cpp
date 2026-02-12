@@ -44,7 +44,7 @@ namespace hgraph {
     }
 
     void TimeSeriesValueOutput::mark_invalid() {
-        _value = value::CachedValue(schema());  // Reset to default
+        _value = value::CachedValue(schema());  // Reset to typed-null
         BaseTimeSeriesOutput::mark_invalid();
     }
 
@@ -54,6 +54,9 @@ namespace hgraph {
             throw std::runtime_error("TimeSeriesValueOutput::copy_from_output: type mismatch");
         }
         if (other->valid()) {
+            if (!_value.has_value()) {
+                _value.emplace();
+            }
             _value.view().copy_from(other->_value.view());
             mark_modified();
         } else {
@@ -67,6 +70,9 @@ namespace hgraph {
             throw std::runtime_error("TimeSeriesValueOutput::copy_from_input: type mismatch");
         }
         if (other->valid()) {
+            if (!_value.has_value()) {
+                _value.emplace();
+            }
             _value.view().copy_from(other->value());
             mark_modified();
         } else {

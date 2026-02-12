@@ -11,6 +11,7 @@ namespace hgraph
         _buffer.reserve(_size);
         for (size_t i = 0; i < _size; ++i) {
             _buffer.emplace_back(_element_type);
+            _buffer.back().emplace();
         }
         _times.resize(_size, engine_time_t{});
     }
@@ -21,6 +22,7 @@ namespace hgraph
         _buffer.reserve(_size);
         for (size_t i = 0; i < _size; ++i) {
             _buffer.emplace_back(_element_type);
+            _buffer.back().emplace();
         }
         _times.resize(_size, engine_time_t{});
     }
@@ -74,6 +76,9 @@ namespace hgraph
                 _length = _size;
             }
             size_t pos = (_start + _length - 1) % _size;
+            if (!_buffer[pos].has_value()) {
+                _buffer[pos].emplace();
+            }
             _element_type->ops().from_python(_buffer[pos].data(), value, _element_type);
             _times[pos] = owning_graph()->evaluation_time();
             mark_modified();
@@ -91,6 +96,12 @@ namespace hgraph
         _start  = 0;
         _length = 0;
         _buffer.clear();
+        _buffer.reserve(_size);
+        for (size_t i = 0; i < _size; ++i) {
+            _buffer.emplace_back(_element_type);
+            _buffer.back().emplace();
+        }
+        _times.assign(_size, engine_time_t{});
         _has_removed_value = false;
         BaseTimeSeriesOutput::mark_invalid();
     }
@@ -152,7 +163,12 @@ namespace hgraph
 
     void TimeSeriesFixedWindowOutput::reset_value() {
         _buffer.clear();
-        _times.clear();
+        _buffer.reserve(_size);
+        for (size_t i = 0; i < _size; ++i) {
+            _buffer.emplace_back(_element_type);
+            _buffer.back().emplace();
+        }
+        _times.assign(_size, engine_time_t{});
         _has_removed_value = false;
         _start = 0;
         _length = 0;
@@ -338,6 +354,7 @@ namespace hgraph
         if (!value.is_valid() || value.is_none()) return;
         try {
             value::PlainValue v(_element_type);
+            v.emplace();
             _element_type->ops().from_python(v.data(), value, _element_type);
             _buffer.push_back(std::move(v));
             _times.push_back(owning_graph()->evaluation_time());
