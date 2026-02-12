@@ -215,7 +215,7 @@ def test_const_bundle_view_at_by_name(simple_bundle_schema):
     bv.at_name_mut("y").set_double(3.14)
     bv.at_name_mut("name").set_string("test")
 
-    cbv = v.const_view().as_bundle()
+    cbv = v.view().as_bundle()
 
     assert cbv.at_name("x").as_int() == 42
     assert abs(cbv["y"].as_double() - 3.14) < 1e-10
@@ -225,7 +225,7 @@ def test_const_bundle_view_at_by_name(simple_bundle_schema):
 def test_bundle_has_field(simple_bundle_schema):
     """has_field() returns True for existing fields."""
     v = PlainValue(simple_bundle_schema)
-    cbv = v.const_view().as_bundle()
+    cbv = v.view().as_bundle()
 
     assert cbv.has_field("x")
     assert cbv.has_field("y")
@@ -236,7 +236,7 @@ def test_bundle_has_field(simple_bundle_schema):
 def test_bundle_field_index_lookup(simple_bundle_schema):
     """field_index() returns correct index for field name."""
     v = PlainValue(simple_bundle_schema)
-    cbv = v.const_view().as_bundle()
+    cbv = v.view().as_bundle()
 
     assert cbv.field_index("x") == 0
     assert cbv.field_index("y") == 1
@@ -262,7 +262,7 @@ def test_nested_bundle_access(nested_bundle_schema):
 def test_bundle_access_nonexistent_field_raises(simple_bundle_schema):
     """Accessing non-existent field raises error."""
     v = PlainValue(simple_bundle_schema)
-    cbv = v.const_view().as_bundle()
+    cbv = v.view().as_bundle()
 
     with pytest.raises((KeyError, RuntimeError)):
         _ = cbv.at_name("nonexistent")
@@ -282,7 +282,7 @@ def test_bundle_equals_same_values(simple_bundle_schema):
     bv2.at_name_mut("y").set_double(3.14)
     bv2.at_name_mut("name").set_string("test")
 
-    assert v1.equals(v2.const_view())
+    assert v1.equals(v2.view())
 
 
 def test_bundle_not_equals_different_values(simple_bundle_schema):
@@ -295,4 +295,4 @@ def test_bundle_not_equals_different_values(simple_bundle_schema):
     bv2 = v2.as_bundle()
     bv2.at_name_mut("x").set_int(100)
 
-    assert not v1.equals(v2.const_view())
+    assert not v1.equals(v2.view())

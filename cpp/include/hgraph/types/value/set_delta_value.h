@@ -69,6 +69,15 @@ struct SetDeltaValue {
         }
     }
 
+    /**
+     * @brief Construct from mutable set views (copies data).
+     */
+    SetDeltaValue(SetView added_view, SetView removed_view,
+                  const TypeMeta* element_type)
+        : SetDeltaValue(ConstSetView(added_view.data(), added_view.schema()),
+                        ConstSetView(removed_view.data(), removed_view.schema()),
+                        element_type) {}
+
     // Move-only (PlainValue has unique ownership)
     SetDeltaValue(SetDeltaValue&&) noexcept = default;
     SetDeltaValue& operator=(SetDeltaValue&&) noexcept = default;
@@ -81,14 +90,14 @@ struct SetDeltaValue {
      * @brief Get const view of added elements.
      */
     [[nodiscard]] ConstSetView added() const {
-        return _added.const_view().as_set();
+        return _added.view().as_set();
     }
 
     /**
      * @brief Get const view of removed elements.
      */
     [[nodiscard]] ConstSetView removed() const {
-        return _removed.const_view().as_set();
+        return _removed.view().as_set();
     }
 
     // ========== Size and State ==========

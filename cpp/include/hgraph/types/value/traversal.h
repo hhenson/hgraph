@@ -16,16 +16,16 @@
  * Usage:
  * @code
  * // Count all leaf values
- * size_t count = count_leaves(value.const_view());
+ * size_t count = count_leaves(value.view());
  *
  * // Visit all leaves with path
- * deep_visit(value.const_view(), [](ConstValueView leaf, const TraversalPath& path) {
+ * deep_visit(value.view(), [](ConstValueView leaf, const TraversalPath& path) {
  *     std::cout << "At path " << path_to_string(path) << ": ";
  *     std::cout << leaf.to_string() << std::endl;
  * });
  *
  * // Collect all paths
- * auto paths = collect_leaf_paths(value.const_view());
+ * auto paths = collect_leaf_paths(value.view());
  * @endcode
  */
 

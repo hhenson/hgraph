@@ -266,7 +266,7 @@ def test_plain_value_is_functional(large_int):
     v = PlainValue(large_int)
     assert v.valid()
     assert v.to_python() == large_int
-    assert v.const_view().as_int() == large_int
+    assert v.view().as_int() == large_int
 
 
 @pytest.mark.skipif(not HAS_CACHED_VALUE, reason="CachedValue not yet exposed in C++ extension")
@@ -275,7 +275,7 @@ def test_cached_value_is_functional(large_int):
     v = CachedValue(large_int)
     assert v.valid()
     assert v.to_python() == large_int
-    assert v.const_view().as_int() == large_int
+    assert v.view().as_int() == large_int
 
 
 # =============================================================================
@@ -364,6 +364,22 @@ def test_modification_invalidates_cache():
     assert py1 is not py2
 
 
+@pytest.mark.skipif(not HAS_TS_VALUE, reason="TSValue not yet exposed in C++ extension")
+def test_tsvalue_reset_emplace_trigger_modification_callbacks():
+    """reset()/emplace() are mutations for modification tracking policies."""
+    v = TSValue(123)
+    callback_count = [0]
+
+    def on_change():
+        callback_count[0] += 1
+
+    v.on_modified(on_change)
+    v.reset()
+    v.emplace()
+
+    assert callback_count[0] == 2
+
+
 # =============================================================================
 # Validation Extension Tests (Examples Section 4.1)
 # =============================================================================
@@ -385,6 +401,45 @@ def test_validated_value_accepts_valid_input():
     v.from_python(123456789)
     assert v.to_python() == 123456789
 
+
+# =============================================================================
+# Nullability Primitive Tests (SV-02 Slice 1)
+# =============================================================================
+
+def test_plain_value_reset_preserves_schema_and_clears_value():
+    """reset() clears payload while preserving schema."""
+    v = PlainValue(123456789)
+    schema = v.schema
+
+    assert v.has_value()
+    assert bool(v)
+
+    v.reset()
+
+    assert not v.has_value()
+    assert not bool(v)
+    assert v.schema is schema
+    assert v.to_python() is None
+
+
+def test_plain_value_from_python_none_resets_value():
+    """from_python(None) maps to typed-null for non-validating policies."""
+    v = PlainValue(123)
+    v.from_python(None)
+
+    assert not v.has_value()
+    assert v.to_python() is None
+
+
+def test_plain_value_emplace_restores_value_after_reset():
+    """emplace() re-constructs default payload after reset()."""
+    v = PlainValue(123)
+    v.reset()
+    assert not v.has_value()
+
+    v.emplace()
+    assert v.has_value()
+    assert v.to_python() == 0
 
 # =============================================================================
 # API Consistency Tests
@@ -432,14 +487,14 @@ def test_all_types_have_view_method(large_int):
         assert cached.view().valid()
 
 
-def test_all_types_have_const_view_method(large_int):
-    """All Value types have const_view() method."""
+def test_all_types_support_view_in_const_context(large_int):
+    """All Value types support read access through view() in const contexts."""
     plain = PlainValue(large_int)
-    assert plain.const_view().valid()
+    assert plain.view().valid()
 
     if HAS_CACHED_VALUE:
         cached = CachedValue(large_int)
-        assert cached.const_view().valid()
+        assert cached.view().valid()
 
 
 # =============================================================================

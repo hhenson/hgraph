@@ -42,7 +42,7 @@ namespace hgraph {
         auto let = node_->last_evaluation_time();
         if ((let != MIN_DT && let > next_time) || node_->is_stopping()) { return; }
 
-        auto rank_it = node_->active_graphs_rank_.find(_key.const_view());
+        auto rank_it = node_->active_graphs_rank_.find(_key.view());
         if (rank_it == node_->active_graphs_rank_.end()) { return; }
         int rank = rank_it->second;
 
@@ -58,14 +58,14 @@ namespace hgraph {
         auto rank_keys_it = node_->scheduled_keys_by_rank_.find(rank);
         engine_time_t tm = MIN_DT;
         if (rank_keys_it != node_->scheduled_keys_by_rank_.end()) {
-            auto it = rank_keys_it->second.find(_key.const_view());
+            auto it = rank_keys_it->second.find(_key.view());
             if (it != rank_keys_it->second.end()) {
                 tm = it->second;
             }
         }
 
         if (tm == MIN_DT || tm > next_time || tm < node_->graph()->evaluation_time()) {
-            node_->schedule_graph(_key.const_view(), next_time);
+            node_->schedule_graph(_key.view(), next_time);
         }
 
         NestedEngineEvaluationClock::update_next_scheduled_evaluation_time(next_time);
@@ -88,7 +88,7 @@ namespace hgraph {
         key_type_meta_->ops().from_python(key_val.data(), key, key_type_meta_);
         value::Value<> depends_on_val(key_type_meta_);
         key_type_meta_->ops().from_python(depends_on_val.data(), depends_on, key_type_meta_);
-        return add_graph_dependency(key_val.const_view(), depends_on_val.const_view());
+        return add_graph_dependency(key_val.view(), depends_on_val.view());
     }
 
     void MeshNode::_remove_graph_dependency(const nb::object &key, const nb::object &depends_on) {
@@ -96,7 +96,7 @@ namespace hgraph {
         key_type_meta_->ops().from_python(key_val.data(), key, key_type_meta_);
         value::Value<> depends_on_val(key_type_meta_);
         key_type_meta_->ops().from_python(depends_on_val.data(), depends_on, key_type_meta_);
-        remove_graph_dependency(key_val.const_view(), depends_on_val.const_view());
+        remove_graph_dependency(key_val.view(), depends_on_val.view());
     }
 
     void MeshNode::do_start() {
@@ -146,7 +146,7 @@ namespace hgraph {
                         auto deps_it = active_graphs_dependencies_.find(key_view);
                         if (deps_it != active_graphs_dependencies_.end()) {
                             for (const auto &d : deps_it->second) {
-                                re_rank(d.const_view(), key_view);
+                                re_rank(d.view(), key_view);
                             }
                         }
                     }
@@ -174,16 +174,16 @@ namespace hgraph {
             std::vector<value::PlainValue> pending_copy;
             pending_copy.reserve(pending_keys_.size());
             for (const auto& k : pending_keys_) {
-                pending_copy.push_back(k.const_view().clone());
+                pending_copy.push_back(k.view().clone());
             }
             pending_keys_.clear();
 
             for (const auto &k : pending_copy) {
-                create_new_graph(k.const_view(), 0);
-                auto deps_it = active_graphs_dependencies_.find(k.const_view());
+                create_new_graph(k.view(), 0);
+                auto deps_it = active_graphs_dependencies_.find(k.view());
                 if (deps_it != active_graphs_dependencies_.end()) {
                     for (const auto &d : deps_it->second) {
-                        re_rank(d.const_view(), k.const_view());
+                        re_rank(d.view(), k.view());
                     }
                 }
             }
@@ -194,15 +194,15 @@ namespace hgraph {
             std::vector<value::PlainValue> to_remove;
             to_remove.reserve(graphs_to_remove_.size());
             for (const auto& k : graphs_to_remove_) {
-                to_remove.push_back(k.const_view().clone());
+                to_remove.push_back(k.view().clone());
             }
             graphs_to_remove_.clear();
 
             for (const auto &k : to_remove) {
-                auto deps_it = active_graphs_dependencies_.find(k.const_view());
+                auto deps_it = active_graphs_dependencies_.find(k.view());
                 if ((deps_it == active_graphs_dependencies_.end() || deps_it->second.empty()) &&
-                    !keys.contains(k.const_view())) {
-                    remove_graph(k.const_view());
+                    !keys.contains(k.view())) {
+                    remove_graph(k.view());
                 }
             }
         }
@@ -224,16 +224,16 @@ namespace hgraph {
 
                     for (const auto &[k, dtg] : graphs) {
                         if (dtg == dt) {
-                            current_eval_graph_ = k.const_view().clone();
-                            engine_time_t next_dtg = TsdMapNode::evaluate_graph(k.const_view());
+                            current_eval_graph_ = k.view().clone();
+                            engine_time_t next_dtg = TsdMapNode::evaluate_graph(k.view());
                             current_eval_graph_ = std::nullopt;
 
                             if (next_dtg != MAX_DT && next_dtg > this->last_evaluation_time()) {
-                                schedule_graph(k.const_view(), next_dtg);
+                                schedule_graph(k.view(), next_dtg);
                                 next_time = std::min(next_time, next_dtg);
                             }
                         } else if (dtg != MAX_DT && dtg > this->last_evaluation_time()) {
-                            schedule_graph(k.const_view(), dtg);
+                            schedule_graph(k.view(), dtg);
                             next_time = std::min(next_time, dtg);
                         }
                     }
@@ -252,7 +252,7 @@ namespace hgraph {
             auto requests = std::move(re_rank_requests_);
             re_rank_requests_.clear();
             for (const auto &[k, d] : requests) {
-                re_rank(k.const_view(), d.const_view());
+                re_rank(k.view(), d.view());
             }
         }
 
@@ -338,10 +338,10 @@ namespace hgraph {
             // Ensure cleanup happens even if stop_component throws (matches Python try-finally pattern)
             value::PlainValue key_copy = key.clone<value::NoCache>();  // Clone for lambda capture
             auto cleanup = make_scope_exit([this, key_copy = std::move(key_copy)]() mutable {
-                auto rank_it = active_graphs_rank_.find(key_copy.const_view());
+                auto rank_it = active_graphs_rank_.find(key_copy.view());
                 if (rank_it != active_graphs_rank_.end()) {
                     auto& rank_map = scheduled_keys_by_rank_[rank_it->second];
-                    if (auto sched_it = rank_map.find(key_copy.const_view()); sched_it != rank_map.end()) {
+                    if (auto sched_it = rank_map.find(key_copy.view()); sched_it != rank_map.end()) {
                         rank_map.erase(sched_it);
                     }
                     active_graphs_rank_.erase(rank_it);
@@ -449,9 +449,9 @@ namespace hgraph {
 
                     if (found_cycle) {
                         std::vector<value::PlainValue> cycle;
-                        for (const auto& item : re_rank_stack) { cycle.push_back(item.const_view().clone()); }
+                        for (const auto& item : re_rank_stack) { cycle.push_back(item.view().clone()); }
                         cycle.push_back(key.clone());
-                        cycle.push_back(k.const_view().clone());
+                        cycle.push_back(k.view().clone());
                         std::string cycle_str;
                         for (size_t i = 0; i < cycle.size(); ++i) {
                             if (i > 0) cycle_str += " -> ";
@@ -467,9 +467,9 @@ namespace hgraph {
                     }
 
                     std::vector<value::PlainValue> new_stack;
-                    for (const auto& item : re_rank_stack) { new_stack.push_back(item.const_view().clone()); }
+                    for (const auto& item : re_rank_stack) { new_stack.push_back(item.view().clone()); }
                     new_stack.push_back(key.clone());
-                    re_rank(k.const_view(), key, std::move(new_stack));
+                    re_rank(k.view(), key, std::move(new_stack));
                 }
             }
         }

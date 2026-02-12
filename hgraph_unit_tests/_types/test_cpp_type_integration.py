@@ -585,7 +585,7 @@ class TestValueSystemIntegration:
 
         v = value.PlainValue(cpp_type)
         v.view().from_python(42)
-        result = v.const_view().to_python()
+        result = v.view().to_python()
 
         assert result == 42
 
@@ -599,7 +599,7 @@ class TestValueSystemIntegration:
 
         v = value.PlainValue(cpp_type)
         v.view().from_python(3.14159)
-        result = v.const_view().to_python()
+        result = v.view().to_python()
 
         assert abs(result - 3.14159) < 1e-10
 
@@ -613,7 +613,7 @@ class TestValueSystemIntegration:
 
         v = value.PlainValue(cpp_type)
         v.view().from_python("hello world")
-        result = v.const_view().to_python()
+        result = v.view().to_python()
 
         assert result == "hello world"
 
@@ -628,7 +628,7 @@ class TestValueSystemIntegration:
         test_dt = datetime(2024, 6, 15, 10, 30, 45)
         v = value.PlainValue(cpp_type)
         v.view().from_python(test_dt)
-        result = v.const_view().to_python()
+        result = v.view().to_python()
 
         assert result == test_dt
 
@@ -643,7 +643,7 @@ class TestValueSystemIntegration:
         test_date = date(2024, 6, 15)
         v = value.PlainValue(cpp_type)
         v.view().from_python(test_date)
-        result = v.const_view().to_python()
+        result = v.view().to_python()
 
         assert result == test_date
 
@@ -657,7 +657,7 @@ class TestValueSystemIntegration:
 
         v = value.PlainValue(cpp_type)
         v.view().from_python(MyEnum.A)
-        result = v.const_view().to_python()
+        result = v.view().to_python()
 
         assert result == MyEnum.A
 
@@ -671,7 +671,7 @@ class TestValueSystemIntegration:
 
         v = value.PlainValue(cpp_type)
         v.view().from_python([1, 2, 3, 4, 5])
-        result = v.const_view().to_python()
+        result = v.view().to_python()
 
         assert list(result) == [1, 2, 3, 4, 5]
 
@@ -685,7 +685,7 @@ class TestValueSystemIntegration:
 
         v = value.PlainValue(cpp_type)
         v.view().from_python({"a": 1, "b": 2, "c": 3})
-        result = v.const_view().to_python()
+        result = v.view().to_python()
 
         assert dict(result) == {"a": 1, "b": 2, "c": 3}
 
@@ -699,7 +699,7 @@ class TestValueSystemIntegration:
 
         v = value.PlainValue(cpp_type)
         v.view().from_python({1, 2, 3})
-        result = v.const_view().to_python()
+        result = v.view().to_python()
 
         assert set(result) == {1, 2, 3}
 

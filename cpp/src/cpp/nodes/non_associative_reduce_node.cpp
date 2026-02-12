@@ -127,7 +127,7 @@ namespace hgraph {
             // Bind RHS input to TSD[ndx]
             auto rhs_node = new_graph[std::get < 1 > (input_node_ids_)];
             value::Value<> key_val(ndx);
-            auto rhs = (*tsd_input)[key_val.const_view()];
+            auto rhs = (*tsd_input)[key_val.view()];
             auto rhs_ref = dynamic_cast<TimeSeriesReferenceInput *>(rhs.get());
             auto rhs_input = dynamic_cast<TimeSeriesReferenceInput *>((*rhs_node->input())[0].get());
             rhs_input->clone_binding(rhs_ref);

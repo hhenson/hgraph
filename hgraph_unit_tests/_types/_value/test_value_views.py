@@ -17,7 +17,6 @@ value = _hgraph.value  # Value types are in the value submodule
 try:
     Value = value.PlainValue
     ValueView = value.ValueView
-    ConstValueView = value.ConstValueView
     TypeRegistry = value.TypeRegistry
 except AttributeError:
     pytest.skip("Value view types not yet exposed in C++ extension", allow_module_level=True)
@@ -90,19 +89,19 @@ def list_schema():
 
 def test_const_view_from_value(int_value):
     """ConstValueView can be created from Value."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.valid()
 
 
 def test_const_view_validity(int_value):
     """ConstValueView reports valid() correctly."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.valid() is True
 
 
 def test_const_view_schema_access(int_value):
     """ConstValueView provides access to schema."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     schema = cv.schema  # schema is a property
     assert schema is not None
 
@@ -113,43 +112,43 @@ def test_const_view_schema_access(int_value):
 
 def test_is_scalar_for_int(int_value):
     """is_scalar() returns True for integer values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.is_scalar() is True
 
 
 def test_is_scalar_for_string(string_value):
     """is_scalar() returns True for string values."""
-    cv = string_value.const_view()
+    cv = string_value.view()
     assert cv.is_scalar() is True
 
 
 def test_is_bundle_for_scalar(int_value):
     """is_bundle() returns False for scalar values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.is_bundle() is False
 
 
 def test_is_list_for_scalar(int_value):
     """is_list() returns False for scalar values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.is_list() is False
 
 
 def test_is_set_for_scalar(int_value):
     """is_set() returns False for scalar values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.is_set() is False
 
 
 def test_is_map_for_scalar(int_value):
     """is_map() returns False for scalar values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.is_map() is False
 
 
 def test_is_tuple_for_scalar(int_value):
     """is_tuple() returns False for scalar values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.is_tuple() is False
 
 
@@ -160,28 +159,28 @@ def test_is_tuple_for_scalar(int_value):
 def test_is_bundle_for_bundle_value(bundle_schema):
     """is_bundle() returns True for bundle values."""
     v = Value(bundle_schema)
-    cv = v.const_view()
+    cv = v.view()
     assert cv.is_bundle() is True
 
 
 def test_is_scalar_for_bundle(bundle_schema):
     """is_scalar() returns False for bundle values."""
     v = Value(bundle_schema)
-    cv = v.const_view()
+    cv = v.view()
     assert cv.is_scalar() is False
 
 
 def test_is_tuple_for_tuple_value(tuple_schema):
     """is_tuple() returns True for tuple values."""
     v = Value(tuple_schema)
-    cv = v.const_view()
+    cv = v.view()
     assert cv.is_tuple() is True
 
 
 def test_is_list_for_list_value(list_schema):
     """is_list() returns True for list values."""
     v = Value(list_schema)
-    cv = v.const_view()
+    cv = v.view()
     assert cv.is_list() is True
 
 
@@ -191,45 +190,45 @@ def test_is_list_for_list_value(list_schema):
 
 def test_is_scalar_type_correct(int_value):
     """is_int() returns True for integer values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.is_int() is True
 
 
 def test_is_scalar_type_incorrect(int_value):
     """is_double() returns False for integer values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.is_double() is False
 
 
 def test_as_scalar_read(int_value):
     """as<T>() provides read access to scalar value."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.as_int() == 42
 
 
 def test_try_as_scalar_success(int_value):
     """try_as<T>() returns value when type matches."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     result = cv.try_as_int()
     assert result == 42
 
 
 def test_try_as_scalar_failure(int_value):
     """try_as<T>() returns None when type doesn't match."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     result = cv.try_as_double()
     assert result is None
 
 
 def test_checked_as_scalar_success(int_value):
     """as_int() returns value when type matches (checked access)."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     assert cv.as_int() == 42
 
 
 def test_checked_as_scalar_throws(int_value):
     """as_double() throws when type doesn't match (checked access)."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     with pytest.raises(RuntimeError):
         cv.as_double()
 
@@ -242,26 +241,26 @@ def test_equals_same_value():
     """equals() returns True for same values."""
     a = Value(42)
     b = Value(42)
-    assert a.const_view().equals(b.const_view())
+    assert a.view().equals(b.view())
 
 
 def test_equals_different_value():
     """equals() returns False for different values."""
     a = Value(42)
     b = Value(100)
-    assert not a.const_view().equals(b.const_view())
+    assert not a.view().equals(b.view())
 
 
 def test_hash_returns_int(int_value):
     """hash() returns an integer."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     h = cv.hash()
     assert isinstance(h, int)
 
 
 def test_to_string_returns_str(int_value):
     """to_string() returns a string representation."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     s = cv.to_string()
     assert isinstance(s, str)
     assert s == "42"
@@ -269,10 +268,10 @@ def test_to_string_returns_str(int_value):
 
 def test_clone_creates_owning_copy(int_value):
     """clone() creates an owning Value copy."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     cloned = cv.clone()
     assert cloned.valid()
-    assert cloned.const_view().as_int() == 42
+    assert cloned.view().as_int() == 42
 
 
 # =============================================================================
@@ -281,14 +280,14 @@ def test_clone_creates_owning_copy(int_value):
 
 def test_try_as_bundle_returns_none_for_scalar(int_value):
     """try_as_bundle() returns None for scalar values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     result = cv.try_as_bundle()
     assert result is None
 
 
 def test_try_as_list_returns_none_for_scalar(int_value):
     """try_as_list() returns None for scalar values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     result = cv.try_as_list()
     assert result is None
 
@@ -296,7 +295,7 @@ def test_try_as_list_returns_none_for_scalar(int_value):
 def test_try_as_bundle_returns_view_for_bundle(bundle_schema):
     """try_as_bundle() returns ConstBundleView for bundle values."""
     v = Value(bundle_schema)
-    cv = v.const_view()
+    cv = v.view()
     result = cv.try_as_bundle()
     assert result is not None
 
@@ -304,7 +303,7 @@ def test_try_as_bundle_returns_view_for_bundle(bundle_schema):
 def test_try_as_tuple_returns_view_for_tuple(tuple_schema):
     """try_as_tuple() returns ConstTupleView for tuple values."""
     v = Value(tuple_schema)
-    cv = v.const_view()
+    cv = v.view()
     result = cv.try_as_tuple()
     assert result is not None
 
@@ -315,14 +314,14 @@ def test_try_as_tuple_returns_view_for_tuple(tuple_schema):
 
 def test_as_bundle_throws_for_scalar(int_value):
     """as_bundle() throws for scalar values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     with pytest.raises(RuntimeError):
         cv.as_bundle()
 
 
 def test_as_list_throws_for_scalar(int_value):
     """as_list() throws for scalar values."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     with pytest.raises(RuntimeError):
         cv.as_list()
 
@@ -330,7 +329,7 @@ def test_as_list_throws_for_scalar(int_value):
 def test_as_bundle_succeeds_for_bundle(bundle_schema):
     """as_bundle() succeeds for bundle values."""
     v = Value(bundle_schema)
-    cv = v.const_view()
+    cv = v.view()
     bv = cv.as_bundle()
     assert bv is not None
 
@@ -367,7 +366,7 @@ def test_as_mutable_access():
     v = Value(42)
     view = v.view()
     view.set_int(100)
-    assert v.const_view().as_int() == 100
+    assert v.view().as_int() == 100
 
 
 def test_mutable_data_access(int_value):
@@ -384,16 +383,16 @@ def test_copy_from_same_type():
     """copy_from() copies value from another view."""
     a = Value(42)
     b = Value(100)
-    a.view().copy_from(b.const_view())
-    assert a.const_view().as_int() == 100
+    a.view().copy_from(b.view())
+    assert a.view().as_int() == 100
 
 
 def test_copy_from_preserves_source():
     """copy_from() doesn't modify source."""
     a = Value(42)
     b = Value(100)
-    a.view().copy_from(b.const_view())
-    assert b.const_view().as_int() == 100
+    a.view().copy_from(b.view())
+    assert b.view().as_int() == 100
 
 
 # =============================================================================
@@ -405,7 +404,7 @@ def test_from_python_int():
     v = Value(0)
     view = v.view()
     view.from_python(123)
-    assert v.const_view().as_int() == 123
+    assert v.view().as_int() == 123
 
 
 def test_from_python_string():
@@ -413,7 +412,7 @@ def test_from_python_string():
     v = Value("")
     view = v.view()
     view.from_python("updated")
-    assert v.const_view().as_string() == "updated"
+    assert v.view().as_string() == "updated"
 
 
 # =============================================================================
@@ -465,7 +464,7 @@ def test_value_view_has_mutable_methods(int_value):
 
 def test_is_type_with_same_schema(int_value):
     """is_type() returns True for matching schema."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     schema = cv.schema
     assert cv.is_type(schema) is True
 
@@ -474,8 +473,8 @@ def test_is_type_with_different_schema():
     """is_type() returns False for different schema."""
     int_val = Value(42)
     str_val = Value("hello")
-    int_schema = int_val.const_view().schema
-    assert str_val.const_view().is_type(int_schema) is False
+    int_schema = int_val.view().schema
+    assert str_val.view().is_type(int_schema) is False
 
 
 # =============================================================================
@@ -487,7 +486,7 @@ def test_view_reflects_value_changes():
     v = Value(42)
     view = v.view()
     view.set_int(100)
-    assert v.const_view().as_int() == 100
+    assert v.view().as_int() == 100
 
 
 def test_multiple_views_same_value():
@@ -502,9 +501,9 @@ def test_multiple_views_same_value():
 def test_clone_is_independent():
     """Cloned value is independent of original."""
     v = Value(42)
-    cloned = v.const_view().clone()
+    cloned = v.view().clone()
     v.view().set_int(100)
-    assert cloned.const_view().as_int() == 42
+    assert cloned.view().as_int() == 42
 
 
 # =============================================================================
@@ -513,7 +512,7 @@ def test_clone_is_independent():
 
 def test_const_view_to_python(int_value):
     """ConstValueView.to_python() converts to Python object."""
-    cv = int_value.const_view()
+    cv = int_value.view()
     py_obj = cv.to_python()
     assert py_obj == 42
 
@@ -529,7 +528,7 @@ def test_value_view_from_python():
     """ValueView.from_python() updates from Python object."""
     v = Value(0)
     v.view().from_python(99)
-    assert v.const_view().as_int() == 99
+    assert v.view().as_int() == 99
 
 
 # =============================================================================
@@ -539,33 +538,33 @@ def test_value_view_from_python():
 def test_view_of_empty_string():
     """View works with empty string value."""
     v = Value("")
-    cv = v.const_view()
+    cv = v.view()
     assert cv.as_string() == ""
 
 
 def test_view_of_zero():
     """View works with zero value."""
     v = Value(0)
-    cv = v.const_view()
+    cv = v.view()
     assert cv.as_int() == 0
 
 
 def test_view_of_false():
     """View works with False value."""
     v = Value(False)
-    cv = v.const_view()
+    cv = v.view()
     assert cv.as_bool() is False
 
 
 def test_view_of_negative_number():
     """View works with negative numbers."""
     v = Value(-42)
-    cv = v.const_view()
+    cv = v.view()
     assert cv.as_int() == -42
 
 
 def test_view_of_large_number():
     """View works with large numbers (>256)."""
     v = Value(123456789)
-    cv = v.const_view()
+    cv = v.view()
     assert cv.as_int() == 123456789

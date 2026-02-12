@@ -32,7 +32,7 @@ namespace hgraph {
         using is_transparent = void;  // Enable heterogeneous lookup
 
         bool operator()(const value::PlainValue& a, const value::PlainValue& b) const {
-            return a.equals(b.const_view());
+            return a.equals(b.view());
         }
 
         bool operator()(const value::PlainValue& a, const value::ConstValueView& b) const {

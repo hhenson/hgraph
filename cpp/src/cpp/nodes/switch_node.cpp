@@ -98,7 +98,7 @@ namespace hgraph {
 
             // Check if key changed
             bool key_changed = !_active_key.has_value() ||
-                               !keys_equal(current_key_view, _active_key->const_view());
+                               !keys_equal(current_key_view, _active_key->view());
 
             if (_reload_on_ticked || key_changed) {
                 if (_active_key.has_value()) {
@@ -175,7 +175,7 @@ namespace hgraph {
     void SwitchNode::wire_graph(graph_s_ptr &graph) {
         if (!_active_key.has_value()) return;
 
-        auto active_key_view = _active_key->const_view();
+        auto active_key_view = _active_key->view();
 
         // For lookups, we use active_key_view if specific, otherwise fall back to defaults
 
@@ -239,7 +239,7 @@ namespace hgraph {
 
     void SwitchNode::unwire_graph(graph_s_ptr &graph) {
         if (_old_output != nullptr && _active_key.has_value()) {
-            auto active_key_view = _active_key->const_view();
+            auto active_key_view = _active_key->view();
 
             int output_node_id = -1;
             auto output_id_it = _output_node_ids->find(active_key_view);

@@ -41,7 +41,7 @@ namespace hgraph
             // Convert Python key to Value using TypeOps
             value::Value<> key_val(_key_type);
             _key_type->ops().from_python(key_val.data(), k, _key_type);
-            auto key_view = key_val.const_view();
+            auto key_view = key_val.view();
             if (v_.is(remove) || v_.is(remove_if_exists)) {
                 if (v_.is(remove_if_exists) && !contains(key_view)) { continue; }
                 if (was_modified(key_view)) { return false; }
@@ -280,7 +280,7 @@ namespace hgraph
             // Convert Python key to Value using TypeOps
             value::Value<> key_val(_key_type);
             _key_type->ops().from_python(key_val.data(), kv[0], _key_type);
-            auto key_view = key_val.const_view();
+            auto key_view = key_val.view();
             auto v  = kv[1];
             if (v.is_none()) { continue; }
             if (v.is(remove) || v.is(remove_if_exists)) {
@@ -304,7 +304,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops().to_python(pv_key.const_view().data(), _key_type);
+                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                 v[py_key] = value->py_value();
             }
         }
@@ -317,7 +317,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->modified() && value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops().to_python(pv_key.const_view().data(), _key_type);
+                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                 delta_value[py_key] = value->py_delta_value();
             }
         }
@@ -325,7 +325,7 @@ namespace hgraph
             auto removed{get_remove()};
             for (const auto &[pv_key, _] : _removed_items) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops().to_python(pv_key.const_view().data(), _key_type);
+                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                 delta_value[py_key] = removed;
             }
         }
@@ -343,19 +343,19 @@ namespace hgraph
             bool was_valid = value->valid();
             value->clear();
             // Clone the key since map keys are const
-            _removed_items.emplace(pv_key.const_view().clone(), std::make_pair(value, was_valid));
+            _removed_items.emplace(pv_key.view().clone(), std::make_pair(value, was_valid));
         }
         _ts_values.clear();
         _clear_key_tracking();
         // Update feature outputs for removed keys using Value-based API
         for (const auto &[pv_key, _] : _removed_items) {
-            _ref_ts_feature.update(pv_key.const_view());
+            _ref_ts_feature.update(pv_key.view());
         }
         _modified_items.clear();
 
         for (auto &observer : _key_observers) {
             for (const auto &[pv_key, _] : _removed_items) {
-                observer->on_key_removed(pv_key.const_view());
+                observer->on_key_removed(pv_key.view());
             }
         }
     }
@@ -376,9 +376,9 @@ namespace hgraph
                 to_remove.push_back(elem.clone());
             }
         }
-        for (const auto &k : to_remove) { erase(k.const_view()); }
+        for (const auto &k : to_remove) { erase(k.view()); }
         for (const auto &[pv_key, v] : other._ts_values) {
-            get_or_create(pv_key.const_view())->copy_from_output(*v);
+            get_or_create(pv_key.view())->copy_from_output(*v);
         }
     }
 
@@ -393,10 +393,10 @@ namespace hgraph
                 to_remove.push_back(elem.clone());
             }
         }
-        for (const auto &k : to_remove) { erase(k.const_view()); }
+        for (const auto &k : to_remove) { erase(k.view()); }
         // Iterate PlainValue-keyed map
         for (const auto &[pv_key, v_input] : dict_input.value()) {
-            get_or_create(pv_key.const_view())->copy_from_input(*v_input);
+            get_or_create(pv_key.view())->copy_from_input(*v_input);
         }
     }
 
@@ -446,7 +446,7 @@ namespace hgraph
         _valid_items_cache.clear();
         for (const auto &[pv_key, val] : _ts_values) {
             if (val->valid()) {
-                _valid_items_cache.emplace(pv_key.const_view().clone(), val);
+                _valid_items_cache.emplace(pv_key.view().clone(), val);
             }
         }
         _valid_items_cache_time = lmt;
@@ -486,7 +486,7 @@ namespace hgraph
         // Convert Python key to Value using TypeOps
         value::Value<> key_val(_key_type);
         _key_type->ops().from_python(key_val.data(), key, _key_type);
-        auto ts{operator[](key_val.const_view())};
+        auto ts{operator[](key_val.view())};
         ts->apply_result(value);
     }
 
@@ -494,7 +494,7 @@ namespace hgraph
         // Convert Python key to Value using TypeOps
         value::Value<> key_val(_key_type);
         _key_type->ops().from_python(key_val.data(), key, _key_type);
-        erase(key_val.const_view());
+        erase(key_val.view());
     }
 
     void TimeSeriesDictOutputImpl::erase(const value::ConstValueView &key) {
@@ -506,7 +506,7 @@ namespace hgraph
         // Convert Python key to Value using TypeOps
         value::Value<> key_val(_key_type);
         _key_type->ops().from_python(key_val.data(), key, _key_type);
-        auto key_view = key_val.const_view();
+        auto key_view = key_val.view();
         if (auto it = _ts_values.find(key_view); it != _ts_values.end()) {
             result_value = it->second->py_value();
             remove_value(key_view, false);
@@ -527,14 +527,14 @@ namespace hgraph
         // Convert Python key to Value using TypeOps
         value::Value<> key_val(_key_type);
         _key_type->ops().from_python(key_val.data(), key, _key_type);
-        return _ref_ts_feature.create_or_increment(key_val.const_view(), requester);
+        return _ref_ts_feature.create_or_increment(key_val.view(), requester);
     }
 
     void TimeSeriesDictOutputImpl::release_ref(const nb::object &key, const void *requester) {
         // Convert Python key to Value using TypeOps
         value::Value<> key_val(_key_type);
         _key_type->ops().from_python(key_val.data(), key, _key_type);
-        _ref_ts_feature.release(key_val.const_view(), requester);
+        _ref_ts_feature.release(key_val.view(), requester);
     }
 
     void TimeSeriesDictOutputImpl::_dispose() {
@@ -567,7 +567,7 @@ namespace hgraph
     value::ConstValueView TimeSeriesDictOutputImpl::key_from_ts(TimeSeriesOutput *ts) const {
         auto it = _ts_values_to_keys.find(ts);
         if (it != _ts_values_to_keys.end()) {
-            return it->second.const_view();
+            return it->second.view();
         }
         throw std::out_of_range("Value not found in TimeSeriesDictOutput");
     }
@@ -575,7 +575,7 @@ namespace hgraph
     value::ConstValueView TimeSeriesDictOutputImpl::key_from_ts(const TimeSeriesDictOutputImpl::value_type& ts) const {
         auto it = _ts_values_to_keys.find(const_cast<TimeSeriesOutput*>(ts.get()));
         if (it != _ts_values_to_keys.end()) {
-            return it->second.const_view();
+            return it->second.view();
         }
         throw std::out_of_range("Value not found in TimeSeriesDictOutput");
     }
@@ -617,7 +617,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops().to_python(pv_key.const_view().data(), _key_type);
+                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                 v[py_key] = value->py_value();
             }
         }
@@ -631,7 +631,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->modified() && value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops().to_python(pv_key.const_view().data(), _key_type);
+                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                 delta[py_key] = value->py_delta_value();
             }
         }
@@ -647,8 +647,8 @@ namespace hgraph
             auto removed{get_remove()};
             for (const auto &[pv_key, value] : removed_map) {
                 // Check was_valid flag from _removed_items
-                if (was_removed_valid(pv_key.const_view())) {
-                    nb::object py_key = _key_type->ops().to_python(pv_key.const_view().data(), _key_type);
+                if (was_removed_valid(pv_key.view())) {
+                    nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                     delta[py_key] = removed;
                 }
             }
@@ -681,7 +681,7 @@ namespace hgraph
         _valid_items_cache.clear();
         for (const auto &[pv_key, val] : _ts_values) {
             if (val->valid()) {
-                _valid_items_cache.emplace(pv_key.const_view().clone(), val);
+                _valid_items_cache.emplace(pv_key.view().clone(), val);
             }
         }
         _valid_items_cache_time = lmt;
@@ -750,7 +750,7 @@ namespace hgraph
             _modified_items_cache.clear();
             for (const auto& [pv_key, val] : _ts_values) {
                 if (val->valid()) {
-                    _modified_items_cache.emplace(pv_key.const_view().clone(), val);
+                    _modified_items_cache.emplace(pv_key.view().clone(), val);
                 }
             }
             return _modified_items_cache;
@@ -761,9 +761,9 @@ namespace hgraph
             _modified_items_cache.clear();
             const auto& output_modified = output_t().modified_items();
             for (const auto& [pv_key, _] : output_modified) {
-                auto it = _ts_values.find(pv_key.const_view());
+                auto it = _ts_values.find(pv_key.view());
                 if (it != _ts_values.end()) {
-                    _modified_items_cache.emplace(pv_key.const_view().clone(), it->second);
+                    _modified_items_cache.emplace(pv_key.view().clone(), it->second);
                 }
             }
             return _modified_items_cache;
@@ -779,7 +779,7 @@ namespace hgraph
             _modified_items_cache.clear();
             for (const auto& [pv_key, val] : _ts_values) {
                 if (val->modified()) {
-                    _modified_items_cache.emplace(pv_key.const_view().clone(), val);
+                    _modified_items_cache.emplace(pv_key.view().clone(), val);
                 }
             }
             return _modified_items_cache;
@@ -923,7 +923,7 @@ namespace hgraph
             _removed_items.clear();
             for (const auto &[pv_key, value] : _ts_values) {
                 // Clone the PlainValue key and use emplace (copy constructor is deleted)
-                _removed_items.emplace(pv_key.const_view().clone(), std::make_pair(value, value->valid()));
+                _removed_items.emplace(pv_key.view().clone(), std::make_pair(value, value->valid()));
             }
             _ts_values.clear();
             _clear_key_tracking();
@@ -937,10 +937,10 @@ namespace hgraph
                     // Transplanted items - un-bind and put back
                     value->un_bind_output(unbind_refs);
                     // Use emplace instead of insert for move-only PlainValue keys
-                    _ts_values.emplace(pv_key.const_view().clone(), value);
-                    _add_key_value(pv_key.const_view(), value);
+                    _ts_values.emplace(pv_key.view().clone(), value);
+                    _add_key_value(pv_key.view(), value);
                 } else {
-                    to_keep.emplace(pv_key.const_view().clone(), std::make_pair(value, was_valid));
+                    to_keep.emplace(pv_key.view().clone(), std::make_pair(value, was_valid));
                 }
             }
             std::swap(_removed_items, to_keep);
@@ -965,7 +965,7 @@ namespace hgraph
     value::ConstValueView TimeSeriesDictInputImpl::key_from_ts(TimeSeriesInput *ts) const {
         auto it = _ts_values_to_keys.find(ts);
         if (it != _ts_values_to_keys.end()) {
-            return it->second.const_view();
+            return it->second.view();
         }
         throw std::runtime_error("key_from_ts: value not found in _ts_values_to_keys");
     }

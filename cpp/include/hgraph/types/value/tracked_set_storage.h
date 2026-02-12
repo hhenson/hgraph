@@ -60,7 +60,7 @@ struct TrackedSetStorage {
      */
     [[nodiscard]] ConstSetView value() const {
         if (!_set_schema) return ConstSetView{};
-        return _value.const_view().as_set();
+        return _value.view().as_set();
     }
 
     /**
@@ -80,7 +80,7 @@ struct TrackedSetStorage {
      */
     [[nodiscard]] ConstSetView added() const {
         if (!_set_schema) return ConstSetView{};
-        return _added.const_view().as_set();
+        return _added.view().as_set();
     }
 
     /**
@@ -89,7 +89,7 @@ struct TrackedSetStorage {
      */
     [[nodiscard]] ConstSetView removed() const {
         if (!_set_schema) return ConstSetView{};
-        return _removed.const_view().as_set();
+        return _removed.view().as_set();
     }
 
     // ========== Size and State ==========
@@ -234,7 +234,7 @@ struct TrackedSetStorage {
     template<typename T>
     [[nodiscard]] bool contains(const T& elem) const {
         Value<> temp(elem);
-        return contains(temp.const_view());
+        return contains(ConstValueView(temp.view()));
     }
 
     /**
@@ -243,7 +243,7 @@ struct TrackedSetStorage {
     template<typename T>
     bool add(const T& elem) {
         Value<> temp(elem);
-        return add(temp.const_view());
+        return add(ConstValueView(temp.view()));
     }
 
     /**
@@ -252,7 +252,7 @@ struct TrackedSetStorage {
     template<typename T>
     bool remove(const T& elem) {
         Value<> temp(elem);
-        return remove(temp.const_view());
+        return remove(ConstValueView(temp.view()));
     }
 };
 

@@ -31,9 +31,9 @@ namespace hgraph
         auto  let{node_.last_evaluation_time()};
         if ((let != MIN_DT && let >= next_time) || node_.is_stopping()) { return; }
 
-        auto it{node_.scheduled_keys_.find(_key.const_view())};
+        auto it{node_.scheduled_keys_.find(_key.view())};
         if (it == node_.scheduled_keys_.end() || it->second > next_time) {
-            node_.scheduled_keys_.insert_or_assign(_key.const_view().clone(), next_time);
+            node_.scheduled_keys_.insert_or_assign(_key.view().clone(), next_time);
         }
 
         NestedEngineEvaluationClock::update_next_scheduled_evaluation_time(next_time);
@@ -89,10 +89,10 @@ namespace hgraph
         std::vector<value::PlainValue> keys;
         keys.reserve(active_graphs_.size());
         for (const auto &[k, _] : active_graphs_) {
-            keys.push_back(k.const_view().clone());
+            keys.push_back(k.view().clone());
         }
         for (const auto &k : keys) {
-            remove_graph(k.const_view());
+            remove_graph(k.view());
         }
         active_graphs_.clear();
         scheduled_keys_.clear();
@@ -140,19 +140,19 @@ namespace hgraph
 
         for (const auto &[k, dt] : scheduled_keys) {
             if (dt < last_evaluation_time()) {
-                nb::object py_key = key_type_meta_->ops().to_python(k.const_view().data(), key_type_meta_);
+                nb::object py_key = key_type_meta_->ops().to_python(k.view().data(), key_type_meta_);
                 throw std::runtime_error(
                     fmt::format("Scheduled time is in the past; last evaluation time: {}, scheduled time: {}, evaluation time: {}",
                                 last_evaluation_time(), dt, graph()->evaluation_time()));
             }
             engine_time_t next_dt;
             if (dt == last_evaluation_time()) {
-                next_dt = evaluate_graph(k.const_view());
+                next_dt = evaluate_graph(k.view());
             } else {
                 next_dt = dt;
             }
             if (next_dt != MAX_DT && next_dt > last_evaluation_time()) {
-                scheduled_keys_.insert_or_assign(k.const_view().clone(), next_dt);
+                scheduled_keys_.insert_or_assign(k.view().clone(), next_dt);
                 graph()->schedule_node(node_ndx(), next_dt);
             }
         }

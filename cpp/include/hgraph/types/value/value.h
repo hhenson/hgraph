@@ -38,6 +38,7 @@
 #include <hgraph/types/value/traversal.h>
 #include <hgraph/types/value/visitor.h>
 
+#include <optional>
 #include <type_traits>
 #include <utility>
 
@@ -78,7 +79,10 @@ public:
     /**
      * @brief Construct from a type schema.
      *
-     * Allocates storage and default-constructs the value.
+     * Associates the schema with this Value.
+     *
+     * Note: this currently default-constructs the underlying storage.
+     * SV-02 finalization will switch this to typed-null-by-default.
      *
      * @param schema The type schema
      */
@@ -93,7 +97,9 @@ public:
      * @tparam T The value type
      * @param val The value to store
      */
-    template<typename T, typename = std::enable_if_t<!std::is_same_v<std::decay_t<T>, Value>>>
+    template<typename T, typename = std::enable_if_t<
+        !std::is_same_v<std::decay_t<T>, Value> &&
+        !std::is_base_of_v<ConstValueView, std::decay_t<T>>>>
     explicit Value(const T& val)
         : _schema(scalar_type_meta<T>()) {
         _storage.construct<T>(val, _schema);
@@ -159,7 +165,7 @@ public:
      * @return A new Value containing a copy of the data
      */
     [[nodiscard]] static Value copy(const Value& other) {
-        return Value(other.const_view());
+        return Value(other.view());
     }
 
     /**
@@ -175,18 +181,29 @@ public:
     // ========== Validity ==========
 
     /**
+     * @brief Check whether this Value currently contains data.
+     *
+     * A Value may keep its schema while being null (no data).
+     *
+     * @return true if data is present
+     */
+    [[nodiscard]] bool has_value() const noexcept {
+        return _storage.has_value();
+    }
+
+    /**
      * @brief Check if the Value contains data.
      * @return true if valid (contains data)
      */
     [[nodiscard]] bool valid() const noexcept {
-        return _schema != nullptr && _storage.has_value();
+        return has_value();
     }
 
     /**
      * @brief Boolean conversion - returns validity.
      */
     explicit operator bool() const noexcept {
-        return valid();
+        return has_value();
     }
 
     /**
@@ -207,6 +224,9 @@ public:
      * @return Mutable view
      */
     [[nodiscard]] ValueView view() {
+        if (!has_value()) {
+            throw std::bad_optional_access();
+        }
         if constexpr (policy_traits<Policy>::has_python_cache) {
             this->invalidate_cache();
         }
@@ -218,14 +238,9 @@ public:
      * @return Const view
      */
     [[nodiscard]] ConstValueView view() const {
-        return ConstValueView(_storage.data(), _schema);
-    }
-
-    /**
-     * @brief Get a const view of the data (explicit const version).
-     * @return Const view
-     */
-    [[nodiscard]] ConstValueView const_view() const {
+        if (!has_value()) {
+            throw std::bad_optional_access();
+        }
         return ConstValueView(_storage.data(), _schema);
     }
 
@@ -245,7 +260,7 @@ public:
      * @brief Get as a tuple view (const).
      */
     [[nodiscard]] ConstTupleView as_tuple() const {
-        return const_view().as_tuple();
+        return view().as_tuple();
     }
 
     /**
@@ -262,7 +277,7 @@ public:
      * @brief Get as a bundle view (const).
      */
     [[nodiscard]] ConstBundleView as_bundle() const {
-        return const_view().as_bundle();
+        return view().as_bundle();
     }
 
     /**
@@ -279,7 +294,7 @@ public:
      * @brief Get as a list view (const).
      */
     [[nodiscard]] ConstListView as_list() const {
-        return const_view().as_list();
+        return view().as_list();
     }
 
     /**
@@ -296,7 +311,7 @@ public:
      * @brief Get as a set view (const).
      */
     [[nodiscard]] ConstSetView as_set() const {
-        return const_view().as_set();
+        return view().as_set();
     }
 
     /**
@@ -313,7 +328,7 @@ public:
      * @brief Get as a map view (const).
      */
     [[nodiscard]] ConstMapView as_map() const {
-        return const_view().as_map();
+        return view().as_map();
     }
 
     // ========== Type Access ==========
@@ -418,6 +433,9 @@ public:
      * @brief Get the raw data pointer (mutable).
      */
     [[nodiscard]] void* data() {
+        if (!has_value()) {
+            throw std::bad_optional_access();
+        }
         if constexpr (policy_traits<Policy>::has_python_cache) {
             this->invalidate_cache();
         }
@@ -428,6 +446,9 @@ public:
      * @brief Get the raw data pointer (const).
      */
     [[nodiscard]] const void* data() const {
+        if (!has_value()) {
+            throw std::bad_optional_access();
+        }
         return _storage.data();
     }
 
@@ -437,28 +458,65 @@ public:
      * @brief Check equality with another Value.
      */
     [[nodiscard]] bool equals(const Value& other) const {
-        return const_view().equals(other.const_view());
+        return view().equals(other.view());
     }
 
     /**
      * @brief Check equality with a view.
      */
     [[nodiscard]] bool equals(const ConstValueView& other) const {
-        return const_view().equals(other);
+        return view().equals(other);
     }
 
     /**
      * @brief Compute the hash.
      */
     [[nodiscard]] size_t hash() const {
-        return const_view().hash();
+        return view().hash();
     }
 
     /**
      * @brief Convert to string.
      */
     [[nodiscard]] std::string to_string() const {
-        return const_view().to_string();
+        return view().to_string();
+    }
+
+    // ========== Nullability ==========
+
+    /**
+     * @brief Reset to typed-null while preserving schema.
+     */
+    void reset() {
+        const bool had_value = has_value();
+        if constexpr (policy_traits<Policy>::has_python_cache) {
+            this->invalidate_cache();
+        }
+        _storage.reset();
+        if constexpr (policy_traits<Policy>::has_modification_tracking) {
+            if (had_value) {
+                this->notify_modified();
+            }
+        }
+    }
+
+    /**
+     * @brief Construct a default value for the current schema.
+     *
+     * If a value already exists, it is replaced.
+     */
+    void emplace() {
+        if (!_schema) {
+            throw std::runtime_error("emplace() on Value without schema");
+        }
+        if constexpr (policy_traits<Policy>::has_python_cache) {
+            this->invalidate_cache();
+        }
+        _storage.reset();
+        _storage.construct(_schema);
+        if constexpr (policy_traits<Policy>::has_modification_tracking) {
+            this->notify_modified();
+        }
     }
 
     // ========== Python Interop ==========
@@ -471,6 +529,9 @@ public:
      * @return The Python object representation
      */
     [[nodiscard]] nb::object to_python() const {
+        if (!has_value()) {
+            return nb::none();
+        }
         if constexpr (policy_traits<Policy>::has_python_cache) {
             if (this->has_cache()) {
                 return this->get_cache();
@@ -499,6 +560,20 @@ public:
             if (src.is_none()) {
                 throw std::runtime_error("Cannot set value to None");
             }
+        }
+
+        // Non-validating policies treat Python None as typed-null.
+        if (src.is_none()) {
+            reset();
+            return;
+        }
+
+        if (!_schema) {
+            throw std::runtime_error("from_python() on Value without schema");
+        }
+
+        if (!has_value()) {
+            _storage.construct(_schema);
         }
 
         if constexpr (policy_traits<Policy>::has_python_cache) {
@@ -582,91 +657,91 @@ Value<Policy> ConstValueView::clone() const {
 template<typename T>
 void IndexedView::set(size_t index, const T& value) {
     Value<> temp(value);
-    set(index, temp.const_view());
+    set(index, ConstValueView(temp.view()));
 }
 
 // BundleView::set<T>
 template<typename T>
 void BundleView::set(std::string_view name, const T& value) {
     Value<> temp(value);
-    set(name, temp.const_view());
+    set(name, ConstValueView(temp.view()));
 }
 
 // ListView::push_back<T>
 template<typename T>
 void ListView::push_back(const T& value) {
     Value<> temp(value);
-    push_back(temp.const_view());
+    push_back(ConstValueView(temp.view()));
 }
 
 // ListView::reset<T>
 template<typename T>
 void ListView::reset(const T& sentinel) {
     Value<> temp(sentinel);
-    reset(temp.const_view());
+    reset(ConstValueView(temp.view()));
 }
 
 // ConstSetView::contains<T>
 template<typename T>
 bool ConstSetView::contains(const T& value) const {
     Value<> temp(value);
-    return contains(temp.const_view());
+    return contains(ConstValueView(temp.view()));
 }
 
 // SetView::contains<T>
 template<typename T>
 bool SetView::contains(const T& value) const {
     Value<> temp(value);
-    return contains(temp.const_view());
+    return contains(ConstValueView(temp.view()));
 }
 
 // SetView::add<T>
 template<typename T>
 bool SetView::add(const T& value) {
     Value<> temp(value);
-    return add(temp.const_view());
+    return add(ConstValueView(temp.view()));
 }
 
 // SetView::remove<T>
 template<typename T>
 bool SetView::remove(const T& value) {
     Value<> temp(value);
-    return remove(temp.const_view());
+    return remove(ConstValueView(temp.view()));
 }
 
 // ConstMapView::at<K>
 template<typename K>
 ConstValueView ConstMapView::at(const K& key) const {
     Value<> temp(key);
-    return at(temp.const_view());
+    return at(ConstValueView(temp.view()));
 }
 
 // ConstMapView::contains<K>
 template<typename K>
 bool ConstMapView::contains(const K& key) const {
     Value<> temp(key);
-    return contains(temp.const_view());
+    return contains(ConstValueView(temp.view()));
 }
 
 // MapView::at<K> (const)
 template<typename K>
 ConstValueView MapView::at(const K& key) const {
     Value<> temp(key);
-    return at(temp.const_view());
+    return at(ConstValueView(temp.view()));
 }
 
 // MapView::at<K> (mutable)
 template<typename K>
 ValueView MapView::at(const K& key) {
     Value<> temp(key);
-    return at(temp.const_view());
+    return at(ConstValueView(temp.view()));
 }
 
 // MapView::contains<K>
 template<typename K>
 bool MapView::contains(const K& key) const {
     Value<> temp(key);
-    return contains(temp.const_view());
+    return contains(ConstValueView(temp.view()));
 }
 
 // MapView::set<K, V>
@@ -674,7 +749,7 @@ template<typename K, typename V>
 void MapView::set(const K& key, const V& value) {
     Value<> temp_key(key);
     Value<> temp_val(value);
-    set(temp_key.const_view(), temp_val.const_view());
+    set(ConstValueView(temp_key.view()), ConstValueView(temp_val.view()));
 }
 
 // MapView::add<K, V>
@@ -682,14 +757,14 @@ template<typename K, typename V>
 bool MapView::add(const K& key, const V& value) {
     Value<> temp_key(key);
     Value<> temp_val(value);
-    return add(temp_key.const_view(), temp_val.const_view());
+    return add(ConstValueView(temp_key.view()), ConstValueView(temp_val.view()));
 }
 
 // MapView::remove<K>
 template<typename K>
 bool MapView::remove(const K& key) {
     Value<> temp(key);
-    return remove(temp.const_view());
+    return remove(ConstValueView(temp.view()));
 }
 
 // ============================================================================
@@ -698,12 +773,12 @@ bool MapView::remove(const K& key) {
 
 template<typename P1, typename P2>
 bool operator==(const Value<P1>& lhs, const Value<P2>& rhs) {
-    return lhs.equals(rhs.const_view());
+    return lhs.equals(rhs.view());
 }
 
 template<typename P1, typename P2>
 bool operator!=(const Value<P1>& lhs, const Value<P2>& rhs) {
-    return !lhs.equals(rhs.const_view());
+    return !lhs.equals(rhs.view());
 }
 
 template<typename P>

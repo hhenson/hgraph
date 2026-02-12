@@ -135,13 +135,13 @@ namespace hgraph {
             std::vector<value::ConstValueView> stale_keys;
             if (all_keys_stale) {
                 for (const auto &[key, ndx] : bound_node_indexes_) {
-                    stale_keys.push_back(key.const_view());
+                    stale_keys.push_back(key.view());
                 }
             } else {
                 // Also catch keys individually missing from the TSD
                 for (const auto &[key, ndx] : bound_node_indexes_) {
-                    if (!tsd->contains(key.const_view())) {
-                        stale_keys.push_back(key.const_view());
+                    if (!tsd->contains(key.view())) {
+                        stale_keys.push_back(key.view());
                     }
                 }
             }
@@ -214,7 +214,7 @@ namespace hgraph {
 
                     // CRITICAL: Save the key and position BEFORE modifying the map, as modifying the map
                     // may invalidate the iterator or cause a rehash
-                    value::PlainValue max_key = max_it->first.const_view().clone();  // Clone the key (PlainValue is move-only)
+                    value::PlainValue max_key = max_it->first.view().clone();  // Clone the key (PlainValue is move-only)
                     auto max_ndx = max_it->second;
 
                     // Match Python: only swap if max is in a HIGHER layer

@@ -54,7 +54,7 @@ namespace hgraph {
             throw std::runtime_error("TimeSeriesValueOutput::copy_from_output: type mismatch");
         }
         if (other->valid()) {
-            _value.view().copy_from(other->_value.const_view());
+            _value.view().copy_from(other->_value.view());
             mark_modified();
         } else {
             mark_invalid();

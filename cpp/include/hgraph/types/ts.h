@@ -45,7 +45,7 @@ namespace hgraph {
         void apply_result(const nb::object& value) override;
 
         // Value access via views
-        [[nodiscard]] value::ConstValueView value() const { return _value.const_view(); }
+        [[nodiscard]] value::ConstValueView value() const { return _value.view(); }
         [[nodiscard]] value::ValueView value_mut() { return _value.view(); }
 
         // Schema access

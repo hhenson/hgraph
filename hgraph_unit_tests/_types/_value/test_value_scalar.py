@@ -17,7 +17,6 @@ value = _hgraph.value  # Value types are in the value submodule
 try:
     Value = value.PlainValue
     ValueView = value.ValueView
-    ConstValueView = value.ConstValueView
 except AttributeError:
     pytest.skip("Value types not yet exposed in C++ extension", allow_module_level=True)
 
@@ -229,13 +228,13 @@ def test_as_string_returns_correct_value(string_value):
 
 def test_try_as_returns_value_on_match(int_value):
     """try_as_int() returns the value when types match."""
-    result = int_value.const_view().try_as_int()
+    result = int_value.view().try_as_int()
     assert result == 42
 
 
 def test_try_as_returns_none_on_mismatch(int_value):
     """try_as_double() returns None when called on int."""
-    result = int_value.const_view().try_as_double()
+    result = int_value.view().try_as_double()
     assert result is None
 
 
@@ -257,14 +256,14 @@ def test_checked_as_throws_on_mismatch(int_value):
 
 def test_const_view_preserves_type_info(double_value):
     """ConstValueView preserves type information."""
-    cv = double_value.const_view()
+    cv = double_value.view()
     assert cv.schema is not None
 
 
 def test_view_schema_matches_value(int_value):
     """View's schema matches the original Value's schema."""
     v_schema = int_value.schema
-    cv_schema = int_value.const_view().schema
+    cv_schema = int_value.view().schema
     assert v_schema == cv_schema
 
 
@@ -290,7 +289,7 @@ def test_modification_reflects_in_original():
 def test_const_view_cannot_modify():
     """ConstValueView provides read-only access."""
     v = Value(42)
-    cv = v.const_view()
+    cv = v.view()
     assert cv.as_int() == 42
     # Note: ConstValueView doesn't have set methods
 
@@ -317,42 +316,42 @@ def test_equal_int_values():
     """Two Values with same int are equal."""
     v1 = Value(42)
     v2 = Value(42)
-    assert v1.equals(v2.const_view())
+    assert v1.equals(v2.view())
 
 
 def test_unequal_int_values():
     """Two Values with different ints are not equal."""
     v1 = Value(42)
     v2 = Value(100)
-    assert not v1.equals(v2.const_view())
+    assert not v1.equals(v2.view())
 
 
 def test_equal_double_values():
     """Two Values with same double are equal."""
     v1 = Value(3.14)
     v2 = Value(3.14)
-    assert v1.equals(v2.const_view())
+    assert v1.equals(v2.view())
 
 
 def test_equal_string_values():
     """Two Values with same string are equal."""
     v1 = Value("hello")
     v2 = Value("hello")
-    assert v1.equals(v2.const_view())
+    assert v1.equals(v2.view())
 
 
 def test_equal_bool_values():
     """Two Values with same bool are equal."""
     v1 = Value(True)
     v2 = Value(True)
-    assert v1.equals(v2.const_view())
+    assert v1.equals(v2.view())
 
 
 def test_type_mismatch_not_equal():
     """Values of different types are not equal."""
     v_int = Value(42)
     v_str = Value("42")
-    assert not v_int.equals(v_str.const_view())
+    assert not v_int.equals(v_str.view())
 
 
 # =============================================================================
@@ -388,14 +387,14 @@ def test_hash_returns_int():
 def test_clone_int_value():
     """Cloning creates a new Value with same content."""
     v = Value(42)
-    cloned = v.const_view().clone()
+    cloned = v.view().clone()
     assert cloned.as_int() == 42
 
 
 def test_clone_is_independent():
     """Cloned value is independent of original."""
     v = Value(42)
-    cloned = v.const_view().clone()
+    cloned = v.view().clone()
     v.view().set_int(100)
     assert cloned.as_int() == 42  # Unchanged
 
@@ -403,13 +402,13 @@ def test_clone_is_independent():
 def test_clone_from_mutable_view():
     """clone() works on ValueView too."""
     v = Value(42)
-    clone = v.const_view().clone()
+    clone = v.view().clone()
     assert clone.as_int() == 42
 
 
 def test_clone_string_value(string_value):
     """Cloning string values works correctly."""
-    clone = string_value.const_view().clone()
+    clone = string_value.view().clone()
     assert clone.as_string() == "hello"
 
 
@@ -436,7 +435,7 @@ def test_type_mismatch_message_is_informative():
 def test_try_as_safe_on_mismatch():
     """try_as returns None instead of throwing on mismatch."""
     int_value = Value(42)
-    result = int_value.const_view().try_as_double()
+    result = int_value.view().try_as_double()
     assert result is None
 
 

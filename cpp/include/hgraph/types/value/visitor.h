@@ -18,7 +18,7 @@
  * Usage:
  * @code
  * // Visit with type-specific handlers
- * std::string result = visit(value.const_view(),
+ * std::string result = visit(value.view(),
  *     [](ConstValueView v) { return "scalar: " + v.to_string(); },
  *     [](ConstTupleView t) { return "tuple[" + std::to_string(t.size()) + "]"; },
  *     [](ConstBundleView b) { return "bundle"; },
@@ -28,7 +28,7 @@
  * );
  *
  * // Partial handlers with catch-all
- * std::string result = visit(value.const_view(),
+ * std::string result = visit(value.view(),
  *     [](ConstListView l) { return "list[" + std::to_string(l.size()) + "]"; },
  *     [](ConstMapView m) { return "map"; },
  *     [](ConstValueView v) { return "other: " + v.to_string(); }  // catch-all

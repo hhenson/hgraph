@@ -238,7 +238,7 @@ def test_const_tuple_view_read_access(simple_tuple_schema):
     tv.at(2).set_double(3.14)
 
     # Get const view
-    ctv = v.const_view().as_tuple()
+    ctv = v.view().as_tuple()
 
     assert ctv.at(0).as_int() == 42
     assert ctv[1].as_string() == "hello"
@@ -249,7 +249,7 @@ def test_const_tuple_view_read_access(simple_tuple_schema):
 def test_tuple_element_type_access(simple_tuple_schema, int_schema, string_schema, double_schema):
     """TupleView element_type() returns type at position."""
     v = PlainValue(simple_tuple_schema)
-    ctv = v.const_view().as_tuple()
+    ctv = v.view().as_tuple()
 
     assert ctv.element_type(0) == int_schema
     assert ctv.element_type(1) == string_schema
@@ -269,7 +269,7 @@ def test_tuple_iteration_by_index(simple_tuple_schema):
     tv.at(1).set_string("two")
     tv.at(2).set_double(3.0)
 
-    ctv = v.const_view().as_tuple()
+    ctv = v.view().as_tuple()
 
     # Iterate using size()
     values_read = []
@@ -288,7 +288,7 @@ def test_tuple_range_based_iteration(homogeneous_tuple_schema):
     tv.at(1).set_int(20)
     tv.at(2).set_int(30)
 
-    ctv = v.const_view().as_tuple()
+    ctv = v.view().as_tuple()
 
     # Range-based for loop
     elements = list(ctv)
@@ -303,7 +303,7 @@ def test_tuple_range_based_iteration(homogeneous_tuple_schema):
 def test_tuple_index_out_of_bounds(simple_tuple_schema):
     """Accessing index beyond tuple size raises error."""
     v = PlainValue(simple_tuple_schema)
-    ctv = v.const_view().as_tuple()
+    ctv = v.view().as_tuple()
 
     with pytest.raises((IndexError, RuntimeError)):
         _ = ctv.at(10)
@@ -312,7 +312,7 @@ def test_tuple_index_out_of_bounds(simple_tuple_schema):
 def test_tuple_negative_index_raises(simple_tuple_schema):
     """Negative index access via at() raises error (at() doesn't support negative indices)."""
     v = PlainValue(simple_tuple_schema)
-    ctv = v.const_view().as_tuple()
+    ctv = v.view().as_tuple()
 
     # at() method doesn't support negative indices (TypeError from nanobind)
     with pytest.raises((IndexError, RuntimeError, OverflowError, TypeError)):
@@ -357,33 +357,33 @@ def test_non_tuple_value_as_tuple_raises():
 def test_is_tuple_on_tuple_value(simple_tuple_schema):
     """is_tuple() returns True for tuple values."""
     v = PlainValue(simple_tuple_schema)
-    assert v.const_view().is_tuple()
+    assert v.view().is_tuple()
 
 
 def test_is_tuple_on_scalar_value():
     """is_tuple() returns False for scalar values."""
     v = PlainValue(42)
-    assert not v.const_view().is_tuple()
+    assert not v.view().is_tuple()
 
 
 # Tuple TypeOps now implemented
 def test_is_bundle_on_tuple_value(simple_tuple_schema):
     """is_bundle() returns False for tuple values."""
     v = PlainValue(simple_tuple_schema)
-    assert not v.const_view().is_bundle()
+    assert not v.view().is_bundle()
 
 
 def test_try_as_tuple_on_tuple_value(simple_tuple_schema):
     """try_as_tuple() returns view for tuple values."""
     v = PlainValue(simple_tuple_schema)
-    result = v.const_view().try_as_tuple()
+    result = v.view().try_as_tuple()
     assert result is not None
 
 
 def test_try_as_tuple_on_non_tuple_value():
     """try_as_tuple() returns None for non-tuple values."""
     v = PlainValue(42)
-    result = v.const_view().try_as_tuple()
+    result = v.view().try_as_tuple()
     assert result is None
 
 
@@ -432,10 +432,10 @@ def test_clone_tuple_value(simple_tuple_schema):
     tv.at(2).set_double(3.14)
 
     # Clone
-    cloned = v.const_view().clone()
+    cloned = v.view().clone()
 
     # Verify clone has same values
-    ctv = cloned.const_view().as_tuple()
+    ctv = cloned.view().as_tuple()
     assert ctv[0].as_int() == 42
     assert ctv[1].as_string() == "hello"
     assert abs(ctv[2].as_double() - 3.14) < 1e-10
@@ -448,13 +448,13 @@ def test_cloned_tuple_is_independent(simple_tuple_schema):
     tv.at(0).set_int(42)
 
     # Clone
-    cloned = v.const_view().clone()
+    cloned = v.view().clone()
 
     # Modify original
     tv.at(0).set_int(100)
 
     # Clone should be unchanged
-    ctv = cloned.const_view().as_tuple()
+    ctv = cloned.view().as_tuple()
     assert ctv[0].as_int() == 42
 
 
@@ -477,7 +477,7 @@ def test_tuple_equals_same_values(simple_tuple_schema):
     tv2.at(1).set_string("hello")
     tv2.at(2).set_double(3.14)
 
-    assert v1.equals(v2.const_view())
+    assert v1.equals(v2.view())
 
 
 # Tuple TypeOps now implemented
@@ -495,7 +495,7 @@ def test_tuple_not_equals_different_values(simple_tuple_schema):
     tv2.at(1).set_string("hello")
     tv2.at(2).set_double(3.14)
 
-    assert not v1.equals(v2.const_view())
+    assert not v1.equals(v2.view())
 
 
 # =============================================================================
@@ -529,7 +529,7 @@ def test_tuple_from_python(simple_tuple_schema):
     py_tuple = (42, "hello", 3.14)
     v.from_python(py_tuple)
 
-    ctv = v.const_view().as_tuple()
+    ctv = v.view().as_tuple()
     assert ctv[0].as_int() == 42
     assert ctv[1].as_string() == "hello"
     assert abs(ctv[2].as_double() - 3.14) < 1e-10

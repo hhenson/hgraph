@@ -267,7 +267,7 @@ static void register_type_registry(nb::module_& m) {
 // ============================================================================
 
 static void register_const_value_view(nb::module_& m) {
-    nb::class_<ConstValueView>(m, "ConstValueView",
+    nb::class_<ConstValueView>(m, "_ConstValueView",
         "Non-owning const view into a Value, providing read-only access")
         // Validity
         .def("valid", &ConstValueView::valid, "Check if the view is valid")
@@ -482,8 +482,9 @@ static void register_value_view(nb::module_& m) {
             "Copy data from another view (schemas must match)")
 
         // Python interop
-        .def("from_python", &ValueView::from_python, "src"_a,
-            "Set the value from a Python object")
+        .def("from_python", [](ValueView& self, nb::handle src) {
+            self.from_python(nb::borrow<nb::object>(src));
+        }, nb::arg("src").none(), "Set the value from a Python object")
 
         // Raw data access (returns pointer as integer for debugging/FFI)
         .def("data", [](ValueView& self) -> uintptr_t {
@@ -532,7 +533,7 @@ static void register_value_view(nb::module_& m) {
 // ============================================================================
 
 static void register_const_indexed_view(nb::module_& m) {
-    nb::class_<ConstIndexedView, ConstValueView>(m, "ConstIndexedView",
+    nb::class_<ConstIndexedView, ConstValueView>(m, "_ConstIndexedView",
         "Base class for types supporting const index-based access")
         .def("size", &ConstIndexedView::size, "Get the number of elements")
         .def("empty", &ConstIndexedView::empty, "Check if empty")
@@ -583,7 +584,7 @@ static void register_indexed_view(nb::module_& m) {
             "index"_a, "value"_a, "Set element at index from a view")
         // Overload: set from PlainValue (auto-extract const_view)
         .def("set", [](IndexedView& self, size_t index, const PlainValue& value) {
-            self.set(index, value.const_view());
+            self.set(index, ConstValueView(value.view()));
         }, "index"_a, "value"_a, "Set element at index from a PlainValue")
         .def("__iter__", [](IndexedView& self) {
             nb::list result;
@@ -599,7 +600,7 @@ static void register_indexed_view(nb::module_& m) {
 // ============================================================================
 
 static void register_tuple_views(nb::module_& m) {
-    nb::class_<ConstTupleView, ConstIndexedView>(m, "ConstTupleView",
+    nb::class_<ConstTupleView, ConstIndexedView>(m, "_ConstTupleView",
         "Const view for tuple types (heterogeneous index-only access)")
         .def("element_type", &ConstTupleView::element_type, "index"_a, nb::rv_policy::reference,
             "Get the type of element at index");
@@ -618,7 +619,7 @@ static void register_tuple_views(nb::module_& m) {
             if (value.schema() != elem_type) {
                 throw std::runtime_error("Type mismatch: value type doesn't match tuple element type");
             }
-            self.set(index, value.const_view());
+            self.set(index, ConstValueView(value.view()));
         }, "index"_a, "value"_a, "Set element at index from PlainValue (with type checking)")
         // Auto-wrapping set from Python native object with type checking
         .def("set", [](TupleView& self, size_t index, const nb::object& py_value) {
@@ -632,7 +633,7 @@ static void register_tuple_views(nb::module_& m) {
             // Convert from Python - this will throw if types are incompatible
             temp.from_python(py_value);
             // Set using the view
-            self.set(index, temp.const_view());
+            self.set(index, ConstValueView(temp.view()));
         }, "index"_a, "value"_a, "Set element at index from Python object (with type checking)");
 }
 
@@ -641,7 +642,7 @@ static void register_tuple_views(nb::module_& m) {
 // ============================================================================
 
 static void register_bundle_views(nb::module_& m) {
-    nb::class_<ConstBundleView, ConstIndexedView>(m, "ConstBundleView",
+    nb::class_<ConstBundleView, ConstIndexedView>(m, "_ConstBundleView",
         "Const view for bundle types (struct-like access)")
         // Named field access - use lambdas for std::string to std::string_view conversion
         .def("at_name", [](const ConstBundleView& self, const std::string& name) {
@@ -682,7 +683,7 @@ static void register_bundle_views(nb::module_& m) {
             const TypeMeta* field_type = self.schema()->fields[idx].type;
             PlainValue temp(field_type);
             temp.from_python(py_value);
-            self.set(name, temp.const_view());
+            self.set(name, ConstValueView(temp.view()));
         }, "name"_a, "value"_a, "Set field by name from Python object (auto-wrap)")
         // __getitem__ for indexing
         .def("__getitem__", [](BundleView& self, const std::string& name) {
@@ -713,7 +714,7 @@ static bool is_list_buffer_compatible(const ConstListView& list) {
 
 
 static void register_list_views(nb::module_& m) {
-    nb::class_<ConstListView, ConstIndexedView>(m, "ConstListView",
+    nb::class_<ConstListView, ConstIndexedView>(m, "_ConstListView",
         "Const view for list types")
         .def("front", &ConstListView::front, "Get the first element")
         .def("back", &ConstListView::back, "Get the last element")
@@ -873,7 +874,7 @@ static void register_list_views(nb::module_& m) {
 // ============================================================================
 
 static void register_set_views(nb::module_& m) {
-    nb::class_<ConstSetView, ConstValueView>(m, "ConstSetView",
+    nb::class_<ConstSetView, ConstValueView>(m, "_ConstSetView",
         "Const view for set types")
         .def("size", &ConstSetView::size, "Get the number of elements")
         .def("empty", &ConstSetView::empty, "Check if empty")
@@ -971,7 +972,7 @@ static void register_tracked_set(nb::module_& m) {
         .def("clear", &TrackedSetStorage::clear, "Clear all elements");
 
     // ConstTrackedSetView - read-only view
-    nb::class_<ConstTrackedSetView>(m, "ConstTrackedSetView",
+    nb::class_<ConstTrackedSetView>(m, "_ConstTrackedSetView",
         "Const view for TrackedSetStorage")
         .def(nb::init<const TrackedSetStorage*>(), "storage"_a)
         .def("size", &ConstTrackedSetView::size, "Get set size")
@@ -1015,6 +1016,9 @@ static void register_tracked_set(nb::module_& m) {
         .def(nb::init<ConstSetView, ConstSetView, const TypeMeta*>(),
             "added"_a, "removed"_a, "element_type"_a,
             "Create delta from added/removed sets")
+        .def(nb::init<SetView, SetView, const TypeMeta*>(),
+            "added"_a, "removed"_a, "element_type"_a,
+            "Create delta from added/removed sets")
         .def("added", &SetDeltaValue::added, "Get const view of added elements")
         .def("removed", &SetDeltaValue::removed, "Get const view of removed elements")
         .def("empty", &SetDeltaValue::empty, "Check if delta is empty")
@@ -1029,7 +1033,7 @@ static void register_tracked_set(nb::module_& m) {
 // ============================================================================
 
 static void register_const_key_set_view(nb::module_& m) {
-    nb::class_<ConstKeySetView, ConstValueView>(m, "ConstKeySetView",
+    nb::class_<ConstKeySetView, ConstValueView>(m, "_ConstKeySetView",
         "Read-only set view over map keys (same interface as ConstSetView)")
         .def("size", &ConstKeySetView::size, "Get the number of keys")
         .def("empty", &ConstKeySetView::empty, "Check if empty")
@@ -1055,7 +1059,7 @@ static void register_const_key_set_view(nb::module_& m) {
 // ============================================================================
 
 static void register_map_views(nb::module_& m) {
-    nb::class_<ConstMapView, ConstValueView>(m, "ConstMapView",
+    nb::class_<ConstMapView, ConstValueView>(m, "_ConstMapView",
         "Const view for map types")
         .def("size", &ConstMapView::size, "Get the number of entries")
         .def("empty", &ConstMapView::empty, "Check if empty")
@@ -1107,7 +1111,7 @@ static void register_map_views(nb::module_& m) {
                 // Create a default-constructed value of the value type
                 const TypeMeta* val_type = self.value_type();
                 PlainValue default_val(val_type);
-                self.set(key, default_val.const_view());
+                self.set(key, ConstValueView(default_val.view()));
             }
             return self.at(key);
         }, "key"_a, "Get value by key (auto-inserts default if missing)")
@@ -1158,7 +1162,7 @@ static bool is_cyclic_buffer_compatible(const ConstCyclicBufferView& buf) {
 }
 
 static void register_cyclic_buffer_views(nb::module_& m) {
-    nb::class_<ConstCyclicBufferView, ConstIndexedView>(m, "ConstCyclicBufferView",
+    nb::class_<ConstCyclicBufferView, ConstIndexedView>(m, "_ConstCyclicBufferView",
         "Const view for cyclic buffer types (fixed-size circular buffer)")
         .def("front", &ConstCyclicBufferView::front, "Get the oldest element")
         .def("back", &ConstCyclicBufferView::back, "Get the newest element")
@@ -1268,7 +1272,7 @@ static void register_cyclic_buffer_views(nb::module_& m) {
 // ============================================================================
 
 static void register_queue_views(nb::module_& m) {
-    nb::class_<ConstQueueView, ConstIndexedView>(m, "ConstQueueView",
+    nb::class_<ConstQueueView, ConstIndexedView>(m, "_ConstQueueView",
         "Const view for queue types (FIFO with optional max capacity)")
         .def("front", &ConstQueueView::front, "Get the front element (first in queue)")
         .def("back", &ConstQueueView::back, "Get the back element (last in queue)")
@@ -1519,14 +1523,14 @@ static void register_plain_value(nb::module_& m) {
 
         // Validity
         .def("valid", &PlainValue::valid, "Check if the Value contains data")
-        .def("__bool__", &PlainValue::valid, "Boolean conversion (validity)")
+        .def("has_value", &PlainValue::has_value, "Check whether data is present")
+        .def("__bool__", &PlainValue::has_value, "Boolean conversion (has value)")
         .def_prop_ro("schema", &PlainValue::schema, nb::rv_policy::reference,
             "Get the type schema")
 
         // View access (Design Doc Section 6.2)
         .def("view", static_cast<ValueView (PlainValue::*)()>(&PlainValue::view),
             "Get a mutable view of the data")
-        .def("const_view", &PlainValue::const_view, nb::keep_alive<0, 1>(), "Get a const view of the data")
 
         // Specialized view access (Design Doc Section 6.2)
         .def("as_tuple", static_cast<TupleView (PlainValue::*)()>(&PlainValue::as_tuple),
@@ -1573,8 +1577,11 @@ static void register_plain_value(nb::module_& m) {
 
         // Python interop (Design Doc Section 6.2)
         .def("to_python", &PlainValue::to_python, "Convert to a Python object")
-        .def("from_python", &PlainValue::from_python, "src"_a,
-            "Set the value from a Python object")
+        .def("from_python", [](PlainValue& self, nb::handle src) {
+            self.from_python(nb::borrow<nb::object>(src));
+        }, nb::arg("src").none(), "Set the value from a Python object")
+        .def("reset", &PlainValue::reset, "Reset to typed-null (preserves schema)")
+        .def("emplace", &PlainValue::emplace, "Default-construct the value for the schema")
 
         // Static copy method
         .def_static("copy", static_cast<PlainValue (*)(const PlainValue&)>(&PlainValue::copy),
@@ -1595,14 +1602,14 @@ static void register_plain_value(nb::module_& m) {
 
         // Path-based Navigation (User Guide Section 10)
         .def("navigate", [](const PlainValue& self, const std::string& path_str) {
-            return navigate(self.const_view(), path_str);
+            return navigate(self.view(), path_str);
         }, "path"_a,
             "Navigate through the value using a path string.\n\n"
             "Returns the ConstValueView at the path destination.\n"
             "Throws if navigation fails.")
         .def("try_navigate", [](const PlainValue& self, const std::string& path_str)
             -> std::optional<ConstValueView> {
-            return try_navigate(self.const_view(), path_str);
+            return try_navigate(self.view(), path_str);
         }, "path"_a,
             "Try to navigate through the value using a path string.\n\n"
             "Returns the ConstValueView at the destination, or None on failure.")
@@ -1644,14 +1651,14 @@ static void register_cached_value(nb::module_& m) {
 
         // Validity
         .def("valid", &CachedValue::valid, "Check if the Value contains data")
-        .def("__bool__", &CachedValue::valid, "Boolean conversion (validity)")
+        .def("has_value", &CachedValue::has_value, "Check whether data is present")
+        .def("__bool__", &CachedValue::has_value, "Boolean conversion (has value)")
         .def_prop_ro("schema", &CachedValue::schema, nb::rv_policy::reference,
             "Get the type schema")
 
         // View access (Design Doc Section 6.2)
         .def("view", static_cast<ValueView (CachedValue::*)()>(&CachedValue::view),
             "Get a mutable view of the data (invalidates cache)")
-        .def("const_view", &CachedValue::const_view, nb::keep_alive<0, 1>(), "Get a const view of the data")
 
         // Specialized view access (Design Doc Section 6.2)
         .def("as_tuple", static_cast<TupleView (CachedValue::*)()>(&CachedValue::as_tuple),
@@ -1699,8 +1706,11 @@ static void register_cached_value(nb::module_& m) {
         // Python interop (Design Doc Section 6.2)
         .def("to_python", &CachedValue::to_python,
             "Convert to a Python object (cached)")
-        .def("from_python", &CachedValue::from_python, "src"_a,
-            "Set the value from a Python object (updates cache)")
+        .def("from_python", [](CachedValue& self, nb::handle src) {
+            self.from_python(nb::borrow<nb::object>(src));
+        }, nb::arg("src").none(), "Set the value from a Python object (updates cache)")
+        .def("reset", &CachedValue::reset, "Reset to typed-null (preserves schema)")
+        .def("emplace", &CachedValue::emplace, "Default-construct the value for the schema")
 
         // Static copy method
         .def_static("copy", static_cast<CachedValue (*)(const CachedValue&)>(&CachedValue::copy),
@@ -1744,14 +1754,14 @@ static void register_ts_value(nb::module_& m) {
 
         // Validity
         .def("valid", &TSValue::valid, "Check if the Value contains data")
-        .def("__bool__", &TSValue::valid, "Boolean conversion (validity)")
+        .def("has_value", &TSValue::has_value, "Check whether data is present")
+        .def("__bool__", &TSValue::has_value, "Boolean conversion (has value)")
         .def_prop_ro("schema", &TSValue::schema, nb::rv_policy::reference,
             "Get the type schema")
 
         // View access
         .def("view", static_cast<ValueView (TSValue::*)()>(&TSValue::view),
             "Get a mutable view of the data (invalidates cache)")
-        .def("const_view", &TSValue::const_view, nb::keep_alive<0, 1>(), "Get a const view of the data")
 
         // Specialized view access
         .def("as_tuple", static_cast<TupleView (TSValue::*)()>(&TSValue::as_tuple),
@@ -1768,8 +1778,11 @@ static void register_ts_value(nb::module_& m) {
         // Python interop
         .def("to_python", &TSValue::to_python,
             "Convert to Python object (uses cache)")
-        .def("from_python", &TSValue::from_python, "src"_a,
-            "Set value from Python object (notifies callbacks)")
+        .def("from_python", [](TSValue& self, nb::handle src) {
+            self.from_python(nb::borrow<nb::object>(src));
+        }, nb::arg("src").none(), "Set value from Python object (notifies callbacks)")
+        .def("reset", &TSValue::reset, "Reset to typed-null (preserves schema)")
+        .def("emplace", &TSValue::emplace, "Default-construct the value for the schema")
 
         // Modification tracking
         .def("on_modified", [](TSValue& self, nb::object callback) {
@@ -1818,19 +1831,22 @@ static void register_validated_value(nb::module_& m) {
 
         // Validity
         .def("valid", &ValidatedValue::valid, "Check if the Value contains data")
-        .def("__bool__", &ValidatedValue::valid, "Boolean conversion (validity)")
+        .def("has_value", &ValidatedValue::has_value, "Check whether data is present")
+        .def("__bool__", &ValidatedValue::has_value, "Boolean conversion (has value)")
         .def_prop_ro("schema", &ValidatedValue::schema, nb::rv_policy::reference,
             "Get the type schema")
 
         // View access
         .def("view", static_cast<ValueView (ValidatedValue::*)()>(&ValidatedValue::view),
             "Get a mutable view of the data")
-        .def("const_view", &ValidatedValue::const_view, nb::keep_alive<0, 1>(), "Get a const view of the data")
 
         // Python interop
         .def("to_python", &ValidatedValue::to_python, "Convert to Python object")
-        .def("from_python", &ValidatedValue::from_python, "src"_a,
-            "Set value from Python object (throws if None)")
+        .def("from_python", [](ValidatedValue& self, nb::handle src) {
+            self.from_python(nb::borrow<nb::object>(src));
+        }, nb::arg("src").none(), "Set value from Python object (throws if None)")
+        .def("reset", &ValidatedValue::reset, "Reset to typed-null (preserves schema)")
+        .def("emplace", &ValidatedValue::emplace, "Default-construct the value for the schema")
 
         // Equality and comparison
         .def("equals", static_cast<bool (ValidatedValue::*)(const ConstValueView&) const>(&ValidatedValue::equals),
@@ -1908,14 +1924,12 @@ void value_register_with_nanobind(nb::module_& m) {
     m.attr("CachedValue") = value_mod.attr("CachedValue");
     m.attr("TSValue") = value_mod.attr("TSValue");
     m.attr("ValidatedValue") = value_mod.attr("ValidatedValue");
-    m.attr("ConstValueView") = value_mod.attr("ConstValueView");
     m.attr("ValueView") = value_mod.attr("ValueView");
     m.attr("TypeRegistry") = value_mod.attr("TypeRegistry");
     m.attr("TypeMeta") = value_mod.attr("TypeMeta");
     // TrackedSet types for TSS
     m.attr("TrackedSetStorage") = value_mod.attr("TrackedSetStorage");
     m.attr("TrackedSetView") = value_mod.attr("TrackedSetView");
-    m.attr("ConstTrackedSetView") = value_mod.attr("ConstTrackedSetView");
     m.attr("SetDeltaValue") = value_mod.attr("SetDeltaValue");
 }
 

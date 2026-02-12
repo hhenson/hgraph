@@ -452,9 +452,9 @@ def test_navigate_list_index(list_of_ints_schema):
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
 
-    lv.push_back(make_int_value(10).const_view())
-    lv.push_back(make_int_value(20).const_view())
-    lv.push_back(make_int_value(30).const_view())
+    lv.push_back(make_int_value(10).view())
+    lv.push_back(make_int_value(20).view())
+    lv.push_back(make_int_value(30).view())
 
     result = v.navigate("[1]")
 
@@ -467,8 +467,8 @@ def test_navigate_list_first_element(list_of_strings_schema):
     v = PlainValue(list_of_strings_schema)
     lv = v.as_list()
 
-    lv.push_back(make_string_value("first").const_view())
-    lv.push_back(make_string_value("second").const_view())
+    lv.push_back(make_string_value("first").view())
+    lv.push_back(make_string_value("second").view())
 
     result = v.navigate("[0]")
 
@@ -481,9 +481,9 @@ def test_navigate_list_last_element(list_of_ints_schema):
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
 
-    lv.push_back(make_int_value(10).const_view())
-    lv.push_back(make_int_value(20).const_view())
-    lv.push_back(make_int_value(30).const_view())
+    lv.push_back(make_int_value(10).view())
+    lv.push_back(make_int_value(20).view())
+    lv.push_back(make_int_value(30).view())
 
     result = v.navigate("[2]")
 
@@ -555,7 +555,7 @@ def test_navigate_mixed(person_with_addresses_schema, address_schema):
     addr1_bv.set("street", "100 First St")
     addr1_bv.set("city", "Chicago")
     addr1_bv.set("zip", 60601)
-    addresses.push_back(addr1.const_view())
+    addresses.push_back(addr1.view())
 
     # Add second address
     addr2 = PlainValue(address_schema)
@@ -563,7 +563,7 @@ def test_navigate_mixed(person_with_addresses_schema, address_schema):
     addr2_bv.set("street", "200 Second St")
     addr2_bv.set("city", "Los Angeles")
     addr2_bv.set("zip", 90001)
-    addresses.push_back(addr2.const_view())
+    addresses.push_back(addr2.view())
 
     # Navigate: person.addresses[0].city
     result = v.navigate("addresses[0].city")
@@ -588,7 +588,7 @@ def test_navigate_mixed_second_element(person_with_addresses_schema, address_sch
         addr_bv.set("street", f"{i * 100} Main St")
         addr_bv.set("city", city)
         addr_bv.set("zip", 80000 + i)
-        addresses.push_back(addr.const_view())
+        addresses.push_back(addr.view())
 
     # Navigate: person.addresses[1].city
     result = v.navigate("addresses[1].city")
@@ -625,14 +625,14 @@ def test_navigate_list_of_tuples(list_of_tuples_schema, tuple_schema):
     t1.as_tuple().at(0).set_int(1)
     t1.as_tuple().at(1).set_string("one")
     t1.as_tuple().at(2).set_double(1.0)
-    lv.push_back(t1.const_view())
+    lv.push_back(t1.view())
 
     # Add second tuple
     t2 = PlainValue(tuple_schema)
     t2.as_tuple().at(0).set_int(2)
     t2.as_tuple().at(1).set_string("two")
     t2.as_tuple().at(2).set_double(2.0)
-    lv.push_back(t2.const_view())
+    lv.push_back(t2.view())
 
     # Navigate: [1][1] - second tuple, second element
     result = v.navigate("[1][1]")
@@ -659,7 +659,7 @@ def test_navigate_invalid_index_throws(list_of_ints_schema):
     """navigate() to out-of-range index throws."""
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
-    lv.push_back(make_int_value(10).const_view())
+    lv.push_back(make_int_value(10).view())
 
     with pytest.raises((IndexError, RuntimeError)):
         v.navigate("[5]")
@@ -669,7 +669,7 @@ def test_navigate_negative_index_throws(list_of_ints_schema):
     """navigate() with negative index throws."""
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
-    lv.push_back(make_int_value(10).const_view())
+    lv.push_back(make_int_value(10).view())
 
     # Negative indices are not supported
     with pytest.raises((IndexError, ValueError, RuntimeError)):
@@ -712,7 +712,7 @@ def test_navigate_type_mismatch_field_on_list_throws(list_of_ints_schema):
     """navigate() with field access on list throws."""
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
-    lv.push_back(make_int_value(10).const_view())
+    lv.push_back(make_int_value(10).view())
 
     # Lists don't support field access
     with pytest.raises((TypeError, RuntimeError)):
@@ -786,7 +786,7 @@ def test_try_navigate_failure_invalid_index(list_of_ints_schema):
     """try_navigate() returns None on invalid index."""
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
-    lv.push_back(make_int_value(10).const_view())
+    lv.push_back(make_int_value(10).view())
 
     result = v.try_navigate("[5]")
 
@@ -877,8 +877,8 @@ def test_navigate_mut_list_element(list_of_ints_schema):
     """navigate_mut() to list element for modification."""
     v = PlainValue(list_of_ints_schema)
     lv = v.as_list()
-    lv.push_back(make_int_value(10).const_view())
-    lv.push_back(make_int_value(20).const_view())
+    lv.push_back(make_int_value(10).view())
+    lv.push_back(make_int_value(20).view())
 
     # Modify list element
     mut_view = v.navigate_mut("[1]")
@@ -947,7 +947,7 @@ def test_const_view_navigate(simple_bundle_schema):
     bv = v.as_bundle()
     bv.set("x", 42)
 
-    cv = v.const_view()
+    cv = v.view()
     result = cv.navigate("x")
 
     assert result is not None
@@ -1094,11 +1094,11 @@ def test_navigate_map_string_key(string_to_int_map_schema):
     # Insert key-value pairs
     key1 = make_string_value("alpha")
     val1 = make_int_value(100)
-    mv.add(key1.const_view(), val1.const_view())
+    mv.add(key1.view(), val1.view())
 
     key2 = make_string_value("beta")
     val2 = make_int_value(200)
-    mv.add(key2.const_view(), val2.const_view())
+    mv.add(key2.view(), val2.view())
 
     # Navigate using string key
     result = v.navigate('["alpha"]')
@@ -1114,7 +1114,7 @@ def test_navigate_map_string_key_single_quotes(string_to_int_map_schema):
 
     key = make_string_value("mykey")
     val = make_int_value(42)
-    mv.add(key.const_view(), val.const_view())
+    mv.add(key.view(), val.view())
 
     result = v.navigate("['mykey']")
 
@@ -1129,11 +1129,11 @@ def test_navigate_map_int_key(int_to_string_map_schema):
 
     key1 = make_int_value(1)
     val1 = make_string_value("one")
-    mv.add(key1.const_view(), val1.const_view())
+    mv.add(key1.view(), val1.view())
 
     key2 = make_int_value(2)
     val2 = make_string_value("two")
-    mv.add(key2.const_view(), val2.const_view())
+    mv.add(key2.view(), val2.view())
 
     # Navigate using integer key
     result = v.navigate("[2]")
@@ -1155,7 +1155,7 @@ def test_navigate_nested_map_value(nested_map_schema, address_schema):
     addr_bv.set("zip", 12345)
 
     key = make_string_value("home")
-    mv.add(key.const_view(), addr.const_view())
+    mv.add(key.view(), addr.view())
 
     # Navigate: map["home"].city
     result = v.navigate('["home"].city')
@@ -1171,7 +1171,7 @@ def test_navigate_map_invalid_key_throws(string_to_int_map_schema):
 
     key = make_string_value("exists")
     val = make_int_value(42)
-    mv.add(key.const_view(), val.const_view())
+    mv.add(key.view(), val.view())
 
     with pytest.raises((KeyError, IndexError, RuntimeError)):
         v.navigate('["nonexistent"]')
@@ -1184,7 +1184,7 @@ def test_try_navigate_map_key_success(string_to_int_map_schema):
 
     key = make_string_value("key")
     val = make_int_value(999)
-    mv.add(key.const_view(), val.const_view())
+    mv.add(key.view(), val.view())
 
     result = v.try_navigate('["key"]')
 
@@ -1209,7 +1209,7 @@ def test_navigate_mut_map_value(string_to_int_map_schema):
 
     key = make_string_value("count")
     val = make_int_value(0)
-    mv.add(key.const_view(), val.const_view())
+    mv.add(key.view(), val.view())
 
     # Modify via navigate_mut
     mut_view = v.navigate_mut('["count"]')
@@ -1217,7 +1217,7 @@ def test_navigate_mut_map_value(string_to_int_map_schema):
 
     # Verify
     key_lookup = make_string_value("count")
-    assert mv.at(key_lookup.const_view()).as_int() == 42
+    assert mv.at(key_lookup.view()).as_int() == 42
 
 
 # =============================================================================
@@ -1235,7 +1235,7 @@ def test_path_element_value_key():
     PathElement = value.PathElement
     key_value = make_int_value(42)
 
-    elem = PathElement.key(key_value.const_view())
+    elem = PathElement.key(key_value.view())
 
     assert elem is not None
     assert elem.is_value()
@@ -1248,7 +1248,7 @@ def test_path_element_value_key_string():
     PathElement = value.PathElement
     key_value = make_string_value("mykey")
 
-    elem = PathElement.key(key_value.const_view())
+    elem = PathElement.key(key_value.view())
 
     assert elem.is_value()
     # The stored key should match
@@ -1264,12 +1264,12 @@ def test_navigate_with_value_key(string_to_int_map_schema):
     # Insert value
     key = make_string_value("target")
     val = make_int_value(999)
-    mv.add(key.const_view(), val.const_view())
+    mv.add(key.view(), val.view())
 
     # Build path with value key
-    path = [PathElement.key(make_string_value("target").const_view())]
+    path = [PathElement.key(make_string_value("target").view())]
 
-    result = value.navigate(v.const_view(), path)
+    result = value.navigate(v.view(), path)
 
     assert result is not None
     assert result.as_int() == 999
@@ -1289,11 +1289,11 @@ def test_navigate_tuple_key_map(tuple_key_map_schema, tuple_schema):
 
     # Insert value
     val = make_string_value("found")
-    mv.add(tuple_key.const_view(), val.const_view())
+    mv.add(tuple_key.view(), val.view())
 
     # Navigate with tuple key
-    path = [PathElement.key(tuple_key.const_view())]
-    result = value.navigate(v.const_view(), path)
+    path = [PathElement.key(tuple_key.view())]
+    result = value.navigate(v.view(), path)
 
     assert result is not None
     assert result.as_string() == "found"
@@ -1307,14 +1307,14 @@ def test_navigate_value_key_type_mismatch(string_to_int_map_schema):
 
     key = make_string_value("test")
     val = make_int_value(42)
-    mv.add(key.const_view(), val.const_view())
+    mv.add(key.view(), val.view())
 
     # Try to navigate with int key on string-keyed map
     int_key = make_int_value(123)
-    path = [PathElement.key(int_key.const_view())]
+    path = [PathElement.key(int_key.view())]
 
     with pytest.raises((TypeError, RuntimeError)):
-        value.navigate(v.const_view(), path)
+        value.navigate(v.view(), path)
 
 
 def test_navigate_mixed_path_with_value_key(type_registry, string_schema, int_schema, address_schema):
@@ -1338,16 +1338,16 @@ def test_navigate_mixed_path_with_value_key(type_registry, string_schema, int_sc
 
     map_view = bv["data"].as_map()
     key = make_string_value("home")
-    map_view.add(key.const_view(), addr.const_view())
+    map_view.add(key.view(), addr.view())
 
     # Navigate: data[<value key>].city
     path = [
         PathElement.field("data"),
-        PathElement.key(make_string_value("home").const_view()),
+        PathElement.key(make_string_value("home").view()),
         PathElement.field("city")
     ]
 
-    result = value.navigate(v.const_view(), path)
+    result = value.navigate(v.view(), path)
 
     assert result is not None
     assert result.as_string() == "Boston"
