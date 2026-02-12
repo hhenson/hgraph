@@ -971,36 +971,31 @@ static void register_tracked_set(nb::module_& m) {
         .def("clear_deltas", &TrackedSetStorage::clear_deltas, "Clear delta tracking")
         .def("clear", &TrackedSetStorage::clear, "Clear all elements");
 
-    // ConstTrackedSetView - read-only view
-    nb::class_<ConstTrackedSetView>(m, "_ConstTrackedSetView",
-        "Const view for TrackedSetStorage")
-        .def(nb::init<const TrackedSetStorage*>(), "storage"_a)
-        .def("size", &ConstTrackedSetView::size, "Get set size")
-        .def("empty", &ConstTrackedSetView::empty, "Check if empty")
-        .def("has_delta", &ConstTrackedSetView::has_delta, "Check for pending changes")
-        .def("__len__", &ConstTrackedSetView::size)
-        .def("value", &ConstTrackedSetView::value, "Get const view of current set")
-        .def("added", &ConstTrackedSetView::added, "Get const view of added elements")
-        .def("removed", &ConstTrackedSetView::removed, "Get const view of removed elements")
-        .def("contains", static_cast<bool (ConstTrackedSetView::*)(const ConstValueView&) const>(
-            &ConstTrackedSetView::contains), "elem"_a)
-        .def("__contains__", static_cast<bool (ConstTrackedSetView::*)(const ConstValueView&) const>(
-            &ConstTrackedSetView::contains), "elem"_a)
-        .def("was_added", &ConstTrackedSetView::was_added, "elem"_a)
-        .def("was_removed", &ConstTrackedSetView::was_removed, "elem"_a)
-        .def("element_type", &ConstTrackedSetView::element_type, nb::rv_policy::reference)
-        .def("__iter__", [](const ConstTrackedSetView& self) {
+    // TrackedSetView - single view type (const-correct in C++)
+    nb::class_<TrackedSetView>(m, "TrackedSetView",
+        "View for TrackedSetStorage (read/write based on C++ constness)")
+        .def(nb::init<TrackedSetStorage*>(), "storage"_a)
+        .def("size", &TrackedSetView::size, "Get set size")
+        .def("empty", &TrackedSetView::empty, "Check if empty")
+        .def("has_delta", &TrackedSetView::has_delta, "Check for pending changes")
+        .def("__len__", &TrackedSetView::size)
+        .def("value", &TrackedSetView::value, "Get const view of current set")
+        .def("added", &TrackedSetView::added, "Get const view of added elements")
+        .def("removed", &TrackedSetView::removed, "Get const view of removed elements")
+        .def("contains", static_cast<bool (TrackedSetView::*)(const ConstValueView&) const>(
+            &TrackedSetView::contains), "elem"_a)
+        .def("__contains__", static_cast<bool (TrackedSetView::*)(const ConstValueView&) const>(
+            &TrackedSetView::contains), "elem"_a)
+        .def("was_added", &TrackedSetView::was_added, "elem"_a)
+        .def("was_removed", &TrackedSetView::was_removed, "elem"_a)
+        .def("element_type", &TrackedSetView::element_type, nb::rv_policy::reference)
+        .def("__iter__", [](const TrackedSetView& self) {
             nb::list result;
             for (auto elem : self) {
                 result.append(nb::cast(elem));
             }
             return nb::iter(result);
-        }, "Iterate over current set elements");
-
-    // TrackedSetView - mutable view
-    nb::class_<TrackedSetView, ConstTrackedSetView>(m, "TrackedSetView",
-        "Mutable view for TrackedSetStorage")
-        .def(nb::init<TrackedSetStorage*>(), "storage"_a)
+        }, "Iterate over current set elements")
         .def("add", static_cast<bool (TrackedSetView::*)(const ConstValueView&)>(
             &TrackedSetView::add), "elem"_a, "Add element with delta tracking")
         .def("remove", static_cast<bool (TrackedSetView::*)(const ConstValueView&)>(
@@ -1029,23 +1024,23 @@ static void register_tracked_set(nb::module_& m) {
 }
 
 // ============================================================================
-// ConstKeySetView Binding - Set View Over Map Keys
+// KeySetView Binding - Set View Over Map Keys
 // ============================================================================
 
-static void register_const_key_set_view(nb::module_& m) {
-    nb::class_<ConstKeySetView, ConstValueView>(m, "_ConstKeySetView",
+static void register_key_set_view(nb::module_& m) {
+    nb::class_<KeySetView, ConstValueView>(m, "_KeySetView",
         "Read-only set view over map keys (same interface as ConstSetView)")
-        .def("size", &ConstKeySetView::size, "Get the number of keys")
-        .def("empty", &ConstKeySetView::empty, "Check if empty")
-        .def("__len__", &ConstKeySetView::size)
-        .def("contains", static_cast<bool (ConstKeySetView::*)(const ConstValueView&) const>(
-            &ConstKeySetView::contains), "key"_a, "Check if a key is in the set")
-        .def("__contains__", static_cast<bool (ConstKeySetView::*)(const ConstValueView&) const>(
-            &ConstKeySetView::contains), "key"_a)
-        .def("element_type", &ConstKeySetView::element_type, nb::rv_policy::reference,
+        .def("size", &KeySetView::size, "Get the number of keys")
+        .def("empty", &KeySetView::empty, "Check if empty")
+        .def("__len__", &KeySetView::size)
+        .def("contains", static_cast<bool (KeySetView::*)(const ConstValueView&) const>(
+            &KeySetView::contains), "key"_a, "Check if a key is in the set")
+        .def("__contains__", static_cast<bool (KeySetView::*)(const ConstValueView&) const>(
+            &KeySetView::contains), "key"_a)
+        .def("element_type", &KeySetView::element_type, nb::rv_policy::reference,
             "Get the key/element type")
-        // Iteration support using ConstKeySetView::const_iterator
-        .def("__iter__", [](const ConstKeySetView& self) {
+        // Iteration support using KeySetView::const_iterator
+        .def("__iter__", [](const KeySetView& self) {
             nb::list result;
             for (auto it = self.begin(); it != self.end(); ++it) {
                 result.append(nb::cast(*it));
@@ -1076,7 +1071,7 @@ static void register_map_views(nb::module_& m) {
         .def("value_type", &ConstMapView::value_type, nb::rv_policy::reference, "Get the value type")
         // Iteration support - iterate over keys (like Python dict)
         .def("__iter__", [](const ConstMapView& self) {
-            // Use keys() to get ConstKeySetView, then iterate
+            // Use keys() to get KeySetView, then iterate
             auto keys = self.keys();
             nb::list result;
             for (auto it = keys.begin(); it != keys.end(); ++it) {
@@ -1085,7 +1080,7 @@ static void register_map_views(nb::module_& m) {
             return nb::iter(result);
         }, "Iterate over keys (like dict)")
         .def("keys", &ConstMapView::keys,
-            "Get ConstKeySetView over map keys (same interface as ConstSetView)")
+            "Get KeySetView over map keys (same interface as ConstSetView)")
         .def("values", [](const ConstMapView& self) {
             nb::object py_dict = self.to_python();
             return py_dict.attr("values")();
@@ -1131,7 +1126,7 @@ static void register_map_views(nb::module_& m) {
         .def("value_type", &MapView::value_type, nb::rv_policy::reference, "Get the value type")
         // Iteration support - iterate over keys (like Python dict)
         .def("__iter__", [](MapView& self) {
-            // Use keys() to get ConstKeySetView, then iterate
+            // Use keys() to get KeySetView, then iterate
             auto keys = self.keys();
             nb::list result;
             for (auto it = keys.begin(); it != keys.end(); ++it) {
@@ -1140,7 +1135,7 @@ static void register_map_views(nb::module_& m) {
             return nb::iter(result);
         }, "Iterate over keys (like dict)")
         .def("keys", &MapView::keys,
-            "Get ConstKeySetView over map keys (same interface as ConstSetView)")
+            "Get KeySetView over map keys (same interface as ConstSetView)")
         .def("values", [](MapView& self) {
             nb::object py_dict = self.to_python();
             return py_dict.attr("values")();
@@ -1904,7 +1899,7 @@ void value_register_with_nanobind(nb::module_& m) {
     register_list_views(value_mod);
     register_set_views(value_mod);
     register_tracked_set(value_mod);  // TrackedSetStorage and related views
-    register_const_key_set_view(value_mod);  // Before map_views - ConstKeySetView returned by map.keys()
+    register_key_set_view(value_mod);  // Before map_views - KeySetView returned by map.keys()
     register_map_views(value_mod);
     register_cyclic_buffer_views(value_mod);
     register_queue_views(value_mod);

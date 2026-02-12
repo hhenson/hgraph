@@ -30,6 +30,16 @@
 
 namespace hgraph::value {
 
+inline void require_typed_view(const ConstValueView& view, const TypeMeta* expected_schema,
+                               const char* name, bool allow_null = false) {
+    if (!allow_null && !view.valid()) {
+        throw std::runtime_error(std::string(name) + " must be non-null");
+    }
+    if (view.valid() && expected_schema && view.schema() != expected_schema) {
+        throw std::runtime_error(std::string(name) + " schema mismatch");
+    }
+}
+
 // Forward declarations
 template<typename Policy>
 class Value;
@@ -1122,6 +1132,7 @@ public:
      */
     [[nodiscard]] bool contains(const ConstValueView& value) const {
         assert(valid() && "contains() on invalid view");
+        require_typed_view(value, element_type(), "Set element");
         return _schema->ops().contains(_data, value.data(), _schema);
     }
 
@@ -1230,6 +1241,7 @@ public:
      */
     [[nodiscard]] bool contains(const ConstValueView& value) const {
         assert(valid() && "contains() on invalid view");
+        require_typed_view(value, element_type(), "Set element");
         return _schema->ops().contains(_data, value.data(), _schema);
     }
 
@@ -1240,6 +1252,7 @@ public:
      */
     bool add(const ConstValueView& value) {
         assert(valid() && "add() on invalid view");
+        require_typed_view(value, element_type(), "Set element");
         if (contains(value)) return false;
         _schema->ops().add(data(), value.data(), _schema);
         return true;
@@ -1252,6 +1265,7 @@ public:
      */
     bool remove(const ConstValueView& value) {
         assert(valid() && "remove() on invalid view");
+        require_typed_view(value, element_type(), "Set element");
         if (!contains(value)) return false;
         _schema->ops().remove(data(), value.data(), _schema);
         return true;
@@ -1302,7 +1316,7 @@ public:
 };
 
 // ============================================================================
-// ConstKeySetView - Read-only Set View Over Map Keys
+// KeySetView - Read-only Set View Over Map Keys
 // ============================================================================
 
 /**
@@ -1313,17 +1327,17 @@ public:
  *
  * @note This is a read-only view. Map keys cannot be modified through this view.
  */
-class ConstKeySetView : public ConstValueView {
+class KeySetView : public ConstValueView {
 public:
     // ========== Construction ==========
 
     using ConstValueView::ConstValueView;
 
     /// Construct from a ConstMapView
-    explicit ConstKeySetView(const ConstValueView& map_view)
+    explicit KeySetView(const ConstValueView& map_view)
         : ConstValueView(map_view) {
         // Verify this is actually a map
-        assert(map_view.is_map() && "ConstKeySetView requires a map type");
+        assert(map_view.is_map() && "KeySetView requires a map type");
     }
 
     // ========== Size ==========
@@ -1350,6 +1364,7 @@ public:
      */
     [[nodiscard]] bool contains(const ConstValueView& key) const {
         assert(valid() && "contains() on invalid view");
+        require_typed_view(key, element_type(), "Map key");
         return _schema->ops().contains(_data, key.data(), _schema);
     }
 
@@ -1384,7 +1399,7 @@ public:
         using reference = ConstValueView;
 
         const_iterator() = default;
-        const_iterator(const ConstKeySetView* view, size_t index)
+        const_iterator(const KeySetView* view, size_t index)
             : _view(view), _index(index) {}
 
         reference operator*() const;
@@ -1409,7 +1424,7 @@ public:
         }
 
     private:
-        const ConstKeySetView* _view{nullptr};
+        const KeySetView* _view{nullptr};
         size_t _index{0};
     };
 
@@ -1455,6 +1470,7 @@ public:
      */
     [[nodiscard]] ConstValueView at(const ConstValueView& key) const {
         assert(valid() && "at() on invalid view");
+        require_typed_view(key, key_type(), "Map key");
         const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
         if (!value_data) {
             throw std::runtime_error("Key not found");
@@ -1474,6 +1490,7 @@ public:
      */
     [[nodiscard]] bool contains(const ConstValueView& key) const {
         assert(valid() && "contains() on invalid view");
+        require_typed_view(key, key_type(), "Map key");
         return _schema->ops().contains(_data, key.data(), _schema);
     }
 
@@ -1496,10 +1513,10 @@ public:
     /**
      * @brief Get a read-only set view over the map's keys.
      *
-     * @return ConstKeySetView with same interface as ConstSetView
+     * @return KeySetView with same interface as ConstSetView
      */
-    [[nodiscard]] ConstKeySetView keys() const {
-        return ConstKeySetView(*this);
+    [[nodiscard]] KeySetView keys() const {
+        return KeySetView(*this);
     }
 
     // Templated operations - implemented after Value
@@ -1541,6 +1558,7 @@ public:
      */
     [[nodiscard]] ConstValueView at(const ConstValueView& key) const {
         assert(valid() && "at() on invalid view");
+        require_typed_view(key, key_type(), "Map key");
         const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
         if (!value_data) {
             throw std::runtime_error("Key not found");
@@ -1553,6 +1571,7 @@ public:
      */
     [[nodiscard]] ValueView at(const ConstValueView& key) {
         assert(valid() && "at() on invalid view");
+        require_typed_view(key, key_type(), "Map key");
         void* value_data = const_cast<void*>(_schema->ops().map_at(data(), key.data(), _schema));
         if (!value_data) {
             throw std::runtime_error("Key not found");
@@ -1579,6 +1598,7 @@ public:
      */
     [[nodiscard]] bool contains(const ConstValueView& key) const {
         assert(valid() && "contains() on invalid view");
+        require_typed_view(key, key_type(), "Map key");
         return _schema->ops().contains(_data, key.data(), _schema);
     }
 
@@ -1587,6 +1607,8 @@ public:
      */
     void set(const ConstValueView& key, const ConstValueView& value) {
         assert(valid() && "set() on invalid view");
+        require_typed_view(key, key_type(), "Map key");
+        require_typed_view(value, value_type(), "Map value");
         _schema->ops().set_item(data(), key.data(), value.data(), _schema);
     }
 
@@ -1596,6 +1618,8 @@ public:
      * @return true if inserted (key was new)
      */
     bool add(const ConstValueView& key, const ConstValueView& value) {
+        require_typed_view(key, key_type(), "Map key");
+        require_typed_view(value, value_type(), "Map value");
         if (contains(key)) return false;
         set(key, value);
         return true;
@@ -1608,6 +1632,7 @@ public:
      */
     bool remove(const ConstValueView& key) {
         assert(valid() && "remove() on invalid view");
+        require_typed_view(key, key_type(), "Map key");
         if (!contains(key)) return false;
         _schema->ops().remove(data(), key.data(), _schema);
         return true;
@@ -1642,10 +1667,10 @@ public:
     /**
      * @brief Get a read-only set view over the map's keys.
      *
-     * @return ConstKeySetView with same interface as ConstSetView
+     * @return KeySetView with same interface as ConstSetView
      */
-    [[nodiscard]] ConstKeySetView keys() const {
-        return ConstKeySetView(ConstValueView(_data, _schema));
+    [[nodiscard]] KeySetView keys() const {
+        return KeySetView(ConstValueView(_data, _schema));
     }
 
     /**
@@ -1947,10 +1972,10 @@ inline ConstValueView ConstSetView::const_iterator::operator*() const {
 }
 
 // ============================================================================
-// ConstKeySetView Iterator Implementation
+// KeySetView Iterator Implementation
 // ============================================================================
 
-inline ConstValueView ConstKeySetView::const_iterator::operator*() const {
+inline ConstValueView KeySetView::const_iterator::operator*() const {
     // Access the MapStorage to get the key at the current iteration position
     auto* storage = static_cast<const MapStorage*>(_view->data());
 

@@ -187,7 +187,7 @@ class TestTrackedSetStorage:
 
 
 class TestTrackedSetView:
-    """Tests for TrackedSetView and ConstTrackedSetView."""
+    """Tests for TrackedSetView."""
 
     def test_const_view(self, int_element_type):
         """Test TrackedSetView provides read access."""

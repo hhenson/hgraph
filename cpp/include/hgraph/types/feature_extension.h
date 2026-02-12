@@ -16,7 +16,7 @@ namespace hgraph {
         using is_transparent = void;  // Enable heterogeneous lookup
 
         size_t operator()(const value::PlainValue& v) const {
-            return v.hash();
+            return v.has_value() ? v.hash() : 0u;
         }
 
         size_t operator()(const value::ConstValueView& v) const {
@@ -32,7 +32,7 @@ namespace hgraph {
         using is_transparent = void;  // Enable heterogeneous lookup
 
         bool operator()(const value::PlainValue& a, const value::PlainValue& b) const {
-            return a.equals(b.view());
+            return a.equals(b);
         }
 
         bool operator()(const value::PlainValue& a, const value::ConstValueView& b) const {

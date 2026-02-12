@@ -823,7 +823,7 @@ def test_map_iteration_key_value_pairs(string_double_map_schema):
 
 
 def test_map_keys_iteration(string_double_map_schema):
-    """Map keys can be iterated separately - returns ConstKeySetView."""
+    """Map keys can be iterated separately - returns KeySetView."""
     v = PlainValue(string_double_map_schema)
 
     v.emplace()
@@ -837,7 +837,7 @@ def test_map_keys_iteration(string_double_map_schema):
 
     # Get const view for iteration
     cmv = v.view().as_map()
-    key_set = cmv.keys()  # Returns ConstKeySetView
+    key_set = cmv.keys()  # Returns KeySetView
     # Convert ConstValueView keys to Python strings for comparison
     keys = [k.as_string() for k in key_set]
     assert sorted(keys) == ["apple", "banana"]
@@ -1242,11 +1242,11 @@ def test_map_to_string(string_double_map_schema):
 
 
 # =============================================================================
-# ConstKeySetView Tests (Map Keys as Set)
+# KeySetView Tests (Map Keys as Set)
 # =============================================================================
 
-def test_map_keys_returns_const_key_set_view(string_double_map_schema):
-    """Map.keys() returns a ConstKeySetView object."""
+def test_map_keys_returns_key_set_view(string_double_map_schema):
+    """Map.keys() returns a KeySetView object."""
     v = PlainValue(string_double_map_schema)
 
     v.emplace()
@@ -1258,7 +1258,7 @@ def test_map_keys_returns_const_key_set_view(string_double_map_schema):
     cmv = v.view().as_map()
     key_set = cmv.keys()
 
-    # Should be a ConstKeySetView, not a Python dict_keys
+    # Should be a KeySetView, not a Python dict_keys
     assert hasattr(key_set, 'size')
     assert hasattr(key_set, 'empty')
     assert hasattr(key_set, 'contains')
@@ -1266,7 +1266,7 @@ def test_map_keys_returns_const_key_set_view(string_double_map_schema):
 
 
 def test_keyset_size(string_double_map_schema):
-    """ConstKeySetView.size() returns the number of keys."""
+    """KeySetView.size() returns the number of keys."""
     v = PlainValue(string_double_map_schema)
 
     v.emplace()
@@ -1286,7 +1286,7 @@ def test_keyset_size(string_double_map_schema):
 
 
 def test_keyset_empty(string_double_map_schema):
-    """ConstKeySetView.empty() returns True for empty map."""
+    """KeySetView.empty() returns True for empty map."""
     v = PlainValue(string_double_map_schema)
 
     v.emplace()
@@ -1298,7 +1298,7 @@ def test_keyset_empty(string_double_map_schema):
 
 
 def test_keyset_contains(string_double_map_schema):
-    """ConstKeySetView.contains() checks for key existence."""
+    """KeySetView.contains() checks for key existence."""
     v = PlainValue(string_double_map_schema)
 
     v.emplace()
@@ -1318,7 +1318,7 @@ def test_keyset_contains(string_double_map_schema):
 
 
 def test_keyset_dunder_contains(string_double_map_schema):
-    """ConstKeySetView supports 'in' operator via __contains__."""
+    """KeySetView supports 'in' operator via __contains__."""
     v = PlainValue(string_double_map_schema)
 
     v.emplace()
@@ -1337,7 +1337,7 @@ def test_keyset_dunder_contains(string_double_map_schema):
 
 
 def test_keyset_element_type(string_double_map_schema):
-    """ConstKeySetView.element_type() returns the key type."""
+    """KeySetView.element_type() returns the key type."""
     v = PlainValue(string_double_map_schema)
 
     v.emplace()
@@ -1352,7 +1352,7 @@ def test_keyset_element_type(string_double_map_schema):
 
 
 def test_keyset_iteration(string_double_map_schema):
-    """ConstKeySetView can be iterated to get keys."""
+    """KeySetView can be iterated to get keys."""
     v = PlainValue(string_double_map_schema)
 
     v.emplace()
@@ -1376,7 +1376,7 @@ def test_keyset_iteration(string_double_map_schema):
 
 
 def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map_schema):
-    """ConstKeySetView has the same interface as ConstSetView."""
+    """KeySetView has the same interface as ConstSetView."""
     # Create a set
     set_v = PlainValue(int_set_schema)
 
@@ -1400,11 +1400,11 @@ def test_keyset_same_interface_as_constsetview(int_set_schema, string_double_map
     set_methods = {'size', 'empty', 'contains', 'element_type', '__len__', '__iter__', '__contains__'}
     for method in set_methods:
         assert hasattr(const_set, method), f"ConstSetView missing {method}"
-        assert hasattr(key_set, method), f"ConstKeySetView missing {method}"
+        assert hasattr(key_set, method), f"KeySetView missing {method}"
 
 
 def test_keyset_mutable_map_keys(string_double_map_schema):
-    """MapView.keys() also returns ConstKeySetView."""
+    """MapView.keys() also returns KeySetView."""
     v = PlainValue(string_double_map_schema)
 
     v.emplace()
