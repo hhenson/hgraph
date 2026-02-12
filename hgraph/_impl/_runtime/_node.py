@@ -368,15 +368,17 @@ class NodeSchedulerImpl(SCHEDULER):
         from hgraph import RealTimeEvaluationClock
 
         original_time = None
-        if tag is not None and tag in self._tags and not on_wall_clock:
+        if tag is not None and tag in self._tags and bool(self._scheduled_events):
             original_time = self.next_scheduled_time
-            self._scheduled_events.remove((self._tags[tag], tag))
+            self._scheduled_events.discard((self._tags[tag], tag))
 
         if on_wall_clock:
             node = self._node
             while node.graph.parent_node: node = node.graph.parent_node
             if isinstance(clock := node.graph.evaluation_clock, RealTimeEvaluationClock):
                 alarm_tag = f"{id(self)}:{tag}"
+                if alarm_tag in self._alarm_tags:
+                    clock.cancel_alarm(alarm_tag)
                 clock.set_alarm(when, alarm_tag, lambda et: self._on_alarm(et, tag))
                 self._alarm_tags[alarm_tag] = when
                 return
@@ -394,10 +396,10 @@ class NodeSchedulerImpl(SCHEDULER):
                 self._node.graph.schedule_node(self._node.node_ndx, next_, force_set)
 
     def _on_alarm(self, when: datetime, tag: str):
-        self._tags[tag] = when
-        self._alarm_tags.pop(f"{id(self)}:{tag}")
-        self._scheduled_events.add((when, tag))
-        self._node.graph.schedule_node(self._node.node_ndx, when)
+        if self._alarm_tags.pop(f"{id(self)}:{tag}", None) is not None:
+            self._tags[tag] = when
+            self._scheduled_events.add((when, tag))
+            self._node.graph.schedule_node(self._node.node_ndx, when)
 
     def un_schedule(self, tag: str = None):
         if tag is not None:
@@ -410,10 +412,11 @@ class NodeSchedulerImpl(SCHEDULER):
     def reset(self):
         self._scheduled_events.clear()
         self._tags.clear()
-        node = self._node
-        while node.graph.parent_node: node = node.graph.parent_node
-        for alarm in self._alarm_tags:
-            node.graph.evaluation_clock.cancel_alarm(alarm)
+        if self._alarm_tags:
+            node = self._node
+            while node.graph.parent_node: node = node.graph.parent_node
+            for alarm in self._alarm_tags:
+                node.graph.evaluation_clock.cancel_alarm(alarm)
 
     def advance(self):
         until = self._node.graph.evaluation_clock.evaluation_time
