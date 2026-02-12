@@ -4,7 +4,11 @@
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/feature_extension.h>
+#include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <unordered_set>
+#include <memory>
 
 namespace hgraph
 {
@@ -107,7 +111,23 @@ namespace hgraph
         std::unordered_set<std::string>          multiplexed_args_;
         std::string                              key_arg_;
         key_time_map_type                        scheduled_keys_;
+        key_set_type                             pending_multiplexed_wirings_;
         std::string                              recordable_id_;
+
+        void try_wire_pending_keys(engine_time_t time);
+        bool try_wire_multiplexed_for_key(const value::View& key, engine_time_t time);
+        void clear_pending_wiring_subscriptions();
+
+        // Notifier that schedules the map node when upstream TSD outputs change.
+        // Used to detect when deferred multiplexed wirings can be completed.
+        struct PendingWiringNotifier : Notifiable {
+            TsdMapNode* node;
+            explicit PendingWiringNotifier(TsdMapNode* n) : node(n) {}
+            void notify(engine_time_t et) override;
+        };
+
+        std::unique_ptr<PendingWiringNotifier> pending_wiring_notifier_;
+        std::unordered_set<ObserverList*> pending_wiring_subscriptions_;
 
         friend MapNestedEngineEvaluationClock;
     };

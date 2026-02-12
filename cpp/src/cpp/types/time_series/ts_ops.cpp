@@ -22,6 +22,7 @@
 #include <hgraph/types/value/cyclic_buffer_ops.h>
 #include <hgraph/types/value/queue_ops.h>
 #include <hgraph/types/node.h>
+#include <hgraph/types/graph.h>
 
 #include <optional>
 #include <stdexcept>
@@ -5016,6 +5017,18 @@ nb::object delta_to_python(const ViewData& vd) {
     }
 
     // Pass 2: Time-based scan over ALL live elements
+    // For REF elements: the TSReference itself may not change when the target is
+    // modified (e.g., compute nodes in map_ write output but the REF stays the same).
+    // We need the graph's actual evaluation_time to correctly filter, since
+    // container_time only updates on structural changes (dict_create/dict_remove).
+    engine_time_t ref_current_time = container_time;  // fallback
+    if (elem_is_ref && vd.path.node()) {
+        auto* g = vd.path.node()->graph();
+        if (g) {
+            ref_current_time = g->evaluation_time();
+        }
+    }
+
     auto* index_set = key_set.index_set();
     if (index_set) {
         for (auto slot : *index_set) {
@@ -5025,10 +5038,10 @@ nb::object delta_to_python(const ViewData& vd) {
                 if (elem_is_ref) {
                     auto* ref = static_cast<TSReference*>(storage->value_at_slot(slot));
                     if (ref && !ref->is_empty()) {
-                        TSView target = ref->resolve(container_time);
+                        TSView target = ref->resolve(ref_current_time);
                         if (target && target.view_data().ops) {
                             engine_time_t target_time = target.view_data().ops->last_modified_time(target.view_data());
-                            if (target_time >= container_time) {
+                            if (target_time >= ref_current_time) {
                                 const void* key_data = key_set.key_at_slot(slot);
                                 value::View key_view(key_data, key_tm);
                                 nb::object py_val = target.view_data().ops->to_python(target.view_data());

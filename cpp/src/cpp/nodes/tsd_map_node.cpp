@@ -94,6 +94,23 @@ namespace hgraph {
           multiplexed_args_(multiplexed_args), key_arg_(key_arg) {
     }
 
+    // ========== PendingWiringNotifier ==========
+
+    void TsdMapNode::PendingWiringNotifier::notify(engine_time_t et) {
+        if (node && node->graph() && !node->is_stopping()) {
+            node->graph()->schedule_node(node->node_ndx(), et);
+        }
+    }
+
+    void TsdMapNode::clear_pending_wiring_subscriptions() {
+        if (pending_wiring_notifier_) {
+            for (auto* obs : pending_wiring_subscriptions_) {
+                obs->remove_observer(pending_wiring_notifier_.get());
+            }
+            pending_wiring_subscriptions_.clear();
+        }
+    }
+
     // ========== Accessors ==========
 
     nb::dict TsdMapNode::py_nested_graphs() const {
@@ -161,6 +178,8 @@ namespace hgraph {
         }
         scheduled_keys_.clear();
         pending_keys_.clear();
+        pending_multiplexed_wirings_.clear();
+        clear_pending_wiring_subscriptions();
     }
 
     void TsdMapNode::dispose() {
@@ -182,7 +201,25 @@ namespace hgraph {
         // dict_create/dict_remove modify the TSD via MapStorage which notifies MapDelta via SlotObserver,
         // but nothing else triggers the lazy delta clear. We must do it here at the start of each tick.
         if (ts_output()) {
+            if constexpr (MAP_DEBUG) {
+                ViewData out_vd = ts_output()->native_value().make_view_data();
+                if (out_vd.delta_data) {
+                    auto* md = static_cast<MapDelta*>(out_vd.delta_data);
+                    fprintf(stderr, "[MAP] BEFORE delta clear: added=%zu, removed=%zu, updated=%zu, time=%lld\n",
+                            md->key_delta().added().size(), md->key_delta().removed().size(),
+                            md->updated().size(), (long long)time.time_since_epoch().count());
+                }
+            }
             ts_output()->native_value().delta_value_view(time);
+            if constexpr (MAP_DEBUG) {
+                ViewData out_vd = ts_output()->native_value().make_view_data();
+                if (out_vd.delta_data) {
+                    auto* md = static_cast<MapDelta*>(out_vd.delta_data);
+                    fprintf(stderr, "[MAP] AFTER delta clear: added=%zu, removed=%zu, updated=%zu\n",
+                            md->key_delta().added().size(), md->key_delta().removed().size(),
+                            md->updated().size());
+                }
+            }
         }
 
         auto outer_input = ts_input()->view(time);
@@ -247,6 +284,11 @@ namespace hgraph {
                     if (sk_it != scheduled_keys_.end()) {
                         scheduled_keys_.erase(sk_it);
                     }
+                    // Remove from pending wirings
+                    auto pw_it = pending_multiplexed_wirings_.find(key_val);
+                    if (pw_it != pending_multiplexed_wirings_.end()) {
+                        pending_multiplexed_wirings_.erase(pw_it);
+                    }
                 }
             }
         } else if (!keys_resolved.valid() && !active_graphs_.empty()) {
@@ -268,6 +310,14 @@ namespace hgraph {
                 remove_graph(key.const_view());
             }
             scheduled_keys_.clear();
+        }
+
+        // 1.5 Try to complete any deferred multiplexed wirings
+        try_wire_pending_keys(time);
+
+        // Unsubscribe from upstream TSD observers once all pending wirings are resolved
+        if (pending_multiplexed_wirings_.empty()) {
+            clear_pending_wiring_subscriptions();
         }
 
         // 2. Evaluate scheduled graphs
@@ -423,6 +473,21 @@ namespace hgraph {
             nec->reset_next_scheduled_evaluation_time();
         }
 
+        if constexpr (MAP_DEBUG) {
+            auto eval_time = inner_graph->evaluation_clock()->evaluation_time();
+            fprintf(stderr, "[MAP] evaluate_graph: inner graph has %zu nodes, eval_time=%lld\n",
+                    inner_graph->nodes().size(),
+                    (long long)eval_time.time_since_epoch().count());
+            auto& schedule = inner_graph->schedule();
+            for (size_t ni = 0; ni < inner_graph->nodes().size(); ++ni) {
+                auto& n = inner_graph->nodes()[ni];
+                fprintf(stderr, "[MAP] evaluate_graph: node[%zu] started=%d, schedule=%lld, will_eval=%d\n",
+                        ni, n->is_started() ? 1 : 0,
+                        (long long)schedule[ni].time_since_epoch().count(),
+                        (schedule[ni] == eval_time) ? 1 : 0);
+            }
+        }
+
         if (signature().capture_exception) {
             try {
                 inner_graph->evaluate_graph();
@@ -431,6 +496,36 @@ namespace hgraph {
             }
         } else {
             inner_graph->evaluate_graph();
+        }
+
+        if constexpr (MAP_DEBUG) {
+            // Check the output stub's forwarded target state
+            if (output_node_id_ >= 0) {
+                auto& stub_node = inner_graph->nodes()[output_node_id_];
+                if (stub_node->ts_output()) {
+                    auto& ft = stub_node->ts_output()->forwarded_target();
+                    fprintf(stderr, "[MAP] evaluate_graph: output stub %lld forwarded_target is_linked=%d\n",
+                            output_node_id_, ft.is_linked ? 1 : 0);
+                    if (ft.is_linked && ft.time_data) {
+                        auto elem_time = *static_cast<engine_time_t*>(ft.time_data);
+                        fprintf(stderr, "[MAP] evaluate_graph: TSD element time=%lld, eval_time=%lld\n",
+                                (long long)elem_time.time_since_epoch().count(),
+                                (long long)last_evaluation_time().time_since_epoch().count());
+                    }
+                    if (ft.is_linked && ft.value_data && ft.meta) {
+                        // Check if the REF element has a valid TSReference
+                        auto vt = ft.meta->value_type;
+                        if (vt) {
+                            value::View val(ft.value_data, vt);
+                            auto* ts_ref = static_cast<const TSReference*>(val.data());
+                            fprintf(stderr, "[MAP] evaluate_graph: TSD elem TSRef empty=%d, peered=%d, python_bound=%d\n",
+                                    ts_ref->is_empty() ? 1 : 0,
+                                    ts_ref->is_peered() ? 1 : 0,
+                                    ts_ref->is_python_bound() ? 1 : 0);
+                        }
+                    }
+                }
+            }
         }
 
         engine_time_t next = MAX_DT;
@@ -463,7 +558,9 @@ namespace hgraph {
                     eval_fn_obj.attr("key") = py_key;
                 }
             } else if (multiplexed_args_.count(arg)) {
-                // Multiplexed input: create TSD element for this key and bind inner stub to it
+                // Multiplexed input: find upstream TSD element for this key and wire inner stub to it.
+                // The element may not exist yet (e.g., keys added before data arrives).
+                // If missing, we defer wiring and retry in eval() when the input changes.
                 auto outer_input_view = ts_input()->view(time);
                 auto field_view = outer_input_view.field(arg);
                 auto field_ts_view = field_view.ts_view();
@@ -481,7 +578,14 @@ namespace hgraph {
                     }
                 }
 
-                // Navigate to the upstream TSD element (must already exist since key was added to key_set)
+                if constexpr (MAP_DEBUG) {
+                    auto child_cnt = tsd_resolved.ops->child_count ? tsd_resolved.ops->child_count(tsd_resolved) : -1;
+                    auto key_str = key_type_meta_ ? key_type_meta_->ops->to_string(key.data(), key_type_meta_) : "?";
+                    fprintf(stderr, "[MAP] wire multiplexed '%s': upstream TSD child_count=%lld, looking for key=%s\n",
+                            arg.c_str(), (long long)child_cnt, key_str.c_str());
+                }
+
+                // Navigate to the upstream TSD element
                 TSView tsd_element = tsd_resolved.ops->child_by_key(tsd_resolved, key, time);
                 ShortPath element_path = tsd_element.view_data().path;
 
@@ -490,7 +594,35 @@ namespace hgraph {
                             arg.c_str(), element_path.valid() ? 1 : 0);
                 }
 
-                // Write TSReference::peered(element_path) into the inner stub's REF input
+                if (!element_path.valid()) {
+                    // Upstream element doesn't exist yet — defer wiring for this key.
+                    // The stub's REF input stays empty; eval() will retry when inputs change.
+                    pending_multiplexed_wirings_.emplace(value::PlainValue(key));
+
+                    // Subscribe to the upstream TSD's observer list so we get notified
+                    // when new elements are added (triggering re-evaluation and deferred wiring).
+                    if (tsd_resolved.observer_data) {
+                        if (!pending_wiring_notifier_) {
+                            pending_wiring_notifier_ = std::make_unique<PendingWiringNotifier>(this);
+                        }
+                        auto* obs = static_cast<ObserverList*>(tsd_resolved.observer_data);
+                        if (pending_wiring_subscriptions_.find(obs) == pending_wiring_subscriptions_.end()) {
+                            obs->add_observer(pending_wiring_notifier_.get());
+                            pending_wiring_subscriptions_.insert(obs);
+                        }
+                    }
+
+                    if constexpr (MAP_DEBUG) {
+                        fprintf(stderr, "[MAP] wire multiplexed '%s': deferred (element not yet available), subscribed=%d\n",
+                                arg.c_str(), tsd_resolved.observer_data ? 1 : 0);
+                    }
+                    continue;
+                }
+
+                // Write TSReference::peered(element_path) into the inner stub's REF input.
+                // This makes the stub's ts.value return a BoundTimeSeriesReference,
+                // which triggers the REFBindingHelper to resolve and bind the compute
+                // node's input to the actual TSD element data.
                 if (inner_node->ts_input()) {
                     auto inner_input_view = inner_node->ts_input()->view(time);
                     auto inner_meta = inner_node->ts_input()->meta();
@@ -537,7 +669,11 @@ namespace hgraph {
             }
         }
 
-        // Wire output: create TSD element and forward inner sink's output to it
+        // Wire output: create TSD element and forward inner output stub's output to it.
+        // The output stub writes a TimeSeriesReference (BoundTimeSeriesReference pointing
+        // to the compute node's output). The TSD element has REF kind, so from_python
+        // stores the TSReference correctly. The child→container notifier propagates
+        // element modifications up to the TSD collection.
         if (output_node_id_ >= 0 && ts_output()) {
             auto inner_node = graph_->nodes()[output_node_id_];
             if (inner_node->ts_output()) {
@@ -545,7 +681,7 @@ namespace hgraph {
                 ViewData outer_data = ts_output()->native_value().make_view_data();
                 TSView elem_view = outer_data.ops->dict_create(outer_data, key, time);
 
-                // Set up forwarded_target on the inner sink's output
+                // Set up forwarded_target on the output stub's output
                 ViewData elem_vd = elem_view.view_data();
                 LinkTarget& ft = inner_node->ts_output()->forwarded_target();
                 ft.is_linked = true;
@@ -558,8 +694,8 @@ namespace hgraph {
                 ft.meta = elem_vd.meta;
 
                 if constexpr (MAP_DEBUG) {
-                    fprintf(stderr, "[MAP] wire output: forwarded_target set up for inner sink %lld\n",
-                            output_node_id_);
+                    fprintf(stderr, "[MAP] wire output: forwarded_target set on output stub %lld, elem kind=%d\n",
+                            output_node_id_, elem_vd.meta ? (int)elem_vd.meta->kind : -1);
                 }
             }
         }
@@ -569,11 +705,11 @@ namespace hgraph {
         if constexpr (MAP_DEBUG) fprintf(stderr, "[MAP] un_wire_graph: entering\n");
         auto time = graph()->evaluation_time();
 
-        // Clear forwarded_target on inner sink output and remove TSD element
+        // Clear forwarded_target on output stub and remove TSD element
         if (output_node_id_ >= 0 && ts_output()) {
             auto inner_node = graph_->nodes()[output_node_id_];
             if (inner_node->ts_output()) {
-                if constexpr (MAP_DEBUG) fprintf(stderr, "[MAP] un_wire_graph: clearing forwarded_target\n");
+                if constexpr (MAP_DEBUG) fprintf(stderr, "[MAP] un_wire_graph: clearing forwarded_target on output stub %lld\n", output_node_id_);
                 LinkTarget& ft = inner_node->ts_output()->forwarded_target();
                 ft.is_linked = false;
             }
@@ -587,6 +723,118 @@ namespace hgraph {
             if constexpr (MAP_DEBUG) fprintf(stderr, "[MAP] un_wire_graph: TSD element removed\n");
         }
         if constexpr (MAP_DEBUG) fprintf(stderr, "[MAP] un_wire_graph: done\n");
+    }
+
+    // ========== Deferred wiring for multiplexed inputs ==========
+
+    bool TsdMapNode::try_wire_multiplexed_for_key(const value::View& key, engine_time_t time) {
+        auto graph_it = active_graphs_.find(key);
+        if (graph_it == active_graphs_.end()) return false;
+
+        auto& inner_graph = graph_it->second;
+        bool all_wired = true;
+
+        for (const auto& [arg, node_ndx] : input_node_ids_) {
+            if (!multiplexed_args_.count(arg)) continue;
+
+            auto inner_node = inner_graph->nodes()[node_ndx];
+
+            auto outer_input_view = ts_input()->view(time);
+            auto field_view = outer_input_view.field(arg);
+            auto field_ts_view = field_view.ts_view();
+
+            ViewData tsd_resolved = resolve_through_link(field_ts_view.view_data());
+            {
+                auto& vd = field_ts_view.view_data();
+                if (vd.uses_link_target && vd.link_data) {
+                    auto* lt = static_cast<LinkTarget*>(vd.link_data);
+                    if (lt->is_linked && lt->target_path.valid()) {
+                        tsd_resolved.path = lt->target_path;
+                    }
+                }
+            }
+
+            TSView tsd_element = tsd_resolved.ops->child_by_key(tsd_resolved, key, time);
+            ShortPath element_path = tsd_element.view_data().path;
+
+            if (!element_path.valid()) {
+                all_wired = false;
+                continue;
+            }
+
+            if constexpr (MAP_DEBUG) {
+                fprintf(stderr, "[MAP] deferred wire '%s' for key: element_path valid=%d\n",
+                        arg.c_str(), element_path.valid() ? 1 : 0);
+            }
+
+            // Deferred wiring: write the TSReference directly to the stub's REF OUTPUT.
+            // We bypass the stub's eval function because:
+            // 1. The graph is already started — make_active() already ran (with no binding)
+            // 2. TSView::bind() on the stub's REF input doesn't establish subscriptions
+            // 3. Writing directly to the output triggers the REFBindingHelper which
+            //    resolves the reference and updates the downstream node's input
+            if (inner_node->ts_output()) {
+                ViewData out_vd = inner_node->ts_output()->native_value().make_view_data();
+                if (out_vd.value_data) {
+                    auto* ref_ptr = static_cast<TSReference*>(out_vd.value_data);
+                    *ref_ptr = TSReference::peered(element_path);
+                }
+                if (out_vd.time_data) {
+                    *static_cast<engine_time_t*>(out_vd.time_data) = time;
+                }
+                if constexpr (MAP_DEBUG) {
+                    fprintf(stderr, "[MAP] deferred wire: stub output value_data=%p, time_data=%p, observer_data=%p\n",
+                            out_vd.value_data, out_vd.time_data, out_vd.observer_data);
+                }
+                if (out_vd.observer_data) {
+                    auto* obs = static_cast<ObserverList*>(out_vd.observer_data);
+                    if constexpr (MAP_DEBUG) {
+                        fprintf(stderr, "[MAP] deferred wire: notifying observers on stub output\n");
+                    }
+                    obs->notify_modified(time);
+                }
+                if constexpr (MAP_DEBUG) {
+                    fprintf(stderr, "[MAP] deferred wire: wrote TSReference to stub output for '%s'\n",
+                            arg.c_str());
+                }
+            }
+            // Don't call inner_node->notify() — we bypassed the stub by writing directly
+            // to its output. The REFBindingHelper will schedule the downstream compute node.
+        }
+
+        return all_wired;
+    }
+
+    void TsdMapNode::try_wire_pending_keys(engine_time_t time) {
+        if (pending_multiplexed_wirings_.empty()) return;
+
+        for (auto it = pending_multiplexed_wirings_.begin(); it != pending_multiplexed_wirings_.end(); ) {
+            auto key_view = it->const_view();
+            if (try_wire_multiplexed_for_key(key_view, time)) {
+                if constexpr (MAP_DEBUG) {
+                    auto ks = key_type_meta_ ? key_type_meta_->ops->to_string(key_view.data(), key_type_meta_) : "?";
+                    fprintf(stderr, "[MAP] deferred wiring completed for key: %s\n", ks.c_str());
+                }
+                // Schedule the inner graph for evaluation now that it's wired
+                scheduled_keys_.emplace(value::PlainValue(key_view), last_evaluation_time());
+
+                // Also schedule the output stub in the inner graph so it evaluates
+                // and writes the compute result to the TSD element. The output stub's
+                // input is non-peered REF (TS→REF), so it won't be notified when the
+                // compute node produces output — we must schedule it explicitly.
+                if (output_node_id_ >= 0) {
+                    auto graph_it = active_graphs_.find(key_view);
+                    if (graph_it != active_graphs_.end()) {
+                        auto& inner_graph = graph_it->second;
+                        inner_graph->schedule()[output_node_id_] = time;
+                    }
+                }
+
+                it = pending_multiplexed_wirings_.erase(it);
+            } else {
+                ++it;
+            }
+        }
     }
 
     void register_tsd_map_with_nanobind(nb::module_ &m) {
