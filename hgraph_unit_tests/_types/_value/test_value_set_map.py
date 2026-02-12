@@ -1151,6 +1151,15 @@ def test_set_from_python(int_set_schema):
     assert csv.size() == 3
 
 
+def test_set_from_python_rejects_none_element(int_set_schema):
+    """Set.from_python rejects None elements (set members are non-null)."""
+    v = PlainValue(int_set_schema)
+
+    v.emplace()
+    with pytest.raises(RuntimeError, match="None elements"):
+        v.from_python([10, None, 20])
+
+
 # =============================================================================
 # Python Interop Tests - Maps
 # =============================================================================
@@ -1184,6 +1193,15 @@ def test_map_from_python(string_double_map_schema):
 
     cmv = v.view().as_map()
     assert cmv.size() == 2
+
+
+def test_map_from_python_rejects_none_key(string_double_map_schema):
+    """Map.from_python rejects None keys (map keys are non-null)."""
+    v = PlainValue(string_double_map_schema)
+
+    v.emplace()
+    with pytest.raises(RuntimeError, match="None keys"):
+        v.from_python({None: 1.25})
 
 
 # =============================================================================

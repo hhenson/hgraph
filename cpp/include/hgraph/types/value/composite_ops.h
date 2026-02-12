@@ -1042,6 +1042,12 @@ struct SetOps {
         // Insert elements from Python
         nb::iterator it = nb::iter(src);
         while (it != nb::iterator::sentinel()) {
+            nb::handle item_handle = *it;
+            if (item_handle.is_none()) {
+                throw std::runtime_error("Set.from_python does not allow None elements");
+            }
+            nb::object item = nb::borrow<nb::object>(item_handle);
+
             // Create temp element
             std::vector<char> temp_storage(elem_type->size);
             void* temp_elem = temp_storage.data();
@@ -1050,7 +1056,6 @@ struct SetOps {
                 elem_type->ops().construct(temp_elem, elem_type);
             }
             if (elem_type->ops().from_python) {
-                nb::object item = nb::borrow<nb::object>(*it);
                 elem_type->ops().from_python(temp_elem, item, elem_type);
             }
 
@@ -1298,6 +1303,11 @@ struct MapOps {
         // Iterate over items (key, value) pairs
         for (nb::handle item : items) {
             nb::tuple kv = nb::cast<nb::tuple>(item);
+            nb::handle key_handle = kv[0];
+            if (key_handle.is_none()) {
+                throw std::runtime_error("Map.from_python does not allow None keys");
+            }
+            nb::object key_obj = nb::borrow<nb::object>(key_handle);
 
             // Create temp key
             std::vector<char> temp_key_storage(key_type->size);
@@ -1306,7 +1316,6 @@ struct MapOps {
                 key_type->ops().construct(temp_key, key_type);
             }
             if (key_type->ops().from_python) {
-                nb::object key_obj = nb::borrow<nb::object>(kv[0]);
                 key_type->ops().from_python(temp_key, key_obj, key_type);
             }
 
