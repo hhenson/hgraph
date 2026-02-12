@@ -5,6 +5,7 @@
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/feature_extension.h>
 #include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/view_data.h>
 #include <optional>
 #include <unordered_map>
 
@@ -96,6 +97,7 @@ namespace hgraph {
         std::string _recordable_id;
         bool _graph_reset{false};
         int _active_output_node_id{-1};  // Cached output stub index for explicit scheduling
+        std::optional<ViewData> _saved_old_target_vd;  // Saved resolved target before graph switch
     };
 
 } // namespace hgraph

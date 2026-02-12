@@ -291,6 +291,41 @@ namespace hgraph {
                     }
                 }
             }
+
+            // Reconciliation: when keys are modified but SetDelta is empty (e.g., REF rebind
+            // to a new TSS), the delta-based processing above won't catch orphaned active graphs.
+            // Compare active_graphs_ against the actual current key set values to remove any
+            // graphs whose keys no longer exist, and add any new keys.
+            if (!active_graphs_.empty()) {
+                // Build set of current keys for quick lookup
+                std::unordered_set<value::PlainValue, PlainValueHash, PlainValueEqual> current_keys;
+                for (auto kv : keys_view.values()) {
+                    current_keys.emplace(kv);
+                }
+
+                // Remove active graphs whose keys are not in the current set
+                std::vector<value::PlainValue> orphaned_keys;
+                for (auto& [key, _] : active_graphs_) {
+                    if (current_keys.find(key.const_view()) == current_keys.end()) {
+                        orphaned_keys.emplace_back(key.const_view());
+                    }
+                }
+                for (auto& key : orphaned_keys) {
+                    if constexpr (MAP_DEBUG) {
+                        auto key_str = key_type_meta_ ? key_type_meta_->ops->to_string(key.const_view().data(), key_type_meta_) : "?";
+                        fprintf(stderr, "[MAP] reconcile: removing orphaned key: %s\n", key_str.c_str());
+                    }
+                    remove_graph(key.const_view());
+                    auto sk_it = scheduled_keys_.find(key.const_view());
+                    if (sk_it != scheduled_keys_.end()) {
+                        scheduled_keys_.erase(sk_it);
+                    }
+                    auto pw_it = pending_multiplexed_wirings_.find(key.const_view());
+                    if (pw_it != pending_multiplexed_wirings_.end()) {
+                        pending_multiplexed_wirings_.erase(pw_it);
+                    }
+                }
+            }
         } else if (!keys_resolved.valid() && !active_graphs_.empty()) {
             // Keys input became invalid (e.g., switch changed case and invalidated output).
             // In Python, this triggers REF-rebinding which unbinds the TSS input, and the

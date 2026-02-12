@@ -73,6 +73,27 @@ namespace hgraph {
 
                 if (_active_graph) {
                     _graph_reset = true;
+
+                    // Save old resolved target before stop/unwire destroys the path.
+                    // After the new graph is wired, the outer output's REF will point
+                    // to the new graph's output, so we can't resolve back to the old one.
+                    if (ts_output()) {
+                        auto time = graph()->evaluation_time();
+                        auto out_view = ts_output()->view(time);
+                        auto& vd = out_view.ts_view().view_data();
+                        if (vd.meta && vd.meta->kind == TSKind::REF && vd.value_data) {
+                            auto* ref = static_cast<const TSReference*>(vd.value_data);
+                            if (ref->is_peered() && !ref->is_empty()) {
+                                try {
+                                    TSView resolved = ref->resolve(time);
+                                    _saved_old_target_vd = resolved.view_data();
+                                } catch (...) {
+                                    _saved_old_target_vd = std::nullopt;
+                                }
+                            }
+                        }
+                    }
+
                     stop_component(*_active_graph);
                     unwire_graph(_active_graph);
 
@@ -141,74 +162,68 @@ namespace hgraph {
 
             _active_graph->evaluate_graph();
 
-            // If graph was just reset and output exists but wasn't modified by the new graph,
-            // clear old output values and generate proper deltas so downstream consumers
-            // (e.g., map_ nodes) see the removals.
+            // Match Python: after evaluation, if graph was reset and the new graph
+            // didn't produce meaningful output, generate removal deltas.
+            // Python does: self.output.value = None → clear() → generates removal deltas.
             //
-            // The switch output is typically REF[TSS]. Downstream consumers are bound via
-            // REFBindingHelper which resolves the REF to the underlying TSS. At this point
-            // the output stub hasn't evaluated (we skipped it), so the REF still points to
-            // the OLD graph's TSS. We resolve through the REF and clear the old TSS elements,
-            // generating removal deltas that propagate through existing subscriptions.
-            if (_graph_reset && ts_output()) {
+            // The outer output REF now points to the NEW graph's target (which is empty).
+            // We use the saved old target ViewData to generate removal deltas on the OLD
+            // TSS, then notify the outer output observers.
+            if (_graph_reset && ts_output() && _saved_old_target_vd) {
                 auto time = graph()->evaluation_time();
-                auto out_view = ts_output()->view(time);
-                if (!out_view.modified()) {
-                    auto& vd = out_view.ts_view().view_data();
-                    bool handled = false;
 
+                // Check if the new graph's resolved target actually produced output
+                bool new_graph_produced_output = false;
+                {
+                    auto out_view = ts_output()->view(time);
+                    auto& vd = out_view.ts_view().view_data();
                     if (vd.meta && vd.meta->kind == TSKind::REF && vd.value_data) {
                         auto* ref = static_cast<const TSReference*>(vd.value_data);
-                        if (ref->is_peered()) {
+                        if (ref->is_peered() && !ref->is_empty()) {
                             try {
                                 TSView resolved = ref->resolve(time);
-                                auto resolved_vd = resolved.view_data();
-
-                                if (resolved_vd.meta && resolved_vd.meta->kind == TSKind::TSS
-                                    && resolved_vd.ops && resolved_vd.ops->set_remove) {
-                                    // Clear stale delta from previous tick so removals
-                                    // don't cancel with old additions
-                                    if (resolved_vd.delta_data) {
-                                        auto* sd = static_cast<SetDelta*>(resolved_vd.delta_data);
-                                        sd->clear();
-                                    }
-
-                                    TSSView tss(resolved_vd, time);
-                                    std::vector<value::PlainValue> to_remove;
-                                    for (auto v : tss.values()) {
-                                        to_remove.emplace_back(v);
-                                    }
-                                    for (auto& v : to_remove) {
-                                        resolved_vd.ops->set_remove(resolved_vd, v.const_view(), time);
-                                    }
-                                    handled = true;
+                                auto rvd = resolved.view_data();
+                                if (rvd.ops) {
+                                    engine_time_t target_lmt = rvd.ops->last_modified_time(rvd);
+                                    new_graph_produced_output = (target_lmt >= time);
                                 }
-                            } catch (...) {
-                                // Resolution failed — fall through to generic invalidation
-                            }
+                            } catch (...) {}
                         }
-                    } else if (vd.meta && vd.meta->kind == TSKind::TSS && vd.ops && vd.ops->set_remove) {
-                        // Direct TSS output: remove elements individually
-                        ts_output()->native_value().delta_value_view(time);
-                        TSSView tss(vd, time);
+                    } else {
+                        new_graph_produced_output = out_view.modified();
+                    }
+                }
+
+                if (!new_graph_produced_output) {
+                    auto& old_vd = *_saved_old_target_vd;
+
+                    if (old_vd.meta && old_vd.meta->kind == TSKind::TSS
+                        && old_vd.ops && old_vd.ops->set_remove) {
+                        // Clear stale delta to prevent cancellation
+                        if (old_vd.delta_data) {
+                            auto* sd = static_cast<SetDelta*>(old_vd.delta_data);
+                            sd->clear();
+                        }
+                        TSSView tss(old_vd, time);
                         std::vector<value::PlainValue> to_remove;
                         for (auto v : tss.values()) {
                             to_remove.emplace_back(v);
                         }
                         for (auto& v : to_remove) {
-                            vd.ops->set_remove(const_cast<ViewData&>(vd), v.const_view(), time);
+                            old_vd.ops->set_remove(old_vd, v.const_view(), time);
                         }
-                        handled = true;
+                    } else if (old_vd.ops && old_vd.ops->invalidate) {
+                        old_vd.ops->invalidate(old_vd);
                     }
 
-                    if (!handled) {
-                        out_view.invalidate();
-                        if (vd.observer_data) {
-                            auto* observers = static_cast<ObserverList*>(vd.observer_data);
-                            observers->notify_modified(time);
-                        }
+                    // Notify the OLD target's observers
+                    if (old_vd.observer_data) {
+                        auto* observers = static_cast<ObserverList*>(old_vd.observer_data);
+                        observers->notify_modified(time);
                     }
                 }
+
+                _saved_old_target_vd = std::nullopt;
             }
 
             if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(
