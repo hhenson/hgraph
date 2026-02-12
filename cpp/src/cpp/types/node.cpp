@@ -528,7 +528,9 @@ namespace hgraph
         }
 
         if (on_wall_clock) {
-            auto clock{dynamic_cast<RealTimeEvaluationClock *>(_node->graph()->evaluation_clock().get())};
+            auto node = _node;
+            while (node->graph()->parent_node()) { node = node->graph()->parent_node(); }
+            auto clock{dynamic_cast<RealTimeEvaluationClock *>(node->graph()->evaluation_clock().get())};
             if (clock) {
                 if (!tag.has_value()) { throw std::runtime_error("Can't schedule an alarm without a tag"); }
                 auto        tag_{tag.value()};
@@ -577,10 +579,14 @@ namespace hgraph
     void NodeScheduler::reset() {
         _scheduled_events.clear();
         _tags.clear();
-        auto real_time_clock = dynamic_cast<RealTimeEvaluationClock *>(_node->graph()->evaluation_clock().get());
-        if (real_time_clock) {
-            for (const auto &alarm : _alarm_tags) { real_time_clock->cancel_alarm(alarm.first); }
-            _alarm_tags.clear();
+        if (!_alarm_tags.empty()) {
+            auto node = _node;
+            while (node->graph()->parent_node()) { node = node->graph()->parent_node(); }
+            auto real_time_clock = dynamic_cast<RealTimeEvaluationClock *>(node->graph()->evaluation_clock().get());
+            if (real_time_clock) {
+                for (const auto &alarm : _alarm_tags) { real_time_clock->cancel_alarm(alarm.first); }
+                _alarm_tags.clear();
+            }
         }
     }
 
