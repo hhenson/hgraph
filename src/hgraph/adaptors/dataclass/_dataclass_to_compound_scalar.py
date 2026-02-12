@@ -1,6 +1,11 @@
 import inspect
 from dataclasses import dataclass, field, fields, is_dataclass, MISSING
+from datetime import datetime, date, time, timedelta
+from decimal import Decimal
+from pathlib import Path, PurePath
+from types import UnionType
 from typing import Any, Type, Union, get_origin, get_args
+from uuid import UUID
 
 from hgraph import ParseError
 from hgraph._types._scalar_types import is_compound_scalar, CompoundScalar
@@ -41,7 +46,11 @@ class CS:
         if not isinstance(item, type):
             raise TypeError(f"CS[...] requires a class, got instance of {type(item).__name__}")
 
-        if not hasattr(item, '__annotations__') or not item.__annotations__ or item.__module__ in ("builtins", "typing"):
+        if (
+            not hasattr(item, "__annotations__")
+            or not item.__annotations__
+            or item.__module__ in ("builtins", "typing")
+        ):
             raise TypeError(f"CS[...] requires a user-defined class, got {item.__name__}")
 
         if item in _DATACLASS_CS_CACHE:
@@ -50,14 +59,10 @@ class CS:
         return dataclass_to_compound_scalar(item)
 
 
-def _create_compound_scalar_class(
-    name: str,
-    annotations: dict[str, Type],
-    defaults: dict[str, Any]
-) -> Type:
+def _create_compound_scalar_class(name: str, annotations: dict[str, Type], defaults: dict[str, Any]) -> Type:
     namespace = {
-        '__annotations__': annotations,
-        '__module__': __name__,
+        "__annotations__": annotations,
+        "__module__": __name__,
     }
 
     for field_name, default_val in defaults.items():
@@ -84,18 +89,20 @@ def _extract_class_fields(cls: Type) -> tuple[dict[str, Type], dict[str, Any]]:
         annotations = {}
         defaults = {}
 
-        model_fields = getattr(cls, 'model_fields', None) or getattr(cls, '__fields__', {})
+        model_fields = getattr(cls, "model_fields", None) or getattr(cls, "__fields__", {})
 
         for field_name, field_info in model_fields.items():
             annotations[field_name] = field_info.annotation
 
-            if hasattr(field_info, 'default'):
+            if hasattr(field_info, "default"):
                 try:
                     from pydantic_core import PydanticUndefined
+
                     undefined = PydanticUndefined
                 except ImportError:
                     try:
                         from pydantic.fields import Undefined
+
                         undefined = Undefined
                     except ImportError:
                         undefined = None
@@ -103,18 +110,18 @@ def _extract_class_fields(cls: Type) -> tuple[dict[str, Type], dict[str, Any]]:
                 if undefined is None or field_info.default is not undefined:
                     defaults[field_name] = field_info.default
 
-            if hasattr(field_info, 'default_factory') and field_info.default_factory is not None:
+            if hasattr(field_info, "default_factory") and field_info.default_factory is not None:
                 defaults[field_name] = field(default_factory=field_info.default_factory)
 
         return annotations, defaults
     else:
-        annotations = dict(cls.__annotations__) if hasattr(cls, '__annotations__') else {}
+        annotations = dict(cls.__annotations__) if hasattr(cls, "__annotations__") else {}
         defaults = {}
 
-        if hasattr(cls, '__init__'):
+        if hasattr(cls, "__init__"):
             sig = inspect.signature(cls.__init__)
             for param_name, param in sig.parameters.items():
-                if param_name == 'self':
+                if param_name == "self":
                     continue
                 if param.annotation != inspect.Parameter.empty:
                     annotations[param_name] = param.annotation
@@ -127,33 +134,43 @@ def _extract_class_fields(cls: Type) -> tuple[dict[str, Type], dict[str, Any]]:
 def _is_pydantic_model(cls: Type) -> bool:
     try:
         from pydantic import BaseModel
+
         return isinstance(cls, type) and issubclass(cls, BaseModel)
     except ImportError:
         return False
 
 
+PASSTHROUGH_TYPES = {
+    datetime,
+    date,
+    time,
+    timedelta,
+    Decimal,
+    UUID,
+    Path,
+    PurePath,
+}
+
+
 def _convert_type(field_type: Type) -> Type:
-    if isinstance(field_type, type) and field_type.__module__ == "builtins":
+    if isinstance(field_type, type) and (
+            field_type.__module__ == "builtins" or field_type in PASSTHROUGH_TYPES
+    ):
         return field_type
 
-    if hasattr(field_type, '__origin__'):
-        origin_type = get_origin(field_type)
+    if (origin_type := get_origin(field_type)) is not None:
         args = get_args(field_type)
 
-        if origin_type is Union:
+        if origin_type is Union or origin_type is UnionType:
             if type(None) in args:
                 non_none_types = [arg for arg in args if arg is not type(None)]
                 if len(non_none_types) != 1:
-                    raise ParseError(
-                        f"Unsupported Union type with multiple non-None types: {field_type}"
-                    )
+                    raise ParseError(f"Unsupported Union type with multiple non-None types: {field_type}")
                 return _convert_type(non_none_types[0])
             else:
-                raise ParseError(
-                    f"Unsupported Union type without None: {field_type}"
-                )
+                raise ParseError(f"Unsupported Union type without None: {field_type}")
 
-        if origin_type and args:
+        if args:
             converted_args = []
             for arg in args:
                 converted_arg = _convert_type(arg)
@@ -168,9 +185,7 @@ def _convert_type(field_type: Type) -> Type:
         try:
             return CS[field_type]
         except (TypeError, ParseError) as e:
-            raise ParseError(
-                f"Cannot convert type '{field_type.__name__}' to CompoundScalar: {e}"
-            )
+            raise ParseError(f"Cannot convert type '{field_type.__name__}' to CompoundScalar: {e}")
 
     return field_type
 
@@ -200,11 +215,7 @@ def dataclass_to_compound_scalar(dataclass_class: Type) -> Type:
         elif get_origin(field_type) is Union and type(None) in get_args(field_type):
             defaults[field_name] = None
 
-    cs_class = _create_compound_scalar_class(
-        dataclass_class.__name__,
-        annotations,
-        defaults
-    )
+    cs_class = _create_compound_scalar_class(dataclass_class.__name__, annotations, defaults)
 
     _DATACLASS_CS_CACHE[dataclass_class] = cs_class
 

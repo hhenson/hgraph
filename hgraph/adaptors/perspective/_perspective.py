@@ -8,7 +8,7 @@ import os
 import tempfile
 import time
 from collections import defaultdict
-from datetime import datetime
+from datetime import datetime, UTC
 from functools import reduce
 from glob import glob
 from pathlib import Path
@@ -325,7 +325,7 @@ class PerspectiveTablesManager:
                     batch = pyarrow.record_batch(d, schema=pyarrow.schema({k: schema.field(k).type for k in d}))
                     self._stats['batches'] += 1
                     self._stats['rows'] += batch.num_rows
-                    self._table_stats.append({'table': name, 'batch': i, 'rows': batch.num_rows, 'time': datetime.utcnow()})
+                    self._table_stats.append({'table': name, 'batch': i, 'rows': batch.num_rows, 'time': datetime.now(UTC)})
                 except Exception as e:
                     logger.error(
                         f"Error creating record batch :{e}\n"
@@ -496,7 +496,7 @@ class PerspectiveTablesManager:
     async def _publish_heartbeat(self):
         counter = 0
         while True:
-            self.update_table("heartbeat", [{"name": "heartbeat", "time": datetime.utcnow(), "sequence": counter}])
+            self.update_table("heartbeat", [{"name": "heartbeat", "time": datetime.now(UTC), "sequence": counter}])
             counter += 1
             await asyncio.sleep(15)
 
