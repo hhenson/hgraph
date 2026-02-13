@@ -6,6 +6,16 @@ The schema system provides runtime type information through a two-layer architec
 - **TypeMeta**: Describes value/data types
 - **TSMeta**: Describes time-series types (wraps TypeMeta with temporal semantics)
 
+### Status Update (2026-02-13)
+
+The current implementation has locked in the following schema/value decisions relevant to layout:
+
+1. Null is a state, not a type.
+2. `Value(schema)` is typed-null by default.
+3. Nested nullability is tracked with validity bitmaps for bundle/tuple/list/map-values.
+4. Map keys and set elements are non-null; map values are nullable.
+5. Internal storage is optimized for compactness and algorithm efficiency; Arrow compatibility is maintained at buffer/bitmap semantics level (zero-copy where layout permits).
+
 ## TypeMeta
 
 ### Purpose
@@ -268,7 +278,7 @@ Set and Map use a layered, protocol-based architecture that enables:
 - **Composition**: Map HAS-A Set (Map is Set + parallel value array)
 - **Memory stability**: Slot-based storage with stable addresses
 - **Toll-free casting**: `MapStorage.as_set()` returns reference to contained `SetStorage`
-- **Arrow/NumPy conversion**: Each array is contiguous for zero-copy buffer wrapping
+- **Arrow/NumPy conversion**: contiguous buffer export where layout permits
 
 ### Layer Structure
 
@@ -278,7 +288,7 @@ Set and Map use a layered, protocol-based architecture that enables:
 │  SetStorage, MapStorage - value semantics via set_ops/map_ops│
 ├─────────────────────────────────────────────────────────────┤
 │                    KeySet (core)                            │
-│  Slot management, hash index, membership, generation        │
+│  Slot management, hash index, membership, liveness bits     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -286,8 +296,8 @@ Set and Map use a layered, protocol-based architecture that enables:
 
 KeySet manages **membership only** - no values, no timestamps. It provides:
 - Slot-based storage with stable addresses (keys never move)
-- Generation tracking for liveness (`generation == 0` means dead, `> 0` means alive)
-- Hash indexing via `ankerl::unordered_dense::map` (standard implementation, not hand-coded)
+- Alive bitset tracking for liveness (`alive_[slot] == 1` means live)
+- Hash indexing via `ankerl::unordered_dense::set` with transparent hash/equality
 - Observer protocol for extensions to track slot lifecycle
 
 ```cpp
@@ -305,12 +315,12 @@ class KeySet {
 public:
     const TypeMeta* key_meta_;
 
-    // Key storage (SoA layout for Arrow compatibility)
+    // Key storage
     std::vector<std::byte> keys_;        // [key_size * capacity] - stable addresses
-    std::vector<uint32_t> generations_;  // [capacity] - 0 = dead, >0 = alive
+    sul::dynamic_bitset<> alive_;        // [capacity] - 1 = live, 0 = dead
 
     // Hash index (standard library implementation)
-    ankerl::unordered_dense::map<size_t, size_t> hash_to_slot_;
+    ankerl::unordered_dense::set<size_t> index_set_;
 
     // Slot management
     std::vector<size_t> free_list_;      // Available slots for reuse
@@ -323,15 +333,10 @@ public:
     // Core operations
     std::pair<size_t, bool> insert(const void* key_data);  // Returns (slot, was_new)
     bool erase(const void* key_data);
-    std::optional<size_t> find(const void* key_data) const;
+    size_t find(const void* key_data) const;  // npos-style on miss
 
-    bool is_alive(size_t slot) const { return generations_[slot] > 0; }
+    bool is_alive(size_t slot) const { return slot < alive_.size() && alive_[slot]; }
     void* key_at(size_t slot) { return keys_.data() + slot * key_meta_->size(); }
-
-    // Handle validation for stale reference detection
-    bool is_valid_handle(size_t slot, uint32_t gen) const {
-        return slot < capacity_ && generations_[slot] == gen && gen > 0;
-    }
 };
 ```
 
@@ -371,7 +376,8 @@ ValueArray observes KeySet and maintains a parallel array of values:
 ```cpp
 class ValueArray : public SlotObserver {
     const TypeMeta* value_meta_;
-    std::vector<std::byte> values_;  // [value_size * capacity]
+    std::vector<std::byte> values_;    // [value_size * capacity]
+    std::vector<std::byte> validity_;  // [ceil(capacity/8)] value-null bitmap
 
 public:
     explicit ValueArray(const TypeMeta* value_meta) : value_meta_(value_meta) {}
@@ -391,7 +397,12 @@ public:
         return values_.data() + slot * value_meta_->size();
     }
 
-    // Toll-free Arrow access
+    // Null-aware access
+    const void* value_or_null_at(size_t slot) const;
+    bool is_valid_slot(size_t slot) const;
+    void set_valid_slot(size_t slot, bool valid);
+
+    // Contiguous buffer access
     std::byte* data() { return values_.data(); }
 };
 ```
@@ -424,7 +435,12 @@ public:
 
     void* set_item(const void* key, const void* value) {
         auto [slot, was_new] = set_.key_set().insert(key);
-        values_.value_meta_->ops().copy(values_.value_at(slot), value);
+        if (value) {
+            values_.value_meta_->ops().copy(values_.value_at(slot), value);
+            values_.set_valid_slot(slot, true);
+        } else {
+            values_.set_valid_slot(slot, false);  // present key, null value
+        }
         return values_.value_at(slot);
     }
 
@@ -449,23 +465,23 @@ MapStorage
 ├── SetStorage (as_set() returns reference)
 │   └── KeySet
 │       ├── keys_[]        ──► Arrow key column
-│       ├── generations_[] ──► Validity bitmap
-│       └── hash_to_slot_  (ankerl::unordered_dense)
+│       ├── alive_ bits    ──► live slot mask
+│       └── index_set_     (ankerl::unordered_dense)
 └── ValueArray (observes KeySet)
-    └── values_[]          ──► Arrow value column
+    ├── values_[]          ──► value payload column
+    └── validity_ bits     ──► value-null mask
 ```
 
 ### Slot Handle for Stable References
 
-External references use (slot, generation) pairs for validation:
+External references use slot identity with liveness checks:
 
 ```cpp
 struct SlotHandle {
     size_t slot;
-    uint32_t generation;
 
     bool is_valid(const KeySet& ks) const {
-        return ks.is_valid_handle(slot, generation);
+        return ks.is_alive(slot);
     }
 };
 ```
@@ -475,10 +491,10 @@ struct SlotHandle {
 | Decision | Rationale |
 |----------|-----------|
 | Composition (Map HAS-A Set) | Enables toll-free casting; shared key management |
-| Generation-based liveness | Single mechanism for alive check + stale reference detection |
+| Alive-bitset liveness | Compact membership tracking with cheap slot checks |
 | SlotObserver protocol | Decouples extensions; each owns its memory |
 | `ankerl::unordered_dense` | Proven implementation; no hand-coded hash table |
-| SoA layout | Direct Arrow/NumPy buffer wrapping |
+| Parallel arrays + validity bits | Compact internal processing with Arrow-compatible export semantics |
 
 ## TSMeta
 

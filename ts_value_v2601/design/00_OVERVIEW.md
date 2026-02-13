@@ -73,30 +73,13 @@ This document provides the high-level design overview for the new time-series in
 **User Perspective**: Value semantics throughout. Users work with values as simple data - no manual memory management, no pointers, just values.
 
 **Internal Implementation**:
-1. **Schema provides size**: TypeMeta contains the static size and alignment required for the value's memory
-2. **Lightweight SBO**: Primitives (bool, int64_t, double, nb::object, etc.) stored inline in data_ pointer - no allocation
-3. **Heap for compounds**: Non-primitive types get heap-allocated memory
-4. **Vtable initializes**: The type_ops vtable methods (default_construct, copy_construct, etc.) initialize the memory
-5. **RAII cleanup**: Value destructor calls type_ops::destruct, then frees heap memory if allocated
+1. **Typed null by default**: `Value(schema)` preserves schema while payload is absent until `emplace()` / `from_python(...)`.
+2. **SBO + heap fallback**: `ValueStorage` stores small payloads inline (`24` bytes, align `8`), otherwise heap-allocates with schema alignment.
+3. **Vtable lifecycle**: construction/copy/move/destroy are delegated to `type_ops`.
+4. **Nested nullability**: composite/container child null state is tracked with validity bitmaps (bundle/tuple/list/map-values).
+5. **RAII cleanup**: payload storage and container-owned buffers are cleaned up through normal C++ lifetime rules.
 
-```
-Construction:
-  Value(TypeMeta* meta)
-    if meta->is_primitive():
-      inline_data_ = 0
-      meta->ops()->default_construct(&inline_data_, meta)
-    else:
-      heap_data_ = allocate(meta->size(), meta->alignment())
-      meta->ops()->default_construct(heap_data_, meta)
-
-Destruction:
-  ~Value()
-    if is_inline():
-      meta_->ops()->destruct(&inline_data_, meta_)
-    else:
-      meta_->ops()->destruct(heap_data_, meta_)
-      deallocate(heap_data_)
-```
+**Decision (2026-02-13)**: optimize internal compactness and algorithm efficiency first; maintain Arrow-compatible validity semantics, but do not require Arrow-native in-memory layout for every structure.
 
 **Stable Addresses**: For linked structures (TSD elements, TSL elements), addresses must remain stable after creation. See 04_LINKS_AND_BINDING.md for details.
 

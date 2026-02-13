@@ -268,152 +268,71 @@ See [TSOutput and TSInput Design](05_TSOUTPUT_TSINPUT.md) for cast storage and m
 
 ## Design Decisions
 
-### Nullable Values
+### Nullability and Layout Decisions (Implemented)
 
-Value supports null representation following `std::optional`-style semantics. Since primitives are stored inline (SBO), we can't use `meta_ == nullptr` to indicate null without losing type information. Instead, we use **pointer tagging** on the `meta_` pointer.
+This design now follows a two-level nullability model:
 
-**Pointer Tagging:**
+1. **Top-level Value nullability** (typed null):
+   - `Value(schema)` starts null by default (schema present, payload absent).
+   - `has_value()`, `reset()`, `emplace()` control top-level presence.
+   - `view()` / `data()` throw `std::bad_optional_access` when top-level null.
+2. **Nested nullability** for composite/container children:
+   - Bundle/Tuple: per-field validity bitmap
+   - List (fixed/dynamic): per-element validity bitmap
+   - Map: per-value-slot validity bitmap
+   - Set elements: non-null by design
 
-TypeMeta is aligned to at least 8 bytes, so the low 3 bits of any valid `TypeMeta*` are always zero. We steal the lowest bit to store the null flag:
+`None` is therefore a **state**, not a schema/type.
 
-```cpp
-class Value {
-    // Tagged pointer: bit 0 = is_null flag, bits 1-63 = TypeMeta* (shifted)
-    uintptr_t tagged_meta_;
-    union {
-        void* heap_data_;
-        uint64_t inline_data_;
-    };
+#### Top-Level Value Storage
 
-    static constexpr uintptr_t NULL_FLAG = 1;
+- Schema and payload presence are tracked independently:
+  - schema pointer: always available once constructed from schema
+  - payload presence: `ValueStorage.has_value()`
+- Payload uses SBO + heap fallback (implementation detail):
+  - small payloads inline (`SBO_BUFFER_SIZE = 24`, `SBO_ALIGNMENT = 8`)
+  - larger payloads heap-allocated with schema alignment
 
-    // Extract the actual TypeMeta pointer (mask off the flag bit)
-    const TypeMeta* meta_ptr() const {
-        return reinterpret_cast<const TypeMeta*>(tagged_meta_ & ~NULL_FLAG);
-    }
+#### Nested Validity Layout
 
-    // Set meta pointer, preserving null flag
-    void set_meta_ptr(const TypeMeta* meta) {
-        tagged_meta_ = reinterpret_cast<uintptr_t>(meta) | (tagged_meta_ & NULL_FLAG);
-    }
+For fixed-size composite layouts, validity bits are stored as a compact tail region:
 
-public:
-    // Null state query (like std::optional::has_value)
-    bool has_value() const { return (tagged_meta_ & NULL_FLAG) == 0; }
-    explicit operator bool() const { return has_value(); }
+- Bundle/Tuple: `[field payload region][validity bits][padding]`
+- Fixed List: `[element payload region][validity bits][padding]`
 
-    // Schema access (always available, even when null)
-    const TypeMeta* meta() const { return meta_ptr(); }
+For dynamic containers, validity is stored in parallel dynamic buffers:
 
-    // Create typed null value
-    explicit Value(const TypeMeta* meta) : tagged_meta_(reinterpret_cast<uintptr_t>(meta) | NULL_FLAG) {
-        // Starts as null (has schema but no value)
-        if (!is_inline()) {
-            heap_data_ = nullptr;
-        } else {
-            inline_data_ = 0;
-        }
-    }
+- Dynamic List: `data[]` + `validity[]`
+- Map values: `values[]` + `value_validity[]` (parallel to key slots)
 
-    // Create and initialize with value
-    Value(const TypeMeta* meta, const void* src) : tagged_meta_(reinterpret_cast<uintptr_t>(meta)) {
-        // Not null - has value
-        if (is_inline()) {
-            inline_data_ = 0;
-            meta->ops().copy(&inline_data_, src);
-        } else {
-            heap_data_ = allocate(meta->size(), meta->alignment());
-            meta->ops().copy(heap_data_, src);
-        }
-    }
+All validity masks are 1 bit per logical child/slot, with `1 = valid`, `0 = null`.
 
-    // Make value null (like std::optional::reset) - preserves schema
-    void reset() {
-        if (has_value()) {
-            const TypeMeta* m = meta_ptr();
-            if (is_inline()) {
-                m->ops().destroy(&inline_data_);
-            } else {
-                m->ops().destroy(heap_data_);
-                deallocate(heap_data_);
-                heap_data_ = nullptr;
-            }
-            tagged_meta_ |= NULL_FLAG;  // Set null flag, keep schema
-        }
-    }
+#### Nullability Rules Locked In
 
-    // Emplace value (like std::optional::emplace) - makes non-null
-    void emplace() {
-        const TypeMeta* m = meta_ptr();
-        if (!has_value()) {
-            // Currently null, need to construct
-            if (is_inline()) {
-                m->ops().construct(&inline_data_);
-            } else {
-                heap_data_ = allocate(m->size(), m->alignment());
-                m->ops().construct(heap_data_);
-            }
-            tagged_meta_ &= ~NULL_FLAG;  // Clear null flag
-        }
-    }
+1. `Value(schema)` is typed-null by default.
+2. Map keys are non-null.
+3. Map values are nullable.
+4. Set elements are non-null.
+5. No null schema/type exists; null is represented via validity state only.
 
-    // Access (throws if null, like std::optional::value)
-    void* data() {
-        if (!has_value()) throw std::bad_optional_access();
-        return is_inline() ? reinterpret_cast<void*>(&inline_data_) : heap_data_;
-    }
+#### Python Interop
 
-    const void* data() const {
-        if (!has_value()) throw std::bad_optional_access();
-        return is_inline() ? reinterpret_cast<const void*>(&inline_data_) : heap_data_;
-    }
-};
-```
+1. Top-level null Value converts to Python `None`.
+2. `from_python(None)` maps to top-level typed-null (`reset()`) where validation policy allows.
+3. Nested `None` in bundle/tuple/list/map values maps to nested validity bits.
 
-**Key Points:**
+#### Arrow Compatibility Strategy
 
-- A Value always has a schema (type information is never lost)
-- Null state is independent of schema - a "typed null"
-- `reset()` makes value null but preserves schema
-- `emplace()` constructs default value, making it non-null
-- `meta()` is always safe to call (returns schema even when null)
-- `data()` throws `std::bad_optional_access` when null
+The implementation prioritizes compact internal layout and efficient in-house algorithms, while keeping Arrow-compatible validity semantics:
 
-**Usage:**
+1. Validity bit operations use `nanoarrow` bitmap primitives.
+2. Validity/data are represented as independent logical buffers.
+3. Full zero-copy is practical for some structures and not guaranteed for all (notably map/set may still require compaction when exported).
 
-```cpp
-// Create typed null value
-Value null_int(TypeMeta::get("int"));
-assert(!null_int.has_value());
-assert(null_int.schema()->name() == "int");  // Schema still accessible
-
-// Emplace to make non-null
-null_int.emplace();  // Default constructs (0 for int)
-assert(null_int.has_value());
-
-// Check for null
-if (value.has_value()) {
-    View v = value.view();
-}
-
-// Boolean context
-if (value) {
-    // Has a value
-}
-
-// Make existing value null (preserves schema)
-value.reset();
-```
-
-**Python Interop:**
-
-- Null Value converts to Python `None`
-- Python `None` converts to null Value (schema must be known from context)
-- `to_python()` on null Value returns `nb::none()`
-- `from_python(nb::none())` calls `reset()`
+This is an explicit compatibility target, not a requirement that internal storage be Arrow-native.
 
 ### Const Correctness
-The View system provides constness (or mutability) throughout the system. This is done using standard C++ const markers on methods to indicate which are considered const and which are not.
+The View system uses normal C++ constness and guarded mutation methods. There is no separate public `const_view()` API or parallel `Const*View` family in the surface design; read-only behavior comes from const-qualified access.
 
 ### Error Handling
 Invalid operations raise exceptions. We use the appropriate C++ exception where available (e.g., `std::out_of_range`, `std::invalid_argument`), otherwise we use `std::runtime_error`.
