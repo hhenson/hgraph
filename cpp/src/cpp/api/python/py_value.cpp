@@ -266,7 +266,7 @@ static void register_type_registry(nb::module_& m) {
 // View Binding
 // ============================================================================
 
-static void register_const_value_view(nb::module_& m) {
+static void register_view(nb::module_& m) {
     nb::class_<View>(m, "_View",
         "Non-owning read-only view into a Value, providing read-only access")
         // Validity
@@ -529,36 +529,6 @@ static void register_value_view(nb::module_& m) {
 }
 
 // ============================================================================
-// ConstIndexedView Binding
-// ============================================================================
-
-static void register_const_indexed_view(nb::module_& m) {
-    nb::class_<ConstIndexedView, View>(m, "_ConstIndexedView",
-        "Base class for types supporting const index-based access")
-        .def("size", &ConstIndexedView::size, "Get the number of elements")
-        .def("empty", &ConstIndexedView::empty, "Check if empty")
-        .def("at", &ConstIndexedView::at, "index"_a, "Get element at index (const)")
-        .def("__getitem__", [](const ConstIndexedView& self, int64_t index) {
-            int64_t size = static_cast<int64_t>(self.size());
-            if (index < 0) {
-                index += size;  // Convert negative index to positive
-            }
-            if (index < 0 || index >= size) {
-                throw nb::index_error("index out of range");
-            }
-            return self[static_cast<size_t>(index)];
-        }, "index"_a)
-        .def("__len__", &ConstIndexedView::size)
-        .def("__iter__", [](const ConstIndexedView& self) {
-            nb::list result;
-            for (size_t i = 0; i < self.size(); ++i) {
-                result.append(nb::cast(self[i]));
-            }
-            return nb::iter(result);
-        }, "Iterate over elements");
-}
-
-// ============================================================================
 // IndexedView Binding
 // ============================================================================
 
@@ -600,11 +570,6 @@ static void register_indexed_view(nb::module_& m) {
 // ============================================================================
 
 static void register_tuple_views(nb::module_& m) {
-    nb::class_<ConstTupleView, ConstIndexedView>(m, "_ConstTupleView",
-        "Const view for tuple types (heterogeneous index-only access)")
-        .def("element_type", &ConstTupleView::element_type, "index"_a, nb::rv_policy::reference,
-            "Get the type of element at index");
-
     nb::class_<TupleView, IndexedView>(m, "TupleView",
         "Mutable view for tuple types")
         .def("element_type", &TupleView::element_type, "index"_a, nb::rv_policy::reference,
@@ -642,24 +607,6 @@ static void register_tuple_views(nb::module_& m) {
 // ============================================================================
 
 static void register_bundle_views(nb::module_& m) {
-    nb::class_<ConstBundleView, ConstIndexedView>(m, "_ConstBundleView",
-        "Const view for bundle types (struct-like access)")
-        // Named field access - use lambdas for std::string to std::string_view conversion
-        .def("at_name", [](const ConstBundleView& self, const std::string& name) {
-            return self.at(name);
-        }, "name"_a, "Get field by name")
-        .def("__getitem__", [](const ConstBundleView& self, const std::string& name) {
-            return self.at(name);
-        }, "name"_a)
-        // Field metadata
-        .def("field_count", &ConstBundleView::field_count, "Get the number of fields")
-        .def("has_field", [](const ConstBundleView& self, const std::string& name) {
-            return self.has_field(name);
-        }, "name"_a, "Check if a field exists")
-        .def("field_index", [](const ConstBundleView& self, const std::string& name) {
-            return self.field_index(name);
-        }, "name"_a, "Get field index by name (returns size() if not found)");
-
     nb::class_<BundleView, IndexedView>(m, "BundleView",
         "Mutable view for bundle types")
         // Named field access (const)
@@ -703,72 +650,13 @@ static void register_bundle_views(nb::module_& m) {
 // List Views Binding
 // ============================================================================
 
-// Helper function to check if element type is buffer compatible
-static bool is_list_buffer_compatible(const ConstListView& list) {
-    const TypeMeta* elem = list.element_type();
-    if (!elem || elem->kind != TypeKind::Atomic) return false;
-
-    // Use the BufferCompatible flag from TypeMeta
-    return elem->is_buffer_compatible();
-}
-
-
 static void register_list_views(nb::module_& m) {
-    nb::class_<ConstListView, ConstIndexedView>(m, "_ConstListView",
-        "Const view for list types")
-        .def("front", &ConstListView::front, "Get the first element")
-        .def("back", &ConstListView::back, "Get the last element")
-        .def("element_type", &ConstListView::element_type, nb::rv_policy::reference,
-            "Get the element type")
-        .def("is_fixed", &ConstListView::is_fixed, "Check if this is a fixed-size list")
-        .def("is_buffer_compatible", [](const ConstListView& self) {
-            return is_list_buffer_compatible(self);
-        }, "Check if this list supports the buffer protocol (numpy compatibility)")
-        // Provide to_numpy method for explicit conversion (creates copy for read-only view)
-        .def("to_numpy", [](const ConstListView& self) -> nb::object {
-            if (!is_list_buffer_compatible(self)) {
-                throw std::runtime_error("List element type not buffer compatible for numpy");
-            }
-
-            // Import numpy
-            nb::module_ np = nb::module_::import_("numpy");
-
-            const TypeMeta* elem = self.element_type();
-            size_t n = self.size();
-
-            // Create appropriate numpy array and copy data
-            if (elem == scalar_type_meta<int64_t>()) {
-                auto arr = np.attr("empty")(n, "dtype"_a = "int64");
-                int64_t* ptr = reinterpret_cast<int64_t*>(
-                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                for (size_t i = 0; i < n; ++i) {
-                    ptr[i] = self[i].as<int64_t>();
-                }
-                return arr;
-            } else if (elem == scalar_type_meta<double>()) {
-                auto arr = np.attr("empty")(n, "dtype"_a = "float64");
-                double* ptr = reinterpret_cast<double*>(
-                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                for (size_t i = 0; i < n; ++i) {
-                    ptr[i] = self[i].as<double>();
-                }
-                return arr;
-            } else if (elem == scalar_type_meta<bool>()) {
-                auto arr = np.attr("empty")(n, "dtype"_a = "bool");
-                bool* ptr = reinterpret_cast<bool*>(
-                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                for (size_t i = 0; i < n; ++i) {
-                    ptr[i] = self[i].as<bool>();
-                }
-                return arr;
-            }
-            throw std::runtime_error("Unsupported element type for numpy conversion");
-        }, "Convert to a numpy array (copies data)");
-
     nb::class_<ListView, IndexedView>(m, "ListView",
         "Mutable view for list types")
-        .def("front", &ListView::front, "Get the first element (mutable)")
-        .def("back", &ListView::back, "Get the last element (mutable)")
+        .def("front", static_cast<ValueView (ListView::*)()>(&ListView::front),
+            "Get the first element (mutable)")
+        .def("back", static_cast<ValueView (ListView::*)()>(&ListView::back),
+            "Get the last element (mutable)")
         .def("element_type", &ListView::element_type, nb::rv_policy::reference,
             "Get the element type")
         .def("is_fixed", &ListView::is_fixed, "Check if this is a fixed-size list")
@@ -1082,67 +970,13 @@ static void register_map_views(nb::module_& m) {
 // CyclicBuffer Views Binding
 // ============================================================================
 
-// Helper function to check if element type is buffer compatible
-static bool is_cyclic_buffer_compatible(const ConstCyclicBufferView& buf) {
-    const TypeMeta* elem = buf.element_type();
-    if (!elem || elem->kind != TypeKind::Atomic) return false;
-    return elem->is_buffer_compatible();
-}
-
 static void register_cyclic_buffer_views(nb::module_& m) {
-    nb::class_<ConstCyclicBufferView, ConstIndexedView>(m, "_ConstCyclicBufferView",
-        "Const view for cyclic buffer types (fixed-size circular buffer)")
-        .def("front", &ConstCyclicBufferView::front, "Get the oldest element")
-        .def("back", &ConstCyclicBufferView::back, "Get the newest element")
-        .def("element_type", &ConstCyclicBufferView::element_type, nb::rv_policy::reference,
-            "Get the element type")
-        .def("capacity", &ConstCyclicBufferView::capacity, "Get the fixed capacity")
-        .def("full", &ConstCyclicBufferView::full, "Check if the buffer is full")
-        .def("is_buffer_compatible", [](const ConstCyclicBufferView& self) {
-            return is_cyclic_buffer_compatible(self);
-        }, "Check if this buffer supports numpy conversion")
-        .def("to_numpy", [](const ConstCyclicBufferView& self) -> nb::object {
-            if (!is_cyclic_buffer_compatible(self)) {
-                throw std::runtime_error("CyclicBuffer element type not buffer compatible for numpy");
-            }
-
-            nb::module_ np = nb::module_::import_("numpy");
-            const TypeMeta* elem = self.element_type();
-            size_t n = self.size();
-
-            // Create numpy array and copy data in logical order (re-centered)
-            if (elem == scalar_type_meta<int64_t>()) {
-                auto arr = np.attr("empty")(n, "dtype"_a = "int64");
-                int64_t* ptr = reinterpret_cast<int64_t*>(
-                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                for (size_t i = 0; i < n; ++i) {
-                    ptr[i] = self[i].as<int64_t>();
-                }
-                return arr;
-            } else if (elem == scalar_type_meta<double>()) {
-                auto arr = np.attr("empty")(n, "dtype"_a = "float64");
-                double* ptr = reinterpret_cast<double*>(
-                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                for (size_t i = 0; i < n; ++i) {
-                    ptr[i] = self[i].as<double>();
-                }
-                return arr;
-            } else if (elem == scalar_type_meta<bool>()) {
-                auto arr = np.attr("empty")(n, "dtype"_a = "bool");
-                bool* ptr = reinterpret_cast<bool*>(
-                    nb::cast<intptr_t>(arr.attr("ctypes").attr("data")));
-                for (size_t i = 0; i < n; ++i) {
-                    ptr[i] = self[i].as<bool>();
-                }
-                return arr;
-            }
-            throw std::runtime_error("Unsupported element type for numpy conversion");
-        }, "Convert to a numpy array (copies data in logical order, oldest at [0])");
-
     nb::class_<CyclicBufferView, IndexedView>(m, "CyclicBufferView",
         "Mutable view for cyclic buffer types")
-        .def("front", &CyclicBufferView::front, "Get the oldest element (mutable)")
-        .def("back", &CyclicBufferView::back, "Get the newest element (mutable)")
+        .def("front", static_cast<ValueView (CyclicBufferView::*)()>(&CyclicBufferView::front),
+            "Get the oldest element (mutable)")
+        .def("back", static_cast<ValueView (CyclicBufferView::*)()>(&CyclicBufferView::back),
+            "Get the newest element (mutable)")
         .def("element_type", &CyclicBufferView::element_type, nb::rv_policy::reference,
             "Get the element type")
         .def("capacity", &CyclicBufferView::capacity, "Get the fixed capacity")
@@ -1200,21 +1034,12 @@ static void register_cyclic_buffer_views(nb::module_& m) {
 // ============================================================================
 
 static void register_queue_views(nb::module_& m) {
-    nb::class_<ConstQueueView, ConstIndexedView>(m, "_ConstQueueView",
-        "Const view for queue types (FIFO with optional max capacity)")
-        .def("front", &ConstQueueView::front, "Get the front element (first in queue)")
-        .def("back", &ConstQueueView::back, "Get the back element (last in queue)")
-        .def("element_type", &ConstQueueView::element_type, nb::rv_policy::reference,
-            "Get the element type")
-        .def("max_capacity", &ConstQueueView::max_capacity,
-            "Get the max capacity (0 = unbounded)")
-        .def("has_max_capacity", &ConstQueueView::has_max_capacity,
-            "Check if the queue has a max capacity");
-
     nb::class_<QueueView, IndexedView>(m, "QueueView",
         "Mutable view for queue types")
-        .def("front", &QueueView::front, "Get the front element (mutable)")
-        .def("back", &QueueView::back, "Get the back element (mutable)")
+        .def("front", static_cast<ValueView (QueueView::*)()>(&QueueView::front),
+            "Get the front element (mutable)")
+        .def("back", static_cast<ValueView (QueueView::*)()>(&QueueView::back),
+            "Get the back element (mutable)")
         .def("element_type", &QueueView::element_type, nb::rv_policy::reference,
             "Get the element type")
         .def("max_capacity", &QueueView::max_capacity,
@@ -1818,11 +1643,10 @@ void value_register_with_nanobind(nb::module_& m) {
     register_type_meta_bindings(value_mod);
 
     // Register base view classes (order matters for inheritance)
-    register_const_value_view(value_mod);
+    register_view(value_mod);
     register_value_view(value_mod);
 
-    // Register indexed view base classes
-    register_const_indexed_view(value_mod);
+    // Register indexed view base class
     register_indexed_view(value_mod);
 
     // Register specialized views

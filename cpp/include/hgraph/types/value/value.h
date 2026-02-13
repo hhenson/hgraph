@@ -238,7 +238,7 @@ public:
 
     /**
      * @brief Get a read-only view of the data.
-     * @return Const view
+     * @return Read-only view
      */
     [[nodiscard]] View view() const {
         if (!has_value()) {

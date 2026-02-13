@@ -67,26 +67,14 @@ class View;
 /// Non-owning mutable view into a Value
 class ValueView;
 
-/// Const view with indexed access (base for Bundle, List)
-class ConstIndexedView;
-
 /// Mutable view with indexed access
 class IndexedView;
-
-/// Const view for tuples (heterogeneous, index-only)
-class ConstTupleView;
 
 /// Mutable view for tuples
 class TupleView;
 
-/// Const view for bundles (struct-like, named + indexed)
-class ConstBundleView;
-
 /// Mutable view for bundles
 class BundleView;
-
-/// Const view for lists (homogeneous indexed)
-class ConstListView;
 
 /// Mutable view for lists
 class ListView;

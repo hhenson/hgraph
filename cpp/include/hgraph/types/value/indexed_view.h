@@ -5,10 +5,10 @@
  * @brief Indexed view classes for positional access.
  *
  * This header defines views for types that support positional (index-based) access:
- * - ConstIndexedView / IndexedView: Base classes for indexed access
- * - ConstTupleView / TupleView: Heterogeneous indexed collections
- * - ConstBundleView / BundleView: Struct-like types with named + indexed access
- * - ConstListView / ListView: Homogeneous indexed collections
+ * - IndexedView: Base class for indexed access
+ * - TupleView: Heterogeneous indexed collections
+ * - BundleView: Struct-like types with named + indexed access
+ * - ListView: Homogeneous indexed collections
  * - SetView: Unique element collections (supports read-only mode)
  * - MapView: Key-value collections (supports read-only mode)
  *
@@ -45,146 +45,11 @@ template<typename Policy>
 class Value;
 
 // ============================================================================
-// ConstIndexedView - Base for Positional Access
+// IndexedView - Positional Access (Const + Mutable)
 // ============================================================================
 
 /**
- * @brief Base class for types supporting const index-based access.
- *
- * Provides unified at()/operator[] interface for accessing elements by index.
- * Used as a base for tuples, bundles, and lists.
- */
-class ConstIndexedView : public View {
-public:
-    // ========== Construction ==========
-
-    using View::View;
-
-    /// Construct from base view
-    explicit ConstIndexedView(const View& view)
-        : View(view) {}
-
-    // ========== Size ==========
-
-    /**
-     * @brief Get the number of elements.
-     * @return Element count
-     */
-    [[nodiscard]] size_t size() const {
-        assert(valid() && "size() on invalid view");
-        if (_schema->ops().has_size()) {
-            return _schema->ops().size(_data, _schema);
-        }
-        // For static structures like Bundle/Tuple, use field_count
-        return _schema->field_count;
-    }
-
-    /**
-     * @brief Check if empty.
-     * @return true if size() == 0
-     */
-    [[nodiscard]] bool empty() const {
-        return size() == 0;
-    }
-
-    // ========== Element Access ==========
-
-    /**
-     * @brief Get element at index (const).
-     *
-     * @param index The element index
-     * @return Const view of the element
-     * @throws std::out_of_range if index >= size()
-     */
-    [[nodiscard]] View at(size_t index) const {
-        assert(valid() && "at() on invalid view");
-        if (index >= size()) {
-            throw std::out_of_range("Index out of range");
-        }
-        const void* elem_data = _schema->ops().at(_data, index, _schema);
-        // Determine element type
-        const TypeMeta* elem_schema = nullptr;
-        if (_schema->kind == TypeKind::List || _schema->kind == TypeKind::Set ||
-            _schema->kind == TypeKind::CyclicBuffer || _schema->kind == TypeKind::Queue) {
-            elem_schema = _schema->element_type;
-        } else if (_schema->kind == TypeKind::Bundle || _schema->kind == TypeKind::Tuple) {
-            elem_schema = _schema->fields[index].type;
-        }
-        return View(elem_data, elem_schema);
-    }
-
-    /**
-     * @brief Get element at index (const, operator[]).
-     *
-     * Same as at() but uses operator syntax.
-     *
-     * @param index The element index
-     * @return Const view of the element
-     */
-    [[nodiscard]] View operator[](size_t index) const {
-        return at(index);
-    }
-
-    // ========== Iteration ==========
-
-    /**
-     * @brief Const iterator for indexed views.
-     */
-    class const_iterator {
-    public:
-        using iterator_category = std::forward_iterator_tag;
-        using value_type = View;
-        using difference_type = std::ptrdiff_t;
-        using pointer = const View*;
-        using reference = View;
-
-        const_iterator() = default;
-        const_iterator(const ConstIndexedView* view, size_t index)
-            : _view(view), _index(index) {}
-
-        reference operator*() const {
-            return _view->at(_index);
-        }
-
-        const_iterator& operator++() {
-            ++_index;
-            return *this;
-        }
-
-        const_iterator operator++(int) {
-            const_iterator tmp = *this;
-            ++_index;
-            return tmp;
-        }
-
-        bool operator==(const const_iterator& other) const {
-            return _view == other._view && _index == other._index;
-        }
-
-        bool operator!=(const const_iterator& other) const {
-            return !(*this == other);
-        }
-
-    private:
-        const ConstIndexedView* _view{nullptr};
-        size_t _index{0};
-    };
-
-    [[nodiscard]] const_iterator begin() const {
-        return const_iterator(this, 0);
-    }
-
-    [[nodiscard]] const_iterator end() const {
-        return const_iterator(this, size());
-    }
-};
-
-// ============================================================================
-// IndexedView - Mutable Positional Access
-// ============================================================================
-
-/**
- * @brief Base class for types supporting mutable index-based access.
+ * @brief Base class for types supporting index-based access.
  */
 class IndexedView : public ValueView {
 public:
@@ -268,6 +133,59 @@ public:
         return at(index);
     }
 
+    // ========== Iteration ==========
+
+    /**
+     * @brief Const iterator for indexed views.
+     */
+    class const_iterator {
+    public:
+        using iterator_category = std::forward_iterator_tag;
+        using value_type = View;
+        using difference_type = std::ptrdiff_t;
+        using pointer = const View*;
+        using reference = View;
+
+        const_iterator() = default;
+        const_iterator(const IndexedView* view, size_t index)
+            : _view(view), _index(index) {}
+
+        reference operator*() const {
+            return _view->at(_index);
+        }
+
+        const_iterator& operator++() {
+            ++_index;
+            return *this;
+        }
+
+        const_iterator operator++(int) {
+            const_iterator tmp = *this;
+            ++_index;
+            return tmp;
+        }
+
+        bool operator==(const const_iterator& other) const {
+            return _view == other._view && _index == other._index;
+        }
+
+        bool operator!=(const const_iterator& other) const {
+            return !(*this == other);
+        }
+
+    private:
+        const IndexedView* _view{nullptr};
+        size_t _index{0};
+    };
+
+    [[nodiscard]] const_iterator begin() const {
+        return const_iterator(this, 0);
+    }
+
+    [[nodiscard]] const_iterator end() const {
+        return const_iterator(this, size());
+    }
+
     // ========== Mutation ==========
 
     /**
@@ -308,37 +226,11 @@ private:
 };
 
 // ============================================================================
-// ConstTupleView - Heterogeneous Index-Only Access
+// TupleView - Heterogeneous Indexed Access
 // ============================================================================
 
 /**
- * @brief Const view for tuple types.
- *
- * Tuples are heterogeneous collections with index-only access.
- * Each element can have a different type.
- */
-class ConstTupleView : public ConstIndexedView {
-public:
-    using ConstIndexedView::ConstIndexedView;
-
-    /**
-     * @brief Get the type of element at index.
-     *
-     * @param index The element index
-     * @return The element's type schema
-     */
-    [[nodiscard]] const TypeMeta* element_type(size_t index) const {
-        assert(valid() && index < size() && "Invalid index");
-        return _schema->fields[index].type;
-    }
-};
-
-// ============================================================================
-// TupleView - Mutable Heterogeneous Access
-// ============================================================================
-
-/**
- * @brief Mutable view for tuple types.
+ * @brief View for tuple types.
  */
 class TupleView : public IndexedView {
 public:
@@ -354,111 +246,11 @@ public:
 };
 
 // ============================================================================
-// ConstBundleView - Struct-like Access
+// BundleView - Struct-like Access
 // ============================================================================
 
 /**
- * @brief Const view for bundle types.
- *
- * Bundles support both index-based and name-based field access.
- * Field order is significant.
- */
-class ConstBundleView : public ConstIndexedView {
-public:
-    using ConstIndexedView::ConstIndexedView;
-
-    // ========== Named Field Access ==========
-
-    /**
-     * @brief Get field by name.
-     *
-     * @param name The field name
-     * @return Const view of the field
-     * @throws std::runtime_error if field not found
-     */
-    [[nodiscard]] View at(std::string_view name) const {
-        assert(valid() && "at(name) on invalid view");
-        size_t idx = field_index(name);
-        if (idx >= size()) {
-            throw std::runtime_error("Field not found: " + std::string(name));
-        }
-        return ConstIndexedView::at(idx);
-    }
-
-    /**
-     * @brief Get field by name (operator[]).
-     */
-    [[nodiscard]] View operator[](std::string_view name) const {
-        return at(name);
-    }
-
-    // Bring base class operator[] into scope
-    using ConstIndexedView::operator[];
-
-    // ========== Field Metadata ==========
-
-    /**
-     * @brief Get the number of fields.
-     */
-    [[nodiscard]] size_t field_count() const {
-        return size();
-    }
-
-    /**
-     * @brief Get field info by index.
-     *
-     * @param index The field index
-     * @return Pointer to field info
-     */
-    [[nodiscard]] const BundleFieldInfo* field_info(size_t index) const {
-        assert(valid() && index < size() && "Invalid field index");
-        return &_schema->fields[index];
-    }
-
-    /**
-     * @brief Get field info by name.
-     *
-     * @param name The field name
-     * @return Pointer to field info, or nullptr if not found
-     */
-    [[nodiscard]] const BundleFieldInfo* field_info(std::string_view name) const {
-        size_t idx = field_index(name);
-        return (idx < size()) ? &_schema->fields[idx] : nullptr;
-    }
-
-    /**
-     * @brief Check if a field exists.
-     *
-     * @param name The field name
-     * @return true if the field exists
-     */
-    [[nodiscard]] bool has_field(std::string_view name) const {
-        return field_index(name) < size();
-    }
-
-    /**
-     * @brief Get field index by name.
-     *
-     * @param name The field name
-     * @return The field index, or size() if not found
-     */
-    [[nodiscard]] size_t field_index(std::string_view name) const {
-        assert(valid() && "field_index() on invalid view");
-        for (size_t i = 0; i < _schema->field_count; ++i) {
-            if (name == _schema->fields[i].name) {
-                return i;
-            }
-        }
-        return size();
-    }
-};
-
-// ============================================================================
-// BundleView - Mutable Struct-like Access
-// ============================================================================
-
-/**
- * @brief Mutable view for bundle types.
+ * @brief View for bundle types.
  */
 class BundleView : public IndexedView {
 public:
@@ -610,53 +402,11 @@ public:
 };
 
 // ============================================================================
-// ConstListView - Indexed Collection Access
+// ListView - Indexed Collection Access
 // ============================================================================
 
 /**
- * @brief Const view for list types.
- *
- * Lists are homogeneous indexed collections. They can be fixed-size or dynamic.
- */
-class ConstListView : public ConstIndexedView {
-public:
-    using ConstIndexedView::ConstIndexedView;
-
-    /**
-     * @brief Get the first element.
-     */
-    [[nodiscard]] View front() const {
-        return at(0);
-    }
-
-    /**
-     * @brief Get the last element.
-     */
-    [[nodiscard]] View back() const {
-        return at(size() - 1);
-    }
-
-    /**
-     * @brief Get the element type.
-     */
-    [[nodiscard]] const TypeMeta* element_type() const {
-        return _schema->element_type;
-    }
-
-    /**
-     * @brief Check if this is a fixed-size list.
-     */
-    [[nodiscard]] bool is_fixed() const {
-        return _schema->is_fixed_size();
-    }
-};
-
-// ============================================================================
-// ListView - Mutable Indexed Collection
-// ============================================================================
-
-/**
- * @brief Mutable view for list types.
+ * @brief View for list types.
  */
 class ListView : public IndexedView {
 public:
@@ -670,9 +420,23 @@ public:
     }
 
     /**
+     * @brief Get the first element (const).
+     */
+    [[nodiscard]] View front() const {
+        return at(0);
+    }
+
+    /**
      * @brief Get the last element (mutable).
      */
     [[nodiscard]] ValueView back() {
+        return at(size() - 1);
+    }
+
+    /**
+     * @brief Get the last element (const).
+     */
+    [[nodiscard]] View back() const {
         return at(size() - 1);
     }
 
@@ -735,6 +499,7 @@ public:
     };
 
     [[nodiscard]] items_range items() {
+        require_mutable("items");
         return {
             items_iterator(data(), _schema, 0),
             items_iterator(data(), _schema, size())
@@ -871,64 +636,11 @@ public:
 };
 
 // ============================================================================
-// ConstCyclicBufferView - Fixed-Size Circular Buffer Access
-// ============================================================================
-
-// Forward declaration
-struct CyclicBufferStorage;
-
-/**
- * @brief Const view for cyclic buffer types.
- *
- * CyclicBuffer is a fixed-size circular buffer that re-centers on read.
- * Logical index 0 always refers to the oldest element.
- */
-class ConstCyclicBufferView : public ConstIndexedView {
-public:
-    using ConstIndexedView::ConstIndexedView;
-
-    /**
-     * @brief Get the oldest element.
-     */
-    [[nodiscard]] View front() const {
-        return at(0);
-    }
-
-    /**
-     * @brief Get the newest element.
-     */
-    [[nodiscard]] View back() const {
-        return at(size() - 1);
-    }
-
-    /**
-     * @brief Get the element type.
-     */
-    [[nodiscard]] const TypeMeta* element_type() const {
-        return _schema->element_type;
-    }
-
-    /**
-     * @brief Get the fixed capacity.
-     */
-    [[nodiscard]] size_t capacity() const {
-        return _schema->fixed_size;
-    }
-
-    /**
-     * @brief Check if the buffer is full.
-     */
-    [[nodiscard]] bool full() const {
-        return size() == capacity();
-    }
-};
-
-// ============================================================================
-// CyclicBufferView - Mutable Fixed-Size Circular Buffer
+// CyclicBufferView - Fixed-Size Circular Buffer Access
 // ============================================================================
 
 /**
- * @brief Mutable view for cyclic buffer types.
+ * @brief View for cyclic buffer types.
  */
 class CyclicBufferView : public IndexedView {
 public:
@@ -942,9 +654,23 @@ public:
     }
 
     /**
+     * @brief Get the oldest element (const).
+     */
+    [[nodiscard]] View front() const {
+        return at(0);
+    }
+
+    /**
      * @brief Get the newest element (mutable).
      */
     [[nodiscard]] ValueView back() {
+        return at(size() - 1);
+    }
+
+    /**
+     * @brief Get the newest element (const).
+     */
+    [[nodiscard]] View back() const {
         return at(size() - 1);
     }
 
@@ -995,61 +721,11 @@ public:
 };
 
 // ============================================================================
-// ConstQueueView - FIFO Queue Access
+// QueueView - FIFO Queue Access
 // ============================================================================
 
 /**
- * @brief Const view for queue types.
- *
- * Queue is a FIFO data structure with optional max capacity.
- * Elements are accessed in insertion order.
- */
-class ConstQueueView : public ConstIndexedView {
-public:
-    using ConstIndexedView::ConstIndexedView;
-
-    /**
-     * @brief Get the front element (first in queue).
-     */
-    [[nodiscard]] View front() const {
-        return at(0);
-    }
-
-    /**
-     * @brief Get the back element (last in queue).
-     */
-    [[nodiscard]] View back() const {
-        return at(size() - 1);
-    }
-
-    /**
-     * @brief Get the element type.
-     */
-    [[nodiscard]] const TypeMeta* element_type() const {
-        return _schema->element_type;
-    }
-
-    /**
-     * @brief Get the max capacity (0 = unbounded).
-     */
-    [[nodiscard]] size_t max_capacity() const {
-        return _schema->fixed_size;
-    }
-
-    /**
-     * @brief Check if the queue has a max capacity.
-     */
-    [[nodiscard]] bool has_max_capacity() const {
-        return max_capacity() > 0;
-    }
-};
-
-// ============================================================================
-// QueueView - Mutable FIFO Queue
-// ============================================================================
-
-/**
- * @brief Mutable view for queue types.
+ * @brief View for queue types.
  */
 class QueueView : public IndexedView {
 public:
@@ -1063,9 +739,23 @@ public:
     }
 
     /**
+     * @brief Get the front element (const).
+     */
+    [[nodiscard]] View front() const {
+        return at(0);
+    }
+
+    /**
      * @brief Get the back element (mutable).
      */
     [[nodiscard]] ValueView back() {
+        return at(size() - 1);
+    }
+
+    /**
+     * @brief Get the back element (const).
+     */
+    [[nodiscard]] View back() const {
         return at(size() - 1);
     }
 

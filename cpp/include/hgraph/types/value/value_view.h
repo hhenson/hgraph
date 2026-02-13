@@ -26,17 +26,12 @@
 namespace hgraph::value {
 
 // Forward declarations for specialized views
-class ConstTupleView;
 class TupleView;
-class ConstBundleView;
 class BundleView;
-class ConstListView;
 class ListView;
 class SetView;
 class MapView;
-class ConstCyclicBufferView;
 class CyclicBufferView;
-class ConstQueueView;
 class QueueView;
 
 // Forward declaration for Value (used in clone)

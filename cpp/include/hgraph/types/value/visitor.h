@@ -20,16 +20,16 @@
  * // Visit with type-specific handlers
  * std::string result = visit(value.view(),
  *     [](View v) { return "scalar: " + v.to_string(); },
- *     [](ConstTupleView t) { return "tuple[" + std::to_string(t.size()) + "]"; },
- *     [](ConstBundleView b) { return "bundle"; },
- *     [](ConstListView l) { return "list"; },
+ *     [](TupleView t) { return "tuple[" + std::to_string(t.size()) + "]"; },
+ *     [](BundleView b) { return "bundle"; },
+ *     [](ListView l) { return "list"; },
  *     [](SetView s) { return "set"; },
  *     [](MapView m) { return "map"; }
  * );
  *
  * // Partial handlers with catch-all
  * std::string result = visit(value.view(),
- *     [](ConstListView l) { return "list[" + std::to_string(l.size()) + "]"; },
+ *     [](ListView l) { return "list[" + std::to_string(l.size()) + "]"; },
  *     [](MapView m) { return "map"; },
  *     [](View v) { return "other: " + v.to_string(); }  // catch-all
  * );
@@ -68,13 +68,13 @@ overloaded(Fs...) -> overloaded<Fs...>;
  * Combines handlers using the overloaded pattern and dispatches based on
  * TypeKind. Each handler should accept the appropriate view type:
  * - Scalar: View (use is_scalar_type<T>() to check specific types)
- * - Tuple: ConstTupleView
- * - Bundle: ConstBundleView
- * - List: ConstListView
+ * - Tuple: TupleView
+ * - Bundle: BundleView
+ * - List: ListView
  * - Set: SetView
  * - Map: MapView
- * - CyclicBuffer: ConstCyclicBufferView
- * - Queue: ConstQueueView
+ * - CyclicBuffer: CyclicBufferView
+ * - Queue: QueueView
  *
  * A handler accepting View can serve as a catch-all for unhandled types.
  *
@@ -148,7 +148,7 @@ auto visit(ValueView view, Handlers&&... handlers) {
  * @code
  * auto result = match<std::string>(view,
  *     when<TypeKind::Atomic>([](View v) { return v.to_string(); }),
- *     when<TypeKind::List>([](ConstListView l) { return "list"; }),
+ *     when<TypeKind::List>([](ListView l) { return "list"; }),
  *     otherwise([](View) { return "other"; })
  * );
  * @endcode
