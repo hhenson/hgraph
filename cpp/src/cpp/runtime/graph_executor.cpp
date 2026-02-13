@@ -117,10 +117,43 @@ namespace hgraph
             // Use RAII; StartStopContext destructor will stop and set Python error if exception occurs
             {
                 auto startStopContext = StartStopContext(*graph);
-                while (clock->evaluation_time() < end_time) {
-                    _evaluate(*evaluationEngine, *graph);
+                {
+                    int _eval_count = 0;
+                    engine_time_t _last_time{};
+                    int _same_time_count = 0;
+                    while (clock->evaluation_time() < end_time) {
+                        auto ct = clock->evaluation_time();
+                        if (ct == _last_time) {
+                            _same_time_count++;
+                            if (_same_time_count > 100) {
+                                fprintf(stderr, "[ENGINE] STUCK at time=%lld after %d evaluations\n",
+                                        (long long)ct.time_since_epoch().count(), _eval_count);
+                                // Dump schedule
+                                auto& nodes = graph->nodes();
+                                auto& sched = graph->schedule();
+                                for (size_t i = 0; i < nodes.size(); ++i) {
+                                    if (sched[i] == ct) {
+                                        fprintf(stderr, "[ENGINE] node[%zu] scheduled at current time: %s\n",
+                                                i, nodes[i]->signature().signature().c_str());
+                                    }
+                                }
+                                throw std::runtime_error("Engine stuck: same evaluation time for >100 iterations");
+                            }
+                        } else {
+                            _same_time_count = 0;
+                            _last_time = ct;
+                        }
+                        _eval_count++;
+                        _evaluate(*evaluationEngine, *graph);
+                    }
                 }
             }
+            // Graph is now stopped. Flush any pending before_evaluation_notification
+            // callbacks (e.g., deferred inner graph releases scheduled by TsdMapNode/SwitchNode
+            // during eval or do_stop). Without this, the lambdas holding graph shared_ptrs
+            // would only be dropped when evaluationEngine goes out of scope, bypassing
+            // release_instance and causing unclean node destruction (SIGSEGV).
+            evaluationEngine->notify_before_evaluation();
             // After StartStopContext destruction, check if a Python error was set during stop
             if (PyErr_Occurred()) { throw nb::python_error(); }
         } catch (const NodeException &e) {

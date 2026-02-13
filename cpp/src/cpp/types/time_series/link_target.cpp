@@ -4,7 +4,9 @@
 namespace hgraph {
 
 void LinkTarget::ActiveNotifier::notify(engine_time_t et) {
-    if (owning_input) owning_input->notify(et);
+    if (owning_input) {
+        owning_input->notify(et);
+    }
 }
 
 LinkTarget::~LinkTarget() {

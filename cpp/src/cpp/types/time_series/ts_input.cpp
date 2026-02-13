@@ -178,7 +178,6 @@ TSInput::~TSInput() {
 }
 
 void TSInput::notify(engine_time_t et) {
-    // Schedule the owning node for execution
     if (owning_node_) {
         owning_node_->notify(et);
     }

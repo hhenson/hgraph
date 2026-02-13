@@ -368,12 +368,13 @@ namespace hgraph
         }
 
         if (alt_elem) {
-            value::View alt_value = alt_elem.value();
-            if (alt_value) {
-                auto* ref_ptr = static_cast<TSReference*>(alt_value.data());
-                if (ref_ptr) {
-                    *ref_ptr = std::move(ref);
-                }
+            // Write TSReference directly to the alternative's LOCAL value storage.
+            // Do NOT use alt_elem.value() — it may delegate through an active
+            // REFLink and return the native's value storage, causing overflow.
+            void* value_data = alt_elem.view_data().value_data;
+            if (value_data) {
+                auto* ref_ptr = static_cast<TSReference*>(value_data);
+                *ref_ptr = std::move(ref);
             }
             // Mark element as modified at current time so consumer sees the change
             auto* elem_time = static_cast<engine_time_t*>(alt_elem.view_data().time_data);

@@ -24,11 +24,6 @@
 #include <type_traits>
 #include <utility>
 
-// Debug flag for ValueStorage
-#ifndef VALUE_STORAGE_DEBUG
-#define VALUE_STORAGE_DEBUG 0
-#endif
-
 namespace hgraph::value {
 
 // ============================================================================

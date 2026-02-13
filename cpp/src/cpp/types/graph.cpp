@@ -24,7 +24,7 @@ namespace hgraph
         _schedule.resize(_nodes.size(), MIN_DT);
     }
 
-    Graph::~Graph() {}
+    Graph::~Graph() = default;
 
     const std::vector<int64_t> &Graph::graph_id() const { return _graph_id; }
 

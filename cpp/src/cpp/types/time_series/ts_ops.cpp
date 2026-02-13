@@ -335,7 +335,6 @@ struct REFBindingHelper : public Notifiable {
             auto* obs = static_cast<ObserverList*>(ref_source.observer_data);
             obs->add_observer(this);
             subscribed_to_ref = true;
-        } else {
         }
     }
 
@@ -530,11 +529,6 @@ struct REFBindingHelper : public Notifiable {
             owner->is_linked = true;
             owner->target_path = final_vd.path;
             owner->value_data = final_vd.value_data;
-            // Use owner_time_ptr instead of the resolved target's time_data.
-            // This is the C++ equivalent of Python's _sampled mechanism:
-            // after rebinding, the input appears as modified (owner_time_ptr
-            // was stamped to current_time by notify()), and last_modified_time
-            // reflects the rebinding time rather than the target's original time.
             owner->time_data = owner->owner_time_ptr;
             owner->observer_data = final_vd.observer_data;
             owner->delta_data = final_vd.delta_data;

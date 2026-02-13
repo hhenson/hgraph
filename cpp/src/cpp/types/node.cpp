@@ -12,7 +12,6 @@
 #include <ranges>
 #include <sstream>
 
-
 namespace hgraph
 {
     void node_type_enum_py_register(nb::module_ &m) {

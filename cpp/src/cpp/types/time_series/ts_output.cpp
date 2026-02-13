@@ -520,16 +520,15 @@ void TSOutput::establish_links_recursive(
         // Create a peered TSReference using factory method
         TSReference ref = TSReference::peered(native_path);
 
-        // Get the value view from the alternative and set the TSReference
-        // The alternative's value storage should be a TSReference type
-        value::View alt_value = alt_view.value();
-        if (alt_value) {
-            // Copy the TSReference into the alternative's value storage
-            // The value schema for REF types stores TSReference
-            auto* ref_ptr = static_cast<TSReference*>(alt_value.data());
-            if (ref_ptr) {
-                *ref_ptr = std::move(ref);
-            }
+        // Write TSReference directly to the alternative's LOCAL value storage.
+        // IMPORTANT: Do NOT use alt_view.value() here — if a REFLink was bound
+        // in Case 2 above, value() would delegate through the link and return
+        // the NATIVE's value storage. Writing a 56-byte TSReference to the
+        // native's smaller buffer causes memory corruption.
+        void* value_data = alt_view.view_data().value_data;
+        if (value_data) {
+            auto* ref_ptr = static_cast<TSReference*>(value_data);
+            *ref_ptr = std::move(ref);
         }
         return;
     }
