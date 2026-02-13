@@ -52,6 +52,7 @@ public:
     ValueArray(ValueArray&& other) noexcept
         : values_(std::move(other.values_))
         , validity_(std::move(other.validity_))
+        , constructed_(std::move(other.constructed_))
         , value_type_(other.value_type_)
         , capacity_(other.capacity_) {
         other.capacity_ = 0;
@@ -61,6 +62,7 @@ public:
         if (this != &other) {
             values_ = std::move(other.values_);
             validity_ = std::move(other.validity_);
+            constructed_ = std::move(other.constructed_);
             value_type_ = other.value_type_;
             capacity_ = other.capacity_;
             other.capacity_ = 0;
@@ -81,13 +83,26 @@ public:
         size_t new_byte_size = new_cap * value_type_->size;
         size_t new_mask_size = mask_bytes(new_cap);
 
-        // Handle non-trivially-copyable types
+        // Relocate non-trivial objects with move-construct to preserve invariants.
         if (!value_type_->is_trivially_copyable() && capacity_ > 0) {
             std::vector<std::byte> new_values(new_byte_size);
+            for (size_t slot = 0; slot < capacity_; ++slot) {
+                if (!is_constructed_slot(slot)) continue;
 
-            // Copy raw bytes (caller manages lifecycle via on_insert/on_erase)
-            size_t copy_bytes = std::min(values_.size(), new_byte_size);
-            std::memcpy(new_values.data(), values_.data(), copy_bytes);
+                void* old_ptr = values_.data() + slot * value_type_->size;
+                void* new_ptr = new_values.data() + slot * value_type_->size;
+
+                if (value_type_->ops().move_construct) {
+                    value_type_->ops().move_construct(new_ptr, old_ptr, value_type_);
+                } else if (value_type_->ops().construct && value_type_->ops().copy) {
+                    value_type_->ops().construct(new_ptr, value_type_);
+                    value_type_->ops().copy(new_ptr, old_ptr, value_type_);
+                }
+
+                if (value_type_->ops().destroy) {
+                    value_type_->ops().destroy(old_ptr, value_type_);
+                }
+            }
 
             values_ = std::move(new_values);
         } else {
@@ -95,6 +110,7 @@ public:
         }
 
         validity_.resize(new_mask_size, std::byte{0});
+        constructed_.resize(new_mask_size, std::byte{0});
         capacity_ = new_cap;
     }
 
@@ -105,16 +121,20 @@ public:
         if (value_type_->ops().construct) {
             value_type_->ops().construct(val_ptr, value_type_);
         }
+        set_constructed_slot(slot, true);
         set_valid_slot(slot, true);
     }
 
     void on_erase(size_t slot) override {
         // Destruct the value at this slot
         if (!value_type_) return;
-        void* val_ptr = value_at_slot(slot);
-        if (value_type_->ops().destroy) {
-            value_type_->ops().destroy(val_ptr, value_type_);
+        if (is_constructed_slot(slot)) {
+            void* val_ptr = value_at_slot(slot);
+            if (value_type_->ops().destroy) {
+                value_type_->ops().destroy(val_ptr, value_type_);
+            }
         }
+        set_constructed_slot(slot, false);
         set_valid_slot(slot, false);
     }
 
@@ -126,6 +146,7 @@ public:
         // All values will be destructed - handled by caller iterating live slots
         // Just reset our state (values storage remains allocated for reuse)
         std::fill(validity_.begin(), validity_.end(), std::byte{0});
+        std::fill(constructed_.begin(), constructed_.end(), std::byte{0});
     }
 
     // ========== Value Access ==========
@@ -152,6 +173,16 @@ public:
         validity_bit_set(validity_.data(), slot, valid);
     }
 
+    [[nodiscard]] bool is_constructed_slot(size_t slot) const {
+        if (slot >= capacity_ || constructed_.empty()) return false;
+        return validity_bit_get(constructed_.data(), slot);
+    }
+
+    void set_constructed_slot(size_t slot, bool constructed) {
+        if (slot >= capacity_ || constructed_.empty()) return;
+        validity_bit_set(constructed_.data(), slot, constructed);
+    }
+
     [[nodiscard]] const TypeMeta* value_type() const { return value_type_; }
     [[nodiscard]] size_t capacity() const { return capacity_; }
     [[nodiscard]] const std::byte* data() const { return values_.data(); }
@@ -159,6 +190,7 @@ public:
 private:
     std::vector<std::byte> values_;
     std::vector<std::byte> validity_;
+    std::vector<std::byte> constructed_;
     const TypeMeta* value_type_{nullptr};
     size_t capacity_{0};
 };

@@ -16,6 +16,7 @@
 #include <nanobind/nanobind.h>
 #include <nanobind/stl/string.h>
 
+#include <algorithm>
 #include <cstring>
 #include <deque>
 #include <memory>
@@ -133,11 +134,44 @@ struct QueueOps {
         } else {
             // Allocate new slot at end
             slot_idx = storage->slot_count;
-            storage->slot_count++;
+            const size_t old_slot_count = storage->slot_count;
+            const size_t new_slot_count = old_slot_count + 1;
+            storage->slot_count = new_slot_count;
 
-            // Expand data buffer
-            size_t new_byte_size = storage->slot_count * elem_size;
-            storage->data.resize(new_byte_size);
+            // Expand data buffer with safe relocation for non-trivial element types.
+            const size_t new_byte_size = new_slot_count * elem_size;
+            if (new_byte_size > storage->data.capacity()) {
+                const size_t old_capacity = storage->data.capacity();
+                const size_t grown_capacity = old_capacity == 0
+                                              ? std::max<size_t>(elem_size * 8, new_byte_size)
+                                              : std::max(old_capacity * 2, new_byte_size);
+
+                if (elem_type && !elem_type->is_trivially_copyable() && old_slot_count > 0) {
+                    std::vector<std::byte> new_data(grown_capacity);
+                    for (size_t i = 0; i < old_slot_count; ++i) {
+                        void* old_elem = storage->data.data() + i * elem_size;
+                        void* new_elem = new_data.data() + i * elem_size;
+
+                        if (elem_type->ops().move_construct) {
+                            elem_type->ops().move_construct(new_elem, old_elem, elem_type);
+                        } else if (elem_type->ops().construct && elem_type->ops().copy) {
+                            elem_type->ops().construct(new_elem, elem_type);
+                            elem_type->ops().copy(new_elem, old_elem, elem_type);
+                        }
+
+                        if (elem_type->ops().destroy) {
+                            elem_type->ops().destroy(old_elem, elem_type);
+                        }
+                    }
+                    storage->data = std::move(new_data);
+                } else {
+                    storage->data.reserve(grown_capacity);
+                }
+            }
+
+            if (storage->data.size() < new_byte_size) {
+                storage->data.resize(new_byte_size);
+            }
 
             // Construct element at new slot
             void* elem_ptr = storage->slot_ptr(slot_idx, elem_size);

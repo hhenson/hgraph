@@ -51,7 +51,8 @@ public:
         , values_(std::move(other.values_))
         , key_type_(other.key_type_)
         , value_type_(other.value_type_) {
-        // Re-register observer with new address
+        // KeySet observers were moved with a pointer to other.values_.
+        set_.key_set().remove_observer(&other.values_);
         set_.key_set().add_observer(&values_);
     }
 
@@ -65,7 +66,8 @@ public:
             key_type_ = other.key_type_;
             value_type_ = other.value_type_;
 
-            // Re-register observer with new address
+            // KeySet observers were moved with a pointer to other.values_.
+            set_.key_set().remove_observer(&other.values_);
             set_.key_set().add_observer(&values_);
         }
         return *this;
