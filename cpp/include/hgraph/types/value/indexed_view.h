@@ -1143,10 +1143,10 @@ public:
     [[nodiscard]] View at(const View& key) const {
         assert(valid() && "at() on invalid view");
         require_typed_view(key, key_type(), "Map key");
-        const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
-        if (!value_data) {
+        if (!contains(key)) {
             throw std::runtime_error("Key not found");
         }
+        const void* value_data = _schema->ops().map_at(_data, key.data(), _schema);
         return View(value_data, _schema->element_type);
     }
 
@@ -1157,10 +1157,10 @@ public:
         assert(valid() && "at() on invalid view");
         require_mutable("at");
         require_typed_view(key, key_type(), "Map key");
-        void* value_data = const_cast<void*>(_schema->ops().map_at(data(), key.data(), _schema));
-        if (!value_data) {
+        if (!contains(key)) {
             throw std::runtime_error("Key not found");
         }
+        void* value_data = const_cast<void*>(_schema->ops().map_at(data(), key.data(), _schema));
         return ValueView(value_data, _schema->element_type);
     }
 

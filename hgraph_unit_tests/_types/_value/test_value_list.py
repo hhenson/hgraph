@@ -1019,6 +1019,21 @@ def test_list_from_python(dynamic_int_list_schema):
     assert clv[2].as_int() == 30
 
 
+def test_list_from_python_none_elements_round_trip_as_null(dynamic_int_list_schema):
+    """Dynamic list supports None element states with typed schema."""
+    v = PlainValue(dynamic_int_list_schema)
+
+    v.emplace()
+    v.from_python([10, None, 30])
+
+    lv = v.view().as_list()
+    assert lv.size() == 3
+    assert lv[0].as_int() == 10
+    assert not lv[1].valid()
+    assert lv[2].as_int() == 30
+    assert v.to_python() == [10, None, 30]
+
+
 def test_fixed_list_to_python(fixed_double_list_schema):
     """Fixed-size list can be converted to Python list."""
     v = PlainValue(fixed_double_list_schema)
@@ -1034,6 +1049,21 @@ def test_fixed_list_to_python(fixed_double_list_schema):
 
     assert isinstance(py_obj, list)
     assert len(py_obj) == 10
+
+
+def test_fixed_list_from_python_none_elements_set_null_state(fixed_int_list_schema):
+    """Fixed-size list supports None element states by index."""
+    v = PlainValue(fixed_int_list_schema)
+
+    v.emplace()
+    v.from_python([11, None, 33])
+
+    lv = v.view().as_list()
+    assert lv.size() == 5
+    assert lv[0].as_int() == 11
+    assert not lv[1].valid()
+    assert lv[2].as_int() == 33
+    assert v.to_python()[1] is None
 
 
 def test_list_to_string(dynamic_int_list_schema):

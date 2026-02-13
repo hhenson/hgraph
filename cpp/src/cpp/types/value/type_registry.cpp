@@ -315,7 +315,9 @@ const TypeMeta* TupleBuilder::build() {
     meta->kind = TypeKind::Tuple;
     meta->flags = flags;
     meta->field_count = count;
-    meta->size = total_size;
+    size_t tuple_storage_size = total_size + validity_mask_bytes(count);
+    tuple_storage_size = (tuple_storage_size + max_alignment - 1) & ~(max_alignment - 1);
+    meta->size = tuple_storage_size;
     meta->alignment = max_alignment;
     meta->ops_ = TupleOps::make_ops();
     meta->name = nullptr;
@@ -377,7 +379,9 @@ const TypeMeta* BundleBuilder::build() {
     meta->kind = TypeKind::Bundle;
     meta->flags = flags;
     meta->field_count = count;
-    meta->size = total_size;
+    size_t bundle_storage_size = total_size + validity_mask_bytes(count);
+    bundle_storage_size = (bundle_storage_size + max_alignment - 1) & ~(max_alignment - 1);
+    meta->size = bundle_storage_size;
     meta->alignment = max_alignment;
     meta->ops_ = BundleOps::make_ops();
     meta->name = nullptr;
@@ -410,7 +414,9 @@ const TypeMeta* ListBuilder::build() {
         // Fixed-size list: elements stored inline
         size_t elem_size = _element_type ? _element_type->size : 0;
         size_t elem_align = _element_type ? _element_type->alignment : 1;
-        meta->size = elem_size * _fixed_size;
+        size_t list_storage_size = elem_size * _fixed_size + validity_mask_bytes(_fixed_size);
+        list_storage_size = (list_storage_size + elem_align - 1) & ~(elem_align - 1);
+        meta->size = list_storage_size;
         meta->alignment = elem_align;
     } else {
         // Dynamic list: uses DynamicListStorage

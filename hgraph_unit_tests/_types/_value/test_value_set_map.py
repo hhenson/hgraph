@@ -1195,6 +1195,23 @@ def test_map_from_python(string_double_map_schema):
     assert cmv.size() == 2
 
 
+def test_map_from_python_none_value_preserves_key_as_null(string_double_map_schema):
+    """Map values can be None while keys remain present."""
+    v = PlainValue(string_double_map_schema)
+
+    v.emplace()
+    v.from_python({"apple": None, "banana": 2.25})
+
+    mv = v.as_map()
+    k_apple = make_string_value("apple")
+    k_banana = make_string_value("banana")
+
+    assert mv.contains(k_apple.view())
+    assert not mv.at(k_apple.view()).valid()
+    assert abs(mv.at(k_banana.view()).as_double() - 2.25) < 1e-10
+    assert v.to_python() == {"apple": None, "banana": 2.25}
+
+
 def test_map_from_python_rejects_none_key(string_double_map_schema):
     """Map.from_python rejects None keys (map keys are non-null)."""
     v = PlainValue(string_double_map_schema)

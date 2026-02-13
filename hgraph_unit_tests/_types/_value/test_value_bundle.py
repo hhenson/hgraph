@@ -324,3 +324,17 @@ def test_bundle_not_equals_different_values(simple_bundle_schema):
     bv2.at_name_mut("x").set_int(100)
 
     assert not v1.equals(v2.view())
+
+
+def test_bundle_from_python_none_field_round_trips_as_null(simple_bundle_schema):
+    """Bundle fields accept None as a null state and preserve schema."""
+    v = PlainValue(simple_bundle_schema)
+
+    v.emplace()
+    v.from_python({"x": 10, "y": None, "name": "origin"})
+
+    bv = v.view().as_bundle()
+    assert bv["x"].as_int() == 10
+    assert not bv["y"].valid()
+    assert bv["name"].as_string() == "origin"
+    assert v.to_python() == {"x": 10, "y": None, "name": "origin"}

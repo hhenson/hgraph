@@ -16,7 +16,9 @@
 
 #include <hgraph/types/value/slot_observer.h>
 #include <hgraph/types/value/type_meta.h>
+#include <hgraph/types/value/validity_bitmap.h>
 
+#include <algorithm>
 #include <cstddef>
 #include <cstring>
 #include <vector>
@@ -31,6 +33,10 @@ namespace hgraph::value {
  */
 class ValueArray : public SlotObserver {
 public:
+    static size_t mask_bytes(size_t slots) {
+        return validity_mask_bytes(slots);
+    }
+
     // ========== Construction ==========
 
     ValueArray() = default;
@@ -45,6 +51,7 @@ public:
 
     ValueArray(ValueArray&& other) noexcept
         : values_(std::move(other.values_))
+        , validity_(std::move(other.validity_))
         , value_type_(other.value_type_)
         , capacity_(other.capacity_) {
         other.capacity_ = 0;
@@ -53,6 +60,7 @@ public:
     ValueArray& operator=(ValueArray&& other) noexcept {
         if (this != &other) {
             values_ = std::move(other.values_);
+            validity_ = std::move(other.validity_);
             value_type_ = other.value_type_;
             capacity_ = other.capacity_;
             other.capacity_ = 0;
@@ -71,6 +79,7 @@ public:
         if (!value_type_) return;
 
         size_t new_byte_size = new_cap * value_type_->size;
+        size_t new_mask_size = mask_bytes(new_cap);
 
         // Handle non-trivially-copyable types
         if (!value_type_->is_trivially_copyable() && capacity_ > 0) {
@@ -85,6 +94,7 @@ public:
             values_.resize(new_byte_size);
         }
 
+        validity_.resize(new_mask_size, std::byte{0});
         capacity_ = new_cap;
     }
 
@@ -95,6 +105,7 @@ public:
         if (value_type_->ops().construct) {
             value_type_->ops().construct(val_ptr, value_type_);
         }
+        set_valid_slot(slot, true);
     }
 
     void on_erase(size_t slot) override {
@@ -104,6 +115,7 @@ public:
         if (value_type_->ops().destroy) {
             value_type_->ops().destroy(val_ptr, value_type_);
         }
+        set_valid_slot(slot, false);
     }
 
     void on_update(size_t /*slot*/) override {
@@ -113,6 +125,7 @@ public:
     void on_clear() override {
         // All values will be destructed - handled by caller iterating live slots
         // Just reset our state (values storage remains allocated for reuse)
+        std::fill(validity_.begin(), validity_.end(), std::byte{0});
     }
 
     // ========== Value Access ==========
@@ -125,12 +138,27 @@ public:
         return values_.data() + slot * value_type_->size;
     }
 
+    [[nodiscard]] const void* value_or_null_at_slot(size_t slot) const {
+        return is_valid_slot(slot) ? value_at_slot(slot) : nullptr;
+    }
+
+    [[nodiscard]] bool is_valid_slot(size_t slot) const {
+        if (slot >= capacity_ || validity_.empty()) return false;
+        return validity_bit_get(validity_.data(), slot);
+    }
+
+    void set_valid_slot(size_t slot, bool valid) {
+        if (slot >= capacity_ || validity_.empty()) return;
+        validity_bit_set(validity_.data(), slot, valid);
+    }
+
     [[nodiscard]] const TypeMeta* value_type() const { return value_type_; }
     [[nodiscard]] size_t capacity() const { return capacity_; }
     [[nodiscard]] const std::byte* data() const { return values_.data(); }
 
 private:
     std::vector<std::byte> values_;
+    std::vector<std::byte> validity_;
     const TypeMeta* value_type_{nullptr};
     size_t capacity_{0};
 };

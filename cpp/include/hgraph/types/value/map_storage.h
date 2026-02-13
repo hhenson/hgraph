@@ -17,6 +17,8 @@
 #include <hgraph/types/value/set_storage.h>
 #include <hgraph/types/value/value_array.h>
 
+#include <stdexcept>
+
 namespace hgraph::value {
 
 /**
@@ -96,7 +98,7 @@ public:
         if (slot == static_cast<size_t>(-1)) {
             throw std::out_of_range("Map key not found");
         }
-        return values_.value_at_slot(slot);
+        return values_.value_or_null_at_slot(slot);
     }
 
     [[nodiscard]] void* at(const void* key) {
@@ -104,7 +106,7 @@ public:
         if (slot == static_cast<size_t>(-1)) {
             throw std::out_of_range("Map key not found");
         }
-        return const_cast<void*>(values_.value_at_slot(slot));
+        return const_cast<void*>(values_.value_or_null_at_slot(slot));
     }
 
     void set_item(const void* key, const void* value) {
@@ -112,9 +114,14 @@ public:
 
         if (slot != static_cast<size_t>(-1)) {
             // Key exists - update value
-            void* val_ptr = const_cast<void*>(values_.value_at_slot(slot));
-            if (value_type_ && value_type_->ops().copy) {
-                value_type_->ops().copy(val_ptr, value, value_type_);
+            if (value) {
+                void* val_ptr = const_cast<void*>(values_.value_at_slot(slot));
+                if (value_type_ && value_type_->ops().copy) {
+                    value_type_->ops().copy(val_ptr, value, value_type_);
+                }
+                values_.set_valid_slot(slot, true);
+            } else {
+                values_.set_valid_slot(slot, false);
             }
             // Notify observers of value update
             set_.key_set().observer_dispatcher().notify_update(slot);
@@ -122,10 +129,15 @@ public:
             // Insert new key (observers notified via on_insert)
             auto [new_slot, inserted] = set_.key_set().insert(key);
             if (inserted) {
-                // Copy value to the newly constructed slot
-                void* val_ptr = const_cast<void*>(values_.value_at_slot(new_slot));
-                if (value_type_ && value_type_->ops().copy) {
-                    value_type_->ops().copy(val_ptr, value, value_type_);
+                if (value) {
+                    // Copy value to the newly constructed slot
+                    void* val_ptr = const_cast<void*>(values_.value_at_slot(new_slot));
+                    if (value_type_ && value_type_->ops().copy) {
+                        value_type_->ops().copy(val_ptr, value, value_type_);
+                    }
+                    values_.set_valid_slot(new_slot, true);
+                } else {
+                    values_.set_valid_slot(new_slot, false);
                 }
             }
         }
@@ -165,6 +177,22 @@ public:
 
     [[nodiscard]] void* value_at_slot(size_t slot) {
         return const_cast<void*>(values_.value_at_slot(slot));
+    }
+
+    [[nodiscard]] const void* value_at_slot_or_null(size_t slot) const {
+        return values_.value_or_null_at_slot(slot);
+    }
+
+    [[nodiscard]] bool is_value_valid_at_slot(size_t slot) const {
+        return values_.is_valid_slot(slot);
+    }
+
+    [[nodiscard]] bool is_value_valid(const void* key) const {
+        size_t slot = set_.key_set().find(key);
+        if (slot == static_cast<size_t>(-1)) {
+            throw std::out_of_range("Map key not found");
+        }
+        return values_.is_valid_slot(slot);
     }
 
     // ========== Internal Access ==========

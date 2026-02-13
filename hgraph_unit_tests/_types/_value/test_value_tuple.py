@@ -593,6 +593,20 @@ def test_tuple_from_python(simple_tuple_schema):
     assert abs(ctv[2].as_double() - 3.14) < 1e-10
 
 
+def test_tuple_from_python_none_element_round_trips_as_null(simple_tuple_schema):
+    """Tuple elements accept None as null state and preserve element schema."""
+    v = PlainValue(simple_tuple_schema)
+
+    v.emplace()
+    v.from_python((42, None, 3.14))
+
+    tv = v.view().as_tuple()
+    assert tv[0].as_int() == 42
+    assert not tv[1].valid()
+    assert abs(tv[2].as_double() - 3.14) < 1e-10
+    assert tuple(v.to_python()) == (42, None, 3.14)
+
+
 # =============================================================================
 # Tuple To String
 # =============================================================================
