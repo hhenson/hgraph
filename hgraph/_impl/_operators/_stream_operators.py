@@ -467,8 +467,9 @@ def batch_default(
     condition: TS[bool],
     ts: TS[SCALAR],
     delay: timedelta,
-    use_wall_clock: bool = False,
     buffer_length: int = sys.maxsize,
+    *,
+    use_wall_clock: bool = False,
     _state: STATE = None,
     _sched: SCHEDULER = None,
 ) -> TS[tuple[SCALAR, ...]]:

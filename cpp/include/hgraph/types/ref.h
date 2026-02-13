@@ -247,12 +247,14 @@ namespace hgraph
         size_t                            size() const { return _size; }
         [[nodiscard]] TimeSeriesReference value() const override;
 
-        [[nodiscard]] bool                                bound() const override;
-        [[nodiscard]] bool                                modified() const override;
-        [[nodiscard]] bool                                valid() const override;
-        [[nodiscard]] bool                                all_valid() const override;
-        [[nodiscard]] engine_time_t                         last_modified_time() const override;
-        void                                                clone_binding(const TimeSeriesReferenceInput::ptr other) override;
+        [[nodiscard]] bool          bound() const override;
+        [[nodiscard]] bool          modified() const override;
+        [[nodiscard]] bool          valid() const override;
+        [[nodiscard]] bool          all_valid() const override;
+        [[nodiscard]] engine_time_t last_modified_time() const override;
+        void                        clone_binding(const TimeSeriesReferenceInput::ptr other) override;
+        void                        un_bind_output(bool unbind_refs) override;
+        
         std::vector<TimeSeriesReferenceInput::s_ptr>       &items() override;
         const std::vector<TimeSeriesReferenceInput::s_ptr> &items() const override;
 
@@ -287,6 +289,7 @@ namespace hgraph
         [[nodiscard]] bool          all_valid() const override;
         [[nodiscard]] engine_time_t last_modified_time() const override;
         void                        clone_binding(const TimeSeriesReferenceInput::ptr other) override;
+        void                        un_bind_output(bool unbind_refs) override;
 
         std::vector<TimeSeriesReferenceInput::s_ptr>       &items() override;
         const std::vector<TimeSeriesReferenceInput::s_ptr> &items() const override;
