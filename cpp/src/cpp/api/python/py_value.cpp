@@ -330,28 +330,35 @@ static void register_view(nb::module_& m) {
             "Check if this is a string scalar")
 
         // Specialized view access (Design Doc Section 6.2 - as_bundle(), as_list(), etc.)
-        .def("as_tuple", &View::as_tuple, "Get as a tuple view (throws if not a tuple)")
-        .def("as_bundle", &View::as_bundle, "Get as a bundle view (throws if not a bundle)")
-        .def("as_list", &View::as_list, "Get as a list view (throws if not a list)")
-        .def("as_set", &View::as_set, "Get as a set view (throws if not a set)")
-        .def("as_map", &View::as_map, "Get as a map view (throws if not a map)")
-        .def("as_cyclic_buffer", &View::as_cyclic_buffer, "Get as a cyclic buffer view (throws if not a cyclic buffer)")
-        .def("as_queue", &View::as_queue, "Get as a queue view (throws if not a queue)")
+        .def("as_tuple", &View::as_tuple, nb::rv_policy::reference_internal,
+            "Get as a tuple view (throws if not a tuple)")
+        .def("as_bundle", &View::as_bundle, nb::rv_policy::reference_internal,
+            "Get as a bundle view (throws if not a bundle)")
+        .def("as_list", &View::as_list, nb::rv_policy::reference_internal,
+            "Get as a list view (throws if not a list)")
+        .def("as_set", &View::as_set, nb::rv_policy::reference_internal,
+            "Get as a set view (throws if not a set)")
+        .def("as_map", &View::as_map, nb::rv_policy::reference_internal,
+            "Get as a map view (throws if not a map)")
+        .def("as_cyclic_buffer", &View::as_cyclic_buffer, nb::rv_policy::reference_internal,
+            "Get as a cyclic buffer view (throws if not a cyclic buffer)")
+        .def("as_queue", &View::as_queue, nb::rv_policy::reference_internal,
+            "Get as a queue view (throws if not a queue)")
 
         // Safe composite type access (returns None if type mismatch)
-        .def("try_as_tuple", &View::try_as_tuple,
+        .def("try_as_tuple", &View::try_as_tuple, nb::rv_policy::reference_internal,
             "Try to get as a tuple view (returns None if not a tuple)")
-        .def("try_as_bundle", &View::try_as_bundle,
+        .def("try_as_bundle", &View::try_as_bundle, nb::rv_policy::reference_internal,
             "Try to get as a bundle view (returns None if not a bundle)")
-        .def("try_as_list", &View::try_as_list,
+        .def("try_as_list", &View::try_as_list, nb::rv_policy::reference_internal,
             "Try to get as a list view (returns None if not a list)")
-        .def("try_as_set", &View::try_as_set,
+        .def("try_as_set", &View::try_as_set, nb::rv_policy::reference_internal,
             "Try to get as a set view (returns None if not a set)")
-        .def("try_as_map", &View::try_as_map,
+        .def("try_as_map", &View::try_as_map, nb::rv_policy::reference_internal,
             "Try to get as a map view (returns None if not a map)")
-        .def("try_as_cyclic_buffer", &View::try_as_cyclic_buffer,
+        .def("try_as_cyclic_buffer", &View::try_as_cyclic_buffer, nb::rv_policy::reference_internal,
             "Try to get as a cyclic buffer view (returns None if not a cyclic buffer)")
-        .def("try_as_queue", &View::try_as_queue,
+        .def("try_as_queue", &View::try_as_queue, nb::rv_policy::reference_internal,
             "Try to get as a queue view (returns None if not a queue)")
 
         // Operations
@@ -435,14 +442,14 @@ static void register_view(nb::module_& m) {
         // Path-based Navigation (User Guide Section 10)
         .def("navigate", [](const View& self, const std::string& path_str) {
             return navigate(self, path_str);
-        }, "path"_a,
+        }, "path"_a, nb::rv_policy::reference_internal,
             "Navigate through the value using a path string.\n\n"
             "Returns the View at the path destination.\n"
             "Throws if navigation fails.")
         .def("try_navigate", [](const View& self, const std::string& path_str)
             -> std::optional<View> {
             return try_navigate(self, path_str);
-        }, "path"_a,
+        }, "path"_a, nb::rv_policy::reference_internal,
             "Try to navigate through the value using a path string.\n\n"
             "Returns the View at the destination, or None on failure.");
 }
@@ -469,13 +476,20 @@ static void register_value_view(nb::module_& m) {
         }, "value"_a, "Set the value as string (throws if type mismatch)")
 
         // Specialized view access (mutable)
-        .def("as_tuple", &ValueView::as_tuple, "Get as a mutable tuple view (throws if not a tuple)")
-        .def("as_bundle", &ValueView::as_bundle, "Get as a mutable bundle view (throws if not a bundle)")
-        .def("as_list", &ValueView::as_list, "Get as a mutable list view (throws if not a list)")
-        .def("as_set", &ValueView::as_set, "Get as a mutable set view (throws if not a set)")
-        .def("as_map", &ValueView::as_map, "Get as a mutable map view (throws if not a map)")
-        .def("as_cyclic_buffer", &ValueView::as_cyclic_buffer, "Get as a mutable cyclic buffer view (throws if not a cyclic buffer)")
-        .def("as_queue", &ValueView::as_queue, "Get as a mutable queue view (throws if not a queue)")
+        .def("as_tuple", &ValueView::as_tuple, nb::rv_policy::reference_internal,
+            "Get as a mutable tuple view (throws if not a tuple)")
+        .def("as_bundle", &ValueView::as_bundle, nb::rv_policy::reference_internal,
+            "Get as a mutable bundle view (throws if not a bundle)")
+        .def("as_list", &ValueView::as_list, nb::rv_policy::reference_internal,
+            "Get as a mutable list view (throws if not a list)")
+        .def("as_set", &ValueView::as_set, nb::rv_policy::reference_internal,
+            "Get as a mutable set view (throws if not a set)")
+        .def("as_map", &ValueView::as_map, nb::rv_policy::reference_internal,
+            "Get as a mutable map view (throws if not a map)")
+        .def("as_cyclic_buffer", &ValueView::as_cyclic_buffer, nb::rv_policy::reference_internal,
+            "Get as a mutable cyclic buffer view (throws if not a cyclic buffer)")
+        .def("as_queue", &ValueView::as_queue, nb::rv_policy::reference_internal,
+            "Get as a mutable queue view (throws if not a queue)")
 
         // Mutation from another view
         .def("copy_from", &ValueView::copy_from, "other"_a,
@@ -516,14 +530,14 @@ static void register_value_view(nb::module_& m) {
         // Path-based Navigation (User Guide Section 10)
         .def("navigate_mut", [](ValueView& self, const std::string& path_str) {
             return navigate_mut(self, path_str);
-        }, "path"_a,
+        }, "path"_a, nb::rv_policy::reference_internal,
             "Navigate through the mutable value using a path string.\n\n"
             "Returns the ValueView at the path destination.\n"
             "Throws if navigation fails.")
         .def("try_navigate_mut", [](ValueView& self, const std::string& path_str)
             -> std::optional<ValueView> {
             return try_navigate_mut(self, path_str);
-        }, "path"_a,
+        }, "path"_a, nb::rv_policy::reference_internal,
             "Try to navigate through the mutable value using a path string.\n\n"
             "Returns the ValueView at the destination, or None on failure.");
 }
@@ -538,7 +552,7 @@ static void register_indexed_view(nb::module_& m) {
         .def("size", &IndexedView::size, "Get the number of elements")
         .def("empty", &IndexedView::empty, "Check if empty")
         .def("at", static_cast<ValueView (IndexedView::*)(size_t)>(&IndexedView::at),
-            "index"_a, "Get element at index (mutable)")
+            "index"_a, nb::rv_policy::reference_internal, "Get element at index (mutable)")
         .def("__getitem__", [](IndexedView& self, int64_t index) {
             int64_t size = static_cast<int64_t>(self.size());
             if (index < 0) {
@@ -548,7 +562,7 @@ static void register_indexed_view(nb::module_& m) {
                 throw nb::index_error("index out of range");
             }
             return self[static_cast<size_t>(index)];
-        }, "index"_a)
+        }, "index"_a, nb::rv_policy::reference_internal)
         .def("__len__", &IndexedView::size)
         .def("set", static_cast<void (IndexedView::*)(size_t, const View&)>(&IndexedView::set),
             "index"_a, "value"_a, "Set element at index from a view")
@@ -612,11 +626,11 @@ static void register_bundle_views(nb::module_& m) {
         // Named field access (const)
         .def("at_name", [](const BundleView& self, const std::string& name) {
             return self.at(name);
-        }, "name"_a, "Get field by name (const)")
+        }, "name"_a, nb::rv_policy::reference_internal, "Get field by name (const)")
         // Named field access (mutable)
         .def("at_name_mut", [](BundleView& self, const std::string& name) {
             return self.at(name);
-        }, "name"_a, "Get field by name (mutable)")
+        }, "name"_a, nb::rv_policy::reference_internal, "Get field by name (mutable)")
         // Set by name with View
         .def("set_name", [](BundleView& self, const std::string& name, const View& value) {
             self.set(name, value);
@@ -635,7 +649,7 @@ static void register_bundle_views(nb::module_& m) {
         // __getitem__ for indexing
         .def("__getitem__", [](BundleView& self, const std::string& name) {
             return self.at(name);
-        }, "name"_a)
+        }, "name"_a, nb::rv_policy::reference_internal)
         // Field metadata
         .def("field_count", &BundleView::field_count, "Get the number of fields")
         .def("has_field", [](const BundleView& self, const std::string& name) {
@@ -654,9 +668,9 @@ static void register_list_views(nb::module_& m) {
     nb::class_<ListView, IndexedView>(m, "ListView",
         "Mutable view for list types")
         .def("front", static_cast<ValueView (ListView::*)()>(&ListView::front),
-            "Get the first element (mutable)")
+            nb::rv_policy::reference_internal, "Get the first element (mutable)")
         .def("back", static_cast<ValueView (ListView::*)()>(&ListView::back),
-            "Get the last element (mutable)")
+            nb::rv_policy::reference_internal, "Get the last element (mutable)")
         .def("element_type", &ListView::element_type, nb::rv_policy::reference,
             "Get the element type")
         .def("is_fixed", &ListView::is_fixed, "Check if this is a fixed-size list")
@@ -785,7 +799,7 @@ static void register_set_views(nb::module_& m) {
             }
             const void* elem = self.schema()->ops().at(self.data(), index, self.schema());
             return View(elem, self.schema()->element_type);
-        }, "index"_a, "Get element at index")
+        }, "index"_a, nb::rv_policy::reference_internal, "Get element at index")
         // Iteration support
         .def("__iter__", [](SetView& self) {
             nb::list result;
@@ -812,9 +826,11 @@ static void register_tracked_set(nb::module_& m) {
         .def("has_delta", &TrackedSetStorage::has_delta, "Check if there are pending changes")
         .def("__len__", &TrackedSetStorage::size)
         .def("value", static_cast<SetView (TrackedSetStorage::*)() const>(&TrackedSetStorage::value),
-            "Get read-only view of current set")
-        .def("added", &TrackedSetStorage::added, "Get read-only view of added elements")
-        .def("removed", &TrackedSetStorage::removed, "Get read-only view of removed elements")
+            nb::rv_policy::reference_internal, "Get read-only view of current set")
+        .def("added", &TrackedSetStorage::added, nb::rv_policy::reference_internal,
+            "Get read-only view of added elements")
+        .def("removed", &TrackedSetStorage::removed, nb::rv_policy::reference_internal,
+            "Get read-only view of removed elements")
         .def("contains", static_cast<bool (TrackedSetStorage::*)(const View&) const>(
             &TrackedSetStorage::contains), "elem"_a, "Check if element is in set")
         .def("__contains__", static_cast<bool (TrackedSetStorage::*)(const View&) const>(
@@ -838,9 +854,12 @@ static void register_tracked_set(nb::module_& m) {
         .def("empty", &TrackedSetView::empty, "Check if empty")
         .def("has_delta", &TrackedSetView::has_delta, "Check for pending changes")
         .def("__len__", &TrackedSetView::size)
-        .def("value", &TrackedSetView::value, "Get read-only view of current set")
-        .def("added", &TrackedSetView::added, "Get read-only view of added elements")
-        .def("removed", &TrackedSetView::removed, "Get read-only view of removed elements")
+        .def("value", &TrackedSetView::value, nb::rv_policy::reference_internal,
+            "Get read-only view of current set")
+        .def("added", &TrackedSetView::added, nb::rv_policy::reference_internal,
+            "Get read-only view of added elements")
+        .def("removed", &TrackedSetView::removed, nb::rv_policy::reference_internal,
+            "Get read-only view of removed elements")
         .def("contains", static_cast<bool (TrackedSetView::*)(const View&) const>(
             &TrackedSetView::contains), "elem"_a)
         .def("__contains__", static_cast<bool (TrackedSetView::*)(const View&) const>(
@@ -870,8 +889,10 @@ static void register_tracked_set(nb::module_& m) {
         .def(nb::init<SetView, SetView, const TypeMeta*>(),
             "added"_a, "removed"_a, "element_type"_a,
             "Create delta from added/removed sets")
-        .def("added", &SetDeltaValue::added, "Get read-only view of added elements")
-        .def("removed", &SetDeltaValue::removed, "Get read-only view of removed elements")
+        .def("added", &SetDeltaValue::added, nb::rv_policy::reference_internal,
+            "Get read-only view of added elements")
+        .def("removed", &SetDeltaValue::removed, nb::rv_policy::reference_internal,
+            "Get read-only view of removed elements")
         .def("empty", &SetDeltaValue::empty, "Check if delta is empty")
         .def("added_count", &SetDeltaValue::added_count, "Get number of added elements")
         .def("removed_count", &SetDeltaValue::removed_count, "Get number of removed elements")
@@ -916,9 +937,11 @@ static void register_map_views(nb::module_& m) {
         .def("empty", &MapView::empty, "Check if empty")
         .def("__len__", &MapView::size)
         .def("at", static_cast<ValueView (MapView::*)(const View&)>(&MapView::at),
-            "key"_a, "Get value by key (mutable, throws if not found)")
+            "key"_a, nb::rv_policy::reference_internal,
+            "Get value by key (mutable, throws if not found)")
         .def("at_const", static_cast<View (MapView::*)(const View&) const>(
-            &MapView::at), "key"_a, "Get value by key (const, throws if not found)")
+            &MapView::at), "key"_a, nb::rv_policy::reference_internal,
+            "Get value by key (const, throws if not found)")
         // __getitem__ with auto-insert behavior (like C++ std::map::operator[])
         .def("__getitem__", [](MapView& self, const View& key) -> ValueView {
             // If key doesn't exist, insert default value
@@ -930,7 +953,8 @@ static void register_map_views(nb::module_& m) {
                 self.set(key, View(default_val.view()));
             }
             return self.at(key);
-        }, "key"_a, "Get value by key (auto-inserts default if missing)")
+        }, "key"_a, nb::rv_policy::reference_internal,
+            "Get value by key (auto-inserts default if missing)")
         .def("contains", static_cast<bool (MapView::*)(const View&) const>(
             &MapView::contains), "key"_a, "Check if a key exists")
         .def("__contains__", static_cast<bool (MapView::*)(const View&) const>(
@@ -954,7 +978,7 @@ static void register_map_views(nb::module_& m) {
             }
             return nb::iter(result);
         }, "Iterate over keys (like dict)")
-        .def("keys", &MapView::keys,
+        .def("keys", &MapView::keys, nb::rv_policy::reference_internal,
             "Get KeySetView over map keys")
         .def("values", [](MapView& self) {
             nb::object py_dict = self.to_python();
@@ -974,9 +998,9 @@ static void register_cyclic_buffer_views(nb::module_& m) {
     nb::class_<CyclicBufferView, IndexedView>(m, "CyclicBufferView",
         "Mutable view for cyclic buffer types")
         .def("front", static_cast<ValueView (CyclicBufferView::*)()>(&CyclicBufferView::front),
-            "Get the oldest element (mutable)")
+            nb::rv_policy::reference_internal, "Get the oldest element (mutable)")
         .def("back", static_cast<ValueView (CyclicBufferView::*)()>(&CyclicBufferView::back),
-            "Get the newest element (mutable)")
+            nb::rv_policy::reference_internal, "Get the newest element (mutable)")
         .def("element_type", &CyclicBufferView::element_type, nb::rv_policy::reference,
             "Get the element type")
         .def("capacity", &CyclicBufferView::capacity, "Get the fixed capacity")
@@ -1037,9 +1061,9 @@ static void register_queue_views(nb::module_& m) {
     nb::class_<QueueView, IndexedView>(m, "QueueView",
         "Mutable view for queue types")
         .def("front", static_cast<ValueView (QueueView::*)()>(&QueueView::front),
-            "Get the front element (mutable)")
+            nb::rv_policy::reference_internal, "Get the front element (mutable)")
         .def("back", static_cast<ValueView (QueueView::*)()>(&QueueView::back),
-            "Get the back element (mutable)")
+            nb::rv_policy::reference_internal, "Get the back element (mutable)")
         .def("element_type", &QueueView::element_type, nb::rv_policy::reference,
             "Get the element type")
         .def("max_capacity", &QueueView::max_capacity,
@@ -1088,7 +1112,7 @@ static void register_path_element(nb::module_& m) {
         }, "Get the field name (throws if not a field element)")
         .def("get_index", &PathElement::get_index,
             "Get the index value (throws if not an index element)")
-        .def("get_value", &PathElement::get_value,
+        .def("get_value", &PathElement::get_value, nb::rv_policy::reference_internal,
             "Get the value key as a View (throws if not a value element)")
 
         // String representation
@@ -1122,7 +1146,7 @@ static void register_path_functions(nb::module_& m) {
     // navigate function (const)
     m.def("navigate", [](View view, const std::string& path_str) {
         return navigate(view, path_str);
-    }, "view"_a, "path"_a,
+    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
         "Navigate through a value using a path string.\n\n"
         "Returns the View at the path destination.\n"
         "Throws if navigation fails.");
@@ -1130,14 +1154,14 @@ static void register_path_functions(nb::module_& m) {
     // navigate with ValuePath
     m.def("navigate", [](View view, const ValuePath& path) {
         return navigate(view, path);
-    }, "view"_a, "path"_a,
+    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
         "Navigate through a value using a ValuePath.");
 
     // try_navigate function (const)
     m.def("try_navigate", [](View view, const std::string& path_str)
         -> std::optional<View> {
         return try_navigate(view, path_str);
-    }, "view"_a, "path"_a,
+    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
         "Try to navigate through a value using a path string.\n\n"
         "Returns the View at the path destination, or None on failure.");
 
@@ -1145,13 +1169,13 @@ static void register_path_functions(nb::module_& m) {
     m.def("try_navigate", [](View view, const ValuePath& path)
         -> std::optional<View> {
         return try_navigate(view, path);
-    }, "view"_a, "path"_a,
+    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
         "Try to navigate through a value using a ValuePath.");
 
     // navigate_mut function (mutable)
     m.def("navigate_mut", [](ValueView view, const std::string& path_str) {
         return navigate_mut(view, path_str);
-    }, "view"_a, "path"_a,
+    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
         "Navigate through a mutable value using a path string.\n\n"
         "Returns the ValueView at the path destination.\n"
         "Throws if navigation fails.");
@@ -1159,14 +1183,14 @@ static void register_path_functions(nb::module_& m) {
     // navigate_mut with ValuePath
     m.def("navigate_mut", [](ValueView view, const ValuePath& path) {
         return navigate_mut(view, path);
-    }, "view"_a, "path"_a,
+    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
         "Navigate through a mutable value using a ValuePath.");
 
     // try_navigate_mut function
     m.def("try_navigate_mut", [](ValueView view, const std::string& path_str)
         -> std::optional<ValueView> {
         return try_navigate_mut(view, path_str);
-    }, "view"_a, "path"_a,
+    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
         "Try to navigate through a mutable value using a path string.\n\n"
         "Returns the ValueView at the path destination, or None on failure.");
 
@@ -1174,7 +1198,7 @@ static void register_path_functions(nb::module_& m) {
     m.def("try_navigate_mut", [](ValueView view, const ValuePath& path)
         -> std::optional<ValueView> {
         return try_navigate_mut(view, path);
-    }, "view"_a, "path"_a,
+    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
         "Try to navigate through a mutable value using a ValuePath.");
 }
 
@@ -1289,19 +1313,19 @@ static void register_value(nb::module_& m) {
 
         // View access (Design Doc Section 6.2)
         .def("view", static_cast<ValueView (Value::*)()>(&Value::view),
-            "Get a mutable view of the data")
+            nb::rv_policy::reference_internal, "Get a mutable view of the data")
 
         // Specialized view access (Design Doc Section 6.2)
         .def("as_tuple", static_cast<TupleView (Value::*)()>(&Value::as_tuple),
-            "Get as a tuple view (mutable)")
+            nb::rv_policy::reference_internal, "Get as a tuple view (mutable)")
         .def("as_bundle", static_cast<BundleView (Value::*)()>(&Value::as_bundle),
-            "Get as a bundle view (mutable)")
+            nb::rv_policy::reference_internal, "Get as a bundle view (mutable)")
         .def("as_list", static_cast<ListView (Value::*)()>(&Value::as_list),
-            "Get as a list view (mutable)")
+            nb::rv_policy::reference_internal, "Get as a list view (mutable)")
         .def("as_set", static_cast<SetView (Value::*)()>(&Value::as_set),
-            "Get as a set view (mutable)")
+            nb::rv_policy::reference_internal, "Get as a set view (mutable)")
         .def("as_map", static_cast<MapView (Value::*)()>(&Value::as_map),
-            "Get as a map view (mutable)")
+            nb::rv_policy::reference_internal, "Get as a map view (mutable)")
 
         // Typed access - explicit getters (Design Doc Section 7)
         .def("as_int", [](Value& self) { return self.checked_as<int64_t>(); },
@@ -1362,26 +1386,26 @@ static void register_value(nb::module_& m) {
         // Path-based Navigation (User Guide Section 10)
         .def("navigate", [](const Value& self, const std::string& path_str) {
             return navigate(self.view(), path_str);
-        }, "path"_a,
+        }, "path"_a, nb::rv_policy::reference_internal,
             "Navigate through the value using a path string.\n\n"
             "Returns the View at the path destination.\n"
             "Throws if navigation fails.")
         .def("try_navigate", [](const Value& self, const std::string& path_str)
             -> std::optional<View> {
             return try_navigate(self.view(), path_str);
-        }, "path"_a,
+        }, "path"_a, nb::rv_policy::reference_internal,
             "Try to navigate through the value using a path string.\n\n"
             "Returns the View at the destination, or None on failure.")
         .def("navigate_mut", [](Value& self, const std::string& path_str) {
             return navigate_mut(self.view(), path_str);
-        }, "path"_a,
+        }, "path"_a, nb::rv_policy::reference_internal,
             "Navigate through the mutable value using a path string.\n\n"
             "Returns the ValueView at the path destination.\n"
             "Throws if navigation fails.")
         .def("try_navigate_mut", [](Value& self, const std::string& path_str)
             -> std::optional<ValueView> {
             return try_navigate_mut(self.view(), path_str);
-        }, "path"_a,
+        }, "path"_a, nb::rv_policy::reference_internal,
             "Try to navigate through the mutable value using a path string.\n\n"
             "Returns the ValueView at the destination, or None on failure.");
 }
