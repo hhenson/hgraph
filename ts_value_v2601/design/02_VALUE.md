@@ -55,29 +55,42 @@ This design keeps the in-process layout compact and efficient while preserving A
 ## View
 
 ### Purpose
-Type-erased non-owning reference to data. Provides read/write access to a value and tracks its position within the owning Value's structure.
+Type-erased non-owning reference to data. `View` is read-only and `ValueView` is mutable.
 
 ### Structure
 
 ```cpp
 class View {
-    void* data_;              // Borrowed pointer to data
+    const void* data_;        // Borrowed pointer to data
     const TypeMeta* schema_;  // Type schema
 
 public:
-    // Schema access
-    const TypeMeta& schema() const;
-
-    // Size (for composites)
-    size_t size() const;
+    // Core access
+    bool valid() const;
+    const TypeMeta* schema() const;
+    const void* data() const;
 
     // Type-erased access
-    template<typename T> T as() const;          // Scalar extraction
-    template<typename T> T* data();             // Direct pointer access
-    View at(size_t index);                      // List/tuple element access
-    View at(std::string_view name);             // Bundle field access
+    template<typename T> const T& as() const;
+    template<typename T> const T* try_as() const;
+    template<typename T> const T& checked_as() const;
 
-    // Operations (forwarded through schema's ops)
+    // Kind checks + wrapper conversions
+    bool is_bundle() const;
+    bool is_tuple() const;
+    bool is_list() const;
+    bool is_set() const;
+    bool is_map() const;
+    std::optional<BundleView> try_as_bundle() const;
+    BundleView as_bundle() const;
+    std::optional<ListView> try_as_list() const;
+    ListView as_list() const;
+    std::optional<SetView> try_as_set() const;
+    SetView as_set() const;
+    std::optional<MapView> try_as_map() const;
+    MapView as_map() const;
+
+    // Generic operations
     bool equals(const View& other) const;
     size_t hash() const;
     std::string to_string() const;
@@ -95,29 +108,36 @@ Views have kind-specific wrappers for convenient access:
 
 | Kind | Wrapper | Additional Interface |
 |------|---------|---------------------|
-| Atomic | View | as<T>(), set<T>() |
-| Bundle | BundleView | at(name), at(index), field_name(index), items() |
-| List | ListView | at(index), append(), clear(), values(), items() |
-| Map | MapView | at(key), contains(key), set_item(key, val), keys(), items() |
-| Set | SetView | contains(elem), add(elem), remove(elem), values() |
+| Atomic | View / ValueView | `as<T>()`, `checked_as<T>()`, `to_python()` |
+| Bundle | BundleView | `at(name)`, `at(index)`, `set(name, value)`, `set(index, value)`, `items()` |
+| List | ListView | `at(index)`, `set(index, value)`, `push_back(value)`, `pop_back()`, `resize(n)`, `clear()` |
+| Map | MapView | `at(key)`, `contains(key)`, `set(key, value)`, `add(key, value)`, `remove(key)`, `keys()`, `key_set()`, `items()` |
+| Set | SetView | `contains(elem)`, `add(elem)`, `remove(elem)`, `clear()`, iteration |
+| CyclicBuffer | CyclicBufferView | `at(index)`, `set(index, value)`, `push(value)`, `pop()`, `capacity()` |
+| Queue | QueueView | `front()`, `back()`, `push(value)`, `pop()`, `max_capacity()` |
 
 ### Example: BundleView
 
 ```cpp
-class BundleView : public View {
+class BundleView : public IndexedView {
 public:
-    // Field access by name
-    View at(std::string_view name);
+    // Field access by name (const/mutable overloads)
+    View at(std::string_view name) const;
+    ValueView at(std::string_view name);
 
-    // Field access by index
-    View at(size_t index);
+    // Field access by index (inherited from IndexedView)
+    using IndexedView::at;
 
-    // Field count and name
+    // Field metadata
     size_t field_count() const;
-    std::string_view field_name(size_t index) const;
+    const BundleFieldInfo* field_info(size_t index) const;
 
-    // Iteration (ViewPairRange: field_name -> value)
-    ViewPairRange items() const;
+    // Mutation
+    void set(std::string_view name, const View& value);
+    using IndexedView::set;
+
+    // Iteration
+    items_range items();
 };
 ```
 

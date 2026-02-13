@@ -22,8 +22,7 @@ def test_policy_value_variants_not_exposed():
 
 
 def test_plain_value_typed_null_roundtrip():
-    tr = value.TypeRegistry.instance()
-    int_schema = tr.get_int_type()
+    int_schema = value.scalar_type_meta_int64()
 
     v = value.PlainValue(int_schema)
     assert not v.has_value()
@@ -43,9 +42,18 @@ def test_plain_value_typed_null_roundtrip():
     assert v.to_python() is None
 
 
+def test_plain_value_schema_and_python_ctor():
+    int_schema = value.scalar_type_meta_int64()
+
+    v = value.PlainValue(int_schema, 456)
+    assert v.has_value()
+    assert v.valid()
+    assert v.schema is int_schema
+    assert v.as_int() == 456
+
+
 def test_plain_value_emplace_and_reset():
-    tr = value.TypeRegistry.instance()
-    int_schema = tr.get_int_type()
+    int_schema = value.scalar_type_meta_int64()
 
     v = value.PlainValue(int_schema)
     assert not v.has_value()

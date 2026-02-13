@@ -24,28 +24,28 @@ Values are constructed from their schema:
 #include <hgraph/types/value.h>
 
 // Get schema by name (primary API)
-const TypeMeta& int_schema = TypeMeta::get("int");
-const TypeMeta& float_schema = TypeMeta::get("float");
-const TypeMeta& datetime_schema = TypeMeta::get("datetime");
+const TypeMeta* int_schema = TypeMeta::get("int");
+const TypeMeta* float_schema = TypeMeta::get("float");
+const TypeMeta* datetime_schema = TypeMeta::get("datetime");
 
 // Template shortcut (for types registered with register_type<T>)
-const TypeMeta& int_schema2 = TypeMeta::get<int64_t>();
+const TypeMeta* int_schema2 = TypeMeta::get<int64_t>();
 
 // Bundle schema (from registry or builder)
-const TypeMeta& point_schema = TypeMeta::get("Point");
+const TypeMeta* point_schema = TypeMeta::get("Point");
 
 // Construct a value from schema
-Value value(int_schema);            // Uninitialized int value
-Value point_value(point_schema);    // Uninitialized bundle value
+Value value(int_schema);            // Typed-null int value
+Value point_value(point_schema);    // Typed-null bundle value
 
-// Construct and initialize from Python object
-Value value(int_schema, nb::int_(42));
-Value point(point_schema, nb::dict("x"_a=1.0, "y"_a=2.0, "z"_a=3.0));
+// Initialize from Python object
+value.from_python(nb::int_(42));
+point_value.from_python(nb::dict("x"_a=1.0, "y"_a=2.0, "z"_a=3.0));
 ```
 
 ### Default Values
 
-Newly constructed values have default state:
+Typed-null values become default-initialized after `emplace()`:
 
 | Type | Default |
 |------|---------|
@@ -69,7 +69,7 @@ Values can represent null (None) using `std::optional`-style semantics. Unlike a
 // Create a typed null value (has schema, but no data)
 Value null_int(TypeMeta::get("int"));
 assert(!null_int.has_value());           // Is null
-assert(null_int.schema()->name() == "int"); // But schema is accessible
+assert(std::string_view(null_int.schema()->name) == "int"); // But schema is accessible
 
 // Emplace to construct a value (makes non-null)
 null_int.emplace();  // Default constructs (0 for int)
@@ -103,8 +103,9 @@ value.from_python(nb::none());  // Calls reset(), makes value null
 
 **Key Points:**
 
-- A Value always has a schema - type information is never lost
-- `meta()` is always safe to call, even on a null Value
+- `Value(schema)` preserves schema while null (`has_value() == false`)
+- Default-constructed `Value()` has no schema until assigned/constructed from schema
+- `schema()` is safe to call (returns `nullptr` if no schema)
 - `data()` and `view()` throw `std::bad_optional_access` when null
 - `reset()` makes the value null but preserves the schema
 - `emplace()` constructs a default value, making it non-null
@@ -158,48 +159,13 @@ if (v.is_bundle()) {
 The base `View` provides common operations. Kind-specific views add the accessors relevant to that structure (field access for bundles, index access for lists, etc.).
 
 ```cpp
-// Views are cheap to copy (pointer + schema + owner + path)
+// Views are cheap to copy (pointer + schema)
 View v2 = v;                        // Shallow copy
 ```
 
-### View Owner and Path
+### View Context
 
-Every View maintains a reference to its **owning Value** and the **path** traversed to reach it:
-
-```cpp
-Value point(point_schema);
-auto bv = point.as_bundle();
-bv.set("x", 1.0);
-
-// Get a nested view
-View x_view = point.view().as_bundle().at("x");
-
-// Access owner and path
-Value* owner = x_view.owner();           // Pointer to 'point'
-const ViewPath& path = x_view.path();    // Path: ["x"]
-std::string path_str = x_view.path_string();  // "x"
-
-// Deeper nesting
-Value nested(nested_schema);
-View deep = nested.view().as_bundle().at("a").as_list().at(0).as_bundle().at("b");
-// deep.path() → path with elements ["a", 0, "b"]
-// deep.owner() → pointer to 'nested'
-```
-
-The path tracks both named access (fields) and indexed access (list elements):
-
-```cpp
-// Path elements can be field names or indices
-for (const auto& elem : path.elements()) {
-    if (elem.is_field()) {
-        std::cout << "." << elem.name();
-    } else {
-        std::cout << "[" << elem.get_index() << "]";
-    }
-}
-```
-
-This enables navigation back to the owner and understanding the view's context within the value structure.
+Current `View`/`ValueView` APIs are intentionally minimal: they carry data pointer + schema and do not expose public owner/path metadata. Context tracking is handled at higher layers when needed.
 
 ### Reading Atomic Values
 
@@ -213,7 +179,7 @@ double f = v.as<double>();                  // Extract as float
 engine_time_t dt = v.as<engine_time_t>();   // Extract as datetime
 
 // Check type before extraction
-if (v.schema().kind() == TypeKind::Atomic) {
+if (v.schema()->kind == TypeKind::Atomic) {
     int64_t x = v.as<int64_t>();
 }
 
@@ -225,98 +191,100 @@ nb::object py = v.to_python();
 
 ```cpp
 View point = ...;  // Bundle with fields x, y, z (all float)
+BundleView bundle = point.as_bundle();
 
 // By field name
-View x_view = point.at("x");        // Returns View
-double x = point.at("x").as<double>();
+View x_view = bundle.at("x");
+double x = bundle.at("x").as<double>();
 
 // By index
-View first = point.at(0);           // First field
-double x = point.at(0).as<double>();
+View first = bundle.at(0);          // First field
+double x = bundle.at(0).as<double>();
 
 // Iteration
-for (size_t i = 0; i < point.size(); ++i) {
-    View field = point.at(i);
-    std::string_view name = point.schema().field_name(i);
+for (auto [name, field] : bundle.items()) {
     std::cout << name << " = " << field.to_string() << "\n";
 }
 
 // Size
-size_t num_fields = point.size();   // 3
+size_t num_fields = bundle.size();
 ```
 
 ### Reading List Values
 
 ```cpp
 View prices = ...;  // List of float
+ListView list = prices.as_list();
 
 // By index
-View first = prices.at(0);
-double first_val = prices.at(0).as<double>();
+View first = list.at(0);
+double first_val = list.at(0).as<double>();
 
 // Iteration
-for (size_t i = 0; i < prices.size(); ++i) {
-    double price = prices.at(i).as<double>();
+for (size_t i = 0; i < list.size(); ++i) {
+    double price = list.at(i).as<double>();
     std::cout << price << "\n";
 }
 
 // Range-based iteration
-for (View elem : prices) {
+for (View elem : list) {
     std::cout << elem.as<double>() << "\n";
 }
 
 // Size
-size_t count = prices.size();
+size_t count = list.size();
 ```
 
 ### Reading Set Values
 
 ```cpp
 View active_ids = ...;  // Set of int
+SetView set = active_ids.as_set();
 
 // Membership
-bool found = active_ids.contains(42);
+bool found = set.contains(42);
 
 // Iteration (order not guaranteed)
-for (View elem : active_ids) {
+for (View elem : set) {
     std::cout << elem.as<int64_t>() << "\n";
 }
 
 // Size
-size_t count = active_ids.size();
+size_t count = set.size();
 ```
 
 ### Reading Map Values
 
 ```cpp
 View scores = ...;  // Map of int -> float
+MapView map = scores.as_map();
 
 // By key
-View score = scores.at(42);
-double player_score = scores.at(42).as<double>();
+View score = map.at(42);
+double player_score = map.at(42).as<double>();
 
 // Key existence
-bool has_player = scores.contains(42);
+bool has_player = map.contains(42);
 
 // Iteration over (key, value) pairs
-for (auto [key, value] : scores.items()) {
+for (auto [key, value] : map.items()) {
     std::cout << key.as<int64_t>() << ": "
               << value.as<double>() << "\n";
 }
 
 // Keys as a SetView (for set operations like contains, iteration)
-SetView key_set = scores.key_set();
+KeySetView key_set = map.key_set();
 for (View key : key_set) {
     std::cout << key.as<int64_t>() << "\n";
 }
 
 // Keys as value iterator (just the keys)
-for (View key : scores.keys()) {
+for (View key : map.keys()) {
     std::cout << key.as<int64_t>() << "\n";
 }
 
 // Size
-size_t count = scores.size();
+size_t count = map.size();
 ```
 
 > **Performance Note**: Sets and Maps provide **O(1)** average-case lookup, insertion, and deletion. They are implemented using hash-based containers internally.
@@ -329,12 +297,10 @@ size_t count = scores.size();
 
 ```cpp
 Value value(TypeMeta::get("int"));
+value.emplace();
 
-// Type-safe setting
-value.set<bool>(true);
-value.set<int64_t>(42);
-value.set<double>(3.14);
-value.set<engine_time_t>(engine_time_t::now());
+// Type-safe mutation via typed reference
+value.as<int64_t>() = 42;
 
 // From Python object
 value.from_python(nb::int_(42));
@@ -344,11 +310,13 @@ value.from_python(nb::int_(42));
 
 ```cpp
 Value point(TypeMeta::get("Point"));
+point.emplace();
+auto bundle = point.as_bundle();
 
 // Set individual fields
-point.at("x").set<double>(1.0);
-point.at("y").set<double>(2.0);
-point.at(2).set<double>(3.0);       // z by index
+bundle.set("x", 1.0);
+bundle.set("y", 2.0);
+bundle.set("z", 3.0);
 
 // Set all at once from Python dict
 point.from_python(nb::dict("x"_a=1.0, "y"_a=2.0, "z"_a=3.0));
@@ -358,16 +326,18 @@ point.from_python(nb::dict("x"_a=1.0, "y"_a=2.0, "z"_a=3.0));
 
 ```cpp
 Value prices(ListBuilder().set_element_type(TypeMeta::get("float")).build());
+prices.emplace();
+auto list = prices.as_list();
 
 // Set element
-prices.at(0).set<double>(100.0);
+list.resize(1);
+list.set(0, 100.0);
 
 // Append (dynamic lists only)
-prices.append(100.0);               // Typed append
-prices.append_python(nb::float_(100.0)); // From Python
+list.push_back(101.0);
 
 // Clear
-prices.clear();
+list.clear();
 
 // Set all at once from Python list
 prices.from_python(nb::list(nb::float_(100.0), nb::float_(101.0)));
@@ -377,16 +347,17 @@ prices.from_python(nb::list(nb::float_(100.0), nb::float_(101.0)));
 
 ```cpp
 Value active_ids(SetBuilder().set_element_type(TypeMeta::get("int")).build());
+active_ids.emplace();
+auto set = active_ids.as_set();
 
 // Add element (returns true if added, false if already present)
-bool added = active_ids.add(42);
-active_ids.add_python(nb::int_(42));
+bool added = set.add(42);
 
 // Remove element (returns true if removed, false if not present)
-bool removed = active_ids.remove(99);
+bool removed = set.remove(99);
 
 // Clear
-active_ids.clear();
+set.clear();
 
 // Set all at once from Python set
 active_ids.from_python(nb::set(nb::int_(1), nb::int_(2), nb::int_(3)));
@@ -399,16 +370,18 @@ Value scores(MapBuilder()
     .set_key_type(TypeMeta::get("int"))
     .set_value_type(TypeMeta::get("float"))
     .build());
+scores.emplace();
+auto map = scores.as_map();
 
 // Set entry
-scores.set_item(42, 150.0);
-scores.at(42).set<double>(150.0);   // If key exists
+map.set(42, 150.0);
+map.add(99, 140.0);
 
 // Remove entry
-scores.remove(99);                  // Returns bool
+map.remove(99);                     // Returns bool
 
 // Clear
-scores.clear();
+map.clear();
 
 // Set all at once from Python dict
 scores.from_python(nb::dict(nb::arg(42)=150.0, nb::arg(99)=140.0));
@@ -425,14 +398,16 @@ Replace entire collection contents from another value of the same schema:
 ```cpp
 Value prices1(list_schema);
 Value prices2(list_schema);
+prices1.emplace();
+prices2.emplace();
+auto list1 = prices1.as_list();
 
 // Populate prices1...
-prices1.append(100.0);
-prices1.append(101.0);
+list1.push_back(100.0);
+list1.push_back(101.0);
 
 // Copy entire value
-prices2.set(prices1);              // Full replacement
-prices2.copy_from(prices1);        // Equivalent
+prices2 = Value::copy(prices1);     // Explicit copy API
 ```
 
 #### Delta Values
@@ -506,24 +481,16 @@ View b = ...;
 // Equality
 bool eq = a.equals(b);
 bool eq = (a == b);                 // Operator overload
-
-// For ordered types
-bool lt = a.less_than(b);
-int cmp = a.compare(b);             // -1, 0, or 1
 ```
 
 ### Copying
 
 ```cpp
 // Copy value
-Value copy = value.copy();
-
-// Copy into existing (must have same schema)
-target.copy_from(source);
+Value copy = Value::copy(value);
 
 // Copy from View
-Value copy(view.schema());
-copy.copy_from(view);
+Value from_view = Value::copy(view);
 ```
 
 ### String Representation
@@ -559,36 +526,36 @@ size_t h = v.hash();
 View v = ...;
 
 // Get schema
-const TypeMeta& schema = v.schema();
+const TypeMeta* schema = v.schema();
 
 // Schema properties
-TypeKind kind = schema.kind();
-size_t size = schema.byte_size();
-bool is_fixed = schema.is_fixed_size();
+TypeKind kind = schema->kind;
+size_t size = schema->size;
+bool is_fixed = schema->is_fixed_size();
 
 // For bundles
-size_t field_count = schema.field_count();
-std::string_view name = schema.field_name(0);
-const TypeMeta& field_schema = schema.field_type(0);
+size_t field_count = schema->field_count;
+std::string_view name = schema->fields[0].name;
+const TypeMeta* field_schema = schema->fields[0].type;
 
 // For containers
-const TypeMeta& elem_schema = schema.element_type();  // List/Set
-const TypeMeta& key_schema = schema.key_type();       // Map
-const TypeMeta& val_schema = schema.value_type();     // Map
+const TypeMeta* elem_schema = schema->element_type;   // List/Set
+const TypeMeta* key_schema = schema->key_type;        // Map
+const TypeMeta* val_schema = schema->element_type;    // Map value type
 ```
 
 ### Type Kind Checking
 
 ```cpp
-switch (schema.kind()) {
+switch (schema->kind) {
     case TypeKind::Bundle:
         // Handle bundle
         break;
     case TypeKind::List:
         // Handle list
         break;
-    case TypeKind::Int:
-        // Handle int
+    case TypeKind::Atomic:
+        // Handle scalar
         break;
     // etc.
 }
@@ -660,8 +627,8 @@ The conversion follows the schema:
 - `object` type passes through as-is
 - Bundles map to dicts (or dataclass instances if schema has a Python type)
 - Lists map to Python lists
-- Sets map to Python frozensets
-- Maps map to Python dicts (or frozendicts)
+- Sets map to Python sets
+- Maps map to Python dicts
 
 ---
 
@@ -671,58 +638,52 @@ The conversion follows the schema:
 
 ```mermaid
 classDiagram
-    class Value~Policy~ {
-        -uintptr_t tagged_schema_
+    class Value {
         -ValueStorage storage_
+        -TypeMeta* schema_
         +Value()
         +Value(schema: TypeMeta*)
         +Value(val: T)
         +Value(view: View)
-        +valid() bool
         +has_value() bool
-        +is_null() bool
         +schema() TypeMeta*
         +view() View
-        +data() void*
+        +view() ValueView
         +as~T~() T&
-        +try_as~T~() T*
-        +checked_as~T~() T&
         +as_bundle() BundleView
+        +as_tuple() TupleView
         +as_list() ListView
         +as_set() SetView
         +as_map() MapView
         +copy(other: Value) Value$
+        +copy(other: View) Value$
         +equals(other: Value) bool
         +hash() size_t
         +to_string() string
-        +apply_delta(SetDeltaView) void
-        +apply_delta(MapDeltaView) void
-        +apply_delta(ListDeltaView) void
         +from_python(obj: nb::object) void
         +to_python() nb::object
         +reset() void
         +emplace() void
-        +make_null(schema) Value$
     }
 
     class View {
         <<type-erased>>
-        -void* data_
+        -const void* data_
         -TypeMeta* schema_
-        -void* owner_
-        -ViewPath path_
         +valid() bool
         +schema() TypeMeta*
-        +data() void*
-        +as~T~() T&
-        +try_as~T~() T*
-        +checked_as~T~() T&
+        +data() const void*
+        +as~T~() const T&
+        +try_as~T~() const T*
+        +checked_as~T~() const T&
         +is_scalar() bool
+        +is_tuple() bool
         +is_bundle() bool
         +is_list() bool
         +is_set() bool
         +is_map() bool
         +as_bundle() BundleView
+        +as_tuple() TupleView
         +as_list() ListView
         +as_set() SetView
         +as_map() MapView
@@ -730,71 +691,44 @@ classDiagram
         +hash() size_t
         +to_string() string
         +to_python() nb::object
+    }
+
+    class ValueView {
+        +data() void*
+        +as~T~() T&
+        +try_as~T~() T*
+        +checked_as~T~() T&
         +from_python(obj: nb::object) void
         +copy_from(other: View) void
-        +owner~Policy~() Value~Policy~*
-        +path() ViewPath&
-        +path_string() string
-    }
-
-    note for View "Type-erased view.\nHolds data pointer, schema, owner, and path.\nKind-specific views extend for specialized access."
-
-    class ViewPath {
-        -vector~ViewPathElement~ elements_
-        +empty() bool
-        +depth() size_t
-        +elements() vector~ViewPathElement~&
-        +push_field(name: string) void
-        +push_index(idx: size_t) void
-        +to_string() string
-    }
-
-    class ViewPathElement {
-        <<variant: string, size_t>>
-        +field(name: string) ViewPathElement$
-        +index(idx: size_t) ViewPathElement$
-        +is_field() bool
-        +is_index() bool
-        +name() string&
-        +get_index() size_t
-        +to_string() string
+        +as_bundle() BundleView
+        +as_tuple() TupleView
+        +as_list() ListView
+        +as_set() SetView
+        +as_map() MapView
     }
 
     class BundleView {
         +size() size_t
-        +field_count() size_t
         +at(index: size_t) View
         +at(name: string_view) View
-        +operator[](index: size_t) View
-        +operator[](name: string_view) View
         +set(index: size_t, value: View) void
         +set(name: string_view, value: View) void
-        +has_field(name: string_view) bool
-        +field_index(name: string_view) size_t
-        +field_info(index: size_t) BundleFieldInfo*
         +items() items_range
-        +begin() iterator
-        +end() iterator
     }
 
     class ListView {
         +size() size_t
         +empty() bool
         +at(index: size_t) View
-        +operator[](index: size_t) View
         +set(index: size_t, value: View) void
         +front() View
         +back() View
         +element_type() TypeMeta*
         +is_fixed() bool
-        +append(value: View) void
+        +push_back(value: View) void
         +pop_back() void
         +resize(new_size: size_t) void
         +clear() void
-        +reset(sentinel: View) void
-        +items() items_range
-        +begin() iterator
-        +end() iterator
     }
 
     class SetView {
@@ -814,13 +748,13 @@ classDiagram
         +empty() bool
         +at~K~(key: K) View
         +contains~K~(key: K) bool
-        +set_item~K,V~(key: K, value: V) void
-        +insert~K,V~(key: K, value: V) bool
+        +set~K,V~(key: K, value: V) void
+        +add~K,V~(key: K, value: V) bool
         +remove~K~(key: K) bool
         +clear() void
         +key_type() TypeMeta*
         +value_type() TypeMeta*
-        +key_set() SetView
+        +key_set() KeySetView
         +keys() value_iterator
         +items() items_range
     }
@@ -842,10 +776,8 @@ classDiagram
         +front() View
         +back() View
         +element_type() TypeMeta*
-        +append(value: View) void
+        +push(value: View) void
         +clear() void
-        +begin() iterator
-        +end() iterator
     }
 
     class QueueView {
@@ -857,38 +789,32 @@ classDiagram
         +element_type() TypeMeta*
         +max_capacity() size_t
         +has_max_capacity() bool
-        +append(value: View) void
-        +pop_front() void
+        +push(value: View) void
+        +pop() void
         +clear() void
-        +begin() iterator
-        +end() iterator
     }
 
     class IndexedView {
         +size() size_t
         +empty() bool
         +at(index: size_t) View
-        +operator[](index: size_t) View
         +set(index: size_t, value: View) void
-        +begin() iterator
-        +end() iterator
     }
 
-    Value~Policy~ --> View : creates
-    View <|-- IndexedView
-    View <|-- SetView
-    View <|-- MapView
+    Value --> View : creates
+    Value --> ValueView : creates
+    View <|-- ValueView
+    ValueView <|-- IndexedView
+    ValueView <|-- SetView
+    ValueView <|-- MapView
     IndexedView <|-- TupleView
     IndexedView <|-- BundleView
     IndexedView <|-- ListView
     IndexedView <|-- CyclicBufferView
     IndexedView <|-- QueueView
-    Value~Policy~ --> TypeMeta : references
+    Value --> TypeMeta : references
     View --> TypeMeta : references
-    View --> Value~Policy~ : owner()
-    View --> ViewPath : contains
-    ViewPath --> ViewPathElement : contains
-    MapView --> SetView : key_set()
+    MapView --> KeySetView : key_set()
 ```
 
 ### Class Diagram - DeltaValue and DeltaView

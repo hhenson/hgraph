@@ -105,9 +105,9 @@ registry.register_type("MyCustomType", my_type_ops);
 After registration, retrieve schema by name:
 
 ```cpp
-const TypeMeta& int_schema = TypeMeta::get("int");
-const TypeMeta& float_schema = TypeMeta::get("float");
-const TypeMeta& object_schema = TypeMeta::get("object");
+const TypeMeta* int_schema = TypeMeta::get("int");
+const TypeMeta* float_schema = TypeMeta::get("float");
+const TypeMeta* object_schema = TypeMeta::get("object");
 ```
 
 ### Template Shortcut API
@@ -120,8 +120,8 @@ This enables a template shortcut for retrieval:
 
 ```cpp
 // These are equivalent for template-registered types:
-const TypeMeta& schema1 = TypeMeta::get("int");      // Name-based (primary)
-const TypeMeta& schema2 = TypeMeta::get<int64_t>();  // Template shortcut
+const TypeMeta* schema1 = TypeMeta::get("int");      // Name-based (primary)
+const TypeMeta* schema2 = TypeMeta::get<int64_t>();  // Template shortcut
 
 // The template version looks up the C++ type in the type cache
 // and returns the same TypeMeta as the name-based version
@@ -147,9 +147,10 @@ using FlagTS = TS<bool>;         // Resolves via TypeMeta::get<bool>() → "bool
 | `date` | `datetime.date` | `engine_date_t` | 4 bytes | Year-month-day |
 | `datetime` | `datetime.datetime` | `engine_time_t` | 8 bytes | Microsecond precision |
 | `timedelta` | `datetime.timedelta` | `engine_time_delta_t` | 8 bytes | Microsecond precision |
+| `string` | `str` | `std::string` | dynamic | UTF-8 string |
 | `object` | `object` | `nb::object` | 8 bytes | Wrapper around PyObject* (arbitrary Python object) |
 
-**Note**: String (`str`) is not currently supported but the type system is extensible.
+**Note**: Atomic string support is available in the current implementation.
 
 ---
 
@@ -163,9 +164,10 @@ The type system provides two primary abstractions for working with type-erased d
 
 ```cpp
 // Construction
-Value point(point_schema);        // Allocate and default-construct
-Value copy = point;               // Copy construction
-Value moved = std::move(point);   // Move construction
+Value point(point_schema);              // Typed-null (schema set, no payload)
+point.emplace();                        // Default-construct payload
+Value moved = std::move(point);         // Move construction
+Value copy = Value::copy(moved);        // Explicit copy
 
 // Storage participation (for use as map key, etc.)
 size_t h = point.hash();          // Hash code
@@ -178,7 +180,7 @@ nb::object py = point.to_python(); // Convert to Python object
 
 // Access
 View v = point.view();            // Get read-only view
-point.at("x").set<double>(1.0);   // Direct field mutation (bundles)
+point.as_bundle().set("x", 1.0);  // Direct field mutation (bundle value)
 ```
 
 `Value` is designed for storage - it can be used as a key in maps, stored in containers, and serialized.
@@ -193,10 +195,13 @@ View v = some_value.view();
 
 // Type-erased access
 double x = v.as<double>();              // Scalar access
-View field = v.at("field_name");        // Bundle field access
-View elem = v.at(0);                    // List/tuple element access
-bool has = v.contains(key_view);        // Map/set membership
-size_t n = v.size();                    // Collection size
+BundleView b = v.as_bundle();
+View field = b.at("field_name");        // Bundle field access
+ListView l = v.as_list();
+View elem = l.at(0);                    // List/tuple element access
+MapView m = v.as_map();
+bool has = m.contains(key_view);        // Map membership
+size_t n = l.size();                    // Collection size
 ```
 
 Views are lightweight and cheap to copy - they contain a pointer to the data plus a reference to the type's operations.
@@ -209,16 +214,16 @@ For kind-specific operations, construct a specialized view from the base `View`:
 View v = bundle_value.view();
 
 // Construct kind-specific view
-BundleView bv(v);                       // Bundle-specific access
+BundleView bv = v.as_bundle();          // Bundle-specific access
 double x = bv.at("x").as<double>();     // Field access
 for (auto [name, field] : bv.items()) { // Iterate fields
     // ...
 }
 
 // Similar for other kinds
-ListView lv(list_view);
-SetView sv(set_view);
-MapView mv(map_view);
+ListView lv = v.as_list();
+SetView sv = v.as_set();
+MapView mv = v.as_map();
 ```
 
 The kind-specific views provide iteration and specialized operations appropriate to each type kind.
@@ -320,20 +325,20 @@ using MoneySchema = Bundle<
 >;
 
 // Get TypeMeta by name (after registration)
-const TypeMeta& point_schema = TypeMeta::get("Point");
-const TypeMeta& money_schema = TypeMeta::get("Money");
+const TypeMeta* point_schema = TypeMeta::get("Point");
+const TypeMeta* money_schema = TypeMeta::get("Money");
 ```
 
 **Option 2: Fluent builder (runtime construction)**
 ```cpp
-const TypeMeta& point_schema = BundleBuilder()
+const TypeMeta* point_schema = BundleBuilder()
     .set_name("Point")
     .add_field("x", TypeMeta::get("float"))
     .add_field("y", TypeMeta::get("float"))
     .add_field("z", TypeMeta::get("float"))
     .build();
 
-const TypeMeta& money_schema = BundleBuilder()
+const TypeMeta* money_schema = BundleBuilder()
     .set_name("Money")
     .add_field("amount", TypeMeta::get("float"))
     .add_field("currency_code", TypeMeta::get("int"))
@@ -343,7 +348,7 @@ const TypeMeta& money_schema = BundleBuilder()
 **Option 3: From Python type**
 ```cpp
 // Retrieve schema from registered Python CompoundScalar type
-const TypeMeta& point_schema = TypeMeta::from_python_type(point_py_type);
+const TypeMeta* point_schema = TypeMeta::from_python_type(point_py_type);
 ```
 
 ### Binding Python Types (Optional)
@@ -353,17 +358,17 @@ A Python dataclass type can be bound to a compound scalar schema to enable prope
 ```cpp
 // Retroactive binding - bind after schema already exists
 // Useful when schema was created via static template definition
-const TypeMeta& point_schema = TypeMeta::get("Point");
-point_schema.bind_python_type(point_py_type);
+const TypeMeta* point_schema = TypeMeta::get("Point");
+TypeRegistry::instance().register_python_type(point_py_type, point_schema);
 
 // Binding during builder construction
-const TypeMeta& point_schema = BundleBuilder()
+const TypeMeta* point_schema = BundleBuilder()
     .set_name("Point")
     .add_field("x", TypeMeta::get("float"))
     .add_field("y", TypeMeta::get("float"))
     .add_field("z", TypeMeta::get("float"))
-    .set_python_type(point_py_type)  // Optional binding
     .build();
+TypeRegistry::instance().register_python_type(point_py_type, point_schema);
 ```
 
 Retroactive binding is particularly useful when schemas are defined using static templates:
@@ -378,8 +383,8 @@ using PointSchema = Bundle<
 >;
 
 // Later, when Python type becomes available, bind it retroactively
-const TypeMeta& schema = TypeMeta::get("Point");
-schema.bind_python_type(point_py_type);
+const TypeMeta* schema = TypeMeta::get("Point");
+TypeRegistry::instance().register_python_type(point_py_type, schema);
 ```
 
 The binding affects `to_python()` behavior:
@@ -391,15 +396,18 @@ The binding affects `to_python()` behavior:
 ```cpp
 // Create value
 Value point(point_schema);
-point.at("x").set<double>(1.0);
-point.at("y").set<double>(2.0);
-point.at("z").set<double>(3.0);
+point.emplace();
+auto b = point.as_bundle();
+b.set("x", 1.0);
+b.set("y", 2.0);
+b.set("z", 3.0);
 
 // Read value
 View v = point.view();
-double x = v.at("x").as<double>();
-double y = v.at("y").as<double>();
-double z = v.at("z").as<double>();
+auto bv = v.as_bundle();
+double x = bv.at("x").as<double>();
+double y = bv.at("y").as<double>();
+double z = bv.at("z").as<double>();
 
 // Interop with Python CompoundScalar instances
 point.from_python(py_point_obj);
@@ -707,51 +715,48 @@ using HeartbeatTS = SIGNAL;
 ### Core Properties
 
 ```cpp
-const TypeMeta& schema = ...;
+const TypeMeta* schema = ...;
 
 // Kind
-TypeKind kind = schema.kind();          // TypeKind::Bundle, List, etc.
+TypeKind kind = schema->kind;           // TypeKind::Bundle, List, etc.
 
 // Name (for named types)
-std::string_view name = schema.name();  // "Point", "Money", etc.
+std::string_view name = schema->name;   // "Point", "Money", etc.
 
 // Size
-size_t byte_size = schema.byte_size();  // Memory size in bytes
-bool is_fixed = schema.is_fixed_size(); // True if size is fixed
+size_t byte_size = schema->size;        // Memory size in bytes
+bool is_fixed = schema->is_fixed_size(); // True if size is fixed
 ```
 
 ### Bundle/Tuple Field Access
 
 ```cpp
-const TypeMeta& bundle_schema = ...;
+const TypeMeta* bundle_schema = ...;
 
 // Field count
-size_t count = bundle_schema.field_count();
+size_t count = bundle_schema->field_count;
 
 // Field by index
-std::string_view name = bundle_schema.field_name(0);
-const TypeMeta& field_type = bundle_schema.field_type(0);
-size_t offset = bundle_schema.field_offset(0);
-
-// Field by name
-size_t index = bundle_schema.field_index("x");
-const TypeMeta& field_type = bundle_schema.field_type("x");
+const BundleFieldInfo& field0 = bundle_schema->fields[0];
+std::string_view name = field0.name;
+const TypeMeta* field_type = field0.type;
+size_t offset = field0.offset;
 ```
 
 ### Container Element Access
 
 ```cpp
 // Given a list schema (from builder or registration)
-const TypeMeta& list_schema = ...;
-const TypeMeta& element_type = list_schema.element_type();
+const TypeMeta* list_schema = ...;
+const TypeMeta* element_type = list_schema->element_type;
 
 // Given a map schema
-const TypeMeta& map_schema = ...;
-const TypeMeta& key_type = map_schema.key_type();
-const TypeMeta& value_type = map_schema.value_type();
+const TypeMeta* map_schema = ...;
+const TypeMeta* key_type = map_schema->key_type;
+const TypeMeta* value_type = map_schema->element_type;
 
 // Container size (for fixed-size containers)
-size_t fixed_size = list_schema.container_size();  // 0 for dynamic
+size_t fixed_size = list_schema->fixed_size;  // 0 for dynamic
 ```
 
 ---
@@ -1504,15 +1509,16 @@ classDiagram
     }
 
     class type_ops {
-        +construct(dst: void*) void
-        +destroy(ptr: void*) void
-        +copy(dst: void*, src: void*) void
-        +move(dst: void*, src: void*) void
-        +equals(a: void*, b: void*) bool
-        +hash(ptr: void*) size_t
-        +to_string(ptr: void*) string
-        +to_python(ptr: void*) nb::object
-        +from_python(ptr: void*, obj: nb::object) void
+        +construct(dst: void*, schema: TypeMeta*) void
+        +destroy(ptr: void*, schema: TypeMeta*) void
+        +copy(dst: void*, src: void*, schema: TypeMeta*) void
+        +move(dst: void*, src: void*, schema: TypeMeta*) void
+        +move_construct(dst: void*, src: void*, schema: TypeMeta*) void
+        +equals(a: void*, b: void*, schema: TypeMeta*) bool
+        +hash(ptr: void*, schema: TypeMeta*) size_t
+        +to_string(ptr: void*, schema: TypeMeta*) string
+        +to_python(ptr: void*, schema: TypeMeta*) nb::object
+        +from_python(ptr: void*, obj: nb::object, schema: TypeMeta*) void
         +kind: TypeKind
         +specific: kind_ops_union
     }
@@ -1521,6 +1527,7 @@ classDiagram
         <<union>>
         +atomic: atomic_ops
         +bundle: bundle_ops
+        +tuple: tuple_ops
         +list: list_ops
         +set: set_ops
         +map: map_ops
@@ -1542,59 +1549,62 @@ classDiagram
     }
 
     class bundle_ops {
-        +field_at_index(ptr: void*, idx: size_t) View
-        +field_at_name(ptr: void*, name: string_view) View
-        +field_count(ptr: void*) size_t
-        +field_name(ptr: void*, idx: size_t) string_view
-        +items(ptr: void*) ViewPairRange
+        +size(ptr: void*, schema: TypeMeta*) size_t
+        +at(ptr: void*, idx: size_t, schema: TypeMeta*) void*
+        +set_at(ptr: void*, idx: size_t, val: void*, schema: TypeMeta*) void
+        +get_field(ptr: void*, name: const char*, schema: TypeMeta*) void*
+        +set_field(ptr: void*, name: const char*, val: void*, schema: TypeMeta*) void
+    }
+
+    class tuple_ops {
+        +size(ptr: void*, schema: TypeMeta*) size_t
+        +at(ptr: void*, idx: size_t, schema: TypeMeta*) void*
+        +set_at(ptr: void*, idx: size_t, val: void*, schema: TypeMeta*) void
     }
 
     class list_ops {
-        +at(ptr: void*, idx: size_t) View
-        +append(ptr: void*, elem: View) void
-        +clear(ptr: void*) void
-        +size(ptr: void*) size_t
-        +values(ptr: void*) ViewRange
-        +items(ptr: void*) ViewPairRange
+        +size(ptr: void*, schema: TypeMeta*) size_t
+        +at(ptr: void*, idx: size_t, schema: TypeMeta*) void*
+        +set_at(ptr: void*, idx: size_t, val: void*, schema: TypeMeta*) void
+        +resize(ptr: void*, new_size: size_t, schema: TypeMeta*) void
+        +clear(ptr: void*, schema: TypeMeta*) void
     }
 
     class set_ops {
-        +contains(ptr: void*, elem: View) bool
-        +add(ptr: void*, elem: View) void
-        +remove(ptr: void*, elem: View) bool
-        +clear(ptr: void*) void
-        +size(ptr: void*) size_t
-        +values(ptr: void*) ViewRange
+        +size(ptr: void*, schema: TypeMeta*) size_t
+        +at(ptr: void*, idx: size_t, schema: TypeMeta*) void*
+        +contains(ptr: void*, elem: void*, schema: TypeMeta*) bool
+        +add(ptr: void*, elem: void*, schema: TypeMeta*) void
+        +remove(ptr: void*, elem: void*, schema: TypeMeta*) void
+        +clear(ptr: void*, schema: TypeMeta*) void
     }
 
     class map_ops {
-        +at(ptr: void*, key: View) View
-        +contains(ptr: void*, key: View) bool
-        +set_item(ptr: void*, key: View, val: View) void
-        +remove(ptr: void*, key: View) bool
-        +clear(ptr: void*) void
-        +size(ptr: void*) size_t
-        +keys(ptr: void*) ViewRange
-        +items(ptr: void*) ViewPairRange
+        +size(ptr: void*, schema: TypeMeta*) size_t
+        +contains(ptr: void*, key: void*, schema: TypeMeta*) bool
+        +at(ptr: void*, key: void*, schema: TypeMeta*) void*
+        +set_item(ptr: void*, key: void*, val: void*, schema: TypeMeta*) void
+        +remove(ptr: void*, key: void*, schema: TypeMeta*) void
+        +clear(ptr: void*, schema: TypeMeta*) void
     }
 
     class cyclic_buffer_ops {
-        +at(ptr: void*, idx: size_t) View
-        +push(ptr: void*, elem: View) void
-        +clear(ptr: void*) void
-        +size(ptr: void*) size_t
-        +capacity(ptr: void*) size_t
-        +values(ptr: void*) ViewRange
+        +size(ptr: void*, schema: TypeMeta*) size_t
+        +at(ptr: void*, idx: size_t, schema: TypeMeta*) void*
+        +set_at(ptr: void*, idx: size_t, val: void*, schema: TypeMeta*) void
+        +push(ptr: void*, val: void*, schema: TypeMeta*) void
+        +pop(ptr: void*, schema: TypeMeta*) void
+        +clear(ptr: void*, schema: TypeMeta*) void
+        +capacity(ptr: void*, schema: TypeMeta*) size_t
     }
 
     class queue_ops {
-        +front(ptr: void*) View
-        +push(ptr: void*, elem: View) void
-        +pop(ptr: void*) View
-        +clear(ptr: void*) void
-        +size(ptr: void*) size_t
-        +max_capacity(ptr: void*) size_t
-        +values(ptr: void*) ViewRange
+        +size(ptr: void*, schema: TypeMeta*) size_t
+        +at(ptr: void*, idx: size_t, schema: TypeMeta*) void*
+        +push(ptr: void*, val: void*, schema: TypeMeta*) void
+        +pop(ptr: void*, schema: TypeMeta*) void
+        +clear(ptr: void*, schema: TypeMeta*) void
+        +max_capacity(ptr: void*, schema: TypeMeta*) size_t
     }
 
     class TypeKind {

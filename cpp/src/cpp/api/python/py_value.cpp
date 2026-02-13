@@ -1269,7 +1269,13 @@ static void register_plain_value(nb::module_& m) {
         .def(nb::init<engine_time_delta_t>(), "value"_a, "Construct from timedelta")
         // Construct from schema
         .def(nb::init<const TypeMeta*>(), "schema"_a,
-            "Construct from type schema (default value)")
+            "Construct from type schema (typed-null value)")
+        // Construct from schema and Python object
+        .def("__init__", [](PlainValue* self, const TypeMeta* schema, const nb::object& src) {
+            new (self) PlainValue(schema);
+            self->from_python(src);
+        }, "schema"_a, "value"_a,
+            "Construct from type schema and initialize from Python object")
         // Construct from view (copy)
         .def(nb::init<const View&>(), "view"_a,
             "Construct by copying from a view")
