@@ -114,6 +114,7 @@ export async function updateLockedMode(workspace, mode, locked, cb){
 
     if (locked) {
         lockLayout(workspace);
+        mode.editable = false;
         addCustomContextMenuItems(workspace, [
             {name: 'Unlock Layout', action: () => updateLockedMode(workspace, mode, false)}
         ], 
