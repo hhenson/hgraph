@@ -380,7 +380,7 @@ export async function installTableWorkarounds(mode, lockCallback) {
         }
         g.dataset.events_set_up = "true";
 
-        if ("chart_colours" in getWorkspaceTables()) {
+        if ("chart_colours" in getWorkspaceTables() && viewSettings(view_config.title, "chart_colours")) {
             const chart_colours_table = getWorkspaceTables()["chart_colours"].table;
             const view = await chart_colours_table.view({filter: [["view", "==", view_config.title]]});
             const apply_colours = async () => {
