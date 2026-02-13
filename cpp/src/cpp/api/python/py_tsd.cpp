@@ -279,8 +279,18 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::key_from_value(const nb::object &value) const {
-        // Not supported in view mode - would need additional infrastructure
-        throw std::runtime_error("not implemented: PyTimeSeriesDictOutput::key_from_value");
+        auto dict_view = view().as_dict();
+        // Extract the underlying view from the Python wrapper
+        auto& ts_type = nb::cast<PyTimeSeriesType&>(value);
+        auto target_data = ts_type.view().view_data().value_data;
+        // Search through dict entries to find matching value_data pointer
+        for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
+            TSView elem = *it;
+            if (elem.view_data().value_data == target_data) {
+                return key_view_to_python(it.key(), dict_view.meta());
+            }
+        }
+        throw std::runtime_error("key_from_value: value not found in TSD");
     }
 
     nb::str PyTimeSeriesDictOutput::py_str() const {
@@ -314,7 +324,17 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictOutput::pop(const nb::object &key, const nb::object &default_value) {
-        throw std::runtime_error("not implemented: PyTimeSeriesDictOutput::pop");
+        auto dict_view = output_view().ts_view().as_dict();
+        auto key_val = key_from_python(key);
+        if (!dict_view.contains(key_val.const_view())) {
+            return default_value;
+        }
+        // Get value wrapper before removal
+        TSView elem_view = dict_view.at(key_val.const_view());
+        nb::object result = wrap_output_view(TSOutputView(elem_view, nullptr));
+        // Remove the key
+        dict_view.remove(key_val.const_view());
+        return result;
     }
 
     nb::object PyTimeSeriesDictOutput::get_ref(const nb::object &key, const nb::object &requester) {
@@ -691,8 +711,18 @@ namespace hgraph
     }
 
     nb::object PyTimeSeriesDictInput::key_from_value(const nb::object &value) const {
-        // Not supported in view mode - would need additional infrastructure
-        throw std::runtime_error("not implemented: PyTimeSeriesDictInput::key_from_value");
+        auto dict_view = resolved_dict_view(input_view());
+        // Extract the underlying view from the Python wrapper
+        auto& ts_type = nb::cast<PyTimeSeriesType&>(value);
+        auto target_data = ts_type.view().view_data().value_data;
+        // Search through dict entries to find matching value_data pointer
+        for (auto it = dict_view.items().begin(); it != dict_view.items().end(); ++it) {
+            TSView elem = *it;
+            if (elem.view_data().value_data == target_data) {
+                return key_view_to_python(it.key(), dict_view.meta());
+            }
+        }
+        throw std::runtime_error("key_from_value: value not found in TSD");
     }
 
     nb::str PyTimeSeriesDictInput::py_str() const {
@@ -707,11 +737,11 @@ namespace hgraph
     }
 
     void PyTimeSeriesDictInput::on_key_added(const nb::object &key) {
-        throw std::runtime_error("not implemented: PyTimeSeriesDictInput::on_key_added");
+        // No-op: C++ view-based input sees new keys through bound output automatically
     }
 
     void PyTimeSeriesDictInput::on_key_removed(const nb::object &key) {
-        throw std::runtime_error("not implemented: PyTimeSeriesDictInput::on_key_removed");
+        // No-op: C++ view-based input reflects key removal through bound output automatically
     }
 
     // ===== Collection-specific copy operations =====

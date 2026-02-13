@@ -50,6 +50,7 @@ namespace hgraph {
     void MapNestedEngineEvaluationClock::update_next_scheduled_evaluation_time(engine_time_t next_time) {
         auto* node = static_cast<TsdMapNode*>(_nested_node);
         auto let = node->last_evaluation_time();
+
         if ((let != MIN_DT && let >= next_time) || node->is_stopping()) {
             return;
         }
@@ -398,6 +399,20 @@ namespace hgraph {
         if (auto* nec = dynamic_cast<NestedEngineEvaluationClock*>(
                 inner_graph->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
+        }
+
+        // Explicitly schedule the output stub so it evaluates during this inner graph pass.
+        // The output stub's REF input is TS→REF (non-peered, set up by graph_builder's deferred
+        // binding path), which does NOT subscribe to the compute node's output observer list.
+        // Without this, the output stub would only run at initial wiring and never again.
+        // Python's REF input subscribes via make_active(), but C++'s deferred binding path
+        // doesn't set observer_data on the LinkTarget, so ActiveNotifier is never subscribed.
+        if (output_node_id_ >= 0) {
+            auto eval_time = *inner_graph->evaluation_engine_clock()->evaluation_time_ptr();
+            auto& sched = inner_graph->schedule()[output_node_id_];
+            if (sched < eval_time) {
+                sched = eval_time;
+            }
         }
 
         if (signature().capture_exception) {

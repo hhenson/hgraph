@@ -12,6 +12,7 @@
 #include <hgraph/types/time_series/ts_meta_schema.h>
 #include <hgraph/types/time_series/ts_input.h>
 #include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/time_series/ts_dict_view.h>
 #include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/types/time_series/link_target.h>
 #include <hgraph/types/time_series/ref_link.h>
@@ -27,6 +28,7 @@
 #include <optional>
 #include <stdexcept>
 #include <unordered_map>
+#include <cstdio>
 
 // Forward declarations to avoid including py_time_series.h / py_tss.h / py_ref.h
 // (including those headers in this translation unit changes nanobind type resolution
@@ -983,7 +985,12 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                             lt && lt->is_linked && lt->meta && lt->meta->kind != TSKind::REF);
 
             if (is_ts_to_ref) {
-                // TS→REF: Only need mutable_lt for owning_input cleanup
+                // TS→REF: Fixed reference to non-REF target.
+                // Python's PythonTimeSeriesReferenceInput.make_active() subscribes
+                // to the output observer list, so the node IS scheduled when the
+                // underlying value changes. We must do the same.
+                observer_data = lt->observer_data;
+                bound_lt = lt;
                 mutable_lt = lt;
             } else if (lt && lt->is_linked) {
                 observer_data = lt->observer_data;
@@ -1012,8 +1019,7 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                     mutable_lt->active_notifier.owning_input = input;
                 }
                 // Subscribe to observer list if available (linked to target)
-                // Skip for TS→REF: the reference doesn't change.
-                if (observer_data && !is_ts_to_ref) {
+                if (observer_data) {
                     auto* observers = static_cast<ObserverList*>(observer_data);
                     observers->add_observer(&mutable_lt->active_notifier);
                 }
@@ -2216,7 +2222,12 @@ void bind(ViewData& vd, const ViewData& target) {
                             }
                             // Point time_data to owner's time for delegation
                             lt->time_data = lt->owner_time_ptr;
-                            // Do NOT subscribe — the reference is fixed.
+                            // Subscribe for time-accounting: Python's make_active subscribes
+                            // to the output, so the node is notified on value changes.
+                            if (lt->observer_data) {
+                                auto* obs = static_cast<ObserverList*>(lt->observer_data);
+                                obs->add_observer(lt);
+                            }
                         } else {
                             // Subscribe for time-accounting (always, regardless of active state)
                             if (lt->observer_data) {
@@ -2426,14 +2437,27 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                                            lt->meta->kind != TSKind::REF);
 
                 if (field_is_ts_to_ref) {
-                    // TS→REF: Set owning_input for cleanup but DON'T subscribe
+                    // TS→REF: Fixed reference to non-REF target.
+                    // Python's PythonTimeSeriesReferenceInput.make_active() subscribes
+                    // to the output observer list, so the node IS scheduled when the
+                    // underlying value changes. We must do the same.
                     if (active) {
                         lt->active_notifier.owning_input = input;
+                        // Subscribe to the target's observer list so we're notified
+                        // when the underlying value changes (matches Python make_active)
+                        if (lt->observer_data) {
+                            auto* observers = static_cast<ObserverList*>(lt->observer_data);
+                            observers->add_observer(&lt->active_notifier);
+                        }
                         // Fire initial notification - the REF is valid from bind time
                         if (input) {
                             input->notify(MIN_ST);
                         }
                     } else {
+                        if (lt->observer_data) {
+                            auto* observers = static_cast<ObserverList*>(lt->observer_data);
+                            observers->remove_observer(&lt->active_notifier);
+                        }
                         lt->active_notifier.owning_input = nullptr;
                     }
                 } else if (lt && lt->is_linked && lt->observer_data) {
@@ -3513,6 +3537,16 @@ void set_active(ViewData& vd, value::View active_view, bool active, TSInput* inp
                                     observers->remove_observer(&lt->active_notifier);
                                     lt->active_notifier.owning_input = nullptr;
                                 }
+                            }
+                        } else if (lt && lt->ref_binding_) {
+                            // REF binding exists but hasn't resolved yet.
+                            // Set owning_input so REFBindingHelper::rebind() can subscribe later.
+                            if (active) {
+                                if (lt->active_notifier.owning_input == nullptr) {
+                                    lt->active_notifier.owning_input = input;
+                                }
+                            } else {
+                                lt->active_notifier.owning_input = nullptr;
                             }
                         }
                     }
@@ -5223,6 +5257,13 @@ TSView child_at(const ViewData& vd, size_t slot, engine_time_t current_time) {
             result.view_data().sampled = true;
         }
         return result;
+    }
+
+    // TSD_KEY_SET_SLOT: navigate to the key_set child (TSS)
+    if (slot == TSD_KEY_SET_SLOT) {
+        TSDView dict_view(vd, current_time);
+        TSSView tss = dict_view.key_set();
+        return TSView(tss.view_data(), current_time);
     }
 
     if (!vd.meta || !vd.meta->element_ts) return TSView{};

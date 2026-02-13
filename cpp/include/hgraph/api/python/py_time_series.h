@@ -83,9 +83,9 @@ namespace hgraph
         void invalidate();
         bool can_apply_result(nb::object value);
 
-        // Get the output view
-        [[nodiscard]] TSOutputView& output_view() { return output_view_; }
-        [[nodiscard]] const TSOutputView& output_view() const { return output_view_; }
+        // Get the output view (refreshes ViewData from forwarded_target if set)
+        [[nodiscard]] TSOutputView& output_view();
+        [[nodiscard]] const TSOutputView& output_view() const;
 
         static void register_with_nanobind(nb::module_ &m);
 

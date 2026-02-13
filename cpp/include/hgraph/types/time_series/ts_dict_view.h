@@ -26,6 +26,10 @@
 
 namespace hgraph {
 
+/// Virtual slot index used by TSD to represent the key_set child in ShortPath navigation.
+/// This sentinel value distinguishes key_set from regular TSD element slots.
+static constexpr size_t TSD_KEY_SET_SLOT = SIZE_MAX;
+
 // Forward declaration
 class TSView;
 
@@ -217,7 +221,7 @@ public:
         // Must provide ops so ViewData::valid() returns true — TSSView::added()/removed()
         // check valid() before returning delta ranges.
         ViewData key_set_vd{
-            view_data_.path,              // Same path (key set is part of TSD)
+            view_data_.path.child(TSD_KEY_SET_SLOT),  // Unique path for key_set child
             const_cast<void*>(static_cast<const void*>(set_storage)),  // SetStorage
             key_time_ptr,                 // Key set's own modification time (from MapDelta)
             container_observer_ptr,       // Container observer

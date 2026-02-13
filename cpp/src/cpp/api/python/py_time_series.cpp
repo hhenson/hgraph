@@ -83,6 +83,30 @@ namespace hgraph
         : PyTimeSeriesType(view.ts_view())
         , output_view_{std::move(view)} {}
 
+    TSOutputView& PyTimeSeriesOutput::output_view() {
+        auto* out = output_view_.output();
+        if (out && out->is_forwarded()) {
+            // Refresh ViewData pointers in-place from forwarded_target.
+            // This handles the case where forwarded_target was set after the wrapper
+            // was constructed (e.g., TsdMapNode::wire_graph sets forwarded_target
+            // on the inner graph's output stub after node start).
+            auto& ft = out->forwarded_target();
+            auto& vd = output_view_.ts_view().view_data();
+            vd.value_data = ft.value_data;
+            vd.time_data = ft.time_data;
+            vd.observer_data = ft.observer_data;
+            vd.delta_data = ft.delta_data;
+            vd.link_data = ft.link_data;
+            vd.ops = ft.ops;
+            vd.meta = ft.meta;
+        }
+        return output_view_;
+    }
+
+    const TSOutputView& PyTimeSeriesOutput::output_view() const {
+        return const_cast<PyTimeSeriesOutput*>(this)->output_view();
+    }
+
     nb::object PyTimeSeriesOutput::parent_output() const {
         const ShortPath& path = output_view().short_path();
         if (path.is_root()) {
