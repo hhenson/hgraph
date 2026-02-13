@@ -1,6 +1,5 @@
 #include <hgraph/builders/nodes/python_generator_node_builder.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
@@ -23,8 +22,10 @@ namespace hgraph {
 
     node_s_ptr PythonGeneratorNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id,
                                                        int64_t node_ndx) const {
-        auto node = arena_make_shared_as<PythonGeneratorNode, Node>(node_ndx, owning_graph_id, signature, scalars, eval_fn, nb::callable{}, nb::callable{});
-        _build_inputs_and_outputs(node.get());
+        // Create node with TSMeta for new TSInput/TSOutput storage
+        auto node = arena_make_shared_as<PythonGeneratorNode, Node>(
+            node_ndx, owning_graph_id, signature, scalars, eval_fn, nb::callable{}, nb::callable{},
+            input_meta(), output_meta(), error_output_meta(), recordable_state_meta());
         return node;
     }
 

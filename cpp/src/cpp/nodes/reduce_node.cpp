@@ -1,36 +1,114 @@
-#include <hgraph/types/tss.h>
-#include <hgraph/types/value/value.h>
-
+#include <hgraph/nodes/reduce_node.h>
 #include <hgraph/builders/graph_builder.h>
 #include <hgraph/nodes/nested_evaluation_engine.h>
-#include <hgraph/nodes/reduce_node.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
-#include <hgraph/types/traits.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/tsd.h>
-#include <hgraph/util/arena_enable_shared_from_this.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/time_series/link_target.h>
+#include <hgraph/types/time_series/view_data.h>
+#include <hgraph/types/time_series/ts_dict_view.h>
+#include <hgraph/types/time_series/ts_set_view.h>
+#include <hgraph/types/time_series/observer_list.h>
 #include <hgraph/util/lifecycle.h>
-#include <hgraph/util/string_utils.h>
-
-#include <algorithm>
+#include <hgraph/util/arena_enable_shared_from_this.h>
 #include <deque>
-#include <utility>
+#include <algorithm>
+#include <stdexcept>
+#include <cstdio>
+
+// Debug flag - set to true to enable tracing
+static constexpr bool REDUCE_DEBUG = false;
 
 namespace hgraph {
+
+    // Helper: Write a TSReference into a REF input's own value_data and mark modified.
+    // This is the C++ equivalent of Python's clone_binding/bind_output for REF inputs.
+    // Instead of binding the input via LinkTarget (which stores raw output data),
+    // we write a TSReference::peered(path) into the input's value storage.
+    // When the stub evaluates, ref_value() reads this TSReference from value_data.
+    static void set_ref_input_value(TSView& ref_field_view, const ShortPath& target_path, engine_time_t time) {
+        auto& vd = ref_field_view.view_data();
+        if (!vd.value_data || !vd.meta || !vd.meta->value_type) return;
+
+        // Write TSReference::peered directly into the REF input's value storage
+        auto* ref_ptr = static_cast<TSReference*>(vd.value_data);
+        *ref_ptr = TSReference::peered(target_path);
+
+        // Mark as modified so the stub picks it up
+        if (vd.time_data) {
+            *static_cast<engine_time_t*>(vd.time_data) = time;
+        }
+
+        // Notify observers on this input (so the stub gets scheduled)
+        if (vd.observer_data) {
+            auto* obs = static_cast<ObserverList*>(vd.observer_data);
+            obs->notify_modified(time);
+        }
+    }
+
+    // Helper: Get the upstream output's ShortPath from an outer input field's LinkTarget.
+    static ShortPath get_upstream_path(const TSView& input_field_view) {
+        auto& vd = input_field_view.view_data();
+        if (vd.uses_link_target && vd.link_data) {
+            auto* lt = static_cast<LinkTarget*>(vd.link_data);
+            if (lt->is_linked && lt->target_path.valid()) {
+                return lt->target_path;
+            }
+        }
+        // Fallback: resolve through link and use the resolved path
+        ViewData resolved = resolve_through_link(vd);
+        return resolved.path;
+    }
+
     ReduceNode::ReduceNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
-                           nb::dict scalars, graph_builder_s_ptr nested_graph_builder,
+                           nb::dict scalars,
+                           const TSMeta* input_meta, const TSMeta* output_meta,
+                           const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
+                           graph_builder_s_ptr nested_graph_builder,
                            const std::tuple<int64_t, int64_t> &input_node_ids, int64_t output_node_id)
-        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars)),
+        : NestedNode(node_ndx, std::move(owning_graph_id), std::move(signature), std::move(scalars),
+                     input_meta, output_meta, error_output_meta, recordable_state_meta),
           nested_graph_builder_(std::move(nested_graph_builder)), input_node_ids_(input_node_ids),
           output_node_id_(output_node_id) {
     }
 
-    std::unordered_map<int, graph_s_ptr> &ReduceNode::nested_graphs() {
-        static std::unordered_map<int, graph_s_ptr> graphs;
-        graphs[0] = nested_graph_;
-        return graphs;
+    // ========== Simple accessors ==========
+
+    const graph_s_ptr& ReduceNode::nested_graph() const {
+        return nested_graph_;
+    }
+
+    const std::tuple<int64_t, int64_t>& ReduceNode::input_node_ids() const {
+        return input_node_ids_;
+    }
+
+    int64_t ReduceNode::output_node_id() const {
+        return output_node_id_;
+    }
+
+    const std::vector<std::tuple<int64_t, int64_t>>& ReduceNode::free_node_indexes() const {
+        return free_node_indexes_;
+    }
+
+    nb::dict ReduceNode::py_bound_node_indexes() const {
+        nb::dict result;
+        for (const auto& [key, ndx] : bound_node_indexes_) {
+            nb::object py_key = key.schema()->ops->to_python(key.const_view().data(), key.schema());
+            result[py_key] = nb::make_tuple(std::get<0>(ndx), std::get<1>(ndx));
+        }
+        return result;
+    }
+
+    std::unordered_map<int, graph_s_ptr>& ReduceNode::nested_graphs() {
+        // Thread-local cache for returning by reference
+        thread_local std::unordered_map<int, graph_s_ptr> result;
+        result.clear();
+        if (nested_graph_) result[0] = nested_graph_;
+        return result;
     }
 
     void ReduceNode::enumerate_nested_graphs(const std::function<void(const graph_s_ptr&)>& callback) const {
@@ -39,448 +117,635 @@ namespace hgraph {
         }
     }
 
-    TimeSeriesDictInputImpl::ptr ReduceNode::ts() {
-        return dynamic_cast<TimeSeriesDictInputImpl *>((*input())[0].get());
+    void* ReduceNode::ts() { return nullptr; }
+    void* ReduceNode::zero() { return nullptr; }
+    void* ReduceNode::last_output() { return nullptr; }
+
+    int64_t ReduceNode::node_size() const {
+        return static_cast<int64_t>(nested_graph_builder_->node_builders.size());
     }
 
-    time_series_reference_input_ptr ReduceNode::zero() {
-        return dynamic_cast<TimeSeriesReferenceInput *>((*input())[1].get());
+    int64_t ReduceNode::node_count() const {
+        if (!nested_graph_) return 0;
+        auto ns = node_size();
+        return ns > 0 ? static_cast<int64_t>(nested_graph_->nodes().size()) / ns : 0;
     }
+
+    std::vector<node_s_ptr> ReduceNode::get_node(int64_t ndx) {
+        auto& nodes = nested_graph_->nodes();
+        auto ns = node_size();
+        auto start = ndx * ns;
+        auto end = start + ns;
+        return std::vector<node_s_ptr>(nodes.begin() + start, nodes.begin() + end);
+    }
+
+    // ========== Lifecycle ==========
 
     void ReduceNode::initialise() {
-        nested_graph_ = arena_make_shared<Graph>(std::vector<int64_t>{node_ndx()}, std::vector<node_s_ptr>{}, this, "", &graph()->traits());
+        // Create an empty graph (tree starts with no nodes, grows dynamically)
+        nested_graph_ = arena_make_shared<Graph>(
+            node_id(), Graph::node_list{}, std::optional<node_ptr>(static_cast<node_ptr>(this)),
+            std::string("reduce"), nullptr);
         nested_graph_->set_evaluation_engine(std::make_shared<NestedEvaluationEngine>(
-            graph()->evaluation_engine(), std::make_shared<NestedEngineEvaluationClock>(graph()->evaluation_engine_clock().get(), this)));
+            graph()->evaluation_engine(),
+            std::make_shared<NestedEngineEvaluationClock>(
+                graph()->evaluation_engine_clock().get(), this)));
         initialise_component(*nested_graph_);
     }
 
     void ReduceNode::do_start() {
-        auto tsd{ts()};
-        if (tsd->valid()) {
-            // Get all keys that are valid but NOT added (i.e., keys present before start)
-            // This matches Python: keys = key_set.valid - key_set.added
-            std::vector<value::ConstValueView> keys;
-            auto &key_set = tsd->key_set();
-            for (auto elem : key_set.value_view()) {
-                if (!key_set.was_added(elem)) {
-                    keys.push_back(elem);
+        if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] do_start()\n");
+        auto time = graph()->evaluation_time();
+        auto outer_input = ts_input()->view(time);
+        auto tsd_field = outer_input.field("ts").ts_view();
+        ViewData tsd_resolved = resolve_through_link(tsd_field.view_data());
+
+        if (tsd_resolved.valid() && tsd_resolved.ops && tsd_resolved.ops->valid(tsd_resolved)) {
+            TSDView tsd(tsd_resolved, time);
+            TSSView key_set = tsd.key_set();
+
+            // Collect pre-existing keys (valid but not added this tick)
+            std::vector<value::View> pre_existing;
+            for (auto key_view : key_set.values()) {
+                if (!key_set.was_added(key_view)) {
+                    pre_existing.push_back(key_view);
                 }
             }
 
-            if (!keys.empty()) {
-                add_nodes_from_views(keys); // If there are already inputs, then add the keys.
+            if (!pre_existing.empty()) {
+                if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] do_start: %zu pre-existing keys\n", pre_existing.size());
+                add_nodes_from_views(pre_existing);
             } else {
+                if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] do_start: no pre-existing keys, grow_tree\n");
                 grow_tree();
             }
         } else {
+            if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] do_start: TSD not valid, grow_tree\n");
             grow_tree();
         }
+
+        if constexpr (REDUCE_DEBUG) {
+            fprintf(stderr, "[REDUCE] do_start: node_count=%lld, node_size=%lld, free=%zu\n",
+                node_count(), node_size(), free_node_indexes_.size());
+            auto [lhs_id, rhs_id] = input_node_ids_;
+            fprintf(stderr, "[REDUCE] input_node_ids=(%lld,%lld), output_node_id=%lld\n",
+                lhs_id, rhs_id, output_node_id_);
+            // Dump edges
+            fprintf(stderr, "[REDUCE] nested_graph_builder has %zu edges:\n", nested_graph_builder_->edges.size());
+            for (const auto& e : nested_graph_builder_->edges) {
+                fprintf(stderr, "[REDUCE]   edge: src=%lld, output_path=[", e.src_node);
+                for (auto p : e.output_path) fprintf(stderr, "%lld,", p);
+                fprintf(stderr, "] → dst=%lld, input_path=[", e.dst_node);
+                for (auto p : e.input_path) fprintf(stderr, "%lld,", p);
+                fprintf(stderr, "]\n");
+            }
+        }
         start_component(*nested_graph_);
+        if constexpr (REDUCE_DEBUG) {
+            fprintf(stderr, "[REDUCE] do_start: inner graph started, nodes=%zu\n",
+                nested_graph_->nodes().size());
+            auto time = graph()->evaluation_time();
+            // Check subscription state of each inner node's input
+            for (size_t ni = 0; ni < nested_graph_->nodes().size(); ++ni) {
+                auto n = nested_graph_->nodes()[ni];
+                if (n->ts_input()) {
+                    auto iv = n->ts_input()->view(time);
+                    auto meta = n->ts_input()->meta();
+                    fprintf(stderr, "[REDUCE]   node %zu input: kind=%d, field_count=%zu\n",
+                        ni, meta ? (int)meta->kind : -1, meta ? meta->field_count : 0);
+                    if (meta && meta->kind == TSKind::TSB) {
+                        for (size_t fi = 0; fi < meta->field_count; ++fi) {
+                            auto fv = iv[fi].ts_view();
+                            auto& fvd = fv.view_data();
+                            fprintf(stderr, "[REDUCE]     field %zu: kind=%d, has_link=%d",
+                                fi, fvd.meta ? (int)fvd.meta->kind : -1, fvd.uses_link_target ? 1 : 0);
+                            if (fvd.uses_link_target && fvd.link_data) {
+                                auto* lt = static_cast<LinkTarget*>(fvd.link_data);
+                                fprintf(stderr, ", linked=%d, lt_meta_kind=%d, lt_obs=%p",
+                                    lt->is_linked ? 1 : 0,
+                                    lt->meta ? (int)lt->meta->kind : -1,
+                                    lt->observer_data);
+                                fprintf(stderr, ", owning_input=%p", (void*)lt->active_notifier.owning_input);
+                            }
+                            fprintf(stderr, "\n");
+                        }
+                    }
+                }
+            }
+        }
     }
 
-    void ReduceNode::do_stop() { stop_component(*nested_graph_); }
+    void ReduceNode::do_stop() {
+        if (nested_graph_) {
+            stop_component(*nested_graph_);
+        }
+    }
 
     void ReduceNode::dispose() {
-        if (nested_graph_ == nullptr) { return; }
-        dispose_component(*nested_graph_);
-        nested_graph_ = nullptr;
+        if (nested_graph_) {
+            dispose_component(*nested_graph_);
+            nested_graph_ = nullptr;
+        }
     }
+
+    // ========== Core evaluation ==========
 
     void ReduceNode::eval() {
         mark_evaluated();
+        if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] eval()\n");
 
-        auto tsd = ts();
-        auto &key_set = tsd->key_set();
+        auto time = graph()->evaluation_time();
+        auto outer_input = ts_input()->view(time);
+        auto tsd_field = outer_input.field("ts").ts_view();
+        ViewData tsd_resolved = resolve_through_link(tsd_field.view_data());
+        TSDView tsd(tsd_resolved, time);
+        TSSView key_set = tsd.key_set();
 
-        // Process removals first, then additions (matches Python: remove then add to reduce
-        // the possibility of growing the tree just to tear it down again)
-        auto removed_keys = key_set.collect_removed();
+        // Collect removed and added keys
+        std::vector<value::View> removed_keys;
+        for (auto key : key_set.removed()) {
+            removed_keys.push_back(key);
+        }
+
+        std::vector<value::View> added_keys;
+        for (auto key : key_set.added()) {
+            added_keys.push_back(key);
+        }
+
+        if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] eval: added=%zu, removed=%zu\n",
+            added_keys.size(), removed_keys.size());
+
+        // Process removals first (reduce chance of unnecessary tree growth)
         remove_nodes_from_views(removed_keys);
-
-        // When the upstream REF chain becomes empty (e.g. if_ switches to False),
-        // the cascading un_bind_output may not perfectly report all key removals
-        // through the key_set. Detect this by checking if the accessor's input is
-        // empty/unbound, and if so remove all bound keys.
-        // NOTE: We do NOT check individual key ref values - empty refs on individual
-        // keys are valid (e.g. when reduce lambda uses default() to handle them).
-        bool all_keys_stale = false;
-        if (!tsd->has_output()) {
-            all_keys_stale = true;
-        } else if (tsd->output()) {
-            auto tsd_output = tsd->output();
-            if (tsd_output->has_owning_node()) {
-                auto accessor_node = tsd_output->owning_node();
-                auto accessor_input = accessor_node->input();
-                if (accessor_input) {
-                    for (size_t i = 0; i < accessor_input->size(); ++i) {
-                        auto input_item = (*accessor_input)[i];
-                        if (auto ref_input = dynamic_cast<TimeSeriesReferenceInput*>(input_item.get())) {
-                            if (ref_input->value().is_empty()) {
-                                all_keys_stale = true;
-                                break;
-                            }
-                        }
-                        if (auto tsd_input = dynamic_cast<TimeSeriesDictInput*>(input_item.get())) {
-                            if (!tsd_input->has_output()) {
-                                all_keys_stale = true;
-                                break;
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        if (!bound_node_indexes_.empty()) {
-            std::vector<value::ConstValueView> stale_keys;
-            if (all_keys_stale) {
-                for (const auto &[key, ndx] : bound_node_indexes_) {
-                    stale_keys.push_back(key.const_view());
-                }
-            } else {
-                // Also catch keys individually missing from the TSD
-                for (const auto &[key, ndx] : bound_node_indexes_) {
-                    if (!tsd->contains(key.const_view())) {
-                        stale_keys.push_back(key.const_view());
-                    }
-                }
-            }
-            if (!stale_keys.empty()) {
-                remove_nodes_from_views(stale_keys);
-            }
-        }
-
-        auto added_keys = key_set.collect_added();
         add_nodes_from_views(added_keys);
 
-        // Re-balance the tree if required
+        // Rebalance if needed
         re_balance_nodes();
 
-        // Evaluate the nested graph
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(nested_graph_->evaluation_engine_clock().get())) {
-            nec->reset_next_scheduled_evaluation_time();
+        if constexpr (REDUCE_DEBUG) {
+            fprintf(stderr, "[REDUCE] eval: after rebalance, node_count=%lld, bound=%zu, free=%zu\n",
+                node_count(), bound_node_indexes_.size(), free_node_indexes_.size());
+            // Dump inner node states + stub input values
+            for (size_t ni = 0; ni < nested_graph_->nodes().size(); ++ni) {
+                auto n = nested_graph_->nodes()[ni];
+                auto& sched = nested_graph_->schedule();
+                auto inner_now = *nested_graph_->cached_evaluation_time_ptr();
+                bool scheduled = (sched[ni] == inner_now);
+                fprintf(stderr, "[REDUCE]   inner node %zu: has_input=%d, has_output=%d, scheduled=%d\n",
+                    ni, n->has_input() ? 1 : 0, n->ts_output() != nullptr ? 1 : 0, scheduled ? 1 : 0);
+                if (n->ts_output()) {
+                    auto oview = n->ts_output()->view(time);
+                    fprintf(stderr, "[REDUCE]     output: valid=%d, modified=%d\n",
+                        oview.ts_view().valid() ? 1 : 0, oview.ts_view().modified() ? 1 : 0);
+                }
+                // Check stub input REF value_data (nodes 0 and 1)
+                if ((ni == 0 || ni == 1) && n->ts_input()) {
+                    auto iv = n->ts_input()->view(time);
+                    auto meta = n->ts_input()->meta();
+                    if (meta && meta->kind == TSKind::TSB && meta->field_count > 0) {
+                        auto fv = iv[0].ts_view();
+                        auto& fvd = fv.view_data();
+                        if (fvd.value_data && fvd.meta && fvd.meta->value_type) {
+                            auto* ref_ptr = static_cast<const TSReference*>(fvd.value_data);
+                            fprintf(stderr, "[REDUCE]     input[0] ref value: %s (kind=%d, valid_path=%d)\n",
+                                ref_ptr->to_string().c_str(),
+                                (int)ref_ptr->kind(),
+                                ref_ptr->is_peered() ? (ref_ptr->path().valid() ? 1 : 0) : -1);
+                            // Check time_data
+                            if (fvd.time_data) {
+                                auto t = *static_cast<engine_time_t*>(fvd.time_data);
+                                fprintf(stderr, "[REDUCE]     input[0] time=%lld, valid=%d\n",
+                                    (long long)t.time_since_epoch().count(), t != engine_time_t{} ? 1 : 0);
+                            }
+                        }
+                    }
+                }
+            }
         }
 
+        // Force-schedule all inner nodes before evaluation.
+        // In Python, inner inputs are properly bound to TSD elements with subscriptions,
+        // so they get notified when element values change. In C++, the stubs hold
+        // TSReferences without subscriptions, so we force-schedule to ensure nodes
+        // pick up changed values from the TSD.
+        {
+            auto eval_time = *nested_graph_->cached_evaluation_time_ptr();
+            for (size_t i = 0; i < nested_graph_->nodes().size(); ++i) {
+                nested_graph_->schedule_node(static_cast<int64_t>(i), eval_time, true);
+            }
+        }
+
+        // Evaluate inner graph
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(
+                nested_graph_->evaluation_engine_clock().get())) {
+            nec->reset_next_scheduled_evaluation_time();
+        }
         nested_graph_->evaluate_graph();
-
-        if (auto nec = dynamic_cast<NestedEngineEvaluationClock *>(nested_graph_->evaluation_engine_clock().get())) {
+        if (auto nec = dynamic_cast<NestedEngineEvaluationClock*>(
+                nested_graph_->evaluation_engine_clock().get())) {
             nec->reset_next_scheduled_evaluation_time();
         }
 
-        // Propagate output if changed
-        auto l_output = last_output();
-        auto l = dynamic_cast<TimeSeriesReferenceOutput *>(l_output.get());
-        auto o = dynamic_cast<TimeSeriesReferenceOutput *>(output().get());
+        if constexpr (REDUCE_DEBUG) {
+            fprintf(stderr, "[REDUCE] eval: AFTER evaluate_graph\n");
+            for (size_t ni = 0; ni < nested_graph_->nodes().size(); ++ni) {
+                auto n = nested_graph_->nodes()[ni];
+                if (n->ts_output()) {
+                    auto oview = n->ts_output()->view(time);
+                    bool valid = oview.ts_view().valid();
+                    bool mod = oview.ts_view().modified();
+                    fprintf(stderr, "[REDUCE]   node %zu output: valid=%d, modified=%d", ni, valid ? 1 : 0, mod ? 1 : 0);
+                    if (valid) {
+                        try {
+                            nb::object py_val = oview.ts_view().to_python();
+                            nb::str s(py_val);
+                            fprintf(stderr, ", value=%s", s.c_str());
+                        } catch (...) {
+                            fprintf(stderr, ", value=<error>");
+                        }
+                    }
+                    fprintf(stderr, "\n");
+                }
+                // Check input LinkTarget state for node 2 (computation)
+                if (ni == 2 && n->ts_input()) {
+                    auto iv = n->ts_input()->view(time);
+                    auto meta = n->ts_input()->meta();
+                    if (meta && meta->kind == TSKind::TSB) {
+                        for (size_t fi = 0; fi < meta->field_count; ++fi) {
+                            auto fv = iv[fi].ts_view();
+                            auto& fvd = fv.view_data();
+                            fprintf(stderr, "[REDUCE]   node 2 input[%zu]: kind=%d", fi, fvd.meta ? (int)fvd.meta->kind : -1);
+                            if (fvd.uses_link_target && fvd.link_data) {
+                                auto* lt = static_cast<LinkTarget*>(fvd.link_data);
+                                fprintf(stderr, ", linked=%d, lt_meta=%d, lt_obs=%p, ref_binding=%p, owning=%p",
+                                    lt->is_linked ? 1 : 0,
+                                    lt->meta ? (int)lt->meta->kind : -1,
+                                    lt->observer_data,
+                                    lt->ref_binding_,
+                                    (void*)lt->active_notifier.owning_input);
+                                if (lt->is_linked && lt->value_data && lt->meta && lt->meta->kind != TSKind::REF) {
+                                    // Try to read resolved int value
+                                    try {
+                                        value::View v(lt->value_data, lt->meta->value_type);
+                                        if (v.valid()) {
+                                            nb::object py_v = lt->meta->value_type->ops->to_python(v.data(), lt->meta->value_type);
+                                            nb::str s(py_v);
+                                            fprintf(stderr, ", resolved_value=%s", s.c_str());
+                                        }
+                                    } catch (...) { fprintf(stderr, ", resolved_value=<error>"); }
+                                }
+                            }
+                            fprintf(stderr, "\n");
+                        }
+                    }
+                }
+            }
+        }
 
-        bool values_equal = o->valid() && l->valid() && o->has_value() && l->has_value() && (o->value() == l->value());
+        // Propagate output from last tree node to outer output
+        if (node_count() > 0 && ts_output()) {
+            auto inner_nodes = get_node(node_count() - 1);
+            auto* out_node = inner_nodes[output_node_id_].get();
+            if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] eval: checking output, out_node has_output=%d\n",
+                out_node->ts_output() != nullptr ? 1 : 0);
+            if (out_node->ts_output()) {
+                auto inner_out = out_node->ts_output()->view(time);
+                auto outer_out = ts_output()->view(time);
 
-        // Python: if (not o.valid and l.valid) or (l.valid and o.value != l.value): o.value = l.value
-        if ((l->valid() && !o->valid()) || (l->valid() && !values_equal)) {
-            o->set_value(l->value());
+                bool inner_valid = inner_out.ts_view().valid();
+                bool outer_valid = outer_out.ts_view().valid();
+
+                if constexpr (REDUCE_DEBUG) {
+                    auto outer_meta = outer_out.ts_view().view_data().meta;
+                    fprintf(stderr, "[REDUCE] eval: inner_valid=%d, outer_valid=%d, outer_meta_kind=%d\n",
+                        inner_valid ? 1 : 0, outer_valid ? 1 : 0,
+                        outer_meta ? (int)outer_meta->kind : -1);
+                }
+
+                if ((!outer_valid && inner_valid) || inner_valid) {
+                    nb::object inner_val = inner_out.ts_view().to_python();
+                    if constexpr (REDUCE_DEBUG) {
+                        try {
+                            nb::str s(inner_val);
+                            fprintf(stderr, "[REDUCE] eval: inner_val=%s\n", s.c_str());
+                        } catch (...) {
+                            fprintf(stderr, "[REDUCE] eval: inner_val=<error>\n");
+                        }
+                    }
+                    bool need_update = !outer_valid;
+                    if (!need_update) {
+                        nb::object outer_val = outer_out.ts_view().to_python();
+                        try {
+                            need_update = !inner_val.equal(outer_val);
+                        } catch (...) {
+                            need_update = true;
+                        }
+                    }
+                    if (need_update) {
+                        auto& out_vd = outer_out.ts_view().view_data();
+                        if constexpr (REDUCE_DEBUG) {
+                            fprintf(stderr, "[REDUCE] eval: updating outer output, obs=%p obs_count=%zu forwarded=%d\n",
+                                out_vd.observer_data,
+                                out_vd.observer_data ? static_cast<ObserverList*>(out_vd.observer_data)->size() : 0,
+                                ts_output()->is_forwarded() ? 1 : 0);
+                        }
+                        out_vd.ops->from_python(out_vd, inner_val, time);
+                    }
+                }
+            }
         }
     }
 
-    TimeSeriesOutput::s_ptr ReduceNode::last_output() {
-        auto root_ndx = node_count() - 1;
-        auto sub_graph = get_node(root_ndx);
-        auto out_node = sub_graph[output_node_id_];
-        return out_node->output();
-    }
+    // ========== Tree management ==========
 
-    void ReduceNode::add_nodes_from_views(const std::vector<value::ConstValueView> &keys) {
-        // Grow the tree upfront if needed, to avoid growing while binding
-        // This ensures the tree structure is consistent before we start binding keys
-        while (free_node_indexes_.size() < keys.size()) { grow_tree(); }
-
-        // Note: free_node_indexes_ is sorted in descending order, so .back() gives the LOWEST position
-        // This maintains the left-based invariant: keys are always added to leftmost available positions
-        for (const auto &key: keys) {
+    void ReduceNode::add_nodes_from_views(const std::vector<value::View>& keys) {
+        for (const auto& key : keys) {
+            if (free_node_indexes_.empty()) {
+                grow_tree();
+            }
             auto ndx = free_node_indexes_.back();
             free_node_indexes_.pop_back();
             bind_key_to_node(key, ndx);
         }
     }
 
-    void ReduceNode::remove_nodes_from_views(const std::vector<value::ConstValueView> &keys) {
-        for (const auto &key: keys) {
-            if (auto it = bound_node_indexes_.find(key); it != bound_node_indexes_.end()) {
-                auto ndx = it->second;
-                bound_node_indexes_.erase(it);
+    void ReduceNode::remove_nodes_from_views(const std::vector<value::View>& keys) {
+        for (const auto& key : keys) {
+            // Find and remove from bound_node_indexes
+            auto it = bound_node_indexes_.find(value::PlainValue(key));
+            if (it == bound_node_indexes_.end()) continue;
 
-                if (!bound_node_indexes_.empty()) {
-                    // Find the largest bound index (comparing entire tuple lexicographically)
-                    auto max_it = std::max_element(bound_node_indexes_.begin(), bound_node_indexes_.end(),
-                                                   [](const auto &a, const auto &b) { return a.second < b.second; });
+            auto ndx = it->second;
+            bound_node_indexes_.erase(it);
 
-                    // CRITICAL: Save the key and position BEFORE modifying the map, as modifying the map
-                    // may invalidate the iterator or cause a rehash
-                    value::PlainValue max_key = max_it->first.const_view().clone();  // Clone the key (PlainValue is move-only)
-                    auto max_ndx = max_it->second;
+            if (!bound_node_indexes_.empty()) {
+                // Find the bound node with the largest (node_id, side) tuple
+                auto max_it = std::max_element(
+                    bound_node_indexes_.begin(), bound_node_indexes_.end(),
+                    [](const auto& a, const auto& b) { return a.second < b.second; });
 
-                    // Match Python: only swap if max is in a HIGHER layer
-                    // Python: if next_largest[1][0] > ndx[0]
-                    if (std::get<0>(max_ndx) > std::get<0>(ndx)) {
-                        swap_node(ndx, max_ndx);
-                        bound_node_indexes_[std::move(max_key)] = ndx;
-                        ndx = max_ndx;
-                    }
+                if (std::get<0>(max_it->second) > std::get<0>(ndx)) {
+                    // Swap the max node into the gap left by removed node
+                    swap_node(ndx, max_it->second);
+                    // Update: the max key now points to the removed node's position
+                    // The removed position gets the max node's old position
+                    auto old_max_ndx = max_it->second;
+                    max_it->second = ndx;
+                    ndx = old_max_ndx;
                 }
-                free_node_indexes_.push_back(ndx);
-                zero_node(ndx);
             }
+
+            free_node_indexes_.push_back(ndx);
+            zero_node(ndx);
         }
     }
 
-    void ReduceNode::swap_node(const std::tuple<int64_t, int64_t> &src_ndx,
-                               const std::tuple<int64_t, int64_t> &dst_ndx) {
+    void ReduceNode::re_balance_nodes() {
+        // Shrink if tree has > 8 nodes and free slots are 75%+ of bound slots
+        if (node_count() > 8 &&
+            (static_cast<int64_t>(free_node_indexes_.size()) * 3 >
+             static_cast<int64_t>(bound_node_indexes_.size()) * 4)) {
+            shrink_tree();
+        }
+    }
+
+    void ReduceNode::grow_tree() {
+        if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] grow_tree()\n");
+        int64_t count = node_count();
+        int64_t end = 2 * count + 1;  // Not inclusive
+        int64_t top_layer_length = (end + 1) / 4;
+        int64_t top_layer_end = std::max(count + top_layer_length, int64_t(1));
+        int64_t last_node = end - 1;
+        std::deque<int64_t> un_bound_outputs;
+
+        auto [lhs_id, rhs_id] = input_node_ids_;
+        auto time = graph()->evaluation_time();
+
+        for (int64_t i = count; i < end; ++i) {
+            un_bound_outputs.push_back(i);
+            nested_graph_->extend_graph(*nested_graph_builder_, true);  // delay_start=true
+
+            if (i < top_layer_end) {
+                // Leaf nodes: add both sides to free list and bind to zero
+                auto ndx_lhs = std::make_tuple(i, lhs_id);
+                free_node_indexes_.push_back(ndx_lhs);
+                zero_node(ndx_lhs);
+
+                auto ndx_rhs = std::make_tuple(i, rhs_id);
+                free_node_indexes_.push_back(ndx_rhs);
+                zero_node(ndx_rhs);
+            } else {
+                // Tree-level nodes: connect outputs from lower levels to inputs
+                TSView left_parent_view, right_parent_view;
+
+                if (i < last_node) {
+                    // Middle node: connect two lower-level outputs
+                    auto left_idx = un_bound_outputs.front(); un_bound_outputs.pop_front();
+                    auto right_idx = un_bound_outputs.front(); un_bound_outputs.pop_front();
+
+                    auto left_nodes = get_node(left_idx);
+                    auto right_nodes = get_node(right_idx);
+                    left_parent_view = left_nodes[output_node_id_]->ts_output()->view(time).ts_view();
+                    right_parent_view = right_nodes[output_node_id_]->ts_output()->view(time).ts_view();
+                } else {
+                    // Last node (new root): left=old root output, right=new subtree output
+                    auto old_root_nodes = get_node(count - 1);
+                    left_parent_view = old_root_nodes[output_node_id_]->ts_output()->view(time).ts_view();
+
+                    auto new_subtree_idx = un_bound_outputs.front(); un_bound_outputs.pop_front();
+                    auto new_subtree_nodes = get_node(new_subtree_idx);
+                    right_parent_view = new_subtree_nodes[output_node_id_]->ts_output()->view(time).ts_view();
+                }
+
+                // Bind LHS and RHS inputs of this tree node to their parent outputs.
+                // Python equivalent: lhs_input.input[0].bind_output(left_parent)
+                // This writes TSReference::peered(output_path) into the stub's REF input value.
+                auto sub_graph = get_node(i);
+                auto lhs_node = sub_graph[lhs_id];
+                auto rhs_node = sub_graph[rhs_id];
+
+                // Get output paths for left and right parent outputs
+                ShortPath left_path = left_parent_view.view_data().path;
+                ShortPath right_path = right_parent_view.view_data().path;
+
+                // Write TSReference into lhs and rhs stub input values
+                auto lhs_input = lhs_node->ts_input()->view(time);
+                auto lhs_ts = lhs_input[0].ts_view();
+                set_ref_input_value(lhs_ts, left_path, time);
+                lhs_node->notify();
+
+                auto rhs_input = rhs_node->ts_input()->view(time);
+                auto rhs_ts = rhs_input[0].ts_view();
+                set_ref_input_value(rhs_ts, right_path, time);
+                rhs_node->notify();
+            }
+        }
+
+        // Start newly added nodes if the graph is already running
+        if (nested_graph_->is_started() || nested_graph_->is_starting()) {
+            nested_graph_->start_subgraph(count * node_size(),
+                                          static_cast<int64_t>(nested_graph_->nodes().size()));
+        }
+    }
+
+    void ReduceNode::shrink_tree() {
+        int64_t active_count = static_cast<int64_t>(bound_node_indexes_.size());
+        int64_t capacity = active_count + static_cast<int64_t>(free_node_indexes_.size());
+        if (capacity <= 8) return;
+
+        int64_t halved_capacity = capacity / 2;
+        if (halved_capacity < active_count) return;
+
+        int64_t last_node = (node_count() - 1) / 2;
+        nested_graph_->reduce_graph(last_node * node_size());
+
+        // Keep only (halved_capacity - active_count) free nodes, sorted ascending
+        std::sort(free_node_indexes_.begin(), free_node_indexes_.end());
+        int64_t keep_count = halved_capacity - active_count;
+        if (static_cast<int64_t>(free_node_indexes_.size()) > keep_count) {
+            free_node_indexes_.resize(static_cast<size_t>(keep_count));
+        }
+        // Sort in descending order so pop_back gives the smallest
+        std::sort(free_node_indexes_.begin(), free_node_indexes_.end(), std::greater<>());
+    }
+
+    // ========== Node binding operations ==========
+
+    void ReduceNode::bind_key_to_node(const value::View& key, const std::tuple<int64_t, int64_t>& ndx) {
+        // Store key → (node_id, side) mapping
+        bound_node_indexes_.emplace(value::PlainValue(key), ndx);
+
+        auto [node_id, side] = ndx;
+        auto time = graph()->evaluation_time();
+        auto inner_node = get_node(node_id)[side];
+
+        // Get TSD element's upstream output ShortPath.
+        // Python equivalent: ts = self._tsd[key]; node.input = node.input.copy_with(ts=ts)
+        // In C++, we write TSReference::peered(path_to_tsd_element_output) into the stub's REF input.
+        auto outer_input = ts_input()->view(time);
+        auto tsd_field = outer_input.field("ts").ts_view();
+        ViewData tsd_resolved = resolve_through_link(tsd_field.view_data());
+        // Override path: resolve_through_link preserves input path but we need the upstream output path
+        // so that TSReference::peered(path) creates a resolvable output path (same pattern as switch_node.cpp)
+        {
+            auto& tsd_vd = tsd_field.view_data();
+            if (tsd_vd.uses_link_target && tsd_vd.link_data) {
+                auto* lt = static_cast<LinkTarget*>(tsd_vd.link_data);
+                if (lt->is_linked && lt->target_path.valid()) {
+                    tsd_resolved.path = lt->target_path;
+                }
+            }
+        }
+        TSView tsd_element = tsd_resolved.ops->child_by_key(tsd_resolved, key, time);
+        ShortPath element_path = tsd_element.view_data().path;
+
+        if constexpr (REDUCE_DEBUG) {
+            fprintf(stderr, "[REDUCE] bind_key_to_node: element_path valid=%d, path=%s\n",
+                element_path.valid() ? 1 : 0, element_path.to_string().c_str());
+            // Also print the intermediate paths
+            auto& tsd_vd = tsd_field.view_data();
+            fprintf(stderr, "[REDUCE]   tsd_field path=%s\n", tsd_vd.path.to_string().c_str());
+            if (tsd_vd.uses_link_target && tsd_vd.link_data) {
+                auto* lt = static_cast<LinkTarget*>(tsd_vd.link_data);
+                fprintf(stderr, "[REDUCE]   lt->target_path=%s, linked=%d\n",
+                    lt->target_path.to_string().c_str(), lt->is_linked ? 1 : 0);
+            }
+            fprintf(stderr, "[REDUCE]   tsd_resolved path=%s\n", tsd_resolved.path.to_string().c_str());
+        }
+
+        // Write TSReference::peered(element_path) into the stub's REF input value
+        if (inner_node->ts_input()) {
+            auto inner_input_view = inner_node->ts_input()->view(time);
+            auto ts_field_view = inner_input_view[0].ts_view();
+            set_ref_input_value(ts_field_view, element_path, time);
+        }
+
+        // Track as bound to key
+        bound_to_key_flags_.insert(static_cast<void*>(inner_node.get()));
+
+        // Schedule for evaluation
+        inner_node->notify();
+    }
+
+    void ReduceNode::zero_node(const std::tuple<int64_t, int64_t>& ndx) {
+        auto [node_id, side] = ndx;
+        if constexpr (REDUCE_DEBUG) fprintf(stderr, "[REDUCE] zero_node(%lld, %lld)\n", node_id, side);
+        auto time = graph()->evaluation_time();
+        auto inner_node = get_node(node_id)[side];
+
+        // Remove from bound-to-key tracking
+        bound_to_key_flags_.erase(static_cast<void*>(inner_node.get()));
+
+        // Get the upstream zero output's ShortPath.
+        // Python equivalent: inner_input.clone_binding(self._zero)
+        //   → inner_input.bind_output(self._zero.output)
+        //   → creates TSReference::peered(path_to_zero_output)
+        auto outer_input = ts_input()->view(time);
+        auto zero_field = outer_input.field("zero").ts_view();
+        ShortPath upstream_path = get_upstream_path(zero_field);
+
+        if constexpr (REDUCE_DEBUG) {
+            fprintf(stderr, "[REDUCE] zero_node: upstream_path valid=%d\n", upstream_path.valid() ? 1 : 0);
+        }
+
+        // Write TSReference::peered(upstream_path) into the stub's REF input value.
+        // This tells the stub "you reference the upstream zero output".
+        // When the stub evaluates, it reads this TSReference and writes it to its REF output.
+        // The downstream REFBindingHelper then resolves the reference to actual TS[int] data.
+        if (inner_node->ts_input()) {
+            auto inner_input_view = inner_node->ts_input()->view(time);
+            auto ts_field_view = inner_input_view[0].ts_view();
+            set_ref_input_value(ts_field_view, upstream_path, time);
+        }
+
+        // Notify to schedule for evaluation
+        inner_node->notify();
+    }
+
+    void ReduceNode::swap_node(const std::tuple<int64_t, int64_t>& src_ndx,
+                               const std::tuple<int64_t, int64_t>& dst_ndx) {
         auto [src_node_id, src_side] = src_ndx;
         auto [dst_node_id, dst_side] = dst_ndx;
+        auto time = graph()->evaluation_time();
 
-        auto src_nodes = get_node(src_node_id);
-        auto dst_nodes = get_node(dst_node_id);
+        auto src_node = get_node(src_node_id)[src_side];
+        auto dst_node = get_node(dst_node_id)[dst_side];
 
-        auto src_node = src_nodes[src_side];
-        auto dst_node = dst_nodes[dst_side];
+        if (!src_node->ts_input() || !dst_node->ts_input()) return;
 
-        // Get the old inputs before swapping
-        auto src_input = (*src_node->input())[0];
-        auto dst_input = (*dst_node->input())[0];
+        auto src_input_view = src_node->ts_input()->view(time);
+        auto dst_input_view = dst_node->ts_input()->view(time);
+        auto src_ts = src_input_view[0].ts_view();
+        auto dst_ts = dst_input_view[0].ts_view();
 
-        // Swap the inputs by creating new input bundles
-        src_node->reset_input(src_node->input()->copy_with(src_node.get(), {dst_input}));
-        dst_node->reset_input(dst_node->input()->copy_with(dst_node.get(), {src_input}));
+        // Read current TSReference values from each REF input's value_data
+        auto& src_vd = src_ts.view_data();
+        auto& dst_vd = dst_ts.view_data();
 
-        // Re-parent the inputs to their new parent bundles (CRITICAL FIX - Python lines 159-160)
-        dst_input->re_parent(static_cast<time_series_input_ptr>(src_node->input().get()));
-        src_input->re_parent(static_cast<time_series_input_ptr>(dst_node->input().get()));
+        if (!src_vd.value_data || !dst_vd.value_data) return;
+
+        auto* src_ref = static_cast<TSReference*>(src_vd.value_data);
+        auto* dst_ref = static_cast<TSReference*>(dst_vd.value_data);
+
+        // Swap the TSReference values
+        TSReference tmp = std::move(*src_ref);
+        *src_ref = std::move(*dst_ref);
+        *dst_ref = std::move(tmp);
+
+        // Mark both as modified
+        if (src_vd.time_data) *static_cast<engine_time_t*>(src_vd.time_data) = time;
+        if (dst_vd.time_data) *static_cast<engine_time_t*>(dst_vd.time_data) = time;
 
         src_node->notify();
         dst_node->notify();
     }
 
-    void ReduceNode::re_balance_nodes() {
-        if (node_count() > 8 && (free_node_indexes_.size() * 0.75) > bound_node_indexes_.size()) { shrink_tree(); }
-    }
-
-    void ReduceNode::grow_tree() {
-        int64_t count = node_count();
-        int64_t end = 2 * count + 1;
-        int64_t top_layer_length = (end + 1) / 4;
-        int64_t top_layer_end = std::max(count + top_layer_length, static_cast<int64_t>(1));
-        int64_t last_node = end - 1;
-
-        std::deque<int64_t> un_bound_outputs;
-        std::vector<int64_t> wiring_info; // Nodes that need wiring after start
-
-        for (int64_t i = count; i < end; ++i) {
-            un_bound_outputs.push_back(i);
-            nested_graph_->extend_graph(*nested_graph_builder_, true);
-
-            if (i < top_layer_end) {
-                auto ndx_lhs = std::make_tuple(i, std::get<0>(input_node_ids_));
-                free_node_indexes_.push_back(ndx_lhs);
-                zero_node(ndx_lhs);
-
-                auto ndx_rhs = std::make_tuple(i, std::get<1>(input_node_ids_));
-                free_node_indexes_.push_back(ndx_rhs);
-                zero_node(ndx_rhs);
-            } else {
-                // Defer wiring until after nodes are started
-                wiring_info.push_back(i);
-            }
-        }
-
-        // Wire the nodes that need wiring
-        for (auto i: wiring_info) {
-            time_series_output_s_ptr left_parent;
-            time_series_output_s_ptr right_parent;
-
-            if (i < last_node) {
-                auto left_idx = un_bound_outputs.front();
-                un_bound_outputs.pop_front();
-                left_parent = get_node(left_idx)[output_node_id_]->output();
-
-                auto right_idx = un_bound_outputs.front();
-                un_bound_outputs.pop_front();
-                right_parent = get_node(right_idx)[output_node_id_]->output();
-            } else {
-                auto old_root = get_node(count - 1)[output_node_id_];
-                left_parent = old_root->output();
-
-                auto new_root_idx = un_bound_outputs.front();
-                un_bound_outputs.pop_front();
-                auto new_root = get_node(new_root_idx)[output_node_id_];
-                right_parent = new_root->output();
-            }
-
-            auto sub_graph = get_node(i);
-            auto lhs_input = sub_graph[std::get<0>(input_node_ids_)];
-            auto rhs_input = sub_graph[std::get<1>(input_node_ids_)];
-
-            dynamic_cast<TimeSeriesInput &>(*(*lhs_input->input())[0]).bind_output(left_parent);
-            dynamic_cast<TimeSeriesInput &>(*(*rhs_input->input())[0]).bind_output(right_parent);
-
-            lhs_input->notify();
-            rhs_input->notify();
-        }
-
-        // Start the newly added nodes AFTER wiring them (matches Python line 272-273)
-        if (nested_graph_->is_started() || nested_graph_->is_starting()) {
-            int64_t start_idx = count * node_size();
-            int64_t end_idx = nested_graph_->nodes().size();
-            nested_graph_->start_subgraph(start_idx, end_idx);
-        }
-
-        // Sort free list in descending order so .pop_back() gives LOWEST positions first
-        // This maintains the left-based invariant: keys are always added to leftmost available positions
-        std::sort(free_node_indexes_.begin(), free_node_indexes_.end(),
-                  [](const auto &a, const auto &b) { return a > b; });
-    }
-
-    void ReduceNode::shrink_tree() {
-        int64_t capacity = bound_node_indexes_.size() + free_node_indexes_.size();
-        if (capacity <= 8) { return; }
-
-        int64_t halved_capacity = capacity / 2;
-        int64_t active_count = bound_node_indexes_.size();
-        if (halved_capacity < active_count) { return; }
-
-        int64_t last_node = (node_count() - 1) / 2;
-        int64_t start = last_node;
-
-        // Delete the high nodes - the left-based invariant ensures no bound keys are in nodes >= start
-        nested_graph_->reduce_graph(start * node_size());
-
-        // Keep only the low free positions (first halved_capacity - active_count when sorted)
-        std::sort(free_node_indexes_.begin(), free_node_indexes_.end(),
-                  [](const auto &a, const auto &b) { return a < b; });
-
-        int64_t to_keep = halved_capacity - active_count;
-        if (static_cast<size_t>(to_keep) < free_node_indexes_.size()) { free_node_indexes_.resize(to_keep); }
-
-        // Reverse sort so .pop_back() gives lowest positions (maintains left-based invariant)
-        std::sort(free_node_indexes_.begin(), free_node_indexes_.end(),
-                  [](const auto &a, const auto &b) { return a > b; });
-    }
-
-    void ReduceNode::bind_key_to_node(const value::ConstValueView &key, const std::tuple<int64_t, int64_t> &ndx) {
-        // Store key as PlainValue (owned copy)
-        bound_node_indexes_[value::PlainValue(key)] = ndx;
-
-        auto [node_id, side] = ndx;
-        auto nodes = get_node(node_id);
-        auto node = nodes[side];
-
-        // Get the time series input from the TSD for this key
-        auto ts_ = (*ts())[key];
-
-        // Check what's currently at this position before binding
-        auto old_input = (*node->input())[0];
-
-        // If the old input is in bound_to_key_flags_, we need to remove it
-        // This can happen if we're re-binding to a position that was swapped with another bound position
-        if (bound_to_key_flags_.contains(old_input.get()) && old_input.get() != ts_.get()) {
-            bound_to_key_flags_.erase(old_input.get());
-        }
-
-        // Create new input bundle with the ts (Python line 198)
-        node->reset_input(node->input()->copy_with(node.get(), {ts_}));
-
-        // Re-parent the ts to the node's input (CRITICAL FIX - Python line 200)
-        ts_->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
-
-        // Make the time series active (CRITICAL FIX - Python line 201)
-        ts_->make_active();
-
-        // Track that this input is bound to a key (Python: ts._bound_to_key = True)
-        // Note: insert() is idempotent - if already present, it does nothing
-        bound_to_key_flags_.insert(ts_.get());
-
-        node->notify();
-    }
-
-    void ReduceNode::zero_node(const std::tuple<int64_t, int64_t> &ndx) {
-        auto [node_id, side] = ndx;
-        auto nodes = get_node(node_id);
-        auto node = nodes[side];
-
-        // Get the current input
-        auto inner_input = (*node->input())[0];
-
-        // Check if this input is bound to a key (from TSD) by checking if it's in bound_to_key_flags_
-        // If not in flags, it's just an unbound reference that we created, so we can reuse it
-        if (bound_to_key_flags_.contains(inner_input.get())) {
-            // This input was bound to a key, so we need to:
-            // 1. Make it passive to unsubscribe from the output (CRITICAL: must do this before re-parenting)
-            // 2. Remove it from our tracking set
-            // 3. Re-parent it back to the TSD for cleanup
-            // 4. Create a new unbound reference input for this node with the same specialized type as zero()
-            inner_input->make_passive();  // Unsubscribe from output to prevent dangling subscriber
-            bound_to_key_flags_.erase(inner_input.get());
-            inner_input->re_parent(static_cast<time_series_input_ptr>(ts()));
-
-            // Clone the specialized type from zero() instead of creating a base type
-            auto zero_ref = zero();
-            auto new_ref_input = zero_ref->clone_blank_ref_instance();
-            node->reset_input(node->input()->copy_with(node.get(), {new_ref_input}));
-            auto new_ref_input_ptr = dynamic_cast<TimeSeriesReferenceInput*>(new_ref_input.get());
-            new_ref_input_ptr->re_parent(static_cast<time_series_input_ptr>(node->input().get()));
-            new_ref_input_ptr->clone_binding(zero_ref);
-        } else {
-            // This input is not bound to a key (it's an unbound reference we created),
-            // so we can just clone the zero binding without creating a new input
-            auto inner_ref = dynamic_cast<TimeSeriesReferenceInput *>(inner_input.get());
-            inner_ref->clone_binding(zero());
-        }
-
-        node->notify();
-    }
-
-    int64_t ReduceNode::node_size() const { return nested_graph_builder_->node_builders.size(); }
-
-    int64_t ReduceNode::node_count() const { return nested_graph_->nodes().size() / node_size(); }
-
-    std::vector<node_s_ptr> ReduceNode::get_node(int64_t ndx) {
-        // This should be cleaned up to return a view over the existing nodes.
-        auto &all_nodes = nested_graph_->nodes();
-        int64_t ns = node_size();
-        int64_t start = ndx * ns;
-        int64_t end = start + ns;
-        return {all_nodes.begin() + start, all_nodes.begin() + end};
-    }
-
-    const graph_s_ptr &ReduceNode::nested_graph() const { return nested_graph_; }
-
-    const std::tuple<int64_t, int64_t> &ReduceNode::input_node_ids() const { return input_node_ids_; }
-
-    int64_t ReduceNode::output_node_id() const { return output_node_id_; }
-
-    nb::dict ReduceNode::py_bound_node_indexes() const {
-        nb::dict result;
-        auto* tsd = const_cast<ReduceNode*>(this)->ts();
-        const auto* key_schema = tsd->key_type_meta();
-        for (const auto& [key, ndx] : bound_node_indexes_) {
-            // Convert PlainValue key to Python using TypeMeta
-            nb::object py_key = key_schema->ops->to_python(key.data(), key_schema);
-            result[py_key] = nb::make_tuple(std::get<0>(ndx), std::get<1>(ndx));
-        }
-        return result;
-    }
-
-    const std::vector<std::tuple<int64_t, int64_t> > &ReduceNode::free_node_indexes() const {
-        return free_node_indexes_;
-    }
+    // ========== nanobind registration ==========
 
     void register_reduce_node_with_nanobind(nb::module_ &m) {
         nb::class_<ReduceNode, NestedNode>(m, "ReduceNode")
-                .def(nb::init<int64_t, std::vector<int64_t>, NodeSignature::s_ptr, nb::dict, graph_builder_s_ptr,
-                         const std::tuple<int64_t, int64_t> &, int64_t>(),
-                     "node_ndx"_a, "owning_graph_id"_a, "signature"_a, "scalars"_a, "nested_graph_builder"_a,
-                     "input_node_ids"_a, "output_node_id"_a)
                 .def_prop_ro("nested_graph", &ReduceNode::nested_graph)
                 .def_prop_ro("nested_graphs", &ReduceNode::nested_graphs)
-                .def_prop_ro("ts", &ReduceNode::ts)
-                .def_prop_ro("zero", &ReduceNode::zero)
                 .def_prop_ro("input_node_ids", &ReduceNode::input_node_ids)
                 .def_prop_ro("output_node_id", &ReduceNode::output_node_id)
                 .def_prop_ro("bound_node_indexes", &ReduceNode::py_bound_node_indexes)

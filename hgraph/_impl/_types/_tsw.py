@@ -164,7 +164,7 @@ class PythonTimeSeriesFixedWindowOutput(
         assert isinstance(output, PythonTimeSeriesFixedWindowOutput)
         self._value = output._value
         self._times = output._times
-        self._start = output._size
+        self._start = output._start
         self._length = output._length
         self.mark_modified()
 
@@ -259,12 +259,12 @@ class PythonTimeSeriesTimeWindowOutput(
     @property
     def has_removed_value(self) -> bool:
         self._roll()
-        return self.removed_value is not None
+        return self._removed_values is not None and len(self._removed_values) > 0
 
     @property
-    def removed_value(self) -> SCALAR:
+    def removed_value(self) -> tuple[SCALAR, ...] | None:
         self._roll()
-        return self.removed_value
+        return self._removed_values
 
     @property
     def delta_value(self) -> Optional[SCALAR]:
@@ -327,18 +327,20 @@ class PythonTimeSeriesTimeWindowOutput(
         super().mark_invalid()
 
     def copy_from_output(self, output: "TimeSeriesOutput"):
-        assert isinstance(output, PythonTimeSeriesFixedWindowOutput)
-        self._value = output._value
-        self._value_times = output._times
+        assert isinstance(output, PythonTimeSeriesTimeWindowOutput)
+        self._value = deque(output._value)
+        self._times = deque(output._times)
         self._ready = output._ready
+        self.mark_modified()
 
     def copy_from_input(self, input: "TimeSeriesInput"):
         assert isinstance(input, PythonTimeSeriesWindowInput)
         output = input.output
-        assert isinstance(output, PythonTimeSeriesFixedWindowOutput)
-        self._value = output._value
-        self._value_times = output._times
+        assert isinstance(output, PythonTimeSeriesTimeWindowOutput)
+        self._value = deque(output._value)
+        self._times = deque(output._times)
         self._ready = output._ready
+        self.mark_modified()
 
     def __len__(self) -> int:
         self._roll()

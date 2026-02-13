@@ -6,21 +6,15 @@
 namespace hgraph
 {
 
-    template <typename T_TS, typename T_U>
-    concept is_py_tsb = ((std::is_same_v<T_TS, PyTimeSeriesInput> || std::is_same_v<T_TS, PyTimeSeriesOutput>) &&
-                         ((std::is_same_v<T_TS, PyTimeSeriesInput> && std::is_same_v<T_U, TimeSeriesBundleInput>) ||
-                          (std::is_same_v<T_TS, PyTimeSeriesOutput> && std::is_same_v<T_U, TimeSeriesBundleOutput>)));
-
-    template <typename T_TS, typename T_U>
-        requires(is_py_tsb<T_TS, T_U>)
+    // Base template for bundle wrappers - now parameterized on I/O type only
+    template <typename T_TS>
     struct PyTimeSeriesBundle : T_TS
     {
-        using underlying_type = T_U;
-        using api_ptr = ApiPtr<underlying_type>;
+        // View type depends on whether this is input or output
+        using view_type = std::conditional_t<std::is_same_v<T_TS, PyTimeSeriesOutput>, TSOutputView, TSInputView>;
 
-        explicit PyTimeSeriesBundle(api_ptr impl);
-        explicit PyTimeSeriesBundle(underlying_type *impl, const control_block_ptr &cb);
-        explicit PyTimeSeriesBundle(underlying_type *impl);
+        // View-based constructor
+        explicit PyTimeSeriesBundle(view_type view);
 
         // Move constructor
         PyTimeSeriesBundle(PyTimeSeriesBundle&& other) noexcept
@@ -34,7 +28,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesBundle(const PyTimeSeriesBundle&) = delete;
         PyTimeSeriesBundle& operator=(const PyTimeSeriesBundle&) = delete;
 
@@ -47,7 +41,7 @@ namespace hgraph
 
         [[nodiscard]] nb::bool_ contains(const nb::handle &key) const;
 
-        [[nodiscard]] const TimeSeriesSchema &schema() const;
+        [[nodiscard]] nb::object schema() const;
 
         [[nodiscard]] nb::object key_from_value(const nb::handle &value) const;
 
@@ -77,13 +71,10 @@ namespace hgraph
 
         [[nodiscard]] nb::str py_str();
         [[nodiscard]] nb::str py_repr();
-
-      private:
-        underlying_type *impl() const;
     };
 
-    using PyTimeSeriesBundleOutput = PyTimeSeriesBundle<PyTimeSeriesOutput, TimeSeriesBundleOutput>;
-    using PyTimeSeriesBundleInput  = PyTimeSeriesBundle<PyTimeSeriesInput, TimeSeriesBundleInput>;
+    using PyTimeSeriesBundleOutput = PyTimeSeriesBundle<PyTimeSeriesOutput>;
+    using PyTimeSeriesBundleInput  = PyTimeSeriesBundle<PyTimeSeriesInput>;
 
     void tsb_register_with_nanobind(nb::module_ &m);
 

@@ -31,21 +31,6 @@ except AttributeError:
     HAS_CACHED_VALUE = False
     CachedValue = None
 
-# TSValue may not be available yet
-try:
-    TSValue = value.TSValue
-    HAS_TS_VALUE = True
-except AttributeError:
-    HAS_TS_VALUE = False
-    TSValue = None
-
-# ValidatedValue may not be available yet
-try:
-    ValidatedValue = value.ValidatedValue
-    HAS_VALIDATED_VALUE = True
-except AttributeError:
-    HAS_VALIDATED_VALUE = False
-    ValidatedValue = None
 
 
 # =============================================================================
@@ -316,74 +301,6 @@ def test_cache_empty_after_invalidation(large_int, another_large_int):
 
     assert py1 != py2  # Different values
     assert py1 is not py2  # Different objects
-
-
-# =============================================================================
-# Section 16.3 & 16.4: CRTP Mixin Patterns (if exposed)
-# =============================================================================
-
-@pytest.mark.skipif(not HAS_TS_VALUE, reason="TSValue not yet exposed in C++ extension")
-def test_tsvalue_if_available(large_int):
-    """TSValue (if available) combines caching and modification tracking."""
-    v = TSValue(large_int)
-    assert v.valid()
-
-    # Should have caching
-    py1 = v.to_python()
-    py2 = v.to_python()
-    assert py1 is py2
-
-    # Should have modification tracking
-    assert hasattr(v, 'on_modified')
-
-
-@pytest.mark.skipif(not HAS_TS_VALUE, reason="TSValue not yet exposed in C++ extension")
-def test_modification_callback():
-    """Modification callbacks are triggered on from_python()."""
-    v = TSValue(0)
-    callback_count = [0]  # Use list for mutable closure
-
-    def on_change():
-        callback_count[0] += 1
-
-    v.on_modified(on_change)
-    v.from_python(123456789)
-
-    assert callback_count[0] == 1
-
-
-@pytest.mark.skipif(not HAS_TS_VALUE, reason="TSValue not yet exposed in C++ extension")
-def test_modification_invalidates_cache():
-    """Modification invalidates cache in TSValue."""
-    v = TSValue(123456789)
-    py1 = v.to_python()
-
-    v.from_python(987654321)
-
-    py2 = v.to_python()
-    assert py1 is not py2
-
-
-# =============================================================================
-# Validation Extension Tests (Examples Section 4.1)
-# =============================================================================
-
-@pytest.mark.skipif(not HAS_VALIDATED_VALUE, reason="ValidatedValue not yet exposed in C++ extension")
-def test_validated_value_rejects_none():
-    """ValidatedValue rejects None values."""
-    v = ValidatedValue(0)
-    # Nanobind may reject None at binding level (TypeError) or
-    # our validation may catch it (RuntimeError)
-    with pytest.raises((RuntimeError, TypeError)):
-        v.from_python(None)
-
-
-@pytest.mark.skipif(not HAS_VALIDATED_VALUE, reason="ValidatedValue not yet exposed in C++ extension")
-def test_validated_value_accepts_valid_input():
-    """ValidatedValue accepts valid input."""
-    v = ValidatedValue(0)
-    v.from_python(123456789)
-    assert v.to_python() == 123456789
 
 
 # =============================================================================

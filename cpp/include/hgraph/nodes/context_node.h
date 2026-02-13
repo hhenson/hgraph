@@ -24,7 +24,7 @@ namespace hgraph {
         void do_eval() override;
 
     private:
-        time_series_reference_output_s_ptr _subscribed_output{};
+        time_series_output_s_ptr _subscribed_output{};
     };
 
     void register_context_node_with_nanobind(nb::module_ & m);

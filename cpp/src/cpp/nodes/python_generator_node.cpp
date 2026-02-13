@@ -1,8 +1,26 @@
 #include <hgraph/nodes/python_generator_node.h>
 #include <hgraph/types/graph.h>
-#include <hgraph/types/time_series_type.h>
+#include <hgraph/types/time_series/ts_output.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 
 namespace hgraph {
+
+    // Helper to get last modified time from TSOutput
+    engine_time_t PythonGeneratorNode::_get_last_modified_time() {
+        if (has_output() && ts_output()) {
+            auto view = ts_output()->view(graph()->evaluation_time());
+            return view.ts_view().last_modified_time();
+        }
+        return MIN_DT;  // No output
+    }
+
+    // Helper to apply result from Python object to TSOutput
+    void PythonGeneratorNode::_apply_output_result(const nb::object& result) {
+        if (has_output() && ts_output()) {
+            auto view = ts_output()->view(graph()->evaluation_time());
+            view.from_python(result);
+        }
+    }
 
     void PythonGeneratorNode::do_eval() {
         auto et = graph()->evaluation_time();
@@ -43,13 +61,13 @@ namespace hgraph {
         // If next_time <= et then we are expecting to schedule the task.
         if (next_time > MIN_DT && next_time <= et) {
             // If we have a duplicate time, this will pick it up
-            if (output()->last_modified_time() == next_time) {
+            if (_get_last_modified_time() == next_time) {
                 throw std::runtime_error(
                     fmt::format("Duplicate time produced by generator: [{:%FT%T%z}] - {}", next_time,
                                 nb::str(out).c_str()));
             }
             // If next_time is less than et we will schedule at et anyhow.
-            output()->apply_result(out);
+            _apply_output_result(out);
             next_value = nb::none();
             do_eval(); // We are going to apply now! Prepare next step
             return;
@@ -58,7 +76,7 @@ namespace hgraph {
         // If we get here, it may be that we are scheduled, let's see if there is anything pending delivery.
         if (next_value.is_valid() && !next_value.is_none()) {
             // There is, set the value and reset the next_value
-            output()->apply_result(next_value);
+            _apply_output_result(next_value);
             next_value = nb::none();
         }
 

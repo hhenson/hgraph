@@ -1,10 +1,11 @@
 #ifndef SWITCH_NODE_H
 #define SWITCH_NODE_H
 
-#include "hgraph/types/ts.h"
 #include <hgraph/nodes/nested_node.h>
 #include <hgraph/types/value/value.h>
 #include <hgraph/types/feature_extension.h>
+#include <hgraph/types/time_series/ts_meta.h>
+#include <hgraph/types/time_series/view_data.h>
 #include <optional>
 #include <unordered_map>
 
@@ -39,6 +40,8 @@ namespace hgraph {
 
         SwitchNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature,
                    nb::dict scalars,
+                   const TSMeta* input_meta, const TSMeta* output_meta,
+                   const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                    const value::TypeMeta* key_type,
                    graph_builders_map_ptr nested_graph_builders,
                    input_node_ids_map_ptr input_node_ids,
@@ -74,13 +77,13 @@ namespace hgraph {
         void unwire_graph(graph_s_ptr &graph);
 
         // Key comparison using TypeMeta ops
-        [[nodiscard]] bool keys_equal(const value::ConstValueView& a, const value::ConstValueView& b) const;
+        [[nodiscard]] bool keys_equal(const value::View& a, const value::View& b) const;
 
         const value::TypeMeta* _key_type;
         graph_builders_map_ptr _nested_graph_builders;
         input_node_ids_map_ptr _input_node_ids;
         output_node_ids_map_ptr _output_node_ids;
-        TimeSeriesValueInput *_key_ts{nullptr};
+        void *_key_ts{nullptr};  // stubbed: was TimeSeriesValueInput*
 
         bool _reload_on_ticked;
         graph_s_ptr _active_graph{};
@@ -93,6 +96,8 @@ namespace hgraph {
         int _default_output_node_id{-1};
         std::string _recordable_id;
         bool _graph_reset{false};
+        int _active_output_node_id{-1};  // Cached output stub index for explicit scheduling
+        std::optional<ViewData> _saved_old_target_vd;  // Saved resolved target before graph switch
     };
 
 } // namespace hgraph

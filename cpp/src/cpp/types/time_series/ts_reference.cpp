@@ -1,0 +1,560 @@
+#include <hgraph/types/time_series/ts_reference.h>
+#include <hgraph/types/time_series/ts_reference_ops.h>
+#include <hgraph/types/time_series/ts_view.h>
+#include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/api/python/py_time_series.h>
+#include <hgraph/api/python/wrapper_factory.h>
+
+#include <nanobind/nanobind.h>
+
+#include <iostream>
+#include <sstream>
+#include <new>
+
+namespace nb = nanobind;
+
+namespace hgraph {
+
+// ============================================================================
+// TSReference - Lifetime Management
+// ============================================================================
+
+void TSReference::destroy() noexcept {
+    switch (kind_) {
+        case Kind::EMPTY:
+            // Nothing to destroy
+            break;
+        case Kind::PEERED:
+            storage_.peered_path.~ShortPath();
+            break;
+        case Kind::NON_PEERED:
+            storage_.non_peered_items.~vector();
+            break;
+        case Kind::PYTHON_BOUND:
+            delete static_cast<nb::object*>(storage_.python_ref_ptr);
+            break;
+    }
+    kind_ = Kind::EMPTY;
+}
+
+void TSReference::copy_from(const TSReference& other) {
+    kind_ = other.kind_;
+    switch (kind_) {
+        case Kind::EMPTY:
+            break;
+        case Kind::PEERED:
+            new (&storage_.peered_path) ShortPath(other.storage_.peered_path);
+            break;
+        case Kind::NON_PEERED:
+            new (&storage_.non_peered_items) std::vector<TSReference>(other.storage_.non_peered_items);
+            break;
+        case Kind::PYTHON_BOUND: {
+            auto* src = static_cast<nb::object*>(other.storage_.python_ref_ptr);
+            storage_.python_ref_ptr = src ? new nb::object(*src) : nullptr;
+            break;
+        }
+    }
+}
+
+void TSReference::move_from(TSReference&& other) noexcept {
+    kind_ = other.kind_;
+    switch (kind_) {
+        case Kind::EMPTY:
+            break;
+        case Kind::PEERED:
+            new (&storage_.peered_path) ShortPath(std::move(other.storage_.peered_path));
+            break;
+        case Kind::NON_PEERED:
+            new (&storage_.non_peered_items) std::vector<TSReference>(std::move(other.storage_.non_peered_items));
+            break;
+        case Kind::PYTHON_BOUND:
+            storage_.python_ref_ptr = other.storage_.python_ref_ptr;
+            other.storage_.python_ref_ptr = nullptr;
+            break;
+    }
+    other.destroy();
+}
+
+// ============================================================================
+// TSReference - Construction / Assignment / Destruction
+// ============================================================================
+
+TSReference::TSReference(const TSReference& other) : kind_(Kind::EMPTY) {
+    copy_from(other);
+}
+
+TSReference::TSReference(TSReference&& other) noexcept : kind_(Kind::EMPTY) {
+    move_from(std::move(other));
+}
+
+TSReference& TSReference::operator=(const TSReference& other) {
+    if (this != &other) {
+        destroy();
+        copy_from(other);
+    }
+    return *this;
+}
+
+TSReference& TSReference::operator=(TSReference&& other) noexcept {
+    if (this != &other) {
+        destroy();
+        move_from(std::move(other));
+    }
+    return *this;
+}
+
+TSReference::~TSReference() {
+    destroy();
+}
+
+// ============================================================================
+// TSReference - Factory Methods
+// ============================================================================
+
+TSReference TSReference::peered(ShortPath path) {
+    TSReference ref;
+    ref.kind_ = Kind::PEERED;
+    new (&ref.storage_.peered_path) ShortPath(std::move(path));
+    return ref;
+}
+
+TSReference TSReference::non_peered(std::vector<TSReference> items) {
+    TSReference ref;
+    ref.kind_ = Kind::NON_PEERED;
+    new (&ref.storage_.non_peered_items) std::vector<TSReference>(std::move(items));
+    return ref;
+}
+
+TSReference TSReference::python_bound(nb::object py_ref) {
+    TSReference ref;
+    ref.kind_ = Kind::PYTHON_BOUND;
+    ref.storage_.python_ref_ptr = new nb::object(std::move(py_ref));
+    return ref;
+}
+
+// ============================================================================
+// TSReference - Query Methods
+// ============================================================================
+
+bool TSReference::is_valid(engine_time_t current_time) const {
+    switch (kind_) {
+        case Kind::EMPTY:
+            return false;
+        case Kind::PEERED: {
+            if (!storage_.peered_path.valid()) {
+                return false;
+            }
+            // Try to resolve and check validity
+            try {
+                TSView view = storage_.peered_path.resolve(current_time);
+                return view.valid();
+            } catch (...) {
+                return false;
+            }
+        }
+        case Kind::NON_PEERED:
+            // Valid if any item is non-empty
+            for (const auto& item : storage_.non_peered_items) {
+                if (!item.is_empty()) {
+                    return true;
+                }
+            }
+            return false;
+        case Kind::PYTHON_BOUND: {
+            auto* obj = static_cast<nb::object*>(storage_.python_ref_ptr);
+            if (obj && obj->is_valid()) {
+                try {
+                    return nb::cast<bool>(obj->attr("has_output"));
+                } catch (...) {
+                    return false;
+                }
+            }
+            return false;
+        }
+    }
+    return false;
+}
+
+// ============================================================================
+// TSReference - Accessors
+// ============================================================================
+
+const ShortPath& TSReference::path() const {
+    if (kind_ != Kind::PEERED) {
+        throw std::runtime_error("TSReference::path() called on non-PEERED reference");
+    }
+    return storage_.peered_path;
+}
+
+const std::vector<TSReference>& TSReference::items() const {
+    if (kind_ != Kind::NON_PEERED) {
+        throw std::runtime_error("TSReference::items() called on non-NON_PEERED reference");
+    }
+    return storage_.non_peered_items;
+}
+
+const TSReference& TSReference::operator[](size_t index) const {
+    if (kind_ != Kind::NON_PEERED) {
+        throw std::runtime_error("TSReference::operator[] called on non-NON_PEERED reference");
+    }
+    if (index >= storage_.non_peered_items.size()) {
+        throw std::out_of_range("TSReference::operator[] index out of range");
+    }
+    return storage_.non_peered_items[index];
+}
+
+size_t TSReference::size() const noexcept {
+    if (kind_ != Kind::NON_PEERED) {
+        return 0;
+    }
+    return storage_.non_peered_items.size();
+}
+
+nb::object TSReference::python_object() const {
+    if (kind_ != Kind::PYTHON_BOUND) {
+        throw std::runtime_error("TSReference::python_object() called on non-PYTHON_BOUND reference");
+    }
+    auto* obj = static_cast<nb::object*>(storage_.python_ref_ptr);
+    return obj ? nb::object(*obj) : nb::none();
+}
+
+// ============================================================================
+// TSReference - Resolution
+// ============================================================================
+
+TSView TSReference::resolve(engine_time_t current_time) const {
+    if (kind_ != Kind::PEERED) {
+        throw std::runtime_error("TSReference::resolve() called on non-PEERED reference");
+    }
+    return storage_.peered_path.resolve(current_time);
+}
+
+// ============================================================================
+// TSReference - Conversion
+// ============================================================================
+
+FQReference TSReference::to_fq() const {
+    switch (kind_) {
+        case Kind::EMPTY:
+            return FQReference::empty();
+
+        case Kind::PEERED: {
+            const auto& sp = storage_.peered_path;
+            // Get node_id from node pointer
+            // Note: This requires Node to have a method to get its ID
+            int node_id = -1;
+            if (sp.node()) {
+                // TODO: Implement node->node_id() accessor
+                // For now, we'll need to add this to Node interface
+                // node_id = sp.node()->node_id();
+                node_id = 0;  // Placeholder
+            }
+            return FQReference::peered(node_id, sp.port_type(), sp.indices());
+        }
+
+        case Kind::NON_PEERED: {
+            std::vector<FQReference> fq_items;
+            fq_items.reserve(storage_.non_peered_items.size());
+            for (const auto& item : storage_.non_peered_items) {
+                fq_items.push_back(item.to_fq());
+            }
+            return FQReference::non_peered(std::move(fq_items));
+        }
+
+        case Kind::PYTHON_BOUND:
+            // PYTHON_BOUND references can't be serialized to FQReference
+            return FQReference::empty();
+    }
+    return FQReference::empty();
+}
+
+TSReference TSReference::from_fq(const FQReference& fq, Graph* graph) {
+    switch (fq.kind) {
+        case Kind::EMPTY:
+            return TSReference::empty();
+
+        case Kind::PEERED: {
+            // Resolve node_id to Node*
+            // TODO: Implement graph->get_node(node_id)
+            node_ptr node = nullptr;
+            if (graph && fq.node_id >= 0) {
+                // node = graph->get_node(fq.node_id);
+            }
+            ShortPath path(node, fq.port_type, fq.indices);
+            return TSReference::peered(std::move(path));
+        }
+
+        case Kind::NON_PEERED: {
+            std::vector<TSReference> items;
+            items.reserve(fq.items.size());
+            for (const auto& fq_item : fq.items) {
+                items.push_back(TSReference::from_fq(fq_item, graph));
+            }
+            return TSReference::non_peered(std::move(items));
+        }
+    }
+    return TSReference::empty();
+}
+
+// ============================================================================
+// TSReference - Comparison
+// ============================================================================
+
+bool TSReference::operator==(const TSReference& other) const {
+    if (kind_ != other.kind_) {
+        return false;
+    }
+    switch (kind_) {
+        case Kind::EMPTY:
+            return true;
+        case Kind::PEERED:
+            return storage_.peered_path == other.storage_.peered_path;
+        case Kind::NON_PEERED:
+            return storage_.non_peered_items == other.storage_.non_peered_items;
+        case Kind::PYTHON_BOUND: {
+            auto* this_obj = static_cast<nb::object*>(storage_.python_ref_ptr);
+            auto* other_obj = static_cast<nb::object*>(other.storage_.python_ref_ptr);
+            if (this_obj && other_obj) {
+                return this_obj->is(*other_obj);  // Identity comparison
+            }
+            return this_obj == other_obj;  // Both null
+        }
+    }
+    return false;
+}
+
+// ============================================================================
+// TSReference - String Representation
+// ============================================================================
+
+std::string TSReference::to_string() const {
+    switch (kind_) {
+        case Kind::EMPTY:
+            return "REF[<Empty>]";
+
+        case Kind::PEERED:
+            return "REF[" + storage_.peered_path.to_string() + "]";
+
+        case Kind::NON_PEERED: {
+            std::ostringstream oss;
+            oss << "REF[";
+            bool first = true;
+            for (const auto& item : storage_.non_peered_items) {
+                if (!first) oss << ", ";
+                first = false;
+                // Recursively get string, but strip outer "REF[...]"
+                std::string item_str = item.to_string();
+                if (item_str.size() > 5 && item_str.substr(0, 4) == "REF[") {
+                    oss << item_str.substr(4, item_str.size() - 5);
+                } else {
+                    oss << item_str;
+                }
+            }
+            oss << "]";
+            return oss.str();
+        }
+
+        case Kind::PYTHON_BOUND:
+            return "REF[<PythonBound>]";
+    }
+    return "REF[<Unknown>]";
+}
+
+// ============================================================================
+// FQReference - String Representation
+// ============================================================================
+
+std::string FQReference::to_string() const {
+    switch (kind) {
+        case Kind::EMPTY:
+            return "FQRef[<Empty>]";
+
+        case Kind::PEERED: {
+            std::ostringstream oss;
+            oss << "FQRef[node=" << node_id
+                << ", port=" << (port_type == PortType::INPUT ? "IN" : "OUT");
+            if (!indices.empty()) {
+                oss << ", path=[";
+                bool first = true;
+                for (size_t idx : indices) {
+                    if (!first) oss << ",";
+                    first = false;
+                    oss << idx;
+                }
+                oss << "]";
+            }
+            oss << "]";
+            return oss.str();
+        }
+
+        case Kind::NON_PEERED: {
+            std::ostringstream oss;
+            oss << "FQRef[";
+            bool first = true;
+            for (const auto& item : items) {
+                if (!first) oss << ", ";
+                first = false;
+                oss << item.to_string();
+            }
+            oss << "]";
+            return oss.str();
+        }
+
+        case Kind::PYTHON_BOUND:
+            return "FQRef[<PythonBound>]";
+    }
+    return "FQRef[<Unknown>]";
+}
+
+} // namespace hgraph
+
+// ============================================================================
+// ScalarOps<TSReference> - Python Interop Implementation
+// ============================================================================
+
+namespace hgraph::value {
+
+nb::object ScalarOps<TSReference>::to_python(const void* obj, const TypeMeta*) {
+    const auto& ref = *static_cast<const TSReference*>(obj);
+
+    // Import Python TimeSeriesReference module
+    auto ref_module = nb::module_::import_("hgraph._types._ref_type");
+
+    switch (ref.kind()) {
+        case TSReference::Kind::EMPTY: {
+            // Return EmptyTimeSeriesReference via TimeSeriesReference.make()
+            auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
+            return make_fn();  // No arguments = empty reference
+        }
+
+        case TSReference::Kind::PYTHON_BOUND: {
+            // Return the stored Python TimeSeriesReference directly
+            return ref.python_object();
+        }
+
+        case TSReference::Kind::PEERED: {
+            // Resolve the ShortPath to get the target ViewData, then create a proper
+            // BoundTimeSeriesReference via Python. This avoids the broken to_fq()
+            // which hardcodes node_id=0.
+            try {
+                TSView resolved = ref.resolve(MIN_DT);
+                if (resolved) {
+                    TSOutputView output_view(std::move(resolved), nullptr);
+                    nb::object output_wrapper = wrap_output_view(std::move(output_view));
+                    auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
+                    return make_fn(output_wrapper);
+                }
+            } catch (...) {
+                // Resolution failed - return empty
+            }
+            auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
+            return make_fn();
+        }
+
+        case TSReference::Kind::NON_PEERED: {
+            // Convert items recursively
+            nb::list items_list;
+            for (const auto& item : ref.items()) {
+                items_list.append(to_python(&item, nullptr));
+            }
+
+            // Create UnBoundTimeSeriesReference via TimeSeriesReference.make(from_items=...)
+            auto make_fn = ref_module.attr("TimeSeriesReference").attr("make");
+            return make_fn(nb::arg("from_items") = items_list);
+        }
+    }
+
+    return nb::none();
+}
+
+void ScalarOps<TSReference>::from_python(void* dst, const nb::object& src, const TypeMeta*) {
+    auto& ref = *static_cast<TSReference*>(dst);
+
+    if (src.is_none()) {
+        ref = TSReference::empty();
+        return;
+    }
+
+    // Check if it's a C++ TSReference directly
+    if (nb::isinstance<TSReference>(src)) {
+        auto& src_ref = nb::cast<TSReference&>(src);
+        ref = src_ref;
+        return;
+    }
+
+    // Check if it's a dict (from our to_python for PEERED)
+    if (nb::isinstance<nb::dict>(src)) {
+        auto dict = nb::cast<nb::dict>(src);
+        if (dict.contains("kind")) {
+            std::string kind = nb::cast<std::string>(dict["kind"]);
+            if (kind == "PEERED") {
+                int node_id = nb::cast<int>(dict["node_id"]);
+                std::string port_str = nb::cast<std::string>(dict["port_type"]);
+                PortType port_type = (port_str == "INPUT") ? PortType::INPUT : PortType::OUTPUT;
+
+                std::vector<size_t> indices;
+                auto indices_list = nb::cast<nb::list>(dict["indices"]);
+                for (size_t i = 0; i < nb::len(indices_list); ++i) {
+                    indices.push_back(nb::cast<size_t>(indices_list[i]));
+                }
+
+                FQReference fq = FQReference::peered(node_id, port_type, std::move(indices));
+                ref = TSReference::from_fq(fq, nullptr);  // Graph resolution deferred
+                return;
+            }
+        }
+    }
+
+    // Import Python TimeSeriesReference module
+    auto ref_module = nb::module_::import_("hgraph._types._ref_type");
+    auto ts_ref_type = ref_module.attr("TimeSeriesReference");
+
+    // Check if it's a Python TimeSeriesReference instance
+    if (nb::isinstance(src, ts_ref_type)) {
+        // Check is_empty property
+        if (nb::cast<bool>(src.attr("is_empty"))) {
+            ref = TSReference::empty();
+            return;
+        }
+
+        // Check has_output (BoundTimeSeriesReference)
+        if (nb::cast<bool>(src.attr("has_output"))) {
+            // This is a BoundTimeSeriesReference - extract the output's ShortPath
+            nb::object output_obj = src.attr("output");
+
+            // Check if the output is a C++ PyTimeSeriesOutput wrapper
+            if (nb::isinstance<PyTimeSeriesOutput>(output_obj)) {
+                auto& py_output = nb::cast<PyTimeSeriesOutput&>(output_obj);
+                // Get the ShortPath from the output view's ViewData
+                const ShortPath& path = py_output.output_view().ts_view().view_data().path;
+                if (path.valid()) {
+                    ref = TSReference::peered(path);
+                    return;
+                }
+            }
+
+            // Couldn't extract ShortPath - store as PYTHON_BOUND so the reference
+            // is preserved. REFLink will extract ViewData from the output wrapper.
+            ref = TSReference::python_bound(nb::object(src));
+            return;
+        }
+
+        // UnBoundTimeSeriesReference with items — recursively convert
+        nb::object items_obj = src.attr("items");
+        nb::list items_list = nb::cast<nb::list>(items_obj);
+        std::vector<TSReference> items;
+        items.reserve(nb::len(items_list));
+        for (size_t i = 0; i < nb::len(items_list); ++i) {
+            TSReference item_ref;
+            from_python(&item_ref, nb::borrow(items_list[i]), nullptr);
+            items.push_back(std::move(item_ref));
+        }
+        ref = TSReference::non_peered(std::move(items));
+        return;
+    }
+
+    // Unknown type - default to empty
+    ref = TSReference::empty();
+}
+
+} // namespace hgraph::value

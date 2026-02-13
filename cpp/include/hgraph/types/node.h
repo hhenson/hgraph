@@ -2,9 +2,12 @@
 #define NODE_H
 
 #include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_output.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 #include <hgraph/util/lifecycle.h>
 #include <memory>
+#include <optional>
 
 #include <ddv/visitable.h>
 
@@ -190,7 +193,13 @@ namespace hgraph
         using ptr   = Node *;
         using s_ptr = std::shared_ptr<Node>;
 
-        Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars);
+        /// Constructor - creates TSInput/TSOutput from TSMeta
+        /// Pass nullptr for any meta parameter that doesn't apply to this node type
+        Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars,
+             const TSMeta* input_meta, const TSMeta* output_meta,
+             const TSMeta* error_output_meta = nullptr, const TSMeta* recordable_state_meta = nullptr);
+
+        ~Node() override;
 
         virtual void eval();
 
@@ -216,25 +225,7 @@ namespace hgraph
 
         void set_graph(graph_ptr value);
 
-        time_series_bundle_input_s_ptr &input();
-
-        const time_series_bundle_input_s_ptr &input() const;
-
-        auto start_inputs() const { return _start_inputs; }
-
-        void set_input(const time_series_bundle_input_s_ptr &value);
-
-        virtual void reset_input(const time_series_bundle_input_s_ptr &value);
-
-        time_series_output_s_ptr &output();
-
-        void set_output(const time_series_output_s_ptr &value);
-
-        time_series_bundle_output_s_ptr &recordable_state();
-
-        void set_recordable_state(const time_series_bundle_output_s_ptr &value);
-
-        bool has_recordable_state() const;
+        const std::vector<nb::object>& start_inputs() const { return _start_inputs; }
 
         NodeScheduler::s_ptr &scheduler();
 
@@ -242,9 +233,56 @@ namespace hgraph
 
         void unset_scheduler();
 
-        time_series_output_s_ptr &error_output();
+        // ========== TSValue-Based Input/Output ==========
 
-        void set_error_output(const time_series_output_s_ptr &value);
+        /**
+         * @brief Get the TSInput for view-based access.
+         * @return Pointer to TSInput, or nullptr if not set
+         */
+        [[nodiscard]] TSInput* ts_input() noexcept { return ts_input_ ? &*ts_input_ : nullptr; }
+
+        /**
+         * @brief Get the TSInput for view-based access (const).
+         */
+        [[nodiscard]] const TSInput* ts_input() const noexcept { return ts_input_ ? &*ts_input_ : nullptr; }
+
+        /**
+         * @brief Get the TSOutput for view-based access.
+         * @return Pointer to TSOutput, or nullptr if not set
+         */
+        [[nodiscard]] TSOutput* ts_output() noexcept { return ts_output_ ? &*ts_output_ : nullptr; }
+
+        /**
+         * @brief Get the TSOutput for view-based access (const).
+         */
+        [[nodiscard]] const TSOutput* ts_output() const noexcept { return ts_output_ ? &*ts_output_ : nullptr; }
+
+        /**
+         * @brief Get the error output TSOutput.
+         * @return Pointer to TSOutput for error output, or nullptr if not set
+         */
+        [[nodiscard]] TSOutput* ts_error_output() noexcept { return ts_error_output_ ? &*ts_error_output_ : nullptr; }
+
+        /**
+         * @brief Get the error output TSOutput (const).
+         */
+        [[nodiscard]] const TSOutput* ts_error_output() const noexcept { return ts_error_output_ ? &*ts_error_output_ : nullptr; }
+
+        /**
+         * @brief Get the recordable state TSOutput.
+         * @return Pointer to TSOutput for recordable state, or nullptr if not set
+         */
+        [[nodiscard]] TSOutput* ts_recordable_state() noexcept { return ts_recordable_state_ ? &*ts_recordable_state_ : nullptr; }
+
+        /**
+         * @brief Get the recordable state TSOutput (const).
+         */
+        [[nodiscard]] const TSOutput* ts_recordable_state() const noexcept { return ts_recordable_state_ ? &*ts_recordable_state_ : nullptr; }
+
+        /**
+         * @brief Check if recordable state is set.
+         */
+        [[nodiscard]] bool has_recordable_state() const noexcept { return ts_recordable_state_.has_value(); }
 
         // Performance optimization: provide access to cached evaluation time pointer
         [[nodiscard]] const engine_time_t *cached_evaluation_time_ptr() const { return _cached_evaluation_time_ptr; }
@@ -252,7 +290,7 @@ namespace hgraph
         friend struct Graph;
         friend struct NodeScheduler;
 
-        void add_start_input(const time_series_reference_input_s_ptr &input);
+        void add_start_input(nb::object input);
 
         bool has_input() const;
 
@@ -281,22 +319,20 @@ namespace hgraph
         node_signature_s_ptr            _signature;
         nb::dict                        _scalars;
         graph_ptr                       _graph;             // back-pointer, not owned
-        time_series_bundle_input_s_ptr  _input;             // owned
-        time_series_output_s_ptr        _output;            // owned
-        time_series_output_s_ptr        _error_output;      // owned
-        time_series_bundle_output_s_ptr _recordable_state;  // owned
         NodeScheduler::s_ptr            _scheduler;         // owned
         // I am not a fan of this approach to managing the start inputs, but for now keep consistent with current code base in
         // Python.
-        std::vector<time_series_reference_input_s_ptr> _start_inputs;  // owned
-
-        // Cache for these calculated values - not owned, just references
-        std::vector<time_series_input_ptr> _check_valid_inputs;
-        std::vector<time_series_input_ptr> _check_all_valid_inputs;
+        std::vector<nb::object> _start_inputs;  // Python-wrapped start inputs
 
         // Performance optimization: Cache evaluation time pointer from graph
         // Set once when graph is assigned to node, never changes
         const engine_time_t *_cached_evaluation_time_ptr{nullptr};
+
+        // ========== TSValue-Based Storage ==========
+        std::optional<TSInput> ts_input_;              ///< View-based input storage
+        std::optional<TSOutput> ts_output_;            ///< View-based output storage
+        std::optional<TSOutput> ts_error_output_;      ///< View-based error output storage
+        std::optional<TSOutput> ts_recordable_state_;  ///< View-based recordable state storage
     };
 }  // namespace hgraph
 

@@ -90,6 +90,12 @@ try:
         def __hash__(self) -> int:
             return hash(tuple) ^ hash(self.schema)
 
+        @property
+        def cpp_type(self):
+            if not self.is_resolved:
+                return None
+            return self._make_cpp_type(lambda h: h.value.get_scalar_type_meta(object))
+
     HgScalarTypeMetaData.register_parser(HgDataFrameScalarTypeMetaData)
 
     class _SeriesTypeclass(_SpecialGenericAlias, _root=True): ...
@@ -157,6 +163,12 @@ try:
 
         def __hash__(self) -> int:
             return hash(tuple) ^ hash(self.value_tp)
+
+        @property
+        def cpp_type(self):
+            if not self.is_resolved:
+                return None
+            return self._make_cpp_type(lambda h: h.value.get_scalar_type_meta(object))
 
     HgScalarTypeMetaData.register_parser(HgSeriesScalarTypeMetaData)
 

@@ -19,6 +19,11 @@ namespace hgraph {
         void do_eval() override;
 
         void start() override;
+
+    private:
+        // Helper methods for TSOutput/legacy output compatibility
+        [[nodiscard]] engine_time_t _get_last_modified_time();
+        void _apply_output_result(const nb::object& result);
     };
 } // namespace hgraph
 

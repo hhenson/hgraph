@@ -148,6 +148,21 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
     def __getitem__(self, item):
         return self.value_tp  # All instances of TSL are the same type
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TSMeta for this TSL[TS, Size] type."""
+        if not self.is_resolved:
+            return None
+        element_cpp = self.value_tp.cpp_type
+        if element_cpp is None:
+            return None
+        fixed_size = 0
+        if self.size_tp.is_resolved:
+            size_type = self.size_tp.py_type
+            if hasattr(size_type, 'SIZE') and size_type.SIZE is not None:
+                fixed_size = size_type.SIZE
+        return self._make_cpp_type(lambda h: h.TSTypeRegistry.instance().tsl(element_cpp, fixed_size))
+
 
 class HgTSLOutTypeMetaData(HgTSLTypeMetaData):
     """Parses TSLOut[..., Size[...]]"""

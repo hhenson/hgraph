@@ -78,7 +78,7 @@ namespace hgraph {
         static BackTrace capture_back_trace(const Node *node, bool capture_values = false, int64_t depth = 4);
 
         static void capture_input(std::unordered_map<std::string, BackTrace> &active_inputs,
-                                  const TimeSeriesInput &input,
+                                  const TSInputView &input,
                                   const std::string &input_name, bool capture_values, int64_t depth);
     };
 

@@ -5,9 +5,10 @@
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/ref.h>
-#include <hgraph/types/time_series_type.h>
-#include <hgraph/types/tsb.h>
+#include <hgraph/types/time_series/ts_input.h>
+#include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_output_view.h>
+#include <hgraph/types/time_series/view_data.h>
 #include <ranges>
 #include <sstream>
 
@@ -605,15 +606,33 @@ namespace hgraph
         _node->graph()->schedule_node(_node->node_ndx(), when);
     }
 
-    Node::Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars)
+    Node::Node(int64_t node_ndx, std::vector<int64_t> owning_graph_id, node_signature_s_ptr signature, nb::dict scalars,
+               const TSMeta* input_meta, const TSMeta* output_meta,
+               const TSMeta* error_output_meta, const TSMeta* recordable_state_meta)
         : _node_ndx{node_ndx}, _owning_graph_id{std::move(owning_graph_id)}, _signature{std::move(signature)},
-          _scalars{std::move(scalars)} {}
+          _scalars{std::move(scalars)} {
+        // Construct TSInput for input
+        if (input_meta) {
+            ts_input_.emplace(input_meta, this);
+        }
+        // Construct TSOutput for output
+        if (output_meta) {
+            ts_output_.emplace(output_meta, this, 0);  // port_index 0 for main output
+        }
+        // Construct TSOutput for error_output
+        if (error_output_meta) {
+            ts_error_output_.emplace(error_output_meta, this, 1);  // port_index 1 for error output
+        }
+        // Construct TSOutput for recordable_state
+        if (recordable_state_meta) {
+            ts_recordable_state_.emplace(recordable_state_meta, this, 2);  // port_index 2 for recordable state
+        }
+    }
+
+    Node::~Node() = default;
 
     void Node::notify(engine_time_t modified_time) {
         if (is_started() || is_starting()) {
-            // When a node is starting, it might be notified with a historical time (from inputs that ticked in the past).
-            // We should schedule for MAX(modified_time, current_evaluation_time) to avoid scheduling in the past.
-            // Use node's cached evaluation time pointer - direct memory access, no pointer chasing
             auto eval_time     = *_cached_evaluation_time_ptr;
             auto schedule_time = std::max(modified_time, eval_time);
             graph()->schedule_node(node_ndx(), schedule_time);
@@ -666,45 +685,6 @@ namespace hgraph
         _cached_evaluation_time_ptr = _graph->cached_evaluation_time_ptr();
     }
 
-    time_series_bundle_input_s_ptr& Node::input() { return _input; }
-    const time_series_bundle_input_s_ptr& Node::input() const { return _input; }
-
-    void Node::set_input(const time_series_bundle_input_s_ptr& value) {
-        if (has_input()) { throw std::runtime_error("Input already set on node: " + _signature->signature()); }
-        reset_input(value);
-    }
-
-    void Node::reset_input(const time_series_bundle_input_s_ptr& value) {
-        _input = value;
-        _check_all_valid_inputs.clear();
-        _check_valid_inputs.clear();
-        _check_valid_inputs.reserve(signature().valid_inputs.has_value() ? signature().valid_inputs->size()
-                                                                         : signature().time_series_inputs->size());
-        if (signature().valid_inputs.has_value()) {
-            for (const auto &key : std::views::all(*signature().valid_inputs)) { _check_valid_inputs.push_back((*input())[key].get()); }
-        } else {
-            for (const auto &key : std::views::elements<0>(*signature().time_series_inputs)) {
-                // Do not treat context inputs as required by default
-                bool is_context = signature().context_inputs.has_value() && signature().context_inputs->contains(key);
-                if (!is_context) { _check_valid_inputs.push_back((*input())[key].get()); }
-            }
-        }
-        if (signature().all_valid_inputs.has_value()) {
-            _check_all_valid_inputs.reserve(signature().all_valid_inputs->size());
-            for (const auto &key : *signature().all_valid_inputs) { _check_all_valid_inputs.push_back((*input())[key].get()); }
-        }
-    }
-
-    time_series_output_s_ptr& Node::output() { return _output; }
-
-    void Node::set_output(const time_series_output_s_ptr& value) { _output = value; }
-
-    time_series_bundle_output_s_ptr& Node::recordable_state() { return _recordable_state; }
-
-    void Node::set_recordable_state(const time_series_bundle_output_s_ptr& value) { _recordable_state = value; }
-
-    bool Node::has_recordable_state() const { return _recordable_state != nullptr; }
-
     NodeScheduler::s_ptr& Node::scheduler() {
         if (_scheduler.get() == nullptr) { _scheduler = std::make_shared<NodeScheduler>(this); }
         return _scheduler;
@@ -714,15 +694,11 @@ namespace hgraph
 
     void Node::unset_scheduler() { _scheduler.reset(); }
 
-    time_series_output_s_ptr& Node::error_output() { return _error_output; }
+    void Node::add_start_input(nb::object input) { _start_inputs.push_back(std::move(input)); }
 
-    void Node::set_error_output(const time_series_output_s_ptr& value) { _error_output = value; }
+    bool Node::has_input() const { return ts_input_.has_value(); }
 
-    void Node::add_start_input(const time_series_reference_input_s_ptr& input) { _start_inputs.push_back(input); }
-
-    bool Node::has_input() const { return _input.get() != nullptr; }
-
-    bool Node::has_output() const { return _output.get() != nullptr; }
+    bool Node::has_output() const { return ts_output_.has_value(); }
 
     std::string Node::repr() const {
         static auto none_str    = std::string("None");
@@ -788,7 +764,6 @@ namespace hgraph
             Node *node;
 
             ~Cleanup() {
-                if (node->has_input()) { node->input()->un_bind_output(true); }
                 if (node->has_scheduler()) { node->scheduler()->reset(); }
             }
         } cleanup{this};
@@ -799,15 +774,27 @@ namespace hgraph
     void Node::_initialise_inputs() {
         if (signature().time_series_inputs.has_value()) {
             for (auto &start_input : _start_inputs) {
-                start_input->start();  // Assuming start_input is some time series type with a start method
+                start_input.attr("start")();
             }
-            const std::unordered_set<std::string> *active_inputs =
-                signature().active_inputs.has_value() ? &signature().active_inputs.value() : nullptr;
-            for (size_t i = 0; i < signature().time_series_inputs->size(); ++i) {
-                // Apple does not yet support ranges::contains :(
-                if (!active_inputs ||
-                    (std::ranges::find(*active_inputs, signature().args[i]) != std::ranges::end(*active_inputs))) {
-                    (*input())[i]->make_active();  // Assuming `make_active` is a method of the `TimeSeriesInput` type
+
+            if (ts_input_) {
+                // TSInput path: active state is managed via TSInput::set_active
+                // During initialization, we set the active state based on signature
+                const std::unordered_set<std::string> *active_inputs =
+                    signature().active_inputs.has_value() ? &signature().active_inputs.value() : nullptr;
+
+                // For TSB (bundle) inputs, we can set active state per field
+                // If no active_inputs specified, all inputs should be active
+                if (!active_inputs) {
+                    // Make all inputs active (root level)
+                    ts_input_->set_active(true);
+                } else {
+                    // Set active state for specific fields
+                    for (size_t i = 0; i < signature().time_series_inputs->size(); ++i) {
+                        const std::string& arg = signature().args[i];
+                        bool should_be_active = (std::ranges::find(*active_inputs, arg) != std::ranges::end(*active_inputs));
+                        ts_input_->set_active(arg, should_be_active);
+                    }
                 }
             }
         }
@@ -817,19 +804,66 @@ namespace hgraph
         bool scheduled{has_scheduler() ? _scheduler->is_scheduled_now() : false};
         bool should_eval{true};
 
-        if (has_input()) {
-            // Check validity of required inputs
-            should_eval = std::ranges::all_of(_check_valid_inputs, [](const auto &input_) { return input_->valid(); });
+        if (has_input() && ts_input_) {
+            auto current_time = *_cached_evaluation_time_ptr;
 
+            // Check validity of required inputs via TSInput::view()
+            if (signature().valid_inputs.has_value()) {
+                // Check specific inputs
+                auto input_view = ts_input_->view(current_time);
+                for (const auto& key : *signature().valid_inputs) {
+                    auto field_view = input_view.field(key);
+                    if (!field_view.valid()) {
+                        should_eval = false;
+                        break;
+                    }
+                }
+            } else {
+                // Check all time-series inputs by default
+                // Python: all(self.input[k].valid for k in time_series_inputs.keys())
+                auto input_view = ts_input_->view(current_time);
+                if (signature().time_series_inputs.has_value()) {
+                    for (const auto& [key, _] : *signature().time_series_inputs) {
+                        auto field_view = input_view.field(key);
+                        if (!field_view.valid()) {
+                            should_eval = false;
+                            break;
+                        }
+                    }
+                } else if (!input_view.valid()) {
+                    should_eval = false;
+                }
+            }
+
+            // Check all_valid_inputs if specified
             if (should_eval && signature().all_valid_inputs.has_value()) {
-                should_eval = std::ranges::all_of(_check_all_valid_inputs, [](const auto &input_) { return input_->all_valid(); });
+                auto input_view = ts_input_->view(current_time);
+                for (const auto& key : *signature().all_valid_inputs) {
+                    auto field_view = input_view.field(key);
+                    if (!field_view.ts_view().all_valid()) {
+                        should_eval = false;
+                        break;
+                    }
+                }
             }
 
             // Check scheduler state
             if (should_eval && _signature->uses_scheduler() && !scheduled) {
-                should_eval = !signature().time_series_inputs.has_value() ||
-                              std::ranges::any_of(input()->values(),
-                                                  [](const auto &input_) { return input_->modified() && input_->active(); });
+                // Check if any active input is modified
+                auto input_view = ts_input_->view(current_time);
+                bool any_modified = false;
+                // Iterate through input fields checking modified and active state
+                const TSMeta* meta = ts_input_->meta();
+                if (meta && meta->kind == TSKind::TSB) {
+                    for (size_t i = 0; i < meta->field_count; ++i) {
+                        auto field_view = input_view[i];
+                        if (field_view.modified() && field_view.active()) {
+                            any_modified = true;
+                            break;
+                        }
+                    }
+                }
+                should_eval = !signature().time_series_inputs.has_value() || any_modified;
             }
         }
 
@@ -837,47 +871,60 @@ namespace hgraph
             try {
                 do_eval();
             } catch (const NodeException &e) {
-                if (signature().capture_exception && error_output().get() != nullptr) {
+                if (signature().capture_exception && ts_error_output_) {
                     // Route captured error to the node's error output instead of rethrowing
                     try {
                         auto ne{static_cast<const NodeException &>(e)};
                         auto error_ptr{nb::ref<NodeError>(new NodeError(ne))};
-                        error_output()->py_set_value(nb::cast(error_ptr));
+                        auto err_view = ts_error_output_->view(*_cached_evaluation_time_ptr);
+                        err_view.from_python(nb::cast(error_ptr));
                     } catch (const std::exception &set_err) {
                         // Fall back to setting a generic Python object (string) to avoid rethrow during error routing
-                        error_output()->py_set_value(nb::str(e.to_string().c_str()));
+                        auto err_view = ts_error_output_->view(*_cached_evaluation_time_ptr);
+                        err_view.from_python(nb::str(e.to_string().c_str()));
                     } catch (...) {
                         // As a last resort, set none to signal an error occurred without throwing
-                        error_output()->py_set_value(nb::none());
+                        auto err_view = ts_error_output_->view(*_cached_evaluation_time_ptr);
+                        err_view.from_python(nb::none());
                     }
                     return;  // Do not propagate
                 } else {
                     throw;  // already enriched
                 }
             } catch (const std::exception &e) {
-                if (signature().capture_exception && error_output().get() != nullptr) {
+                if (signature().capture_exception && ts_error_output_) {
                     auto ne = NodeError::capture_error(e, *this, "During evaluation");
                     // Create a heap-allocated copy managed by nanobind
                     auto error_ptr = nb::ref<NodeError>(new NodeError(ne));
                     try {
-                        error_output()->py_set_value(nb::cast(error_ptr));
+                        auto err_view = ts_error_output_->view(*_cached_evaluation_time_ptr);
+                        err_view.from_python(nb::cast(error_ptr));
                     } catch (const std::exception &set_err) {
-                        error_output()->py_set_value(nb::str(ne.to_string().c_str()));
-                    } catch (...) { error_output()->py_set_value(nb::none()); }
+                        auto err_view = ts_error_output_->view(*_cached_evaluation_time_ptr);
+                        err_view.from_python(nb::str(ne.to_string().c_str()));
+                    } catch (...) {
+                        auto err_view = ts_error_output_->view(*_cached_evaluation_time_ptr);
+                        err_view.from_python(nb::none());
+                    }
                     return;  // swallow after routing
                 } else {
                     throw NodeException::capture_error(e, *this, "During evaluation");
                 }
             } catch (...) {
-                if (signature().capture_exception && error_output().get() != nullptr) {
+                if (signature().capture_exception && ts_error_output_) {
                     auto ne = NodeError::capture_error(std::current_exception(), *this, "Unknown error during node evaluation");
                     // Create a heap-allocated copy managed by nanobind
                     auto error_ptr = nb::ref<NodeError>(new NodeError(ne));
                     try {
-                        error_output()->py_set_value(nb::cast(error_ptr));
+                        auto err_view = ts_error_output_->view(*_cached_evaluation_time_ptr);
+                        err_view.from_python(nb::cast(error_ptr));
                     } catch (const std::exception &set_err) {
-                        error_output()->py_set_value(nb::str(ne.to_string().c_str()));
-                    } catch (...) { error_output()->py_set_value(nb::none()); }
+                        auto err_view = ts_error_output_->view(*_cached_evaluation_time_ptr);
+                        err_view.from_python(nb::str(ne.to_string().c_str()));
+                    } catch (...) {
+                        auto err_view = ts_error_output_->view(*_cached_evaluation_time_ptr);
+                        err_view.from_python(nb::none());
+                    }
                     return;  // swallow after routing
                 } else {
                     throw NodeException::capture_error(std::current_exception(), *this, "Unknown error during node evaluation");

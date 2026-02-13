@@ -1,5 +1,3 @@
-#include <hgraph/types/ref.h>
-#include <hgraph/types/tsb.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/graph.h>
 #include <hgraph/types/node.h>
@@ -191,26 +189,9 @@ namespace hgraph {
             std::unordered_map<std::string, std::string> input_short_values;
             std::unordered_map<std::string, engine_time_t> input_last_modified_time;
 
-            if (node->has_input()) {
-                for (const auto &[input_name, input]: node->input()->items()) {
-                    capture_input(active_inputs, *input, input_name, capture_values, depth);
-
-                    if (capture_values) {
-                        // Convert values to strings via Python's str() to avoid C++ cast issues (std::bad_cast)
-                        nb::str py_val_str = nb::str(input->py_value());
-                        std::string value_str = nb::cast<std::string>(py_val_str);
-                        size_t newline_pos = value_str.find('\n');
-                        if (newline_pos != std::string::npos) { value_str = value_str.substr(0, newline_pos); }
-
-                        input_short_values[input_name] =
-                                value_str.substr(0, 32) + (value_str.length() > 32 ? "..." : "");
-                        std::string delta_str = nb::cast<std::string>(nb::str(input->py_delta_value()));
-                        input_delta_values[input_name] = delta_str;
-                        input_values[input_name] = value_str;
-                        input_last_modified_time[input_name] = input->last_modified_time();
-                    }
-                }
-            }
+            // TODO: Convert to TSInput-based approach for backtrace capture
+            // Need TSInputView iteration and value/delta value extraction
+            // For now, skip input capture - backtrace will be incomplete
 
             return BackTrace(signature, active_inputs, input_short_values, input_delta_values, input_values,
                              input_last_modified_time);
@@ -219,44 +200,12 @@ namespace hgraph {
     }
 
     auto BackTrace::capture_input(std::unordered_map<std::string, BackTrace> &active_inputs,
-                                  const TimeSeriesInput &input,
+                                  const TSInputView &input,
                                   const std::string &input_name, bool capture_values, int64_t depth) -> void {
-        nb::gil_scoped_acquire gil; // Ensure Python API calls below are protected by the GIL
-        if (input.modified()) {
-            if (input.bound()) {
-                if (input.has_peer()) {
-                    active_inputs.emplace(input_name,
-                                          BackTrace::capture_back_trace(input.output()->owning_node(), capture_values,
-                                                                        depth - 1));
-                } else {
-                    auto iterable_inputs{dynamic_cast<const TimeSeriesBundleInput *>(&input)};
-                    if (iterable_inputs) {
-                        for (const auto &[n, i]: iterable_inputs->items()) {
-                            BackTrace::capture_input(active_inputs, *i, fmt::format("{}[{}]", input_name, n.get()),
-                                                     capture_values,
-                                                     depth - 1);
-                        }
-                    }
-                }
-            } else if (auto ts_ref{dynamic_cast<const TimeSeriesReferenceInput *>(&input)}; ts_ref != nullptr) {
-                // Traverse the referenced target without relying on py_value-casting to a TimeSeriesInput
-                if (auto ref_out = ts_ref->reference_output(); ref_out != nullptr) {
-                    if (auto ref_ts = dynamic_cast<const TimeSeriesReferenceOutput *>(ref_out.get());
-                        ref_ts != nullptr) {
-                        if (ref_ts->valid() && ref_ts->has_value()) {
-                            auto ref = ref_ts->value();
-                            if (ref.is_bound()) {
-                                if (auto tgt = ref.output(); tgt != nullptr) {
-                                    active_inputs.emplace(
-                                        input_name, BackTrace::capture_back_trace(
-                                            tgt->owning_node(), capture_values, depth - 1));
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
+        // TODO: Re-implement using TSInputView API once migration is complete.
+        // The old implementation used dynamic_cast on legacy TimeSeriesInput subtypes
+        // (TimeSeriesBundleInput, TimeSeriesReferenceInput, etc.) which no longer exist.
+        // For now, this is a no-op stub.
     }
 
     std::string traceback_to_string(nb::python_error exception) {

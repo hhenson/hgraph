@@ -6,8 +6,8 @@ namespace hgraph
 {
     struct PyTimeSeriesValueOutput : PyTimeSeriesOutput
     {
-        using api_ptr = ApiPtr<TimeSeriesType>;
-        explicit PyTimeSeriesValueOutput(api_ptr impl);
+        // View-based constructor
+        explicit PyTimeSeriesValueOutput(TSOutputView view);
 
         // Move constructor
         PyTimeSeriesValueOutput(PyTimeSeriesValueOutput&& other) noexcept
@@ -21,15 +21,15 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesValueOutput(const PyTimeSeriesValueOutput&) = delete;
         PyTimeSeriesValueOutput& operator=(const PyTimeSeriesValueOutput&) = delete;
     };
 
     struct PyTimeSeriesValueInput : PyTimeSeriesInput
     {
-        using api_ptr = ApiPtr<TimeSeriesType>;
-        explicit PyTimeSeriesValueInput(api_ptr impl);
+        // View-based constructor
+        explicit PyTimeSeriesValueInput(TSInputView view);
 
         // Move constructor
         PyTimeSeriesValueInput(PyTimeSeriesValueInput&& other) noexcept
@@ -43,7 +43,7 @@ namespace hgraph
             return *this;
         }
 
-        // Delete copy constructor and assignment
+        // Delete copy
         PyTimeSeriesValueInput(const PyTimeSeriesValueInput&) = delete;
         PyTimeSeriesValueInput& operator=(const PyTimeSeriesValueInput&) = delete;
     };

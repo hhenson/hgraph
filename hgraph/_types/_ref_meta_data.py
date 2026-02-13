@@ -98,6 +98,16 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
 
         return hash(REF) ^ hash(self.value_tp)
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TSMeta for this REF[TS] type."""
+        if not self.is_resolved:
+            return None
+        referenced_cpp = self.value_tp.cpp_type
+        if referenced_cpp is None:
+            return None
+        return self._make_cpp_type(lambda h: h.TSTypeRegistry.instance().ref(referenced_cpp))
+
 
 class HgREFOutTypeMetaData(HgREFTypeMetaData):
     """Parses REFOut[...]"""

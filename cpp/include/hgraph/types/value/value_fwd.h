@@ -54,53 +54,32 @@ template<typename Policy>
 struct policy_traits;
 
 /// Conditional storage based on policy - uses EBO for zero overhead
-template<typename Policy, typename = void>
+template<typename Policy, typename Enable = void>
 struct PolicyStorage;
 
 // ============================================================================
 // View Forward Declarations
 // ============================================================================
 
-/// Non-owning const view into a Value
-class ConstValueView;
+/// Non-owning view into a Value (const correctness via const methods)
+class View;
 
-/// Non-owning mutable view into a Value
-class ValueView;
-
-/// Const view with indexed access (base for Bundle, List)
-class ConstIndexedView;
-
-/// Mutable view with indexed access
+/// View with indexed access (base for Bundle, List)
 class IndexedView;
 
-/// Const view for tuples (heterogeneous, index-only)
-class ConstTupleView;
-
-/// Mutable view for tuples
+/// View for tuples (heterogeneous, index-only)
 class TupleView;
 
-/// Const view for bundles (struct-like, named + indexed)
-class ConstBundleView;
-
-/// Mutable view for bundles
+/// View for bundles (struct-like, named + indexed)
 class BundleView;
 
-/// Const view for lists (homogeneous indexed)
-class ConstListView;
-
-/// Mutable view for lists
+/// View for lists (homogeneous indexed)
 class ListView;
 
-/// Const view for sets (unique elements)
-class ConstSetView;
-
-/// Mutable view for sets
+/// View for sets (unique elements)
 class SetView;
 
-/// Const view for maps (key-value pairs)
-class ConstMapView;
-
-/// Mutable view for maps
+/// View for maps (key-value pairs)
 class MapView;
 
 // ============================================================================

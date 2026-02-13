@@ -22,89 +22,54 @@ namespace hgraph
     // Forward declarations
     struct Node;
     struct Graph;
-    struct TimeSeriesInput;
-    struct TimeSeriesOutput;
+    class TSOutputView;
+    class TSInputView;
 
     /**
      * Wrap a Node in a PyNode.
      * Creates appropriate specialized wrapper based on runtime type.
      */
     nb::object wrap_node(PyNode::api_ptr impl);
-    // Hard-ban raw pointer wrapping for Nodes: prefer shared_ptr
-    // nb::object wrap_node(const hgraph::Node *impl, const control_block_ptr &control_block);
-    // nb::object wrap_node(const Node *impl);
     nb::object wrap_node(const node_s_ptr &impl);
 
     /**
      * Wrap a Graph in a PyGraph.
-     * Hard-ban raw pointer wrapping for Graph: prefer shared_ptr
      */
     nb::object wrap_graph(const graph_s_ptr &impl);
 
     /**
      * Wrap a Traits pointer in a PyTraits.
-     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
-     * Creates and caches new wrapper if not.
      */
     nb::object wrap_traits(const Traits *impl, const control_block_ptr &control_block);
 
     /**
      * Wrap a NodeScheduler pointer in a PyNodeScheduler.
-     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
-     * Creates and caches new wrapper if not.
      */
-   // nb::object wrap_node_scheduler(const hgraph::NodeScheduler *impl, const control_block_ptr &control_block);
     nb::object wrap_node_scheduler(const NodeScheduler::s_ptr &impl);
 
     /**
-     * Wrap a TimeSeriesInput pointer in the appropriate PyTimeSeriesXxxInput wrapper.
-     * Uses cached Python wrapper if available (via intrusive_base::self_py()).
-     * Uses dynamic_cast to determine actual runtime type and creates specialized wrapper.
-     *
-     * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
+     * Wrap a TSOutputView in the appropriate PyTimeSeriesXxxOutput wrapper.
+     * Uses TSMeta::kind to determine the correct wrapper type.
      */
-    // Internal implementation uses ApiPtr<T>, but public API only exposes
-    // shared_ptr and (T*, control_block_ptr) forms. Keep declaration private to cpp.
-    nb::object wrap_input(ApiPtr<TimeSeriesInput> impl);
+    nb::object wrap_output_view(TSOutputView view);
 
     /**
-     * Wrap a TimeSeriesOutput pointer in the appropriate PyTimeSeriesXxxOutput wrapper.
-     * Uses dynamic_cast to determine actual runtime type and creates specialized wrapper.
-     *
-     * Handles: TS, Signal, TSL, TSB, TSD, TSS, TSW, REF and their specializations.
+     * Wrap a TSInputView in the appropriate PyTimeSeriesXxxInput wrapper.
+     * Uses TSMeta::kind to determine the correct wrapper type.
      */
-    // See note above on public API forms
-    nb::object wrap_output(ApiPtr<TimeSeriesOutput> impl);
+    nb::object wrap_input_view(TSInputView view);
 
-    // See note above on public API forms
-    nb::object wrap_time_series(ApiPtr<TimeSeriesInput> impl);
-    nb::object wrap_time_series(ApiPtr<TimeSeriesOutput> impl);
-
-    // Overloads for shared_ptr - the shared_ptr provides both the pointer and lifetime
-    inline nb::object wrap_input(const time_series_input_s_ptr &impl) {
-        return wrap_input(ApiPtr<TimeSeriesInput>(impl));
-    }
-    inline nb::object wrap_time_series(const time_series_input_s_ptr &impl) {
-        return wrap_time_series(ApiPtr<TimeSeriesInput>(impl));
-    }
-    inline nb::object wrap_time_series(const time_series_output_s_ptr &impl) {
-        return wrap_time_series(ApiPtr<TimeSeriesOutput>(impl));
-    }
-
-    // Hard-ban raw pointer wrapping for time-series values (Inputs/Outputs): prefer shared_ptr
-
-    // NOTE: Raw pointer-only overloads (deriving control block) are intentionally removed.
-    // Callers must provide either shared_ptr or (T*, control_block_ptr).
-
-    // Overload for shared_ptr - avoids redundant shared_from_this() call
-    nb::object wrap_output(const time_series_output_s_ptr &impl);
+    /**
+     * Wrap a TSInputView using an explicit effective_meta for wrapper dispatch.
+     * Used for cross-graph wiring where the input's own meta (e.g., REF) differs
+     * from the bound target's meta (e.g., TSValue). Falls back to the standard
+     * overload if effective_meta is null.
+     */
+    nb::object wrap_input_view(TSInputView view, const TSMeta* effective_meta);
 
     // ---------------------------------------------------------------------
-    // List-based helpers for time series wrapping
+    // List-based helpers for time series wrapping (view-based)
     // ---------------------------------------------------------------------
-    // These helpers convert C++ containers/ranges to Python lists, wrapping
-    // time series values appropriately using the provided control block.
-    // All functions return nb::list - wrap with nb::iter() in __iter__ methods.
 
     // Helper to convert a key to Python object - handles PlainValue specially
     template <typename K>
@@ -130,40 +95,6 @@ namespace hgraph
         return result;
     }
 
-    // Convert range values to a Python list, wrapping time series values
-    // Values are expected to be shared_ptr types
-    template <typename Iterator> nb::list values_to_list(Iterator begin, Iterator end) {
-        nb::list result;
-        for (auto it = begin; it != end; ++it) { result.append(wrap_time_series(it->second)); }
-        return result;
-    }
-
-    // Convert map/range values to a Python list, wrapping time series values (takes by value to handle views)
-    // Values are expected to be shared_ptr types
-    template <typename Range> nb::list values_to_list(Range range) {
-        nb::list result;
-        for (const auto &[_, value] : range) { result.append(wrap_time_series(value)); }
-        return result;
-    }
-
-    // Convert range items to a Python list of (key, wrapped_value) tuples
-    // Values are expected to be shared_ptr types
-    template <typename Iterator> nb::list items_to_list(Iterator begin, Iterator end) {
-        nb::list result;
-        for (auto it = begin; it != end; ++it) {
-            result.append(nb::make_tuple(key_to_python(it->first), wrap_time_series(it->second)));
-        }
-        return result;
-    }
-
-    // Convert map/range items to a Python list of (key, wrapped_value) tuples (takes by value to handle views)
-    // Values are expected to be shared_ptr types
-    template <typename Range> nb::list items_to_list(Range range) {
-        nb::list result;
-        for (const auto &[key, value] : range) { result.append(nb::make_tuple(key_to_python(key), wrap_time_series(value))); }
-        return result;
-    }
-
     // Convert a set/collection to a Python list
     template <typename Set> nb::list set_to_list(const Set &set) {
         nb::list result;
@@ -171,50 +102,15 @@ namespace hgraph
         return result;
     }
 
-    // Convert a list/vector of time series to a Python list, wrapping each element
-    // Items are expected to be shared_ptr types
-    template <typename Collection> nb::list list_to_list(const Collection &collection) {
-        nb::list result;
-        for (const auto &item : collection) { result.append(wrap_time_series(item)); }
-        return result;
-    }
-
     /**
      * Extract raw Node pointer from PyNode wrapper.
-     * Returns nullptr if obj is not a PyNode.
      */
-    // Unwrap to shared_ptr only
     node_s_ptr unwrap_node(const nb::handle &obj);
 
     /**
-     * Extract raw Node pointer from PyNode wrapper.
-     * Returns nullptr if obj is not a PyNode.
+     * Extract raw Graph pointer from PyGraph wrapper.
      */
     graph_s_ptr unwrap_graph(const nb::handle &obj);
-
-    /**
-     * Extract raw TimeSeriesInput pointer from PyTimeSeriesInput wrapper.
-     * Returns nullptr if obj is not a PyTimeSeriesInput.
-     */
-    time_series_input_s_ptr unwrap_input(const nb::handle &obj);
-    time_series_input_s_ptr unwrap_input(const PyTimeSeriesInput &input_);
-    
-    template <typename T> requires std::is_base_of_v<TimeSeriesInput, T>
-    std::shared_ptr<T> unwrap_input_as(const nb::handle &obj) {
-        return std::dynamic_pointer_cast<T>(unwrap_input(obj));
-    }
-
-    /**
-     * Extract raw TimeSeriesOutput pointer from PyTimeSeriesOutput wrapper.
-     * Returns nullptr if obj is not a PyTimeSeriesOutput.
-     */
-    time_series_output_s_ptr unwrap_output(const nb::handle &obj);
-    time_series_output_s_ptr unwrap_output(const PyTimeSeriesOutput &output_);
-
-    template <typename T> requires std::is_base_of_v<TimeSeriesOutput, T>
-    std::shared_ptr<T> unwrap_output_as(const nb::handle &obj) {
-        return std::dynamic_pointer_cast<T>(unwrap_output(obj));
-    }
 
     /**
      * Wrap an EvaluationEngineApi shared_ptr in a PyEvaluationEngineApi.

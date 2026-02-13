@@ -9,12 +9,16 @@ set(HGRAPH_SOURCES
         api/python/py_time_series.cpp
         api/python/py_ref.cpp
         api/python/py_signal.cpp
+        api/python/py_signal_view.cpp
         api/python/py_ts.cpp
         api/python/py_tsb.cpp
         api/python/py_tsd.cpp
         api/python/py_tsl.cpp
         api/python/py_tss.cpp
         api/python/py_tsw.cpp
+        api/python/py_ts_type_registry.cpp
+        api/python/py_ts_value.cpp
+        api/python/py_ts_input_output.cpp
         api/python/py_value.cpp
         api/python/wrapper_factory.cpp
         builders/builder.cpp
@@ -22,6 +26,7 @@ set(HGRAPH_SOURCES
         builders/input_builder.cpp
         builders/node_builder.cpp
         builders/output_builder.cpp
+        builders/ts_builders.cpp
         builders/nodes/python_node_builder.cpp
         builders/nodes/python_generator_node_builder.cpp
         builders/nodes/tsd_map_node_builder.cpp
@@ -35,20 +40,6 @@ set(HGRAPH_SOURCES
         builders/nodes/tsd_non_associative_reduce_node_builder.cpp
         builders/nodes/mesh_node_builder.cpp
         builders/nodes/last_value_pull_node_builder.cpp
-        builders/time_series_types/time_series_signal_input_builder.cpp
-        builders/time_series_types/time_series_value_input_builder.cpp
-        builders/time_series_types/specialized_ref_builders.cpp
-        builders/time_series_types/time_series_list_input_builder.cpp
-        builders/time_series_types/time_series_bundle_input_builder.cpp
-        builders/time_series_types/time_series_set_input_builder.cpp
-        builders/time_series_types/time_series_window_input_builder.cpp
-        builders/time_series_types/time_series_dict_input_builder.cpp
-        builders/time_series_types/time_series_value_output_builder.cpp
-        builders/time_series_types/time_series_list_output_builder.cpp
-        builders/time_series_types/time_series_bundle_output_builder.cpp
-        builders/time_series_types/time_series_set_output_builder.cpp
-        builders/time_series_types/time_series_window_output_builder.cpp
-        builders/time_series_types/time_series_dict_output_builder.cpp
 
         nodes/base_python_node.cpp
         nodes/component_node.cpp
@@ -85,27 +76,29 @@ set(HGRAPH_SOURCES
         runtime/observers/inspection_observer.cpp
         runtime/observers/observers_bindings.cpp
 
-        types/base_time_series.cpp
         types/constants.cpp
         types/error_type.cpp
         types/feature_extension.cpp
         types/graph.cpp
         types/node.cpp
-        types/ref.cpp
         types/scalar_types.cpp
         types/schema_type.cpp
-        types/time_series_type.cpp
         types/traits.cpp
-        types/ts.cpp
-        types/ts_signal.cpp
-        types/tsd.cpp
-        types/tss.cpp
-        types/ts_indexed.cpp
-        types/tsb.cpp
-        types/tsl.cpp
-        types/tsw.cpp
         types/value/type_registry.cpp
         types/value/type_meta_bindings.cpp
+        types/time_series/ts_type_registry.cpp
+        types/time_series/ts_meta_schema.cpp
+        types/time_series/ts_reference.cpp
+        types/time_series/ts_value.cpp
+        types/time_series/ts_view.cpp
+        types/time_series/ts_view_range.cpp
+        types/time_series/ts_ops.cpp
+        types/time_series/signal_view.cpp
+        types/time_series/ts_output.cpp
+        types/time_series/ts_input.cpp
+        types/time_series/ref_link.cpp
+        types/time_series/link_target.cpp
+        types/time_series/fq_path.cpp
 
         util/lifecycle.cpp
         util/sender_receiver_state.cpp
@@ -118,7 +111,7 @@ add_definitions(-Dhgraph_EXPORTS)
 nanobind_add_module(${PROJECT_NAME} STABLE_ABI ${HGRAPH_SOURCES} ${HGRAPH_INCLUDES})
 
 target_link_libraries(${PROJECT_NAME} PRIVATE Threads::Threads)
-target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor)
+target_link_libraries(${PROJECT_NAME} PUBLIC fmt::fmt ddvisitor sul::dynamic_bitset)
 
 # Propagate HGRAPH_WITH_BACKWARD to the compiler for conditional compilation
 if (HGRAPH_WITH_BACKWARD)

@@ -6,10 +6,8 @@
 #define LAST_VALUE_PULL_NODE_H
 
 #include <hgraph/types/node.h>
-#include <hgraph/types/tss.h>
-#include <hgraph/types/tsd.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/tsl.h>
+#include <hgraph/types/time_series/ts_input_view.h>
+#include <hgraph/types/time_series/ts_output_view.h>
 #include <optional>
 #include <functional>
 #include <variant>
@@ -24,12 +22,12 @@ namespace hgraph {
         using Node::Node;
 
         /**
-         * Copy a value from an input TimeSeriesOutput
+         * Copy a value from an input TSInputView
          * This is called when the node needs to pull a value from another output
          */
-        void copy_from_input(const TimeSeriesInput &input);
+        void copy_from_input(const TSInputView &input);
 
-        void copy_from_output(const TimeSeriesOutput &output);
+        void copy_from_output(const TSOutputView &output);
 
         /**
          * Apply a value directly to the node

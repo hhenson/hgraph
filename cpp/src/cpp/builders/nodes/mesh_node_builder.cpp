@@ -2,8 +2,6 @@
 #include <hgraph/builders/input_builder.h>
 #include <hgraph/builders/output_builder.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tsb.h>
-#include <hgraph/types/time_series_type.h>
 #include <hgraph/nodes/mesh_node.h>
 #include <hgraph/util/arena_enable_shared_from_this.h>
 
@@ -67,9 +65,10 @@ namespace hgraph {
 
     node_s_ptr MeshNodeBuilder::make_instance(const std::vector<int64_t> &owning_graph_id, int64_t node_ndx) const {
         auto node = arena_make_shared_as<MeshNode, Node>(
-            node_ndx, owning_graph_id, signature, scalars, nested_graph_builder, input_node_ids,
+            node_ndx, owning_graph_id, signature, scalars,
+            input_meta(), output_meta(), error_output_meta(), recordable_state_meta(),
+            nested_graph_builder, input_node_ids,
             output_node_id, multiplexed_args, key_arg, context_path);
-        _build_inputs_and_outputs(node.get());
         return node;
     }
 

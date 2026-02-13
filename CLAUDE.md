@@ -24,6 +24,7 @@ of the logic. For now the logical behavior of the C++ and Python implementation 
 is identified, for now the python implementation is considered authoritative.
 2. The C++ runtime is enabled via the feature flag found in hgraph_features.yaml (use_cpp), set to true to use cpp.
    Altenatively, it is possible to set the environment variable HGRAPH_USE_CPP to true.
+3. Never use git commands without prior approval.
 
 ----
 
@@ -147,3 +148,7 @@ Techniques to apply:
            - Check the symlink for the .so is in the right place and linked
            Otherwise, it results in checks against an incorrect version of the code.
 
+## Current Task
+
+We are currently working on the new time-series implementation, the documentation for this is in the folder ts_value_v2601.
+Read through this to be prepared for the next task.

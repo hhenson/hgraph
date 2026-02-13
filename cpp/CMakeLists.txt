@@ -186,6 +186,16 @@ else ()
     message(STATUS "Found ddvisitor via Conan/system: ${ddvisitor_DIR}")
 endif ()
 
+# sul::dynamic_bitset via FetchContent (header-only)
+include(FetchContent)
+FetchContent_Declare(
+    dynamic_bitset
+    GIT_REPOSITORY https://github.com/pinam45/dynamic_bitset.git
+    GIT_TAG v1.2.0
+)
+FetchContent_MakeAvailable(dynamic_bitset)
+message(STATUS "Using sul::dynamic_bitset from FetchContent")
+
 # Git version info is optional here (no .git necessarily inside this repo)
 set(GIT_BRANCH "")
 set(GIT_COMMIT_HASH "")
@@ -256,26 +266,15 @@ set(HGRAPH_INCLUDES
         include/hgraph/runtime/observers/evaluation_profiler.h
         include/hgraph/runtime/observers/evaluation_trace.h
         include/hgraph/runtime/observers/inspection_observer.h
-        include/hgraph/types/base_time_series.h
         include/hgraph/types/constants.h
         include/hgraph/types/error_type.h
         include/hgraph/types/feature_extension.h
         include/hgraph/types/graph.h
         include/hgraph/types/node.h
         include/hgraph/types/notifiable.h
-        include/hgraph/types/ref.h
         include/hgraph/types/scalar_types.h
         include/hgraph/types/schema_type.h
-        include/hgraph/types/time_series_type.h
         include/hgraph/types/traits.h
-        include/hgraph/types/ts.h
-        include/hgraph/types/ts_signal.h
-        include/hgraph/types/tsd.h
-        include/hgraph/types/tss.h
-        include/hgraph/types/ts_indexed.h
-        include/hgraph/types/tsb.h
-        include/hgraph/types/tsl.h
-        include/hgraph/types/tsw.h
         include/hgraph/python/chrono.h
         include/hgraph/python/format.h
         include/hgraph/python/global_state.h

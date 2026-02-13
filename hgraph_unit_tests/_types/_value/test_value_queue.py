@@ -102,7 +102,7 @@ def test_push_back_single():
     q = v.view().as_queue()
 
     elem = value.PlainValue(42)
-    q.push_back(elem.const_view())
+    q.append(elem.const_view())
 
     assert q.size() == 1
     assert q[0].as_int() == 42
@@ -121,7 +121,7 @@ def test_push_back_multiple():
 
     for i in range(5):
         elem = value.PlainValue(i * 10)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     assert q.size() == 5
     for i in range(5):
@@ -142,7 +142,7 @@ def test_pop_front():
     # Push 3 elements: 10, 20, 30
     for val in [10, 20, 30]:
         elem = value.PlainValue(val)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     assert q.size() == 3
     assert q.front().as_int() == 10
@@ -187,7 +187,7 @@ def test_fifo_order():
     # Push 1, 2, 3, 4, 5
     for i in range(1, 6):
         elem = value.PlainValue(i)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     # Pop should return 1, 2, 3, 4, 5 in order
     for expected in range(1, 6):
@@ -210,7 +210,7 @@ def test_front_and_back():
 
     for i in [10, 20, 30, 40]:
         elem = value.PlainValue(i)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     assert q.front().as_int() == 10  # Oldest
     assert q.back().as_int() == 40   # Newest
@@ -230,21 +230,21 @@ def test_bounded_queue_eviction():
     # Push 1, 2, 3 - queue is now full
     for i in [1, 2, 3]:
         elem = value.PlainValue(i)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     assert q.size() == 3
     assert list(e.as_int() for e in q) == [1, 2, 3]
 
     # Push 4 - evicts 1
     elem = value.PlainValue(4)
-    q.push_back(elem.const_view())
+    q.append(elem.const_view())
 
     assert q.size() == 3
     assert list(e.as_int() for e in q) == [2, 3, 4]
 
     # Push 5 - evicts 2
     elem = value.PlainValue(5)
-    q.push_back(elem.const_view())
+    q.append(elem.const_view())
 
     assert q.size() == 3
     assert list(e.as_int() for e in q) == [3, 4, 5]
@@ -264,7 +264,7 @@ def test_unbounded_queue_grows():
     # Push many elements - should grow
     for i in range(100):
         elem = value.PlainValue(i)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     assert q.size() == 100
 
@@ -286,7 +286,7 @@ def test_clear():
 
     for i in range(5):
         elem = value.PlainValue(i)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     assert q.size() == 5
 
@@ -309,13 +309,13 @@ def test_push_after_clear():
     # Initial push
     for i in range(3):
         elem = value.PlainValue(i)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     q.clear()
 
     # Push after clear
     elem = value.PlainValue(100)
-    q.push_back(elem.const_view())
+    q.append(elem.const_view())
 
     assert q.size() == 1
     assert q[0].as_int() == 100
@@ -335,7 +335,7 @@ def test_iteration():
     values = [10, 20, 30, 40, 50]
     for val in values:
         elem = value.PlainValue(val)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     result = [e.as_int() for e in q]
     assert result == values
@@ -357,8 +357,8 @@ def test_equal_queues():
 
     for val in [1, 2, 3]:
         elem = value.PlainValue(val)
-        q1.push_back(elem.const_view())
-        q2.push_back(elem.const_view())
+        q1.append(elem.const_view())
+        q2.append(elem.const_view())
 
     assert v1.const_view().equals(v2.const_view())
 
@@ -379,11 +379,11 @@ def test_unequal_queues():
 
     for val in [1, 2, 3]:
         elem = value.PlainValue(val)
-        q1.push_back(elem.const_view())
+        q1.append(elem.const_view())
 
     for val in [1, 2, 4]:  # Different
         elem = value.PlainValue(val)
-        q2.push_back(elem.const_view())
+        q2.append(elem.const_view())
 
     assert not v1.const_view().equals(v2.const_view())
 
@@ -404,8 +404,8 @@ def test_hash_consistency():
 
     for val in [1, 2, 3]:
         elem = value.PlainValue(val)
-        q1.push_back(elem.const_view())
-        q2.push_back(elem.const_view())
+        q1.append(elem.const_view())
+        q2.append(elem.const_view())
 
     assert v1.const_view().hash() == v2.const_view().hash()
 
@@ -423,7 +423,7 @@ def test_to_python_returns_list():
 
     for val in [10, 20, 30]:
         elem = value.PlainValue(val)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     py_list = v.const_view().to_python()
 
@@ -505,7 +505,7 @@ def test_to_string():
 
     for val in [1, 2, 3]:
         elem = value.PlainValue(val)
-        q.push_back(elem.const_view())
+        q.append(elem.const_view())
 
     s = v.const_view().to_string()
     assert "Queue" in s

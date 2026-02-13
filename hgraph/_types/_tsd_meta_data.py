@@ -134,6 +134,17 @@ class HgTSDTypeMetaData(HgTimeSeriesTypeMetaData):
 
         return hash(TSD) ^ hash(self.value_tp) ^ hash(self.key_tp)
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TSMeta for this TSD[K, V] type."""
+        if not self.is_resolved:
+            return None
+        key_cpp = self.key_tp.cpp_type
+        value_cpp = self.value_tp.cpp_type
+        if key_cpp is None or value_cpp is None:
+            return None
+        return self._make_cpp_type(lambda h: h.TSTypeRegistry.instance().tsd(key_cpp, value_cpp))
+
 
 class HgTSDOutTypeMetaData(HgTSDTypeMetaData):
 

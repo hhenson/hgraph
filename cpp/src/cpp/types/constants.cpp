@@ -99,4 +99,18 @@ namespace hgraph {
         }
         return GET_FQ_RECORDABLE_ID_FN;
     }
+    void clear_constants_cache() {
+        REMOVE = nb::object();
+        REMOVE_IF_EXISTS = nb::object();
+        REMOVED = nb::object();
+        FROZENSET = nb::object();
+        FROZENDICT = nb::object();
+        KEY_SET_ID = nb::object();
+        OBJECT = nb::object();
+        RECORD_REPLAY_CONTEXT = nb::object();
+        RECORD_REPLAY_ENUM = nb::object();
+        REPLAY_CONST_FN = nb::object();
+        GET_AS_OF_FN = nb::object();
+        GET_FQ_RECORDABLE_ID_FN = nb::object();
+    }
 } // namespace hgraph

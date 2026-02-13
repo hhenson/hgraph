@@ -3,8 +3,12 @@
 
 #include <hgraph/nodes/nested_evaluation_engine.h>
 #include <hgraph/nodes/nested_node.h>
-#include <hgraph/types/tsd.h>
-#include <hgraph/types/value/value.h>
+#include <hgraph/types/feature_extension.h>
+#include <hgraph/types/notifiable.h>
+#include <hgraph/types/time_series/observer_list.h>
+#include <hgraph/types/time_series/ts_meta.h>
+#include <unordered_set>
+#include <memory>
 
 namespace hgraph
 {
@@ -50,6 +54,8 @@ namespace hgraph
         static inline std::string _KEY_ARG = "__key_arg__";
 
         TsdMapNode(int64_t node_ndx, std::vector<int64_t> owning_graph_id, NodeSignature::s_ptr signature, nb::dict scalars,
+                   const TSMeta* input_meta, const TSMeta* output_meta,
+                   const TSMeta* error_output_meta, const TSMeta* recordable_state_meta,
                    graph_builder_s_ptr nested_graph_builder, const std::unordered_map<std::string, int64_t> &input_node_ids,
                    int64_t output_node_id, const std::unordered_set<std::string> &multiplexed_args, const std::string &key_arg);
 
@@ -80,17 +86,17 @@ namespace hgraph
 
         void do_eval() override {};
 
-        virtual TimeSeriesDictOutputImpl &tsd_output();
+        virtual void* tsd_output();  // stubbed: was TimeSeriesDictOutputImpl&
 
-        void create_new_graph(const value::ConstValueView &key);
+        void create_new_graph(const value::View &key);
 
-        void remove_graph(const value::ConstValueView &key);
+        void remove_graph(const value::View &key);
 
-        engine_time_t evaluate_graph(const value::ConstValueView &key);
+        engine_time_t evaluate_graph(const value::View &key);
 
-        void un_wire_graph(const value::ConstValueView &key, graph_s_ptr &graph);
+        void un_wire_graph(const value::View &key, graph_s_ptr &graph);
 
-        void wire_graph(const value::ConstValueView &key, graph_s_ptr &graph);
+        void wire_graph(const value::View &key, graph_s_ptr &graph);
 
         // Protected members accessible by derived classes (e.g., MeshNode)
         graph_builder_s_ptr nested_graph_builder_;
@@ -105,7 +111,23 @@ namespace hgraph
         std::unordered_set<std::string>          multiplexed_args_;
         std::string                              key_arg_;
         key_time_map_type                        scheduled_keys_;
+        key_set_type                             pending_multiplexed_wirings_;
         std::string                              recordable_id_;
+
+        void try_wire_pending_keys(engine_time_t time);
+        bool try_wire_multiplexed_for_key(const value::View& key, engine_time_t time);
+        void clear_pending_wiring_subscriptions();
+
+        // Notifier that schedules the map node when upstream TSD outputs change.
+        // Used to detect when deferred multiplexed wirings can be completed.
+        struct PendingWiringNotifier : Notifiable {
+            TsdMapNode* node;
+            explicit PendingWiringNotifier(TsdMapNode* n) : node(n) {}
+            void notify(engine_time_t et) override;
+        };
+
+        std::unique_ptr<PendingWiringNotifier> pending_wiring_notifier_;
+        std::unordered_set<ObserverList*> pending_wiring_subscriptions_;
 
         friend MapNestedEngineEvaluationClock;
     };

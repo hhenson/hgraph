@@ -343,12 +343,47 @@ graph TB
 ### 6.5 Output Operations
 
 ```python
-output["key"] = value       # Add or update key
+output["key"] = value       # Add or update key (alias for set_item)
 del output["key"]           # Remove key
 output.clear()              # Remove all keys
+output.insert(key, value)   # Insert key-value pair (only if key not present)
+output.set_item(key, value) # Set value for key (adds or overwrites)
+output.remove(key)          # Remove entry by key
+output.get(key)             # Get value or None if not present
+output.get(key, default)    # Get value or default if not present
 ```
 
-### 6.6 Memory Layout
+**Return values:**
+- `insert()` returns `True` if inserted (key was new), `False` if key already exists
+- `remove()` returns `True` if removed (key existed), `False` if key not present
+
+### 6.6 Query Operations
+
+```python
+# Membership
+key in output               # Check if key exists (alias for contains)
+output.contains(key)        # Check if key exists
+
+# Size
+len(output)                 # Number of entries
+output.empty()              # True if no entries
+
+# Access
+output.at(key)              # Get value by key (raises if not present)
+output["key"]               # Get value by key (raises if not present)
+output.get(key)             # Get value or None if not present
+output.get(key, default)    # Get value or default if not present
+
+# Iteration
+output.keys()               # Iterate over keys (returns KeySetView)
+output.items()              # Iterate over (key, value) pairs
+
+# Type info
+output.key_type()           # Get key TypeMeta
+output.value_type()         # Get value TypeMeta
+```
+
+### 6.7 Memory Layout
 
 ```
 ┌─────────────────────────────────────────────┐
@@ -425,11 +460,28 @@ graph TB
 ### 7.5 Output Operations
 
 ```python
-output.add(item)        # Add item to set
-output.remove(item)     # Remove item from set
-output.discard(item)    # Remove if present
+output.add(item)        # Add item to set (no-op if already present)
+output.remove(item)     # Remove item from set (no-op if not present)
 output.clear()          # Remove all items
-output.update(items)    # Add multiple items
+```
+
+**Return values:**
+- `add()` returns `True` if the item was added, `False` if already present
+- `remove()` returns `True` if the item was removed, `False` if not present
+
+### 7.6 Query Operations
+
+```python
+# Membership
+item in output          # Check if item exists (alias for contains)
+output.contains(item)   # Check if item exists
+
+# Size
+len(output)             # Number of elements
+output.empty()          # True if no elements
+
+# Type info
+output.element_type()   # Get element TypeMeta
 ```
 
 ---

@@ -731,7 +731,7 @@ For declarative pattern matching on TypeKind:
 
 ```cpp
 std::string result = match<std::string>(value.const_view(),
-    when<TypeKind::Scalar>([](ConstValueView v) { return v.to_string(); }),
+    when<TypeKind::Atomic>([](ConstValueView v) { return v.to_string(); }),
     when<TypeKind::List>([](ConstListView l) {
         return "list of " + std::to_string(l.size());
     }),
@@ -960,6 +960,22 @@ nb::object py_obj = cpp_value.to_python();
 nb::object py_list = nb::eval("[[1, 2], [3, 4]]");
 Value cpp_list = Value::from_python(py_list, list_of_lists_schema);
 ```
+
+### Delta values (incremental updates)
+
+Some parts of the wider time-series system expose **deltas** (patch-like values) in addition to full values
+(e.g. the Python `TimeSeriesType.delta_value` surface). Conceptually, a delta represents “what changed since
+the previous evaluation”, and it should be possible to apply a delta to update either:
+
+- a plain `Value` (data-only), or
+- a `TSValue` (data + hierarchical timestamps/validity + hierarchical observers).
+
+At the Value layer, “apply delta” is a schema-defined operation (how to merge/patch depends on the type).
+At the TS layer, applying the same delta must also update the TS overlay state. This includes firing notification
+events when properties change. For set and tsd we should also be able to get tracking for add/remove events.
+
+**Example reference:** sets currently have an explicit delta representation `value::SetDeltaValue` which carries
+snapshots of *added* and *removed* elements. The delta system should be able to be adapted to that type when required.
 
 ### NumPy Integration
 

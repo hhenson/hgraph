@@ -1,6 +1,10 @@
 #include <hgraph/api/python/py_signal.h>
+#include <hgraph/api/python/py_signal_view.h>
 #include <hgraph/api/python/py_ts.h>
 #include <hgraph/api/python/py_tsl.h>
+#include <hgraph/api/python/py_ts_type_registry.h>
+#include <hgraph/api/python/py_ts_value.h>
+#include <hgraph/api/python/py_ts_input_output.h>
 #include <hgraph/api/python/py_value.h>
 
 #include <hgraph/api/python/py_ref.h>
@@ -15,18 +19,26 @@
 #include <hgraph/api/python/py_tsw.h>
 #include <hgraph/types/error_type.h>
 #include <hgraph/types/node.h>
-#include <hgraph/types/tss.h>
 
 #include <hgraph/types/scalar_types.h>
 #include <hgraph/types/schema_type.h>
+#include <hgraph/types/time_series/ts_ops.h>
 #include <hgraph/types/traits.h>
-#include <hgraph/types/tsb.h>
 
 void export_types(nb::module_ &m) {
     using namespace hgraph;
 
     // Value type system (must come before time series types that use them)
     value_register_with_nanobind(m);
+
+    // TSTypeRegistry (must come after value, before time series types that use them)
+    ts_type_registry_register_with_nanobind(m);
+
+    // TSValue and TSView (must come after TSTypeRegistry)
+    ts_value_register_with_nanobind(m);
+
+    // TSInput, TSOutput, and views (must come after TSValue)
+    ts_input_output_register_with_nanobind(m);
 
     // Schema and scalar types (must come before time series types that use them)
     AbstractSchema::register_with_nanobind(m);
@@ -43,6 +55,7 @@ void export_types(nb::module_ &m) {
 
     ref_register_with_nanobind(m);
     signal_register_with_nanobind(m);
+    register_signal_view(m);
     ts_register_with_nanobind(m);
     tsb_register_with_nanobind(m);
     tsd_register_with_nanobind(m);
@@ -62,7 +75,11 @@ void export_types(nb::module_ &m) {
     PyMeshNestedNode::register_with_nanobind(m);
     PyGraph::register_with_nanobind(m);
 
-    TimeSeriesSchema::register_with_nanobind(m);
+    // TimeSeriesSchema is defined purely in Python (inherits from AbstractSchema).
+    // No C++ registration needed.
 
     register_special_nodes_with_nanobind(m);
+
+    // Expose cache-clearing function for atexit cleanup
+    m.def("_clear_thread_local_caches", &hgraph::clear_thread_local_caches);
 }

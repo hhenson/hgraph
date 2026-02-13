@@ -43,6 +43,8 @@ namespace hgraph {
     nb::object get_as_of_fn();
 
     nb::object get_fq_recordable_id_fn();
+
+    void clear_constants_cache();
 } // namespace hgraph
 
 #endif  // CONSTANTS_H
