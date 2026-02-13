@@ -236,7 +236,7 @@ struct TrackedSetStorage {
      */
     template<typename T>
     [[nodiscard]] bool contains(const T& elem) const {
-        Value<> temp(elem);
+        Value temp(elem);
         return contains(View(temp.view()));
     }
 
@@ -245,7 +245,7 @@ struct TrackedSetStorage {
      */
     template<typename T>
     bool add(const T& elem) {
-        Value<> temp(elem);
+        Value temp(elem);
         return add(View(temp.view()));
     }
 
@@ -254,7 +254,7 @@ struct TrackedSetStorage {
      */
     template<typename T>
     bool remove(const T& elem) {
-        Value<> temp(elem);
+        Value temp(elem);
         return remove(View(temp.view()));
     }
 };

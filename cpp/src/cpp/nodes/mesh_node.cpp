@@ -84,20 +84,20 @@ namespace hgraph {
     }
 
     bool MeshNode::_add_graph_dependency(const nb::object &key, const nb::object &depends_on) {
-        value::Value<> key_val(key_type_meta_);
+        value::Value key_val(key_type_meta_);
         key_val.emplace();
         key_type_meta_->ops().from_python(key_val.data(), key, key_type_meta_);
-        value::Value<> depends_on_val(key_type_meta_);
+        value::Value depends_on_val(key_type_meta_);
         depends_on_val.emplace();
         key_type_meta_->ops().from_python(depends_on_val.data(), depends_on, key_type_meta_);
         return add_graph_dependency(key_val.view(), depends_on_val.view());
     }
 
     void MeshNode::_remove_graph_dependency(const nb::object &key, const nb::object &depends_on) {
-        value::Value<> key_val(key_type_meta_);
+        value::Value key_val(key_type_meta_);
         key_val.emplace();
         key_type_meta_->ops().from_python(key_val.data(), key, key_type_meta_);
-        value::Value<> depends_on_val(key_type_meta_);
+        value::Value depends_on_val(key_type_meta_);
         depends_on_val.emplace();
         key_type_meta_->ops().from_python(depends_on_val.data(), depends_on, key_type_meta_);
         remove_graph_dependency(key_val.view(), depends_on_val.view());
@@ -340,7 +340,7 @@ namespace hgraph {
             TsdMapNode::un_wire_graph(key, graph);
 
             // Ensure cleanup happens even if stop_component throws (matches Python try-finally pattern)
-            value::PlainValue key_copy = key.clone<value::NoCache>();  // Clone for lambda capture
+            value::PlainValue key_copy = key.clone();  // Clone for lambda capture
             auto cleanup = make_scope_exit([this, key_copy = std::move(key_copy)]() mutable {
                 auto rank_it = active_graphs_rank_.find(key_copy.view());
                 if (rank_it != active_graphs_rank_.end()) {

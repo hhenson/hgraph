@@ -14,7 +14,13 @@ namespace hgraph {
         : TimeSeriesValueOutputBase(parent), _value(schema) {}
 
     nb::object TimeSeriesValueOutput::py_value() const {
-        return valid() ? _value.to_python() : nb::none();
+        if (!valid()) {
+            return nb::none();
+        }
+        if (_py_cached_value.is_valid()) {
+            return _py_cached_value;
+        }
+        return _value.to_python();
     }
 
     nb::object TimeSeriesValueOutput::py_delta_value() const {
@@ -27,6 +33,7 @@ namespace hgraph {
             return;
         }
         _value.from_python(value);
+        _py_cached_value = value;
         mark_modified();
     }
 
@@ -44,7 +51,8 @@ namespace hgraph {
     }
 
     void TimeSeriesValueOutput::mark_invalid() {
-        _value = value::CachedValue(schema());  // Reset to typed-null
+        _value = value::PlainValue(schema());  // Reset to typed-null
+        _py_cached_value = nb::object();
         BaseTimeSeriesOutput::mark_invalid();
     }
 
@@ -58,6 +66,7 @@ namespace hgraph {
                 _value.emplace();
             }
             _value.view().copy_from(other->_value.view());
+            _py_cached_value = other->_py_cached_value.is_valid() ? other->_py_cached_value : nb::object();
             mark_modified();
         } else {
             mark_invalid();
@@ -74,6 +83,8 @@ namespace hgraph {
                 _value.emplace();
             }
             _value.view().copy_from(other->value());
+            const auto& source = other->value_output();
+            _py_cached_value = source._py_cached_value.is_valid() ? source._py_cached_value : nb::object();
             mark_modified();
         } else {
             mark_invalid();
@@ -89,7 +100,8 @@ namespace hgraph {
     }
 
     void TimeSeriesValueOutput::reset_value() {
-        _value = value::CachedValue(schema());
+        _value = value::PlainValue(schema());
+        _py_cached_value = nb::object();
     }
 
     // ============================================================================

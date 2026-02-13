@@ -41,7 +41,6 @@ inline void require_typed_view(const View& view, const TypeMeta* expected_schema
 }
 
 // Forward declarations
-template<typename Policy>
 class Value;
 
 // ============================================================================

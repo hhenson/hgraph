@@ -19,7 +19,7 @@ namespace hgraph {
      * lookup support via PlainValueHash and PlainValueEqual.
      *
      * Maps are shared between the builder and all node instances via shared_ptr
-     * since Value<> doesn't support copy construction.
+     * since Value doesn't support copy construction.
      */
     struct SwitchNode final : NestedNode {
         using s_ptr = std::shared_ptr<SwitchNode>;

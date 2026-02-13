@@ -175,7 +175,7 @@ bv.set("x", 1.0);
 View x_view = point.view().as_bundle().at("x");
 
 // Access owner and path
-Value<>* owner = x_view.owner();         // Pointer to 'point'
+Value* owner = x_view.owner();           // Pointer to 'point'
 const ViewPath& path = x_view.path();    // Path: ["x"]
 std::string path_str = x_view.path_string();  // "x"
 

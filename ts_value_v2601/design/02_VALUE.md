@@ -14,8 +14,7 @@ Type-erased owning container for any value conforming to a TypeMeta.
 ### Structure
 
 ```cpp
-template<typename Policy>
-class Value : private PolicyStorage<Policy> {
+class Value {
     ValueStorage _storage;          // Owns payload memory (SBO + heap fallback)
     const TypeMeta* _schema{nullptr}; // Schema identity (independent of payload presence)
 
@@ -202,7 +201,7 @@ All validity masks are 1 bit per logical child/slot, with `1 = valid`, `0 = null
 #### Python Interop
 
 1. Top-level null Value converts to Python `None`.
-2. `from_python(None)` maps to top-level typed-null (`reset()`) where validation policy allows.
+2. `from_python(None)` maps to top-level typed-null (`reset()`).
 3. Nested `None` in bundle/tuple/list/map values maps to nested validity bits.
 
 #### Arrow Compatibility Strategy

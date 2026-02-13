@@ -39,7 +39,7 @@ namespace hgraph
             auto v_ = pair[1];
             if (v_.is_none()) { continue; }
             // Convert Python key to Value using TypeOps
-            value::Value<> key_val(_key_type);
+            value::Value key_val(_key_type);
             key_val.emplace();
             _key_type->ops().from_python(key_val.data(), k, _key_type);
             auto key_view = key_val.view();
@@ -279,7 +279,7 @@ namespace hgraph
         nb::iterator items = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
         for (const auto &kv : items) {
             // Convert Python key to Value using TypeOps
-            value::Value<> key_val(_key_type);
+            value::Value key_val(_key_type);
             key_val.emplace();
             _key_type->ops().from_python(key_val.data(), kv[0], _key_type);
             auto key_view = key_val.view();
@@ -486,7 +486,7 @@ namespace hgraph
 
     void TimeSeriesDictOutputImpl::py_set_item(const nb::object &key, const nb::object &value) {
         // Convert Python key to Value using TypeOps
-        value::Value<> key_val(_key_type);
+        value::Value key_val(_key_type);
         key_val.emplace();
         _key_type->ops().from_python(key_val.data(), key, _key_type);
         auto ts{operator[](key_val.view())};
@@ -495,7 +495,7 @@ namespace hgraph
 
     void TimeSeriesDictOutputImpl::py_del_item(const nb::object &key) {
         // Convert Python key to Value using TypeOps
-        value::Value<> key_val(_key_type);
+        value::Value key_val(_key_type);
         key_val.emplace();
         _key_type->ops().from_python(key_val.data(), key, _key_type);
         erase(key_val.view());
@@ -508,7 +508,7 @@ namespace hgraph
     nb::object TimeSeriesDictOutputImpl::py_pop(const nb::object &key, const nb::object &default_value) {
         nb::object result_value{};
         // Convert Python key to Value using TypeOps
-        value::Value<> key_val(_key_type);
+        value::Value key_val(_key_type);
         key_val.emplace();
         _key_type->ops().from_python(key_val.data(), key, _key_type);
         auto key_view = key_val.view();
@@ -530,7 +530,7 @@ namespace hgraph
 
     time_series_output_s_ptr& TimeSeriesDictOutputImpl::get_ref(const nb::object &key, const void *requester) {
         // Convert Python key to Value using TypeOps
-        value::Value<> key_val(_key_type);
+        value::Value key_val(_key_type);
         key_val.emplace();
         _key_type->ops().from_python(key_val.data(), key, _key_type);
         return _ref_ts_feature.create_or_increment(key_val.view(), requester);
@@ -538,7 +538,7 @@ namespace hgraph
 
     void TimeSeriesDictOutputImpl::release_ref(const nb::object &key, const void *requester) {
         // Convert Python key to Value using TypeOps
-        value::Value<> key_val(_key_type);
+        value::Value key_val(_key_type);
         key_val.emplace();
         _key_type->ops().from_python(key_val.data(), key, _key_type);
         _ref_ts_feature.release(key_val.view(), requester);

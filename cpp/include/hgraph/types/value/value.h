@@ -6,16 +6,14 @@
  *
  * The Value class provides owning storage for type-erased values with:
  * - Small Buffer Optimization (SBO) for common types
- * - Policy-based extensions (caching, tracking, etc.)
  * - Type-safe access via views
- * - Python interop with optional caching
+ * - Python interop
  *
  * Usage:
  * @code
  * // Create scalar values
- * Value<> v1(42);                    // int64_t
- * Value<> v2(3.14);                  // double
- * Value<WithPythonCache> v3("hello"); // with caching
+ * Value v1(42);   // int64_t
+ * Value v2(3.14); // double
  *
  * // Access values
  * int64_t x = v1.as<int64_t>();
@@ -32,7 +30,6 @@
  */
 
 #include <hgraph/types/value/indexed_view.h>
-#include <hgraph/types/value/policy.h>
 #include <hgraph/types/value/value_storage.h>
 #include <hgraph/types/value/path.h>
 #include <hgraph/types/value/traversal.h>
@@ -49,26 +46,15 @@ namespace hgraph::value {
 // ============================================================================
 
 /**
- * @brief Owning type-erased value storage with policy-based extensions.
+ * @brief Owning type-erased value storage.
  *
  * Value is the primary class for storing type-erased values. It manages
  * the lifetime of the stored data and provides type-safe access through
  * views and the as<T>() family of methods.
  *
- * The Policy template parameter controls optional extensions:
- * - NoCache (default): No extensions, zero overhead
- * - WithPythonCache: Caches Python object conversions
- *
- * @tparam Policy The extension policy (default: NoCache)
  */
-template<typename Policy>
-class Value : private PolicyStorage<Policy> {
+class Value {
 public:
-    // ========== Type Aliases ==========
-
-    using policy_type = Policy;
-    using storage_type = PolicyStorage<Policy>;
-
     // ========== Construction ==========
 
     /**
@@ -130,8 +116,7 @@ public:
      * @brief Move constructor.
      */
     Value(Value&& other) noexcept
-        : storage_type(std::move(static_cast<storage_type&>(other)))
-        , _storage(std::move(other._storage))
+        : _storage(std::move(other._storage))
         , _schema(other._schema) {
         other._schema = nullptr;
     }
@@ -141,7 +126,6 @@ public:
      */
     Value& operator=(Value&& other) noexcept {
         if (this != &other) {
-            static_cast<storage_type&>(*this) = std::move(static_cast<storage_type&>(other));
             _storage = std::move(other._storage);
             _schema = other._schema;
             other._schema = nullptr;
@@ -222,16 +206,11 @@ public:
     /**
      * @brief Get a mutable view of the data.
      *
-     * If the policy has caching, this invalidates the cache.
-     *
      * @return Mutable view
      */
     [[nodiscard]] ValueView view() {
         if (!has_value()) {
             throw std::bad_optional_access();
-        }
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
         }
         return ValueView(_storage.data(), _schema);
     }
@@ -253,9 +232,6 @@ public:
      * @brief Get as a tuple view (mutable).
      */
     [[nodiscard]] TupleView as_tuple() {
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
-        }
         return view().as_tuple();
     }
 
@@ -270,9 +246,6 @@ public:
      * @brief Get as a bundle view (mutable).
      */
     [[nodiscard]] BundleView as_bundle() {
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
-        }
         return view().as_bundle();
     }
 
@@ -287,9 +260,6 @@ public:
      * @brief Get as a list view (mutable).
      */
     [[nodiscard]] ListView as_list() {
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
-        }
         return view().as_list();
     }
 
@@ -304,9 +274,6 @@ public:
      * @brief Get as a set view (mutable).
      */
     [[nodiscard]] SetView as_set() {
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
-        }
         return view().as_set();
     }
 
@@ -321,9 +288,6 @@ public:
      * @brief Get as a map view (mutable).
      */
     [[nodiscard]] MapView as_map() {
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
-        }
         return view().as_map();
     }
 
@@ -346,9 +310,6 @@ public:
      */
     template<typename T>
     [[nodiscard]] T& as() {
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
-        }
         assert(valid() && "as<T>() on invalid Value");
         assert(is_scalar_type<T>() && "as<T>() type mismatch");
         return *static_cast<T*>(_storage.data());
@@ -372,9 +333,6 @@ public:
     template<typename T>
     [[nodiscard]] T* try_as() {
         if (!is_scalar_type<T>()) return nullptr;
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
-        }
         return static_cast<T*>(_storage.data());
     }
 
@@ -399,9 +357,6 @@ public:
         }
         if (!is_scalar_type<T>()) {
             throw std::runtime_error("checked_as<T>() type mismatch");
-        }
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
         }
         return *static_cast<T*>(_storage.data());
     }
@@ -438,9 +393,6 @@ public:
     [[nodiscard]] void* data() {
         if (!has_value()) {
             throw std::bad_optional_access();
-        }
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
         }
         return _storage.data();
     }
@@ -499,16 +451,7 @@ public:
      * @brief Reset to typed-null while preserving schema.
      */
     void reset() {
-        const bool had_value = has_value();
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
-        }
         _storage.reset();
-        if constexpr (policy_traits<Policy>::has_modification_tracking) {
-            if (had_value) {
-                this->notify_modified();
-            }
-        }
     }
 
     /**
@@ -520,14 +463,8 @@ public:
         if (!_schema) {
             throw std::runtime_error("emplace() on Value without schema");
         }
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
-        }
         _storage.reset();
         _storage.construct(_schema);
-        if constexpr (policy_traits<Policy>::has_modification_tracking) {
-            this->notify_modified();
-        }
     }
 
     // ========== Python Interop ==========
@@ -535,45 +472,22 @@ public:
     /**
      * @brief Convert to a Python object.
      *
-     * If the policy has caching, the result is cached and reused.
-     *
      * @return The Python object representation
      */
     [[nodiscard]] nb::object to_python() const {
         if (!has_value()) {
             return nb::none();
         }
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            if (this->has_cache()) {
-                return this->get_cache();
-            }
-            auto result = _schema->ops().to_python(_storage.data(), _schema);
-            this->set_cache(result);
-            return result;
-        } else {
-            return _schema->ops().to_python(_storage.data(), _schema);
-        }
+        return _schema->ops().to_python(_storage.data(), _schema);
     }
 
     /**
      * @brief Set the value from a Python object.
      *
-     * If the policy has caching, this updates the cache.
-     * If the policy has validation, this rejects None values.
-     * If the policy has modification tracking, this notifies callbacks.
-     *
      * @param src The Python object
-     * @throws std::runtime_error if validation is enabled and src is None
      */
     void from_python(const nb::object& src) {
-        // Validation check
-        if constexpr (policy_traits<Policy>::has_validation) {
-            if (src.is_none()) {
-                throw std::runtime_error("Cannot set value to None");
-            }
-        }
-
-        // Non-validating policies treat Python None as typed-null.
+        // Python None maps to typed-null.
         if (src.is_none()) {
             reset();
             return;
@@ -587,10 +501,6 @@ public:
             _storage.construct(_schema);
         }
 
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->invalidate_cache();
-        }
-
         // Perform type conversion from Python object to native storage
         try {
             _schema->ops().from_python(_storage.data(), src, _schema);
@@ -601,32 +511,6 @@ public:
             // Wrap C++ exceptions with context about the conversion
             throw std::runtime_error(
                 std::string("Value::from_python: type conversion failed: ") + e.what());
-        }
-
-        // Update cache if policy supports it
-        if constexpr (policy_traits<Policy>::has_python_cache) {
-            this->set_cache(src);
-        }
-
-        // Notify modification callbacks
-        if constexpr (policy_traits<Policy>::has_modification_tracking) {
-            this->notify_modified();
-        }
-    }
-
-    // ========== Modification Tracking ==========
-
-    /**
-     * @brief Register a callback to be called when the value is modified.
-     *
-     * Only available when the policy has modification tracking.
-     *
-     * @param cb The callback function
-     */
-    template<typename Callback>
-    void on_modified(Callback&& cb) {
-        if constexpr (policy_traits<Policy>::has_modification_tracking) {
-            storage_type::on_modified(std::forward<Callback>(cb));
         }
     }
 
@@ -639,25 +523,14 @@ private:
 // Type Aliases
 // ============================================================================
 
-/// Value with no extensions (default)
-using PlainValue = Value<NoCache>;
-
-/// Value with Python object caching
-using CachedValue = Value<WithPythonCache>;
-
-/// Value with caching and modification tracking (for time-series)
-using TSValue = Value<CombinedPolicy<WithPythonCache, WithModificationTracking>>;
-
-/// Value with validation (rejects None)
-using ValidatedValue = Value<WithValidation>;
+using PlainValue = Value;
 
 // ============================================================================
 // View::clone Implementation
 // ============================================================================
 
-template<typename Policy>
-Value<Policy> View::clone() const {
-    return Value<Policy>(*this);
+inline Value View::clone() const {
+    return Value(*this);
 }
 
 // ============================================================================
@@ -667,93 +540,93 @@ Value<Policy> View::clone() const {
 // IndexedView::set<T>
 template<typename T>
 void IndexedView::set(size_t index, const T& value) {
-    Value<> temp(value);
+    Value temp(value);
     set(index, View(temp.view()));
 }
 
 // BundleView::set<T>
 template<typename T>
 void BundleView::set(std::string_view name, const T& value) {
-    Value<> temp(value);
+    Value temp(value);
     set(name, View(temp.view()));
 }
 
 // ListView::push_back<T>
 template<typename T>
 void ListView::push_back(const T& value) {
-    Value<> temp(value);
+    Value temp(value);
     push_back(View(temp.view()));
 }
 
 // ListView::reset<T>
 template<typename T>
 void ListView::reset(const T& sentinel) {
-    Value<> temp(sentinel);
+    Value temp(sentinel);
     reset(View(temp.view()));
 }
 
 // SetView::contains<T>
 template<typename T>
 bool SetView::contains(const T& value) const {
-    Value<> temp(value);
+    Value temp(value);
     return contains(View(temp.view()));
 }
 
 // SetView::add<T>
 template<typename T>
 bool SetView::add(const T& value) {
-    Value<> temp(value);
+    Value temp(value);
     return add(View(temp.view()));
 }
 
 // SetView::remove<T>
 template<typename T>
 bool SetView::remove(const T& value) {
-    Value<> temp(value);
+    Value temp(value);
     return remove(View(temp.view()));
 }
 
 // MapView::at<K> (const)
 template<typename K>
 View MapView::at(const K& key) const {
-    Value<> temp(key);
+    Value temp(key);
     return at(View(temp.view()));
 }
 
 // MapView::at<K> (mutable)
 template<typename K>
 ValueView MapView::at(const K& key) {
-    Value<> temp(key);
+    Value temp(key);
     return at(View(temp.view()));
 }
 
 // MapView::contains<K>
 template<typename K>
 bool MapView::contains(const K& key) const {
-    Value<> temp(key);
+    Value temp(key);
     return contains(View(temp.view()));
 }
 
 // MapView::set<K, V>
 template<typename K, typename V>
 void MapView::set(const K& key, const V& value) {
-    Value<> temp_key(key);
-    Value<> temp_val(value);
+    Value temp_key(key);
+    Value temp_val(value);
     set(View(temp_key.view()), View(temp_val.view()));
 }
 
 // MapView::add<K, V>
 template<typename K, typename V>
 bool MapView::add(const K& key, const V& value) {
-    Value<> temp_key(key);
-    Value<> temp_val(value);
+    Value temp_key(key);
+    Value temp_val(value);
     return add(View(temp_key.view()), View(temp_val.view()));
 }
 
 // MapView::remove<K>
 template<typename K>
 bool MapView::remove(const K& key) {
-    Value<> temp(key);
+    Value temp(key);
     return remove(View(temp.view()));
 }
 
@@ -761,33 +634,27 @@ bool MapView::remove(const K& key) {
 // Comparison Operators
 // ============================================================================
 
-template<typename P1, typename P2>
-bool operator==(const Value<P1>& lhs, const Value<P2>& rhs) {
+inline bool operator==(const Value& lhs, const Value& rhs) {
     return lhs.equals(rhs);
 }
 
-template<typename P1, typename P2>
-bool operator!=(const Value<P1>& lhs, const Value<P2>& rhs) {
+inline bool operator!=(const Value& lhs, const Value& rhs) {
     return !lhs.equals(rhs);
 }
 
-template<typename P>
-bool operator==(const Value<P>& lhs, const View& rhs) {
+inline bool operator==(const Value& lhs, const View& rhs) {
     return lhs.equals(rhs);
 }
 
-template<typename P>
-bool operator==(const View& lhs, const Value<P>& rhs) {
+inline bool operator==(const View& lhs, const Value& rhs) {
     return rhs.equals(lhs);
 }
 
-template<typename P>
-bool operator!=(const Value<P>& lhs, const View& rhs) {
+inline bool operator!=(const Value& lhs, const View& rhs) {
     return !lhs.equals(rhs);
 }
 
-template<typename P>
-bool operator!=(const View& lhs, const Value<P>& rhs) {
+inline bool operator!=(const View& lhs, const Value& rhs) {
     return !rhs.equals(lhs);
 }
 
@@ -800,9 +667,9 @@ bool operator!=(const View& lhs, const Value<P>& rhs) {
 namespace std {
 
 /// Hash specialization for Value
-template<typename Policy>
-struct hash<hgraph::value::Value<Policy>> {
-    size_t operator()(const hgraph::value::Value<Policy>& v) const {
+template<>
+struct hash<hgraph::value::Value> {
+    size_t operator()(const hgraph::value::Value& v) const {
         return v.hash();
     }
 };

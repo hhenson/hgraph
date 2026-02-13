@@ -35,7 +35,6 @@ class CyclicBufferView;
 class QueueView;
 
 // Forward declaration for Value (used in clone)
-template<typename Policy>
 class Value;
 
 // ============================================================================
@@ -418,8 +417,7 @@ public:
      *
      * @return A new Value containing a copy of this data
      */
-    template<typename Policy = NoCache>
-    [[nodiscard]] Value<Policy> clone() const;
+    [[nodiscard]] Value clone() const;
 
 protected:
     const void* _data{nullptr};
@@ -675,39 +673,6 @@ public:
         return _mutable_access;
     }
 
-    // ========== Root Tracking ==========
-
-    // NOTE(type-safety): The set_root/root methods use void* for type erasure,
-    // which loses the Policy template parameter type information. If set_root<PolicyA>()
-    // is called and root<PolicyB>() is later called with a different policy,
-    // undefined behavior results. Users must ensure Policy consistency.
-
-    /**
-     * @brief Set the root Value for notification chains.
-     *
-     * This is used for TSValue to track modifications to nested views.
-     *
-     * @warning The Policy type must match between set_root and root calls.
-     *
-     * @param root Pointer to the owning Value
-     */
-    template<typename Policy = NoCache>
-    void set_root(Value<Policy>* root) {
-        _root = static_cast<void*>(root);
-    }
-
-    /**
-     * @brief Get the root Value.
-     *
-     * @warning The Policy type must match the Policy used in set_root.
-     *
-     * @return Pointer to the owning Value, or nullptr
-     */
-    template<typename Policy = NoCache>
-    [[nodiscard]] Value<Policy>* root() const {
-        return static_cast<Value<Policy>*>(_root);
-    }
-
 protected:
     void require_mutable(const char* op) const {
         if (!_mutable_access) {
@@ -719,7 +684,6 @@ protected:
 
 private:
     bool _mutable_access{true};
-    void* _root{nullptr};  // Optional, for notification chains
 };
 
 // ============================================================================

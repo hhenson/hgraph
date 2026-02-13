@@ -40,24 +40,6 @@ struct BundleFieldInfo;
 class ValueStorage;
 
 // ============================================================================
-// Policy Forward Declarations
-// ============================================================================
-
-/// Policy tag: no caching or extensions
-struct NoCache;
-
-/// Policy tag: Python object caching enabled
-struct WithPythonCache;
-
-/// Policy traits template - detect policy capabilities at compile time
-template<typename Policy>
-struct policy_traits;
-
-/// Conditional storage based on policy - uses EBO for zero overhead
-template<typename Policy, typename = void>
-struct PolicyStorage;
-
-// ============================================================================
 // View Forward Declarations
 // ============================================================================
 
@@ -89,13 +71,11 @@ class MapView;
 // Value Forward Declarations
 // ============================================================================
 
-/// Owning value storage with policy-based extensions
-template<typename Policy = NoCache>
+/// Owning value storage
 class Value;
 
-/// Type aliases for common Value configurations
-using PlainValue = Value<NoCache>;
-using CachedValue = Value<WithPythonCache>;
+/// Common alias used in the C++ runtime API
+using PlainValue = Value;
 
 // ============================================================================
 // Type Registry Forward Declarations

@@ -85,7 +85,7 @@ namespace hgraph
         TimeSeriesDictOutputImpl *impl() const;
 
         // Convert Python key to Value using TypeMeta
-        value::Value<> key_from_python(const nb::object &key) const;
+        value::Value key_from_python(const nb::object &key) const;
     };
 
     struct PyTimeSeriesDictInput : PyTimeSeriesInput
@@ -161,7 +161,7 @@ namespace hgraph
         TimeSeriesDictInputImpl *impl() const;
 
         // Convert Python key to Value using TypeMeta
-        value::Value<> key_from_python(const nb::object &key) const;
+        value::Value key_from_python(const nb::object &key) const;
     };
 
     void tsd_register_with_nanobind(nb::module_ & m);

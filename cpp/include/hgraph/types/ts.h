@@ -20,9 +20,9 @@ namespace hgraph {
     };
 
     /**
-     * @brief Non-templated time series value output using CachedValue storage.
+     * @brief Non-templated time series value output using PlainValue storage.
      *
-     * This class stores values using the Value type system with Python caching.
+     * This class stores values using the Value type system.
      * The TypeMeta* schema defines the value type at runtime instead of compile time.
      */
     struct TimeSeriesValueOutput final : TimeSeriesValueOutputBase {
@@ -62,7 +62,8 @@ namespace hgraph {
         VISITOR_SUPPORT()
 
     private:
-        value::CachedValue _value;  // Type-erased storage with Python caching
+        value::PlainValue _value;  // Type-erased storage
+        nb::object _py_cached_value;  // Preserve source Python object shape (e.g., frozenset vs set)
     };
 
     /**
