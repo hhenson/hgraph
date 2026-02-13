@@ -228,9 +228,14 @@ def test_set_insert_strings(string_set_schema):
     v.emplace()
     sv = v.as_set()
 
-    sv.add(make_string_value("apple").view())
-    sv.add(make_string_value("banana").view())
-    sv.add(make_string_value("cherry").view())
+    # Keep Value objects alive to avoid dangling views
+    apple = make_string_value("apple")
+    banana = make_string_value("banana")
+    cherry = make_string_value("cherry")
+
+    sv.add(apple.view())
+    sv.add(banana.view())
+    sv.add(cherry.view())
 
     assert sv.size() == 3
 
@@ -462,8 +467,12 @@ def test_map_set_native_types(string_double_map_schema):
     v.emplace()
     mv = v.as_map()
 
-    mv.set(make_string_value("apple").view(), make_double_value(1.50).view())
-    mv.set(make_string_value("banana").view(), make_double_value(0.75).view())
+    # Keep Value objects alive to avoid dangling views
+    apple_key, apple_val = make_string_value("apple"), make_double_value(1.50)
+    banana_key, banana_val = make_string_value("banana"), make_double_value(0.75)
+
+    mv.set(apple_key.view(), apple_val.view())
+    mv.set(banana_key.view(), banana_val.view())
 
     assert mv.size() == 2
 
@@ -497,9 +506,11 @@ def test_map_set_with_value(string_double_map_schema):
     mv = v.as_map()
 
     key = make_string_value("orange")
-    mv.set(key.view(), make_double_value(2.00).view())
+    val = make_double_value(2.00)
+    mv.set(key.view(), val.view())
 
-    assert mv.contains(make_string_value("orange").view())
+    check_key = make_string_value("orange")
+    assert mv.contains(check_key.view())
 
 
 # =============================================================================
@@ -584,7 +595,8 @@ def test_map_operator_bracket_inserts_default(string_double_map_schema):
     key = make_string_value("new_key")
     _ = mv[key.view()]  # Access inserts default
 
-    assert mv.contains(make_string_value("new_key").view())
+    check_key = make_string_value("new_key")
+    assert mv.contains(check_key.view())
 
 
 # =============================================================================
@@ -648,7 +660,8 @@ def test_map_insert_returns_true_for_new(string_double_map_schema):
     v.emplace()
     mv = v.as_map()
 
-    result = mv.add(make_string_value("apple").view(), make_double_value(1.50).view())
+    apple_key, apple_val = make_string_value("apple"), make_double_value(1.50)
+    result = mv.add(apple_key.view(), apple_val.view())
 
     assert result is True
 
@@ -660,8 +673,11 @@ def test_map_insert_returns_false_for_existing(string_double_map_schema):
     v.emplace()
     mv = v.as_map()
 
-    mv.add(make_string_value("apple").view(), make_double_value(1.50).view())
-    result = mv.add(make_string_value("apple").view(), make_double_value(1.75).view())
+    apple_key1, apple_val1 = make_string_value("apple"), make_double_value(1.50)
+    mv.add(apple_key1.view(), apple_val1.view())
+
+    apple_key2, apple_val2 = make_string_value("apple"), make_double_value(1.75)
+    result = mv.add(apple_key2.view(), apple_val2.view())
 
     assert result is False
 

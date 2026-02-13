@@ -487,8 +487,12 @@ def test_navigate_list_first_element(list_of_strings_schema):
     v.emplace()
     lv = v.as_list()
 
-    lv.push_back(make_string_value("first").view())
-    lv.push_back(make_string_value("second").view())
+    # Keep Value objects alive to avoid dangling views
+    first_val = make_string_value("first")
+    second_val = make_string_value("second")
+
+    lv.push_back(first_val.view())
+    lv.push_back(second_val.view())
 
     result = v.navigate("[0]")
 
@@ -1380,8 +1384,9 @@ def test_navigate_with_value_key(string_to_int_map_schema):
     val = make_int_value(999)
     mv.add(key.view(), val.view())
 
-    # Build path with value key
-    path = [PathElement.key(make_string_value("target").view())]
+    # Build path with value key - keep Value alive
+    target_key = make_string_value("target")
+    path = [PathElement.key(target_key.view())]
 
     result = value.navigate(v.view(), path)
 
@@ -1463,10 +1468,11 @@ def test_navigate_mixed_path_with_value_key(type_registry, string_schema, int_sc
     key = make_string_value("home")
     map_view.add(key.view(), addr.view())
 
-    # Navigate: data[<value key>].city
+    # Navigate: data[<value key>].city - keep Value alive
+    home_key = make_string_value("home")
     path = [
         PathElement.field("data"),
-        PathElement.key(make_string_value("home").view()),
+        PathElement.key(home_key.view()),
         PathElement.field("city")
     ]
 

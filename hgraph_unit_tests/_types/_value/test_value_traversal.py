@@ -703,8 +703,12 @@ def test_deep_visit_map(string_int_map_schema):
 
     v.emplace()
     mv = v.as_map()
-    mv.set(make_string_value("a").view(), make_int_value(1).view())
-    mv.set(make_string_value("b").view(), make_int_value(2).view())
+
+    # Keep Value objects alive to avoid dangling views
+    a_key, a_val = make_string_value("a"), make_int_value(1)
+    b_key, b_val = make_string_value("b"), make_int_value(2)
+    mv.set(a_key.view(), a_val.view())
+    mv.set(b_key.view(), b_val.view())
 
     visited = []
 
