@@ -21,7 +21,7 @@ namespace hgraph
           _contains_ref_outputs{this,
                                 new TimeSeriesValueOutputBuilder(value::scalar_type_meta<bool>()),
                                 element_type,
-                                [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const value::ConstValueView &key) {
+                                [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const value::View &key) {
                                     auto& ts_val = dynamic_cast<TimeSeriesValueOutput&>(ref);
                                     auto& ts_set = dynamic_cast<const TimeSeriesSetOutput&>(ts);
                                     ts_val.py_set_value(nb::cast(ts_set.contains(key)));
@@ -37,7 +37,7 @@ namespace hgraph
           _contains_ref_outputs{this,
                                 new TimeSeriesValueOutputBuilder(value::scalar_type_meta<bool>()),
                                 element_type,
-                                [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const value::ConstValueView &key) {
+                                [](const TimeSeriesOutput &ts, TimeSeriesOutput &ref, const value::View &key) {
                                     auto& ts_val = dynamic_cast<TimeSeriesValueOutput&>(ref);
                                     auto& ts_set = dynamic_cast<const TimeSeriesSetOutput&>(ts);
                                     ts_val.py_set_value(nb::cast(ts_set.contains(key)));
@@ -56,7 +56,7 @@ namespace hgraph
         _reset_last_modified_time();
     }
 
-    void TimeSeriesSetOutput::add(const value::ConstValueView& elem) {
+    void TimeSeriesSetOutput::add(const value::View& elem) {
         if (_storage.add(elem)) {
             if (_storage.size() == 1) {
                 is_empty_output()->py_set_value(nb::cast(false));
@@ -66,7 +66,7 @@ namespace hgraph
         }
     }
 
-    void TimeSeriesSetOutput::remove(const value::ConstValueView& elem) {
+    void TimeSeriesSetOutput::remove(const value::View& elem) {
         if (_storage.remove(elem)) {
             _contains_ref_outputs.update(elem);
             if (_storage.empty()) {
@@ -80,30 +80,30 @@ namespace hgraph
 
     bool TimeSeriesSetOutput::py_contains(const nb::object& item) const {
         if (!_element_type || item.is_none()) return false;
-        value::PlainValue temp(_element_type);
+        value::Value temp(_element_type);
         temp.from_python(item);
-        return _storage.contains(temp.const_view());
+        return _storage.contains(value::View(temp.view()));
     }
 
     bool TimeSeriesSetOutput::py_was_added(const nb::object& item) const {
         if (!_element_type || item.is_none()) return false;
-        value::PlainValue temp(_element_type);
+        value::Value temp(_element_type);
         temp.from_python(item);
-        return _storage.was_added(temp.const_view());
+        return _storage.was_added(value::View(temp.view()));
     }
 
     bool TimeSeriesSetOutput::py_was_removed(const nb::object& item) const {
         if (!_element_type || item.is_none()) return false;
-        value::PlainValue temp(_element_type);
+        value::Value temp(_element_type);
         temp.from_python(item);
-        return _storage.was_removed(temp.const_view());
+        return _storage.was_removed(value::View(temp.view()));
     }
 
     void TimeSeriesSetOutput::py_add(const nb::object& item) {
         if (!_element_type || item.is_none()) return;
-        value::PlainValue temp(_element_type);
+        value::Value temp(_element_type);
         temp.from_python(item);
-        if (_storage.add(temp.const_view())) {
+        if (_storage.add(value::View(temp.view()))) {
             if (_storage.size() == 1) {
                 is_empty_output()->py_set_value(nb::cast(false));
             }
@@ -114,9 +114,9 @@ namespace hgraph
 
     void TimeSeriesSetOutput::py_remove(const nb::object& item) {
         if (!_element_type || item.is_none()) return;
-        value::PlainValue temp(_element_type);
+        value::Value temp(_element_type);
         temp.from_python(item);
-        if (_storage.remove(temp.const_view())) {
+        if (_storage.remove(value::View(temp.view()))) {
             _contains_ref_outputs.update(item);
             if (_storage.empty()) {
                 is_empty_output()->py_set_value(nb::cast(true));
@@ -384,17 +384,17 @@ namespace hgraph
     time_series_value_output_s_ptr TimeSeriesSetOutput::get_contains_output(const nb::object &item,
                                                                              const nb::object &requester) {
         // Convert Python object to Value for the lookup
-        value::PlainValue key_val(_element_type);
+        value::Value key_val(_element_type);
         key_val.from_python(item);
         return std::dynamic_pointer_cast<TimeSeriesValueOutput>(
-            _contains_ref_outputs.create_or_increment(key_val.const_view(), static_cast<void*>(requester.ptr())));
+            _contains_ref_outputs.create_or_increment(key_val.view(), static_cast<void*>(requester.ptr())));
     }
 
     void TimeSeriesSetOutput::release_contains_output(const nb::object &item, const nb::object &requester) {
         // Convert Python object to Value for the lookup
-        value::PlainValue key_val(_element_type);
+        value::Value key_val(_element_type);
         key_val.from_python(item);
-        _contains_ref_outputs.release(key_val.const_view(), static_cast<void*>(requester.ptr()));
+        _contains_ref_outputs.release(key_val.view(), static_cast<void*>(requester.ptr()));
     }
 
     void TimeSeriesSetOutput::_post_modify() {
@@ -444,20 +444,20 @@ namespace hgraph
         return has_output() ? set_output().element_type() : nullptr;
     }
 
-    value::ConstSetView TimeSeriesSetInput::value_view() const {
+    value::SetView TimeSeriesSetInput::value_view() const {
         if (has_output()) {
             return set_output().value_view();
         }
         // Return an invalid view when no output is bound
         // Callers should check valid() or handle empty iteration gracefully
-        return value::ConstSetView{};
+        return value::SetView{};
     }
 
-    bool TimeSeriesSetInput::contains(const value::ConstValueView& elem) const {
+    bool TimeSeriesSetInput::contains(const value::View& elem) const {
         return has_output() ? set_output().contains(elem) : false;
     }
 
-    bool TimeSeriesSetInput::was_added(const value::ConstValueView& elem) const {
+    bool TimeSeriesSetInput::was_added(const value::View& elem) const {
         if (!has_output()) return false;
 
         if (has_prev_output()) {
@@ -473,7 +473,7 @@ namespace hgraph
         return set_output().was_added(elem);
     }
 
-    bool TimeSeriesSetInput::was_removed(const value::ConstValueView& elem) const {
+    bool TimeSeriesSetInput::was_removed(const value::View& elem) const {
         if (!has_output()) return false;
 
         if (has_prev_output()) {
@@ -487,8 +487,8 @@ namespace hgraph
         return set_output().was_removed(elem);
     }
 
-    std::vector<value::ConstValueView> TimeSeriesSetInput::collect_added() const {
-        std::vector<value::ConstValueView> result;
+    std::vector<value::View> TimeSeriesSetInput::collect_added() const {
+        std::vector<value::View> result;
 
         if (!has_output()) return result;
 
@@ -518,15 +518,15 @@ namespace hgraph
         return result;
     }
 
-    std::vector<value::ConstValueView> TimeSeriesSetInput::collect_removed() const {
-        std::vector<value::ConstValueView> result;
+    std::vector<value::View> TimeSeriesSetInput::collect_removed() const {
+        std::vector<value::View> result;
 
         // Check prev_output FIRST (matching Python order)
         if (has_prev_output()) {
             // Calculate removed: items in prev state that aren't in current
             // prev state = (prev_values + prev_removed - prev_added)
             // Collect views into prev_output storage (no copying needed!)
-            std::vector<value::ConstValueView> prev_state;
+            std::vector<value::View> prev_state;
             for (auto elem : prev_output().value_view()) {
                 prev_state.push_back(elem);
             }
@@ -547,7 +547,7 @@ namespace hgraph
             for (auto elem : prev_output().added_view()) {
                 prev_state.erase(
                     std::remove_if(prev_state.begin(), prev_state.end(),
-                        [&](const value::ConstValueView& v) { return v.equals(elem); }),
+                        [&](const value::View& v) { return v.equals(elem); }),
                     prev_state.end());
             }
 

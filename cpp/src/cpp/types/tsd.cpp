@@ -39,9 +39,10 @@ namespace hgraph
             auto v_ = pair[1];
             if (v_.is_none()) { continue; }
             // Convert Python key to Value using TypeOps
-            value::Value<> key_val(_key_type);
-            _key_type->ops->from_python(key_val.data(), k, _key_type);
-            auto key_view = key_val.const_view();
+            value::Value key_val(_key_type);
+            key_val.emplace();
+            _key_type->ops().from_python(key_val.data(), k, _key_type);
+            auto key_view = key_val.view();
             if (v_.is(remove) || v_.is(remove_if_exists)) {
                 if (v_.is(remove_if_exists) && !contains(key_view)) { continue; }
                 if (was_modified(key_view)) { return false; }
@@ -68,7 +69,7 @@ namespace hgraph
         BaseTimeSeriesOutput::mark_child_modified(child, modified_time);
     }
 
-    void TimeSeriesDictOutputImpl::remove_value(const value::ConstValueView &key, bool raise_if_not_found) {
+    void TimeSeriesDictOutputImpl::remove_value(const value::View &key, bool raise_if_not_found) {
         auto it{_ts_values.find(key)};
         if (it == _ts_values.end()) {
             if (raise_if_not_found) {
@@ -180,13 +181,13 @@ namespace hgraph
 
     void TimeSeriesDictOutputImpl::_clear_key_tracking() { _ts_values_to_keys.clear(); }
 
-    void TimeSeriesDictOutputImpl::_add_key_value(const value::ConstValueView &key, const value_type &value) {
-        // Store PlainValue key in reverse map
+    void TimeSeriesDictOutputImpl::_add_key_value(const value::View &key, const value_type &value) {
+        // Store Value key in reverse map
         _ts_values_to_keys.emplace(const_cast<TimeSeriesOutput *>(static_cast<const TimeSeriesOutput *>(value.get())),
                                    key.clone());
     }
 
-    void TimeSeriesDictOutputImpl::_key_updated(const value::ConstValueView &key) {
+    void TimeSeriesDictOutputImpl::_key_updated(const value::View &key) {
         auto it{_ts_values.find(key)};
         if (it != _ts_values.end()) {
             _modified_items.insert_or_assign(key.clone(), it->second);
@@ -195,7 +196,7 @@ namespace hgraph
         }
     }
 
-    void TimeSeriesDictOutputImpl::_remove_key_value(const value::ConstValueView &key, const value_type &value) {
+    void TimeSeriesDictOutputImpl::_remove_key_value(const value::View &key, const value_type &value) {
         // Remove from reverse map
         _ts_values_to_keys.erase(const_cast<TimeSeriesOutput *>(static_cast<const TimeSeriesOutput *>(value.get())));
     }
@@ -210,7 +211,7 @@ namespace hgraph
           _ref_ts_feature{this,
                           _ts_ref_builder,
                           key_type,
-                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const value::ConstValueView &key) {
+                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const value::View &key) {
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutputImpl &>(output)};
                               // Use key directly for lookup
                               auto it = output_t._ts_values.find(key);
@@ -237,7 +238,7 @@ namespace hgraph
           _ref_ts_feature{this,
                           _ts_ref_builder,
                           key_type,
-                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const value::ConstValueView &key) {
+                          [](const TimeSeriesOutput &output, TimeSeriesOutput &result_output, const value::View &key) {
                               auto &output_t{dynamic_cast<const TimeSeriesDictOutputImpl &>(output)};
                               // Use key directly for lookup
                               auto it = output_t._ts_values.find(key);
@@ -278,9 +279,10 @@ namespace hgraph
         nb::iterator items = item_attr.is_none() ? nb::iter(value) : nb::iter(item_attr());
         for (const auto &kv : items) {
             // Convert Python key to Value using TypeOps
-            value::Value<> key_val(_key_type);
-            _key_type->ops->from_python(key_val.data(), kv[0], _key_type);
-            auto key_view = key_val.const_view();
+            value::Value key_val(_key_type);
+            key_val.emplace();
+            _key_type->ops().from_python(key_val.data(), kv[0], _key_type);
+            auto key_view = key_val.view();
             auto v  = kv[1];
             if (v.is_none()) { continue; }
             if (v.is(remove) || v.is(remove_if_exists)) {
@@ -304,7 +306,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                 v[py_key] = value->py_value();
             }
         }
@@ -317,7 +319,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->modified() && value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                 delta_value[py_key] = value->py_delta_value();
             }
         }
@@ -325,7 +327,7 @@ namespace hgraph
             auto removed{get_remove()};
             for (const auto &[pv_key, _] : _removed_items) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                 delta_value[py_key] = removed;
             }
         }
@@ -343,19 +345,19 @@ namespace hgraph
             bool was_valid = value->valid();
             value->clear();
             // Clone the key since map keys are const
-            _removed_items.emplace(pv_key.const_view().clone(), std::make_pair(value, was_valid));
+            _removed_items.emplace(pv_key.view().clone(), std::make_pair(value, was_valid));
         }
         _ts_values.clear();
         _clear_key_tracking();
         // Update feature outputs for removed keys using Value-based API
         for (const auto &[pv_key, _] : _removed_items) {
-            _ref_ts_feature.update(pv_key.const_view());
+            _ref_ts_feature.update(pv_key.view());
         }
         _modified_items.clear();
 
         for (auto &observer : _key_observers) {
             for (const auto &[pv_key, _] : _removed_items) {
-                observer->on_key_removed(pv_key.const_view());
+                observer->on_key_removed(pv_key.view());
             }
         }
     }
@@ -369,16 +371,16 @@ namespace hgraph
         auto &other = dynamic_cast<const TimeSeriesDictOutputImpl &>(output);
 
         // Build list of keys to remove
-        std::vector<value::PlainValue> to_remove;
+        std::vector<value::Value> to_remove;
         for (auto elem : key_set().value_view()) {
             // Check if key is NOT in other's key set
             if (!other.key_set().contains(elem)) {
                 to_remove.push_back(elem.clone());
             }
         }
-        for (const auto &k : to_remove) { erase(k.const_view()); }
+        for (const auto &k : to_remove) { erase(k.view()); }
         for (const auto &[pv_key, v] : other._ts_values) {
-            get_or_create(pv_key.const_view())->copy_from_output(*v);
+            get_or_create(pv_key.view())->copy_from_output(*v);
         }
     }
 
@@ -386,17 +388,17 @@ namespace hgraph
         auto &dict_input = dynamic_cast<const TimeSeriesDictInputImpl &>(input);
 
         // Remove keys that are in output but NOT in input (matching Python: self.key_set.value - input.key_set.value)
-        std::vector<value::PlainValue> to_remove;
+        std::vector<value::Value> to_remove;
         for (auto elem : key_set().value_view()) {
             // Check if key is NOT in input's key set
             if (!dict_input.key_set().contains(elem)) {
                 to_remove.push_back(elem.clone());
             }
         }
-        for (const auto &k : to_remove) { erase(k.const_view()); }
-        // Iterate PlainValue-keyed map
+        for (const auto &k : to_remove) { erase(k.view()); }
+        // Iterate Value-keyed map
         for (const auto &[pv_key, v_input] : dict_input.value()) {
-            get_or_create(pv_key.const_view())->copy_from_input(*v_input);
+            get_or_create(pv_key.view())->copy_from_input(*v_input);
         }
     }
 
@@ -406,11 +408,11 @@ namespace hgraph
 
     size_t TimeSeriesDictOutputImpl::size() const { return _ts_values.size(); }
 
-    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::operator[](const value::ConstValueView &key) {
+    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::operator[](const value::View &key) {
         return get_or_create(key);
     }
 
-    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::operator[](const value::ConstValueView &key) const {
+    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::operator[](const value::View &key) const {
         auto it = _ts_values.find(key);
         if (it == _ts_values.end()) {
             throw std::out_of_range("Key not found in TimeSeriesDictOutput");
@@ -446,7 +448,7 @@ namespace hgraph
         _valid_items_cache.clear();
         for (const auto &[pv_key, val] : _ts_values) {
             if (val->valid()) {
-                _valid_items_cache.emplace(pv_key.const_view().clone(), val);
+                _valid_items_cache.emplace(pv_key.view().clone(), val);
             }
         }
         _valid_items_cache_time = lmt;
@@ -484,29 +486,32 @@ namespace hgraph
 
     void TimeSeriesDictOutputImpl::py_set_item(const nb::object &key, const nb::object &value) {
         // Convert Python key to Value using TypeOps
-        value::Value<> key_val(_key_type);
-        _key_type->ops->from_python(key_val.data(), key, _key_type);
-        auto ts{operator[](key_val.const_view())};
+        value::Value key_val(_key_type);
+        key_val.emplace();
+        _key_type->ops().from_python(key_val.data(), key, _key_type);
+        auto ts{operator[](key_val.view())};
         ts->apply_result(value);
     }
 
     void TimeSeriesDictOutputImpl::py_del_item(const nb::object &key) {
         // Convert Python key to Value using TypeOps
-        value::Value<> key_val(_key_type);
-        _key_type->ops->from_python(key_val.data(), key, _key_type);
-        erase(key_val.const_view());
+        value::Value key_val(_key_type);
+        key_val.emplace();
+        _key_type->ops().from_python(key_val.data(), key, _key_type);
+        erase(key_val.view());
     }
 
-    void TimeSeriesDictOutputImpl::erase(const value::ConstValueView &key) {
+    void TimeSeriesDictOutputImpl::erase(const value::View &key) {
         remove_value(key, false);
     }
 
     nb::object TimeSeriesDictOutputImpl::py_pop(const nb::object &key, const nb::object &default_value) {
         nb::object result_value{};
         // Convert Python key to Value using TypeOps
-        value::Value<> key_val(_key_type);
-        _key_type->ops->from_python(key_val.data(), key, _key_type);
-        auto key_view = key_val.const_view();
+        value::Value key_val(_key_type);
+        key_val.emplace();
+        _key_type->ops().from_python(key_val.data(), key, _key_type);
+        auto key_view = key_val.view();
         if (auto it = _ts_values.find(key_view); it != _ts_values.end()) {
             result_value = it->second->py_value();
             remove_value(key_view, false);
@@ -525,16 +530,18 @@ namespace hgraph
 
     time_series_output_s_ptr& TimeSeriesDictOutputImpl::get_ref(const nb::object &key, const void *requester) {
         // Convert Python key to Value using TypeOps
-        value::Value<> key_val(_key_type);
-        _key_type->ops->from_python(key_val.data(), key, _key_type);
-        return _ref_ts_feature.create_or_increment(key_val.const_view(), requester);
+        value::Value key_val(_key_type);
+        key_val.emplace();
+        _key_type->ops().from_python(key_val.data(), key, _key_type);
+        return _ref_ts_feature.create_or_increment(key_val.view(), requester);
     }
 
     void TimeSeriesDictOutputImpl::release_ref(const nb::object &key, const void *requester) {
         // Convert Python key to Value using TypeOps
-        value::Value<> key_val(_key_type);
-        _key_type->ops->from_python(key_val.data(), key, _key_type);
-        _ref_ts_feature.release(key_val.const_view(), requester);
+        value::Value key_val(_key_type);
+        key_val.emplace();
+        _key_type->ops().from_python(key_val.data(), key, _key_type);
+        _ref_ts_feature.release(key_val.view(), requester);
     }
 
     void TimeSeriesDictOutputImpl::_dispose() {
@@ -553,7 +560,7 @@ namespace hgraph
         _removed_items.clear();
     }
 
-    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::get_or_create(const value::ConstValueView &key) {
+    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::get_or_create(const value::View &key) {
         auto it = _ts_values.find(key);
         if (it != _ts_values.end()) {
             return it->second;
@@ -564,18 +571,18 @@ namespace hgraph
 
     bool TimeSeriesDictOutputImpl::has_reference() const { return _ts_builder->has_reference(); }
 
-    value::ConstValueView TimeSeriesDictOutputImpl::key_from_ts(TimeSeriesOutput *ts) const {
+    value::View TimeSeriesDictOutputImpl::key_from_ts(TimeSeriesOutput *ts) const {
         auto it = _ts_values_to_keys.find(ts);
         if (it != _ts_values_to_keys.end()) {
-            return it->second.const_view();
+            return it->second.view();
         }
         throw std::out_of_range("Value not found in TimeSeriesDictOutput");
     }
 
-    value::ConstValueView TimeSeriesDictOutputImpl::key_from_ts(const TimeSeriesDictOutputImpl::value_type& ts) const {
+    value::View TimeSeriesDictOutputImpl::key_from_ts(const TimeSeriesDictOutputImpl::value_type& ts) const {
         auto it = _ts_values_to_keys.find(const_cast<TimeSeriesOutput*>(ts.get()));
         if (it != _ts_values_to_keys.end()) {
-            return it->second.const_view();
+            return it->second.view();
         }
         throw std::out_of_range("Value not found in TimeSeriesDictOutput");
     }
@@ -617,7 +624,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                 v[py_key] = value->py_value();
             }
         }
@@ -631,7 +638,7 @@ namespace hgraph
         for (const auto &[pv_key, value] : _ts_values) {
             if (value->modified() && value->valid()) {
                 // Convert key to Python using TypeOps
-                nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                 delta[py_key] = value->py_delta_value();
             }
         }
@@ -647,8 +654,8 @@ namespace hgraph
             auto removed{get_remove()};
             for (const auto &[pv_key, value] : removed_map) {
                 // Check was_valid flag from _removed_items
-                if (was_removed_valid(pv_key.const_view())) {
-                    nb::object py_key = _key_type->ops->to_python(pv_key.const_view().data(), _key_type);
+                if (was_removed_valid(pv_key.view())) {
+                    nb::object py_key = _key_type->ops().to_python(pv_key.view().data(), _key_type);
                     delta[py_key] = removed;
                 }
             }
@@ -657,7 +664,7 @@ namespace hgraph
         return get_frozendict()(delta);
     }
 
-    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::operator[](const value::ConstValueView &key) const {
+    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::operator[](const value::View &key) const {
         auto it = _ts_values.find(key);
         if (it == _ts_values.end()) {
             throw std::out_of_range("Key not found in TimeSeriesDictInput");
@@ -665,7 +672,7 @@ namespace hgraph
         return it->second;
     }
 
-    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::operator[](const value::ConstValueView &key) {
+    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::operator[](const value::View &key) {
         return get_or_create(key);
     }
 
@@ -681,7 +688,7 @@ namespace hgraph
         _valid_items_cache.clear();
         for (const auto &[pv_key, val] : _ts_values) {
             if (val->valid()) {
-                _valid_items_cache.emplace(pv_key.const_view().clone(), val);
+                _valid_items_cache.emplace(pv_key.view().clone(), val);
             }
         }
         _valid_items_cache_time = lmt;
@@ -750,7 +757,7 @@ namespace hgraph
             _modified_items_cache.clear();
             for (const auto& [pv_key, val] : _ts_values) {
                 if (val->valid()) {
-                    _modified_items_cache.emplace(pv_key.const_view().clone(), val);
+                    _modified_items_cache.emplace(pv_key.view().clone(), val);
                 }
             }
             return _modified_items_cache;
@@ -761,9 +768,9 @@ namespace hgraph
             _modified_items_cache.clear();
             const auto& output_modified = output_t().modified_items();
             for (const auto& [pv_key, _] : output_modified) {
-                auto it = _ts_values.find(pv_key.const_view());
+                auto it = _ts_values.find(pv_key.view());
                 if (it != _ts_values.end()) {
-                    _modified_items_cache.emplace(pv_key.const_view().clone(), it->second);
+                    _modified_items_cache.emplace(pv_key.view().clone(), it->second);
                 }
             }
             return _modified_items_cache;
@@ -779,14 +786,14 @@ namespace hgraph
             _modified_items_cache.clear();
             for (const auto& [pv_key, val] : _ts_values) {
                 if (val->modified()) {
-                    _modified_items_cache.emplace(pv_key.const_view().clone(), val);
+                    _modified_items_cache.emplace(pv_key.view().clone(), val);
                 }
             }
             return _modified_items_cache;
         }
     }
 
-    bool TimeSeriesDictInputImpl::was_modified(const value::ConstValueView &key) const {
+    bool TimeSeriesDictInputImpl::was_modified(const value::View &key) const {
         if (has_peer()) {
             return output_t().was_modified(key);
         } else if (active()) {
@@ -806,12 +813,12 @@ namespace hgraph
 
     const TimeSeriesSetInput &TimeSeriesDictInputImpl::key_set() const { return *_key_set; }
 
-    void TimeSeriesDictInputImpl::on_key_added(const value::ConstValueView &key) {
+    void TimeSeriesDictInputImpl::on_key_added(const value::View &key) {
         auto value{get_or_create(key)};
         value->bind_output(output_t()[key]);
     }
 
-    void TimeSeriesDictInputImpl::on_key_removed(const value::ConstValueView &key) {
+    void TimeSeriesDictInputImpl::on_key_removed(const value::View &key) {
         // Pop the value from _ts_values first
         auto it = _ts_values.find(key);
         if (it == _ts_values.end()) { return; }
@@ -840,7 +847,7 @@ namespace hgraph
 
         if (value->parent_input().get() == this) {
             if (value->active()) { value->make_passive(); }
-            // Use emplace instead of insert for move-only PlainValue keys
+            // Use emplace instead of insert for move-only Value keys
             _removed_items.emplace(key.clone(), std::make_pair(value, was_valid));
 
             auto it_ = _modified_items.find(key);
@@ -850,14 +857,14 @@ namespace hgraph
             // if (!has_peer()) { value->un_bind_output(false); }
         } else {
             // Transplanted input - put it back and unbind it
-            // Use emplace instead of insert for move-only PlainValue keys
+            // Use emplace instead of insert for move-only Value keys
             _ts_values.emplace(key.clone(), value);
             _add_key_value(key, value);
             value->un_bind_output(true);
         }
     }
 
-    bool TimeSeriesDictInputImpl::was_removed_valid(const value::ConstValueView &key) const {
+    bool TimeSeriesDictInputImpl::was_removed_valid(const value::View &key) const {
         auto it = _removed_items.find(key);
         if (it == _removed_items.end()) { return false; }
         return it->second.second;
@@ -922,8 +929,8 @@ namespace hgraph
         if (!_ts_values.empty()) {
             _removed_items.clear();
             for (const auto &[pv_key, value] : _ts_values) {
-                // Clone the PlainValue key and use emplace (copy constructor is deleted)
-                _removed_items.emplace(pv_key.const_view().clone(), std::make_pair(value, value->valid()));
+                // Clone the Value key and use emplace (copy constructor is deleted)
+                _removed_items.emplace(pv_key.view().clone(), std::make_pair(value, value->valid()));
             }
             _ts_values.clear();
             _clear_key_tracking();
@@ -936,11 +943,11 @@ namespace hgraph
                 if (value->parent_input().get() != this) {
                     // Transplanted items - un-bind and put back
                     value->un_bind_output(unbind_refs);
-                    // Use emplace instead of insert for move-only PlainValue keys
-                    _ts_values.emplace(pv_key.const_view().clone(), value);
-                    _add_key_value(pv_key.const_view(), value);
+                    // Use emplace instead of insert for move-only Value keys
+                    _ts_values.emplace(pv_key.view().clone(), value);
+                    _add_key_value(pv_key.view(), value);
                 } else {
-                    to_keep.emplace(pv_key.const_view().clone(), std::make_pair(value, was_valid));
+                    to_keep.emplace(pv_key.view().clone(), std::make_pair(value, was_valid));
                 }
             }
             std::swap(_removed_items, to_keep);
@@ -962,15 +969,15 @@ namespace hgraph
         return const_cast<TimeSeriesDictInputImpl *>(this)->output_t();
     }
 
-    value::ConstValueView TimeSeriesDictInputImpl::key_from_ts(TimeSeriesInput *ts) const {
+    value::View TimeSeriesDictInputImpl::key_from_ts(TimeSeriesInput *ts) const {
         auto it = _ts_values_to_keys.find(ts);
         if (it != _ts_values_to_keys.end()) {
-            return it->second.const_view();
+            return it->second.view();
         }
         throw std::runtime_error("key_from_ts: value not found in _ts_values_to_keys");
     }
 
-    value::ConstValueView TimeSeriesDictInputImpl::key_from_ts(value_type ts) const {
+    value::View TimeSeriesDictInputImpl::key_from_ts(value_type ts) const {
         return key_from_ts(ts.get());
     }
 
@@ -1019,26 +1026,26 @@ namespace hgraph
 
     void TimeSeriesDictInputImpl::_clear_key_tracking() { _ts_values_to_keys.clear(); }
 
-    void TimeSeriesDictInputImpl::_add_key_value(const value::ConstValueView &key, const value_type &value) {
-        // Store PlainValue key in reverse map - use emplace for move-only PlainValue
+    void TimeSeriesDictInputImpl::_add_key_value(const value::View &key, const value_type &value) {
+        // Store Value key in reverse map - use emplace for move-only Value
         _ts_values_to_keys.emplace(const_cast<TimeSeriesInput *>(value.get()), key.clone());
     }
 
-    void TimeSeriesDictInputImpl::_key_updated(const value::ConstValueView &key) {
+    void TimeSeriesDictInputImpl::_key_updated(const value::View &key) {
         auto it = _ts_values.find(key);
         if (it != _ts_values.end()) {
-            // Use insert_or_assign for move-only PlainValue keys
+            // Use insert_or_assign for move-only Value keys
             _modified_items.insert_or_assign(key.clone(), it->second);
         } else {
             throw nb::key_error("Key not found in TSD");
         }
     }
 
-    void TimeSeriesDictInputImpl::_remove_key_value(const value::ConstValueView &key, const value_type &value) {
+    void TimeSeriesDictInputImpl::_remove_key_value(const value::View &key, const value_type &value) {
         _ts_values_to_keys.erase(const_cast<TimeSeriesInput *>(value.get()));
     }
 
-    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::get_or_create(const value::ConstValueView &key) {
+    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::get_or_create(const value::View &key) {
         auto it = _ts_values.find(key);
         if (it == _ts_values.end()) {
             create(key);
@@ -1124,23 +1131,23 @@ namespace hgraph
         BaseTimeSeriesInput::notify_parent(this, modified_time);
     }
 
-    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::create(const value::ConstValueView &key_view) {
+    TimeSeriesDictInputImpl::value_type TimeSeriesDictInputImpl::create(const value::View &key_view) {
         auto item{_ts_builder->make_instance(this)};
         // For non-peered inputs that are active, make the newly created item active too
         // This ensures proper notification chain for fast non-peer TSD scenarios
         if (!has_peer() and active()) { item->make_active(); }
-        // Use emplace with cloned key for move-only PlainValue storage
+        // Use emplace with cloned key for move-only Value storage
         _ts_values.emplace(key_view.clone(), item);
         _add_key_value(key_view, item);
         return item;  // Return the created item
     }
 
-    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::create(const value::ConstValueView &key_view) {
+    TimeSeriesDictOutputImpl::value_type TimeSeriesDictOutputImpl::create(const value::View &key_view) {
         // Add key to TSS (already Value-based)
         key_set().add(key_view);
 
         auto item{_ts_builder->make_instance(this)};
-        // Use emplace with cloned key for move-only PlainValue storage
+        // Use emplace with cloned key for move-only Value storage
         _ts_values.emplace(key_view.clone(), item);
 
         _add_key_value(key_view, item);

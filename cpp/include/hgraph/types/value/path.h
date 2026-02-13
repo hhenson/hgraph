@@ -17,7 +17,7 @@
  * ValuePath path = parse_path("user.address.city");
  *
  * // Navigate through structure
- * ConstValueView city = navigate(root, path);
+ * View city = navigate(root, path);
  *
  * // Or use try_navigate for safe access
  * auto maybe_city = try_navigate(root, path);
@@ -64,18 +64,18 @@ struct ValueKeyHolder {
         }
     }
 
-    /// Create from a ConstValueView (copies the data)
-    static ValueKeyHolder from_view(ConstValueView view) {
+    /// Create from a View (copies the data)
+    static ValueKeyHolder from_view(View view) {
         ValueKeyHolder holder;
         holder.schema = view.schema();
         holder.storage = std::make_shared<ValueStorage>();
         holder.storage->construct(view.schema());
-        view.schema()->ops->copy_assign(holder.storage->data(), view.data(), view.schema());
+        view.schema()->ops().copy(holder.storage->data(), view.data(), view.schema());
         return holder;
     }
 
-    [[nodiscard]] ConstValueView view() const {
-        return ConstValueView(storage->data(), schema);
+    [[nodiscard]] View view() const {
+        return View(storage->data(), schema);
     }
 
     [[nodiscard]] bool valid() const {
@@ -131,7 +131,7 @@ public:
      * @param view The key value (will be copied)
      * @return A value key path element
      */
-    static PathElement key(ConstValueView view) {
+    static PathElement key(View view) {
         PathElement elem;
         elem._data = ValueKeyHolder::from_view(view);
         return elem;
@@ -200,10 +200,10 @@ public:
 
     /**
      * @brief Get the value key as a view.
-     * @return ConstValueView of the key value
+     * @return View of the key value
      * @throws std::runtime_error if not a value element
      */
-    [[nodiscard]] ConstValueView get_value() const {
+    [[nodiscard]] View get_value() const {
         if (!is_value()) {
             throw std::runtime_error("PathElement is not a value element");
         }
@@ -456,8 +456,8 @@ inline std::string path_to_string(const ValuePath& path) {
  * @return The view at the path destination
  * @throws std::runtime_error if navigation fails
  */
-inline ConstValueView navigate(ConstValueView view, const ValuePath& path) {
-    ConstValueView current = view;
+inline View navigate(View view, const ValuePath& path) {
+    View current = view;
 
     for (const auto& elem : path) {
         if (!current.valid()) {
@@ -470,8 +470,8 @@ inline ConstValueView navigate(ConstValueView view, const ValuePath& path) {
                 throw std::runtime_error(
                     "Navigation failed: value key access requires map");
             }
-            auto map = current.as_map();
-            ConstValueView key_view = elem.get_value();
+            const auto map = current.as_map();
+            View key_view = elem.get_value();
 
             // Verify key type matches map's key type
             if (key_view.schema() != map.schema()->key_type) {
@@ -487,13 +487,13 @@ inline ConstValueView navigate(ConstValueView view, const ValuePath& path) {
                 auto bundle = current.as_bundle();
                 current = bundle.at(field_name);
             } else if (current.is_map()) {
-                auto map = current.as_map();
+                const auto map = current.as_map();
                 // Check if map has string keys
                 if (map.schema()->key_type != scalar_type_meta<std::string>()) {
                     throw std::runtime_error(
                         "Navigation failed: map does not have string keys");
                 }
-                current = map.at(ConstValueView(&field_name, scalar_type_meta<std::string>()));
+                current = map.at(View(&field_name, scalar_type_meta<std::string>()));
             } else {
                 throw std::runtime_error(
                     "Navigation failed: string access requires bundle or map with string keys");
@@ -521,18 +521,18 @@ inline ConstValueView navigate(ConstValueView view, const ValuePath& path) {
                 }
                 current = bundle[idx];
             } else if (current.is_map()) {
-                auto map = current.as_map();
+                const auto map = current.as_map();
                 const TypeMeta* key_type = map.schema()->key_type;
 
                 // Check if map has integer keys
                 if (key_type == scalar_type_meta<int64_t>()) {
                     int64_t int_key = static_cast<int64_t>(idx);
-                    current = map.at(ConstValueView(&int_key, key_type));
+                    current = map.at(View(&int_key, key_type));
                 } else if (key_type == scalar_type_meta<size_t>()) {
-                    current = map.at(ConstValueView(&idx, key_type));
+                    current = map.at(View(&idx, key_type));
                 } else if (key_type == scalar_type_meta<int32_t>()) {
                     int32_t int_key = static_cast<int32_t>(idx);
-                    current = map.at(ConstValueView(&int_key, key_type));
+                    current = map.at(View(&int_key, key_type));
                 } else {
                     throw std::runtime_error(
                         "Navigation failed: map does not have integer keys");
@@ -555,7 +555,7 @@ inline ConstValueView navigate(ConstValueView view, const ValuePath& path) {
  * @return The view at the path destination
  * @throws std::runtime_error if parsing or navigation fails
  */
-inline ConstValueView navigate(ConstValueView view, std::string_view path_str) {
+inline View navigate(View view, std::string_view path_str) {
     return navigate(view, parse_path(path_str));
 }
 
@@ -568,7 +568,7 @@ inline ConstValueView navigate(ConstValueView view, std::string_view path_str) {
  * @param path The path to navigate
  * @return The view at the path destination, or nullopt on failure
  */
-inline std::optional<ConstValueView> try_navigate(ConstValueView view, const ValuePath& path) {
+inline std::optional<View> try_navigate(View view, const ValuePath& path) {
     try {
         return navigate(view, path);
     } catch (const std::exception&) {
@@ -583,7 +583,7 @@ inline std::optional<ConstValueView> try_navigate(ConstValueView view, const Val
  * @param path_str The path string to parse and navigate
  * @return The view at the path destination, or nullopt on failure
  */
-inline std::optional<ConstValueView> try_navigate(ConstValueView view, std::string_view path_str) {
+inline std::optional<View> try_navigate(View view, std::string_view path_str) {
     try {
         return navigate(view, parse_path(path_str));
     } catch (const std::exception&) {
@@ -635,7 +635,7 @@ inline ValueView navigate_mut(ValueView view, const ValuePath& path) {
                     "Navigation failed: value key access requires map");
             }
             auto map = current.as_map();
-            ConstValueView key_view = elem.get_value();
+            View key_view = elem.get_value();
 
             // Verify key type matches map's key type
             if (key_view.schema() != map.schema()->key_type) {
@@ -657,7 +657,7 @@ inline ValueView navigate_mut(ValueView view, const ValuePath& path) {
                     throw std::runtime_error(
                         "Navigation failed: map does not have string keys");
                 }
-                current = map.at(ConstValueView(&field_name, scalar_type_meta<std::string>()));
+                current = map.at(View(&field_name, scalar_type_meta<std::string>()));
             } else {
                 throw std::runtime_error(
                     "Navigation failed: string access requires bundle or map with string keys");
@@ -691,12 +691,12 @@ inline ValueView navigate_mut(ValueView view, const ValuePath& path) {
                 // Check if map has integer keys
                 if (key_type == scalar_type_meta<int64_t>()) {
                     int64_t int_key = static_cast<int64_t>(idx);
-                    current = map.at(ConstValueView(&int_key, key_type));
+                    current = map.at(View(&int_key, key_type));
                 } else if (key_type == scalar_type_meta<size_t>()) {
-                    current = map.at(ConstValueView(&idx, key_type));
+                    current = map.at(View(&idx, key_type));
                 } else if (key_type == scalar_type_meta<int32_t>()) {
                     int32_t int_key = static_cast<int32_t>(idx);
-                    current = map.at(ConstValueView(&int_key, key_type));
+                    current = map.at(View(&int_key, key_type));
                 } else {
                     throw std::runtime_error(
                         "Navigation failed: map does not have integer keys");

@@ -15,22 +15,22 @@ namespace hgraph {
      * @brief Non-templated SwitchNode using Value-based key storage.
      *
      * This class stores switch keys using the Value system with TypeMeta
-     * for type information. Keys are stored as PlainValue with heterogeneous
-     * lookup support via PlainValueHash and PlainValueEqual.
+     * for type information. Keys are stored as Value with heterogeneous
+     * lookup support via ValueHash and ValueEqual.
      *
      * Maps are shared between the builder and all node instances via shared_ptr
-     * since Value<> doesn't support copy construction.
+     * since Value doesn't support copy construction.
      */
     struct SwitchNode final : NestedNode {
         using s_ptr = std::shared_ptr<SwitchNode>;
 
-        // Map types using PlainValue keys with heterogeneous lookup
-        using graph_builders_map = std::unordered_map<value::PlainValue, graph_builder_s_ptr,
-                                                       PlainValueHash, PlainValueEqual>;
-        using input_node_ids_map = std::unordered_map<value::PlainValue, std::unordered_map<std::string, int>,
-                                                       PlainValueHash, PlainValueEqual>;
-        using output_node_ids_map = std::unordered_map<value::PlainValue, int,
-                                                        PlainValueHash, PlainValueEqual>;
+        // Map types using Value keys with heterogeneous lookup
+        using graph_builders_map = std::unordered_map<value::Value, graph_builder_s_ptr,
+                                                       ValueHash, ValueEqual>;
+        using input_node_ids_map = std::unordered_map<value::Value, std::unordered_map<std::string, int>,
+                                                       ValueHash, ValueEqual>;
+        using output_node_ids_map = std::unordered_map<value::Value, int,
+                                                        ValueHash, ValueEqual>;
 
         // Shared pointer types for maps (shared between builder and node instances)
         using graph_builders_map_ptr = std::shared_ptr<graph_builders_map>;
@@ -74,7 +74,7 @@ namespace hgraph {
         void unwire_graph(graph_s_ptr &graph);
 
         // Key comparison using TypeMeta ops
-        [[nodiscard]] bool keys_equal(const value::ConstValueView& a, const value::ConstValueView& b) const;
+        [[nodiscard]] bool keys_equal(const value::View& a, const value::View& b) const;
 
         const value::TypeMeta* _key_type;
         graph_builders_map_ptr _nested_graph_builders;
@@ -85,7 +85,7 @@ namespace hgraph {
         bool _reload_on_ticked;
         graph_s_ptr _active_graph{};
         graph_builder_s_ptr _active_graph_builder{};
-        std::optional<value::PlainValue> _active_key;
+        std::optional<value::Value> _active_key;
         int64_t _count{0};
         time_series_output_s_ptr _old_output{};
         graph_builder_s_ptr _default_graph_builder{nullptr};

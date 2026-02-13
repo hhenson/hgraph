@@ -25,8 +25,8 @@ namespace hgraph::value {
  * This is an owning value class (copies the delta sets).
  */
 struct SetDeltaValue {
-    PlainValue _added;
-    PlainValue _removed;
+    Value _added;
+    Value _removed;
     const TypeMeta* _element_type{nullptr};
     const TypeMeta* _set_schema{nullptr};
 
@@ -41,35 +41,39 @@ struct SetDeltaValue {
         : _element_type(element_type) {
         if (_element_type) {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
-            _added = PlainValue(_set_schema);
-            _removed = PlainValue(_set_schema);
+            _added = Value(_set_schema);
+            _removed = Value(_set_schema);
+            _added.emplace();
+            _removed.emplace();
         }
     }
 
     /**
      * @brief Construct from existing set views (copies data).
      */
-    SetDeltaValue(ConstSetView added_view, ConstSetView removed_view,
+    SetDeltaValue(SetView added_view, SetView removed_view,
                   const TypeMeta* element_type)
         : _element_type(element_type) {
         if (_element_type) {
             _set_schema = TypeRegistry::instance().set(_element_type).build();
-            _added = PlainValue(_set_schema);
-            _removed = PlainValue(_set_schema);
+            _added = Value(_set_schema);
+            _removed = Value(_set_schema);
+            _added.emplace();
+            _removed.emplace();
 
             // Copy elements from views
             auto add_set = _added.view().as_set();
             for (auto elem : added_view) {
-                add_set.insert(elem);
+                add_set.add(elem);
             }
             auto rem_set = _removed.view().as_set();
             for (auto elem : removed_view) {
-                rem_set.insert(elem);
+                rem_set.add(elem);
             }
         }
     }
 
-    // Move-only (PlainValue has unique ownership)
+    // Move-only (Value has unique ownership)
     SetDeltaValue(SetDeltaValue&&) noexcept = default;
     SetDeltaValue& operator=(SetDeltaValue&&) noexcept = default;
     SetDeltaValue(const SetDeltaValue&) = delete;
@@ -78,17 +82,17 @@ struct SetDeltaValue {
     // ========== View Accessors ==========
 
     /**
-     * @brief Get const view of added elements.
+     * @brief Get view of added elements.
      */
-    [[nodiscard]] ConstSetView added() const {
-        return _added.const_view().as_set();
+    [[nodiscard]] SetView added() const {
+        return _added.view().as_set();
     }
 
     /**
-     * @brief Get const view of removed elements.
+     * @brief Get view of removed elements.
      */
-    [[nodiscard]] ConstSetView removed() const {
-        return _removed.const_view().as_set();
+    [[nodiscard]] SetView removed() const {
+        return _removed.view().as_set();
     }
 
     // ========== Size and State ==========

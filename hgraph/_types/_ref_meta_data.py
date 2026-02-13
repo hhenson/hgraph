@@ -7,6 +7,7 @@ __all__ = (
 
 from hgraph._types._type_meta_data import ParseError, HgTypeMetaData
 from hgraph._types._tsb_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._type_meta_data import cpp_type_property
 
 
 class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
@@ -52,6 +53,11 @@ class HgREFTypeMetaData(HgTimeSeriesTypeMetaData):
         from hgraph._types._ref_type import TimeSeriesReference
 
         return HgTypeMetaData.parse_type(TimeSeriesReference)
+
+    @cpp_type_property
+    def cpp_type(self, _hgraph):
+        v = self.value_tp.cpp_type
+        return v and _hgraph.TSTypeRegistry.instance().ref(v)
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:

@@ -17,7 +17,7 @@
 
 namespace hgraph
 {
-    // PlainValueHash and PlainValueEqual are defined in feature_extension.h
+    // ValueHash and ValueEqual are defined in feature_extension.h
 
     // TSDKeyObserver: Used to track additions and removals of parent keys.
     // Since the TSD is dynamic, the inputs associated with an output need to be updated when a key is added or removed
@@ -25,10 +25,10 @@ namespace hgraph
     struct TSDKeyObserver
     {
         // Called when a key is added
-        virtual void on_key_added(const value::ConstValueView &key) = 0;
+        virtual void on_key_added(const value::View &key) = 0;
 
         // Called when a key is removed
-        virtual void on_key_removed(const value::ConstValueView &key) = 0;
+        virtual void on_key_removed(const value::View &key) = 0;
 
         virtual ~TSDKeyObserver() = default;
     };
@@ -92,11 +92,11 @@ namespace hgraph
         // Non-templated key set - access keys via Value API with elem.as<K>()
         using key_set_type        = TimeSeriesSetOutput;
 
-        // Storage types using PlainValue for type-erased key storage
-        using map_type = std::unordered_map<value::PlainValue, value_type, PlainValueHash, PlainValueEqual>;
-        using reverse_map_type = std::unordered_map<TimeSeriesOutput*, value::PlainValue>;
+        // Storage types using Value for type-erased key storage
+        using map_type = std::unordered_map<value::Value, value_type, ValueHash, ValueEqual>;
+        using reverse_map_type = std::unordered_map<TimeSeriesOutput*, value::Value>;
         // Removed items stores pair<value, was_valid> to preserve validity state from before clearing
-        using removed_items_map_type = std::unordered_map<value::PlainValue, std::pair<value_type, bool>, PlainValueHash, PlainValueEqual>;
+        using removed_items_map_type = std::unordered_map<value::Value, std::pair<value_type, bool>, ValueHash, ValueEqual>;
         using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
 
@@ -135,13 +135,13 @@ namespace hgraph
         [[nodiscard]] auto size() const -> size_t override;
 
         // Value-based API - primary public interface
-        [[nodiscard]] bool contains(const value::ConstValueView &key) const {
+        [[nodiscard]] bool contains(const value::View &key) const {
             return _ts_values.find(key) != _ts_values.end();
         }
 
-        [[nodiscard]] value_type operator[](const value::ConstValueView &key);
+        [[nodiscard]] value_type operator[](const value::View &key);
 
-        [[nodiscard]] value_type operator[](const value::ConstValueView &key) const;
+        [[nodiscard]] value_type operator[](const value::View &key) const;
 
         [[nodiscard]] const_item_iterator begin() const;
 
@@ -153,7 +153,7 @@ namespace hgraph
 
         [[nodiscard]] const map_type &modified_items() const { return _modified_items; }
 
-        [[nodiscard]] bool was_modified(const value::ConstValueView &key) const {
+        [[nodiscard]] bool was_modified(const value::View &key) const {
             return _modified_items.find(key) != _modified_items.end();
         }
 
@@ -161,18 +161,18 @@ namespace hgraph
 
         [[nodiscard]] const map_type &added_items() const;
 
-        [[nodiscard]] bool was_added(const value::ConstValueView &key) const {
+        [[nodiscard]] bool was_added(const value::View &key) const {
             return key_set().was_added(key);
         }
 
         [[nodiscard]] const removed_items_map_type &removed_items() const { return _removed_items; }
 
-        [[nodiscard]] bool was_removed(const value::ConstValueView &key) const {
+        [[nodiscard]] bool was_removed(const value::View &key) const {
             return _removed_items.find(key) != _removed_items.end();
         }
 
         // Returns whether the removed item was valid at the time of removal
-        [[nodiscard]] bool was_removed_valid(const value::ConstValueView &key) const {
+        [[nodiscard]] bool was_removed_valid(const value::View &key) const {
             auto it = _removed_items.find(key);
             if (it == _removed_items.end()) { return false; }
             return it->second.second;  // pair<value_type, was_valid>
@@ -191,7 +191,7 @@ namespace hgraph
 
         void py_del_item(const nb::object &key) override;
 
-        void erase(const value::ConstValueView &key);
+        void erase(const value::View &key);
 
         nb::object py_pop(const nb::object &key, const nb::object &default_value) override;
 
@@ -211,7 +211,7 @@ namespace hgraph
 
         [[nodiscard]] TimeSeriesKind kind() const override { return TimeSeriesKind::Dict | TimeSeriesKind::Output; }
 
-        [[nodiscard]] value_type get_or_create(const value::ConstValueView &key);
+        [[nodiscard]] value_type get_or_create(const value::View &key);
 
         [[nodiscard]] bool has_reference() const override;
 
@@ -219,13 +219,13 @@ namespace hgraph
 
         // Creates a new time series for the given key and returns it.
         // This allows get_or_create to avoid a second lookup after creation.
-        value_type create(const value::ConstValueView &key);
+        value_type create(const value::View &key);
 
         [[nodiscard]] const value::TypeMeta* key_type_meta() const { return _key_type; }
 
         // Return Value-based key from time series pointer
-        [[nodiscard]] value::ConstValueView key_from_ts(TimeSeriesOutput *ts) const;
-        [[nodiscard]] value::ConstValueView key_from_ts(const value_type& ts) const;
+        [[nodiscard]] value::View key_from_ts(TimeSeriesOutput *ts) const;
+        [[nodiscard]] value::View key_from_ts(const value_type& ts) const;
 
     protected:
         friend struct TimeSeriesDictOutputBuilder;
@@ -234,22 +234,22 @@ namespace hgraph
 
         void _clear_key_changes();
 
-        void remove_value(const value::ConstValueView &key, bool raise_if_not_found);
+        void remove_value(const value::View &key, bool raise_if_not_found);
 
         // Isolate the modified tracking logic here
         void _clear_key_tracking();
 
-        void _add_key_value(const value::ConstValueView &key, const value_type &value);
+        void _add_key_value(const value::View &key, const value_type &value);
 
-        void _key_updated(const value::ConstValueView &key);
+        void _key_updated(const value::View &key);
 
-        void _remove_key_value(const value::ConstValueView &key, const value_type &value);
+        void _remove_key_value(const value::View &key, const value_type &value);
 
     private:
         const value::TypeMeta* _key_type{nullptr};  // Key type schema for Value-based access
         std::shared_ptr<key_set_type> _key_set;
 
-        // Storage using PlainValue keys (type-erased)
+        // Storage using Value keys (type-erased)
         map_type _ts_values;
         reverse_map_type _ts_values_to_keys;
         map_type _modified_items;
@@ -277,10 +277,10 @@ namespace hgraph
         using key_set_type        = TimeSeriesSetInput;
         using key_set_type_ptr    = std::shared_ptr<key_set_type>;
 
-        // Storage types using PlainValue for type-erased key storage
-        using map_type = std::unordered_map<value::PlainValue, value_type, PlainValueHash, PlainValueEqual>;
-        using removed_map_type = std::unordered_map<value::PlainValue, std::pair<value_type, bool>, PlainValueHash, PlainValueEqual>;
-        using reverse_map_type = std::unordered_map<TimeSeriesInput*, value::PlainValue>;
+        // Storage types using Value for type-erased key storage
+        using map_type = std::unordered_map<value::Value, value_type, ValueHash, ValueEqual>;
+        using removed_map_type = std::unordered_map<value::Value, std::pair<value_type, bool>, ValueHash, ValueEqual>;
+        using reverse_map_type = std::unordered_map<TimeSeriesInput*, value::Value>;
         using item_iterator       = typename map_type::iterator;
         using const_item_iterator = typename map_type::const_iterator;
 
@@ -306,29 +306,29 @@ namespace hgraph
 
         [[nodiscard]] nb::object py_delta_value() const override;
 
-        [[nodiscard]] bool contains(const value::ConstValueView &key) const {
+        [[nodiscard]] bool contains(const value::View &key) const {
             return _ts_values.find(key) != _ts_values.end();
         }
 
-        [[nodiscard]] value_type operator[](const value::ConstValueView &key) const;
+        [[nodiscard]] value_type operator[](const value::View &key) const;
 
-        [[nodiscard]] value_type operator[](const value::ConstValueView &key);
+        [[nodiscard]] value_type operator[](const value::View &key);
 
         [[nodiscard]] const map_type &modified_items() const;
 
-        [[nodiscard]] bool was_modified(const value::ConstValueView &key) const;
+        [[nodiscard]] bool was_modified(const value::View &key) const;
 
         [[nodiscard]] const map_type &valid_items() const;
 
         [[nodiscard]] const map_type &added_items() const;
 
-        [[nodiscard]] bool was_added(const value::ConstValueView &key) const {
+        [[nodiscard]] bool was_added(const value::View &key) const {
             return key_set().was_added(key);
         }
 
         [[nodiscard]] const map_type &removed_items() const;
 
-        [[nodiscard]] bool was_removed(const value::ConstValueView &key) const {
+        [[nodiscard]] bool was_removed(const value::View &key) const {
             return _removed_items.find(key) != _removed_items.end();
         }
 
@@ -340,11 +340,11 @@ namespace hgraph
 
         [[nodiscard]] const TimeSeriesSetInput &key_set() const override;
 
-        void on_key_added(const value::ConstValueView &key) override;
+        void on_key_added(const value::View &key) override;
 
-        void on_key_removed(const value::ConstValueView &key) override;
+        void on_key_removed(const value::View &key) override;
 
-        [[nodiscard]] value_type get_or_create(const value::ConstValueView &key);
+        [[nodiscard]] value_type get_or_create(const value::View &key);
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType *other) const override;
 
@@ -368,7 +368,7 @@ namespace hgraph
         [[nodiscard]] engine_time_t last_modified_time() const override;
 
         // Creates a new time series for the given key and returns it.
-        value_type create(const value::ConstValueView &key);
+        value_type create(const value::View &key);
 
         [[nodiscard]] TimeSeriesDictOutputImpl &output_t();
 
@@ -379,8 +379,8 @@ namespace hgraph
         [[nodiscard]] const value::TypeMeta* key_type_meta() const { return _key_type; }
 
         // Return key from time series pointer
-        [[nodiscard]] value::ConstValueView key_from_ts(TimeSeriesInput *ts) const;
-        [[nodiscard]] value::ConstValueView key_from_ts(value_type ts) const;
+        [[nodiscard]] value::View key_from_ts(TimeSeriesInput *ts) const;
+        [[nodiscard]] value::View key_from_ts(value_type ts) const;
 
     protected:
         void notify_parent(TimeSeriesInput *child, engine_time_t modified_time) override;
@@ -389,7 +389,7 @@ namespace hgraph
 
         void do_un_bind_output(bool unbind_refs) override;
 
-        [[nodiscard]] bool was_removed_valid(const value::ConstValueView &key) const;
+        [[nodiscard]] bool was_removed_valid(const value::View &key) const;
 
         void reset_prev();
 
@@ -402,11 +402,11 @@ namespace hgraph
         // Isolate modified tracking here.
         void _clear_key_tracking();
 
-        void _add_key_value(const value::ConstValueView &key, const value_type &value);
+        void _add_key_value(const value::View &key, const value_type &value);
 
-        void _key_updated(const value::ConstValueView &key);
+        void _key_updated(const value::View &key);
 
-        void _remove_key_value(const value::ConstValueView &key, const value_type &value);
+        void _remove_key_value(const value::View &key, const value_type &value);
 
     private:
         friend struct TimeSeriesDictInputBuilder;
@@ -414,7 +414,7 @@ namespace hgraph
         const value::TypeMeta* _key_type{nullptr};  // Key type schema for Value-based access
         key_set_type_ptr _key_set;
 
-        // Storage using PlainValue keys (type-erased)
+        // Storage using Value keys (type-erased)
         map_type _ts_values;
         reverse_map_type _ts_values_to_keys;
         map_type _modified_items;

@@ -88,5 +88,10 @@ class HgTimeSeriesTypeMetaData(HgTypeMetaData):
 
         raise IncorrectTypeBinding(self, wired_type)
 
+    @property
+    def cpp_type(self):
+        """Get the C++ TSMeta for this time-series type. Returns None by default."""
+        return None
+
     @abstractmethod
     def scalar_type(self) -> "HgScalarTypeMetaData": ...

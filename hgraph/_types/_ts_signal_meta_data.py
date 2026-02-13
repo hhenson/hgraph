@@ -4,6 +4,7 @@ from typing import Type, TypeVar, Optional
 __all__ = ("HgSignalMetaData",)
 
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData
+from hgraph._types._type_meta_data import cpp_type_property
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData
 
 
@@ -52,6 +53,10 @@ class HgSignalMetaData(HgTimeSeriesTypeMetaData):
 
     def scalar_type(self) -> "HgScalarTypeMetaData":
         return HgScalarTypeMetaData.parse_type(bool)
+
+    @cpp_type_property(check_resolved=False)
+    def cpp_type(self, _hgraph):
+        return _hgraph.TSTypeRegistry.instance().signal()
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:

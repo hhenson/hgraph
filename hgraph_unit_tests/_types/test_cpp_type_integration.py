@@ -86,12 +86,12 @@ class TestAtomicNativeTypes:
     """Tests for atomic types with native C++ representations."""
 
     @pytest.mark.parametrize("py_type,expected_kind", [
-        (bool, "Scalar"),
-        (int, "Scalar"),
-        (float, "Scalar"),
-        (date, "Scalar"),
-        (datetime, "Scalar"),
-        (timedelta, "Scalar"),
+        (bool, "Atomic"),
+        (int, "Atomic"),
+        (float, "Atomic"),
+        (date, "Atomic"),
+        (datetime, "Atomic"),
+        (timedelta, "Atomic"),
     ])
     def test_native_types_return_scalar_kind(self, py_type, expected_kind):
         """Native Python types should map to Scalar TypeKind."""
@@ -160,7 +160,7 @@ class TestAtomicFallbackTypes:
         cpp_type = meta.cpp_type
 
         assert cpp_type is not None
-        assert cpp_type.kind == value.TypeKind.Scalar
+        assert cpp_type.kind == value.TypeKind.Atomic
 
     def test_str_uses_object_storage(self):
         """str should use nb::object storage (pointer-sized)."""
@@ -455,8 +455,7 @@ class TestErrorHandling:
         # Verify it's not resolved
         assert not meta.is_resolved
 
-        with pytest.raises(TypeError, match="Cannot get cpp_type for unresolved type"):
-            _ = meta.cpp_type
+        assert meta.cpp_type is None
 
     def test_feature_flag_disabled_returns_none(self):
         """cpp_type should return None when C++ is disabled."""
@@ -565,14 +564,14 @@ class TestValueSystemIntegration:
     """Tests for using cpp_type with the Value system."""
 
     def test_create_value_with_cpp_type(self):
-        """Can create PlainValue using cpp_type."""
+        """Can create Value using cpp_type."""
         _skip_if_no_cpp()
         value = _get_value_module()
 
         meta = HgTypeMetaData.parse_type(int)
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
+        v = value.Value(cpp_type)
         assert v is not None
         assert v.schema is cpp_type
 
@@ -584,9 +583,9 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(int)
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
-        v.view().from_python(42)
-        result = v.const_view().to_python()
+        v = value.Value(cpp_type)
+        v.from_python(42)
+        result = v.view().to_python()
 
         assert result == 42
 
@@ -598,9 +597,9 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(float)
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
-        v.view().from_python(3.14159)
-        result = v.const_view().to_python()
+        v = value.Value(cpp_type)
+        v.from_python(3.14159)
+        result = v.view().to_python()
 
         assert abs(result - 3.14159) < 1e-10
 
@@ -612,9 +611,9 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(str)
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
-        v.view().from_python("hello world")
-        result = v.const_view().to_python()
+        v = value.Value(cpp_type)
+        v.from_python("hello world")
+        result = v.view().to_python()
 
         assert result == "hello world"
 
@@ -627,9 +626,9 @@ class TestValueSystemIntegration:
         cpp_type = meta.cpp_type
 
         test_dt = datetime(2024, 6, 15, 10, 30, 45)
-        v = value.PlainValue(cpp_type)
-        v.view().from_python(test_dt)
-        result = v.const_view().to_python()
+        v = value.Value(cpp_type)
+        v.from_python(test_dt)
+        result = v.view().to_python()
 
         assert result == test_dt
 
@@ -642,9 +641,9 @@ class TestValueSystemIntegration:
         cpp_type = meta.cpp_type
 
         test_date = date(2024, 6, 15)
-        v = value.PlainValue(cpp_type)
-        v.view().from_python(test_date)
-        result = v.const_view().to_python()
+        v = value.Value(cpp_type)
+        v.from_python(test_date)
+        result = v.view().to_python()
 
         assert result == test_date
 
@@ -656,9 +655,9 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(MyEnum)
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
-        v.view().from_python(MyEnum.A)
-        result = v.const_view().to_python()
+        v = value.Value(cpp_type)
+        v.from_python(MyEnum.A)
+        result = v.view().to_python()
 
         assert result == MyEnum.A
 
@@ -670,9 +669,9 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(Tuple[int, ...])
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
-        v.view().from_python([1, 2, 3, 4, 5])
-        result = v.const_view().to_python()
+        v = value.Value(cpp_type)
+        v.from_python([1, 2, 3, 4, 5])
+        result = v.view().to_python()
 
         assert list(result) == [1, 2, 3, 4, 5]
 
@@ -684,9 +683,9 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(Dict[str, int])
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
-        v.view().from_python({"a": 1, "b": 2, "c": 3})
-        result = v.const_view().to_python()
+        v = value.Value(cpp_type)
+        v.from_python({"a": 1, "b": 2, "c": 3})
+        result = v.view().to_python()
 
         assert dict(result) == {"a": 1, "b": 2, "c": 3}
 
@@ -698,9 +697,9 @@ class TestValueSystemIntegration:
         meta = HgTypeMetaData.parse_type(Set[int])
         cpp_type = meta.cpp_type
 
-        v = value.PlainValue(cpp_type)
-        v.view().from_python({1, 2, 3})
-        result = v.const_view().to_python()
+        v = value.Value(cpp_type)
+        v.from_python({1, 2, 3})
+        result = v.view().to_python()
 
         assert set(result) == {1, 2, 3}
 

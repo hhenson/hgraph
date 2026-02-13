@@ -4,6 +4,7 @@ from hgraph._types._generic_rank_util import combine_ranks, scale_rank
 from hgraph._types._type_meta_data import ParseError
 from hgraph._types._scalar_type_meta_data import HgScalarTypeMetaData, HgTupleCollectionScalarType, HgDictScalarType
 from hgraph._types._time_series_meta_data import HgTimeSeriesTypeMetaData, HgTypeMetaData
+from hgraph._types._type_meta_data import cpp_type_property
 from hgraph._types._scalar_types import Size
 
 __all__ = (
@@ -71,6 +72,14 @@ class HgTSLTypeMetaData(HgTimeSeriesTypeMetaData):
 
     def scalar_type(self) -> "HgScalarTypeMetaData":
         return HgTupleCollectionScalarType(self.value_tp.scalar_type())
+
+    @cpp_type_property
+    def cpp_type(self, _hgraph):
+        element_cpp = self.value_tp.cpp_type
+        if element_cpp is None:
+            return None
+        fixed_size = self.size_tp.py_type.SIZE if self.size_tp.is_resolved and self.size_tp.py_type.FIXED_SIZE else 0
+        return _hgraph.TSTypeRegistry.instance().tsl(element_cpp, fixed_size)
 
     @classmethod
     def parse_type(cls, value_tp) -> Optional["HgTypeMetaData"]:

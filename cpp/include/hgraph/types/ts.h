@@ -20,9 +20,9 @@ namespace hgraph {
     };
 
     /**
-     * @brief Non-templated time series value output using CachedValue storage.
+     * @brief Non-templated time series value output using Value storage.
      *
-     * This class stores values using the Value type system with Python caching.
+     * This class stores values using the Value type system.
      * The TypeMeta* schema defines the value type at runtime instead of compile time.
      */
     struct TimeSeriesValueOutput final : TimeSeriesValueOutputBase {
@@ -45,13 +45,15 @@ namespace hgraph {
         void apply_result(const nb::object& value) override;
 
         // Value access via views
-        [[nodiscard]] value::ConstValueView value() const { return _value.const_view(); }
+        [[nodiscard]] value::View value() const { return _value.view(); }
         [[nodiscard]] value::ValueView value_mut() { return _value.view(); }
 
         // Schema access
         [[nodiscard]] const value::TypeMeta* schema() const { return _value.schema(); }
 
         // Lifecycle
+        void mark_modified() override;
+        void mark_modified(engine_time_t modified_time) override;
         void mark_invalid() override;
         void copy_from_output(const TimeSeriesOutput& output) override;
         void copy_from_input(const TimeSeriesInput& input) override;
@@ -62,7 +64,8 @@ namespace hgraph {
         VISITOR_SUPPORT()
 
     private:
-        value::CachedValue _value;  // Type-erased storage with Python caching
+        value::Value _value;  // Type-erased storage
+        nb::object _py_cached_value;  // Preserve source Python object shape (e.g., frozenset vs set)
     };
 
     /**
@@ -87,7 +90,7 @@ namespace hgraph {
         [[nodiscard]] TimeSeriesValueOutput& value_output();
         [[nodiscard]] const TimeSeriesValueOutput& value_output() const;
 
-        [[nodiscard]] value::ConstValueView value() const;
+        [[nodiscard]] value::View value() const;
         [[nodiscard]] const value::TypeMeta* schema() const;
 
         [[nodiscard]] bool is_same_type(const TimeSeriesType* other) const override;

@@ -26,8 +26,8 @@ enum class TypeFlags : uint32_t;
 /// Type metadata structure - describes a type's layout and operations
 struct TypeMeta;
 
-/// Type operations vtable - function pointers for type-erased operations
-struct TypeOps;
+/// Type operations — common ops + kind-tagged union of specific ops
+struct type_ops;
 
 /// Bundle field metadata
 struct BundleFieldInfo;
@@ -40,65 +40,29 @@ struct BundleFieldInfo;
 class ValueStorage;
 
 // ============================================================================
-// Policy Forward Declarations
-// ============================================================================
-
-/// Policy tag: no caching or extensions
-struct NoCache;
-
-/// Policy tag: Python object caching enabled
-struct WithPythonCache;
-
-/// Policy traits template - detect policy capabilities at compile time
-template<typename Policy>
-struct policy_traits;
-
-/// Conditional storage based on policy - uses EBO for zero overhead
-template<typename Policy, typename = void>
-struct PolicyStorage;
-
-// ============================================================================
 // View Forward Declarations
 // ============================================================================
 
-/// Non-owning const view into a Value
-class ConstValueView;
+/// Non-owning read-only view into a Value
+class View;
 
 /// Non-owning mutable view into a Value
 class ValueView;
 
-/// Const view with indexed access (base for Bundle, List)
-class ConstIndexedView;
-
 /// Mutable view with indexed access
 class IndexedView;
-
-/// Const view for tuples (heterogeneous, index-only)
-class ConstTupleView;
 
 /// Mutable view for tuples
 class TupleView;
 
-/// Const view for bundles (struct-like, named + indexed)
-class ConstBundleView;
-
 /// Mutable view for bundles
 class BundleView;
-
-/// Const view for lists (homogeneous indexed)
-class ConstListView;
 
 /// Mutable view for lists
 class ListView;
 
-/// Const view for sets (unique elements)
-class ConstSetView;
-
 /// Mutable view for sets
 class SetView;
-
-/// Const view for maps (key-value pairs)
-class ConstMapView;
 
 /// Mutable view for maps
 class MapView;
@@ -107,13 +71,8 @@ class MapView;
 // Value Forward Declarations
 // ============================================================================
 
-/// Owning value storage with policy-based extensions
-template<typename Policy = NoCache>
+/// Owning value storage
 class Value;
-
-/// Type aliases for common Value configurations
-using PlainValue = Value<NoCache>;
-using CachedValue = Value<WithPythonCache>;
 
 // ============================================================================
 // Type Registry Forward Declarations
