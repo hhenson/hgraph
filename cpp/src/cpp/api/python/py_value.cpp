@@ -346,19 +346,19 @@ static void register_view(nb::module_& m) {
             "Get as a queue view (throws if not a queue)")
 
         // Safe composite type access (returns None if type mismatch)
-        .def("try_as_tuple", &View::try_as_tuple, nb::rv_policy::reference_internal,
+        .def("try_as_tuple", &View::try_as_tuple,
             "Try to get as a tuple view (returns None if not a tuple)")
-        .def("try_as_bundle", &View::try_as_bundle, nb::rv_policy::reference_internal,
+        .def("try_as_bundle", &View::try_as_bundle,
             "Try to get as a bundle view (returns None if not a bundle)")
-        .def("try_as_list", &View::try_as_list, nb::rv_policy::reference_internal,
+        .def("try_as_list", &View::try_as_list,
             "Try to get as a list view (returns None if not a list)")
-        .def("try_as_set", &View::try_as_set, nb::rv_policy::reference_internal,
+        .def("try_as_set", &View::try_as_set,
             "Try to get as a set view (returns None if not a set)")
-        .def("try_as_map", &View::try_as_map, nb::rv_policy::reference_internal,
+        .def("try_as_map", &View::try_as_map,
             "Try to get as a map view (returns None if not a map)")
-        .def("try_as_cyclic_buffer", &View::try_as_cyclic_buffer, nb::rv_policy::reference_internal,
+        .def("try_as_cyclic_buffer", &View::try_as_cyclic_buffer,
             "Try to get as a cyclic buffer view (returns None if not a cyclic buffer)")
-        .def("try_as_queue", &View::try_as_queue, nb::rv_policy::reference_internal,
+        .def("try_as_queue", &View::try_as_queue,
             "Try to get as a queue view (returns None if not a queue)")
 
         // Operations
@@ -449,7 +449,7 @@ static void register_view(nb::module_& m) {
         .def("try_navigate", [](const View& self, const std::string& path_str)
             -> std::optional<View> {
             return try_navigate(self, path_str);
-        }, "path"_a, nb::rv_policy::reference_internal,
+        }, "path"_a,
             "Try to navigate through the value using a path string.\n\n"
             "Returns the View at the destination, or None on failure.");
 }
@@ -537,7 +537,7 @@ static void register_value_view(nb::module_& m) {
         .def("try_navigate_mut", [](ValueView& self, const std::string& path_str)
             -> std::optional<ValueView> {
             return try_navigate_mut(self, path_str);
-        }, "path"_a, nb::rv_policy::reference_internal,
+        }, "path"_a,
             "Try to navigate through the mutable value using a path string.\n\n"
             "Returns the ValueView at the destination, or None on failure.");
 }
@@ -1161,7 +1161,7 @@ static void register_path_functions(nb::module_& m) {
     m.def("try_navigate", [](View view, const std::string& path_str)
         -> std::optional<View> {
         return try_navigate(view, path_str);
-    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
+    }, "view"_a, "path"_a,
         "Try to navigate through a value using a path string.\n\n"
         "Returns the View at the path destination, or None on failure.");
 
@@ -1169,7 +1169,7 @@ static void register_path_functions(nb::module_& m) {
     m.def("try_navigate", [](View view, const ValuePath& path)
         -> std::optional<View> {
         return try_navigate(view, path);
-    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
+    }, "view"_a, "path"_a,
         "Try to navigate through a value using a ValuePath.");
 
     // navigate_mut function (mutable)
@@ -1190,7 +1190,7 @@ static void register_path_functions(nb::module_& m) {
     m.def("try_navigate_mut", [](ValueView view, const std::string& path_str)
         -> std::optional<ValueView> {
         return try_navigate_mut(view, path_str);
-    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
+    }, "view"_a, "path"_a,
         "Try to navigate through a mutable value using a path string.\n\n"
         "Returns the ValueView at the path destination, or None on failure.");
 
@@ -1198,7 +1198,7 @@ static void register_path_functions(nb::module_& m) {
     m.def("try_navigate_mut", [](ValueView view, const ValuePath& path)
         -> std::optional<ValueView> {
         return try_navigate_mut(view, path);
-    }, "view"_a, "path"_a, nb::rv_policy::reference_internal,
+    }, "view"_a, "path"_a,
         "Try to navigate through a mutable value using a ValuePath.");
 }
 
@@ -1393,7 +1393,7 @@ static void register_value(nb::module_& m) {
         .def("try_navigate", [](const Value& self, const std::string& path_str)
             -> std::optional<View> {
             return try_navigate(self.view(), path_str);
-        }, "path"_a, nb::rv_policy::reference_internal,
+        }, "path"_a,
             "Try to navigate through the value using a path string.\n\n"
             "Returns the View at the destination, or None on failure.")
         .def("navigate_mut", [](Value& self, const std::string& path_str) {
@@ -1405,7 +1405,7 @@ static void register_value(nb::module_& m) {
         .def("try_navigate_mut", [](Value& self, const std::string& path_str)
             -> std::optional<ValueView> {
             return try_navigate_mut(self.view(), path_str);
-        }, "path"_a, nb::rv_policy::reference_internal,
+        }, "path"_a,
             "Try to navigate through the mutable value using a path string.\n\n"
             "Returns the ValueView at the destination, or None on failure.");
 }
